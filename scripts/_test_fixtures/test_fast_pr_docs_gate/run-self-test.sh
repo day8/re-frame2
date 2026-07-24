@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
-# Self-test for the markdown-change detection in scripts/test-fast-pr.sh
-# (rf2-lwweq).
+# Self-test for the changed-surface tiering in scripts/test-fast-pr.sh
+# (rf2-r6x1t, extends rf2-lwweq).
 #
-# This isolates the detection-and-conditional-run logic — it does NOT
-# invoke the full spine (which would re-run lockstep + CLJS tests for
-# many minutes).  Instead we extract the detection block + the
-# conditional invocations into a tiny harness and assert four cases:
+# It drives the REAL spine in `--plan` mode against disposable git repos —
+# NOT a replicated copy of the detection logic (the previous harness copied
+# the markdown-diff block inline, which could silently drift from the spine).
+# `--plan` classifies the change set and prints one machine-readable line —
+#   PLAN docs=<bool> jvm=<bool> node=<bool>
+# — then exits without running any gate, so the assertions are fast and
+# deterministic.  `--repo-root DIR` points the change-set gathering at a
+# disposable fixture repo while the real gate scripts stay put.
 #
-#   case A — no markdown diff, --auto      → markdown gates skipped
-#   case B — markdown diff present, --auto → markdown gates run
-#   case C — --no-docs flag → markdown gates skipped regardless of diff
-#   case D — --with-docs flag → markdown gates run regardless of diff
-#
-# We also assert the gates actually catch a known-broken anchor (case E)
-# and a broken README target (case F), proving the gate has teeth.
+# Cases:
+#   committed docs / staged code / unstaged docs / untracked docs  — the four
+#     git states the change-set gathering must handle deterministically;
+#   unknown surface                — conservative fallback runs the full runtime;
+#   no changes                     — static checks only;
+#   no origin/main base            — conservative fallback (indeterminate);
+#   --all / RF2_FAST_PR_ALL / --with-docs / --no-docs — the overrides;
+#   gate-has-teeth (E/F)           — the doc validators exit non-zero on the
+#     bundled broken fixtures;
+#   motivating misses (#2232/#2233) — the pymdownx slug shapes that first
+#     motivated the doc gate still trip check_doc_slugs.py.
 #
 # Run from any cwd:
 #   bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh
@@ -50,45 +58,19 @@ assert() {
   fi
 }
 
-# ---------------------------------------------------------------------------
-# Detection-logic harness.
-#
-# We replicate the detection block from test-fast-pr.sh against a clean
-# disposable git repo so the spine's behaviour on a real diff is testable
-# without actually running the expensive gates.
-# ---------------------------------------------------------------------------
-
 tmp_root="$(mktemp -d 2>/dev/null || mktemp -d -t 'test-fast-pr-detect')"
 trap 'rm -rf "$tmp_root"' EXIT
 
-detect_md_change() {
-  # Args: $1 = repo path; $2 = with_docs mode (auto|force|skip)
-  local repo="$1"
-  local with_docs="$2"
-  if [ "$with_docs" = "force" ]; then
-    printf 'true\n'
-    return
-  fi
-  if [ "$with_docs" = "skip" ]; then
-    printf 'false\n'
-    return
-  fi
-  local markdown_changed=false
-  if git -C "$repo" rev-parse --verify origin/main >/dev/null 2>&1; then
-    if git -C "$repo" diff --name-only origin/main HEAD 2>/dev/null | grep -qE '\.md$'; then
-      markdown_changed=true
-    fi
-  fi
-  if git -C "$repo" status --porcelain 2>/dev/null | grep -qE '\.md$'; then
-    markdown_changed=true
-  fi
-  printf '%s\n' "$markdown_changed"
+# The spine's PLAN line for a disposable repo (extra args pass through to it).
+plan() {
+  local root="$1"; shift
+  bash "$spine" --plan --repo-root "$root" "$@" 2>/dev/null | grep '^PLAN ' || printf 'PLAN <none>\n'
 }
 
-# Build a fake repo with origin/main fixed at HEAD and one non-md committed
-# change on top — represents a "no markdown diff vs origin/main, no
-# unstaged md" state.
-init_repo_no_md() {
+# Disposable repo with origin/main pinned at an initial commit, so the
+# committed-branch diff (origin/main...HEAD) and the working-tree/untracked
+# signals are all exercisable.
+mkrepo() {
   local r="$1"
   mkdir -p "$r"
   git -C "$r" init -q -b main 2>/dev/null
@@ -97,107 +79,113 @@ init_repo_no_md() {
   # Silence CRLF auto-conversion warnings on Windows Git Bash.
   git -C "$r" config core.autocrlf false
   git -C "$r" config core.safecrlf false
-  printf 'first\n' > "$r/initial.txt"
-  git -C "$r" add initial.txt
-  git -C "$r" commit -q -m 'initial'
-  # Fake origin/main pointing at this commit.
+  mkdir -p "$r/seed"
+  printf 'x\n' > "$r/seed/f.txt"
+  git -C "$r" add seed/f.txt
+  git -C "$r" commit -q -m 'init'
   git -C "$r" update-ref refs/remotes/origin/main HEAD
-  # One non-md change on top.
-  printf 'second\n' >> "$r/initial.txt"
-  git -C "$r" add initial.txt
-  git -C "$r" commit -q -m 'non-md change'
 }
 
-# Build a fake repo with a committed .md change on top of origin/main.
-init_repo_committed_md() {
-  local r="$1"
-  init_repo_no_md "$r"
-  printf '# changed\n' > "$r/notes.md"
-  git -C "$r" add notes.md
-  git -C "$r" commit -q -m 'add markdown'
-}
+# ---- Case A: committed docs-only diff vs origin/main → docs only ----
+r="$tmp_root/committed-docs"; mkrepo "$r"
+mkdir -p "$r/docs/core"; printf '# h\n' > "$r/docs/core/x.md"
+git -C "$r" add docs/core/x.md; git -C "$r" commit -q -m docs
+assert "A committed docs-only → docs only" "PLAN docs=true jvm=false node=false" "$(plan "$r")"
 
-# Build a fake repo with an UNSTAGED .md change (worktree dirty, no
-# commit beyond origin/main).
-init_repo_unstaged_md() {
-  local r="$1"
-  init_repo_no_md "$r"
-  printf '# unstaged\n' > "$r/dirty.md"
-  # Deliberately do NOT git add; we want porcelain to show '??'.
-}
+# ---- Case B: staged code diff → runtime suites ----
+r="$tmp_root/staged-code"; mkrepo "$r"
+mkdir -p "$r/implementation/core/src/re_frame"
+printf 'x\n' > "$r/implementation/core/src/re_frame/core.cljc"
+git -C "$r" add implementation/core/src/re_frame/core.cljc   # staged, not committed
+assert "B staged core code → runtime" "PLAN docs=false jvm=true node=true" "$(plan "$r")"
 
-# ---- Case A: no md, --auto ----
-case_a="$tmp_root/case-a"
-init_repo_no_md "$case_a"
-assert "case A (no md, --auto)" "false" "$(detect_md_change "$case_a" auto)"
+# ---- Case C: unstaged docs change (tracked, modified, not staged) → docs ----
+r="$tmp_root/unstaged-docs"; mkrepo "$r"
+mkdir -p "$r/spec"; printf '# a\n' > "$r/spec/006.md"
+git -C "$r" add spec/006.md; git -C "$r" commit -q -m addmd
+git -C "$r" update-ref refs/remotes/origin/main HEAD
+printf '# a\nmore\n' > "$r/spec/006.md"                       # unstaged modify
+assert "C unstaged docs → docs only" "PLAN docs=true jvm=false node=false" "$(plan "$r")"
 
-# ---- Case B1: committed md vs origin/main, --auto ----
-case_b1="$tmp_root/case-b1"
-init_repo_committed_md "$case_b1"
-assert "case B1 (committed md vs origin/main, --auto)" "true" "$(detect_md_change "$case_b1" auto)"
+# ---- Case D: untracked docs file → docs ----
+r="$tmp_root/untracked-docs"; mkrepo "$r"
+printf '# u\n' > "$r/NOTES.md"                                # untracked, never added
+assert "D untracked docs → docs only" "PLAN docs=true jvm=false node=false" "$(plan "$r")"
 
-# ---- Case B2: unstaged md, --auto ----
-case_b2="$tmp_root/case-b2"
-init_repo_unstaged_md "$case_b2"
-assert "case B2 (unstaged md, --auto)" "true" "$(detect_md_change "$case_b2" auto)"
+# ---- Case E: unknown surface → conservative full runtime ----
+r="$tmp_root/unknown"; mkrepo "$r"
+printf 'x\n' > "$r/weird.xyz"; git -C "$r" add weird.xyz
+assert "E unknown surface → conservative runtime" "PLAN docs=false jvm=true node=true" "$(plan "$r")"
 
-# ---- Case C: md present, --no-docs ----
-case_c="$tmp_root/case-c"
-init_repo_committed_md "$case_c"
-assert "case C (md present, --no-docs)" "false" "$(detect_md_change "$case_c" skip)"
+# ---- Case F: no changes vs origin/main, clean tree → static only ----
+r="$tmp_root/clean"; mkrepo "$r"
+assert "F no changes → static only" "PLAN docs=false jvm=false node=false" "$(plan "$r")"
 
-# ---- Case D: no md, --with-docs ----
-case_d="$tmp_root/case-d"
-init_repo_no_md "$case_d"
-assert "case D (no md, --with-docs)" "true" "$(detect_md_change "$case_d" force)"
+# ---- Case G: no origin/main base → conservative fallback ----
+r="$tmp_root/nobase"; mkdir -p "$r"
+git -C "$r" init -q -b main 2>/dev/null
+git -C "$r" config user.email "self-test@local"; git -C "$r" config user.name "self-test"
+git -C "$r" config core.autocrlf false; git -C "$r" config core.safecrlf false
+printf 'x\n' > "$r/f.txt"; git -C "$r" add -A; git -C "$r" commit -q -m init
+assert "G no origin/main → conservative runtime" "PLAN docs=false jvm=true node=true" "$(plan "$r")"
+
+# ---- Case H: mixed docs + code → both tiers ----
+r="$tmp_root/mixed"; mkrepo "$r"
+mkdir -p "$r/docs" "$r/implementation/core/src/re_frame"
+printf '# h\n' > "$r/docs/x.md"
+printf 'x\n' > "$r/implementation/core/src/re_frame/core.cljc"
+git -C "$r" add -A; git -C "$r" commit -q -m mix
+assert "H mixed docs+code → both tiers" "PLAN docs=true jvm=true node=true" "$(plan "$r")"
+
+# ---- Case I: --all override runs the complete spine on a docs-only diff ----
+r="$tmp_root/override-all"; mkrepo "$r"
+mkdir -p "$r/docs"; printf '# h\n' > "$r/docs/x.md"; git -C "$r" add -A; git -C "$r" commit -q -m d
+assert "I --all override → everything" "PLAN docs=true jvm=true node=true" "$(plan "$r" --all)"
+
+# ---- Case J: RF2_FAST_PR_ALL=1 override runs the complete spine ----
+assert "J RF2_FAST_PR_ALL=1 override → everything" "PLAN docs=true jvm=true node=true" \
+  "$(RF2_FAST_PR_ALL=1 bash "$spine" --plan --repo-root "$r" 2>/dev/null | grep '^PLAN ')"
+
+# ---- Case K: --with-docs forces docs on for a code-only diff ----
+r="$tmp_root/with-docs"; mkrepo "$r"
+mkdir -p "$r/implementation/core/src/re_frame"
+printf 'x\n' > "$r/implementation/core/src/re_frame/core.cljc"; git -C "$r" add -A; git -C "$r" commit -q -m c
+assert "K --with-docs on code diff → docs forced on" "PLAN docs=true jvm=true node=true" "$(plan "$r" --with-docs)"
+
+# ---- Case L: --no-docs forces docs off for a docs diff ----
+r="$tmp_root/no-docs"; mkrepo "$r"
+mkdir -p "$r/docs"; printf '# h\n' > "$r/docs/x.md"; git -C "$r" add -A; git -C "$r" commit -q -m d
+assert "L --no-docs on docs diff → docs forced off" "PLAN docs=false jvm=false node=false" "$(plan "$r" --no-docs)"
 
 # ---------------------------------------------------------------------------
-# Gate-has-teeth tests.
-#
-# We exercise the actual link/anchor validators against the bundled
-# broken fixtures and assert they exit non-zero — proving that when the
-# detection block decides "run the gates", the gates would actually
-# catch the motivating regressions.
+# Gate-has-teeth tests.  When the tiering decides "run the doc gates", the
+# validators must actually catch the motivating regressions.
 # ---------------------------------------------------------------------------
-
 slugs_script="$repo_root/scripts/check_doc_slugs.py"
 readme_script="$repo_root/scripts/check_readme_links.py"
 
-# ---- Case E: check_doc_slugs catches a broken anchor ----
 broken_anchor_fixture="$repo_root/scripts/_test_fixtures/check_doc_slugs/broken_anchor"
 if [ -d "$broken_anchor_fixture" ]; then
   python "$slugs_script" --repo-root "$broken_anchor_fixture" >/dev/null 2>&1
-  rc=$?
-  assert "case E (check_doc_slugs catches broken anchor)" "1" "$rc"
+  assert "M check_doc_slugs catches broken anchor" "1" "$?"
 else
-  printf '  SKIP case E: fixture %s not found\n' "$broken_anchor_fixture"
+  printf '  SKIP M: fixture %s not found\n' "$broken_anchor_fixture"
 fi
 
-# ---- Case F: check_readme_links catches a broken target ----
 broken_readme_fixture="$repo_root/scripts/_test_fixtures/check_readme_links/broken_internal_link"
 if [ -d "$broken_readme_fixture" ]; then
   python "$readme_script" --repo-root "$broken_readme_fixture" --ci >/dev/null 2>&1
-  rc=$?
-  assert "case F (check_readme_links catches broken target)" "1" "$rc"
+  assert "N check_readme_links catches broken target" "1" "$?"
 else
-  printf '  SKIP case F: fixture %s not found\n' "$broken_readme_fixture"
+  printf '  SKIP N: fixture %s not found\n' "$broken_readme_fixture"
 fi
 
 # ---------------------------------------------------------------------------
-# Motivating-miss verification.
-#
-# Build a tiny mkdocs-rooted repo that reproduces #2232's defect shape
-# (anchor #trace-events-1 vs heading-derived slug trace-events_1) and
-# #2233's defect shape (anchor without the (rf2-XXX) suffix the heading
-# carries), then assert the validators flag both.
+# Motivating-miss verification.  Reproduce #2232 (pymdownx `_1` disambiguation
+# vs GitHub `-1`) and #2233 (anchor missing the `-rf2-XXX` heading suffix); both
+# must trip check_doc_slugs.py.
 # ---------------------------------------------------------------------------
-
-# #2232 reproduction — duplicate "Trace events" heading where the
-# second occurrence gets pymdownx's `_1` suffix; an author referencing
-# it with GitHub-style `-1` would slip through GitHub preview but fail
-# on the MkDocs build.
-case_2232="$tmp_root/case-2232"
-mkdir -p "$case_2232/docs"
+case_2232="$tmp_root/case-2232"; mkdir -p "$case_2232/docs"
 cat > "$case_2232/mkdocs.yml" <<'EOF'
 site_name: test
 EOF
@@ -218,14 +206,9 @@ First occurrence — slug is `trace-events`.
 Second occurrence — pymdownx slug is `trace-events_1` (underscore N).
 EOF
 python "$slugs_script" --repo-root "$case_2232" >/dev/null 2>&1
-rc_2232=$?
-assert "#2232 motivating miss (trace-events-1 vs trace-events_1)" "1" "$rc_2232"
+assert "O #2232 (trace-events-1 vs trace-events_1)" "1" "$?"
 
-# #2233 reproduction — heading with bead suffix `## Foo (rf2-2qit)`,
-# pymdownx slug is `foo-rf2-2qit`; an author who writes `#foo` (without
-# the suffix) gets a broken anchor.
-case_2233="$tmp_root/case-2233"
-mkdir -p "$case_2233/docs"
+case_2233="$tmp_root/case-2233"; mkdir -p "$case_2233/docs"
 cat > "$case_2233/mkdocs.yml" <<'EOF'
 site_name: test
 EOF
@@ -243,8 +226,7 @@ Body — heading slug is `cljs-reference-helix-as-alternative-substrate-rf2-2qit
 NOT `cljs-reference-helix-as-alternative-substrate`.
 EOF
 python "$slugs_script" --repo-root "$case_2233" >/dev/null 2>&1
-rc_2233=$?
-assert "#2233 motivating miss (anchor missing -rf2-XXX suffix)" "1" "$rc_2233"
+assert "P #2233 (anchor missing -rf2-XXX suffix)" "1" "$?"
 
 # ---- Summary ----
 total=$((pass_count + fail_count))

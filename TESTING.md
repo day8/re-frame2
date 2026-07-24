@@ -58,7 +58,7 @@ The classifier maps "what files changed" → "which expensive jobs fire." The fu
 
 ## The 4 tier scenarios
 
-1. **Agent pre-checkin** — `scripts/test-fast-pr.sh` plus the surface-specific commands for the files touched (find them in the Kinds table).
+1. **Agent pre-checkin** — `scripts/test-fast-pr.sh` plus the surface-specific commands for the files touched (find them in the Kinds table). The spine tiers itself the same way PR CI does: it reuses the changed-surface classifier below to decide which runtime suites its diff owns (`implementation_jvm` → core JVM; `cljs_node_test` → the npm/CLJS/JS-harness/isolation suites), runs the documentation gates when the diff touches documentation content, and keeps the cheap static/drift checks always-on. A documentation- or EP-only diff therefore runs static + doc gates and skips every runtime suite; `--all` (or `RF2_FAST_PR_ALL=1`) runs the complete spine regardless (rf2-r6x1t).
 2. **PR CI** — `.github/workflows/test.yml`. Always: lockstep + skill/MCP drift, core JVM, CLJS node integration, JS harness self-tests, docs link validation on docs PRs. Expensive jobs fire only on their changed surface, and browser gates run their smoke tiers.
 3. **Nightly / manual** — `.github/workflows/expensive-tests.yml`. The rigorous browser/bundle matrix, unconditional all-examples compile, full Story/Xray sweeps, template smoke, live MCP conformance.
 4. **Release** — `.github/workflows/release.yml` plus the latest green expensive run on the release candidate.
@@ -84,7 +84,7 @@ This axis is revisited at API-freeze / external-alpha prep, alongside the facade
 
 | Command | Scope |
 |---|---|
-| `scripts/test-fast-pr.sh` | The fast PR spine: lockstep, skill/MCP drift, core JVM, JS harness self-tests, CLJS node integration. |
+| `scripts/test-fast-pr.sh` | The fast PR spine: always-on lockstep + skill/MCP + drift checks, plus the documentation gates and the runtime suites (core JVM, JS harness self-tests, CLJS node integration, per-namespace isolation) **tiered on the changed-surface classifier** — a docs/EP-only diff skips the runtime suites. `--all` / `RF2_FAST_PR_ALL=1` forces the complete spine; `--plan` prints the tier decision without running anything. |
 | `scripts/test-jvm-implementation.sh` | All implementation JVM artefacts (including adapter probes). |
 | `scripts/test-jvm-tools.sh` | Tool JVM artefacts. |
 | `scripts/test-rigorous-local.sh` | Local mirror of the nightly sweep (spine + JVM + browser/bundle/Story/Xray + examples-compile; inventory pinned by a self-test). Use before release-sized changes. |
@@ -131,6 +131,8 @@ To see exactly what a diff fires, run the script — it is executable truth, and
 .github/scripts/report-changed-surfaces.sh implementation/core/src/foo.cljs
 .github/scripts/report-changed-surfaces.sh --all
 ```
+
+**The local fast spine reuses this same script**, not a second map: `scripts/test-fast-pr.sh` gathers its diff (committed vs `origin/main` + staged + unstaged + untracked), feeds the paths to the classifier as explicit args, and gates the core JVM suite on `implementation_jvm` and the npm/CLJS/JS-harness/isolation suites on `cljs_node_test` — the same outputs test.yml's `jvm-core` and `cljs` jobs gate on. Local selection stays aligned with CI by construction; run `scripts/test-fast-pr.sh --plan` to see the tier decision for the current diff.
 
 ## Diagnostic / skip-ok gates
 

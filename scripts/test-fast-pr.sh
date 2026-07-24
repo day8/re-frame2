@@ -3,52 +3,119 @@ set -euo pipefail
 
 # Fast pre-checkin spine for the canonical agent quality gate.
 #
-# Mirrors CI's PR-gate matrix so workers see local failures BEFORE pushing.
-# When the working tree's diff vs origin/main (or unstaged changes) touches
-# any .md file, the spine additionally runs the markdown link/anchor
-# validators that CI runs.  Workers were repeatedly pushing green-locally
-# branches that failed on CI link/anchor breaks (#2232 + #2233 in one
-# hour on 2026-05-27) — this gate closes that gap (rf2-lwweq).
+# Mirrors CI's PR-gate matrix so workers see local failures BEFORE pushing —
+# and mirrors CI's *tiering* too: the heavy runtime suites (core JVM, the
+# CLJS node-test build, the JS harness self-tests, per-namespace isolation)
+# and the documentation gates run ONLY when the changed surface actually
+# owns them, exactly as test.yml job-gates them on the changed-surface
+# classifier.  A documentation- or EP-only diff therefore runs the cheap
+# always-on static/drift checks plus the documentation gates and NOTHING
+# heavier — no JVM, no npm/CLJS, no per-namespace runtime (rf2-r6x1t).
+#
+# HOW THE TIERING IS DECIDED — no second map.  The runtime tier is delegated
+# WHOLESALE to the very classifier CI uses,
+# `.github/scripts/report-changed-surfaces.sh`, invoked with the changed-file
+# list as explicit paths (it prints `key=value` to stdout when GITHUB_OUTPUT
+# is unset).  `implementation_jvm` gates the core JVM suite exactly as it
+# gates test.yml's jvm-core job; `cljs_node_test` gates the npm/CLJS/JS-harness/
+# isolation suites exactly as it gates test.yml's cljs job.  Reusing that one
+# script — rather than re-deriving a divergent surface map here — is what keeps
+# local selection aligned with test.yml by construction.  The documentation
+# tier keys on documentation CONTENT (Markdown + the MkDocs config + the
+# doc-checker scripts those gates run); it is deliberately separate from the
+# runtime classifier because the doc gates validate prose, not code.
 #
 # Usage:
-#   scripts/test-fast-pr.sh              auto-detect markdown diff
-#   scripts/test-fast-pr.sh --with-docs  force-run the markdown gates
-#   scripts/test-fast-pr.sh --no-docs    skip markdown gates even if .md changed
+#   scripts/test-fast-pr.sh              classify the diff; run only the
+#                                        owning tiers (+ always-on checks)
+#   scripts/test-fast-pr.sh --all        run the COMPLETE spine regardless of
+#                                        classification (env: RF2_FAST_PR_ALL=1)
+#   scripts/test-fast-pr.sh --with-docs  force the documentation gates on
+#   scripts/test-fast-pr.sh --no-docs    force the documentation gates off
+#   scripts/test-fast-pr.sh --plan       print the tier decision and exit,
+#                                        running nothing (deterministic dry-run)
 #
-# Markdown-gate components:
-#   1. python scripts/check_readme_links.py     — README anchor + target validator
-#   2. python scripts/check_doc_slugs.py        — docs corpus anchor validator
-#   3. python scripts/check_ep_status_sync.py   — docs/EP index status-sync guard
-#   4. mkdocs build --strict (when mkdocs on PATH; soft-skip on Windows when not)
+# The change set is gathered deterministically from every git state: the
+# committed branch diff vs origin/main (three-dot merge-base), the staged +
+# unstaged working tree (`git diff HEAD`), and untracked files
+# (`git ls-files --others`).  If origin/main cannot be resolved, or the change
+# set contains a file no known surface recognises, the spine falls back
+# conservatively to the COMPLETE runtime run rather than risk under-testing.
+#
+# Documentation-gate components (run when a documentation surface changes):
+#   1. python scripts/check_readme_links.py            — README anchor + target
+#   2. python scripts/check_doc_slugs.py               — docs corpus anchors
+#   3. python scripts/check_ep_status_sync.py          — docs/EP index status-sync
+#   4. python scripts/check_runtime_subsystem_grading.py — EP-0006 grading table
+#   5. mkdocs build --strict (when mkdocs on PATH; soft-skip when not)
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The spine's own tree (scripts, gate commands, the shared classifier) is
+# always derived from this script's location.  `--repo-root` overrides ONLY
+# the tree the change set is gathered from — used by the self-test harness to
+# classify disposable fixture repos without moving the real gate scripts.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+spine_root="$(cd "$script_dir/.." && pwd)"
+diff_root="$spine_root"
+classifier="$spine_root/.github/scripts/report-changed-surfaces.sh"
 
-with_docs="auto"
-for arg in "$@"; do
-  case "$arg" in
+with_docs="auto"     # auto | force | skip
+run_all=false
+plan_only=false
+if [ "${RF2_FAST_PR_ALL:-}" = "1" ]; then
+  run_all=true
+fi
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -a|--all)    run_all=true ;;
     --with-docs) with_docs="force" ;;
     --no-docs)   with_docs="skip" ;;
+    --plan|--dry-run) plan_only=true ;;
+    --repo-root)
+      shift
+      if [ "$#" -eq 0 ]; then
+        printf 'error: --repo-root requires a directory argument\n' >&2
+        exit 2
+      fi
+      diff_root="$(cd "$1" && pwd)"
+      ;;
     -h|--help)
       cat <<EOF
-fast PR pre-checkin spine
+fast PR pre-checkin spine (rf2-r6x1t)
 
 Usage:
-  $(basename "$0") [--with-docs|--no-docs]
+  $(basename "$0") [--all] [--with-docs|--no-docs] [--plan] [--repo-root DIR]
+
+Runtime tiers are gated on the SAME changed-surface classifier CI uses
+(.github/scripts/report-changed-surfaces.sh): the core JVM suite runs when
+implementation_jvm is set, and the npm/CLJS/JS-harness/isolation suites run
+when cljs_node_test is set.  The documentation gates run when the diff
+touches documentation content.  The cheap static/drift checks always run.
 
 Flags:
-  --with-docs   always run the markdown link/anchor + mkdocs --strict gates
-  --no-docs     skip markdown gates even when the diff touches .md
-  (default)     auto-detect: run markdown gates iff diff vs origin/main
-                OR unstaged changes touch any .md file
+  --all, -a     run the COMPLETE spine regardless of classification
+                (also enabled by RF2_FAST_PR_ALL=1) — the explicit override
+  --with-docs   force the documentation gates on
+  --no-docs     force the documentation gates off
+  --plan        print the tier decision (docs/jvm/node) and exit; run nothing
+  --repo-root DIR   gather the change set from DIR instead of the spine tree
+                    (test hook; does not move the real gate scripts)
+  (default)     classify the diff and run only the owning tiers
 EOF
       exit 0
       ;;
     *)
-      printf 'unknown flag: %s\n' "$arg" >&2
+      printf 'unknown flag: %s\n' "$1" >&2
       exit 2
       ;;
   esac
+  shift
 done
+
+if [ ! -x "$classifier" ] && [ ! -f "$classifier" ]; then
+  printf 'error: changed-surface classifier not found at %s\n' "$classifier" >&2
+  exit 2
+fi
 
 run() {
   local surface="$1"
@@ -81,43 +148,174 @@ run_soft() {
   fi
 }
 
-# ---- markdown-change detection ----
-# Two signals:
-#   1. committed diff vs origin/main touches *.md
-#   2. unstaged or staged working-tree changes touch *.md
-# Either signal → markdown gates run (unless --no-docs).
-markdown_changed=false
-if [ "$with_docs" = "force" ]; then
-  markdown_changed=true
-elif [ "$with_docs" = "skip" ]; then
-  markdown_changed=false
-else
-  if git -C "$repo_root" rev-parse --verify origin/main >/dev/null 2>&1; then
-    if git -C "$repo_root" diff --name-only origin/main HEAD 2>/dev/null | grep -qE '\.md$'; then
-      markdown_changed=true
+# ---------------------------------------------------------------------------
+# Change-set gathering — deterministic across every git state.
+#
+#   committed branch : git diff --no-renames origin/main...HEAD  (merge-base)
+#   staged + unstaged: git diff --no-renames HEAD                (worktree vs HEAD)
+#   untracked        : git ls-files --others --exclude-standard
+#
+# `--no-renames` matches the CI classifier: a pure rename emits BOTH endpoints
+# (a deletion of the old surface + an addition of the new), so a rename OUT of
+# a runtime surface still arms that surface's gate.
+# ---------------------------------------------------------------------------
+base_resolved=false
+if git -C "$diff_root" rev-parse --verify origin/main >/dev/null 2>&1; then
+  base_resolved=true
+fi
+
+gather_changed_files() {
+  {
+    if [ "$base_resolved" = true ]; then
+      git -C "$diff_root" diff --no-renames --name-only origin/main...HEAD 2>/dev/null || true
     fi
-  fi
-  if git -C "$repo_root" status --porcelain 2>/dev/null | grep -qE '\.md$'; then
-    markdown_changed=true
+    git -C "$diff_root" diff --no-renames --name-only HEAD 2>/dev/null || true
+    git -C "$diff_root" ls-files --others --exclude-standard 2>/dev/null || true
+  } | sed '/^[[:space:]]*$/d' | sort -u
+}
+
+changed_files="$(gather_changed_files)"
+
+# Documentation-surface predicate.  A gate that validates documentation CONTENT
+# runs when the diff touches Markdown, the MkDocs toolchain config, or one of
+# the doc-checker scripts / fixtures the gates themselves execute.  This mirrors
+# how the classifier arms a gate whenever its own gate-script changes, and how
+# docs.yml keys the MkDocs build on documentation paths.
+is_doc_surface_path() {
+  case "$1" in
+    *.md) return 0 ;;
+    mkdocs.yml|mkdocs_hooks.py|requirements.txt) return 0 ;;
+    scripts/check_readme_links.py|scripts/check_doc_slugs.py) return 0 ;;
+    scripts/check_ep_status_sync.py|scripts/check_runtime_subsystem_grading.py) return 0 ;;
+    scripts/_test_fixtures/check_readme_links/*|scripts/_test_fixtures/check_doc_slugs/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+doc_surface=false
+if [ -n "$changed_files" ]; then
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    if is_doc_surface_path "$file"; then
+      doc_surface=true
+      break
+    fi
+  done <<< "$changed_files"
+fi
+
+# ---- runtime tier, delegated to the CI classifier ----
+# Feed the changed-file list to report-changed-surfaces.sh as explicit paths;
+# it prints `key=value` for every surface when GITHUB_OUTPUT is unset.  We read
+# `implementation_jvm` (core JVM) and `cljs_node_test` (npm/CLJS/JS-harness/
+# isolation), and note whether ANY surface was recognised at all.
+impl_jvm=false
+cljs_node=false
+recognised_surface=false
+classifier_failed=false
+
+if [ -n "$changed_files" ]; then
+  # Build the argv array portably (avoid `mapfile` — bash 4 only; macOS ships
+  # bash 3.2).  One path per line; the change set never contains blank lines.
+  _changed_arr=()
+  while IFS= read -r _f; do
+    [ -n "$_f" ] && _changed_arr+=("$_f")
+  done <<< "$changed_files"
+  if classify_out="$(GITHUB_OUTPUT='' bash "$classifier" "${_changed_arr[@]}" 2>/dev/null)"; then
+    while IFS='=' read -r key value; do
+      case "$key" in
+        implementation_jvm) impl_jvm="$value" ;;
+        cljs_node_test)     cljs_node="$value" ;;
+      esac
+    done <<< "$classify_out"
+    if printf '%s' "$classify_out" | grep -q '=true'; then
+      recognised_surface=true
+    fi
+  else
+    classifier_failed=true
   fi
 fi
 
+# ---- resolve the three tiers, honouring overrides + conservative fallback ----
+run_jvm=false
+run_node=false
+run_docs=false
+plan_reason="classified"
 
-# ---- existing gates ----
+if [ "$run_all" = true ]; then
+  run_jvm=true
+  run_node=true
+  run_docs=true
+  plan_reason="override (--all)"
+elif [ "$base_resolved" != true ] || [ "$classifier_failed" = true ]; then
+  # Indeterminate: no origin/main base to diff against, or the classifier
+  # itself failed.  Fall back to the complete runtime run rather than risk
+  # under-testing.  (Documentation gates still key on the doc surface.)
+  run_jvm=true
+  run_node=true
+  run_docs="$doc_surface"
+  if [ "$base_resolved" != true ]; then
+    plan_reason="conservative fallback (origin/main unresolved)"
+  else
+    plan_reason="conservative fallback (classifier error)"
+  fi
+elif [ -z "$changed_files" ]; then
+  # Nothing changed vs origin/main and a clean working tree — only the cheap
+  # always-on static checks are meaningful.
+  plan_reason="no changes (static checks only)"
+elif [ "$recognised_surface" != true ] && [ "$doc_surface" != true ]; then
+  # Unknown surface: the change set is non-empty but matches no runtime surface
+  # AND no documentation surface.  Conservatively run the full runtime spine.
+  run_jvm=true
+  run_node=true
+  plan_reason="conservative fallback (unknown surface)"
+else
+  [ "$impl_jvm" = true ] && run_jvm=true
+  [ "$cljs_node" = true ] && run_node=true
+  run_docs="$doc_surface"
+fi
+
+# Documentation-gate overrides apply last, on top of any decision above.
+case "$with_docs" in
+  force) run_docs=true ;;
+  skip)  run_docs=false ;;
+esac
+
+if [ "$plan_only" = true ]; then
+  printf 'fast-pr plan\n'
+  printf '  documentation gates: %s\n' "$([ "$run_docs" = true ] && echo run || echo skip)"
+  printf '  core JVM suite:      %s\n' "$([ "$run_jvm" = true ] && echo run || echo skip)"
+  printf '  node/CLJS suite:     %s\n' "$([ "$run_node" = true ] && echo run || echo skip)"
+  printf '  reason:              %s\n' "$plan_reason"
+  printf 'PLAN docs=%s jvm=%s node=%s\n' "$run_docs" "$run_jvm" "$run_node"
+  exit 0
+fi
+
+printf '=== fast PR spine: docs=%s jvm=%s node=%s (%s) ===\n' \
+  "$run_docs" "$run_jvm" "$run_node" "$plan_reason"
+
+# ---------------------------------------------------------------------------
+# ALWAYS-ON static / drift checks.
+#
+# Cheap, repo-wide, pure-Python (plus the version-lockstep shell guard).  These
+# mirror CI's always-on jobs (verify-version-lockstep, the repo-invariant
+# python job, verify-readme-links) and run on every diff regardless of tier —
+# the drift they catch can be introduced by a directory add/remove or a source
+# rename that never touches the tier that owns it.
+# ---------------------------------------------------------------------------
 run "lockstep version drift" "./.github/scripts/verify-version-lockstep.sh" \
-  bash -lc "tmp='$repo_root/.github/scripts/.verify-version-lockstep.tmp.'\$\$; trap 'rm -f \"\$tmp\"' EXIT; tr -d '\r' < '$repo_root/.github/scripts/verify-version-lockstep.sh' > \"\$tmp\"; bash \"\$tmp\""
+  bash -lc "tmp='$spine_root/.github/scripts/.verify-version-lockstep.tmp.'\$\$; trap 'rm -f \"\$tmp\"' EXIT; tr -d '\r' < '$spine_root/.github/scripts/verify-version-lockstep.sh' > \"\$tmp\"; bash \"\$tmp\""
 
 run "skill/MCP allowed-tools drift" "python scripts/check_skill_mcp_drift.py --verbose --ci" \
-  python "$repo_root/scripts/check_skill_mcp_drift.py" --verbose --ci
+  python "$spine_root/scripts/check_skill_mcp_drift.py" --verbose --ci
 
 # Cite-integrity guard (rf2-1nb8k): every M-id the re-frame-migration skill
 # cites must name a consistent rule in MIGRATION.md.  Catches the id-collision /
 # phantom-cite class (skill cited M-66/M-67 for rules MIGRATION.md assigned to
 # History-states / Xray-static-mode).  Runs unconditionally — fast pure-Python,
 # and the drift can be introduced by a MIGRATION.md *heading* edit that the
-# markdown-diff gate below also sees but doesn't semantically check.
+# documentation-surface gate below also sees but doesn't semantically check.
 run "skill migration cite-integrity" "python scripts/check_skill_migration_cites.py --verbose --ci" \
-  python "$repo_root/scripts/check_skill_migration_cites.py" --verbose --ci
+  python "$spine_root/scripts/check_skill_migration_cites.py" --verbose --ci
 
 # Foundation-order guard (rf2-708nm): the re-frame2-implementor skill must keep
 # Spec 015 (Data Classification — v1-required) inside the core-complete gate.
@@ -126,10 +324,10 @@ run "skill migration cite-integrity" "python scripts/check_skill_migration_cites
 # without the required privacy/large-payload elision surface.  Self-test first
 # (proves the guard fires on the drift shapes), then the live scan.
 run "implementor order-guard self-test" "python scripts/check_skill_implementor_order.py --self-test" \
-  python "$repo_root/scripts/check_skill_implementor_order.py" --self-test
+  python "$spine_root/scripts/check_skill_implementor_order.py" --self-test
 
 run "implementor foundation-order" "python scripts/check_skill_implementor_order.py --verbose --ci" \
-  python "$repo_root/scripts/check_skill_implementor_order.py" --verbose --ci
+  python "$spine_root/scripts/check_skill_implementor_order.py" --verbose --ci
 
 # Eval-docs drift guard (rf2-r2xswa; generalised rf2-xw7ra9): each packaged
 # skill's eval harness README carries a hand-maintained coverage table, total
@@ -141,17 +339,17 @@ run "implementor foundation-order" "python scripts/check_skill_implementor_order
 # both README shapes), then the live scan asserts each README agrees with its
 # JSON.
 run "eval-docs guard self-test" "python scripts/check_skill_eval_docs.py --self-test" \
-  python "$repo_root/scripts/check_skill_eval_docs.py" --self-test
+  python "$spine_root/scripts/check_skill_eval_docs.py" --self-test
 
 run "skill eval-docs match evals.json" "python scripts/check_skill_eval_docs.py --verbose --ci" \
-  python "$repo_root/scripts/check_skill_eval_docs.py" --verbose --ci
+  python "$spine_root/scripts/check_skill_eval_docs.py" --verbose --ci
 
 # README inventory ratchet (rf2-198k3): layout-map<->disk bijection +
 # 'N <noun>' count-numeral claims.  Runs unconditionally (not gated on a
-# markdown diff) because the drift it catches can be triggered by a *dir*
+# documentation diff) because the drift it catches can be triggered by a *dir*
 # add/remove that never touches an .md file.  Fast + pure-Python.
 run "README inventory ratchet" "python scripts/check_readme_inventories.py" \
-  python "$repo_root/scripts/check_readme_inventories.py"
+  python "$spine_root/scripts/check_readme_inventories.py"
 
 # EP-0007 §Enforcement retired-spelling gate (rf2-ziak6w): a retired spelling
 # reappearing in framework source is a CI failure, not a doc note.  Catches
@@ -165,10 +363,10 @@ run "README inventory ratchet" "python scripts/check_readme_inventories.py" \
 # stays green on every sanctioned counterpart), then the live scan asserts
 # framework source is clean.  See scripts/check_retired_spellings.py.
 run "retired-spelling gate self-test" "python scripts/check_retired_spellings.py --self-test" \
-  python "$repo_root/scripts/check_retired_spellings.py" --self-test
+  python "$spine_root/scripts/check_retired_spellings.py" --self-test
 
 run "retired-spelling gate (EP-0007)" "python scripts/check_retired_spellings.py --verbose" \
-  python "$repo_root/scripts/check_retired_spellings.py" --verbose
+  python "$spine_root/scripts/check_retired_spellings.py" --verbose
 
 # Thrown-error human-message corpus gate (rf2-6bb3pg, Spec 009 §The thrown-error
 # shape / rf2-vvixub): a framework `(ex-info …)` whose MESSAGE is a bare
@@ -180,10 +378,10 @@ run "retired-spelling gate (EP-0007)" "python scripts/check_retired_spellings.py
 # the conformant counterparts), then the live scan asserts framework source is
 # clean.  See scripts/check_thrown_error_messages.py.
 run "thrown-error message gate self-test" "python scripts/check_thrown_error_messages.py --self-test" \
-  python "$repo_root/scripts/check_thrown_error_messages.py" --self-test
+  python "$spine_root/scripts/check_thrown_error_messages.py" --self-test
 
 run "thrown-error message gate (rf2-vvixub)" "python scripts/check_thrown_error_messages.py --verbose" \
-  python "$repo_root/scripts/check_thrown_error_messages.py" --verbose
+  python "$spine_root/scripts/check_thrown_error_messages.py" --verbose
 
 # re-frame.ui Root lifecycle projection guard (rf2-vxgfnd.291): the exact
 # failed-first-mount rollback ordering, three-state settlement law, three
@@ -192,10 +390,10 @@ run "thrown-error message gate (rf2-vvixub)" "python scripts/check_thrown_error_
 # intentional (not a general prose parser). Self-test first mutates every tooth
 # independently, then the live scan catches code/spec/doc drift.
 run "UI Root lifecycle drift self-test" "python scripts/check_ui_root_lifecycle_drift.py --self-test" \
-  python "$repo_root/scripts/check_ui_root_lifecycle_drift.py" --self-test
+  python "$spine_root/scripts/check_ui_root_lifecycle_drift.py" --self-test
 
 run "UI Root lifecycle drift" "python scripts/check_ui_root_lifecycle_drift.py --ci" \
-  python "$repo_root/scripts/check_ui_root_lifecycle_drift.py" --ci
+  python "$spine_root/scripts/check_ui_root_lifecycle_drift.py" --ci
 
 # EP-0010 §Validation/Conformance ambient-durable-read gate (rf2-f2t151): a
 # direct ambient host read (clock / RNG / browser fact) written into a DURABLE
@@ -211,53 +409,37 @@ run "UI Root lifecycle drift" "python scripts/check_ui_root_lifecycle_drift.py -
 # sanctioned counterpart), then the live scan asserts the durable-write
 # namespaces are clean.  See scripts/check_ambient_durable_reads.py.
 run "ambient-durable-read gate self-test" "python scripts/check_ambient_durable_reads.py --self-test" \
-  python "$repo_root/scripts/check_ambient_durable_reads.py" --self-test
+  python "$spine_root/scripts/check_ambient_durable_reads.py" --self-test
 
 run "ambient-durable-read gate (EP-0010)" "python scripts/check_ambient_durable_reads.py --verbose" \
-  python "$repo_root/scripts/check_ambient_durable_reads.py" --verbose
+  python "$spine_root/scripts/check_ambient_durable_reads.py" --verbose
 
-run "core JVM" "cd implementation/core && clojure -M:test" \
-  bash -lc "cd '$repo_root/implementation/core' && clojure -M:test"
-
-run "implementation JS harness helpers" "cd implementation && npm run test:script-policy && npm run test:script-helpers" \
-  bash -lc "cd '$repo_root/implementation' && npm run test:script-policy && npm run test:script-helpers"
-
-run "CLJS node integration" "cd implementation && npm run test:cljs" \
-  bash -lc "cd '$repo_root/implementation' && npm run test:cljs"
-
-# Per-namespace test-isolation gate (rf2-32siq3.44).  The consolidated
-# node-test bundle shares ONE runtime, so a test ns whose fixture forgets to
-# install its own substrate adapter is masked: it passes whenever a sibling
-# left an adapter installed (suite ORDERING hides a self-incomplete fixture).
-# This gate re-runs the curated EP-0023 image/frame runtime-construction
-# namespaces EACH ALONE; a fixture leaning on bundle pollution goes red
-# standalone.  Self-test first (proves the red/green classification), then the
-# live run (reuses the bundle test:cljs just compiled).
-run "per-ns isolation self-test" "cd implementation && node scripts/check-per-ns-isolation.cjs --self-test" \
-  bash -lc "cd '$repo_root/implementation' && node scripts/check-per-ns-isolation.cjs --self-test"
-
-run "per-ns test isolation" "cd implementation && node scripts/check-per-ns-isolation.cjs" \
-  bash -lc "cd '$repo_root/implementation' && node scripts/check-per-ns-isolation.cjs"
-
-# ---- conditional markdown gates ----
-if [ "$markdown_changed" = "true" ]; then
-  printf '\n--- markdown changes detected → running link/anchor gates ---\n'
+# ---------------------------------------------------------------------------
+# Documentation gates (run when a documentation surface changes).
+#
+# The local mirror of CI's verify-readme-links (always-on) + docs.yml
+# (MkDocs / link / status-sync / grading) — validators of documentation
+# CONTENT.  Skipped on a code-only diff; forced on/off with --with-docs /
+# --no-docs.
+# ---------------------------------------------------------------------------
+if [ "$run_docs" = true ]; then
+  printf '\n--- documentation surface changed → running link/anchor/status gates ---\n'
 
   run "README link/anchor validator" "python scripts/check_readme_links.py --ci" \
-    python "$repo_root/scripts/check_readme_links.py" --ci
+    python "$spine_root/scripts/check_readme_links.py" --ci
 
   run "docs corpus anchor validator" "python scripts/check_doc_slugs.py" \
-    python "$repo_root/scripts/check_doc_slugs.py"
+    python "$spine_root/scripts/check_doc_slugs.py"
 
   # EP index status-sync guard (rf2-8cw3m7): docs/EP/README.md restates each
   # EP's Status: line in its index table; the two drift by hand (EP-0001 sat at
   # `accepted` while the index still said `proposal`).  Self-test first (proves
   # the guard fires on mismatch / missing-row / orphan-row), then the live scan.
   run "EP status-sync self-test" "python scripts/check_ep_status_sync.py --self-test" \
-    python "$repo_root/scripts/check_ep_status_sync.py" --self-test
+    python "$spine_root/scripts/check_ep_status_sync.py" --self-test
 
   run "EP status-sync" "python scripts/check_ep_status_sync.py" \
-    python "$repo_root/scripts/check_ep_status_sync.py"
+    python "$spine_root/scripts/check_ep_status_sync.py"
 
   # Runtime-subsystem grading drift guard (rf2-ba5acq, EP-0006): every reserved
   # `:rf.runtime/*` key (spec/Conventions.md §Reserved runtime-db keys) MUST
@@ -268,16 +450,57 @@ if [ "$markdown_changed" = "true" ]; then
   # extra-row / missing-clause / ungraded-clause / clause-order), then the live
   # scan.  See scripts/check_runtime_subsystem_grading.py.
   run "runtime-subsystem grading self-test" "python scripts/check_runtime_subsystem_grading.py --self-test" \
-    python "$repo_root/scripts/check_runtime_subsystem_grading.py" --self-test
+    python "$spine_root/scripts/check_runtime_subsystem_grading.py" --self-test
 
   run "runtime-subsystem grading drift" "python scripts/check_runtime_subsystem_grading.py" \
-    python "$repo_root/scripts/check_runtime_subsystem_grading.py"
+    python "$spine_root/scripts/check_runtime_subsystem_grading.py"
 
   run_soft "mkdocs --strict build" "mkdocs build --strict" mkdocs \
-    bash -lc "cd '$repo_root' && mkdocs build --strict"
+    bash -lc "cd '$spine_root' && mkdocs build --strict"
 else
-  printf '\n--- no markdown changes → skipping link/anchor gates (override with --with-docs) ---\n'
+  printf '\n--- documentation surface unchanged → skipping doc gates (override with --with-docs) ---\n'
 fi
 
+# ---------------------------------------------------------------------------
+# Core JVM suite — gated on implementation_jvm (test.yml's jvm-core).
+# ---------------------------------------------------------------------------
+if [ "$run_jvm" = true ]; then
+  run "core JVM" "cd implementation/core && clojure -M:test" \
+    bash -lc "cd '$spine_root/implementation/core' && clojure -M:test"
+else
+  printf '\n--- implementation_jvm surface unchanged → skipping core JVM (override with --all) ---\n'
+fi
+
+# ---------------------------------------------------------------------------
+# npm / CLJS / JS-harness / per-namespace isolation — gated on cljs_node_test
+# (test.yml's cljs job + the always-on js-harness-self-tests job).  CI keeps
+# the JS harness self-tests always-on as its safety net; locally we group them
+# with the node tier so a documentation- or code-elsewhere diff does not pay to
+# spin up node/npm, per the rf2-r6x1t DESIGN (JS suites run only when their
+# owning scripts / build config change — exactly the cljs_node_test surface).
+# ---------------------------------------------------------------------------
+if [ "$run_node" = true ]; then
+  run "implementation JS harness helpers" "cd implementation && npm run test:script-policy && npm run test:script-helpers" \
+    bash -lc "cd '$spine_root/implementation' && npm run test:script-policy && npm run test:script-helpers"
+
+  run "CLJS node integration" "cd implementation && npm run test:cljs" \
+    bash -lc "cd '$spine_root/implementation' && npm run test:cljs"
+
+  # Per-namespace test-isolation gate (rf2-32siq3.44).  The consolidated
+  # node-test bundle shares ONE runtime, so a test ns whose fixture forgets to
+  # install its own substrate adapter is masked: it passes whenever a sibling
+  # left an adapter installed (suite ORDERING hides a self-incomplete fixture).
+  # This gate re-runs the curated EP-0023 image/frame runtime-construction
+  # namespaces EACH ALONE; a fixture leaning on bundle pollution goes red
+  # standalone.  Self-test first (proves the red/green classification), then the
+  # live run (reuses the bundle test:cljs just compiled).
+  run "per-ns isolation self-test" "cd implementation && node scripts/check-per-ns-isolation.cjs --self-test" \
+    bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs --self-test"
+
+  run "per-ns test isolation" "cd implementation && node scripts/check-per-ns-isolation.cjs" \
+    bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs"
+else
+  printf '\n--- cljs_node_test surface unchanged → skipping npm/CLJS/isolation (override with --all) ---\n'
+fi
 
 printf 'PASS fast PR spine\n'
