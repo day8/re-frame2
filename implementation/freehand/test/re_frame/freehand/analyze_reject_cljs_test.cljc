@@ -5,6 +5,8 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.freehand.compiler.analyze :as ana]
+            [re-frame.freehand.compiler.check :as check]
+            [re-frame.freehand.compiler.grammar :as grammar]
             [re-frame.freehand.analyze-accept-cljs-test :refer [mk-env mk-self-env]]))
 
 (defn reject-id
@@ -15,6 +17,16 @@
     nil
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) ex
       (:rf.ui.compile/error (ex-data ex)))))
+
+(defn reject-msg
+  "nil when accepted; the compile error's human MESSAGE when rejected —
+  for the rows where the SENTENCE is the contract and not only the id."
+  [form]
+  (try
+    (ana/analyze (mk-env) form)
+    nil
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) ex
+      (ex-message ex))))
 
 (defn reject-id-in
   "reject-id against a supplied env (for self-head precedence rows)."
@@ -60,6 +72,46 @@
   (is (= :rf.ui.compile/bad-for
          (reject-id '(for [x xs :unknown y] [:li {:key x} x])))
       "the modifier subgrammar is :let/:when/:while (Q6)"))
+
+(deftest a-wrapped-for-body-is-its-own-rejection
+  (testing "rf2-drpa3.164. `(for [i is] (let [r (nth rows i)] [:div {:key
+            (:id r)} …]))` is the natural Clojure spelling for binding the
+            record beside the index, and the row inside it IS keyed. Naming
+            a missing key sent the author to a line that has one, and the
+            ladder advised keying every row — advice already taken. The
+            rule they need is that the body must BE the node; the fix is
+            `for`'s own `:let` modifier."
+    (let [wrapped '(for [i is] (let [r (nth rows i)] [:div {:key (:id r)} r]))]
+      (is (= :rf.ui.compile/indirect-list-body (reject-id wrapped))
+          "the wrapped body is its own id, not the missing-key one")
+      (let [msg (reject-msg wrapped)]
+        (is (str/includes? msg "must BE the keyed node")
+            "the sentence states the real rule")
+        (is (str/includes? msg ":let")
+            "and names for's :let modifier as the fix")
+        (is (str/includes? msg "(for [i (range start end) :let [r (nth rows i)]]")
+            "with the spelling, not just the name")
+        (is (not (str/includes? msg "missing :key"))
+            "and never reports a key as missing when one is present"))))
+  (testing "the recovery the message names is on the LADDER too, so a
+            checker report carries it without reading prose"
+    (is (= [:bind-with-for-let :extract-declared-child :keep-interpreted]
+           (grammar/recovery :rf.ui.compile/indirect-list-body)))
+    (is (str/includes? (get grammar/recoveries :bind-with-for-let) ":let")
+        "and the rung's own sentence spells the modifier")
+    (is (= :iteration-is-not-lexically-flat
+           (check/reason :rf.ui.compile/indirect-list-body))
+        "a wrapper between the for and its row is the flatness reason"))
+  (testing "the recovery this diagnostic advises actually compiles — the
+            whole point of naming it"
+    (is (nil? (reject-id '(for [i is :let [r (nth rows i)]]
+                            [:div {:key (:id r)} r])))))
+  (testing "a wrapper that :let cannot fix is told to extract a child view"
+    (let [msg (reject-msg '(for [x xs] (if x [:li {:key x} 1] [:li {:key x} 2])))]
+      (is (str/includes? msg "must BE the keyed node"))
+      (is (str/includes? msg "Extract a declared child view"))))
+  (testing "a body carrying no row at all keeps the general message"
+    (is (= :rf.ui.compile/unkeyed-list-item (reject-id '(for [x xs] (str x)))))))
 
 (deftest finite-sites
   (is (= :rf.ui.compile/sub-in-loop

@@ -3585,6 +3585,17 @@
          :body (analyze (update e* :path conj :body) body-form)
          :static? false :path (:path e)}))))
 
+(def ^:private wrapper-body-ops
+  "Analyzed node kinds that WRAP markup rather than being it — the shapes a
+  `for` body can take where the keyed row is present but one form deeper.
+
+  They are refused with their own sentence rather than with the
+  missing-`:key` one, because they are a different mistake with a
+  different fix: the row is keyed, and what is wrong is that something
+  stands between the `for` and it. A body that is an `:expr`, a `:text` or
+  a `:slot` carries no row at all and keeps the general message."
+  #{:let :letfn :if :case})
+
 (defn- analyze-for [e form]
   (let [[_ seq-exprs & body] form]
     (when-not (and (vector? seq-exprs) (even? (count seq-exprs)) (seq seq-exprs))
@@ -3656,6 +3667,28 @@
                                         "list site (Q6 pin)")
                                    {:form form}))
             body-ast  (analyze e-body body-form)]
+        ;; The WRAPPED body is its own rejection, because it is its own
+        ;; mistake (rf2-drpa3.164). `(for [i is] (let [r (nth rows i)] [:div
+        ;; {:key (:id r)} …]))` is the natural Clojure spelling, and the row
+        ;; inside it IS keyed — reporting a missing key sends the author to a
+        ;; line that has one. The rule they need is that the body must BE the
+        ;; node, and the fix is `for`'s own `:let` modifier, which this
+        ;; grammar fully supports.
+        (when (contains? wrapper-body-ops (:op body-ast))
+          (env/fail! e :rf.ui.compile/indirect-list-body
+                     (str "a for body must BE the keyed node — an element, a "
+                          "view or a fragment, with nothing standing between "
+                          "the for and it — and this body is a "
+                          (name (:op body-ast)) " wrapping one. A keyed list "
+                          "lowers to a direct JS array of rows, so the row has "
+                          "to be what the body evaluates to."
+                          (if (= :let (:op body-ast))
+                            (str " Bind the row's values with for's OWN :let "
+                                 "modifier: (for [i (range start end) "
+                                 ":let [r (nth rows i)]] [:div {:key (:id r)} …])")
+                            (str " Extract a declared child view that does the "
+                                 "wrapping, and key it at the call site")))
+                     {:form form :op (:op body-ast)}))
         (when-not (contains? #{:element :view :foreign :fragment} (:op body-ast))
           (env/fail! e :rf.ui.compile/unkeyed-list-item
                      (str "for body must be a keyed element/view/fragment — got "
