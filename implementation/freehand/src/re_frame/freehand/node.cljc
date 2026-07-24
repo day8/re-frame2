@@ -777,12 +777,13 @@
 
   Reserved-namespaced, but a reserved NAMESPACE is not on its own a reserved
   key: Freehand's namespaced-attribute law makes `:rf.ui/caller` a perfectly
-  ordinary authored attribute, so the name is ALSO refused as an attribute
-  spelling ([[re-frame.freehand.rules/rejected-prop-spellings]]) and the
-  transport is marked at the value ([[carry-caller]]). The two together are
-  what make the carrier unforgeable: an authored key is refused before it can
-  be mistaken for transport, and a value that is not [[carry-caller]]'s is
-  never read as one."
+  ordinary authored attribute. What makes the carrier unforgeable is the
+  VALUE mark alone ([[carry-caller]]): the transport is a [[CarriedCaller]]
+  and an authored value never is one, so [[split-caller]] consumes only the
+  mark and leaves an authored `:rf.ui/caller` in the attribute map to be
+  emitted — or refused — as the ordinary attribute it is. The NAME is not
+  reserved (rf2-drpa3.132): reserving it as well would silently narrow the
+  pass-through attribute law and burn the emitted `caller` slot."
   :rf.ui/caller)
 
 ;; The transport MARK. An authored `:rf.ui/caller` cannot be one of these,
@@ -807,11 +808,12 @@
   policy and reading the carrier is half of applying it.
 
   A `caller-attrs-key` entry that is NOT [[carry-caller]]'s mark is left in the
-  attribute map, where the ordinary refusal
-  ([[re-frame.freehand.conversion/attr-key-refusal]]) names it. That is the
-  whole forgery answer: the transport is identified by the mark, and the name
-  is identified as not-an-attribute, so neither reading can be reached by
-  writing the other."
+  attribute map, where it is treated as the ordinary authored attribute it is
+  — emitted as the `caller` prop for a scalar value, refused by the generic
+  attribute-value grammar for a map (as any map-valued attribute is), never
+  folded as transport. That is the whole forgery answer, and it needs no
+  reserved name: the transport is identified only by the mark, so an authored
+  value — which is never the mark — can never be read as one (rf2-drpa3.132)."
   [authored]
   (let [carried (get authored caller-attrs-key)]
     (if (instance? CarriedCaller carried)
