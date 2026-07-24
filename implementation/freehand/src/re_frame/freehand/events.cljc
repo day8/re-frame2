@@ -6,9 +6,10 @@
   namespace owns the three mechanisms that make that true, and nothing
   else:
 
-    1. **The closed projection trio and the one pure materializer.**
-       `::v/value`, `::v/checked` and `::v/key` are the only reserved
-       scalar markers. At firing time the site's host adapter reads the
+    1. **The closed projection roster and the one pure materializer.**
+       `::v/value`, `::v/checked`, `::v/key`, `::v/scroll-top` and
+       `::v/new-state` are the only reserved scalar markers. At firing
+       time the site's host adapter reads the
        live payload, and [[materialize-event]] replaces every matching
        TOP-LEVEL argument marker before the resulting plain vector goes
        to ordinary re-frame dispatch. General `rf/dispatch` therefore
@@ -85,7 +86,7 @@
                       {:recovery recovery :extra extra}))
 
 ;; ---------------------------------------------------------------------------
-;; The closed projection trio
+;; The closed projection roster
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Spec 004 §Event intent and the payload materializer. The marker and
@@ -93,18 +94,38 @@
 ;; `::v/value` and the adapter supplies `::v/value`, so "did the callback
 ;; offer what this event asked for?" is one `contains?` and there is no
 ;; second vocabulary to keep in step.
+;;
+;; Each marker is the kebab-case spelling of the ONE host property it
+;; reads — `target.value`, `target.checked`, `event.key`,
+;; `target.scrollTop`, `event.newState` — so the roster is read off the
+;; platform rather than invented, and a reader can check a member against
+;; the DOM without a second table.
 
 (def projections
-  "The CLOSED scalar projection roster — value, checked state, and key.
+  "The CLOSED scalar projection roster — value, checked state, key,
+  scroll offset, and a top-layer element's new state.
 
   These are the only reserved markers a declarative event vector may
   carry, AND the exact keys of the payload map a firing site supplies.
-  Adding a fourth projection is a grammar decision, not an
-  implementation detail; anything richer than a shallow scalar read is
-  `v/event`'s job."
+
+  The roster is CLOSED, and that closedness is the point: a projected
+  read is assertable by equality, printable, comparable and
+  host-neutral, which a general \"read any property off the host event\"
+  escape hatch would destroy. What it is NOT is guessed up front. A
+  member is admitted when it passes one test — **a shallow scalar off
+  the event target, needed by a real component, demonstrated by a
+  pilot** — and `::v/scroll-top` and `::v/new-state` are here because two
+  independent pilots bent their designs around their absence. Anything
+  needing traversal, measurement, or a live host object is not a
+  projection at all and is `v/event`'s job.
+
+  There is deliberately no mechanism for adding more: the next member
+  arrives the way these did, through a component that needed it."
   #{:re-frame.freehand/value
     :re-frame.freehand/checked
-    :re-frame.freehand/key})
+    :re-frame.freehand/key
+    :re-frame.freehand/scroll-top
+    :re-frame.freehand/new-state})
 
 ;; ---------------------------------------------------------------------------
 ;; The one pure materializer
@@ -661,23 +682,35 @@
 
 #?(:cljs
    (defn native-payload
-     "Read the closed scalar trio off a live native / React synthetic
-     event. A key is present only when the event actually carries it, so
-     asking a click for `::v/key` is a typed error rather than a silent
-     `nil` reaching a handler.
+     "Read the closed scalar roster off a live native / React synthetic
+     event. A member is present only when the event actually carries the
+     property it reads, so asking a click for `::v/key` is a typed error
+     rather than a silent `nil` reaching a handler.
+
+     The two reads off the EVENT — `key` and `newState` — are carried by
+     the event kinds that have them and are absent everywhere else. The
+     three reads off the TARGET follow the target's own shape: a
+     `<div>` has no `value`, so `::v/value` is absent there, while every
+     element has a scroll offset and so carries `::v/scroll-top`
+     truthfully at 0. Presence tracks the host, and the host is what a
+     projection is a read of.
 
      No DOM node, synthetic event or other host object leaves this
-     function: three normalized scalars go in the payload map and
-     nothing else."
+     function: normalized scalars go in the payload map and nothing
+     else."
      [e]
      (let [target  (unchecked-get e "target")
            value   (when (some? target) (unchecked-get target "value"))
            checked (when (some? target) (unchecked-get target "checked"))
-           k       (unchecked-get e "key")]
+           scroll  (when (some? target) (unchecked-get target "scrollTop"))
+           k       (unchecked-get e "key")
+           state   (unchecked-get e "newState")]
        (cond-> {}
          (some? value)   (assoc :re-frame.freehand/value value)
          (some? checked) (assoc :re-frame.freehand/checked checked)
-         (some? k)       (assoc :re-frame.freehand/key k)))))
+         (some? k)       (assoc :re-frame.freehand/key k)
+         (some? scroll)  (assoc :re-frame.freehand/scroll-top scroll)
+         (some? state)   (assoc :re-frame.freehand/new-state state)))))
 
 (def default-payload
   "The payload extractor a site takes when it names none: the host's own

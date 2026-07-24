@@ -1,4 +1,9 @@
-;; FH-EVENT-001 — the closed projection trio and the one pure materializer.
+;; FH-EVENT-001 — the closed projection roster and the one pure materializer.
+;;
+;; The roster is CLOSED and its membership is extended only by demonstrated
+;; need: a shallow scalar off the event target, needed by a real component.
+;; `::v/scroll-top` and `::v/new-state` are the two members admitted that way,
+;; and they materialize under exactly the rules the first three do.
 ;;
 ;; A site's markers are filled from the LIVE payload at firing time, in
 ;; top-level argument positions only, every occurrence, never from a
@@ -11,21 +16,37 @@
 ;; an ordinary domain event is never secretly interpreted.
 {:fh/id "FH-EVENT-001"
  :fh/law
- "The Freehand event site materializes the closed projection trio from the live callback payload into top-level argument positions only, and general re-frame dispatch gains no payload arity."
+ "The Freehand event site materializes the closed projection roster from the live callback payload into top-level argument positions only, and general re-frame dispatch gains no payload arity."
+
+ ;; The closed roster itself. A member is admitted only by demonstrated
+ ;; need — a shallow scalar off the event target that a real component
+ ;; wanted — and the set is the whole grammar: there is no escape hatch
+ ;; that reads an arbitrary host property.
+ :roster #{:re-frame.freehand/value
+           :re-frame.freehand/checked
+           :re-frame.freehand/key
+           :re-frame.freehand/scroll-top
+           :re-frame.freehand/new-state}
 
  ;; The live payload one firing callback offers.
- :payload {:re-frame.freehand/value   "mike@example.com"
-           :re-frame.freehand/checked true
-           :re-frame.freehand/key     "Enter"}
+ :payload {:re-frame.freehand/value      "mike@example.com"
+           :re-frame.freehand/checked    true
+           :re-frame.freehand/key        "Enter"
+           :re-frame.freehand/scroll-top 3200
+           :re-frame.freehand/new-state  "closed"}
 
  :materialized
- [;; Each of the three projections, at the argument position it fills.
+ [;; Each of the roster's projections, at the argument position it fills.
   {:event [:account/email-edited :re-frame.freehand/value]
    :expect [:account/email-edited "mike@example.com"]}
   {:event [:prefs/set-dark :re-frame.freehand/checked]
    :expect [:prefs/set-dark true]}
   {:event [:picker/key-pressed :re-frame.freehand/key]
    :expect [:picker/key-pressed "Enter"]}
+  {:event [:table/scrolled [:ledger :q3] :re-frame.freehand/scroll-top]
+   :expect [:table/scrolled [:ledger :q3] 3200]}
+  {:event [:menu/toggle-reported :format :re-frame.freehand/new-state]
+   :expect [:menu/toggle-reported :format "closed"]}
 
   ;; A forwarded prefix — the shape `(conj on-change ::v/value)` produces.
   {:event [:form/edit :email :re-frame.freehand/value]
@@ -52,6 +73,8 @@
  :rejected
  [{:event [:re-frame.freehand/value :account/email]  :error-id :rf.error/view-bad-event}
   {:event [:re-frame.freehand/checked]               :error-id :rf.error/view-bad-event}
+  {:event [:re-frame.freehand/scroll-top 0]          :error-id :rf.error/view-bad-event}
+  {:event [:re-frame.freehand/new-state]             :error-id :rf.error/view-bad-event}
   {:event [[:picker/accept] [:picker/close]]         :error-id :rf.error/view-bad-event}
   {:event {:event [:cart/add 1]}                     :error-id :rf.error/view-bad-event}
   {:event "cart/add"                                 :error-id :rf.error/view-bad-event}]
@@ -63,6 +86,15 @@
    :error-id :rf.error/view-missing-payload}
   {:event [:picker/key-pressed :re-frame.freehand/key]
    :payload {:re-frame.freehand/value "typed"}
+   :error-id :rf.error/view-missing-payload}
+  ;; The two demonstrated-need members carry the same law: a site asking a
+  ;; callback that does not report a scroll offset or a top-layer state
+  ;; gets a typed error, never a `nil` argument in a dispatched vector.
+  {:event [:table/scrolled [:ledger :q3] :re-frame.freehand/scroll-top]
+   :payload {:re-frame.freehand/value "typed"}
+   :error-id :rf.error/view-missing-payload}
+  {:event [:menu/toggle-reported :format :re-frame.freehand/new-state]
+   :payload {:re-frame.freehand/scroll-top 0}
    :error-id :rf.error/view-missing-payload}]
 
  ;; The other half: no payload arity anywhere in general dispatch. Both
