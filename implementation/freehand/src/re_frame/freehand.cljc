@@ -1004,7 +1004,7 @@
   the component supplies.
 
       (v/defview data-table [{:keys [rows row]}]
-        [:tbody (for [r rows] ^{:key (:id r)} (v/slot row r))])
+        [:tbody (for [r rows] [:<> {:key (:id r)} (v/slot row r)])])
 
       [data-table {:rows rows
                    :row  (v/render-fn [r] [:tr [:td (:name r)]])}]
