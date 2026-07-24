@@ -397,9 +397,9 @@ disposed when the consumer moves to Freehand names.
 | `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/view_tool.cljs` | the pair server's view tool over donor projections | MOVE | F6 | pending |
 | `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_data.cljs` | tool descriptors naming donor view vocabulary | REPLACE | F6 | pending |
 | `tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md` | the pair tool catalogue where it names the donor | REPLACE | F6 | pending |
-| `tools/template/resources/day8/re_frame2_template/_ui/*` | the generated donor scaffold variant: deps, build config, entry namespace, views, readme | MOVE | F6 | pending |
-| `tools/template/resources/day8/re_frame2_template/template.edn` | the variant menu entry that offers the donor scaffold | REPLACE | F6 | pending |
-| `tools/template/spec/001-Substrate-Variants.md` | the template's substrate-variant contract | REPLACE | F6 | pending |
+| `tools/template/resources/day8/re_frame2_template/_ui/*` | the generated donor scaffold variant: deps, build config, entry namespace, views, readme | DELETE | F6 | done |
+| `tools/template/resources/day8/re_frame2_template/template.edn` | the variant menu entry that offers the donor scaffold | REPLACE | F6 | done |
+| `tools/template/spec/001-Substrate-Variants.md` | the template's substrate-variant contract | REPLACE | F6 | done |
 | `tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs` | the cross-server conformance run that mounts a donor app | MOVE | F6 | pending |
 
 ## Donor consumers in examples and testbeds
