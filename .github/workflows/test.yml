@@ -103,22 +103,32 @@ jobs:
       - name: Verify lockstep version contract
         run: ./.github/scripts/verify-version-lockstep.sh
 
-  # PR-time drift detection for the skill ↔ MCP tool-catalogue contract
-  # (rf2-flzdp). Source: rf2-fvy7o audit, finding #6. When an MCP server
-  # adds a tool (e.g. re-frame2-pair-mcp added `subscribe`/`unsubscribe` under
-  # rf2-hq49) the consumer skill's `allowed-tools` front-matter doesn't
-  # auto-update; the agent host blocks the new tool even though the
-  # server advertises it. The script in scripts/check_skill_mcp_drift.py
-  # diffs every MCP-server tool catalogue against its consumer skill's
-  # allow-list and fails on drift in either direction.
+  # The repo's always-on invariant spine: every `scripts/check_*.py` gate that
+  # is pure Python stdlib and cheap enough to run on every PR regardless of
+  # which surface it touches. The set spans four families — AI-skill contracts,
+  # skill ↔ MCP tool catalogues, spec/impl keyword + namespace catalogues, and
+  # retired-spelling / ambient-read source scans — which is why the job is named
+  # for the SCOPE rather than for whichever checker landed here first. Each
+  # family's rationale is documented above its own steps.
+  #
+  # AGGREGATING, NOT SHORT-CIRCUITING. Every checker step below carries
+  # `continue-on-error: true` and an `id`; the final "Report every failing
+  # invariant check" step decides the job's result and prints EVERY failure.
+  # Under plain `bash -e` semantics the job stopped at the first red, so a fix
+  # worker saw one broken invariant per full CI cycle and merely moved the red
+  # (three independent reds once stacked behind one first failure in the
+  # api-manifest job). One round-trip now reports them all.
+  #
+  # The job's `name:` is not a required status check — the ruleset requires the
+  # `All required checks passed` aggregator, which depends on the job ID
+  # `verify-skill-mcp-drift`. Keep that ID stable; the display name is free.
   #
   # Fast — pure Python stdlib, no setup beyond actions/setup-python.
-  # The script ships with a `_BASELINE` set that documents the drift on
-  # main at PR-landing time so this gate lands before its companion
-  # fix (rf2-aks1t) completes; trim entries from `_BASELINE` as their
-  # underlying drift is resolved.
+  # check_skill_mcp_drift.py ships with a `_BASELINE` set that documents the
+  # drift on main at its landing time so the gate could land before its
+  # companion fix (rf2-aks1t); trim entries as their drift is resolved.
   verify-skill-mcp-drift:
-    name: Verify skill ↔ MCP allowed-tools drift (rf2-flzdp)
+    name: Repo invariant checks (skills, MCP, catalogues, namespaces)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -128,7 +138,17 @@ jobs:
         with:
           python-version: '3.12'
 
+      # PR-time drift detection for the skill ↔ MCP tool-catalogue contract
+      # (rf2-flzdp). Source: rf2-fvy7o audit, finding #6. When an MCP server
+      # adds a tool (e.g. re-frame2-pair-mcp added `subscribe`/`unsubscribe`
+      # under rf2-hq49) the consumer skill's `allowed-tools` front-matter
+      # doesn't auto-update; the agent host blocks the new tool even though the
+      # server advertises it. scripts/check_skill_mcp_drift.py diffs every
+      # MCP-server tool catalogue against its consumer skill's allow-list and
+      # fails on drift in either direction.
       - name: Diff MCP tool catalogues vs skill allowed-tools
+        id: check_skill_mcp_drift
+        continue-on-error: true
         run: python scripts/check_skill_mcp_drift.py --verbose --ci
 
       # Title-safety-axis self-test (rf2-4kyg6 finding 1): proves the
@@ -137,6 +157,8 @@ jobs:
       # consumers stay green) — i.e. the new axis is a real check, not a
       # no-op that vacuously passes.
       - name: Self-test the title-safety backstop
+        id: check_skill_mcp_drift_selftest
+        continue-on-error: true
         run: python scripts/check_skill_mcp_drift.py --self-test --ci
 
       # Cite-integrity guard (rf2-1nb8k): every M-id the re-frame-migration
@@ -144,9 +166,13 @@ jobs:
       # id-collision / phantom-cite class (skill cited M-66/M-67 for rules
       # MIGRATION.md had assigned to History-states / Xray-static-mode).
       - name: Self-test the cite-integrity guard
+        id: check_skill_migration_cites_selftest
+        continue-on-error: true
         run: python scripts/check_skill_migration_cites.py --self-test
 
       - name: Verify skill M-id cites resolve in MIGRATION.md
+        id: check_skill_migration_cites
+        continue-on-error: true
         run: python scripts/check_skill_migration_cites.py --verbose --ci
 
       # M-11 / M-13 contract-drift guard (rf2-h9yfsm). A senior review found the
@@ -167,9 +193,13 @@ jobs:
       # green on the corrected wording), then the live scan asserts the skill +
       # corpus are clean. See scripts/check_skill_migration_contract_drift.py.
       - name: Self-test the M-11/M-13 contract-drift guard
+        id: check_skill_migration_contract_drift_selftest
+        continue-on-error: true
         run: python scripts/check_skill_migration_contract_drift.py --self-test
 
       - name: Verify migration skill M-11/M-13 contract wording
+        id: check_skill_migration_contract_drift
+        continue-on-error: true
         run: python scripts/check_skill_migration_contract_drift.py --verbose --ci
 
       # O-16 / O-17 router-leaf drift guard (rf2-rccvda). The re-frame-migration
@@ -182,9 +212,13 @@ jobs:
       # here (rf2-pxxbjk) — it previously ran on-demand only. Self-test first
       # (proves it fires on the drift shapes), then the live scan asserts clean.
       - name: Self-test the O-16/O-17 router-leaf drift guard
+        id: check_skill_migration_o1617_router_drift_selftest
+        continue-on-error: true
         run: python scripts/check_skill_migration_o1617_router_drift.py --self-test
 
       - name: Verify migration O-16/O-17 leaves stay thin routers
+        id: check_skill_migration_o1617_router_drift
+        continue-on-error: true
         run: python scripts/check_skill_migration_o1617_router_drift.py --verbose --ci
 
       # Foundation-order guard (rf2-708nm): the re-frame2-implementor skill must
@@ -197,9 +231,13 @@ jobs:
       # observability. The self-test proves the guard fires on the drift shapes
       # (not a vacuous pass) before the live scan asserts the skill is clean.
       - name: Self-test the implementor foundation-order guard
+        id: check_skill_implementor_order_selftest
+        continue-on-error: true
         run: python scripts/check_skill_implementor_order.py --self-test
 
       - name: Verify the implementor skill keeps Spec 015 in the core gate
+        id: check_skill_implementor_order
+        continue-on-error: true
         run: python scripts/check_skill_implementor_order.py --verbose --ci
 
       # Partition / HTTP-fx / API-name drift guard (rf2-whsb0c + rf2-6c59ob):
@@ -215,9 +253,13 @@ jobs:
       # self-test proves the guard fires on the drift shapes before the live
       # scan asserts the skill is clean.
       - name: Self-test the implementor partition/HTTP/API-name guard
+        id: check_skill_implementor_partition_drift_selftest
+        continue-on-error: true
         run: python scripts/check_skill_implementor_partition_drift.py --self-test
 
       - name: Verify the implementor skill partition/HTTP/API-name teaching
+        id: check_skill_implementor_partition_drift
+        continue-on-error: true
         run: python scripts/check_skill_implementor_partition_drift.py --verbose --ci
 
       # No-bead-id + verification-posture drift guard for the re-frame2
@@ -233,9 +275,13 @@ jobs:
       # examples-map.md / references|patterns|decision-trees/**. The self-test
       # proves it fires on the drift shapes before the live scan asserts clean.
       - name: Self-test the re-frame2 no-bead-id + verify-posture guard
+        id: check_skill_re_frame2_drift_selftest
+        continue-on-error: true
         run: python scripts/check_skill_re_frame2_drift.py --self-test
 
       - name: Verify the re-frame2 skill carries no bead-ids / agent-run gates
+        id: check_skill_re_frame2_drift
+        continue-on-error: true
         run: python scripts/check_skill_re_frame2_drift.py --verbose --ci
 
       # Distribution-completeness guard (rf2-f14su): a published skill that
@@ -245,9 +291,13 @@ jobs:
       # drops the shared protocol. The gate requires every such skill's README
       # to carry the link-only / bring-`skills/shared/`-along caveat.
       - name: Self-test the skill package-refs guard
+        id: check_skill_package_refs_selftest
+        continue-on-error: true
         run: python scripts/check_skill_package_refs.py --self-test
 
       - name: Verify ../shared/-referencing skills carry the distribution caveat
+        id: check_skill_package_refs
+        continue-on-error: true
         run: python scripts/check_skill_package_refs.py --verbose --ci
 
       # Re-authoring/spec drift guard for skills/re-frame2-pair (rf2-pok18).
@@ -261,9 +311,13 @@ jobs:
       # live-contract framing, so a future re-author can't regress the
       # MCP-only / default-gated posture.
       - name: Self-test the re-frame2-pair re-authoring drift guard
+        id: check_skill_pair_authoring_drift_selftest
+        continue-on-error: true
         run: python scripts/check_skill_pair_authoring_drift.py --self-test
 
       - name: Verify re-frame2-pair re-authoring docs match the MCP-only contract
+        id: check_skill_pair_authoring_drift
+        continue-on-error: true
         run: python scripts/check_skill_pair_authoring_drift.py --verbose --ci
 
       # Setup-skill counter/lifecycle drift guard (rf2-fd1mf3). The
@@ -279,9 +333,13 @@ jobs:
       # `state-container`). Self-test proves it fires on the drift shapes before
       # the live scan asserts the skill is clean.
       - name: Self-test the setup-skill counter/lifecycle drift guard
+        id: check_skill_setup_counter_drift_selftest
+        continue-on-error: true
         run: python scripts/check_skill_setup_counter_drift.py --self-test
 
       - name: Verify re-frame2-setup counter vocabulary + lifecycle wording
+        id: check_skill_setup_counter_drift
+        continue-on-error: true
         run: python scripts/check_skill_setup_counter_drift.py --verbose --ci
 
       # Eval-packaging-consistency guard (rf2-ngw0wl, follows rf2-myge8z /
@@ -299,9 +357,13 @@ jobs:
       # agree cases + the sibling-mention guard) before the live scan asserts
       # all current skills agree.
       - name: Self-test the eval-packaging-consistency guard
+        id: check_skill_eval_packaging_selftest
+        continue-on-error: true
         run: python scripts/check_skill_eval_packaging.py --self-test --ci
 
       - name: Verify skill eval-packaging docs agree with package.json files
+        id: check_skill_eval_packaging
+        continue-on-error: true
         run: python scripts/check_skill_eval_packaging.py --verbose --ci
 
       # Eval-docs drift guard (rf2-r2xswa; generalised rf2-xw7ra9). Each packaged
@@ -315,9 +377,13 @@ jobs:
       # (rf2-pxxbjk). Self-test first (proves it fires on count/name/tally drift),
       # then the live scan asserts each README agrees with its JSON.
       - name: Self-test the eval-docs drift guard
+        id: check_skill_eval_docs_selftest
+        continue-on-error: true
         run: python scripts/check_skill_eval_docs.py --self-test
 
       - name: Verify skill eval-docs match evals.json
+        id: check_skill_eval_docs
+        continue-on-error: true
         run: python scripts/check_skill_eval_docs.py --verbose --ci
 
       # Xray tab-inventory drift guard (rf2-3fc89f.41). The re-frame2-xray skill
@@ -328,9 +394,13 @@ jobs:
       # on-demand only. Self-test first (proves it fires on the drift shapes),
       # then the live scan asserts the tab inventory is in sync.
       - name: Self-test the Xray tab-inventory drift guard
+        id: check_skill_xray_tab_inventory_drift_selftest
+        continue-on-error: true
         run: python scripts/check_skill_xray_tab_inventory_drift.py --self-test
 
       - name: Verify re-frame2-xray tab inventory matches the tool
+        id: check_skill_xray_tab_inventory_drift
+        continue-on-error: true
         run: python scripts/check_skill_xray_tab_inventory_drift.py --verbose --ci
 
       # SKILL-REDIRECT.md anchor-coupling guard (rf2-o2qrj). SKILL-REDIRECT.md is
@@ -342,6 +412,8 @@ jobs:
       # never wired (rf2-pxxbjk). Pure stdlib, no self-test flag (a single
       # bidirectional scan); silent on success.
       - name: Verify SKILL-REDIRECT.md leaf-anchor references resolve
+        id: check_skill_redirect_anchors
+        continue-on-error: true
         run: python scripts/check_skill_redirect_anchors.py
 
       # EP-0007 §Enforcement retired-spelling gate (rf2-ziak6w). EP-0007 rule 2
@@ -362,9 +434,13 @@ jobs:
       # regardless of which surface a PR touches. See
       # scripts/check_retired_spellings.py.
       - name: Self-test the EP-0007 retired-spelling gate
+        id: check_retired_spellings_selftest
+        continue-on-error: true
         run: python scripts/check_retired_spellings.py --self-test --verbose
 
       - name: Verify framework source carries no retired spelling (EP-0007)
+        id: check_retired_spellings
+        continue-on-error: true
         run: python scripts/check_retired_spellings.py --verbose
 
       # EP-0010 §Validation/Conformance ambient-durable-read gate (rf2-f2t151).
@@ -396,9 +472,13 @@ jobs:
       # python job so an ambient durable read blocks the merge regardless of
       # which surface a PR touches. See scripts/check_ambient_durable_reads.py.
       - name: Self-test the EP-0010 ambient-durable-read gate
+        id: check_ambient_durable_reads_selftest
+        continue-on-error: true
         run: python scripts/check_ambient_durable_reads.py --self-test --verbose
 
       - name: Verify durable-write namespaces carry no ambient world read (EP-0010)
+        id: check_ambient_durable_reads
+        continue-on-error: true
         run: python scripts/check_ambient_durable_reads.py --verbose
 
       # Thrown-error human-message corpus gate (rf2-6bb3pg, Spec 009 §The
@@ -422,9 +502,13 @@ jobs:
       # so a keyword-only thrown message blocks the merge regardless of which
       # surface a PR touches. See scripts/check_thrown_error_messages.py.
       - name: Self-test the thrown-error human-message gate
+        id: check_thrown_error_messages_selftest
+        continue-on-error: true
         run: python scripts/check_thrown_error_messages.py --self-test --verbose
 
       - name: Verify framework source carries no keyword-only thrown message (rf2-vvixub)
+        id: check_thrown_error_messages
+        continue-on-error: true
         run: python scripts/check_thrown_error_messages.py --verbose
 
       # Keyword drift gate (rf2-1nci83) — the api-manifest pattern applied to
@@ -448,10 +532,54 @@ jobs:
       # blocks the merge regardless of which surface a PR touches. See
       # scripts/check_keyword_catalogue_drift.py.
       - name: Self-test the keyword drift gate
+        id: check_keyword_catalogue_drift_selftest
+        continue-on-error: true
         run: python scripts/check_keyword_catalogue_drift.py --self-test --verbose
 
       - name: Verify impl keyword contract vs Spec 009 + Conventions (rf2-1nci83)
+        id: check_keyword_catalogue_drift
+        continue-on-error: true
         run: python scripts/check_keyword_catalogue_drift.py --verbose
+
+      # The verdict. Every checker above carries `continue-on-error: true`, so
+      # the job never short-circuits and its RESULT is decided only here.
+      # `toJSON(steps)` is the map of every step that declared an `id` — and
+      # each checker's id IS its script stem, so the failure list doubles as
+      # the local reproduction command. `outcome` is the step's real result
+      # (`conclusion` is laundered to success by continue-on-error), so
+      # `outcome == 'failure'` is the honest signal. The list goes to the run
+      # summary and to `::error::` annotations as well as stdout, so a red
+      # build names every broken invariant on the run page — no log fetch.
+      - name: Report every failing invariant check
+        if: ${{ always() }}
+        env:
+          STEP_OUTCOMES: ${{ toJSON(steps) }}
+        run: |
+          failed=$(printf '%s' "$STEP_OUTCOMES" \
+            | jq -r 'to_entries[] | select(.value.outcome == "failure") | .key')
+
+          if [ -z "$failed" ]; then
+            echo "All repo invariant checks passed."
+            echo "All repo invariant checks passed." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          count=$(printf '%s\n' "$failed" | wc -l | tr -d ' ')
+          echo "::error::$count repo invariant check(s) failed:"
+          {
+            echo "### Failing repo invariant checks ($count)"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          printf '%s\n' "$failed" | while IFS= read -r id; do
+            script="scripts/${id%_selftest}.py"
+            echo "::error::  $id — reproduce with: python $script"
+            echo "- \`$id\` — reproduce with \`python $script\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          echo
+          echo "Every checker ran; the list above is complete."
+          exit 1
 
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
