@@ -227,19 +227,36 @@
   [s]
   (str/replace s #"[^A-Za-z0-9]" hex-escape))
 
-(defn- ordered-identity?
-  "Does `v`'s printed form carry its identity? An atom's does, and a
-  SEQUENTIAL collection recursively of such does — order IS identity there. An
-  unordered collection's does NOT: `=` ignores a map's or a set's element
-  order, but a printed id cannot, so two `=` maps differing only in insertion
-  order would print two ids for ONE identity. Those answer false and are
-  refused at the boundary rather than emitted as a silently unstable id."
+(defn- accepted-identity?
+  "Is `v` in the CLOSED roster of identity shapes this codec encodes
+  INJECTIVELY and CANONICALLY? The roster is exactly the shapes the pilot's
+  callers name an instance with — a string, a keyword, an integer, or a VECTOR
+  (recursively) of those: the controlled field's line-id `:instance`, the
+  buffered field's `[:invoice id :reference]` `:control` address, and the
+  readable `name`. Everything else answers false and is refused at the
+  boundary.
+
+  The roster is small ON PURPOSE, and that smallness is what makes `pr-str` an
+  HONEST identity over it where it is a false one over arbitrary EDN. Its
+  members print CANONICALLY — a keyword prints one way, a vector preserves the
+  order that IS its identity — so two `=` values print alike; and their prints
+  are TYPE-DISTINGUISHED — `1`, `\"1\"` and `:1` print three ways — so two
+  distinct values never print alike. The shapes deliberately left OUT are the
+  ones that break one half or the other: a LIST, whose `=`-equal vector prints
+  differently (`(= [1 2] '(1 2))`, yet `[1 2]` and `(1 2)` print two ways); a
+  SYMBOL or BOOLEAN, whose print a distinct value can share (`(symbol \"true\")`
+  and `true` both print `true`); a MAP or SET, whose `=` ignores an order its
+  print preserves; a float or a char, carrying no canonical, type-unique print.
+  None of those carries its identity into a print `pr-str` could make injective,
+  so all are refused rather than silently aliased onto — or split away from —
+  another identity's id."
   [v]
   (cond
-    (map? v)  false
-    (set? v)  false
-    (coll? v) (every? ordered-identity? v)
-    :else     true))
+    (string? v)  true
+    (keyword? v) true
+    (int? v)     true
+    (vector? v)  (every? accepted-identity? v)
+    :else        false))
 
 (defn- id-token
   "A DOM-safe, INJECTIVE, host-stable token for one part of a control's
@@ -252,34 +269,42 @@
 
   A string is escaped directly, so an ordinary name — `\"description\"` —
   stays itself and a single-instance field keeps its short, readable id. Any
-  other value carries a reserved `_v_` prefix ahead of its escaped `pr-str`:
-  the prefix is one a string can never produce — a string's own `_` escapes
-  to `_5f_`, so no bare `_` survives — meaning a typed value and a string of
-  the same characters never collide, and `pr-str` keeps distinct values
-  distinct (a `:control` vector address escapes as one unambiguous token).
+  other ACCEPTED value carries a reserved `_v_` prefix ahead of its escaped
+  `pr-str`: the prefix is one a string can never produce — a string's own `_`
+  escapes to `_5f_`, so no bare `_` survives — meaning a typed value and a
+  string of the same characters never collide, and over the accepted roster
+  `pr-str` keeps distinct values distinct (a `:control` vector address escapes
+  as one unambiguous token).
 
-  For that `pr-str` to BE an identity the value's print must be order-stable,
-  so a non-string identity is required to be `ordered-identity?`: an unordered
-  map or set — whose `=` ignores an order its print preserves — is refused
-  loudly rather than emitted as an id two equal identities would not share. A
-  supplied string is never dropped, so an empty-string identity stays distinct
-  from an absent one rather than silently aliasing it. Pure and stable: the
-  same supported identity yields the same token on every render and after a
-  list reorder, and nothing is allocated, counted or policed."
+  The accepted roster is CLOSED and small — a string, a keyword, an integer, or
+  a vector of them — and it is narrow precisely so `pr-str` is an equality-
+  faithful, injective identity over it: see [[accepted-identity?]]. `pr-str` is
+  neither over arbitrary EDN — a list prints unlike its `=`-equal vector, and a
+  symbol or boolean can print like a distinct value — so any identity outside
+  the roster is refused loudly at the boundary rather than emitted as an id two
+  equal identities would not share, or two distinct identities would. A supplied
+  string is never dropped, so an empty-string identity stays distinct from an
+  absent one rather than silently aliasing it. Pure and stable: the same
+  accepted identity yields the same token on every render and after a list
+  reorder, and nothing is allocated, counted or policed."
   [part]
   (when (some? part)
     (if (string? part)
       (dom-escape part)
-      (if (ordered-identity? part)
+      (if (accepted-identity? part)
         (str "_v_" (dom-escape (pr-str part)))
         (throw (ex-info
-                 (str "acme.ui: a field identity must be a value whose print "
-                      "is its identity — an atom or an ordered collection of "
-                      "them — but got an unordered collection: " (pr-str part)
-                      ". A map's or set's `=` ignores an element order its "
-                      "printed id cannot, so this identity could point two "
-                      "controls at two different error regions for one "
-                      "instance. Use an ordered identity such as a vector.")
+                 (str "acme.ui: a field identity must be one of the shapes this "
+                      "library encodes injectively — a string, a keyword, an "
+                      "integer, or a vector of them — but got: " (pr-str part)
+                      ". That shape has no canonical, type-unique print (a "
+                      "list prints unlike its equal vector; a symbol or boolean "
+                      "can print like a distinct value; a map's or set's `=` "
+                      "ignores an order its print preserves), so an id built "
+                      "from it could point two controls at two error regions for "
+                      "one instance, or two instances at one region. Name the "
+                      "instance with an accepted identity such as a keyword, an "
+                      "integer, or a vector of them.")
                  {:acme.ui/error    :unstable-field-identity
                   :acme.ui/identity part}))))))
 
@@ -293,11 +318,13 @@
   longer collide.
 
   The library trusts the caller's identity to be distinct — exactly as the
-  buffered controller trusts its `:control` address (D004) — and requires
-  only that it be order-stable, so its id is the same across a rerender and a
-  list reorder. It allocates, counts and polices nothing; an identity whose
-  print is not its identity (an unordered map or set) is refused loudly by
-  `id-token` rather than given an ambiguous id."
+  buffered controller trusts its `:control` address (D004) — and requires only
+  that it name an instance with an ACCEPTED shape (a string, keyword, integer,
+  or vector of them), so its id is injective and the same across a rerender and
+  a list reorder. It allocates, counts and polices nothing; an identity outside
+  that closed roster — one whose print is not a canonical, type-unique
+  identity, such as a list, a symbol, a boolean, or an unordered map or set — is
+  refused loudly by `id-token` rather than given an ambiguous id."
   [prefix & parts]
   (str/join "-" (concat [prefix] (keep id-token parts) ["error"])))
 
