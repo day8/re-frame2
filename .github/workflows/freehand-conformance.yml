@@ -43,6 +43,7 @@ on:
     branches: [main]
     paths:
       - 'spec/conformance/freehand/**'
+      - 'implementation/freehand/test/**'   # the fixture tree the index cites
       - 'scripts/check_freehand_conformance_index.py'
       - 'scripts/check_donor_inventory.py'
       - 'scripts/check_doc_slugs.py'   # supplies the shared slug index
