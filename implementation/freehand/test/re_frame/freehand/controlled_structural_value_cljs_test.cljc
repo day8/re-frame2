@@ -41,21 +41,29 @@
   (dissoc (tree/render body) :rf.ui/tree-version))
 
 #?(:clj
+   (def ^:private params
+     "The bindings the dynamic rows read, so a computed attribute value is a
+     real runtime value in the compiled mode rather than a literal in
+     disguise."
+     '[{:keys [vs flag]}]))
+
+#?(:clj
    (defn- compiled-tree
      "The structural tree a COMPILED declaration answers — the emitted
      lowering, evaluated and called, rather than a claim about the form it
      emitted."
-     [body]
-     (let [lowering (compiler/compile-structural-view
-                      {:form            (list 'v/defview 'subject '[_] body)
-                       :menv            nil
-                       :ns-sym          're-frame.freehand.controlled-structural-value-cljs-test
-                       :vname           'subject
-                       :view-id         ::subject
-                       :params          '[_]
-                       :body            [body]
-                       :children-policy :optional})]
-       ((eval (:body lowering)) {}))))
+     ([body] (compiled-tree body {}))
+     ([body props]
+      (let [lowering (compiler/compile-structural-view
+                       {:form            (list 'v/defview 'subject params body)
+                        :menv            nil
+                        :ns-sym          're-frame.freehand.controlled-structural-value-cljs-test
+                        :vname           'subject
+                        :view-id         ::subject
+                        :params          params
+                        :body            [body]
+                        :children-policy :optional})]
+        ((eval (:body lowering)) props)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The controlled slots, on the supported native controls
@@ -158,3 +166,123 @@
                show here."
        (doseq [{:keys [note body tree]} dropped-rows]
          (is (= tree (compiled-tree body)) (str note " — compiled"))))))
+
+;; ---------------------------------------------------------------------------
+;; The one control whose value is COLLECTION-shaped
+;; ---------------------------------------------------------------------------
+
+(def multiple-select-rows
+  "A native `<select multiple>` is the single element in the DOM whose
+  `value` is not a scalar: what is selected is a LIST of option values.
+  The tree records ORDINARY DATA for it — a Clojure vector whose members
+  took the same conversion every scalar attribute value takes — and
+  turning it into the array React's contract requires is the React
+  emitter's own last step."
+  [{:note "an authored vector of option values is retained, in order"
+    :body '[:select {:multiple true :value ["a" "b"]}]
+    :tree {:tag :select :attrs {:multiple true :value ["a" "b"]}}
+    :literal-collection? true}
+
+   {:note "and its members take the ordinary attribute-value conversion"
+    :body '[:select {:multiple true :value [:a 1]}]
+    :tree {:tag :select :attrs {:multiple true :value ["a" "1"]}}
+    :literal-collection? true}
+
+   {:note "an EMPTY selection is an empty vector, not the empty string"
+    :body '[:select {:multiple true :value nil}]
+    :tree {:tag :select :attrs {:multiple true :value []}}}
+
+   {:note "the aliased value slot takes the same answer, keeping its authored name"
+    :body '[:select {:multiple true :x/value nil}]
+    :tree {:tag :select :attrs {:multiple true :x/value []}}}
+
+   {:note "and the flag is read through the same slot projection, so an alias flags it"
+    :body '[:select {:x/multiple true :value nil}]
+    :tree {:tag :select :attrs {:x/multiple true :value []}}}
+
+   {:note "an explicitly FALSE multiple is a single select — present-false, and the scalar empty"
+    :body '[:select {:multiple false :value nil}]
+    :tree {:tag :select :attrs {:multiple false :value ""}}}
+
+   {:note "an empty authored vector is already the empty selection"
+    :body '[:select {:multiple true :value []}]
+    :tree {:tag :select :attrs {:multiple true :value []}}
+    :literal-collection? true}])
+
+(deftest a-multiple-selects-value-is-collection-shaped-in-the-tree
+  (testing "The empty value is the fact `multiple` decides, and it is
+            decided once for the whole element — from either attribute
+            source, because a compiled element's flag may be a literal the
+            compiler folded or a value only the render knows."
+    (doseq [{:keys [note body tree]} multiple-select-rows]
+      (is (= tree (interpreted-tree body)) (str note " — interpreted")))))
+
+#?(:clj
+   (deftest the-compiled-tree-agrees-about-the-collection-shape
+     (testing "One canonicaliser, so a compiled declaration answers the tree
+               its interpreted twin answers. The rows carrying a LITERAL
+               collection are absent on purpose — the compiled analyzer
+               refuses a literal collection attribute value before either
+               emitter sees it, which is a rule of its own and not this
+               canonicaliser's — so what is proved here is every shape a
+               compiled declaration can actually reach."
+       (doseq [{:keys [note body tree]} (remove (fn [{:keys [literal-collection?]}]
+                                                  literal-collection?)
+                                                multiple-select-rows)]
+         (is (= tree (compiled-tree body)) (str note " — compiled"))))))
+
+#?(:clj
+   (deftest the-compiled-tree-settles-the-collection-shape-at-render
+     (testing "The two facts a compiler cannot always see — the selection
+               itself, and whether the select is MULTIPLE — are both
+               ordinary runtime values, and the canonicaliser reads them from
+               the same slot whichever mode put them there."
+       (is (= {:tag :select :attrs {:multiple true :value ["a" "b"]}}
+              (compiled-tree '[:select {:multiple true :value vs}] {:vs ["a" "b"]}))
+           "a computed selection reaches the tree as ordinary data")
+       (is (= {:tag :select :attrs {:multiple true :value []}}
+              (compiled-tree '[:select {:multiple flag :value nil}] {:flag true}))
+           "and a computed `multiple` still decides what EMPTY means")
+       (is (= {:tag :select :attrs {:multiple false :value ""}}
+              (compiled-tree '[:select {:multiple flag :value nil}] {:flag false}))
+           "including when it decides the element is a single select"))))
+
+(def refused-collection-rows
+  "The collection values that stay REFUSED. Widening one host element's
+  `value` slot is not a general collection-attribute grammar, and a set is
+  refused even there: the tree is ONE value on two hosts, and a set's read
+  order is not something the JVM and ClojureScript agree on."
+  ['[:div {:value ["a"]}]
+   '[:input {:value ["a"]}]
+   '[:select {:multiple true :value #{"a"}}]
+   '[:select {:multiple true :value {:a 1}}]
+   '[:select {:multiple true :title ["a"]}]
+   '[:select {:multiple true :value ["a" ["b"]]}]])
+
+(deftest an-ordinary-collection-attribute-value-is-still-refused
+  (testing "The exception is ONE slot on ONE tag. Everywhere else a
+            collection has no attribute spelling, and inside the exception
+            the members take the same closed scalar grammar."
+    (doseq [body refused-collection-rows]
+      (let [ex (try (interpreted-tree body)
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
+        (is (some? ex) (str (pr-str body) " is refused"))
+        (when ex
+          (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex)))
+              (str (pr-str body) " — the walk's existing diagnostic, not a new one")))))))
+
+(deftest a-single-selects-scalar-value-is-untouched
+  (testing "The control that makes the widening mean something. A `<select>`
+            with no `multiple` keeps exactly the scalar behaviour it had —
+            the empty string for an explicit nil, and an ordinary
+            conversion for a value."
+    (is (= {:tag :select :attrs {:value ""}}
+           (interpreted-tree '[:select {:value nil}])))
+    (is (= {:tag :select :attrs {:value "a"}}
+           (interpreted-tree '[:select {:value "a"}])))
+    (is (= {:tag :select :attrs {:multiple true :value "a"}}
+           (interpreted-tree '[:select {:multiple true :value "a"}]))
+        "a scalar on a multiple select is still an ordinary scalar here — the
+         shape mismatch is React's own diagnostic, at the boundary that has
+         the contract")))

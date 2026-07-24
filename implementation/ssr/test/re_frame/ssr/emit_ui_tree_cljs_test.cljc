@@ -440,6 +440,32 @@
              (v1 {:tag :select
                   :attrs {:value "b"}
                   :children [{:tag :option :attrs {:value "a"} :children ["A"]}
+                             {:tag :option :attrs {:value "b"} :children ["B"]}]})))))
+  (testing "a MULTIPLE select's :value is a COLLECTION, and selects every option it names"
+    ;; The one tree attribute value that is not a scalar: a `<select multiple>`'s
+    ;; selection is the list of chosen option values. Comparing the collection
+    ;; itself against each option marked NOTHING, so a server render dropped the
+    ;; whole selection and its hydrating client immediately disagreed with it.
+    (is (= (str "<select multiple=\"\">"
+                "<option selected=\"\" value=\"a\">A</option>"
+                "<option value=\"b\">B</option>"
+                "<option selected=\"\" value=\"c\">C</option>"
+                "</select>")
+           (ui-tree/emit-ui-tree
+             (v1 {:tag :select
+                  :attrs {:multiple true :value ["a" "c"]}
+                  :children [{:tag :option :attrs {:value "a"} :children ["A"]}
+                             {:tag :option :attrs {:value "b"} :children ["B"]}
+                             {:tag :option :attrs {:value "c"} :children ["C"]}]})))))
+  (testing "and the EMPTY selection selects none of them"
+    (is (= (str "<select multiple=\"\">"
+                "<option value=\"a\">A</option>"
+                "<option value=\"b\">B</option>"
+                "</select>")
+           (ui-tree/emit-ui-tree
+             (v1 {:tag :select
+                  :attrs {:multiple true :value []}
+                  :children [{:tag :option :attrs {:value "a"} :children ["A"]}
                              {:tag :option :attrs {:value "b"} :children ["B"]}]}))))))
 
 ;; ---------------------------------------------------------------------------

@@ -85,14 +85,18 @@
   o)
 
 (defn ^:no-doc attr!
-  "Write one runtime-valued attribute under the rules the interpreted
-  walk applies to the same value — including the one that cannot be
-  settled at build time: a nil value is an ABSENT attribute, except on a
-  controlled input's own slots, where absence is React's signal for
-  UNCONTROLLED."
-  [o tag k v]
-  (fr/put-attr! o tag k v)
-  o)
+  "Write one attribute the compiler did not fold, under the rules the
+  interpreted walk applies to the same value — including the two it could
+  not settle at build time: a nil value is an ABSENT attribute, except on
+  a controlled input's own slots where absence is React's signal for
+  UNCONTROLLED; and a `<select multiple>`'s EMPTY value is the empty
+  ARRAY, not the empty string.
+
+  `multiple?` is the element's multiple-select verdict, resolved at build
+  time from the declaration's own `multiple` and passed as the constant it
+  is."
+  ([o tag k v] (fr/put-attr! o tag k v false) o)
+  ([o tag k v multiple?] (fr/put-attr! o tag k v multiple?) o))
 
 (defn ^:no-doc handler!
   "Attach a committed handler site's stable proxy, when the site carries

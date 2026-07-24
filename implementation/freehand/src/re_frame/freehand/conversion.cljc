@@ -268,6 +268,32 @@
     (boolean? v) v
     :else        ::reject))
 
+(defn select-value
+  "One authored `<select>` `value` in semantic space, or `::reject` when it
+  is outside the grammar — the ONE attribute whose value may be
+  COLLECTION-shaped.
+
+  A native `<select multiple>`'s value is not a scalar: what is selected
+  is the LIST of chosen option values, and the host contract says so. So
+  a SEQUENTIAL value converts member by member through [[attr-value]] —
+  `[:a \"b\" 3]` is `[\"a\" \"b\" \"3\"]`, one grammar, no second value
+  table — and anything else takes [[attr-value]] whole, which is what
+  keeps an ordinary single select exactly as it was.
+
+  SEQUENTIAL and not merely collection-shaped. A set is the tempting
+  spelling for a selection and it is refused, because the tree is ONE
+  value on two hosts: a set has no order, so the vector read out of one
+  can differ between the JVM and ClojureScript, and a declaration would
+  answer two trees. A map is refused for having no members to convert."
+  [v]
+  (if (sequential? v)
+    (reduce (fn [acc x]
+              (let [s (attr-value x)]
+                (if (= ::reject s) (reduced ::reject) (conj acc s))))
+            []
+            v)
+    (attr-value v)))
+
 (defn handler-key?
   "Is `k` a handler-position key? The grammar is the `on-` prefix followed
   by a hyphen, so `:on-click` is a handler site and `:online` is an

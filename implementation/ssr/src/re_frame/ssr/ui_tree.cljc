@@ -710,7 +710,7 @@
     (str reason " (at tree path " (pr-str path) ")")
     {:extra (assoc extra :path path)}))
 
-(declare emit-node mark-selected)
+(declare emit-node mark-selected selected-values)
 
 (defn- emit-children
   "Emit a children vector, threading each child's root-relative path so a
@@ -900,7 +900,7 @@
                             (escape-html cv) "</" tag-name ">"))
       :else
       (let [children (if (some? sel-val)
-                       (mark-selected (:children el) (coerce-val sel-val))
+                       (mark-selected (:children el) (selected-values sel-val))
                        (:children el))]
         ;; rf2-z05di — <pre>/<listing>/<textarea> with a single string child
         ;; beginning with LF get the one compensating LF react-dom/server emits.
@@ -915,23 +915,36 @@
   [node]
   (apply str (map #(if (string? %) % (node-text %)) (:children node))))
 
+(defn- selected-values
+  "The SET of option values a `<select>`'s tree `:value` selects.
+
+  A scalar selects one option. A native `<select multiple>` carries a
+  COLLECTION — its selection is the list of chosen option values, which is
+  the one attribute value in the tree that is not a scalar — and selects
+  every option named in it. Both answer a set, so the marking below is one
+  membership test rather than two shapes of comparison."
+  [sel-val]
+  (if (vector? sel-val)
+    (into #{} (map coerce-val) sel-val)
+    #{(coerce-val sel-val)}))
+
 (defn- mark-selected
   "The `:value`-on-`:select` row: inject `:selected true` into the option
-  child(ren) whose value (their `:value` attr, else their text content)
-  matches `sel-val`. Recurses into non-option element children (e.g.
+  child(ren) whose value (their `:value` attr, else their text content) is
+  in `selected`. Recurses into non-option element children (e.g.
   `:optgroup`). Mirrors `re-frame.ui.semantic/mark-selected-options`, at the
   raw-tree (author-space) level."
-  [children sel-val]
+  [children selected]
   (mapv (fn [c]
           (cond
             (and (map? c) (= :option (:tag c)))
             (let [ov (coerce-val (or (get-in c [:attrs :value]) (node-text c)))]
-              (if (= ov sel-val)
+              (if (contains? selected ov)
                 (assoc-in c [:attrs :selected] true)
                 c))
 
             (and (map? c) (:tag c) (:children c))
-            (assoc c :children (mark-selected (:children c) sel-val))
+            (assoc c :children (mark-selected (:children c) selected))
 
             :else c))
         children))
