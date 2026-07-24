@@ -27,7 +27,7 @@ That rule is the whole page; everything below is it, unpacked four times.
 
 ??? info "For JavaScript developers"
 
-    You already make this call — you just make it across four separate libraries. A selector (reselect) for a derived value, Redux for store state, TanStack Query for the server cache, XState for process state. re-frame2 keeps those same four territories inside one framework: one mental model instead of four, one trace stream instead of four devtools panels. As each home comes up below, we'll point at the JS tool it stands in for.
+    You already make this call — you just make it across four separate libraries. A selector (reselect) for a derived value, Redux for store state, TanStack Query for the server cache, XState for process state. re-frame2 keeps those same four territories inside one framework: one model instead of four, one trace stream instead of four devtools panels. As each home comes up below, we'll point at the JS tool it stands in for.
 
 ??? info "From re-frame v1"
 
@@ -35,9 +35,7 @@ That rule is the whole page; everything below is it, unpacked four times.
 
 ## One value, four homes: the cart
 
-The fastest way to feel the four questions is to follow a single value as a feature grows up — because a value moves house the way people do. It starts out owning nothing, recomputed fresh whenever anyone asks. Then it needs a fixed address other code can find it at. Then it's dealing with a landlord on another continent who can change the place while you're out. And eventually it has house rules, a timer on the porch light, and a homeowners' association with opinions about which room may follow which.
-
-Too much? Fine. Watch a shopping cart do it instead.
+The fastest way to feel the four questions is to follow a single value as a feature grows up. A value starts as a pure recompute. Then a handler needs it as data. Then the data comes from a server. Then you're modelling a process, not a number. Watch a shopping cart do it.
 
 ### Question 1 — can you recompute it? Then it's a subscription
 

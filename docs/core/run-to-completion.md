@@ -13,10 +13,10 @@ This page is **operational detail**: what happens when a drain runs away, how
 ## When the drain won't stop
 
 What if a handler dispatches an event whose handler dispatches the first one again?
-Stagehands queueing stagehands forever — a curtain that never rises. The runtime
-won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events
-one drain may process (default `100`). When a drain reaches it, the runtime stops
-with a loud, machine-readable [error record](glossary.md#error-record):
+A cycle that never finishes. The runtime won't let it. Each frame carries a
+**`:drain-depth`** — the maximum number of events one drain may process (default
+`100`). When a drain reaches it, the runtime stops with a loud, machine-readable
+[error record](glossary.md#error-record):
 
 ```clojure
 {:operation :rf.error/drain-depth-exceeded

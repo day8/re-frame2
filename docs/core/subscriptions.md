@@ -13,12 +13,9 @@ derivation that turns facts into a conclusion, and re-runs only when it must.
 > **A UI is derived data. Subscriptions are how you name and share those
 > derivations.**
 
-**On this page — two speeds.**
-
-1. **Day one** (through the prune demo): derive-don't-store, what a subscription is,
-   layered graphs, the equality gate. **Stop there and ship.**
-2. **Going further**: argument-dependent inputs, metadata, lifecycle, framework
-   subs, wrong tool, recovery. Open a section only when a need appears.
+Through the prune demo you get derive-don't-store, what a subscription is, layered
+graphs, and the equality gate — enough to ship. Argument-dependent inputs, metadata,
+lifecycle, framework subs, wrong-tool cases, and recovery live under Advanced.
 
 ## Don't Store What You Can Derive
 
@@ -30,8 +27,8 @@ app-db and keep it updated alongside the value.
 
 Don't.
 
-Odd-or-even isn't a new *fact*. It's a *consequence* of a fact you already have,
-and two copies of one truth is two chances to disagree. Derive it, live:
+Odd-or-even isn't a new *fact*. It's a *consequence* of a fact you already have.
+Two copies of one truth is two chances to disagree. Derive it, live:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
@@ -68,7 +65,7 @@ over it. That `:<-` line declares the dependency, and because the framework *kno
 the dependency, `:parity` recomputes only when `:value` changes, and anything
 watching `:parity` re-renders only when the *answer* changes.
 
-Hold onto the spreadsheet. It's the metaphor for the rest of the page.
+The spreadsheet is the metaphor for the rest of the page.
 
 ## What Is a Subscription, Exactly?
 
@@ -97,7 +94,7 @@ the sub destructures it from the same vector it was called with:
 ```
 
 Now, that little `@`. It is doing two jobs, and the second one is the entire trick
-of reactive programming, so let's not rush past it. Job one: unwrap the reactive
+of reactive programming, so don't rush past it. Job one: unwrap the reactive
 reference to a plain value. Job two: register the deref-ing view as a *dependent*,
 so the view re-renders when — and only when — that value changes.
 
@@ -139,10 +136,10 @@ repeated subscribes share one slot.
 
 Coming from Redux? A subscription is a selector — Reselect's `createSelector` with
 the memoisation built in. From Solid or Jotai? A derived signal. Three deliberate
-differences, all in your favour: subscriptions are *named* in a registry, so tools
-can draw the whole graph without running your app; change detection is deep value
-equality (`=`), never reference identity; and dependencies are declared as data,
-not discovered by watching a function run.
+differences: subscriptions are *named* in a registry, so tools can draw the whole
+graph without running your app; change detection is deep value equality (`=`),
+never reference identity; and dependencies are declared as data, not discovered by
+watching a function run.
 
 ## Three Layers, One Graph
 
@@ -191,13 +188,12 @@ Read `:<-` as "this sub's input comes from". Notice what changed between layers:
 deliver a vector, destructured above as `[items category]`. That's the only
 wrinkle in the syntax. Once you've seen it, you've seen it.
 
-And notice something quieter: the *shape of the registration* is the *shape of the
-graph*. `(fn [db _] ...)` is an extractor by construction. `:<-` is a composer by
-construction. The framework can read the registry and know your entire topology as
-data — which is exactly how [Xray](glossary.md#xray) draws your subscription
-graph without executing a single computation function (`re-frame.subs.tooling/sub-topology`
-is a literal read of the registry). Declared dependencies, not discovered ones.
-This will be a theme.
+The *shape of the registration* is the *shape of the graph*. `(fn [db _] ...)` is
+an extractor by construction. `:<-` is a composer by construction. The framework
+can read the registry and know your entire topology as data — which is exactly how
+[Xray](glossary.md#xray) draws your subscription graph without executing a single
+computation function (`re-frame.subs.tooling/sub-topology` is a literal read of the
+registry). Declared dependencies, not discovered ones.
 
 ## The Equality Gate
 
@@ -206,14 +202,13 @@ I said the graph is fast without tuning. Here is the entire mechanism. One rule:
 > **A subscription's cached value is invalidated only when one of its inputs
 > actually changes value — checked with `=`, deep value equality.**
 
-I'll pause while you read that again. It's the load-bearing sentence of this page.
+That rule is what makes layered subs cheap. Walk it through.
 
-Walk it through. App-db changes. The layer-1 extractors re-run — all of them, every
-time, because app-db is their input. Each one's new output is compared with its
-previous output by `=`. If the slice didn't change, the cached value stands and
-**propagation stops right there**. Downstream subs don't re-run. Views don't
-re-render. Nothing past the unchanged extractor even learns an
-[event](glossary.md#event) happened.
+App-db changes. The layer-1 extractors re-run — all of them, every time, because
+app-db is their input. Each one's new output is compared with its previous output
+by `=`. If the slice didn't change, the cached value stands and **propagation stops
+right there**. Downstream subs don't re-run. Views don't re-render. Nothing past
+the unchanged extractor even learns an [event](glossary.md#event) happened.
 
 That makes layer 1 a **circuit breaker** for everything behind it. Change
 `:cart/category-filter` and the `:cart/items` extractor re-runs, sees its slice is
@@ -314,8 +309,6 @@ with [Xray](glossary.md#xray) attached (one-line setup:
 event row, and open the **Views** tab: `:cart/count-label` is marked as the
 re-render's trigger while `:cart/currency-label` sits beside it, unmarked.
 
-## Day-one checklist
-
 You can:
 
 - keep facts in app-db and **derive** conclusions in named subs;
@@ -328,7 +321,7 @@ That is enough for real screens. The sections below are optional depth.
 
 ---
 
-## Going further
+## Advanced
 
 ## When the Inputs Depend on the Arguments
 
@@ -546,10 +539,9 @@ is [Where should this value live?](where-state-lives.md):
     `useQuery` both fetches and derives. re-frame2 splits those: resources own
     fetch-cache-invalidate; subscriptions derive over state already in hand.
 
-## When Things Go Wrong
+## Troubleshooting
 
-Three corners you won't need on day one. You'll want them the day something goes
-sideways, so here they are.
+Three corners you can skip until something goes sideways — then you'll want them.
 
 **A computation throws.** A `nil` where you assumed a map; a divide-by-zero in a
 derived total. re-frame2 treats it as a [fail-loud](glossary.md#fail-loud-not-silent)

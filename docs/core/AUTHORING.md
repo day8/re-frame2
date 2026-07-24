@@ -40,13 +40,14 @@ below, know *why*.
    `mkdocs.yml`). Readers already get a left sidebar, section nesting, and
    prev/next from that build — do **not** re-implement navigation on the page.
    No "What's next" / "You can now" footers; no mini-TOCs that restate the left
-   nav. Useful cross-links go inline where relevant. A **day-one checklist** (what
-   the reader can do *now*) is not ceremony; a list of later chapters is.
+   nav. Useful cross-links go inline where relevant. A short "you can ship with
+   this" recap is not ceremony; a list of later chapters is.
 
 ## Voice
 
-One persona: a **friendly senior developer**, simple and direct. Register shifts by
-page kind; the person doesn't:
+One persona: a **friendly senior developer** — simple, direct, a little Yegge on
+teaching pages. Tight prose, not terse telegram. Register shifts by page kind; the
+person doesn't:
 
 | Register | Where |
 |---|---|
@@ -55,17 +56,34 @@ page kind; the person doesn't:
 | Argument | explanation shelf |
 | Terse reference | glossaries, `docs/api/` — boring on purpose |
 
-The test: would it sound natural said aloud, and could a tired engineer follow it at
-11pm? The reader knows React or Redux; meet them as a colleague.
+**Why "senior".** Not status — a **vocabulary filter**. Write the words a working
+senior would actually say in a PR review, stand-up, or whiteboard session. Domain
+terms and ordinary engineering English are in (`app-db`, coeffect, handler, queue,
+pure, race). Abstract coinages and consultant/AI-ish intensifiers are out when
+they aren't common human usage for that idea. If a tired colleague would raise an
+eyebrow at the *word choice* (not the concept), rephrase with the plain mechanism.
+
+The test: say it aloud at 11pm. Would a peer nod, or ask what you meant by the
+metaphor? The reader knows React or Redux; meet them as a colleague.
+
+Prefer operational claims ("X does Y / fails with Z") over status language ("this
+is the foundational / load-bearing / pivotal …"). Name the thing: boundary, API,
+handler, error id — not spine, seam, surface area, heart of the system, unless that
+phrase is already a re-frame term of art.
+
+**Yegge seasoning (teaching pages only).** Blunt, peer-to-peer, occasionally savage
+about *bad ideas*. Humor earns its keep by making a real failure mode stick — not by
+decorating. Shape: true claim → short rephrase with teeth → operational rule. One
+jab, then back to business. Keep the attitude; drop digressions and war-story length.
+If the sentence is only funny, cut it. A precise claim must survive if you delete the
+joke. **Never trade precision for charm.**
 
 Owned opinions are fine ("two copies of one truth is two chances to disagree");
 invented personal biography is not. Explain a short *why* after instructions. One
-committed metaphor per concept. Humor is seasoning in teaching registers only —
-escalate-then-deflate, then straight prose; the sentence must survive the joke's
-deletion. **Never trade precision for charm.**
+committed metaphor per concept — only if a senior would use it unprompted.
 
-Gloss load-bearing terms (`app-db`, frame, coeffect, …) at first use in a few plain
-words. Don't pack the reader off mid-flow for a basic word.
+Define key terms (`app-db`, frame, coeffect, …) at first use in a few plain words.
+Don't pack the reader off mid-flow for a basic word.
 
 ## What a concept page must carry
 
@@ -75,16 +93,34 @@ corpora) are incomplete until they have all five:
 | Piece | Role |
 |---|---|
 | **Problem open** | One or two sentences: what pain, what job |
-| **Happy path** | Working code first (live cell when it teaches more than reading) |
-| **Day-one stop** | Checklist or hard "Going further" break — reader may ship here |
-| **Unhappy path** | Short table: symptom → named error/recovery → fix |
+| **Required path** | Working code first (live cell when it teaches more than reading). This *is* the page — do not label it "basics" or "day one" |
+| **Troubleshooting** | Short table: symptom → named error/recovery → fix. Prefer this heading over "When things go wrong" |
 | **When *not*** | Situations where another tool is better (or "this is rare") |
+| **Advanced (if any)** | Optional depth after the reader can ship — only when the page needs it. Heading: **`## Advanced`** (not "Going further", "Day one", or "Basics") |
 
 Missing "when not" and missing named errors are the two most common ways a page
 looks finished and still strands the reader at 11pm.
 
-**Do not** bury the day-one payload under migration notes, full config maps, or
-optional forms. Collapse those (`??? note` / `??? info`) or put them after the stop.
+**Do not** bury what the reader must know under migration notes, full config maps,
+or optional forms. Collapse those (`??? note` / `??? info`) or put them after the
+required path — at the end under `## Advanced` if needed.
+
+### Don't label the required path
+
+The body of the page is what they have to know. No "Day one", "Basics",
+"Essential", or "Day-one checklist" banner over material that is simply the job of
+the page. If a short ship recap helps, write it as ordinary prose or bullets —
+not a second curriculum track. Optional depth goes at the end under **`## Advanced`**
+(or a specific topic heading). "Going further" is the old name for Advanced; use
+**Advanced**.
+
+### Standard headings (when present)
+
+| Use | Not |
+|---|---|
+| `## Troubleshooting` | "When things go wrong", "Unhappy path" |
+| `## Advanced` | "Going further", "Day one / Going further" two-speed openers |
+| (no label) | "Basics", "Day-one checklist", "Essential" |
 
 ## Progressive pacing
 
@@ -92,16 +128,19 @@ Teach like a good tutorial, not like a reference dump with anecdotes.
 
 1. **Happy path first.** One growing example (counter for pure Core; domain noun
    for batteries) that adds exactly one idea per step.
-2. **Two speeds on long pages.** Near the open: *"Day one: … Going further: … Open
-   a section only when a need appears."* Then a real structural break
-   (`## Day-one checklist` / `---` / `## Going further`), not a polite promise.
-3. **Unhappy paths as vocabulary tables**, not essays. Prefer
+2. **Required, then optional.** Long pages put what you need to ship first. Optional
+   depth (full config maps, Form-2/3, chain algebra, mint policies) comes **after**
+   under `## Advanced` — not a polite promise mid-page, not a "day one vs later
+   career" frame. Skip two-speed openers ("Day one: … Going further: …"); the
+   structure of the page does that job.
+3. **Troubleshooting as tables**, not essays. Prefer
    `:rf.error/no-such-handler` over "things might fail quietly." Recovery belongs
-   in the same row as the error.
+   in the same row as the error. Heading: **Troubleshooting**.
 4. **Depth is earned.** Argument-dependent input-fns, Form-2/3, full frame-config,
-   mint policies, interceptor chain algebra — after the stop, or collapsed.
-5. **Length is a smell, not a rule.** If day-one is still not visible after a scroll
-   of essay, the page is two pages or one page with a missing break.
+   mint policies, interceptor chain algebra — after the required path, or collapsed.
+5. **Length is a smell, not a rule.** If the reader still cannot ship after a scroll
+   of essay, the page is two pages or one page with optional depth mixed into the
+   required path.
 
 ### Slim model vs catalogue
 
@@ -176,7 +215,7 @@ mini-TOC of the whole guide.
 
 **Delta teaching.** Domain pages name the ecosystem anchor (Redux, TanStack Query,
 XState, re-frame v1, …) and the deliberate divergences. Persona deltas are collapsed
-`??? info` callouts — short, never load-bearing. A v1 callout is earned only where
+`??? info` callouts — short, never required reading. A v1 callout is earned only where
 the v1 instinct *misleads*; most pages need zero. Retired v1 surfaces
 (`inject-cofx`; the retired/renamed `:rf.world/inputs` → flat `:rf.cofx` map)
 appear **only** on the [migration page](25-from-re-frame-v1.md), marked
@@ -216,9 +255,9 @@ Use MkDocs admonitions, not bold-lead blockquotes, for asides:
 Budget them. Three boxes in a row means the prose is hiding structure. A page that
 is more box than prose has inverted itself.
 
-Teaching pages benefit from **one** load-bearing takeaway a reader could quote
-later. Prefer a single `> **…**` pull-quote near the open. That's craft, not a lint
-rule — better one clear sentence in prose than a forced slogan.
+Teaching pages benefit from **one** quotable takeaway — the sentence that sticks.
+Prefer a single `> **…**` pull-quote near the open. That's craft, not a lint rule —
+better one clear sentence in prose than a forced slogan.
 
 ## Reference
 
@@ -249,8 +288,8 @@ examples compile gate covers them.
 
 - [ ] One job, clear open; no `spec/` links
 - [ ] Happy path works (snippets true); anti-patterns labeled, not demoed as success
-- [ ] Day-one stop present on concept pages; going-further is actually after it
-- [ ] Unhappy-path table (or equivalent) with verified `:rf.error/*` / recovery ids
+- [ ] Required path is the unlabeled body; optional/advanced is after it (if any)
+- [ ] Troubleshooting table (or equivalent) with verified `:rf.error/*` / recovery ids
 - [ ] "When not" stated where a feature can be misapplied
 - [ ] Callouts not a wall of boxes; catalogue weight pushed to API if the page bloats
 - [ ] Pure-pipeline cells: `frame-root` + `reg-view` + named initialise (unless Frames is the topic)

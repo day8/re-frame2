@@ -13,9 +13,7 @@ The answer is the [**image**](glossary.md#image):
 
 > **An image is which registrations are loaded; a frame is the live run that resolves against them.**
 
-Don't skim past that one — it's the sentence this page hangs off, and everything below is the same line in different costumes.
-
-If you want something concrete to hold, hold a theatre. The image is the script: which characters exist, what their lines are. The frame is tonight's performance: live, on stage, with its own history of everything that has already happened. One script can play on two stages at once. Two different scripts can both contain a character called the King. Keep the theatre; the rest of the page will use it.
+If you want something concrete to hold: the image is the script (which characters exist, what their lines are). The frame is tonight's performance — live, on stage, with its own history. One script can play on two stages at once. Two different scripts can both contain a character called the King. Keep the theatre lightly; the rest of the page will use it sparingly.
 
 We'll build the idea up one step at a time, starting from code you've already written without realising an image was there at all.
 
@@ -34,7 +32,7 @@ Here is ordinary re-frame2. No image in sight:
 
 Those `reg-*` forms don't *run* anything. They write entries into the [**registrar**](glossary.md#registrar) — the process-global table holding every [registration](glossary.md#registration) you've authored, each tagged with the namespace it was written in (its registration source, `:rf.provenance/*`). Nothing has executed yet. You've just filled the registrar.
 
-When you then create a frame *without* naming an image, that frame resolves every lookup straight against the whole registrar — "everything I've registered." That implicit all-of-it selection is the **default image**: the conceptual zero-config selection you get for free. So an image, at its simplest, is just a *selection from the registrar*. The default selects all of it.
+When you then create a frame *without* naming an image, that frame resolves every lookup straight against the whole registrar — "everything I've registered." That implicit all-of-it selection is the **default image**: the zero-config selection you get for free. So an image, at its simplest, is just a *selection from the registrar*. The default selects all of it.
 
 !!! note "Heads-up — the default image is a real sealed generation"
 
@@ -52,7 +50,7 @@ One clarification before we move on, because the name invites the mistake: "defa
 
 The default image works only while ids are globally unique across everything that's loaded. The moment two loaded namespaces register the same `(kind, id)` with *different* implementations — two surfaces that both define `:counter/inc`, say — the default image refuses to assemble. The error names the colliding kind/id and both source namespaces.
 
-That refusal is a feature. Read it as one. The registrar kept *both* descriptors, and assembly won't guess which one wins. You have three explicit ways out, and we'll meet each below: rename one id; narrow each frame to its own slice with an explicit image; or compose a later image that declares an exact replacement winner. The one thing the framework will not do is silently pick a survivor and move on.
+That refusal is a feature. The registrar kept *both* descriptors, and assembly won't guess which one wins. You have three explicit ways out, and we'll meet each below: rename one id; narrow each frame to its own slice with an explicit image; or compose a later image that declares an exact replacement winner. The one thing the framework will not do is silently pick a survivor and move on.
 
 ??? info "From re-frame v1"
 
@@ -184,11 +182,11 @@ The reader sees one small vocabulary evolve across lessons instead of `:counter-
 
 ## The shape of every image decision
 
-Every situation on this page — every single one — reduces to one decision. An image holds *behaviour*: the registrations. A frame holds *state and history*: its own [app-db](glossary.md#app-db), evolving as events run. So:
+Every situation on this page reduces to one decision. An image holds *behaviour*: the registrations. A frame holds *state and history*: its own [app-db](glossary.md#app-db), evolving as events run. So:
 
 **Different behaviour means a different image; the same behaviour with a different lived history means the same image, just a different frame.**
 
-Two surfaces on one page? That rule. A tool inspecting a live app? That rule. Test doubles, library packaging, story canvases, progressive lessons, the thing you're building right now that isn't on this list? The rule, the rule, the rule, probably the rule. ...All right. One rule doesn't need a chant. Watch it produce every shape instead:
+That rule covers the shapes you'll actually meet:
 
 - **Two surfaces on one page.** A cart surface and a counter surface that both want simple local ids (`:boot/init`, `:item/add`). Give each its own image with disjoint `:select-ns` selectors; each frame resolves only its own.
 - **An inspection tool beside its target.** [Xray](glossary.md#xray) is itself a running surface with its own events, subs, and app-db paths. Run it in its own image and frame, and let it inspect the target frame *as data* — the tool never has to coordinate ids with the thing it inspects.
@@ -300,9 +298,9 @@ To override an existing `(kind, id)`, define the winning registration in a *late
 ;; => [{:registration [:fx :checkout.http/post] :image :app/main :shadowed-by :test/doubles}]
 ```
 
-The stub is an understudy: same part — `:checkout.http/post` — different actor, and the stage manager's log (the shadow report) says exactly who went on. An override is always a *separate* image, never a second key in the same one. A cross-image shadow resolves (later wins) and is reported; you read the report and apply whatever policy you want.
+The stub is an understudy: same part — `:checkout.http/post` — different actor, and the shadow report says exactly who went on. An override is always a *separate* image, never a second key in the same one. A cross-image shadow resolves (later wins) and is reported; you read the report and apply whatever policy you want.
 
-One boundary is absolute, so hear it plainly: **you cannot override a framework standard.** The one cross-image collision that still fails assembly is an app registration colliding with a framework standard. If it's application-owned, define the winner in a later image and read the shadow report. But if it's *how the frame executes registered entries* — queue ordering, the interceptor algorithm, app-db commit semantics — that's a protected standard (`:rf.error/image-standard-replacement-forbidden`), and no app image may shadow it. A standard encodes an execution invariant, not an app policy choice.
+One boundary is absolute: **you cannot override a framework standard.** The one cross-image collision that still fails assembly is an app registration colliding with a framework standard. If it's application-owned, define the winner in a later image and read the shadow report. But if it's *how the frame executes registered entries* — queue ordering, the interceptor algorithm, app-db commit semantics — that's a protected standard (`:rf.error/image-standard-replacement-forbidden`), and no app image may shadow it. A standard encodes an execution invariant, not an app policy choice.
 
 ## Hot reload swaps the image, keeps the memory
 
@@ -341,6 +339,6 @@ If you want the diff report the old `reload-images!` verb used to return, read `
 
     Re-`make-frame`-ing is the explicit knob; the automatic `reg-*` re-eval path is what you actually lean on. Save a file and the affected frames pick up the change with no call from you. Reach for the explicit re-`make-frame` reload only when you want to swap a frame's *whole composition* deliberately — a test that re-points a running frame at a different image stack, a tool driving a frame through several configurations, a story canvas trading one deck of registrations for another.
 
-And that's the whole shape. The same boundary that lets two examples on one page each own `:counter/inc` is the boundary that survives a file save: the image is a *value*, the runtime can diff two of them, and a frame can trade one for another without forgetting what it has lived through. The script can be revised mid-run; the performance keeps its memory.
+And that's the whole shape. The same boundary that lets two examples on one page each own `:counter/inc` is the boundary that survives a file save: the image is a *value*, the runtime can diff two of them, and a frame can trade one for another without forgetting what it has lived through.
 
-Behaviour is the image. State is the frame. The events are the program. Once those three are separate things, every situation above is one move in different clothes: *different behaviour means a different image; the same behaviour with a different history means the same image with a different frame.*
+Behaviour is the image. State is the frame. The events are the program. Once those three are separate things, every situation above is one move: *different behaviour means a different image; the same behaviour with a different history means the same image with a different frame.*

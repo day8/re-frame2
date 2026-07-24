@@ -1,8 +1,8 @@
 # Events
 
 The [introduction](introduction.md) walked the [event pipeline](glossary.md#event-pipeline)
-once. This page is the **language** of that pipeline: what events look like, how
-you announce them, and what handlers are allowed to do.
+once. This page is the **language** of that pipeline: what events look like, how you
+announce them, and what handlers are allowed to do.
 
 > **Nothing moves without an event. Design the event set and you design the app.**
 
@@ -23,8 +23,8 @@ Ids are the vocabulary of the application. Prefer names that say what *happened*
 implemented.
 
 There is no second channel. Timers, HTTP replies, route loaders, and button clicks
-all speak this shape. That uniformity is why tools can show one timeline for the
-whole app.
+all speak this shape. One shape, one timeline — tools can show the whole app without
+guessing which bus you meant.
 
 ## Dispatch
 
@@ -42,17 +42,17 @@ Inside a `reg-view`, `dispatch` is injected for you (same for `subscribe`):
 ```
 
 **Dispatch does not run the handler.** It enqueues the event on the frame's FIFO
-queue and returns immediately. The runtime dequeues later and runs the full
-pipeline for that event. That separation keeps UI handlers thin and keeps the
-write path single-threaded.
+queue and returns immediately. The runtime dequeues later and runs the full pipeline
+for that event. That split keeps UI handlers thin and keeps the write path
+single-threaded.
 
 ```text
 happens → enqueue → dequeue → event pipeline
 ```
 
 Need the pipeline to finish before your next line of code? Reach for
-`dispatch-sync` only when you must (boot, some interop). Prefer ordinary
-`dispatch` in views. (The full drain story lives with
+`dispatch-sync` only when you must (boot, some interop). Prefer ordinary `dispatch`
+in views. (The full drain story lives with
 [Effects](effects.md#run-to-completion).)
 
 !!! warning "No ambient frame"
@@ -75,7 +75,7 @@ map — at minimum `{:db current-app-db}`) and the event vector, and returns an
     {:db (update db :value inc)}))
 ```
 
-Rules that matter from day one:
+Rules that matter:
 
 1. **Pure.** Same inputs, same returned map. No `js/fetch`, no `swap!`, no reading
    the clock. Impurity is *described* and performed later ([Effects](effects.md);
@@ -85,7 +85,7 @@ Rules that matter from day one:
 3. **The runtime commits.** Your function proposes; the pipeline applies.
 
 A handler may return other effect keys (`:fx`, …) alongside or instead of `:db`.
-It may return no `:db` and leave state alone. The state doctrine lives on
+It may return no `:db` and leave state alone. The state rules live on
 [app-db](app-db.md); the to-do list beyond `:db` lives on [Effects](effects.md).
 
 ### Metadata when you need it
@@ -95,13 +95,11 @@ schemas, required coeffects, interceptors. Until you need that, the two-argument
 form is enough. The first useful metadata form is on
 [Coeffects](coeffects.md).
 
-## Day-one checklist
-
 You can design an event set, dispatch from a view, and write pure handlers that
 return `{:db …}`. Everything else on this page is recovery vocabulary — keep it
 nearby, don't memorise it.
 
-## When things go wrong
+## Troubleshooting
 
 Three failures you will meet early — each is **loud**, named, and recoverable:
 
@@ -111,7 +109,9 @@ Three failures you will meet early — each is **loud**, named, and recoverable:
 | Callback throws from a timer / fetch | Bare `dispatch` outside a frame | `:rf.error/no-frame-context` — carry the frame ([Frames](frames.md)) |
 | Handler can't be unit-tested | You called `js/fetch` / read the clock inside the body | Wrong place for impurity — describe it ([Effects](effects.md), [Coeffects](coeffects.md)) |
 
-Unregistered-id is intentional degrade: a botched feature load must not crash the whole app. The fix is still to register the handler (or fix the typo); the trace names the exact id so you never guess.
+Unregistered-id is intentional degrade: a botched feature load must not crash the
+whole app. The fix is still to register the handler (or fix the typo); the trace
+names the exact id so you never guess.
 
 ## What events are not
 
