@@ -72,39 +72,64 @@
   `:children-policy`."
   #{:key :children})
 
+(defn- authored-schema
+  "The authored schema a published `:props` metadatum denotes, reading through
+  the inert wrapper [[inert-form]] emits.
+
+  A declaration publishes its schema quoted, so nested authored forms are
+  never evaluated. On the host whose analyzer carries Var metadata as a FORM,
+  a compiled parent reads that metadatum as the `(quote …)` the declaration
+  emitted; every other surface — the runtime descriptor projection, JVM Var
+  metadata — has already evaluated the quote away and hands the schema as
+  data, where this is the identity. Stripping exactly one such wrapper is the
+  inverse of publishing it, so the readers below see ONE schema wherever it is
+  read."
+  [schema]
+  (if (and (seq? schema) (= 'quote (first schema)) (= 2 (count schema)))
+    (second schema)
+    schema))
+
 (defn- map-schema-properties
   "The optional properties map of a literal `[:map {…} …]` schema."
   [schema]
-  (when (and (vector? schema) (= :map (first schema)))
-    (let [p (second schema)]
-      (when (map? p) p))))
+  (let [schema (authored-schema schema)]
+    (when (and (vector? schema) (= :map (first schema)))
+      (let [p (second schema)]
+        (when (map? p) p)))))
 
 (defn map-schema?
   "True when `schema` is a LITERAL `[:map …]` — the only shape whose top-level
   keys can be read at compile time. A schema behind a registry reference or a
   runtime expression is opaque here, and an opaque schema closes nothing: a
   guess about keys nobody can see would be worse than the open map it
-  replaced."
+  replaced. Reads through the published inert wrapper ([[authored-schema]])."
   [schema]
-  (and (vector? schema) (= :map (first schema))))
+  (let [schema (authored-schema schema)]
+    (and (vector? schema) (= :map (first schema)))))
 
 (defn inert-form
   "The form a DECLARATION emits to carry `schema` — inert data that yields the
   authored schema itself and never something the author did not write.
 
-  A literal `[:map …]` is already inert: it evaluates to itself, and it stays
-  unwrapped because a compiled parent reads a child's schema off Var metadata
-  at BUILD time, where that metadata is a FORM rather than a value.
+  Every schema is QUOTED, unconditionally. A literal `[:map …]` looks
+  self-evaluating, but only until an entry value is a nested authored FORM —
+  `[:map [:id (do (log!) :int)]]`, a registry reference, a function call. Left
+  unquoted, that form is executable code the declaration runs as it loads:
+  once building the Var metadata and once building the descriptor, publishing
+  the evaluated VALUE in place of the authored form on both surfaces. Quoting
+  the whole schema evaluates the author's expression exactly ZERO times, which
+  is what makes a schema inert data rather than a value the declaration
+  computes.
 
-  Anything else is an EXPRESSION, and evaluating it is how the one decision
-  becomes two. The compiled front end can only ever see the expression, so it
-  reads an opaque schema and leaves the map open; an evaluated expression hands
-  the runtime descriptor a literal `[:map …]` and closes the very same map at
-  render. Quoting keeps ONE schema at every surface — and evaluates the
-  author's expression exactly zero times, which is what makes a schema inert
-  data rather than a value the declaration computes."
+  The compiled front end reads a child's schema off Var metadata at BUILD
+  time, and on the host whose analyzer carries metadata as a FORM it therefore
+  sees this `(quote …)` wrapper; the runtime descriptor projection and JVM Var
+  metadata have already evaluated the quote away and carry the schema as data.
+  [[authored-schema]] reads through the wrapper — the exact inverse of
+  emitting it — so the roster derivation reads ONE schema the same at every
+  surface, and an opaque schema stays opaque there just as it does here."
   [schema]
-  (if (map-schema? schema) schema (list 'quote schema)))
+  (list 'quote schema))
 
 (defn declared-keys
   "The top-level prop keys a literal `[:map …]` schema names, in declaration
@@ -112,14 +137,16 @@
 
   This is the roster for ORDER-sensitive uses — slot layout, comparator
   order, catalogue listings. [[closing-keys]] answers the different question
-  of what the map is closed against."
+  of what the map is closed against. Reads through the published inert wrapper
+  ([[authored-schema]])."
   [schema]
-  (when (map-schema? schema)
-    (let [entries (rest schema)
-          entries (if (map? (first entries)) (rest entries) entries)]
-      (into []
-            (keep #(when (and (vector? %) (keyword? (first %))) (first %)))
-            entries))))
+  (let [schema (authored-schema schema)]
+    (when (map-schema? schema)
+      (let [entries (rest schema)
+            entries (if (map? (first entries)) (rest entries) entries)]
+        (into []
+              (keep #(when (and (vector? %) (keyword? (first %))) (first %)))
+              entries)))))
 
 (defn reserved-declared
   "The [[reserved-keys]] a literal `[:map …]` schema NAMES, in declaration
