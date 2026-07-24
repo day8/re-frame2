@@ -1676,6 +1676,18 @@ otherwise make the substrate unanalysable: the timing is a CLOSED set, the
 commands are a BOUNDED roster, and a command's target is a SEMANTIC ID the caller
 authored. What follows fixes each.
 
+The form is **common to both modes**. A compiled view attaches a behavior and
+stays compiled: the compiled build lowers `[v/behavior {…} node]` to the same
+boundary the interpreted walk mounts, so the registration roster and the use-site
+grammar are one law rather than an interpreted-only one. On the structural host
+both modes project the byte-identical inert marker (§The structural marker); in
+the browser a compiled attachment reaches the same behavior runtime as its
+interpreted twin and runs the same lifecycle — connect, `:update` on moved config,
+its private memory, and disconnect — so the two agree by construction rather than
+through a second implementation. A view that measures — an overlay, a virtualised
+list, anything sizing itself to content through a `:layout` behavior — is
+therefore no longer pinned to the interpreted tier for want of the form.
+
 #### The registration and the closed timing set
 
 `v/defbehavior` registers an implementation under a qualified id derived from the
@@ -1871,10 +1883,13 @@ more names would be three more things to keep true.
 
 #### The structural marker
 
-The JVM has no live node, so a behavior there is an INERT MARKER and says so. The
-boundary renders as an ordinary view-boundary node carrying `:view-id`
-`:re-frame.freehand/behavior` and recording its `:use`, `:target` and `:config`
-as props, with the decorated element as its child. Nothing connects, no memory
+The JVM has no live node, so a behavior there is an INERT MARKER and says so — and
+it says so IDENTICALLY in both modes. The boundary renders as an ordinary
+view-boundary node carrying `:view-id` `:re-frame.freehand/behavior` and recording
+its `:use`, `:target` and `:config` as props, with the decorated element as its
+child; an interpreted declaration and its compiled twin project that same node
+byte for byte — the same view-id, the same public props, the same decorated
+child — connecting nothing either way. Nothing connects, no memory
 exists, and a command is refused with the same channel diagnostic rather than
 pretending to reach a host. A structural test therefore asserts the command's
 DATA — the effect an event handler returned — and the mounted tier proves the
