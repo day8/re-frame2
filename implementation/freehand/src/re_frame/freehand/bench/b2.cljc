@@ -185,6 +185,21 @@
   [views scale]
   (mapv (fn [view] [view scale]) views))
 
+(defn- id-plan
+  "The PUBLISHED form of a mount plan: `[[view-id mount-count] …]`, view
+  IDS rather than descriptors.
+
+  A descriptor prints as a `#re-frame.freehand/view` tagged literal, so a
+  fixture that published the raw plan would force every reader of the
+  evidence artefact to register a tag handler before it could read the
+  file back at all — which no reader of a benchmark artefact expects.
+  The id is the plain datum that names the same declaration and round-trips
+  through `clojure.edn/read-string` with none. It is exactly the id the
+  decomposition line for that declaration carries, so the two published
+  views of a plan name the same declarations."
+  [views scale]
+  (mapv (fn [view] [(:view-id (v/manifest view)) scale]) views))
+
 (defn- verdict
   [view]
   (:view-cell (v/manifest view)))
@@ -252,10 +267,17 @@
 (defn observe
   "Run one B2 iteration over `fixture` and answer its observations: the
   exact omitted-ViewCell count of each arm, read off the manifests the
-  plan's declarations carry."
-  [{:keys [free-plan read-plan]}]
-  {:B2/free-arm-omitted-cells (omitted free-plan)
-   :B2/read-arm-omitted-cells (omitted read-plan)})
+  plan's declarations carry.
+
+  Rebuilds the descriptor plan from the rosters and the fixture's `:scale`
+  rather than reading it back from the fixture. The published fixture
+  carries each arm's plan as view IDS — plain data an evidence reader can
+  read without a tag handler — and an id cannot be asked for its manifest.
+  The rosters are the same [[free-views]] / [[read-views]] the browser
+  mount builds its plan from, so both instruments measure one roster."
+  [{:keys [scale]}]
+  {:B2/free-arm-omitted-cells (omitted (plan free-views scale))
+   :B2/read-arm-omitted-cells (omitted (plan read-views scale))})
 
 ;; ---------------------------------------------------------------------------
 ;; The workloads
@@ -264,18 +286,22 @@
 (defn workload
   "Build the B2 workload for `scale`, under `id` and `sampling`.
 
-  The fixture carries the mount plans the `:run` reads and, published
-  beside them, the mount decomposition and the retained-object counts D021
-  asks B2 to publish — every one a per-declaration static fact, so the two
-  gated totals trace back to the declarations that produced them."
+  The fixture publishes each arm's mount plan as view IDS, and beside them
+  the mount decomposition and the retained-object counts D021 asks B2 to
+  publish — every one a per-declaration static fact, so the two gated
+  totals trace back to the declarations that produced them, and the whole
+  record reads back with plain `clojure.edn/read-string`. The `:run` does
+  not read the published plan: it rebuilds the descriptor plan from the
+  same rosters (see [[observe]]), because a manifest is read off a
+  descriptor, not off its id."
   [{:keys [id doc scale sampling]}]
   (let [free-plan (plan free-views scale)
         read-plan (plan read-views scale)]
     {:id       id
      :doc      doc
      :fixture  {:scale     scale
-                :free-plan free-plan
-                :read-plan read-plan
+                :free-plan (id-plan free-views scale)
+                :read-plan (id-plan read-views scale)
                 :free-arm  (arm-decomposition free-plan)
                 :read-arm  (arm-decomposition read-plan)}
      :baseline {:kind      :interpreted-vs-compiled

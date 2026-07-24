@@ -125,6 +125,26 @@
           :report    (assoc outcome :command :suite)})))))
 
 ;; ---------------------------------------------------------------------------
+;; Stdout
+;; ---------------------------------------------------------------------------
+
+(defn render
+  "The exact bytes [[-main]] writes to stdout for a [[run-cli]] answer: the
+  human summary as leading `;;` comment lines, a blank `;;` separator, then
+  the report map pretty-printed.
+
+  Everything above the map is an EDN comment and the map is the datum, so
+  the whole string reads back with plain `clojure.edn/read-string` — no
+  `:default` tag handler, no reader registry. Pure, so that round-trip
+  contract is a test over a value rather than a claim about a process: a
+  future fixture carrying an opaque host value is caught here, at the door,
+  rather than by the first reader who tries to slurp the artefact."
+  [{:keys [summary report]}]
+  (str (reduce str "" (map #(str ";; " % "\n") summary))
+       ";;\n"
+       (with-out-str (pp/pprint report))))
+
+;; ---------------------------------------------------------------------------
 ;; Process
 ;; ---------------------------------------------------------------------------
 
@@ -135,10 +155,7 @@
 
 (defn -main
   [& args]
-  (let [{:keys [exit-code summary report]} (run-cli args)]
-    (doseq [line summary]
-      (println (str ";; " line)))
-    (println ";;")
-    (pp/pprint report)
+  (let [{:keys [exit-code] :as answer} (run-cli args)]
+    (print (render answer))
     (flush)
     (exit! exit-code)))
