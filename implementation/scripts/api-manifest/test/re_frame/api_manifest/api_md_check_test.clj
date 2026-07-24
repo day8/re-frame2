@@ -440,6 +440,100 @@
             "exactly one re-frame.ui hydrate-root is seen — the bare Freehand row is not counted, so no duplicate false-red")))))
 
 ;; ---------------------------------------------------------------------------
+;; Namespace-less CHILD heading preserves the owning namespace (rf2-etj5i,
+;; PR #6819 residual). PR #6819 attributed a bare row to its section heading's
+;; namespace, but every heading — including a namespace-LESS one — replaced
+;; `section-ns`. So an ORDINARY nested subsection (`### Root lifecycle`) between
+;; a `## … re-frame.freehand` heading and a bare `hydrate-root` row dropped the
+;; owning namespace to nil, and `root-ui-row?` defaulted nil back to
+;; re-frame.ui — re-attributing the Freehand verb to re-frame.ui. These two
+;; END-TO-END parser fixtures each carry an intervening namespace-less child
+;; heading and cover BOTH failure directions: a FALSE-RED (a correct Freehand
+;; row counted as a duplicate re-frame.ui row) and a FALSE-GREEN (a re-frame.ui
+;; deletion masked by the mis-attributed Freehand row). The fix is heading-
+;; LEVEL-aware: a namespace-less DESCENDANT heading (strictly deeper) INHERITS
+;; the section namespace; a sibling/ancestor clears it.
+;; ---------------------------------------------------------------------------
+
+(def ^:private freehand-child-heading-false-red-lines
+  "A bare Freehand `hydrate-root` (Fn) under an ORDINARY nested namespace-less
+   child heading (`### Root lifecycle`) inside the `re-frame.freehand` section,
+   alongside a fully in-sync re-frame.ui root table (all four verbs). The
+   intervening namespace-less heading is exactly the residual case PR #6819
+   missed: it must NOT drop the owning `re-frame.freehand` namespace to nil."
+  [[1  "## Freehand views — `re-frame.freehand`"]
+   [2  ""]
+   [3  "### Root lifecycle"]
+   [4  ""]
+   [5  "| API | M/Fn | Tier | Notes |"]
+   [6  "|-----|------|------|-------|"]
+   [7  "| `hydrate-root` | Fn | front-porch | the freehand door |"]
+   [8  ""]
+   [9  "## Compiled views — `re-frame.ui`"]
+   [10 ""]
+   [11 "| API | M/Fn | Tier | Notes |"]
+   [12 "|-----|------|------|-------|"]
+   [13 "| `create-root`  | M  | advanced | compiled |"]
+   [14 "| `render!`      | M  | advanced | compiled |"]
+   [15 "| `hydrate-root` | M  | advanced | compiled |"]
+   [16 "| `unmount!`     | Fn | advanced | compiled |"]])
+
+(deftest namespace-less-child-heading-does-not-false-red-a-ui-row
+  (testing "FALSE-RED, END-TO-END (rf2-etj5i residual): a bare Freehand
+            hydrate-root under an intervening namespace-less `### Root lifecycle`
+            child heading INHERITS re-frame.freehand — not re-frame.ui — so it is
+            not counted as a second re-frame.ui hydrate-root; the in-sync
+            re-frame.ui root table stays green rather than reddening as a
+            :kind-row-duplicated"
+    (let [parsed  (c/parse-var-rows freehand-child-heading-false-red-lines)
+          by-line (into {} (map (juxt :line identity)) parsed)]
+      (is (= "re-frame.freehand" (:section-ns (get by-line 7)))
+          "the bare hydrate-root under the namespace-less child heading inherits re-frame.freehand")
+      (is (= "re-frame.ui" (:section-ns (get by-line 15)))
+          "the re-frame.ui hydrate-root is attributed to re-frame.ui")
+      (is (empty? (c/root-verb-kind-problems {:rows root-manifest-rows :api-rows parsed}))
+          "exactly one re-frame.ui row per verb — the Freehand row is not a duplicate; no false-red"))))
+
+(def ^:private freehand-child-heading-false-green-lines
+  "Same intervening namespace-less child heading, but the re-frame.ui section is
+   MISSING its hydrate-root row (a deletion). Before the level-aware fix the bare
+   Freehand hydrate-root — mis-attributed to re-frame.ui with the SAME :macro
+   kind — silently SATISFIED the requirement, masking the deletion (false-green).
+   The bare Freehand row carries `M` so kind alone cannot distinguish it."
+  [[1  "## Freehand views — `re-frame.freehand`"]
+   [2  ""]
+   [3  "### Root lifecycle"]
+   [4  ""]
+   [5  "| API | M/Fn | Tier | Notes |"]
+   [6  "|-----|------|------|-------|"]
+   [7  "| `hydrate-root` | M | front-porch | the freehand door |"]
+   [8  ""]
+   [9  "## Compiled views — `re-frame.ui`"]
+   [10 ""]
+   [11 "| API | M/Fn | Tier | Notes |"]
+   [12 "|-----|------|------|-------|"]
+   [13 "| `create-root`  | M  | advanced | compiled |"]
+   [14 "| `render!`      | M  | advanced | compiled |"]
+   [15 "| `unmount!`     | Fn | advanced | compiled |"]])
+
+(deftest namespace-less-child-heading-does-not-false-green-a-deleted-ui-row
+  (testing "FALSE-GREEN, END-TO-END (rf2-etj5i residual): with the re-frame.ui
+            hydrate-root row DELETED, a bare Freehand hydrate-root of the SAME
+            :macro kind under an intervening namespace-less `### Root lifecycle`
+            child heading does NOT satisfy the re-frame.ui requirement — it
+            inherits re-frame.freehand, so the deletion is caught
+            :kind-row-missing rather than silently adopted as green"
+    (let [parsed   (c/parse-var-rows freehand-child-heading-false-green-lines)
+          by-line  (into {} (map (juxt :line identity)) parsed)
+          problems (c/root-verb-kind-problems {:rows root-manifest-rows :api-rows parsed})]
+      (is (= "re-frame.freehand" (:section-ns (get by-line 7)))
+          "the bare hydrate-root under the namespace-less child heading inherits re-frame.freehand, not re-frame.ui")
+      (is (= 1 (count problems))
+          "the re-frame.ui hydrate-root deletion is the sole problem — the Freehand row does not mask it")
+      (is (= :kind-row-missing (:kind (first problems))))
+      (is (= "hydrate-root" (:var (first problems)))))))
+
+;; ---------------------------------------------------------------------------
 ;; END-TO-END parser disappearance (rf2-asxo3).
 ;;
 ;; The pure `parse-var-rows` core lets us feed synthetic indexed API.md lines.
