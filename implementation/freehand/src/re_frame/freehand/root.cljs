@@ -161,15 +161,17 @@
   `day8/re-frame2-ssr` coordinate; the artefact present and nothing
   adjacent is `:rf.error/root-manifest-invalid` `{:missing :manifest}`.
 
-  **The empty-container fallback precedes discovery**, and it has to. A
-  container with nothing to adopt is the client-only first load, and a
-  page the server never rendered carries no manifest either — asking for
-  one first would turn every client-only first load into a hard failure
-  and delete the fallback outright. So the one input recognisable before
-  React is involved is recognised first, and only a container that DOES
-  carry server markup is required to carry the manifest that says what
-  the server rendered it as. Markup without a manifest is a broken server
-  render, not a client-only load.
+  **Manifest presence is the server-render evidence**, not a non-empty
+  container. A declared view may render nothing, so the server can emit an
+  empty container that still carries its Root Manifest — an empty SERVER
+  render, adopted under the manifest's identity, which is how [[hydrated?]]
+  tells it apart from a client-only first load. The fallback is taken when
+  NO manifest is adjacent: a page the server never rendered emits neither
+  markup nor a manifest, so an empty container with nothing beside it
+  mounts client-side under a DERIVED identity, and only when it asks for a
+  manifest does an app with no SSR artefact need one — an empty container
+  never asks. Markup with no manifest is a broken server render, not a
+  client-only load.
 
   Verification is then React's own adoption: React diffs the client's first
   render against the server DOM and reports the divergences it RECOVERS
@@ -272,10 +274,11 @@
   (.-frame-id root))
 
 (defn hydrated?
-  "True when `root` ADOPTED server-rendered markup; false when it
-  client-rendered — either an ordinary [[mount]], or a [[hydrate-root]]
-  that took the fallback path because its container carried nothing to
-  adopt."
+  "True when `root` ADOPTED a server render — INCLUDING an empty one a
+  declared view rendered nothing for, recognised by the Root Manifest
+  beside its container; false when it client-rendered — either an ordinary
+  [[mount]], or a [[hydrate-root]] that took the fallback because its
+  container carried no manifest and nothing to adopt."
   [^Root root]
   (.-hydrated root))
 
@@ -1059,10 +1062,13 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- server-rendered?
-  "True when `dom-node` carries markup a hydration could adopt. An empty
-  container is the client-only first load — there is nothing there to
-  adopt, and hydrating against it is not a degraded adoption but no
-  adoption at all."
+  "True when `dom-node` carries markup a hydration could adopt. Emptiness
+  alone does NOT decide the fallback: an empty container the server
+  emitted for a view that rendered nothing still carries a Root Manifest,
+  and that manifest — not this predicate — is the server-render evidence
+  ([[hydrate-root]]). This only distinguishes the two NO-MANIFEST cases:
+  server markup with no manifest is a broken render, an empty container
+  with no manifest is the client-only fallback."
   [dom-node]
   (boolean (or (pos? (.-childElementCount dom-node))
                (not (str/blank? (.-textContent dom-node))))))
@@ -1198,12 +1204,17 @@
   (`:rf.error/root-manifest-invalid`): a client that picks its own
   `identifierPrefix` breaks `use-id` hydration.
 
-  A container carrying nothing to adopt takes the FALLBACK first, before
-  any manifest is asked for: the root mounts client-side under a DERIVED
-  identity, and [[hydrated?]] answers false. A container that DOES carry
-  server markup must carry the manifest that says what the server rendered
-  it as — nothing adjacent is `:rf.error/root-manifest-invalid`
-  `{:missing :manifest}`, and no SSR artefact at all is
+  Manifest PRESENCE — not a non-empty container — is what proves this DOM
+  is a server render. A declared view may render nothing, so the server
+  can emit an empty container that still carries the Root Manifest naming
+  the root it is; that empty server render is ADOPTED under the manifest's
+  identity, which is how [[hydrated?]] tells it apart from a client-only
+  first load. A container with NO manifest adjacent takes the FALLBACK
+  when it is empty — the root mounts client-side under a DERIVED identity
+  and [[hydrated?]] answers false — and is `:rf.error/root-manifest-invalid`
+  `{:missing :manifest}` when it carries server markup. With no SSR
+  artefact on the classpath at all an empty container still falls back —
+  no artefact is asked for — while server markup is
   `:rf.error/ssr-artefact-missing`.
 
   A divergence React recovers from — a text mismatch, a missing, extra or
@@ -1223,10 +1234,31 @@
    ;; the root-id is unknown until the manifest is read, so a nil container
    ;; reported any later would masquerade as "no manifest here".
    (require-container! 'v/hydrate-root nil dom-node)
-   (if-not (server-rendered? dom-node)
-     (hydrate-fallback! dom-node root-form opts)
-     (if-let [manifest (discover-manifest! dom-node)]
+   ;; Manifest PRESENCE is the server-render evidence — a non-empty
+   ;; container is NOT. A declared view may render nothing, so the server
+   ;; can emit an empty container that still carries the Root Manifest
+   ;; naming the root it is; adopting it is how [[hydrated?]] tells that
+   ;; empty SERVER render apart from a client-only first load, which emits
+   ;; neither markup nor a manifest.
+   ;;
+   ;; Discovery lives in the optional SSR artefact, reached through the
+   ;; `:ssr/discover-root-manifest` hook. An UNBOUND hook is an app with no
+   ;; SSR artefact at all: it cannot have server-rendered, so an empty
+   ;; container is unambiguously the fallback and asks for no manifest (the
+   ;; `discover` peek below is nil, so the artefact is never required),
+   ;; while server markup with no artefact to read a manifest is the
+   ;; artefact-missing fault `discover-manifest!` raises naming the
+   ;; `day8/re-frame2-ssr` coordinate.
+   (let [discover (late-bind/get-fn :ssr/discover-root-manifest)
+         manifest (when discover (discover dom-node))]
+     (cond
+       manifest
        (adopt! dom-node root-form opts manifest)
+
+       (not (server-rendered? dom-node))
+       (hydrate-fallback! dom-node root-form opts)
+
+       discover
        (error/throw-error!
          :rf.error/root-manifest-invalid 'v/hydrate-root
          (str "this container carries server-rendered markup but no Root "
@@ -1236,7 +1268,10 @@
               "was found there — so there is no identity to hydrate AS. Emit "
               "the manifest with the render, or mount client-side with v/mount.")
          {:recovery :emit-the-root-manifest-or-use-v-mount
-          :extra    {:missing :manifest}})))))
+          :extra    {:missing :manifest}})
+
+       :else
+       (discover-manifest! dom-node)))))
 
 ;; ---------------------------------------------------------------------------
 ;; unmount!
