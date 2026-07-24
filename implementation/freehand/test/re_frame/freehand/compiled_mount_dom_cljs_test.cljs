@@ -133,6 +133,14 @@
 (defn- attr [container selector n]
   (some-> (.querySelector container selector) (.getAttribute n)))
 
+(defn- attrs-of
+  "EVERY attribute the matched element carries, as a plain map. Read off
+  `document` rather than named one by one, so an attribute that should
+  not be there fails the comparison too."
+  [container selector]
+  (when-some [el (.querySelector container selector)]
+    (into {} (map (fn [a] [(.-name a) (.-value a)])) (array-seq (.-attributes el)))))
+
 ;; ---------------------------------------------------------------------------
 ;; The shell witness
 ;; ---------------------------------------------------------------------------
@@ -221,6 +229,60 @@
   [_]
   [:input#field {:type :text :value (str (v/sub [:compiled/text]))
                  :on-input [:compiled/typed :re-frame.freehand/value]}])
+
+;; ---------------------------------------------------------------------------
+;; Props forwarding — the SAME body, twice, with nothing but the marker
+;; between them (rf2-51d4q)
+;; ---------------------------------------------------------------------------
+;;
+;; The React emitter read `:attrs`, `:class`, `:style`, `:key` and `:events` off
+;; an element's props and never read `:spread` or `:safe-spread` — so a
+;; `{:compiled true}` declaration forwarding an attribute map mounted an element
+;; with the WHOLE forwarded map missing, and the literal override beside it gone
+;; too. Nothing threw and nothing warned: only the DOM knew.
+;;
+;; So these are pairs. Each claim is asserted on the compiled mount and on its
+;; interpreted twin, read back off `document` the same way, and the two are
+;; compared to each other — which is a stronger row than either alone, because
+;; an emitter that dropped the same attribute in both modes would still fail it.
+
+(def ^:private forwarded
+  "The runtime attribute map both twins forward. A class (which COMPOSES
+  with the tag sugar rather than replacing it), an ordinary attribute, a
+  `data-*`, and a handler that has to become a committed site."
+  {:class "from-caller" :title "forwarded" :data-x "1" :on-click [:compiled/pressed]})
+
+(v/defview spread-probe
+  "`(v/spread base overrides)` — the visible-cost forward. The literal
+  override map is the second argument and wins collisions; the tag's
+  `.card.wide` sugar composes ahead of whatever `:class` arrives."
+  {:compiled true}
+  [{:keys [attrs]}]
+  [:div.card.wide (v/spread attrs {:data-override "literal"})])
+
+(v/defview spread-probe-interpreted
+  "The interpreted twin of `spread-probe` — the same body, without the
+  marker."
+  [{:keys [attrs]}]
+  [:div.card.wide (v/spread attrs {:data-override "literal"})])
+
+(v/defview safe-probe
+  "`(v/spread-safe owned caller)` — the bounded forward a component
+  library uses. The owned props win every collision, `:class` composes
+  owned-first, and the deny law refuses a caller key that would clobber
+  what the component promised."
+  {:compiled true}
+  [{:keys [attrs]}]
+  [:input.field (v/spread-safe {:value "owned" :class "owned-class"
+                                :on-input [:compiled/typed :re-frame.freehand/value]}
+                               attrs)])
+
+(v/defview safe-probe-interpreted
+  "The interpreted twin of `safe-probe`."
+  [{:keys [attrs]}]
+  [:input.field (v/spread-safe {:value "owned" :class "owned-class"
+                                :on-input [:compiled/typed :re-frame.freehand/value]}
+                               attrs)])
 
 (v/defview interpreted-shell
   "An INTERPRETED child, mounted BY a compiled parent below, with children
@@ -519,6 +581,112 @@
                         (.remove container)
                         (done)))))))))
 
+;; ===========================================================================
+;; Props forwarding — the forwarded map really reaches the mounted element
+;; ===========================================================================
+
+(deftest a-compiled-v-spread-carries-the-forwarded-map-onto-the-element
+  (testing "Every attribute the forwarded map and the literal override map
+            carry is ON the mounted element, and the compiled element is
+            attribute-for-attribute the element its interpreted twin
+            mounts. Read off `document`: the defect compiled cleanly,
+            mounted cleanly, and rendered `<div class=\"card wide\">` with
+            everything else silently absent."
+    (if-not (browser?)
+      (skip! "the browser job runs the forwarding assertions")
+      (async done
+        (register!)
+        (seed! {:presses 0})
+        (let [c-compiled    (host-node!)
+              c-interpreted (host-node!)
+              mounts        (atom [])]
+          (-> (act #(reset! mounts
+                            [(v/mount [spread-probe {:attrs forwarded}] c-compiled {:frame fid})
+                             (v/mount [spread-probe-interpreted {:attrs forwarded}]
+                                      c-interpreted {:frame fid})]))
+              (.then (fn [_]
+                       (is (= {"class"         "card wide from-caller"
+                               "title"         "forwarded"
+                               "data-x"        "1"
+                               "data-override" "literal"}
+                              (attrs-of c-compiled "div"))
+                           "the forwarded map, the literal override, and the sugar
+                            composed ahead of the forwarded class")
+                       (is (= (attrs-of c-interpreted "div") (attrs-of c-compiled "div"))
+                           "and the compiled element IS the interpreted twin's element")
+                       (is (= 0 (:presses (db))) "nothing dispatched before the click")
+                       (act #(.click (.querySelector c-compiled "div")))))
+              (.then (fn [_]
+                       (is (= 1 (:presses (db)))
+                           "a FORWARDED handler became a committed site and dispatched")
+                       (act #(.click (.querySelector c-interpreted "div")))))
+              (.then (fn [_]
+                       (is (= 2 (:presses (db)))
+                           "and the interpreted twin's forwarded handler dispatched too")
+                       (doseq [[c m] (map vector [c-compiled c-interpreted] @mounts)]
+                         (unmount! c m))
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "spread arm rejected: " e))
+                        (.remove c-compiled)
+                        (.remove c-interpreted)
+                        (done)))))))))
+
+(deftest a-compiled-v-spread-safe-folds-the-guarded-caller-under-the-owned-props
+  (testing "The guarded caller map reaches the element; the OWNED props win
+            every collision; `:class` is the one exception and COMPOSES,
+            owned first. Asserted against the interpreted twin, which
+            reaches the same fold through the same function."
+    (if-not (browser?)
+      (skip! "the browser job runs the forwarding assertions")
+      (async done
+        (register!)
+        (seed! {:text ""})
+        (let [caller        {:title "from-caller" :class "caller-class" :aria-label "L"}
+              c-compiled    (host-node!)
+              c-interpreted (host-node!)
+              mounts        (atom [])]
+          (-> (act #(reset! mounts
+                            [(v/mount [safe-probe {:attrs caller}] c-compiled {:frame fid})
+                             (v/mount [safe-probe-interpreted {:attrs caller}]
+                                      c-interpreted {:frame fid})]))
+              (.then (fn [_]
+                       (is (= {"class"      "field owned-class caller-class"
+                               "title"      "from-caller"
+                               "aria-label" "L"
+                               "value"      "owned"}
+                              (attrs-of c-compiled "input"))
+                           "the caller's attributes landed, and the classes composed
+                            owned-first")
+                       (is (= (attrs-of c-interpreted "input") (attrs-of c-compiled "input"))
+                           "and the compiled element IS the interpreted twin's element")
+                       (is (= "owned" (.-value (.querySelector c-compiled "input")))
+                           "the owned controlled value is what React is holding")
+                       (doseq [[c m] (map vector [c-compiled c-interpreted] @mounts)]
+                         (unmount! c m))
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "spread-safe arm rejected: " e))
+                        (.remove c-compiled)
+                        (.remove c-interpreted)
+                        (done)))))))))
+
+(deftest the-spread-safe-deny-law-still-fires-through-the-compiled-fold
+  (testing "The bound is the whole point of the form, so it is not
+            dev-gated and it does not lapse because the element was
+            compiled: a caller map carrying an OWNED or structural key is
+            refused, in both modes, from the one guard both folds call."
+    (doseq [[what caller] {"an owned controlled prop" {:value "clobbered"}
+                           "an owned handler family"  {:on-input [:caller/typed]}
+                           "the reconciliation key"   {:key "k"}}]
+      (is (= :rf.error/ui-tree-malformed
+             (conf/caught-id #(v/spread-safe {:value "owned"
+                                              :on-input [:compiled/typed]}
+                                             caller)))
+          (str what " is denied to the caller")))
+    (is (map? (v/spread-safe {:value "owned"} {:title "fine"}))
+        "non-vacuous: an ordinary caller key passes the same guard")))
+
 (deftest a-compiled-controlled-input-round-trips-through-app-db
   (testing "A compiled `:input` carrying `value` is CONTROLLED, and its
             handler's lane is decided from those element facts by the one
@@ -600,11 +768,15 @@
             assertion above green for the wrong reason."
     (doseq [[nm view] {:page compiled/page :inert inert-probe :sub sub-probe
                        :event event-probe :ui-event ui-event-probe :field field-probe
+                       :spread spread-probe :safe safe-probe
                        :crossing crossing-probe}]
       (is (= :compiled (:lowering (v/describe view))) (str nm " is a compiled declaration"))
       (is (some? (v/manifest view)) (str nm " carries a compiled manifest")))
-    (is (= :interpreted (:lowering (v/describe interpreted-shell)))
-        "and the crossing target is genuinely interpreted")
+    (doseq [[nm view] {:crossing-target interpreted-shell
+                       :spread-twin     spread-probe-interpreted
+                       :safe-twin       safe-probe-interpreted}]
+      (is (= :interpreted (:lowering (v/describe view)))
+          (str nm " is genuinely interpreted — the forwarding twins are the control")))
     (is (<= 8 (count (:dom struct-007))) "the fixture's DOM table is fully loaded")
     (is (not= (:view-cell (v/manifest inert-probe))
               (:view-cell (v/manifest sub-probe)))

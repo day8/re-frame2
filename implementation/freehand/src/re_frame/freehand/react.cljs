@@ -62,6 +62,7 @@
             [re-frame.freehand.error-react :as error-react]
             [re-frame.freehand.errors :as eb]
             [re-frame.freehand.events :as events]
+            [re-frame.freehand.node :as node]
             [re-frame.freehand.presence-runtime :as presence-runtime]
             [re-frame.freehand.shell :as shell]
             [re-frame.freehand.top-layer :as top-layer]
@@ -182,6 +183,60 @@
        :else        (put-plain-attr! o tag k raw))
      o)))
 
+(defn- handler-proxy
+  "What this walk attaches at a handler slot: the site's STABLE PROXY when
+  a candidate owns it, and — with no declared boundary above the element,
+  so no commit that could own a site — the caller's own plain function
+  unchanged, because declarative intent there has nothing to belong to."
+  [cand tag controlled? slot raw]
+  (if (some? cand)
+    (events/site (cell/candidate-events cand)
+                 (cell/next-site-key! cand)
+                 raw
+                 events/default-payload
+                 {:tag tag :controlled? controlled? :slot slot})
+    (when (fn? raw) raw)))
+
+(defn ^:no-doc put-caller!
+  "Fold a GUARDED `(v/spread-safe owned caller)` caller map UNDER a props
+  object whose OWNED props are already final.
+
+  The ONE browser fold, reached from both front ends — the interpreted
+  walk below and the compiled tier's `compiled-react/caller-spread!` — and
+  the counterpart of [[re-frame.freehand.node/fold-caller]] on the
+  structural host. Owned wins every collision (the deny law ran at
+  `node/safe-caller-attrs`, so what can still collide is an ordinary
+  attribute), with `:class` the one exception: the two class values
+  COMPOSE, owned first, because a caller passing `.mt-4` is adding a class
+  and not replacing the component's own. That composition runs through the
+  same class rule by handing the owned `className` in as the leading part,
+  so there is no second ordering to keep in step.
+
+  `site!` records one handler entry and answers its proxy (or nil) — the
+  one thing the two front ends genuinely do differently, because a
+  compiled site is keyed by its proven lexical id and an interpreted one
+  by this walk's ordinal."
+  [o tag site! m]
+  (when (some? m)
+    (reduce-kv
+      (fn [_ k raw]
+        (let [k    (conv/attr-key k)
+              slot (controlled/prop-slot k)]
+          (cond
+            (= :class k)
+            (put-class! o tag (when-some [owned (gobj/get o "className")] [owned]) raw)
+
+            ;; owned wins
+            (and (some? slot) (gobj/containsKey o slot)) nil
+
+            (conv/handler-key? k)
+            (when-some [proxy (site! slot raw)] (gobj/set o slot proxy))
+
+            :else (put-attr! o tag k raw)))
+        nil)
+      nil m))
+  o)
+
 (defn- react-props
   "The React props object for one element: the author attribute map in
   React's CANONICAL prop spelling, with the `.class#id` sugar merged in and
@@ -259,20 +314,9 @@
           (gobj/set o (key empty-slot) (react-control-value (val empty-slot))))
 
         (conv/handler-key? k)
-        (if (some? cand)
-          (when-some [proxy (events/site (cell/candidate-events cand)
-                                         (cell/next-site-key! cand)
-                                         raw
-                                         events/default-payload
-                                         {:tag         tag
-                                          :controlled? controlled?
-                                          :slot        (conv/react-event-name k)})]
-            (gobj/set o (conv/react-event-name k) proxy))
-          ;; No boundary above this element, so no commit can own the
-          ;; site. A plain function is still the caller's own callback and
-          ;; is attached; declarative intent has nothing to belong to.
-          (when (fn? raw)
-            (gobj/set o (conv/react-event-name k) raw)))
+        (let [slot (conv/react-event-name k)]
+          (when-some [proxy (handler-proxy cand tag controlled? slot raw)]
+            (gobj/set o slot proxy)))
 
         (= :class k)
         (put-class! o tag sugar-classes raw)
@@ -621,7 +665,16 @@
                 {:value (shape tag-kw)}))
   (let [{:keys [tag classes id]} (conv/parse-tag tag-kw)
         attrs?    (map? (first args))
-        attrs     (if attrs? (first args) {})
+        authored  (if attrs? (first args) {})
+        ;; `(v/spread-safe owned caller)` answers the OWNED map with the guarded
+        ;; caller riding under the reserved carrier key, because the fold — caller
+        ;; under owned, `:class` composing owned-first — belongs to one place and
+        ;; not to either front end. Left in the attribute map it is not an
+        ;; attribute at all: it reached the plain-attribute path and refused the
+        ;; whole element, so `v/spread-safe` did not render in an interpreted
+        ;; browser view. Split here, exactly as `tree/element-attrs` splits it.
+        caller    (get authored node/caller-attrs-key)
+        attrs     (dissoc authored node/caller-attrs-key)
         kid-forms (if attrs? (rest args) args)
         ;; The DOM top layer's desired-state pair never reaches React as a
         ;; prop — an emitter drops the namespace that is the whole of its
@@ -629,6 +682,10 @@
         ;; commit-time host call instead.
         props     (top-layer/install! (react-props cand tag classes id (top-layer/without attrs))
                                       tag attrs)
+        props     (put-caller! props tag
+                               (let [controlled? (controlled/controlled-props? (keys attrs))]
+                                 (fn [slot raw] (handler-proxy cand tag controlled? slot raw)))
+                               caller)
         kids      (children cand kid-forms)]
     (when (and (seq kids) (contains? conv/children-rejected-tags tag))
       (malformed! (str "The element " tag " cannot have children — it is a void element, and "

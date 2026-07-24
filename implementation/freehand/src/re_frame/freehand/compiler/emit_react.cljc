@@ -219,6 +219,33 @@
    :controlled? controlled?
    :slot        (conv/react-event-name (:k handler))})
 
+(defn- spread-write
+  "The runtime fold of `(v/spread base overrides)` onto the props object.
+
+  The merged, refusal-checked, canonical author-space map is built by
+  [[re-frame.freehand.node/spread-attrs]] — the ONE seam an interpreted
+  body reaches through the public `v/spread` — so later-arg-wins, the
+  `:key` refusal and the slot canonicalization are one implementation
+  across both modes, and only the WRITE is this tier's."
+  [o tag cls spread]
+  `(re-frame.freehand.compiled-react/spread!
+    ~o ~tag ~(vec (:sugar cls)) ~(:sid spread)
+    (re-frame.freehand.node/spread-attrs ~(:base spread) ~(:overrides spread))))
+
+(defn- safe-spread-write
+  "The runtime fold of `(v/spread-safe owned caller)`'s guarded caller map,
+  UNDER the owned props this element already wrote.
+
+  The deny law is [[re-frame.freehand.node/safe-caller-attrs]]'s — the
+  every-build owned-key refusal plus the forwarding refusals `v/spread`
+  applies — which is the same call the structural emitter makes, so a
+  component library's bound means one thing in both modes."
+  [o tag controlled? safe]
+  `(re-frame.freehand.compiled-react/caller-spread!
+    ~o ~tag ~(:sid safe) ~controlled?
+    (re-frame.freehand.node/safe-caller-attrs
+     ~(:base safe) ~(:owned-handler-keys safe))))
+
 (defn- handler-writes
   [o tag controlled? events]
   (mapv (fn [{:keys [k sid form] :as handler}]
@@ -297,6 +324,16 @@
                                           ~o ~tag ~k ~value ~multi?))
                                       dynamics))
                       true (into (handler-writes o tag controlled? (:events props)))
+                      ;; Both forwards write LAST, and for the same reason: a
+                      ;; forwarded map is folded against props that are already
+                      ;; final. `v/spread` is the element's whole attribute map,
+                      ;; so it composes with the sugar and nothing else; a
+                      ;; `v/spread-safe` caller folds UNDER what the component
+                      ;; owns, which it can only do once the owned writes are on
+                      ;; the object.
+                      (:spread props)      (conj (spread-write o tag cls (:spread props)))
+                      (:safe-spread props) (conj (safe-spread-write
+                                                  o tag controlled? (:safe-spread props)))
                       (seq top) (conj `(re-frame.freehand.top-layer/install!
                                         ~o ~tag ~top))
                       (:present? key-info)

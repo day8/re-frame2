@@ -29,8 +29,11 @@
   (:require ["react" :as react]
             [goog.object :as gobj]
             [re-frame.error :as error]
+            [re-frame.freehand.controlled :as controlled]
             [re-frame.freehand.conversion :as conv]
-            [re-frame.freehand.react :as fr]))
+            [re-frame.freehand.react :as fr]
+            [re-frame.freehand.reactive :as reactive]
+            [re-frame.freehand.top-layer :as top-layer]))
 
 ;; ---------------------------------------------------------------------------
 ;; Elements
@@ -106,6 +109,78 @@
   [o slot proxy]
   (when (some? proxy) (gobj/set o slot proxy))
   o)
+
+;; ---------------------------------------------------------------------------
+;; Props forwarding — the attribute map only the render knows
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Props forwarding. A forwarded map is exactly the value the
+;; compiler cannot see, so the compiled tier settles what it can — the tag, the
+;; `.class` sugar, the element's own literal props, the site ids — and hands the
+;; map itself to the SAME rules the interpreted walk applies entry by entry. The
+;; merge, the deny law and the canonicalization already ran in
+;; `re-frame.freehand.node`, which both front ends call; what is left here is
+;; the write, and the write is `re-frame.freehand.react`'s.
+
+(defn- forward-entry!
+  "Write ONE entry of a forwarded author-space attribute map.
+  `sugar` composes with a forwarded `:class` — `put-attr!`'s own `:class`
+  arm composes with nothing, which is right for a per-attribute write and
+  wrong here, where the element's `.class` sugar has to survive the map."
+  [o tag sugar site-id controlled? k raw]
+  (let [k (conv/attr-key k)]
+    (cond
+      (conv/handler-key? k)
+      ;; A forwarded handler is a committed SITE like any other, keyed by the
+      ;; spread's own lexical id plus the slot it lands in — so the map's
+      ;; `:on-click` owns one stable proxy across re-renders, and two forwarded
+      ;; handlers on one element never share a key.
+      (let [slot (conv/react-event-name k)]
+        (when-some [proxy (reactive/event-site (str site-id "/" slot) raw
+                                               {:tag         tag
+                                                :controlled? controlled?
+                                                :slot        slot})]
+          (gobj/set o slot proxy)))
+
+      (= :class k) (fr/put-class! o tag sugar raw)
+      :else        (fr/put-attr! o tag k raw)))
+  o)
+
+(defn ^:no-doc spread!
+  "Fold `(v/spread base overrides)`'s merged map onto a compiled element's
+  props object.
+
+  A `v/spread` IS the element's whole attribute map — the analyzer records
+  no literal attrs beside it — so every rule applies to the forwarded
+  values and nothing is overwritten: the `.class` sugar composes with a
+  forwarded `:class`, a forwarded `:on-*` becomes a committed site, and
+  whether the element is CONTROLLED is decided from the keys that actually
+  arrived, exactly as the interpreted walk decides it."
+  [o tag sugar site-id m]
+  (let [attrs       (top-layer/without m)
+        controlled? (controlled/controlled-props? (keys attrs))]
+    (reduce-kv (fn [_ k raw] (forward-entry! o tag sugar site-id controlled? k raw) nil)
+               nil attrs)
+    ;; The DOM top layer's desired-state pair is Freehand vocabulary, not an
+    ;; attribute, so a forwarded one becomes the commit-time host call here
+    ;; rather than a garbage prop — the interpreted walk's own arm, over the
+    ;; map it was handed.
+    (top-layer/install! o tag m)))
+
+(defn ^:no-doc caller-spread!
+  "Fold a GUARDED `(v/spread-safe owned caller)` caller map UNDER the owned
+  props already written onto `o` — [[re-frame.freehand.react/put-caller!]],
+  the ONE browser fold, with the compiled tier's own site keying.
+
+  Only the handler keying differs, and it differs the way every compiled
+  site does: the key is the spread's proven lexical id plus the slot,
+  rather than this render's ordinal."
+  [o tag site-id controlled? m]
+  (fr/put-caller! o tag
+                  (fn [slot raw]
+                    (reactive/event-site (str site-id "/" slot) raw
+                                         {:tag tag :controlled? controlled? :slot slot}))
+                  m))
 
 ;; ---------------------------------------------------------------------------
 ;; Children
