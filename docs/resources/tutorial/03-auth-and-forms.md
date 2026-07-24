@@ -525,7 +525,7 @@ That normaliser is `nav-target` below. The link-click and URL-bar cases carry a 
    request the runtime's structural gate will reject
    (:rf.error/navigate-bad-request) — the guard leaves those to the router
    rather than reclassifying them. Address keys only; policy fields (:replace?,
-   :scroll, :bypass-guards?) are dropped. `current` is the current route slice
+   :scroll, :bypass-leave?) are dropped. `current` is the current route slice
    ([:rf.runtime/routing :current]) — an in-place request resolves against it,
    as the runtime resolves it."
   [[event-id a] current]

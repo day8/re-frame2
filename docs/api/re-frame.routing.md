@@ -66,7 +66,7 @@ Colon-prefixed path segments capture into `:params`. `:on-match` is the event ve
 | `:on-match` | Event vector(s) to dispatch when the route activates. |
 | `:on-error` | Event vector dispatched if any `:on-match` event errors. |
 | `:can-leave` | Guard sub-query run before leaving the route. Closed boolean contract: `true` allows, `false` blocks. Any non-boolean also blocks and emits `:rf.error/can-leave-non-boolean`. The name reads positively, so `false` means "can NOT leave". The sub receives the pending target as an argument. See [Routing → Blocking a navigation](../routing/concepts.md#blocking-a-navigation). |
-| `:can-enter` | Guard sub-query run before entering the route (the auth-gate mirror of `:can-leave`). Closed boolean contract: `true` allows entry, `false` blocks. Any non-boolean also blocks and emits `:rf.error/can-enter-non-boolean`. On a block the runtime dispatches `:rf.route/entry-blocked`. See [Routing → Guarding entry](../routing/concepts.md#guarding-entry--can-enter). |
+| `:can-enter` | Guard sub-query run before entering the route (the auth-gate mirror of `:can-leave`). Closed boolean contract: `true` allows entry, `false` blocks. Any non-boolean also blocks and emits `:rf.error/can-enter-non-boolean`. A rejection is TERMINAL — nothing commits, no pending value is created, and the runtime dispatches `:rf.route/entry-denied` once. See [Routing → Guarding entry](../routing/concepts.md#guarding-entry--can-enter). |
 | `:scroll` | Scroll-restoration behaviour for this route. |
 | `:sensitive` | Slice paths (projection-relative, e.g. `[:query :token]`) redacted at egress while the route is active. See [Routing → Keeping tokens off the wire](../routing/concepts.md#keeping-tokens-off-the-wire). |
 | `:large` | Slice paths kept off the wire at egress (a size marker ships instead of the value). |
@@ -136,7 +136,7 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
   - `:fragment` appends `#fragment` when it is a non-empty string (`nil` / `""` append nothing).
   - Nil-valued query keys are silently elided. A nil required path param is an error.
   - Query keys are emitted percent-encoded, in a deterministic canonical order.
-  - **Address-only.** `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll` / `:bypass-guards?`), and any unknown key reject **loud** (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than being silently ignored. There is no in-place form — a pure helper cannot read the current route.
+  - **Address-only.** `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll` / `:bypass-leave?`), and any unknown key reject **loud** (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than being silently ignored. There is no in-place form — a pure helper cannot read the current route.
 
   Throws:
   - `:rf.error/no-such-route` — `:to` route not registered.
@@ -498,12 +498,12 @@ Standard events the runtime dispatches (or you dispatch) around routing.
 
 | Event | Notes |
 |---|---|
-| `:rf.route/navigate` | Navigate via one request map: `[:rf.route/navigate {request}]`. Address keys `:to` (route id) / `:url` (raw-URL escape hatch) / `:params` / `:query` / `:fragment`; policy keys `:replace?` / `:scroll` / `:bypass-guards?`; edit key `:query-merge`. `:to` xor `:url`; `:url` excludes `:params` / `:query` / `:query-merge`. Omit both `:to` and `:url` for an *in-place* request that patches the current location (`:query-merge`, or a `:query` / `:fragment` present by key). A structurally-invalid request rejects **loud** with `:rf.error/navigate-bad-request` before any guard runs. |
+| `:rf.route/navigate` | Navigate via one request map: `[:rf.route/navigate {request}]`. Address keys `:to` (route id) / `:url` (raw-URL escape hatch) / `:params` / `:query` / `:fragment`; policy keys `:replace?` / `:scroll` / `:bypass-leave?`; edit key `:query-merge`. `:to` xor `:url`; `:url` excludes `:params` / `:query` / `:query-merge`. Omit both `:to` and `:url` for an *in-place* request that patches the current location (`:query-merge`, or a `:query` / `:fragment` present by key). A structurally-invalid request rejects **loud** with `:rf.error/navigate-bad-request` before any guard runs. |
 | `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). A co-equal sibling of `:rf.route/transitioned`: same slice-rewrite logic, not a delegate. Override it for custom URL-change handling. |
 | `:rf.route/transitioned` | URL-change handler for forward navigation — a link click or programmatic push (default scroll `:top`). The runtime dispatches this; you read it. |
 | `:rf.route/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. |
 | `:rf.route/navigation-blocked` | A `:can-leave` (leave) guard rejected a navigation. The pending nav slot carries the rejected navigation (`:direction :leave`). |
-| `:rf.route/entry-blocked` | A `:can-enter` (enter) guard rejected a navigation — the mirror of `:rf.route/navigation-blocked`. The pending nav slot carries the rejected entry (`:direction :enter`). The natural place to redirect (e.g. to login). |
+| `:rf.route/entry-denied` | A `:can-enter` guard rejected a navigation. **Terminal** — nothing commits and no pending value is created; dispatched exactly once per attempt with `{:destination :target :cause :requested-url :guard}`. The natural place to redirect (e.g. to login); a framework no-op default ships, so registering one is optional. |
 | `:rf.route/continue` | User-dispatched event proceeding a blocked navigation — "yes, leave the page." Re-runs `:can-enter` on resume. |
 | `:rf.route/cancel` | User-dispatched event abandoning a blocked navigation — "stay here, drop the pending nav." |
 

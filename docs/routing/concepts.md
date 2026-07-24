@@ -144,7 +144,7 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 | `:query-merge` | Edit current query (`nil` removes a key) |
 | `:scroll` | `:top` / `:restore` / `:preserve` override |
 | `:fragment` | `#fragment` |
-| `:bypass-guards?` | Set `#{:leave :enter}` to skip named guards |
+| `:bypass-leave?` | `true` skips this route's `:can-leave` confirmation for one navigation |
 
 <a id="navigate-in-place"></a>
 <a id="navigate-in-place-change-the-query-stay-on-the-route"></a>
@@ -314,7 +314,9 @@ parks in `[:rf/pending-navigation]`. Resolve with the pending **id**:
      [:button {:on-click #(dispatch [:rf.route/continue (:id p)])} "Leave"]]))
 ```
 
-Bypass one navigation: `{:bypass-guards? #{:leave}}` (or `#{:enter}` / both).
+The pending value stores the destination, target, cause and your explicit
+`:replace?` / `:scroll` policy, so `:rf.route/continue` replays exactly what you
+asked for. Skip the confirmation for one navigation with `{:bypass-leave? true}`.
 Full recipe: [Guard against unsaved changes](how-to/guard-unsaved-changes.md).
 
 ### Guarding entry — `:can-enter`
@@ -322,9 +324,8 @@ Full recipe: [Guard against unsaved changes](how-to/guard-unsaved-changes.md).
 <a id="guarding-entry--can-enter"></a>
 <a id="guarding-entry---can-enter"></a>
 
-Mirror for **enter** (the usual auth gate). Runs on every door (navigate, link, URL
-bar, Back/Forward). On block → `:rf.route/entry-blocked` (redirect to login there).
-`[:rf.route/continue <id>]` re-runs `:can-enter` on resume.
+The entry guard — the usual auth gate. Runs on every door (navigate, link, URL
+bar, Back/Forward, initial load, SSR).
 
 ```clojure
 (rf/reg-route :app/account
@@ -332,8 +333,25 @@ bar, Back/Forward). On block → `:rf.route/entry-blocked` (redirect to login th
   "/account")
 ```
 
-Non-boolean guard return → block + `:rf.error/can-leave-non-boolean` /
-`:rf.error/can-enter-non-boolean` (deny the move, raise the error).
+Entry rejection is **terminal**, not resumable: nothing commits, *no* pending
+value is created, and the runtime dispatches `:rf.route/entry-denied` once. You
+do not have to register a handler — the framework ships a no-op default, so a
+denial with no handler is simply a hard deny (and a `403` under SSR). Register
+one when you want a login bounce:
+
+```clojure
+(rf/reg-event :rf.route/entry-denied
+  (fn [{:keys [db]} [_ {:keys [destination]}]]
+    {:db (assoc-in db [:auth :return-to] destination)
+     :fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]}))
+```
+
+After sign-in you navigate **freshly** to the stashed `destination` — the guard
+re-evaluates because that is an ordinary new attempt. Full recipe:
+[Require sign-in on a route](how-to/require-sign-in-on-a-route.md).
+
+Non-boolean guard return → fail closed + `:rf.error/can-leave-non-boolean` /
+`:rf.error/can-enter-non-boolean` (refuse the move, raise the error).
 
 **Prefer `:can-enter` for per-route auth** (see
 [realworld_http](../../examples/real-apps/realworld_http)). Use an interceptor only

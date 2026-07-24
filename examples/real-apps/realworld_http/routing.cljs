@@ -21,8 +21,7 @@
   (:require [re-frame.core :as rf]
             ;; Routing lives in its own artefact. Requiring it registers the
             ;; hooks and subs that make the `rf/reg-route` calls below resolve.
-            ;; This one IS aliased — `:rf.route/entry-blocked` below calls
-            ;; `routing/match-url` directly, and ROUTER WIRING builds
+            ;; This one IS aliased — ROUTER WIRING below builds
             ;; `url-strategy` off `routing/with-base-path` +
             ;; `routing/history-url-strategy`. See the routing guide:
             ;; ../../../docs/routing/index.md
@@ -136,10 +135,9 @@
 ;; Back/Forward — with zero per-door plumbing. See the routing guide on guards:
 ;; ../../../docs/routing/concepts.md#blocking-a-navigation
 ;;
-;; The guard and `:rf.route/entry-blocked` handler share the framework's single
-;; pending-navigation path. That keeps target capture, cancellation, and resume
-;; semantics in routing rather than duplicating them for each navigation entry
-;; point.
+;; The guard and the `:rf.route/entry-denied` handler share the framework's
+;; single decision path. That keeps target resolution and denial semantics in
+;; routing rather than duplicating them for each navigation entry point.
 
 ;; The guard sub. `true` → OK to enter. It reads the durable `[:auth :user]`
 ;; presence (not the machine's `:authed` state), so a deep-link that arrives
@@ -152,36 +150,41 @@
   :<- [:auth/user]
   (fn [user _] (some? user)))
 
-;; The block handler — the enter-block mirror of a confirm dialog. When
-;; `:can-enter` rejects, the runtime writes `:rf/pending-navigation` (with the
-;; target the user aimed at) and dispatches `:rf.route/entry-blocked`. This
-;; handler turns that into a login redirect and stashes the target for the
-;; post-login bounce-back. `:auth/post-login-redirect` (auth.cljs) reads and
-;; clears `[:auth :return-to]` on a successful interactive login and navigates
-;; there. Both the rejection and the eventual resume therefore remain ordinary,
-;; traceable routing events.
+;; The denial handler — the FRESH-RETURN recipe (Spec 012 §Entry is terminal).
+;; Entry denial is TERMINAL: the runtime commits nothing and parks nothing, so
+;; there is no paused transition to resume. The recipe is three ordinary steps:
+;; stash the denied destination, replace-navigate to login, and after a
+;; successful sign-in dispatch a FRESH navigate with the stashed destination.
+;; The guard re-evaluates on that fresh attempt because it IS an ordinary new
+;; attempt — no bypass, no resume, nothing special-cased.
 ;;
-;; The pending-nav slot carries `:rejecting-route` (the target route-id) and
-;; `:requested-url` — the FULL URL the user aimed at, which the runtime built
-;; through `route-url` (path + query + #fragment). We resolve the whole address
-;; off it, not just the params, so the stash is the EXACT place they were
-;; headed: a deep-link like `/editor/my-slug?draft=1#preview` bounces back with
-;; its query and fragment intact, not stranded on a bare `/editor/my-slug`. The
-;; stash is itself a valid `:rf.route/navigate` request; the bounce-back
-;; (auth.cljs) returns there with `:replace? true` so `/login` never lands on
-;; the back stack.
-(rf/reg-event :rf.route/entry-blocked
+;; The denial payload hands us `:destination` already resolved: a
+;; `:rf/route-destination` — the canonical named address (path params, query,
+;; and #fragment included) the target resolved to. So the stash is the EXACT
+;; place the user was headed — a deep-link like
+;; `/editor/my-slug?draft=1#preview` returns with its query and fragment
+;; intact, not stranded on a bare `/editor/my-slug` — and we need no
+;; `match-url` re-derivation to get it. The value is a valid
+;; `:rf.route/navigate` request in its own right; `:auth/post-login-redirect`
+;; (auth.cljs) reads and clears `[:auth :return-to]` on a successful
+;; interactive login and navigates there.
+;;
+;; `:replace? true` on the login hop keeps the denied URL off the back stack,
+;; so Back from `/login` doesn't bounce the visitor straight back into the
+;; guard.
+;;
+;; Registering this handler is optional: the framework ships a no-op default,
+;; so a denial without it would simply be a hard deny (the visitor stays put).
+;; We register it because a login bounce is friendlier than a dead click.
+(rf/reg-event :rf.route/entry-denied
   {:doc "Steer a logged-out visitor who tried to enter a :requires-auth route to
-         login, remembering the FULL address they were headed for (path,
-         params, query, and #fragment) so the post-login bounce-back returns to
-         the exact URL."}
-  (fn [{:keys [db]} [_ {:keys [rejecting-route requested-url]}]]
-    (let [{:keys [params query fragment]} (routing/match-url requested-url)]
-      {:db (assoc-in db [:auth :return-to] {:to       rejecting-route
-                                            :params   (or params {})
-                                            :query    (or query {})
-                                            :fragment fragment})
-       :fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]})))
+         login, remembering the FULL destination they were headed for (route,
+         params, query, and #fragment) so the post-login return lands on the
+         exact URL."}
+  (fn [{:keys [db]} [_ {:keys [destination]}]]
+    {:db (assoc-in db [:auth :return-to] destination)
+     :fx [[:dispatch [:rf.route/navigate {:to       :realworld.auth/login
+                                          :replace? true}]]]}))
 
 ;; ============================================================================
 ;; ROUTER WIRING

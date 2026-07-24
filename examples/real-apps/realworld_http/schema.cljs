@@ -56,12 +56,12 @@
    would roll the login back. The auth machine's own snapshot lives elsewhere —
    over in runtime-db at [:rf.runtime/machines :snapshots :auth/flow].
 
-   :return-to is the breadcrumb: the post-login bounce-back target the routing
-   `:rf.route/entry-blocked` handler drops here (routing.cljs) when the
+   :return-to is the breadcrumb: the post-login return target the routing
+   `:rf.route/entry-denied` handler drops here (routing.cljs) when the
    `:can-enter` auth gate turns a logged-out user away from a `:requires-auth`
-   route. It's the FULL resolved address — `{:to :params :query :fragment}`, a
-   valid `:rf.route/navigate` request in its own right — so the bounce-back
-   returns to the exact URL (path, params, query, and #fragment), not just the
+   route. It is the denial payload's `:destination` — a `:rf/route-destination`
+   and a valid `:rf.route/navigate` request in its own right — so the return
+   lands on the exact URL (path, params, query, and #fragment), not just the
    bare route. `:auth/post-login-redirect` reads and clears it (auth.cljs). It
    only exists for the brief window between that redirect and the next
    successful login."

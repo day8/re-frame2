@@ -125,7 +125,7 @@ dispatch. Whole flow, four asserts:
 ```
 
 Dispatch `[:rf.route/cancel <id>]` instead and the pending slot clears with the slice
-unmoved. `{:bypass-guards? #{:leave}}` skips the park. The `:can-enter` mirror tests
+unmoved. `{:bypass-leave? true}` skips the park. The `:can-enter` counterpart tests
 the same way — guarded target, signed-out sub, assert pending fills with
 `:direction :enter`, then flip the sub and `[:rf.route/continue <id>]` (re-runs
 `:can-enter`).

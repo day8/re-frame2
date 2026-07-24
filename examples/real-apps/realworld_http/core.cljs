@@ -361,11 +361,12 @@
     ;;     note at the bottom).
     ;;   - The auth gate is NOT a frame interceptor — it's the `:can-enter`
     ;;     guard on the `:requires-auth` routes themselves (routing.cljs). Try to
-    ;;     navigate to one while logged out and the runtime's ONE navigation gate
-    ;;     refuses and dispatches `:rf.route/entry-blocked`, which redirects to
-    ;;     login. That's what gives the `:requires-auth` tags on settings / new /
-    ;;     edit teeth — declaratively on the route, fail-closed through every
-    ;;     door, not as a hand-rolled interceptor.
+    ;;     navigate to one while logged out and the runtime's ONE pipeline
+    ;;     denies entry and dispatches `:rf.route/entry-denied`, which stashes
+    ;;     the destination and replace-navigates to login. That's what gives the
+    ;;     `:requires-auth` tags on settings / new / edit teeth — declaratively
+    ;;     on the route, fail-closed through every door, not as a hand-rolled
+    ;;     interceptor.
     ;;   - `:fx-overrides {:rf.http/managed …}` — point managed HTTP at the
     ;;     demo stub so the whole thing runs without a backend.
     ;; First mount also runs `:initial-events` once. A hot reload reuses the

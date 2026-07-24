@@ -71,7 +71,7 @@ renders nothing until something is pending.
 ## 4. Add a "save, then leave" path
 
 "Save & close" should leave without the prompt. Save first, then navigate with
-`:bypass-guards? #{:leave}`:
+`:bypass-leave? true`:
 
 ```clojure
 (rf/reg-event :editor/save-and-close
@@ -79,10 +79,10 @@ renders nothing until something is pending.
     {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))   ;; now clean
      :fx [[:dispatch [:rf.route/navigate {:to     :app/article
                                           :params {:id (get-in db [:editor :id])}
-                                          :bypass-guards? #{:leave}}]]]}))
+                                          :bypass-leave? true}]]]}))
 ```
 
-Saving would make the guard pass anyway — `:bypass-guards? #{:leave}` makes the
+Saving would make the guard pass anyway — `:bypass-leave? true` makes the
 intent explicit. Same set form skips the target's `:can-enter` (`#{:enter}`) or both
 (`#{:leave :enter}`).
 

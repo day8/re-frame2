@@ -1,35 +1,126 @@
 # Require sign-in on a route
 
-You know routes are [queryable data](../concepts.md#routes-are-queryable-data). This
-page is one job: **one interceptor that bounces logged-out readers** off every route
-tagged `:requires-auth`.
+One job: **a logged-out visitor cannot reach a protected route through any door**,
+and after signing in they land exactly where they were headed.
 
-**Prefer `:can-enter` first.** A single protected page should declare
-`{:can-enter [:auth/signed-in?]}` and handle `:rf.route/entry-blocked` — that is what
-[realworld_http](../../../examples/real-apps/realworld_http) does, and it covers all
-three entry doors without an interceptor. Use **this recipe** when one policy must
-span *many* routes (a whole admin section, a maintenance lockout).
+The tool is [`:can-enter`](../concepts.md#guarding-entry--can-enter) — a boolean
+subscription declared on the route itself. The runtime consults it in the one
+planning pipeline, so it fails *closed* through every door (programmatic navigate,
+`route-link` click, URL bar / reload, Back/Forward, initial load, SSR) with no
+per-door plumbing.
 
 Full auth system (form, token, logout): [Add authentication](../../core/how-to/add-auth.md).
 
-!!! warning "Three doors — gate all of them"
-
-    Navigate, `route-link`, and URL-bar/reload/Back are three events. Guard only
-    `:rf.route/navigate` and a logged-out paste of `/settings` walks in. Steps 2–3
-    normalise all three. (`:can-enter` already does that.)
-
-## 1. Tag the protected routes
+## 1. Declare the guard on the route
 
 ```clojure
 (rf/reg-route :app/login    {} "/login")
-(rf/reg-route :app/settings {:tags #{:requires-auth}} "/settings")
-(rf/reg-route :app/admin    {:tags #{:requires-auth}} "/admin")
+
+(rf/reg-route :app/settings
+  {:can-enter [:auth/signed-in?]}
+  "/settings")
+
+(rf/reg-sub :auth/signed-in?
+  :<- [:auth/user]
+  (fn [user _] (some? user)))          ;; true → OK to enter
 ```
 
-Free-form tags — the framework attaches no meaning to `:requires-auth`; *you* do in
-the guard. Readable anywhere: `(rf/handler-meta :route :app/settings)`.
+`true` allows entry; `false` refuses it. The contract is closed — a non-boolean
+return refuses *and* raises `:rf.error/can-enter-non-boolean`, so write
+`(boolean …)` or `(some? …)` rather than leaning on truthiness.
 
-## 2. Normalise the three navigation entry points
+The guard sub also receives the resolved target as a second argument
+(`(fn [inputs [_ target] …])`), so one shared guard can branch on where the visitor
+was headed — `(:route-id target)`, `(:params target)`, or the target route's
+`:tags` via `rf/handler-meta`.
+
+## 2. Understand what a refusal does
+
+Entry refusal is **terminal**. Nothing commits: no route slice, no URL push, no
+scroll, no `:on-match`, no resource load — and, unlike a `:can-leave` block, **no
+pending-navigation value is parked**. There is no paused transition to resume,
+because there is nothing half-done to resume *into*.
+
+The runtime dispatches `:rf.route/entry-denied` exactly once with:
+
+```clojure
+{:destination   {:to :app/settings}          ;; replayable — this is the useful bit
+ :target        {:route-id :app/settings :params {} :query {} :fragment nil :url "/settings"}
+ :cause         :link                        ;; which door
+ :requested-url "/settings"
+ :guard         :auth/signed-in?}
+```
+
+**You do not have to handle it.** The framework ships a no-op default handler, so
+with steps 1–2 alone a logged-out click on `/settings` simply does nothing: the
+visitor stays where they are, the URL never moves, and nothing protected runs.
+(Under SSR the same refusal renders the shell under a `403`.) That is already a
+correct, safe app. Step 3 is the *friendlier* version.
+
+## 3. The fresh-return recipe
+
+Three ordinary steps: **stash the destination, replace-navigate to login, navigate
+freshly back.**
+
+```clojure
+(rf/reg-event :rf.route/entry-denied
+  {:doc "Send a logged-out visitor to login, remembering where they were headed."}
+  (fn [{:keys [db]} [_ {:keys [destination]}]]
+    {:db (assoc-in db [:auth :return-to] destination)
+     :fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]}))
+
+;; …later, when the sign-in succeeds:
+(rf/reg-event :auth/signed-in
+  (fn [{:keys [db]} [_ user]]
+    (let [return-to (get-in db [:auth :return-to])]
+      {:db (-> db (assoc-in [:auth :user] user) (update :auth dissoc :return-to))
+       :fx [[:dispatch [:rf.route/navigate
+                        (assoc (or return-to {:to :app/home}) :replace? true)]]]})))
+```
+
+Why each piece:
+
+- **`:destination` is already the answer.** It is a
+  [`:rf/route-destination`](../../../spec/Spec-Schemas.md#rfroute-destination) — the
+  canonical named address the target resolved to, carrying path params, query, and
+  `#fragment`. It is a valid `:rf.route/navigate` request as it stands, so a
+  deep-link to `/editor/my-post?draft=1#preview` returns to *that*, not to a bare
+  `/editor/my-post`. Don't re-derive it from `:requested-url`.
+- **`:replace? true` on the way to login** keeps the refused URL off the back stack,
+  so Back from `/login` doesn't bounce the visitor straight into the guard again.
+- **The return is a plain navigation.** No resume, no bypass, no special-casing: the
+  guard runs again on that fresh attempt and — now that a user is present — allows
+  it. If the sign-in silently failed, the guard refuses again, which is exactly what
+  you want. Nothing can loop, because nothing was left pending.
+- **Read *and* clear `:return-to` in one step**, so a later ordinary login can't be
+  hijacked by a stale crumb.
+
+Store `:return-to` wherever suits you — it is plain data, so it survives in
+`app-db`, in `localStorage`, or through a page reload.
+
+## 4. Protecting a group of routes
+
+The same sub-id on every protected registration. An ordinary map helper is enough —
+routing deliberately does not add a middleware chain to avoid one:
+
+```clojure
+(def ^:private protected {:can-enter [:auth/signed-in?]})
+
+(rf/reg-route :app/settings (merge protected {:doc "Account settings."}) "/settings")
+(rf/reg-route :app/admin    (merge protected {:doc "Admin console."})    "/admin")
+```
+
+Because the guard sub receives the target, one sub can serve them all and still
+answer differently per route.
+
+## Appendix — when the policy is not about routes
+
+Reach for a frame interceptor only when the rule genuinely spans many routes and is
+*not* expressible as route metadata: a maintenance-mode lockout, an analytics-driven
+redirect, a feature flag gating a whole section by tag.
+
+An interceptor must cover all three navigation entry events itself, or it fails
+**open**:
 
 | Event | Trigger |
 |---|---|
@@ -92,11 +183,10 @@ Misses that matter:
   with `:rf.error/navigate-bad-request`. Do not reclassify as "current route."
 - **Schema-invalid URL** — treat as non-match (`nil`); not-found handles it.
 
-## 3. Redirect with skip-and-dispatch
-
-One interceptor, registered once, `:before` every event. Toward a `:requires-auth`
-route with no signed-in user: **skip** the original handler (protected route never
-commits; loaders never fire) and dispatch login:
+Then redirect with skip-and-dispatch. One interceptor, registered once, `:before`
+every event. Toward a `:requires-auth`-tagged route with no signed-in user: **skip**
+the original handler (the protected route never commits; loaders never fire) and
+dispatch login:
 
 ```clojure
 (rf/reg-interceptor :app/auth-guard
@@ -112,7 +202,7 @@ commits; loaders never fire) and dispatch login:
            (-> ctx
                (assoc :rf/skip-handler? true)
                (assoc-in [:effects :fx]
-                         [[:dispatch [:rf.route/navigate {:to :app/login}]]]))
+                         [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]))
            ctx))
        ctx))})
 ```
@@ -126,7 +216,7 @@ original handler is skipped.
     The runtime picks the handler from the *original* event id. Editing the event in
     `:before` runs the wrong handler. Skip and dispatch a fresh navigation.
 
-## 4. Attach the guard to the frame
+Attach it to the frame:
 
 ```clojure
 (rf/make-frame
@@ -136,6 +226,6 @@ original handler is skipped.
    :interceptors [:app/auth-guard]})
 ```
 
-Non-navigation events short-circuit in one `case` — cost on ordinary traffic is
-negligible. Protected routes tagged, all three doors gated, logged-out reader bounced
-to `/login`. Rest of the auth flow: [Add authentication](../../core/how-to/add-auth.md).
+Non-navigation events short-circuit in one `case`, so the cost on ordinary traffic is
+negligible. Rest of the auth flow:
+[Add authentication](../../core/how-to/add-auth.md).
