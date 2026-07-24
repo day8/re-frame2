@@ -40,24 +40,9 @@ leak boundary. Views *read* — they never fetch.
 ;; => {:status :loading …}  then  {:status :loaded :data …}
 ```
 
-## Start here
-
-1. **[Tutorial: Build RealWorld](tutorial/index.md)** — five parts growing a Medium-style
-   app (pages → resources → auth → mutations → tests). Best first path if you want a
-   full app.
-2. **[The model](concepts.md)** — the grammar behind Part 2 onward: register, cause,
-   project, five statuses, scope, mutations.
-3. **Task recipes** when you have one job: [Paginate a feed](how-to/paginate-a-feed.md),
-   [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md).
-4. **[Testing](testing.md)** — cause with a dispatch, answer with canned HTTP, read the
-   cache projection.
-
 **Prerequisites.** The [Core introduction](../core/introduction.md). Resources plug into
 events, app-db, and effects; they do not replace them. The transport underneath is
 [managed HTTP](../async/index.md) (`:rf.http/managed`).
-
-Optional later: [examples](examples.md), [TanStack mapping](coming-from-tanstack-query.md),
-[glossary](glossary.md).
 
 ## Three lanes
 
