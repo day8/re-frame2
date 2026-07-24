@@ -21,6 +21,8 @@ testable like everything else.
 Route [loaders](glossary.md#loader) run on the server too — one data-fetch story
 with [SSR](../ssr/index.md), no separate server router.
 
+<a id="in-this-section"></a>
+
 **Prerequisites.** [Core introduction](../core/introduction.md) — events, app-db,
 subscriptions, views. Routing plugs into those; it does not replace them.
 
