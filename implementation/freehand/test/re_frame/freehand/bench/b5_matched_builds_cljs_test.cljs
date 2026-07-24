@@ -180,7 +180,7 @@
               "the three shapes are three distinct artefacts")
           ;; The delta is a fact about the two artefacts; it gates nothing.
           (is (number? (:raw-bytes delta)) "the per-promotion raw delta is a number")
-          (is (= (:raw-bytes delta) (- (:raw-bytes compiled) (:raw-bytes interpreted)))
+          (is (= (:raw-bytes delta) (- (:raw-bytes compiled) (:raw-bytes interp)))
               "and it is exactly compiled-minus-interpreted over the measured bytes")
           (is (= (:sha256 interp) (:interpreted-sha256 delta))
               "the delta is tied to the interpreted bundle it was taken over")
