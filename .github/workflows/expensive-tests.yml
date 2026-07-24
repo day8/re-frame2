@@ -124,6 +124,19 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:freehand-evidence-elision
 
+      # rf2-zl8ao — the nightly superset of the PR-time
+      # `cljs-freehand-reachability` job, and the backstop that keeps that
+      # job's NARROW arm honest. The PR gate fires on the controller doors,
+      # the facade edge, the two entries, the build-config trio and the
+      # checker; the evidence gate's narrowness is underwritten by a JVM
+      # sole-requirer law, and this one has no such law yet, so a NEW
+      # production edge into `re-frame.freehand.control` from anywhere else in
+      # the tree — or a core/toolchain change that defeats Closure's DCE —
+      # would be caught here rather than not at all.
+      - name: Gate — Freehand unused-module reachability (test:freehand-reachability)
+        if: ${{ !cancelled() }}
+        run: npm run test:freehand-reachability
+
       - name: Gate — tools must not leak into production bundles (test:bundle-isolation)
         if: ${{ !cancelled() }}
         run: npm run test:bundle-isolation
