@@ -262,7 +262,34 @@
   "Collect what React says on `console.error` while a transition runs, and
   answer the restore thunk. The controlled↔uncontrolled complaint is a
   console diagnostic and nothing else — no exception, no visible failure —
-  so a suite that does not listen for it cannot see it."
+  so a suite that does not listen for it cannot see it.
+
+  ## What listening for a HOST library's warning actually buys
+
+  An assertion of the form \"the host said nothing\" inherits that host's
+  WARNING POLICY, including every case where it declines to warn. React
+  19's policy is not uniform across the three diagnostics this file reads,
+  and the differences decide which shape each row has to take:
+
+  - the controlled↔uncontrolled complaint is raised from React's UPDATE
+    path only. It compares the props last committed against the props now
+    committing, so no mount can raise it and a row watching for it MUST
+    be shaped as a transition. It is also latched behind a page-global
+    one-shot flag: React says it ONCE per page, ever;
+  - the `value should not be null` complaint is raised on mount, update
+    and hydration alike, and is latched behind its own page-global
+    one-shot flag;
+  - the `<select>` value-SHAPE complaint is raised on mount and hydration
+    only — never on update — and is not latched at all. A row watching
+    for it must therefore MOUNT the shape it is judging.
+
+  A one-shot flag is the part that bites silently: this file's browser
+  suite is one page, so the first test anywhere in it that legitimately
+  trips a latched diagnostic disarms every later row watching for the
+  same one, and those rows go green while proving nothing. The last
+  deftest in this namespace is the control for that — it drives a field
+  genuinely uncontrolled and REQUIRES React to complain, which can only
+  succeed if the latch was still closed everywhere above it."
   [sink]
   (let [original (.-error js/console)]
     (set! (.-error js/console)
@@ -283,7 +310,12 @@
   `value` is the WRONG SHAPE — a scalar on a multiple select, or an array
   on a single one. Like the controlled/uncontrolled complaint it is a
   console diagnostic and nothing else, so a suite that does not listen for
-  it renders a visibly-correct page over a contract it is breaking."
+  it renders a visibly-correct page over a contract it is breaking.
+
+  React runs this check when the element is CREATED and when it is
+  hydrated, and at no other time: an update never re-reads the shape. So
+  a row asking this question judges the shape of the value the node was
+  MOUNTED with, whatever else has happened to the node since."
   [lines]
   (filterv #(re-find #"(?i)must be an array|must be a scalar" %) lines))
 
@@ -505,7 +537,23 @@
             it keeps the value it last rendered. The symptom is the old
             text still on screen while application state says empty, on a
             site the door has already put on the synchronous lane, so
-            nothing throws and nothing else says so."
+            nothing throws and nothing else says so.
+
+            The console row is shaped as a TRANSITION on purpose, and the
+            shape is load-bearing rather than incidental. React raises the
+            controlled↔uncontrolled complaint by comparing the props it
+            last committed against the props it is committing now, which
+            it can only do on an update — mounting an already-uncontrolled
+            node raises nothing at all. Rewriting this row to mount the
+            bad state, the way a value-SHAPE row has to be written, would
+            silence it permanently.
+
+            It has been shown to fail: drop the nil `:value` slot instead
+            of writing the controlled empty value and React answers with
+            `A component is changing a controlled input to be
+            uncontrolled`, and the row reds. Dropping the nil `:checked`
+            slot reds it the same way — the diagnostic reads whichever
+            slot the element's `type` makes its controlling one."
     (if-not (browser?)
       (skip! "the browser job runs the clearing assertions")
       (async done
@@ -608,7 +656,18 @@
             visible to a structural assertion, and a wrong shape does not
             throw: React writes a console diagnostic and renders a page
             that can look entirely correct, which is why the console is
-            watched here as closely as the DOM is."
+            watched here as closely as the DOM is.
+
+            What the console CANNOT see here is the clearing transition
+            itself. React re-reads a select's value shape at no point
+            after creation, and it has no controlled↔uncontrolled
+            complaint for `<select>` at all — an emitter that stopped
+            writing the slot leaves the old options selected in total
+            silence. So the clearing claim rests on the DOM row that
+            reads `selectedOptions` back, and the console rows after it
+            are the mount's verdict restated plus the one complaint a
+            select does still make on update: that its `value` arrived as
+            a literal null."
     (if-not (browser?)
       (skip! "the browser job runs the multiple-select assertions")
       (async done
@@ -646,13 +705,102 @@
                                         (str "an explicit nil cleared every selected option "
                                              "— the node holds " (pr-str (picked sel))))
                                     (is (= [] (control-complaints @errors))
-                                        (str "React raised no controlled/uncontrolled "
-                                             "diagnostic across the whole sequence: "
-                                             (pr-str @errors)))
+                                        (str "the empty selection reached React as the "
+                                             "empty ARRAY and never as a literal null — "
+                                             "the one control complaint a `<select>` "
+                                             "still makes on update: " (pr-str @errors)))
                                     (is (= [] (value-shape-complaints @errors))
-                                        (str "and none about the value's shape: "
+                                        (str "and the mount's shape verdict still stands, "
+                                             "unchanged by anything since: "
                                              (pr-str @errors)))
                                     (finish))))))))))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (finish)))))))))
+
+;; ===========================================================================
+;; THE CONTROL FOR THE CONSOLE ITSELF — declared LAST, and that is the point
+;; ===========================================================================
+
+(v/defview slot-dropping-field
+  "The ONE deliberately wrong view in this file: when state goes nil it
+  OMITS `:value` rather than writing the controlled empty value, which is
+  exactly the emitter defect the clearing row asserts React does not
+  report. Nothing reads it but the control below."
+  [_]
+  (let [text (cell/observe! query)]
+    (if (nil? text)
+      [:input {:id        "slot-dropped"
+               :on-change [evt :re-frame.freehand/value]}]
+      [:input {:id        "slot-dropped"
+               :value     text
+               :on-change [evt :re-frame.freehand/value]}])))
+
+(v/defview slot-dropping-page
+  [_]
+  [:div [slot-dropping-field {}]])
+
+(defn- render-slot-dropping-page!
+  [root db]
+  (act #(do (frame/replace-app-db! fid db)
+            (.render root (shell/provide-frame fid (fr/element [slot-dropping-page {}]))))))
+
+(deftest fh-input-003-the-controlled-to-uncontrolled-channel-was-still-live
+  (testing "The CONTROL for every `React said nothing` row above, and the
+            reason they are claims rather than silence about silence. A
+            row that watches a host library for a warning inherits that
+            library's warning POLICY, and React's policy for the
+            controlled↔uncontrolled complaint is to raise it ONCE per
+            page and never again. This suite is one page. So the first
+            test anywhere in it that legitimately drives a field
+            uncontrolled spends the diagnostic, and every later row
+            watching for it goes green having proved nothing — with
+            nothing on screen to say so.
+
+            This row drives a field genuinely uncontrolled and REQUIRES
+            the complaint. It can only arrive if the latch was still
+            closed, which it can only have been if no row above it
+            consumed it. Declared LAST for that reason: it spends the
+            diagnostic itself, so anything wanting it must come first.
+
+            The DOM row underneath it is this control's own control —
+            React does not clear an uncontrolled node, so the field must
+            still be holding the text it was seeded with. A field that
+            cleared anyway never went uncontrolled, and a complaint about
+            it would be about something else."
+    (if-not (browser?)
+      (skip! "the browser job runs the console control")
+      (async done
+        (reg!)
+        (let [{:keys [seed]} (:clearing input-003)
+              _ (make-frame! {:text seed})
+              [container root] (mount!)
+              errors  (atom [])
+              restore (spy-console-errors! errors)
+              finish  (fn [] (restore) (teardown! container root) (done))]
+          (-> (render-slot-dropping-page! root {:text seed})
+              (.then
+                (fn [_]
+                  (let [field (node container "slot-dropped")]
+                    (is (= seed (.-value field)) "the control field starts controlled")
+                    (-> (render-slot-dropping-page! root {:text nil})
+                        (.then
+                          (fn [_]
+                            (is (identical? field (node container "slot-dropped"))
+                                (str "the SAME host node — an update, which is the only "
+                                     "path that can raise the diagnostic at all"))
+                            (is (= seed (.-value field))
+                                (str "the node really did go uncontrolled — React kept the "
+                                     "text it last rendered instead of clearing it; it "
+                                     "holds " (pr-str (.-value field))))
+                            (is (seq (control-complaints @errors))
+                                (str "React did NOT report a field that genuinely went "
+                                     "uncontrolled. It raises that diagnostic once per "
+                                     "PAGE, so something above this row already spent it "
+                                     "— which means every `React said nothing` row in "
+                                     "this namespace was unable to fail. Captured: "
+                                     (pr-str @errors)))
+                            (finish)))))))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
                         (finish)))))))))
