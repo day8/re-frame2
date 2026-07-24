@@ -317,6 +317,25 @@
               (value-tag params) " where the parameter vector belongs.")
          :fix-the-callback-declaration
          {:params (error/diag-value-summary params)}))
+     ;; A `:render-fn` carries a host-independent FIXED-arity contract with
+     ;; `v/slot`: the compiled analyzer already refuses variadic `&`
+     ;; (`analyze-render-fn` → `:rf.ui.compile/bad-render-fn`), so the
+     ;; interpreted authoring path must reach the SAME verdict rather than
+     ;; recording `(count params)`. For `[x & xs]` that count is 3 — an arity
+     ;; the generated function does not accept, and one `check-slot-arity!`
+     ;; would then enforce against a valid one-argument `v/slot` call. The
+     ;; refusal is role-specific: `v/event` / `v/handler` have no slot-arity
+     ;; contract, so their variadic forms are untouched.
+     (when (and (= role :render-fn) (some #{'&} params))
+       (bad-event!
+         where
+         (str where " parameters are a FIXED arg list — variadic & is not "
+              "permitted, because a v/slot invokes a render-fn with a fixed "
+              "number of arguments and the declaration must say exactly how "
+              "many. Name the parameters the slot supplies; a render-fn is not "
+              "a variadic function.")
+         :fix-the-render-fn-parameter-vector
+         {:params (error/diag-value-summary params)}))
      `(callback ~role (fn ~params ~@body) ~(count params))))
 
 ;; ---------------------------------------------------------------------------
