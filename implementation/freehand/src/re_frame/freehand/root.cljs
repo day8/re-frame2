@@ -717,6 +717,39 @@
                                   :installed-by       (:installed-by record)}
                       :arriving  {:config-fingerprint config-fingerprint
                                   :root-id            root-id}}}))
+      ;; The AUTHORITY arm (Spec 004C §7). A config-BEARING ENSURE that meets a
+      ;; frame already LIVE but with no `:installed-by` recorded — a fresh
+      ;; boot/external frame, or one this page only SCOPED under a prior
+      ;; config-less row — is meeting a BOOT-AUTHORITATIVE frame. There is no
+      ;; installer to refresh, so proceeding would let `make-frame` reset the
+      ;; boot config, write `:installed-by root-id` + `:installed-value`, and
+      ;; hand this root address-directed teardown authority — the final
+      ;; `unmount!` then destroying a frame the page never owned. Ownership is
+      ;; the right to have CREATED the frame; scoping is the honest way to
+      ;; reference one you did not. So this fails BEFORE `make-frame` mutates,
+      ;; distinct from the differing-fingerprint arm above: that recovers by
+      ;; aligning configs, this by dropping to a config-less scope or owning the
+      ;; whole lifetime. A first-time ENSURE (frame not yet live) and a same-root
+      ;; refresh (`:installed-by` already this root) both fall through untouched.
+      (when (and owned?
+                 (nil? (:installed-by record))
+                 (some? (frame/frame frame-id)))
+        (error/throw-error!
+          :rf.error/frame-payload-conflict where
+          (str "frame " (pr-str frame-id) " is already LIVE and this page does not "
+               "own it — it was booted or created elsewhere, or is only being "
+               "scoped here. A config-bearing :frame {:id …} plan would take it "
+               "over: reset its config now, then DESTROY it at unmount, silently "
+               "tearing down state this root never installed. Boot the frame "
+               "config-less and SCOPE it with :frame " (pr-str frame-id) ", or drop "
+               "the external make-frame and let this root own the frame's whole "
+               "lifetime.")
+          {:recovery :scope-config-less-or-own-the-lifetime
+           :extra    {:frame-id  frame-id
+                      :installed {:config-fingerprint (:config-fingerprint record)
+                                  :adopted            true}
+                      :arriving  {:config-fingerprint config-fingerprint
+                                  :root-id            root-id}}}))
       (let [installed-value
             (if owned?
               ;; ENSURE. `make-frame` is idempotent replacement: absent → created
