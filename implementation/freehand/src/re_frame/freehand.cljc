@@ -868,15 +868,17 @@
 ;; every mode, host and test path shares.
 
 (def ^{:doc "The CLOSED scalar projection roster — `::v/value`,
-  `::v/checked` and `::v/key`.
+  `::v/checked`, `::v/key`, `::v/scroll-top` and `::v/new-state`.
 
   These are the only reserved markers a declarative event vector may
   carry, and the exact keys of the payload map a firing site supplies.
   A marker in a top-level argument position is replaced at firing time
   from the live callback payload; a marker nested inside another value
-  is ordinary application data. Adding a fourth projection is a grammar
-  decision — anything richer than a shallow scalar read is [[event]]'s
-  job.
+  is ordinary application data. The roster is CLOSED but not guessed up
+  front — a member is admitted when a real component needs a shallow
+  scalar read the existing markers cannot spell (`::v/scroll-top` and
+  `::v/new-state` joined that way); anything richer than a shallow scalar
+  read is [[event]]'s job.
 
   Per [Spec 004 §Event intent and the payload materializer](../../../../spec/004-Views.md)."}
   projections events/projections)
