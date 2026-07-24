@@ -174,7 +174,7 @@
           pending    (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default})]
       (is (some? pending) ":pending-navigation is subscribable (stays in runtime-db)")
       (is (= "pn-1" (:id pending)) "the pending-nav id is minted from the host counter")
-      (is (= :can-leave (:reason pending)) "the pending-nav slot carries the block reason")
+      (is (= :link (:cause pending)) "the pending-nav slot carries the blocked door's cause")
       (is (contains? routing-rt :pending-navigation)
           ":pending-navigation IS a runtime-db key (D2 — must stay subscribable)")
       (is (not (contains? routing-rt :pending-nav-counter))
