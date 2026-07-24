@@ -621,6 +621,59 @@
                         (teardown! container root)
                         (done)))))))))
 
+(deftest pilot-two-emoji-instances-keep-distinct-mounted-ids
+  (testing "rf2-drpa3.146, audit reopen (mounted). The collision a lossy first
+            surrogate produced: two controlled fields whose instances are the
+            emoji 😀 (U+1F600) and 😁 (U+1F601) — which share a high surrogate —
+            mount with DISTINCT `aria-describedby` targets, each resolving by
+            document id to its own error region. The JVM structural arm proves
+            the whole-code-point encoding closes the collision; this browser arm
+            proves the two ids also resolve to two regions in a real DOM. The
+            emoji are built from their surrogate units so the mount never
+            depends on how the runtime reads a literal out of source."
+    (if-not (browser?)
+      (skip! "the browser job runs the mounted emoji collision regression")
+      (async done
+        (live-frame/make-frame {:id fid})
+        (frame/replace-app-db! fid {})
+        (pilot/register!)
+        (pilot/register-app!)
+        (let [grin (str (char 0xD83D) (char 0xDE00))    ; 😀 U+1F600
+              beam (str (char 0xD83D) (char 0xDE01))    ; 😁 U+1F601
+              [container root] (mount!)
+              field-form (fn [instance]
+                           [pilot/field {:name     "description"
+                                         :label    "Description"
+                                         :value    ""
+                                         :instance instance
+                                         :error    "A description is required."
+                                         :on-input [:noop]}])]
+          (-> (act #(.render root (shell/provide-frame
+                                    fid (fr/element [:div
+                                                     (field-form grin)
+                                                     (field-form beam)]))))
+              (.then
+                (fn [_]
+                  (let [controls (.querySelectorAll container "[data-part='control']")
+                        c1  (.item controls 0)
+                        c2  (.item controls 1)
+                        id1 (.getAttribute c1 "aria-describedby")
+                        id2 (.getAttribute c2 "aria-describedby")]
+                    (is (= 2 (.-length controls)) "non-vacuous: two fields mounted")
+                    (is (some? id1) "the 😀 control names a region")
+                    (is (some? id2) "the 😁 control names a region")
+                    (is (not= id1 id2)
+                        "😀 and 😁 no longer collapse onto one shared surrogate id")
+                    (is (some? (.getElementById js/document id1))
+                        "the 😀 region resolves by document id")
+                    (is (some? (.getElementById js/document id2))
+                        "the 😁 region resolves by document id"))))
+              (.then (fn [_] (teardown! container root) (done)))
+              (.catch (fn [e]
+                        (is false (str "the mounted pilot rejected: " e))
+                        (teardown! container root)
+                        (done)))))))))
+
 ;; ===========================================================================
 ;; The compiled cell, re-opened — the pilot's compiled twin mounts
 ;; ===========================================================================
