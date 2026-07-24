@@ -61,8 +61,14 @@
 ;; path: the root below, the record shape and every event id are the
 ;; library's choices.
 
-(def ^:private kind
-  "The buffered controller family."
+(def kind
+  "The buffered controller family.
+
+  PUBLIC because the promoted twin in
+  [[re-frame.freehand.buffered-views-compiled]] addresses the SAME family.
+  A compiled control that restated its own kind would write its own
+  records, and the parity suite would be comparing two independent
+  controllers rather than one control in two modes."
   :my.ui/buffered-field)
 
 (def ^:private disclosure-kind
@@ -72,11 +78,20 @@
   paid by buffered controls alone."
   :my.ui/disclosure)
 
-(def ^:private records-root :my.ui/controllers)
+(def records-root
+  "Where the pilot library keeps its controller records. Public for the
+  same reason [[kind]] is: the parity suite reads the ONE record both
+  execution modes write."
+  :my.ui/controllers)
 
-(defn- register-library!
+(defn register-library!
   "The library's whole dataflow — two reads and four transitions — plus
-  the caller-side events an application writes around it."
+  the caller-side events an application writes around it.
+
+  Public so the parity suite starts from the same registrar these laws
+  do. It knows nothing about execution mode, which is itself part of what
+  promotion parity means: an interpreted control and its compiled twin
+  reach these same registrations."
   []
   ;; --- Reads ---------------------------------------------------------
 
