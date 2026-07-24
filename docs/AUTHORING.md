@@ -1,8 +1,9 @@
 # Guide authoring brief
 
-> **Who this is for.** Anyone writing or revising pages under `/docs` — the core
-> guide and the machines, async, resources, routing, and ssr corpora. Readers never
-> land here (not in the site nav). Start learning at [the guide](introduction.md).
+> **Who this is for.** Anyone writing or revising pages under `/docs` — core,
+> machines, async, resources, routing, ssr, and the other guide corpora. Readers
+> never land here (not in the site nav). Start learning at
+> [the guide](core/introduction.md).
 
 This is a **taste brief**, not a process manual. Non-negotiables first; craft and
 pacing after that. Prefer judgment over form compliance — but if you skip a rule
@@ -20,7 +21,7 @@ below, know *why*.
 
 2. **Standalone corpus.** Never link into `spec/`. Repeat what the reader needs,
    with a CLJS flavour, on the page that owns the topic. Exact shapes →
-   [API reference](../api/README.md); definitions → [glossary](glossary.md).
+   [API reference](api/README.md); definitions → [glossary](core/glossary.md).
    Contributors still *verify* against the spec and implementation; the rule is
    about reader-facing links.
 
@@ -176,23 +177,23 @@ not re-teach it.
 
 | Technique | Owner |
 |---|---|
-| Event vocabulary, `dispatch` | [Events](events.md) |
-| `{:db}`, facts vs conclusions, seed-as-event | [app-db](app-db.md) |
-| Named derivation, layers, `=` gate | [Subscriptions](subscriptions.md) |
-| Hiccup notation, view-in-view composition | [Hiccup](hiccup.md) |
-| `reg-view` semantics, thin views | [Views](views.md) |
-| `:fx` grammar, RTC *idea*, `reg-fx` | [Effects](effects.md) |
-| Managed HTTP depth / retry / abort | [async](../async/http.md) (not Core) |
-| `:rf.cofx/requires`, grades, `reg-cofx` | [Coeffects](coeffects.md) |
-| Isolation, carry, ensure vs scope | [Frames](frames.md) |
-| `init!`, hot reload, host listeners | [Boot how-to](how-to/boot-and-mount-an-app.md) |
-| Materialise for handlers | [Flows](flows.md) |
-| Four homes (which tool) | [Where state lives](where-state-lives.md) |
-| Cross-cutting chain (rare) | [Interceptors](interceptors.md) |
-| Registration sets (rare) | [Images](images.md) |
-| Dossiers / recovery verbs | [Errors](errors.md) |
-| Trace wire; classification *why* | [Observability](observability.md) |
-| Classification *recipe* | [Secrets how-to](how-to/keep-secrets-out-of-traces.md) |
+| Event vocabulary, `dispatch` | [Events](core/events.md) |
+| `{:db}`, facts vs conclusions, seed-as-event | [app-db](core/app-db.md) |
+| Named derivation, layers, `=` gate | [Subscriptions](core/subscriptions.md) |
+| Hiccup notation, view-in-view composition | [Hiccup](core/hiccup.md) |
+| `reg-view` semantics, thin views | [Views](core/views.md) |
+| `:fx` grammar, RTC *idea*, `reg-fx` | [Effects](core/effects.md) |
+| Managed HTTP depth / retry / abort | [async](async/http.md) (not Core) |
+| `:rf.cofx/requires`, grades, `reg-cofx` | [Coeffects](core/coeffects.md) |
+| Isolation, carry, ensure vs scope | [Frames](core/frames.md) |
+| `init!`, hot reload, host listeners | [Boot how-to](core/how-to/boot-and-mount-an-app.md) |
+| Materialise for handlers | [Flows](core/flows.md) |
+| Four homes (which tool) | [Where state lives](core/where-state-lives.md) |
+| Cross-cutting chain (rare) | [Interceptors](core/interceptors.md) |
+| Registration sets (rare) | [Images](core/images.md) |
+| Dossiers / recovery verbs | [Errors](core/errors.md) |
+| Trace wire; classification *why* | [Observability](core/observability.md) |
+| Classification *recipe* | [Secrets how-to](core/how-to/keep-secrets-out-of-traces.md) |
 | Machines / resources / routing / SSR | Their battery corpora — pointer only from Core |
 
 Interceptors and images are **structure but rare** — open with when-not; do not
@@ -218,7 +219,7 @@ XState, re-frame v1, …) and the deliberate divergences. Persona deltas are col
 `??? info` callouts — short, never required reading. A v1 callout is earned only where
 the v1 instinct *misleads*; most pages need zero. Retired v1 surfaces
 (`inject-cofx`; the retired/renamed `:rf.world/inputs` → flat `:rf.cofx` map)
-appear **only** on the [migration page](25-from-re-frame-v1.md), marked
+appear **only** on the [migration page](core/25-from-re-frame-v1.md), marked
 superseded — never as live teaching elsewhere.
 
 ## Live cells and demo shapes

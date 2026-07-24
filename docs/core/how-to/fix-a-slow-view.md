@@ -134,7 +134,7 @@ The cure is to not do the unnecessary work. (Duh.) Concretely: **hand each row a
 
 Trace a favorite click through it. One article's map changes, so `:feed/slugs` recomputes — but it yields an `=` slug vector, so the gate closes and `feed` doesn't re-render at all. `[:article/by-slug slug]` changes for exactly one slug, so exactly one row re-renders. Views tab: one row where the cloud was.
 
-Two details are load-bearing here.
+Two details matter here.
 
 First, `^{:key slug}` gives each row a *stable identity*, so inserting or removing an article diffs by identity instead of position. Without it, one deletion at the top re-renders every row beneath it.
 
@@ -190,7 +190,7 @@ The trick is to split those two concerns. Build, once per row, a single long-liv
 
 !!! note "Why a Form-2 view?"
 
-    The factory must be built *once per row*, not once per render — otherwise you've minted a fresh "stable" object each render and bought nothing. A Form-2 view (a render body that returns another fn) gives you exactly that seam: the outer fn runs once at mount and is where the factory lives; the inner fn is the render fn. ([Views](../views.md) explains the three view shapes.)
+    The factory must be built *once per row*, not once per render — otherwise you've minted a fresh "stable" object each render and bought nothing. A Form-2 view (a render body that returns another fn) gives you exactly that split: the outer fn runs once at mount and is where the factory lives; the inner fn is the render fn. ([Views](../views.md) explains the three view shapes.)
 
 ??? info "For JavaScript developers"
 

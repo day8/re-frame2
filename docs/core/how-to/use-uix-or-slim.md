@@ -240,9 +240,9 @@ Mechanically it's a small swap: your app depends on exactly one of `{day8/re-fra
 There are two different "render to HTML" jobs, and slim treats them differently — worth knowing before you commit:
 
 - **Static HTML export** (clipboard exports, report HTML, anything that leaves the React lifecycle) — `render-to-static-markup`, shipped by slim under `reagent2.dom.server` as a pure-CLJS tree walk. No `react-dom/server`, no hydration attributes. This is the path slim *keeps*, and it's where the ~22–27 KB HTML-export saving comes from (stock Reagent's `render-to-string` pulls in the ~50 KB `react-dom/server` module; the pure-CLJS serializer is ~3–4 KB).
-- **Hydrate-able SSR** (server-render markup that the client `hydrate-root`s) — slim does **not** ship this. It lives in the `day8/re-frame2-ssr` seam (see [Server-side rendering](../../ssr/concepts.md)), which the adapter wires through a late-bind hook.
+- **Hydrate-able SSR** (server-render markup that the client `hydrate-root`s) — slim does **not** ship this. It lives in the `day8/re-frame2-ssr` package (see [Server-side rendering](../../ssr/concepts.md)), which the adapter wires through a late-bind hook.
 
-!!! note "Planning to hydrate-able server-render? Weigh the seam first"
+!!! note "Planning to hydrate-able server-render? Weigh the package first"
 
     Slim drops `react-dom/server`, so the stock `reagent.dom.server/render-to-string` path isn't there. If your SSR is hydrate-able, you'll route it through `day8/re-frame2-ssr` rather than the adapter. If you're not sure you'll ever server-render, the simplest call is to stay on stock Reagent — switching back later is more disruptive than the kilobytes you'd save now. Slim is for apps that *know* they're client-only (or only need offline static-markup export).
 

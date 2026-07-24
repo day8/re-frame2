@@ -9,9 +9,10 @@ Full sentences; a short *why* after instructions; progressive depth. Not a
 telegram dump, not a marketing essay. Would it sound natural at 11pm?
 
 **Authoring standard:** when this graduates into `docs/`, follow
-[`docs/core/AUTHORING.md`](../../../core/AUTHORING.md) — one job per page,
-reader-first order (goal → code → why), day-one stop before depth, unhappy-path
-tables, “when not,” no page chrome navigation, no reader-facing `spec/` links.
+[`docs/AUTHORING.md`](../../../AUTHORING.md) — one job per page,
+reader-first order (goal → code → why), required path then optional depth,
+troubleshooting tables, “when not,” no page chrome navigation, no reader-facing
+`spec/` links.
 
 ## Status
 

@@ -142,7 +142,7 @@ One thing has to hold for "a grep finds all of them" to be true: a *miss* must b
 
 ??? note "Going deeper"
 
-    "Enumerable" is the load-bearing word, and it's a property you get *for free* from the constraints, not one you have to maintain. In a Turing-complete architecture the set of writers to a piece of state is, in general, undecidable — any code that can reach a reference can write through it, and aliasing makes "who can reach this?" a question no grep can answer. Collapsing writes to one mechanism (registered handlers) over one container (app-db) turns an undecidable question into a finite enumeration: the writers are a literal, searchable list. That's the same move the five-layer ladder makes everywhere — trade expressive power you weren't using for a decidable answer to a question you ask constantly.
+    "Enumerable" is the operative word, and it's a property you get *for free* from the constraints, not one you have to maintain. In a Turing-complete architecture the set of writers to a piece of state is, in general, undecidable — any code that can reach a reference can write through it, and aliasing makes "who can reach this?" a question no grep can answer. Collapsing writes to one mechanism (registered handlers) over one container (app-db) turns an undecidable question into a finite enumeration: the writers are a literal, searchable list. That's the same move the five-layer ladder makes everywhere — trade expressive power you weren't using for a decidable answer to a question you ask constantly.
 
 ## One impure spot, one wire
 

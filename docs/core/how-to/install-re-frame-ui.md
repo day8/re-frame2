@@ -2,7 +2,7 @@
 
 One setting in `shadow-cljs.edn` wires `re-frame.ui` into your development build. It is not a tuning knob and it is not optional: `re-frame.ui` needs a build hook that harvests its whole-build registries — view digests, the root/plan indexes, the Root Descriptor index, and the compile-time custom-element declarations — from the compiled sources. Configure it once and the problem disappears for the life of the project. Omit it and the build ships no registries, so the app cannot resolve its own compiled views.
 
-This page is the whole setup: the dependency, the one setting, why it is load-bearing, the Shadow versions we support, what the failure looks like, and a smoke test that proves it worked.
+This page is the whole setup: the dependency, the one setting, why you cannot skip it, the Shadow versions we support, what the failure looks like, and a smoke test that proves it worked.
 
 ## Add the dependency
 
@@ -86,7 +86,7 @@ The two halves of shadow-cljs must match, so pin the same version in `package.js
 
     Versions outside 3.4.0–3.4.11 are untested. They may fail outright at compile time if a future Shadow release changes how it persists analyzer data to disk. This is a deliberate pre-alpha stance: the supported range widens as newer Shadow releases are added to the test matrix. Until then, a version outside the range is not a bug report, it is an unsupported configuration.
 
-## When it's misconfigured
+## Troubleshooting
 
 If you omit the hook, no build stage harvests the `re-frame.ui` registries, so the build publishes no accepted snapshot. There is no build-time error today — the failure surfaces at runtime, when the app tries to resolve a compiled view or mount a root and finds no registry to resolve it against, and the namespace throws on load. The fix is always the same: add `(re-frame.ui.compiler.build-hook/hook)` to `:build-defaults` `:build-hooks`.
 
@@ -101,10 +101,8 @@ The smoke test is short, and worth running once when you set the project up:
 
 Working from a checkout of this repository? [`examples/ui/minimal-counter`](https://github.com/day8/re-frame2/tree/main/examples/ui/minimal-counter) is a complete runnable project carrying exactly the configuration above.
 
-## The hook is a host seam, not an API
+## The hook is host integration, not an API
 
-`re-frame.ui.compiler.build-hook/hook` is a **required host-integration seam**: a versioned contract between re-frame.ui and one specific build tool. You name it once in `shadow-cljs.edn` and never again — you don't call it, wrap it, compose it, or reach past it.
+`re-frame.ui.compiler.build-hook/hook` is a **required host-integration contract**: a versioned agreement between re-frame.ui and one specific build tool. You name it once in `shadow-cljs.edn` and never again — you don't call it, wrap it, compose it, or reach past it.
 
-Everything else in that namespace is internal implementation and carries no stability promise; it is not part of the supported consumer configuration and application code should not reach for it. If you ever find yourself calling into the namespace from application code, the answer is somewhere else — the [API reference](../../api/README.md) carries the surfaces meant for you.
-
-For the normative statement of this contract, see `spec/004C-Roots-and-Mount.md` §2.1.1.
+Everything else in that namespace is internal implementation and carries no stability promise; it is not part of the supported consumer configuration and application code should not reach for it. If you ever find yourself calling into the namespace from application code, the answer is somewhere else — the [API reference](../../api/README.md) carries the symbols meant for you.

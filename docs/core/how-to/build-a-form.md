@@ -97,7 +97,7 @@ Everything that can happen to a form is one of seven events. That's not arbitrar
 | `:form.login/submit-error` | Route structured rejections to `:errors`, transport failures to `:submit-error`. |
 | `:form.login/reset` | Re-dispatch `:initialise`. |
 
-We'll wire up the spine first — the keystroke, the submit, and the two replies — then mop up the mechanical ones.
+We'll wire the main path first — the keystroke, the submit, and the two replies — then mop up the mechanical ones.
 
 ### The keystroke
 
@@ -182,7 +182,7 @@ Snapshotting `:draft` into `:submitted` here is what makes `:dirty?` work later:
 
 ### The failure reply — the validation-vs-transport split
 
-The failure handler has to sort two genuinely different kinds of failure, and this is the second load-bearing rule: **structured server rejections land in `:errors`, rendered by the same subs and markup as client-side validation; transport failures land in `:submit-error` as one opaque "couldn't reach the server" value.**
+The failure handler has to sort two genuinely different kinds of failure, and this is the second hard rule: **structured server rejections land in `:errors`, rendered by the same subs and markup as client-side validation; transport failures land in `:submit-error` as one opaque "couldn't reach the server" value.**
 
 So the handler needs to tell those two apart. The failure reply is the canonical envelope `{:status :error :error {...} …}`, and the inner failure map (under `:error`) carries a `:kind` drawn from a *closed* set of `:rf.http/*` categories — `:rf.http/http-4xx`, `:rf.http/transport`, `:rf.http/timeout`, and so on. That `:kind` is the discriminator: a 4xx with a parseable validation body is the structured case; everything else is transport.
 
@@ -434,7 +434,7 @@ A login POST can hit a 503 from a just-restarting node or a dropped connection o
 
     `:retry` is a pure function of *failure category × attempt count* — nothing else. The moment the decision depends on the response body ("the body says rate-limited"), on another request ("refresh the token first, then retry"), or on app state ("only if the user's still on this page"), you've left transport retry behind and you want a [state machine](../../machines/concepts.md) driving the submit. The machine owns the conditional retry; `:rf.http/managed` keeps doing plain transport retry inside each attempt the machine launches. Don't try to encode "refresh-then-retry" into `:retry` — there's no slot for it, by design.
 
-## When a form slice is wrong
+## When not to use a form slice
 
 Not everything that takes input is a form, and reaching for the slice when you don't need it just adds ceremony. The test is **intent to commit**: is there a distinct moment between "user finished editing" and "system accepts the result", with validation at that moment? If yes, you want the slice. If there's no such moment, the seven-key apparatus is dead weight.
 

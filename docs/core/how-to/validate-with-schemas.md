@@ -309,9 +309,9 @@ The interceptor doesn't introduce a second schema — it re-uses the handler's e
 
     You probably validate API responses with a parser at the fetch boundary — `schema.parse(await res.json())`. `:rf.schema/at-boundary` is that idea, framework-native: the validation lives on the *handler* that receives the payload, survives production elision, and emits the same structured failure trace as every other check — so an untrusted-response shape error reads identically to an internal one in your tooling.
 
-## Swap the validator (Malli isn't load-bearing)
+## Swap the validator (Malli is the default)
 
-Malli is the *default*, not a hard dependency — the runtime never inspects a `:schema` directly, it routes every check through a registered **validator fn**. That's the seam a port crosses to use Zod or Pydantic, and it's also how an app drops Malli for `clojure.spec` or disables validation wholesale. The setters live on `re-frame.schemas`, and the preferred one installs the whole bundle atomically at boot so the three fns never drift:
+Malli is the *default*, not a hard dependency — the runtime never inspects a `:schema` directly, it routes every check through a registered **validator fn**. That's the boundary a port crosses to use Zod or Pydantic, and it's also how an app drops Malli for `clojure.spec` or disables validation wholesale. The setters live on `re-frame.schemas`, and the preferred one installs the whole bundle atomically at boot so the three fns never drift:
 
 ```clojure
 (require '[re-frame.schemas :as schemas])
@@ -340,6 +340,6 @@ One question decides it: *could this schema catch something no test of yours wou
 
 **Skip it** when the slice is a single scalar — `{:nav/open? true}` doesn't need `[:map [:open? :boolean]]`. And never register `:any` as a placeholder: it implies a constraint that isn't there, which is worse than silence.
 
-Three conventions are worth adopting from day one. Use `[:enum …]` for fixed value sets, never bare `:keyword` — the enum is where the leverage lives. Keep maps open, closing only at boundaries. And keep each schema in the same namespace as the handlers that write its slice, because the schema is the slice's documentation, and documentation lives next to the thing it describes.
+Three conventions are worth adopting early. Use `[:enum …]` for fixed value sets, never bare `:keyword` — the enum is where the constraint lives. Keep maps open, closing only at boundaries. And keep each schema in the same namespace as the handlers that write its slice, because the schema is the slice's documentation, and documentation lives next to the thing it describes.
 
 And when a slice clears the bar, promise me you'll write the schema. Promise me. Okay, good.
