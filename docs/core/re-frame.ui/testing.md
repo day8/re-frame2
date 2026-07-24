@@ -172,7 +172,7 @@ Your tests cover *your* app; they get to assume the substrate. (For tooling and
 agents, the dev-only `re-frame.ui.tool` namespace exposes the same evidence Xray
 reads — view manifests, mounted views, render explanations.)
 
-## When it goes wrong
+## Troubleshooting
 
 | If you write | What you see | The fix |
 |---|---|---|

@@ -25,7 +25,7 @@ The rules, in full:
   (`:selected-id` → `selectedId`) — the same spelling philosophy as the rest of the
   DOM grammar.
 - **Undeclared names are attributes.** Undeclared *elements* need no declaration at
-  all — an element that only takes attributes works with zero ceremony.
+  all — an element that only takes attributes needs no declaration.
 - `:class`, `:style`, and booleans follow the ordinary DOM rules.
 - The `{:properties #{…}}` map is the entire declaration grammar — the options map
   is closed.
@@ -42,7 +42,7 @@ The rules, in full:
 - **On the JVM / SSR the emitter writes attributes only** — property props are
   applied at hydration, when a live element object exists to set them on.
 
-## When it goes wrong
+## Troubleshooting
 
 | If you write | What you see | The fix |
 |---|---|---|
@@ -54,6 +54,6 @@ The rules, in full:
 - If a wrapper library already exposes the component as a **React** component,
   embed it as a foreign head (`[TheComponent {…}]`) instead — that boundary and its
   callback rules live on the [interop page](interop-and-limits.md).
-- And the standing note: `re-frame.ui` is experimental — the retained adapters are
-  the default choice; under Reagent/UIx, custom elements follow those libraries'
-  own interop conventions.
+- Reminder: `re-frame.ui` is experimental — the retained adapters are the default
+  choice; under Reagent/UIx, custom elements follow those libraries' own interop
+  conventions.

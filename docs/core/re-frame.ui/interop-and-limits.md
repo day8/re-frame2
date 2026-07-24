@@ -3,13 +3,13 @@
 `defview` does not *interpret* hiccup at runtime. It **lowers** the template at
 build time — direct React construction in the browser, a versioned structural tree
 on the JVM — which is what makes the memoisation, the elision, and the tooling
-sound. The price is a **closed template grammar**: anything the compiler cannot see
-through is a build failure, with a message that names the fix, rather than a silent
-runtime surprise.
+reliable. The price is a **closed template grammar**: anything the compiler cannot
+see through is a build failure, with a message that names the fix, rather than a
+silent runtime surprise.
 
-This page is the honest one. It catalogues what the compiler forbids, the explicit
-doors for when you genuinely need runtime structure, how foreign React fits in, and
-where this substrate is the wrong tool.
+This page catalogues what the compiler forbids, the explicit doors for when you
+genuinely need runtime structure, how foreign React fits in, and where this
+substrate is the wrong tool.
 
 ## The one-sentence rule
 
@@ -41,7 +41,7 @@ AST, so you are never forced into one linear template.
 Every `(sub …)` is a compile-indexed site on the view's single
 React bridge. A `sub` may sit in a branch — it is not a hook — but no site may
 appear inside an unbounded loop. The fix is the same shape as
-[State](state.md#when-you-get-it-wrong): extract a keyed child view that
+[State](state.md#troubleshooting): extract a keyed child view that
 subscribes for one row.
 
 Expression positions — prop values, condition tests, `for` collections — hold
@@ -163,7 +163,7 @@ arguments alone) and the library invokes it through `ui/slot`:
 ;; consumer hands the library a pure render callback:
 [data-grid {:rows rows :render-row (ui/render-fn [row] [:td (:name row)])}]
 
-;; inside the library, at the seam:
+;; inside the library, at the call site:
 (ui/slot render-row row)
 ```
 
@@ -217,7 +217,7 @@ island behind a thin `ui/raw` boundary, not a `defview` full of runtime structur
 | A hook at a foreign boundary | `re-frame.ui.react/*` | Interop tier — not for ordinary views |
 | Logic the template must not see | An ordinary function, or another `defview` | The preferred recovery for an unsupported form |
 
-## How errors show up
+## Troubleshooting
 
 - **Build time** for structure and site rules — dynamic heads, loops, missing
   keys, unsupported forms, missing required props on literal call sites. Messages
@@ -229,7 +229,7 @@ island behind a thin `ui/raw` boundary, not a `defview` full of runtime structur
   ids like `:rf.ui.compile/unsupported-form` and `:rf.ui.compile/dynamic-head` are
   part of the contract.
 
-## Planned and absent surfaces
+## Planned and absent APIs
 
 Honesty about what is *not* here yet, so you don't hunt for it:
 
@@ -254,8 +254,8 @@ The closed grammar is the bill for the machinery. Weigh it honestly:
 - **You want stable ground today.** `re-frame.ui` is pre-alpha, delivered in
   staged slices, and not on Clojars yet.
 
-In every one of those cases the answer is the same, and it bears repeating as this
-guide's standing note: **the retained adapters — Reagent, reagent-slim, UIx — are
-the default choice.** They are first-class and actively supported, not a fallback.
-Choosing one is a supported decision, and the dataflow you learned in the
-[core guide](../introduction.md) works identically behind all of them.
+In every one of those cases the answer is the same: **the retained adapters —
+Reagent, reagent-slim, UIx — are the default choice.** They are first-class and
+actively supported, not a fallback. Choosing one is a supported decision, and the
+dataflow you learned in the [core guide](../introduction.md) works identically
+behind all of them.

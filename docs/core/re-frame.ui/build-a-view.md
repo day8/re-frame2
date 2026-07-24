@@ -4,7 +4,7 @@ This is the walkthrough the [API reference](../../api/re-frame.ui.md) can't be:
 one small view built up a step at a time, so each new form lands on its own. We'll
 build a counter that increments through an event and reveals a help line through
 local state — enough to touch `defview`, `sub`, an event handler, `local`, and
-the mount, which together are most of what day-to-day view work needs.
+the mount, which together are most of what ordinary view work needs.
 
 The setup this assumes — the dependency and the two Shadow settings — is the
 [Install re-frame.ui and configure Shadow](../how-to/install-re-frame-ui.md)
@@ -45,7 +45,7 @@ Here is the whole component, in its first form:
 empty — and returns a template. `(sub [:count])` is the current value of the
 subscription, dropped straight into the paragraph; when `[:count]` changes, this
 view re-renders and the number updates. No `@`, no deref, no ratom. That's the
-reactive spine of the whole thing, in one line.
+whole reactive path, in one line.
 
 ## Step 3 — an event
 
@@ -152,9 +152,9 @@ so your state survives edits.
 That's a complete, runnable re-frame.ui view: a subscription read as a value, an
 event dispatched as data, and ephemeral state kept local — mounted under an
 explicit frame. For a standalone project carrying exactly this shape plus the
-five load-bearing setup files, the
+five setup files the scaffold needs, the
 [`examples/ui/minimal-counter`](https://github.com/day8/re-frame2/tree/main/examples/ui/minimal-counter)
 scaffold is the thing to copy.
 
-Next: [why this stays reactive](reactivity-and-ownership.md) — what re-computes
+[Reactivity and ownership](reactivity-and-ownership.md) covers what re-computes
 when `[:count]` changes, and why the subscription never leaks.

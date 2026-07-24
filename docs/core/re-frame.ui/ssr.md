@@ -31,7 +31,7 @@ freely — two roots can reference one shared frame; one root can scope several.
 
 Every root has a **root-id**. You usually write none: a single-root page derives it
 from the mounted view's registered id — the [Build a view](build-a-view.md) counter
-path, zero ceremony. Author identity the moment a page outgrows that:
+path, no extra config. Author identity the moment a page outgrows that:
 
 ```clojure
 (ui/mount [ui/frame-root {:id :shop} [product-panel]] left-el
@@ -130,7 +130,7 @@ silently stripped by inference. The HTML folding itself lives in the SSR artefac
 calling it without `day8/re-frame2-ssr` on the classpath fails loud with
 `:rf.error/ssr-artefact-missing`.
 
-## When it goes wrong
+## Troubleshooting
 
 | Symptom | Named error | Fix |
 |---|---|---|
@@ -148,6 +148,6 @@ calling it without `day8/re-frame2-ssr` on the classpath fails loud with
 - Request handling, payload allowlists, response control, streaming, and the head
   grammar are the [SSR corpus](../../ssr/concepts.md)'s territory — don't rebuild
   them from view-layer parts.
-- And the standing note: `re-frame.ui` is experimental — the retained adapters are
-  the default choice, and their SSR path (the hash-verified hiccup tier) is covered
-  by the same SSR corpus.
+- Reminder: `re-frame.ui` is experimental — the retained adapters are the default
+  choice, and their SSR path (the hash-verified hiccup tier) is covered by the same
+  SSR corpus.

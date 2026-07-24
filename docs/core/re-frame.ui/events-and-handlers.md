@@ -85,7 +85,7 @@ dispatch at such a site falls back to ordinary batching, and dev tells you so
 A whole form is fields over app-db — one event, one sub, every field; the
 [Build a form](../how-to/build-a-form.md) recipe carries the full pattern.
 **Uncommitted drafts stay in `local`**: when only this view cares until submit,
-hold the draft locally and dispatch on submit — the search-box seam in
+hold the draft locally and dispatch on submit — the search-box pattern in
 [State](state.md#local-ephemera-local).
 
 ## Forwarding intent through components
@@ -128,7 +128,7 @@ Three rules keep this honest:
 |---|---|---|
 | Dispatch intent (the 90%) | `[:event … :rf.ui/value]` | data; canonical |
 | The live event — forms, files, filtering | `(ui/event [e] … [:vector …])` | committed values + the event; `nil` filters |
-| Imperative work, stable identity | `(ui/handler [x] …)` | return ignored; foreign change-callbacks, internal fn-prop seams |
+| Imperative work, stable identity | `(ui/handler [x] …)` | return ignored; foreign change-callbacks, internal fn-prop sites |
 | A callback invoked **while rendering** — a row-key, a cell renderer | `(ui/render-fn [x] …)` | pure; current render; no dispatch/state inside |
 | Quick local work in a **native** `:on-*` | bare `#(…)` | legal there only — shorthand for `ui/handler` |
 | Any callback prop on a **foreign component** | one of the forms above, explicitly | a bare fn there is a compile error |
@@ -148,7 +148,7 @@ render callbacks see the **current** render. One function cannot promise both.
            :row-key (ui/render-fn [row] (:id row))}]
 ```
 
-`ui/render-fn` doubles as the value a library's `ui/slot` seam accepts — the
+`ui/render-fn` doubles as the value a library's `ui/slot` call site accepts — the
 [interop page](interop-and-limits.md) covers that library-author territory.
 
 ## Lists
@@ -184,7 +184,7 @@ visibility from domain transitions (a route match, a machine state, the event th
 opened the modal); synchronise with the host world in `effect`
 ([State](state.md#the-world-outside-effect-and-dispatch-fn)).
 
-## Safety nets
+## Troubleshooting
 
 Every rule on this page fails where you can see it — at build time, or at the
 first dev render. None of them becomes a handler that silently does nothing:
@@ -208,6 +208,5 @@ first dev render. None of them becomes a handler that silently does nothing:
 - The event *vocabulary* itself — naming, granularity, `dispatch` semantics — is
   core territory ([Events](../events.md)); this page only changes the spelling at
   the DOM site.
-- And the standing note: `re-frame.ui` is experimental — the retained adapters are
-  the default choice, where handlers are ordinary closures and this page does not
-  apply.
+- Reminder: `re-frame.ui` is experimental — the retained adapters are the default
+  choice, where handlers are ordinary closures and this page does not apply.

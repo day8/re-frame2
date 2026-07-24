@@ -16,15 +16,16 @@ That has three consequences worth internalising:
 
 - **The template grammar is closed.** Because the compiler has to *understand*
   your template — not just execute it — a few dynamic tricks that a runtime
-  walker tolerates are rejected at compile time, each with a didactic message: a
-  computed tag head (`[(if x :div :span) …]`), a `map` that returns markup,
-  keywords in child position, a `sub` inside a `for`. The fixes are always
-  small, and the payoff is that tools and the JVM emitter can rely on the shape.
+  walker tolerates are rejected at compile time, each with a message that names
+  the fix: a computed tag head (`[(if x :div :span) …]`), a `map` that returns
+  markup, keywords in child position, a `sub` inside a `for`. The fixes are
+  always small, and the payoff is that tools and the JVM emitter can rely on the
+  shape.
 - **Memoization is automatic.** Every view is memoized on its props, compared by
   value. Think "`React.memo`, except ClojureScript data compares by value" — a
   parent re-render doesn't re-run a child whose props are equal.
 - **Dev machinery vanishes from production.** The compiled path guards its
-  development affordances behind `goog.DEBUG`, so an advanced build carries no
+  development checks behind `goog.DEBUG`, so an advanced build carries no
   interpreter, no descriptors, no dev-only checks.
 
 ## 2. `defview` is the one component form
@@ -75,7 +76,7 @@ is explicit at the two edges and ambient in between:
   **committed** frame automatically — you don't thread it through props. To scope
   a subtree to a *different* live frame, wrap it in `frame-provider`.
 
-So frames are a first-class part of the model, but day to day you name one at the
+So frames are a first-class part of the model, but usually you name one at the
 root and forget about it.
 
 ## Handlers are data
@@ -134,5 +135,5 @@ cursors, or reactions (that's a second state model); no Form-2 / Form-3; no
 positional view args; no dynamic tag heads or runtime-interpreted hiccup. Closed
 grammars are precisely what let the compiler be honest about what a view reads
 and does — which is what makes the memoization, the elision, and the tooling
-sound. You trade a little runtime flexibility for a view layer that can be
+reliable. You trade a little runtime flexibility for a view layer that can be
 compiled, analysed, and taught without hedging.
