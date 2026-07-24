@@ -11,6 +11,7 @@
   (JVM/SSR) wiring so a `:reload` re-wires both on a fresh registrar."
   (:require [re-frame.router :as router]
             [re-frame.frame :as frame]
+            [re-frame.routing.address :as address]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.strategy :as strategy]))
 
@@ -35,10 +36,17 @@
   strategy `:encode`; the SSR render passes `identity` (SSR ignores
   strategies — the path-form href is the server shell, and the hydrated
   CLJS render fn re-encodes on the client)."
-  [{:keys [to params query fragment] :as props} encode]
-  (let [path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
-    [path-url (-> props
-                  (dissoc :to :params :query :fragment :on-click)
+  [props encode]
+  ;; EP-0037 R0b: select the address through the ONE shared extractor
+  ;; (`address/extract-address`, the closed `:to`/`:params`/`:query`/`:fragment`
+  ;; key class) rather than a bespoke destructuring, and strip the address +
+  ;; behaviour keys via the shared key-class constants — so route-link cannot
+  ;; drift from what an address IS, and a policy / DOM attr can never leak into
+  ;; the synthesised href. The remaining props are the open DOM-attribute map
+  ;; (route-link's deliberate exception — Spec 012 §The extraction law).
+  (let [{:keys [to params query fragment]} (address/extract-address props)
+        path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
+    [path-url (-> (apply dissoc props (concat address/address-keys address/link-behavior-keys))
                   (assoc :href (encode path-url)))]))
 
 #?(:cljs
@@ -254,8 +262,14 @@
   source stamping) as separate hooks. The JVM branch encodes path-form (SSR has
   no address bar); on hydration the CLJS render re-encodes through the frame
   strategy. Per Spec 012 §Linking from views and the rf2-5yovjt ruling."
-  [{:keys [to params query fragment] :as target} render-frame]
-  (let [path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
+  [target render-frame]
+  ;; EP-0037 R0b: select the address through the ONE shared extractor
+  ;; (`address/extract-address`) — the same closed key class `rf/route-link`,
+  ;; `route-url`, and `:rf.route/navigate` resolve through. `native-anchor?`
+  ;; still reads the FULL `target` (the `:target` / `:download` DOM attrs live
+  ;; outside the address class).
+  (let [{:keys [to params query fragment]} (address/extract-address target)
+        path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
         encode   #?(:cljs (:encode (strategy/url-strategy-for-frame-id render-frame))
                     :clj  identity)]
     {:href    (encode path-url)

@@ -20,6 +20,7 @@
             [re-frame.identity :as identity]
             [re-frame.registrar :as registrar]
             [re-frame.late-bind :as late-bind]
+            [re-frame.routing.address :as address]
             [re-frame.routing.classification :as classification]
             [re-frame.routing.match :as match]
             [re-frame.routing.url :as url]
@@ -1580,7 +1581,12 @@
    ;; trip this; a direct misuse of the public `route-url` fails fast. Bad
    ;; keys are reported in TOTAL canonical order (`identity/canonical-bytes`)
    ;; so a heterogeneous EDN-key set never trips `compare`.
-   (when-let [bad (seq (remove #{:to :params :query :fragment} (keys address)))]
+   ;; EP-0037 R0b: the address-only key class is the ONE shared
+   ;; `address/address-keys` constant every door measures the address against
+   ;; (Spec 012 §The extraction law). route-url takes an already-extracted
+   ;; address, so a non-address key here (`:url` / `:query-merge` / policy /
+   ;; unknown) is a direct-misuse caller bug and rejects LOUD.
+   (when-let [bad (seq (remove address/address-keys (keys address)))]
      (let [bad (vec (sort-by identity/canonical-bytes bad))]
        (throw (route-error
                 :rf.error/route-url-validation

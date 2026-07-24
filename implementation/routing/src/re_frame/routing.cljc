@@ -22,6 +22,8 @@
 
   - `re-frame.routing.url`            — URL %-encode / %-decode primitives
   - `re-frame.routing.match`          — pattern parsing + match-against
+  - `re-frame.routing.address`        — the shared RouteAddress extraction law (closed key classes) every door resolves through (EP-0037 R0)
+  - `re-frame.routing.resolve`        — the one resolved-target / route-plan seam + its R0 diagnostic projection (EP-0037 R0)
   - `re-frame.routing.registry`       — reg-route + match-url + route-url + route-table cache
   - `re-frame.routing.classification` — projection-relative route data classification
   - `re-frame.routing.scroll`         — scroll-restoration helpers + :rf.nav/scroll + :rf.nav/capture-scroll fxs
@@ -45,8 +47,10 @@
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
             [re-frame.subs :as subs]
+            [re-frame.routing.address :as address]
             [re-frame.routing.can-leave :as can-leave]
             [re-frame.routing.events :as routing-events]
+            [re-frame.routing.resolve :as resolver]
             [re-frame.routing.history :as history]
             [re-frame.routing.link :as link]
             [re-frame.routing.nav-counters :as nav-counters]
@@ -82,6 +86,18 @@
 ;; are not re-exported from `re-frame.core`.
 (def route-ids                  registry/route-ids)
 (def route-meta                 registry/route-meta)
+
+;; EP-0037 R0 — the shared RouteAddress extraction law + the one
+;; resolved-target / route-plan seam every navigation door lowers to. These
+;; are owned-namespace operations (not re-exported from `re-frame.core`); the
+;; plan-projection is the pure on-demand view a tool (Xray / trace tooling)
+;; reads to prove the shared spine (Spec 012 §Resolved target and the plan
+;; diagnostic projection).
+(def extract-address            address/extract-address)
+(def valid-address?             address/valid-address?)
+(def resolved-target            resolver/resolved-target)
+(def route-plan                 resolver/route-plan)
+(def plan-projection            resolver/plan-projection)
 
 ;; Scroll positions are host-side transient state, not runtime-db state.
 (def scroll-positions-cap       scroll/scroll-positions-cap)
