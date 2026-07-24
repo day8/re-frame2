@@ -3549,12 +3549,12 @@ bound it:
 - **Dev-only.** Capture is DEBUG-gated at both the macro and the
   registrar, so under `:advanced` + `goog.DEBUG=false` neither the slot
   nor the source bytes reach the bundle (JVM builds are always-on). A
-  production runtime answers with coordinates and nothing more.
-- **`reg-event` scope.** Every other kind on the enum above (`sub`, `fx`,
+  production runtime answers with coordinates and no body.
+- **`reg-event` scope.** No other kind on the enum above (`sub`, `fx`,
   `cofx`, `interceptor`, `view`, `frame`, `route`, `flow`, `head`,
-  `error-projector`, `resource`, `mutation`, `resource-scope`) carries
-  source **coordinates** only — fall back to `:rf.mcp/source-uri` and the
-  filesystem there. Machine guards and actions do carry the same key, but
+  `error-projector`, `resource`, `mutation`, `resource-scope`) carries the
+  slot — fall back to `:rf.mcp/source-uri` and the filesystem
+  there. Machine guards and actions do carry the same key, but
   through the framework's derived `:machine-guard` / `:machine-action`
   handler-meta kinds (Spec 005), which this tool's `kind` enum does not
   expose.
