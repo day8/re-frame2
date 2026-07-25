@@ -111,13 +111,10 @@ Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 
 **The spec is the artefact; the code is downstream.** The normative description of re-frame2 lives in [`spec/`](spec/) (~22K lines across 35+ documents); [`implementation/`](implementation/) is a CLJS reference that validates the spec end-to-end. See the repo-root [`README.md`](README.md) for the marketing-voice introduction and the project-layout map, and [`spec/README.md`](spec/README.md) for the spec index.
 
-Top-level layout:
+Status that the directory tree does not tell you: under `implementation/`, `ui/` (re-frame.ui) is the **EXPERIMENTAL** compiled-view substrate, offered alongside the `adapters/` (Reagent, reagent-slim, UIx), which are **first-class and actively supported**.
 
-- `implementation/` — CLJS reference: `core/` + `ui/` (re-frame.ui, the EXPERIMENTAL compiled-view substrate, offered alongside the adapters) + per-substrate `adapters/` (Reagent, reagent-slim, UIx — first-class, actively supported) + per-feature artefacts (machines, schemas, resources, …). The top-level `implementation/shadow-cljs.edn` + `implementation/deps.edn` coordinate the cross-artefact classpath.
-- `tools/` — dev/inspection tools that consume the Spec 009 instrumentation API and Tool-Pair contract (`template/`, `story/`, `story-mcp/`, `re-frame2-pair-mcp/`, `xray/`, `machines-viz/`, `testbed-support/`, `mcp-base/`, `mcp-conformance/`). Bundle-isolated from production builds; nothing in `implementation/` may `:require` from `tools/`.
+`tools/` holds dev/inspection tools consuming the Spec 009 instrumentation API and Tool-Pair contract. They are bundle-isolated from production builds: **nothing in `implementation/` may `:require` from `tools/`.**
 
 ## Conventions & Patterns
 
 Normative conventions are catalogued in [`spec/Conventions.md`](spec/Conventions.md) — reserved namespaces (the `:rf/*` single-root scheme), reserved fx-ids, reserved app-db keys, the feature-modularity id-prefix convention, and packaging conventions. [`spec/Principles.md`](spec/Principles.md) carries the nine AI-first practical principles. [`spec/Ownership.md`](spec/Ownership.md) maps every contract surface to its owning spec — the "where does X live?" reference.
-
-Hot-zone files (sequential, never parallel — see the Workflow section above for the list) and isolated surfaces (safe to parallel) are documented in the dispatch rules above; new beads should respect that split to minimise merge conflicts.
