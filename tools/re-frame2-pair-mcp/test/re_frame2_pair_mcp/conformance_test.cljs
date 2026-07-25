@@ -1777,29 +1777,34 @@
     {:isError? true
      :reason :no-target-arg}}
 
-   ;; ---------- the five re-frame.ui.tool projections (rf2-vxgfnd.95.8) ----
+   ;; ---------- the five re-frame.freehand.tool reads ---------------------
    ;; Each ships an exists?-guarded self-describing form calling
-   ;; re-frame.ui.tool/<projection>; the form resolves to an {:ok? …} envelope
+   ;; re-frame.freehand.tool/<read>; the form resolves to an {:ok? ...} envelope
    ;; projected via map-envelope-result (every :ok? false is isError). The stub
    ;; returns the envelope the guarded form would produce, so the corpus pins the
-   ;; happy passthrough (with :rf.ui.tool/version + the loss/version fields) AND
-   ;; the honest absent/unavailable envelopes.
+   ;; happy passthrough (with :schema + the four projection axes) AND the honest
+   ;; absent/unavailable envelopes.
    {:fixture/id    :read-view-manifest/happy
-    :fixture/doc   "read-view-manifest forwards the versioned manifest projection; the form calls re-frame.ui.tool/view-manifest under an exists? guard."
+    :fixture/doc   "read-view-manifest forwards the versioned manifest projection; the form calls re-frame.freehand.tool/read-view-manifest under an exists? guard."
     :fixture/tool  "read-view-manifest"
     :fixture/args  {:view-id ":my.app/counter"}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"        true]
-     ["re-frame.ui.tool/view-manifest"  {:ok? true :rf.ui.tool/version 3
-                                         :view-id :my.app/counter :doc "A counter."
-                                         :props [] :site-counts {:subs 1 :events 1}}]
-     [:default                          nil]]
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/read-view-manifest"     {:ok? true :schema :re-frame.freehand.evidence/v1
+                                                       :read :view-manifest
+                                                       :view-id :my.app/counter :lowering :compiled
+                                                       :scope :possible-sites :basis :static-proof
+                                                       :complete? true :loss nil
+                                                       :manifest {:view-id :my.app/counter
+                                                                  :subscriptions [] :events []}}]
+     [:default                                        nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.ui.tool/view-manifest" "cljs.core/exists?"]
+    ["re-frame.freehand.tool/read-view-manifest" "cljs.core/exists?"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :view-id :my.app/counter :rf.ui.tool/version 3}
-     :edn-contains-keys #{:site-counts}}}
+     :edn-submap {:ok? true :view-id :my.app/counter :schema :re-frame.freehand.evidence/v1
+                  :basis :static-proof :complete? true}
+     :edn-contains-keys #{:manifest}}}
 
    {:fixture/id    :read-view-manifest/missing-view-id
     :fixture/doc   "read-view-manifest without :view-id short-circuits on :missing-view-id before any nREPL round-trip."
@@ -1811,141 +1816,228 @@
     {:isError? true
      :reason :missing-view-id}}
 
+   {:fixture/id    :read-view-manifest/interpreted-is-opaque-not-empty
+    :fixture/doc   "an INTERPRETED declaration answers :manifest nil on :basis :opaque with an explicit {:reason :no-static-analysis :dropped :unknown} loss - a successful read whose incompleteness is STATED, never an empty roster passed off as a clean bill of health (unknown must not look like none)."
+    :fixture/tool  "read-view-manifest"
+    :fixture/args  {:view-id ":my.app/interpreted"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/read-view-manifest"     {:ok? true :schema :re-frame.freehand.evidence/v1
+                                                       :read :view-manifest
+                                                       :view-id :my.app/interpreted
+                                                       :lowering :interpreted
+                                                       :scope :possible-sites :basis :opaque
+                                                       :complete? false
+                                                       :loss {:reason :no-static-analysis
+                                                              :dropped :unknown}
+                                                       :manifest nil}]
+     [:default                                        nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :basis :opaque :complete? false
+                  :loss {:reason :no-static-analysis :dropped :unknown}}}}
+
    {:fixture/id    :read-view-dependencies/happy
     :fixture/doc   "read-view-dependencies forwards the sub site projection (literal-vs-:dynamic honesty)."
     :fixture/tool  "read-view-dependencies"
     :fixture/args  {:view-id ":my.app/row"}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"           true]
-     ["re-frame.ui.tool/view-dependencies" {:ok? true :rf.ui.tool/version 3
-                                            :view-id :my.app/row
-                                            :subscriptions [{:query [:total] :dynamic? false}]}]
-     [:default                             nil]]
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/read-view-dependencies" {:ok? true :schema :re-frame.freehand.evidence/v1
+                                                       :read :view-dependencies
+                                                       :view-id :my.app/row :lowering :compiled
+                                                       :scope :possible-sites :basis :static-proof
+                                                       :complete? true :loss nil
+                                                       :subscriptions [{:query [:total] :dynamic? false}]}]
+     [:default                                        nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.ui.tool/view-dependencies"]
+    ["re-frame.freehand.tool/read-view-dependencies"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :view-id :my.app/row}
      :edn-contains-keys #{:subscriptions}}}
 
    {:fixture/id    :read-view-dependencies/tier-unavailable-iserror
-    :fixture/doc   "when re-frame.ui.tool is not loaded (a plain-Reagent app), the guarded form resolves to {:ok? false :reason :view-tier-unavailable} — surfaced as an isError envelope (absent evidence tolerated explicitly)."
+    :fixture/doc   "when re-frame.freehand.tool is not loaded (a Reagent/UIx app), the guarded form resolves to {:ok? false :reason :view-tier-unavailable} - surfaced as an isError envelope (absent evidence tolerated explicitly)."
     :fixture/tool  "read-view-dependencies"
     :fixture/args  {:view-id ":my.app/row"}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"           true]
-     ["re-frame.ui.tool/view-dependencies" {:ok? false :reason :view-tier-unavailable
-                                            :hint "the re-frame.ui.tool projection tier is not loaded…"}]
-     [:default                             nil]]
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/read-view-dependencies" {:ok? false :reason :view-tier-unavailable
+                                                       :hint "the re-frame.freehand.tool reader tier is not loaded..."}]
+     [:default                                        nil]]
     :fixture/expect
     {:isError? true
      :edn-submap {:ok? false :reason :view-tier-unavailable}}}
 
    {:fixture/id    :read-view-event-sites/happy
-    :fixture/doc   "read-view-event-sites forwards the event-handler site projection (literal inspectable, opaque :dynamic marked)."
+    :fixture/doc   "read-view-event-sites forwards the event-handler site projection - a literal handler verbatim, an opaque one marked, :event-id still shown where the authored form has one, and :site-facts naming the closed set a row states."
     :fixture/tool  "read-view-event-sites"
     :fixture/args  {:view-id ":my.app/form"}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"           true]
-     ["re-frame.ui.tool/view-event-sites"  {:ok? true :rf.ui.tool/version 3
-                                            :view-id :my.app/form
-                                            :handlers [{:prop :on-click :site-kind :literal
-                                                        :handler [:submit] :serializable? true}
-                                                       {:prop :on-input :site-kind :dynamic
-                                                        :handler :opaque :serializable? false :sync? true}]}]
-     [:default                             nil]]
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/read-view-event-sites"  {:ok? true :schema :re-frame.freehand.evidence/v1
+                                                       :read :view-event-sites
+                                                       :view-id :my.app/form :lowering :compiled
+                                                       :scope :possible-sites :basis :static-proof
+                                                       :complete? true :loss nil
+                                                       :event-sites [{:prop :on-click :classification :vector
+                                                                      :handler [:submit] :event-id :submit
+                                                                      :serializable? true :sync? false}
+                                                                     {:prop :on-input :classification :callback
+                                                                      :handler :opaque :event-id nil
+                                                                      :serializable? false :sync? true}]
+                                                       :site-facts #{:sid :source-coord :path :prop
+                                                                     :classification :serializable? :sync?
+                                                                     :handler :event-id}}]
+     [:default                                        nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.ui.tool/view-event-sites"]
+    ["re-frame.freehand.tool/read-view-event-sites"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :view-id :my.app/form}
-     :edn-contains-keys #{:handlers}}}
+     :edn-contains-keys #{:event-sites :site-facts}}}
 
    {:fixture/id    :read-view-event-sites/view-not-available-iserror
-    :fixture/doc   "an unregistered view id yields {:ok? false :reason :view-not-available} (nil manifest) — an isError envelope, never a fabricated empty result."
+    :fixture/doc   "an undeclared view id yields {:ok? false :reason :view-not-available} (a nil read) - an isError envelope, never a fabricated empty result."
     :fixture/tool  "read-view-event-sites"
     :fixture/args  {:view-id ":nope/absent"}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"           true]
-     ["re-frame.ui.tool/view-event-sites"  {:ok? false :reason :view-not-available
-                                            :view-id :nope/absent}]
-     [:default                             nil]]
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/read-view-event-sites"  {:ok? false :reason :view-not-available
+                                                       :view-id :nope/absent}]
+     [:default                                        nil]]
     :fixture/expect
     {:isError? true
      :edn-submap {:ok? false :reason :view-not-available :view-id :nope/absent}}}
 
    {:fixture/id    :read-mounted-views/happy
-    :fixture/doc   "read-mounted-views forwards the committed connected-instance records (occurrence identity, connection state, lifecycle log)."
+    :fixture/doc   "read-mounted-views forwards every CONNECTED occurrence - view id, occurrence key, lowering, generation, connection state and the selected commit - plus the :occurrence-facts set naming exactly what a row states."
     :fixture/tool  "read-mounted-views"
     :fixture/args  {}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"        true]
-     ["re-frame.ui.tool/mounted-views"  {:ok? true :rf.ui.tool/version 3
-                                         :views [{:occurrence 3 :view-id :my.app/row
-                                                  :connection :connected
-                                                  :lifecycle {:intervals [] :dropped 0 :exact? true}
-                                                  :evidence {:count 4}}]}]
-     [:default                          nil]]
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/read-mounted-views"     {:ok? true :schema :re-frame.freehand.evidence/v1
+                                                       :read :mounted-views
+                                                       :scope :connected-occurrences
+                                                       :basis :observation
+                                                       :complete? true :loss nil
+                                                       :occurrences [{:view-id :my.app/row
+                                                                      :occurrence {:parent nil :key 71}
+                                                                      :lowering :compiled :generation 4
+                                                                      :connection :connected
+                                                                      :root :unknown :at 18422.7
+                                                                      :commit {:frame :rf/default :reads []}}]
+                                                       :occurrence-facts #{:view-id :occurrence :lowering
+                                                                           :generation :connection :root
+                                                                           :dispatch-id :at :commit}}]
+     [:default                                        nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.ui.tool/mounted-views"]
+    ["re-frame.freehand.tool/read-mounted-views"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :rf.ui.tool/version 3}
-     :edn-contains-keys #{:views}}}
+     :edn-submap {:ok? true :schema :re-frame.freehand.evidence/v1 :basis :observation}
+     :edn-contains-keys #{:occurrences :occurrence-facts}}}
 
    {:fixture/id    :read-mounted-views/empty-but-versioned
-    :fixture/doc   "with no evidence tool installed, read-mounted-views forwards {:ok? true :views []} — an empty-but-versioned envelope, NOT an isError (real emptiness is a legitimate answer)."
+    :fixture/doc   "with nothing connected, read-mounted-views forwards {:ok? true :occurrences []} - an empty-but-versioned envelope, NOT an isError. This is the one empty answer that IS a clean bill of health, because the current-occurrence index is authoritative about what is connected."
     :fixture/tool  "read-mounted-views"
     :fixture/args  {}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"        true]
-     ["re-frame.ui.tool/mounted-views"  {:ok? true :rf.ui.tool/version 3 :views []}]
-     [:default                          nil]]
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/read-mounted-views"     {:ok? true :schema :re-frame.freehand.evidence/v1
+                                                       :read :mounted-views
+                                                       :complete? true :loss nil
+                                                       :occurrences []}]
+     [:default                                        nil]]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :views []}}}
+     :edn-submap {:ok? true :occurrences []}}}
 
-   {:fixture/id    :read-mounted-views/version-mismatch-iserror
-    :fixture/doc   "a projection stamped a schema version this pair build was NOT written against is converted to a typed {:ok? false :reason :view-tier-version-mismatch} (isError) by the consumer-owned version gate — Pair reaches an arbitrarily old/new app, so the producer's stamp does not define support (rf2-vxgfnd.98.1.1). The version boundary is real: an incompatible producer shape is never forwarded as a successful read."
+   {:fixture/id    :read-mounted-views/schema-mismatch-iserror
+    :fixture/doc   "a projection stamped an evidence schema this pair build was NOT written against is converted to a typed {:ok? false :reason :view-tier-version-mismatch} (isError) by the consumer-owned schema gate - Pair reaches an arbitrarily old/new app, so the producer's stamp does not define support. The version boundary is real: an incompatible producer shape is never forwarded as a successful read."
     :fixture/tool  "read-mounted-views"
     :fixture/args  {}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"        true]
-     ["re-frame.ui.tool/mounted-views"  {:ok? true :rf.ui.tool/version 9999 :views []}]
-     [:default                          nil]]
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/read-mounted-views"     {:ok? true :schema :re-frame.freehand.evidence/v99
+                                                       :occurrences []}]
+     [:default                                        nil]]
     :fixture/expect
     {:isError? true
-     :edn-submap {:ok? false :reason :view-tier-version-mismatch :expected 3 :actual 9999}}}
+     :edn-submap {:ok? false :reason :view-tier-version-mismatch
+                  :expected :re-frame.freehand.evidence/v1
+                  :actual :re-frame.freehand.evidence/v99}}}
 
    {:fixture/id    :explain-render/happy
-    :fixture/doc   "explain-render forwards the render-cause projection with the version + loss/observation fields per occurrence."
+    :fixture/doc   "explain-render forwards the render-cause fold - per occurrence the :commit, the correlated :dispatch-id, the :cause JOIN (run + cause-event-id + recomputed sub-ids), the :candidates offered as leads, and the window :scope."
     :fixture/tool  "explain-render"
     :fixture/args  {:view-id ":my.app/row"}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"         true]
-     ["re-frame.ui.tool/explain-render"  {:ok? true :rf.ui.tool/version 3
-                                          :view-id :my.app/row
-                                          :occurrences [{:occurrence 3 :causes #{:subscription}
-                                                         :render-count 4
-                                                         :observations {:identity-exact? true}
-                                                         :loss {:dropped 0 :exact? true}}]}]
-     [:default                           nil]]
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/explain-render"         {:ok? true :schema :re-frame.freehand.evidence/v1
+                                                       :read :explain-render
+                                                       :view-id :my.app/row
+                                                       :scope :connected-occurrences
+                                                       :basis :observation
+                                                       :complete? true :loss nil
+                                                       :explanations [{:view-id :my.app/row
+                                                                       :occurrence {:parent nil :key 71}
+                                                                       :lowering :compiled :generation 4
+                                                                       :frame :rf/default :dispatch-id 41
+                                                                       :scope {:retained-runs 12
+                                                                               :spans-commit? true
+                                                                               :window-starts-at 17980.2}
+                                                                       :basis :observation
+                                                                       :complete? true :loss nil
+                                                                       :cause {:dispatch-id 41
+                                                                               :cause-event-id :people/loaded
+                                                                               :sub-ids #{:person/by-id}}
+                                                                       :candidates []}]}]
+     [:default                                        nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.ui.tool/explain-render"]
+    ["re-frame.freehand.tool/explain-render"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :view-id :my.app/row}
-     :edn-contains-keys #{:occurrences}}}
+     :edn-contains-keys #{:explanations}}}
 
-   {:fixture/id    :explain-render/tier-inactive-iserror
-    :fixture/doc   "a production build nil-gates the whole tier; the guarded form resolves to {:ok? false :reason :view-tier-inactive} — surfaced as isError."
+   {:fixture/id    :explain-render/uncorrelated-loss-is-forwarded-not-flattened
+    :fixture/doc   "an explanation whose commit named NO run reports {:reason :uncorrelated :dropped :unknown} with a nil :cause and :candidates as LEADS - forwarded as a successful read whose inner incompleteness is stated, because the outer roster IS complete. A nil cause presented as complete evidence would assert that nothing caused the render."
     :fixture/tool  "explain-render"
     :fixture/args  {}
     :fixture/eval-script
-    [["__re_frame2_pair_runtime"         true]
-     ["re-frame.ui.tool/explain-render"  {:ok? false :reason :view-tier-inactive
-                                          :hint "the re-frame.ui.tool tier is inactive…"}]
-     [:default                           nil]]
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/explain-render"         {:ok? true :schema :re-frame.freehand.evidence/v1
+                                                       :read :explain-render :view-id nil
+                                                       :scope :connected-occurrences
+                                                       :basis :observation
+                                                       :complete? true :loss nil
+                                                       :explanations [{:view-id :my.app/row
+                                                                       :dispatch-id nil
+                                                                       :basis :observation
+                                                                       :complete? false
+                                                                       :loss {:reason :uncorrelated
+                                                                              :dropped :unknown}
+                                                                       :cause nil
+                                                                       :candidates [{:dispatch-id 7
+                                                                                     :cause-event-id :tick
+                                                                                     :sub-ids #{:total}}]}]}]
+     [:default                                        nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :complete? true}
+     :edn-contains-keys #{:explanations}}}
+
+   {:fixture/id    :explain-render/tier-inactive-iserror
+    :fixture/doc   "a production build nil-gates the whole tier; the guarded form resolves to {:ok? false :reason :view-tier-inactive} - surfaced as isError."
+    :fixture/tool  "explain-render"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"                      true]
+     ["re-frame.freehand.tool/explain-render"         {:ok? false :reason :view-tier-inactive
+                                                       :hint "the re-frame.freehand.tool tier is inactive..."}]
+     [:default                                        nil]]
     :fixture/expect
     {:isError? true
      :edn-submap {:ok? false :reason :view-tier-inactive}}}

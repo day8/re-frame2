@@ -127,12 +127,12 @@
     ;; mutation, so a cache keyed on app-db would serve stale render reads.
     :cacheable? false
     :descriptor data/read-ui}
-   ;; The five read-only re-frame.ui.tool projections (rf2-vxgfnd.95.8) — the S3
-   ;; compiled-view evidence a pairing agent reads from a running app. NOT
-   ;; cacheable: the manifest can move on an HMR body swap and the render
-   ;; evidence moves with every render — neither bumps the app-db precheck hash
-   ;; the cache keys on, so a cache would serve stale view reads (the read-ui /
-   ;; read-dom posture).
+   ;; The five read-only re-frame.freehand.tool reads — the Freehand view
+   ;; evidence a pairing agent reads from a running app. NOT cacheable: the
+   ;; manifest can move on an HMR body swap and the current-occurrence index
+   ;; moves with every commit — neither bumps the app-db precheck hash the cache
+   ;; keys on, so a cache would serve stale view reads (the read-ui / read-dom
+   ;; posture).
    {:name       "read-view-manifest"
     :handler    (ignoring-extra #(view-tool/read-view-manifest-tool %1 %2))
     :cacheable? false

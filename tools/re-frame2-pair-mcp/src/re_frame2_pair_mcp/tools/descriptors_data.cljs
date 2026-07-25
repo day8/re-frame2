@@ -1261,21 +1261,22 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
-;; The five re-frame.ui.tool projections (rf2-vxgfnd.95.8) — the S3 compiled-view
-;; evidence a pairing agent reads from a running app. Each ships one
-;; exists?-guarded self-describing form; the framework projection stamps
-;; :rf.ui.tool/version and egresses only bounded serializable data (no ViewCell /
-;; React handle). Absence is honest: :view-tier-unavailable (the optional
-;; day8/re-frame2-ui substrate is not loaded), :view-not-available (no such
-;; compiled view), :view-tier-inactive (production build nil-gates the tier).
-;; These project a view's MANIFEST + render EVIDENCE, not app-db values — like
-;; the registrar reads (handler-meta) they need no elision walker.
+;; The five re-frame.freehand.tool reads — the Freehand view evidence a pairing
+;; agent reads from a running app. Each ships one exists?-guarded
+;; self-describing form; every read answers inside the four-axis evidence
+;; projection (:scope / :basis / :complete? / :loss) stamped with :schema and
+;; :read, and egresses only bounded serializable data (no cell / React handle).
+;; Absence is honest: :view-tier-unavailable (the optional
+;; day8/re-frame2-freehand substrate is not loaded), :view-not-available (no
+;; such declared view), :view-tier-inactive (production build nil-gates the
+;; tier). These project a view's MANIFEST + bounded render EVIDENCE, not app-db
+;; values — like the registrar reads (handler-meta) they need no elision walker.
 ;; ---------------------------------------------------------------------------
 
 (def view-tier-view-id-input
   {:type "object"
    :properties {:view-id {:type "string"
-                          :description (str "The compiled view's registry id, e.g. \":my.app/header\" "
+                          :description (str "The Freehand view's declared id, e.g. \":my.app/header\" "
                                             "(a keyword; a bare \"my.app/header\" is also accepted). Read it "
                                             "from read-mounted-views, read-ui's :entity, or the source defview. "
                                             "Required.")}
@@ -1284,20 +1285,23 @@
 
 (def read-view-manifest
   {:name "read-view-manifest"
-   :description (str "The versioned public projection of a compiled re-frame.ui view's MANIFEST — what CAN "
-                     "happen, useful BEFORE mount (rf2-vxgfnd.95.6/.95.8). Reads re-frame.ui.tool/view-manifest "
-                     "from the running app: source coord, per-prop docs/defaults/schema (the single source of "
-                     "truth for a view's args — replaces a parallel args-description system), declared render-slot "
-                     "+ interop sites, capability bits, template/hook fingerprints, and per-kind site counts. "
-                     "READ-ONLY and VERSIONED (:rf.ui.tool/version) — read the version and reconcile if it differs "
-                     "from what you expect. Egresses only bounded serializable data (no ViewCell / React "
-                     "handle). "
+   :description (str "What the compiler statically knows about a Freehand view — what CAN happen, useful "
+                     "BEFORE mount. Reads re-frame.freehand.tool/read-view-manifest from the running app: the "
+                     "declaration's MANIFEST verbatim under :manifest (source coord, per-prop docs/defaults/"
+                     "schema, subscription / event / render-slot / trusted-markup / crossing rosters, capability "
+                     "bits, ViewCell verdict, and the compile-tier :diagnostics findings including SUPPRESSED "
+                     "ones with the author's reason). READ-ONLY and VERSIONED (:schema) — validate the schema "
+                     "first and reconcile if it differs from what you expect. Rides the four-axis projection "
+                     "(:scope :basis :complete? :loss), so an INTERPRETED declaration answers :manifest nil on "
+                     ":basis :opaque with {:reason :no-static-analysis :dropped :unknown} rather than an empty "
+                     "roster that would read as a clean bill of health. Egresses only bounded serializable data "
+                     "(no cell / React handle). "
                      "Examples: "
-                     "1. {:view-id \":my.app/counter\"} -> {:ok? true :rf.ui.tool/version 3 :view-id "
-                     ":my.app/counter :doc \"...\" :source {...} :props [{:key :label :doc \"...\" :schema :string}] "
-                     ":site-counts {:subs 2 :events 1 ...}}. "
-                     "2. No such compiled view: {:view-id \":nope\"} -> {:ok? false :reason :view-not-available}. "
-                     "3. re-frame.ui.tool not loaded (a plain-Reagent app): {:view-id \":x\"} -> {:ok? false "
+                     "1. {:view-id \":my.app/counter\"} -> {:ok? true :schema :re-frame.freehand.evidence/v1 "
+                     ":read :view-manifest :view-id :my.app/counter :lowering :compiled :scope :possible-sites "
+                     ":basis :static-proof :complete? true :loss nil :manifest {...}}. "
+                     "2. No such declared view: {:view-id \":nope\"} -> {:ok? false :reason :view-not-available}. "
+                     "3. re-frame.freehand.tool not loaded (a Reagent/UIx app): {:view-id \":x\"} -> {:ok? false "
                      ":reason :view-tier-unavailable}. "
                      "4. Missing arg: {} -> {:ok? false :reason :missing-view-id}.")
    :typicalTokens 500
@@ -1307,17 +1311,22 @@
 
 (def read-view-dependencies
   {:name "read-view-dependencies"
-   :description (str "The reactive dependency SITES a compiled re-frame.ui view declares — its subscription "
-                     "sites — with query-shape HONESTY (rf2-vxgfnd.95.8). Reads "
-                     "re-frame.ui.tool/view-dependencies: a fully-literal query is projected verbatim "
-                     "(:dynamic? false); a query carrying a captured local is :dynamic? true (its literal :query-id "
-                     "is still shown, the runtime argument is NOT fabricated). Read from the manifest, so available "
-                     "BEFORE mount. READ-ONLY, versioned. "
+   :description (str "The reactive dependency SITES a Freehand view declares — its v/sub sites — with "
+                     "query-shape HONESTY. Reads re-frame.freehand.tool/read-view-dependencies: a fully-literal "
+                     "query is projected verbatim (:dynamic? false); a query carrying a captured local is "
+                     ":dynamic? true (its literal :query-id is still shown, the runtime argument is NOT "
+                     "fabricated). SITES, not reads — one entry per LEXICAL site, so a site inside a keyed list "
+                     "is one entry however many times it runs. Read from the manifest, so available BEFORE mount. "
+                     "READ-ONLY, versioned (:schema). "
                      "Examples: "
-                     "1. {:view-id \":my.app/row\"} -> {:ok? true :rf.ui.tool/version 3 :view-id :my.app/row "
-                     ":subscriptions [{:query [:total] :dynamic? false} {:query-id :item :dynamic? true}]}. "
-                     "2. No such view: {:view-id \":nope\"} -> {:ok? false :reason :view-not-available}. "
-                     "3. Tier not loaded: {:view-id \":x\"} -> {:ok? false :reason :view-tier-unavailable}.")
+                     "1. {:view-id \":my.app/row\"} -> {:ok? true :schema :re-frame.freehand.evidence/v1 :read "
+                     ":view-dependencies :view-id :my.app/row :lowering :compiled :basis :static-proof :complete? "
+                     "true :loss nil :subscriptions [{:query [:total] :dynamic? false :path [0]} {:query-id :item "
+                     ":dynamic? true :path [1]}]}. "
+                     "2. An INTERPRETED declaration (no analysis step): :subscriptions [] with :basis :opaque "
+                     ":complete? false :loss {:reason :no-static-analysis :dropped :unknown} — unknown, not none. "
+                     "3. No such view: {:view-id \":nope\"} -> {:ok? false :reason :view-not-available}. "
+                     "4. Tier not loaded: {:view-id \":x\"} -> {:ok? false :reason :view-tier-unavailable}.")
    :typicalTokens 300
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
@@ -1325,17 +1334,23 @@
 
 (def read-view-event-sites
   {:name "read-view-event-sites"
-   :description (str "The event-handler SITES a compiled re-frame.ui view declares (its :on-* handlers), each "
-                     "classified for HONESTY (rf2-vxgfnd.95.8). Reads re-frame.ui.tool/view-event-sites: a LITERAL "
-                     "event vector (:site-kind :literal) and a NORMALIZED options-map event vector (:normalized) "
-                     "both carry their inspectable :handler event vector; a ui/event, ui/handler, bare fn, or "
-                     "dynamic expression is :dynamic with :handler :opaque — the tier never claims a raw callback's "
-                     "internals are inspectable. :serializable? and :sync? (the controlled-input synchronous door) "
-                     "ride each site. READ-ONLY, versioned. "
+   :description (str "The event-handler SITES a Freehand view declares (its :on-* handlers), each classified for "
+                     "HONESTY. Reads re-frame.freehand.tool/read-view-event-sites: every row states WHERE it "
+                     "dispatches from AND what it dispatches. A fully-literal handler is projected verbatim; a "
+                     "handler carrying a captured local, a call, or a callback BODY projects as :handler :opaque "
+                     "— the tier never claims a raw callback's internals are inspectable — while :event-id still "
+                     "shows the literal event id where the authored form has one. :classification keeps the two "
+                     "apart (:vector / :options carry an event vector; any other classification is a callback), "
+                     "and :serializable? plus :sync? (the controlled-input synchronous door) ride each site. "
+                     ":site-facts names the CLOSED set of facts a row states, so an absent fact is visible as "
+                     "absent. SITES, not dispatches — one entry per LEXICAL site. READ-ONLY, versioned (:schema). "
                      "Examples: "
-                     "1. {:view-id \":my.app/form\"} -> {:ok? true :rf.ui.tool/version 3 :handlers "
-                     "[{:prop :on-click :site-kind :literal :handler [:submit] :serializable? true} "
-                     "{:prop :on-input :site-kind :dynamic :handler :opaque :serializable? false :sync? true}]}. "
+                     "1. {:view-id \":my.app/form\"} -> {:ok? true :schema :re-frame.freehand.evidence/v1 :read "
+                     ":view-event-sites :complete? true :loss nil :event-sites [{:prop :on-click :classification "
+                     ":vector :handler [:submit] :event-id :submit :serializable? true :sync? false} {:prop "
+                     ":on-input :classification :callback :handler :opaque :event-id nil :serializable? false "
+                     ":sync? true}] :site-facts #{:sid :source-coord :path :prop :classification :serializable? "
+                     ":sync? :handler :event-id}}. "
                      "2. No such view: {:view-id \":nope\"} -> {:ok? false :reason :view-not-available}. "
                      "3. Tier not loaded: {:view-id \":x\"} -> {:ok? false :reason :view-tier-unavailable}.")
    :typicalTokens 350
@@ -1345,19 +1360,28 @@
 
 (def read-mounted-views
   {:name "read-mounted-views"
-   :description (str "The committed CONNECTED-INSTANCE records for every compiled-view incarnation the evidence "
-                     "tier currently retains (rf2-vxgfnd.95.8). Reads re-frame.ui.tool/mounted-views: per "
-                     "incarnation an occurrence identity (a stable ordinal distinguishing two instances of one "
-                     "view), the owning root, the LIVE connection state, honest hide-vs-unmount lifecycle labels "
-                     "(:disconnected {:reason :unknown} stays unknown until the runtime PROVES :activity-hidden or "
-                     ":unmounted — never fabricated), and the bounded render evidence. No arg — spans every retained "
-                     "incarnation. An empty-but-versioned {:views []} when no evidence tool is installed — never a "
-                     "fabricated instance. The HOT-SWAP read: after an HMR body swap, a COMPATIBLE change retains "
-                     "the occurrence, an INCOMPATIBLE change remounts it (a fresh occurrence). READ-ONLY, versioned. "
+   :description (str "Every Freehand occurrence CONNECTED RIGHT NOW. Reads "
+                     "re-frame.freehand.tool/read-mounted-views: per occurrence its :view-id, an :occurrence key "
+                     "distinguishing two live instances of one view, the :lowering, the :generation, the LIVE "
+                     ":connection state, and the selected :commit (its :frame plus the QUERIES that commit read, "
+                     "WITHOUT the values they returned — a value is application data and an evidence read is not a "
+                     "second egress path for it). No arg, deliberately: the question is what is mounted. "
+                     "CURRENT STATE, NOT A LIFETIME ROSTER — rows drop at disconnect, so there is no render "
+                     "total, no batch total, no hide-vs-unmount interval ledger and no accumulated union of every "
+                     "target ever observed; :occurrence-facts names the closed set a row states so a lifetime "
+                     "quantity is visibly not a fact it has. :complete? true is exact about UNDER-reporting; "
+                     "over-reporting is bounded and stated (a host torn down without disconnecting its cells "
+                     "leaves rows behind — :generation and :at are what show a stale one for what it is). The "
+                     "HOT-SWAP read: after an HMR body swap a COMPATIBLE change RETAINS the occurrence (its "
+                     ":generation advances), an INCOMPATIBLE change REMOUNTS it (a fresh :occurrence key). "
+                     "READ-ONLY, versioned (:schema). "
                      "Examples: "
-                     "1. {} -> {:ok? true :rf.ui.tool/version 3 :views [{:occurrence 3 :view-id :my.app/row "
-                     ":connection :connected :lifecycle {:intervals [] :dropped 0 :exact? true} :evidence {...}}]}. "
-                     "2. No evidence tool installed: {} -> {:ok? true :rf.ui.tool/version 3 :views []}. "
+                     "1. {} -> {:ok? true :schema :re-frame.freehand.evidence/v1 :read :mounted-views :scope "
+                     ":connected-occurrences :basis :observation :complete? true :loss nil :occurrences "
+                     "[{:view-id :my.app/row :occurrence {:parent nil :key 71} :lowering :compiled :generation 4 "
+                     ":connection :connected :root :unknown :at 18422.7 :commit {...}}] :occurrence-facts #{...}}. "
+                     "2. Nothing connected: {} -> the same envelope with :occurrences [] — the one empty answer "
+                     "that IS a clean bill of health, because the index is authoritative about what is connected. "
                      "3. Tier not loaded / production: {} -> {:ok? false :reason :view-tier-unavailable | "
                      ":view-tier-inactive}.")
    :typicalTokens 600
@@ -1369,20 +1393,30 @@
 
 (def explain-render
   {:name "explain-render"
-   :description (str "Why did a compiled view's live incarnations render? (rf2-vxgfnd.95.8) Reads "
-                     "re-frame.ui.tool/explain-render: per occurrence the bounded render CAUSES (:subscription / :hmr / "
-                     ":disposed), occurrence + batch counters, first/latest movement epochs, the moving observation "
-                     "targets, and EXPLICIT loss accounting — :observations {:identity-exact? bool} (did the SHOWN "
-                     "targets keep exact identity) and :loss {:dropped N :exact? bool} (how many DISTINCT targets "
-                     "were omitted past the shown cap; a count is a completeness claim only when :exact?). Optional "
-                     ":view-id narrows to one view; omitted, every retained incarnation. An empty-but-versioned "
-                     "{:occurrences []} with no evidence. READ-ONLY, versioned. "
+   :description (str "Why did a Freehand view's live occurrences render? Reads "
+                     "re-frame.freehand.tool/explain-render, which FOLDS Spec 009's retained trace window at read "
+                     "time and keeps nothing of its own — there is no second history store, no second window and "
+                     "no second knob (retention is :rf.trace/events-retained). Per occurrence: the :commit, the "
+                     ":dispatch-id it was correlated to, and :cause — the JOIN, not a guess — naming the run, the "
+                     ":cause-event-id that started it, and the :sub-ids it recomputed that this commit reads. The "
+                     "OUTER roster is complete because the index knows every connected occurrence; an inner "
+                     "explanation is :complete? true only when the correlated run is STILL in the window. The "
+                     "three ways it cannot be are each reported as :loss with :dropped :unknown — {:reason :cap} "
+                     "for an empty/disabled ring or a provably EVICTED run, {:reason :uncorrelated} for a commit "
+                     "that named no run at all (the common case: a post-settle React batch has no cascade on the "
+                     "stack). :candidates are offered in every case and are deliberately NOT the answer — runs "
+                     "that COULD have driven this render. :scope states :retained-runs, :spans-commit? and "
+                     ":window-starts-at, so a reader can see whether the window reaches back to the commit. "
+                     "Optional :view-id narrows to one view; omitted, every current occurrence. READ-ONLY, "
+                     "versioned (:schema). "
                      "Examples: "
-                     "1. {:view-id \":my.app/row\"} -> {:ok? true :rf.ui.tool/version 3 :view-id :my.app/row "
-                     ":occurrences [{:occurrence 3 :causes #{:subscription} :render-count 4 :observations {:identity-exact? "
-                     "true} :loss {:dropped 0 :exact? true}}]}. "
-                     "2. No arg (every incarnation): {} -> {:ok? true :rf.ui.tool/version 3 :view-id nil "
-                     ":occurrences [...]}. "
+                     "1. {:view-id \":my.app/row\"} -> {:ok? true :schema :re-frame.freehand.evidence/v1 :read "
+                     ":explain-render :view-id :my.app/row :complete? true :loss nil :explanations [{:occurrence "
+                     "{:parent nil :key 71} :generation 4 :frame :rf/default :dispatch-id 41 :scope "
+                     "{:retained-runs 12 :spans-commit? true :window-starts-at 17980.2} :complete? true :loss nil "
+                     ":cause {:dispatch-id 41 :cause-event-id :people/loaded :sub-ids #{:person/by-id}} "
+                     ":candidates [...]}]}. "
+                     "2. No arg (every current occurrence): {} -> the same envelope with :view-id nil. "
                      "3. Tier not loaded / production: {} -> {:ok? false :reason :view-tier-unavailable | "
                      ":view-tier-inactive}.")
    :typicalTokens 600
@@ -1390,9 +1424,9 @@
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:view-id {:type "string"
-                                        :description (str "Optional compiled view registry id (e.g. "
+                                        :description (str "Optional Freehand view declared id (e.g. "
                                                           "\":my.app/row\") to narrow to one view. Omitted, spans "
-                                                          "every retained incarnation.")}
+                                                          "every current occurrence.")}
                               :build   {:type "string"}}
                  :additionalProperties false}})
 
