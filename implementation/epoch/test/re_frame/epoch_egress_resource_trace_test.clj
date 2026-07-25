@@ -34,17 +34,30 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
+            ;; rf2-hbmeb §(8) — `fx/reg-fx`, the plain fn, NOT the `rf/reg-fx`
+            ;; macro: see `drive-real-cascade!` for why the difference decides
+            ;; whether the frame's default image can still be reprojected.
+            [re-frame.fx :as fx]
             [re-frame.resources.state :as state]
             [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
+            [re-frame.trace.tooling :as trace-tooling]
             ;; load-bearing: publishes the :resources/* late-bind hooks,
             ;; including :resources/project-resource-trace-egress.
             [re-frame.resources]
+            ;; rf2-hbmeb §(8) — the real cascade's `ensure` lowers into the
+            ;; managed-HTTP transport, which fails closed with
+            ;; `:rf.error/http-artefact-missing` unless this ns has published
+            ;; its late-bind feature probe. Test-only; production epoch stays
+            ;; http-free.
+            [re-frame.http.managed]
             [re-frame.schemas]))
 
 (def ^:private secret "topsecret-PII")
 (def ^:private big-params {:blob (apply str (repeat 5000 "x"))})
+(def ^:private plain-slug "welcome")
+(def ^:private real-owner [:app :reader 1])
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -687,4 +700,177 @@
       (is (= [k1] (:blocking (:tags plan))) "raw :blocking rides")
       (is (= [k1] (:identities (:tags plan))) "raw :identities rides")
       (is (= work-id (:work/id (:tags work))) "raw embedded work-id key rides"))))
+
+;; ===========================================================================
+;; (8) THE WIRING IS REACHED — driven from a REAL cascade (rf2-hbmeb)
+;; ===========================================================================
+;;
+;; Every arm above builds its record with `record-with`. That proves the
+;; PROJECTOR and it proves the epoch tool-pair's routing, but it cannot prove
+;; the projector is ever REACHED from a producer — and for the whole life of
+;; this suite it was not. `epoch.capture/capture-event!` buffers only
+;; frame-resolvable events; the `:rf.resource/*` / `:rf.mutation/*` family
+;; stamps its frame as the EVIDENCE key `:rf.frame/id` (Spec 016 / EP-0002,
+;; beside `:resource/key` and `:generation`) and never stamped the canonical
+;; `[:tags :frame]` routing tag Spec 009 §Frame identity on the raw event
+;; designates. So a real `ensure` / `release-owner` cascade put 7 family rows
+;; on the bus and 0 into the 3 epoch records it settled, and every
+;; `record-with` arm above ran green over input the runtime never produced.
+;;
+;; That is the defect these two deftests exist to make impossible to
+;; reintroduce, and they are deliberately different in kind:
+;;
+;;   - `real-cascade-lands-family-rows-...` is the SPECIFIC control. It reds if
+;;     the family stops reaching the record for any reason, and it is the arm
+;;     that satisfies rf2-hbmeb's acceptance criterion — a real record, a real
+;;     `projected-record`, a `:sensitive?` owner redacted beside a plain one
+;;     verbatim.
+;;   - `real-cascade-emits-no-frameless-correlated-row` is the GENERAL one, and
+;;     it is the assertion whose absence was the actual defect. It fixes no
+;;     vocabulary and names no family: it says every row a cascade emits INTO a
+;;     run carries the one frame path every reader resolves on. A future family
+;;     that spells its frame some third way reds here on the day it lands,
+;;     rather than being discovered a release later by someone measuring the
+;;     bus against the record by hand.
+
+(defn- family-row?
+  "Whether `ev` is a resource/mutation-family trace row — the same namespace
+  test the epoch tool-pair's `resource-family-op?` makes when routing a row to
+  the family projector."
+  [ev]
+  (boolean (some-> (:operation ev) namespace #{"rf.resource" "rf.mutation"})))
+
+(defn- drive-real-cascade!
+  "Drive a REAL resource cascade against `:test/rt` and return every trace row
+  it put on the bus, in emit order.
+
+  Two `ensure`s under one shared owner — the `:sensitive?` resource carrying
+  the secret in its params, the PLAIN one beside it as the over-redaction
+  control — then a `release-owner`. `fx/reg-fx` (the plain fn, NOT the
+  `rf/reg-fx` macro) overrides managed-HTTP with a no-op so `ensure` writes its
+  `:loading` entry and emits its lifecycle rows without a request leaving the
+  box; the macro would stamp this ns as a second provenance under one fx id and
+  the frame's next default-image reprojection would die on
+  `:rf.error/image-duplicate-id`."
+  []
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (let [rows (atom [])
+        k    ::real-cascade-recorder]
+    (trace-tooling/register-listener! k (fn [ev] (swap! rows conj ev)))
+    (try
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :secret/article
+                          :params   {:auth-token secret}
+                          :owner    real-owner}]
+                        {:frame :test/rt})
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :plain/article
+                          :params   {:slug plain-slug}
+                          :owner    real-owner}]
+                        {:frame :test/rt})
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner real-owner}]
+                        {:frame :test/rt})
+      (finally (trace-tooling/unregister-listener! k)))
+    @rows))
+
+(defn- settled-family-rows
+  "Every resource/mutation row across the `:trace-events` of every epoch record
+  the frame has settled — what an Xray / MCP consumer reading `watch-epochs`
+  actually sees."
+  [frame-id]
+  (filterv family-row? (mapcat :trace-events (rf/epoch-history frame-id))))
+
+(deftest real-cascade-lands-family-rows-in-the-settled-epoch-record
+  (testing "rf2-hbmeb — the rows a REAL `ensure` / `release-owner` cascade emits
+            reach the settling epoch record's `:trace-events`, and
+            `projected-record` over THAT record (not a hand-built one) redacts a
+            `:sensitive?` owner's scope + params while a plain owner's ride
+            verbatim. Before the capture-seam fix the bus carried 7 family rows
+            and the 3 settled records carried 0, so every `record-with` arm in
+            this file proved a projector nothing reached."
+    (let [bus-rows    (drive-real-cascade!)
+          bus-family  (filterv family-row? bus-rows)
+          rec-family  (settled-family-rows :test/rt)]
+
+      (testing "FIXTURE — the cascade really emitted family rows carrying the
+                real secret, so the assertions below are not passing over an
+                empty set"
+        (is (seq bus-family) "the cascade put family rows on the bus")
+        (is (contains-secret? bus-family)
+            "and they carry the raw secret — the projector's input is the
+             producer's own output, not an invented tag map"))
+
+      (testing "ACCEPTANCE — nothing the cascade emitted into a run is dropped
+                on the way to the record"
+        (is (= (count bus-family) (count rec-family))
+            "every family row on the bus reached a settled record's
+             :trace-events — this is the count that read 7 vs 0")
+        (is (= (frequencies (map :operation bus-family))
+               (frequencies (map :operation rec-family)))
+            "and row-for-row by operation, so a partial arrival cannot pass"))
+
+      (testing "the epoch-side family projector runs over a REAL record"
+        ;; Every record the cascade settled, projected — the epoch stream an
+        ;; off-box consumer reads through `watch-epochs`. Across records
+        ;; because one dequeued event is one record: the sensitive `ensure`,
+        ;; the plain `ensure` and the `release-owner` each settle their own,
+        ;; and the two-sided control needs both owners.
+        (let [proj-rows (->> (rf/epoch-history :test/rt)
+                             (map epoch/projected-record)
+                             (mapcat :trace-events)
+                             (filterv family-row?))
+              sens      (->> proj-rows
+                             (filter #(= :secret/article
+                                         (second (:resource/key (:tags %)))))
+                             first
+                             :tags)
+              plain     (->> proj-rows
+                             (filter #(= :plain/article
+                                         (second (:resource/key (:tags %)))))
+                             first
+                             :tags)]
+          (is (= (count rec-family) (count proj-rows))
+              "the settled records carry family rows of their own, and
+               projection neither drops nor invents one")
+          (testing "the :sensitive? owner's scoped key tokenizes"
+            (is (some? sens) "a sensitive-owner row is present in the record")
+            (is (= :secret/article (second (:resource/key sens)))
+                "its resource-id survives for attribution")
+            (is (redacted-component? (first (:resource/key sens)))
+                "its resolved scope is tokenized")
+            (is (redacted-component? (nth (:resource/key sens) 2))
+                "its canonical params are tokenized")
+            (is (true? (:sensitive? sens)) "the row is stamped :sensitive?"))
+          (testing "and the PLAIN owner's rides VERBATIM in the same record —
+                    over-redaction fails as loudly as leaking"
+            (is (some? plain) "a plain-owner row is present in the record")
+            (is (= [:rf.scope/global :plain/article {:slug plain-slug}]
+                   (:resource/key plain))
+                "scope and params intact")
+            (is (not (:sensitive? plain)) "a plain row is NOT stamped sensitive"))
+          (testing "no raw secret egresses from the projected REAL record's
+                    family rows"
+            (is (not (contains-secret? proj-rows)))))))))
+
+(deftest real-cascade-emits-no-frameless-correlated-row
+  (testing "rf2-hbmeb, the general form — EVERY trace row emitted inside a run
+            (one carrying a `:rf.trace/dispatch-id`) carries frame identity at
+            `[:tags :frame]`, the single canonical raw-event frame path of Spec
+            009 §Frame identity on the raw event.
+
+            This is the assertion whose absence WAS the defect. Three
+            independent consumers resolve a row's frame — the per-frame trace
+            ring, the frame trace-disable policy gate, and epoch capture — and
+            a row that reaches none of them consistently is silently absent
+            from whichever one lacks a fallback. It named no family on purpose:
+            the resource family is simply the one that was wrong, and the next
+            one to spell its frame a third way reds here."
+    (let [rows        (drive-real-cascade!)
+          correlated  (filterv #(some? (:rf.trace/dispatch-id (:tags %))) rows)
+          frameless   (remove #(some? (:frame (:tags %))) correlated)]
+      (is (seq correlated)
+          "FIXTURE — the cascade emitted correlated rows to check")
+      (is (empty? frameless)
+          (str "every correlated row must carry [:tags :frame]; frameless ops: "
+               (pr-str (frequencies (map :operation frameless))))))))
 
