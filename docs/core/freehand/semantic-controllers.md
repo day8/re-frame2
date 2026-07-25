@@ -27,12 +27,18 @@ This is valid Freehand and does **not** use a semantic controller:
 [:input {:value   (v/sub [:lines/draft id])
          :on-input [:lines/draft-changed id ::v/value]
          :on-blur  [:lines/label-committed id]
-         :on-key-down {"Enter"  [:lines/label-committed id]
-                       "Escape" [:lines/draft-cancelled id]}}]
+         :on-key-down (v/event [e]
+                        (case (.-key e)
+                          "Enter"  [:lines/label-committed id]
+                          "Escape" [:lines/draft-cancelled id]
+                          nil))}]
 ```
 
 Use the same event on blur and Enter (commit). Use a **different** event on
-`on-input` (draft) — keystroke is draft; commit is accept.
+`on-input` (draft) — keystroke is draft; commit is accept. A handler slot holds
+**one** handler form, so the Enter/Escape branch is `v/event` at the site or
+`[:lines/draft-key id ::v/key]` into a handler that branches — see
+[Events](events-and-handlers.md#keyboard-branching).
 
 A semantic controller is only worth it when that protocol must be **correct and
 shared** across many call sites — for example stale blur after cancel, a required
@@ -443,8 +449,11 @@ substrate special form.
       :placeholder placeholder
       :on-input    [:fh.buffer/edited control reset-key ::v/value]
       :on-blur     [:fh.buffer/committed control reset-key on-commit]
-      :on-key-down {"Enter"  [:fh.buffer/committed control reset-key on-commit]
-                    "Escape" [:fh.buffer/cancelled control reset-key]}}]))
+      :on-key-down (v/event [e]
+                     (case (.-key e)
+                       "Enter"  [:fh.buffer/committed control reset-key on-commit]
+                       "Escape" [:fh.buffer/cancelled control reset-key]
+                       nil))}]))
 ```
 
 ### Behaviour timeline
