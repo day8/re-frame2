@@ -332,10 +332,9 @@ lexical site index — never a re-derivation a second pass could drift from.
 | `:subscriptions` | each `sub` read: the query it read and its site coordinates |
 | `:events` | each committed event handler site and its source coordinate |
 | `:slots` | each compiled render-slot site, and whether its `render-fn` was inline |
-| `:frame-ops` | each `(frame)` committed-frame read |
 | `:html-sites` | each trusted-markup `ui/html` site |
 | `:crossings` | the internal-view boundaries the body mounts, each MARKED with the mode it crosses into (§Manifests mark the crossing) |
-| `:capabilities` | the union of the structural capability bits the AST names (`:raw` / `:html` / `:foreign` / `:render-slot` / `:render-fn` / `:custom-element` / `:spread` / `:spread-safe` / `:behavior`) with the reactive and host-hook bits the sites own |
+| `:capabilities` | the union of the structural capability bits the AST names (`:html` / `:foreign` / `:render-slot` / `:render-fn` / `:custom-element` / `:spread` / `:spread-safe` / `:behavior`) with the reactive and host-hook bits the sites own |
 
 A roster is **empty**, never absent, when the body carries no site of its kind:
 an empty roster is a positive claim — *this view reads nothing* — and an absent

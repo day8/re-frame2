@@ -268,8 +268,8 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
 ### The opaque marker
 
 `{:rf.ui/opaque form}` where `form` ∈ `#{:v/event :v/handler :v/render-fn :v/raw-fn
-:fn :foreign}` — the single sentinel for non-data values, used in `:events` (case 3
-above) and in view-boundary `:props` (a fn-valued or foreign prop). The `:rf.ui/*`
+:fn}` — the single sentinel for non-data values, used in `:events` (case 3
+above) and in view-boundary `:props` (a fn-valued prop). The `:rf.ui/*`
 namespace is reserved (Conventions), so author data can never collide with the marker.
 `:fn` is the mode-neutral member — a bare function at either kind of site — and it is
 the one the interpreted walk produces; the members naming a specific authoring form
