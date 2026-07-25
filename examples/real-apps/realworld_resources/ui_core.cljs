@@ -159,10 +159,14 @@
   ;; The one-shot compiled mount: `ui/frame-root` (top-region ENSURE plan) creates
   ;; + configures + seeds the URL-bound frame at preflight — `:url-bound? true` so
   ;; it owns the URL and does the first URL→route sync itself (which fires the
-  ;; route's `:resources` ensures), the auth-guard interceptor, the demo backend
-  ;; `:fx-overrides`, and the ordered `:initial-events` — then `ui/mount` renders
-  ;; the compiled `root-view` into #app. IDEMPOTENT per root: a hot reload finds
-  ;; the frame live and reuses it, so durable app-db survives.
+  ;; route's `:resources` ensures), the demo backend `:fx-overrides`, and the
+  ;; ordered `:initial-events` — then `ui/mount` renders the compiled `root-view`
+  ;; into #app. IDEMPOTENT per root: a hot reload finds the frame live and reuses
+  ;; it, so durable app-db survives.
+  ;;
+  ;; No `:interceptors` chain: route auth is `:can-enter` metadata on the protected
+  ;; routes (routing.cljs §AUTH GATE), not the frame-wide auth-guard interceptor
+  ;; this arm used to carry (rf2-k85nd).
   (ui/mount
    [ui/frame-root {:id             :rf/default
                    :doc            "RealWorld-on-resources demo frame (re-frame.ui variant)."
@@ -175,7 +179,6 @@
                    ;; wrong prefix and boot the shell into a not-found route —
                    ;; rf2-nn5s8 audit rider).
                    :url-strategy   routing/url-strategy-ui
-                   :interceptors   [:realworld-resources.routing/auth-guard]
                    :fx-overrides   {:rf.http/managed :realworld-resources.demo/http-stub}
                    :initial-events [[:auth/classify-token]
                                     [:auth/initialise]
