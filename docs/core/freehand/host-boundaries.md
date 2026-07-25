@@ -15,39 +15,46 @@ There is no general “neutral hooks / refs / effects” language in ordinary vi
 
 | Shape | Use when |
 |---|---|
-| **Qualified host leaf** | A React component that is mostly values in and callbacks out |
-| **Registered behavior** | One DOM node owned by an imperative library (`connect` / `update` / `disconnect`, optional commands) |
-| **UIx wrapper** | Hooks, context, portals, refs, effects, compound React protocols (`asChild`, Suspense, …) |
+| **A React element in a child position** | a third-party React component that is mostly values in and callbacks out |
+| **Registered behavior** | one DOM node owned by an imperative library (`connect` / `update` / `disconnect`, optional commands) |
+| **`v/->react`** | pointing outward: a library asks for a *component value* and you hand it a declared view |
 
-Bare React component heads are outside the Freehand tree — qualify them.
+A bare React **component** at a vector head is not a legal Freehand descriptor. A
+created React **element** in a child position is — and that is the whole inward
+boundary.
 
-### Qualified React leaf
+### A React element as a child
+
+There is no verb for entering Freehand from React-world, and that absence is not a
+vacancy. A finished React element is already an ordinary browser child value, so a
+third-party component enters a Freehand tree through the existing child fold:
 
 ```clojure
 (ns app.booking
-  (:require [re-frame.freehand :as v]
-            [re-frame.freehand.host :as host]))
+  (:require ["react" :as react]
+            ["some-date-picker" :refer [DatePicker]]
+            [re-frame.freehand :as v]))
 
-(def date-picker-host
-  (host/component ::date-picker DatePicker))
-
-(v/defview booking-date [_]
+(v/defview booking-date [{:keys [date]}]
   (v/client-only
-   {:fallback [:input {:type :date
-                       :value (v/sub [:booking/date-iso])
-                       :read-only true}]}
-   [date-picker-host
-    {:selected (->js-date (v/sub [:booking/date]))
-     :onChange (v/event [date]
-                 [:booking/date-picked (from-js-date date)])}]))
+   {:fallback [:input {:type :date :value date :read-only true}]}
+   [:div.booking-date
+    (react/createElement
+      DatePicker
+      #js {:selected date
+           :onChange (v/event [d] [:booking/date-picked (from-js-date d)])})]))
 ```
 
+One shared React tree, with context propagation, `v/->react` content interleaved
+back through it, and synchronous teardown.
+
 - Foreign callbacks use the [escape roster](events-and-handlers.md#the-escape-roster)
-  — never a bare function at a declared foreign callback position.
-- Props are open at the foreign head. Values pass through per the host conversion
-  rules for that leaf.
-- A React component does **not** gain SSR semantics merely because it can create
-  browser DOM. Use `client-only` or an explicit JVM/SSR adapter.
+  — never a bare function at a foreign callback position.
+- The JVM structural renderer accepts **no** React elements. The child path is
+  browser-only, like the mount verbs, so wrap it in `v/client-only` if the root is
+  ever server-rendered.
+- A React component does not gain server semantics merely because it can create
+  browser DOM.
 
 ### `v/client-only`
 
@@ -69,118 +76,165 @@ Use for canvas charts, maps, and libraries with no honest server output.
 
 ### Registered behaviors
 
-Use this for **DOM-owned** imperative libraries (Vega View, Mapbox, SpreadJS,
-canvas editors) — not for “I wanted `useEffect`.”
+This is the one sanctioned way to own DOM or opaque host state, and it is bounded
+to a single node. Use it for imperative libraries — Vega, Mapbox, a canvas editor —
+not for “I wanted `useEffect`.”
+
+Registration and use site are two halves:
 
 ```clojure
-(host/defbehavior vega-view
-  {:connect    connect-vega!
-   :update     update-vega!
-   :disconnect disconnect-vega!
-   :ssr        :inert})   ; or explicit fallback policy
+(v/defbehavior autosize
+  "Grow the textarea to fit its content."
+  {:timing     :layout
+   :connect    (fn [{:keys [node config]}] (fit! node config))
+   :update     (fn [{:keys [node config]}] (fit! node config))
+   :disconnect (fn [{:keys [memory]}] (some-> memory .disconnect))
+   :commands   {:refit (fn [{:keys [node config]}] (fit! node config))}})
 
-(v/defview chart [{:keys [spec data on-signal]}]
-  [:div.chart
-   {::v/behavior [vega-view
-                  {:spec spec
-                   :data data
-                   :on-signal on-signal}]}])
+(v/defview composer [{:keys [draft]}]
+  [v/behavior {:use    autosize
+               :target :composer/body
+               :config {:max-rows 8}}
+   [:textarea.composer {:value draft :on-input [:composer/typed ::v/value]}]])
 ```
 
-| Rule | Meaning |
-|---|---|
-| `connect` | after **selected commit**; returns private memory |
-| Timing | registry metadata: `:passive` (default) or `:layout` (before paint) — not use-site syntax |
-| `update` | when public config changes by `rf=` |
-| `disconnect` | exactly once per connection; tolerate reconnect/replay |
-| Config | Clojure values + event intents only — no nodes, refs, prebuilt instances |
-| One behavior per node | a second is illegal |
-| Opaque descendants | if the library owns children, ordinary Hiccup children are **rejected** |
-| Outward intents | dispatch through the **committed** frame; disconnected generation is **inert** |
-| JVM | inert marker + public config, or explicit fallback if the behavior owns visible content |
-| Evidence | connect/update/disconnect are **tool facts**, not domain events |
+The var `autosize` holds the **registered id** — the qualified keyword
+`:app.composer/autosize` — not the implementation. That split is what keeps a use
+site data: the tree records an id, the registry holds the code, and nothing
+serializable ever carries a function.
 
-**`:layout` behaviors** must not flash wrong geometry. Prove measure-then-place,
-state whether they track resize/scroll with bounded observers, and never run a
-silent animation-frame loop. Total cleanup of listeners/observers is part of the
-contract.
+`v/behavior` is a **declared descriptor mounted in a vector head**, exactly like
+`v/error-boundary` and `v/markup`. It is not an attribute on the element.
+
+| Option | Meaning |
+|---|---|
+| `:use` | **required** — the registered behavior |
+| `:target` | the caller-authored semantic id a command addresses; unique among live connections |
+| `:config` | the public configuration, and **data at every depth** |
+
+`:target` is derived from nothing — not render position, not a key path, not the
+DOM — so a sort, a rename, a parent extraction or a virtualized remount does not
+move it. `:config` refuses a callback, a node, a ref or a preconstructed host
+instance on both hosts, because a configuration the structural tree cannot record
+is a use site a test and a tool cannot read.
+
+The child is exactly **one element**. A behavior owns one node, so a declared view,
+a fragment, a presence boundary or bare text is refused rather than guessed at. The
+behavior addresses the node the host hands it and can reach no other: there is no
+selector, no document query, and no ref an application can hold.
+
+The definition roster is closed:
+
+| Entry | Meaning |
+|---|---|
+| `:timing` | closed at `:layout` (before paint — the only honest home for measure-then-place) and `:passive` (the default, after paint) |
+| `:connect` | once, at the commit that mounts the node; its return becomes the connection's private memory |
+| `:update` | only when the committed `:config` moves by `rf=`, receiving `:prev-config` alongside |
+| `:disconnect` | exactly once per committed connection, after release, so its context is inert |
+| `:commands` | a finite roster of named operations |
+| `:opaque` | the behavior owns the node's descendants, making Freehand children on that node an error |
+
+Every entry takes **one context map** — `:node`, `:config`, `:memory`,
+`:behavior`, `:target`, `:generation`, and `:dispatch`, a generation-fenced
+outward dispatch into the frame the connection committed under. There is no frame
+*query* function, so a host can never read application state at a moment nobody
+chose.
+
+Connection is **commit-only**: the lifecycle rides a ref and an effect, both of
+which React runs only for a render it selected, so a candidate the host abandons
+performs no host work at all. Teardown is total — after the last unmount the
+substrate holds no connection record, no target claim, no node and no memory.
+
+On the JVM this is an inert marker: the boundary node records `:use`, `:target`
+and `:config` with the decorated element as its child, and nothing connects.
+
+A `{:compiled true}` view may attach a behavior and stay compiled — the analyzer
+recognises `[v/behavior …]` as the framework boundary it is and lowers it to the
+grammar's own node.
 
 This is **not** a general `on-mount` / `on-unmount` callback API.
 
 ### Commands (one-shot host ops)
 
-Optional finite command map on a behavior for export, print, focus-cell, etc.:
+A behavior may register a finite roster of named operations — export, print,
+focus-cell. Reaching one is an ordinary effect, so the *request* stays data and
+the imperative call stays inside the behavior:
 
 ```clojure
-(host/defbehavior workbook
-  {:connect    connect-workbook!
-   :update     update-workbook!
-   :disconnect disconnect-workbook!
-   :commands   {:export-xlsx export-xlsx!
-                :focus-cell  focus-cell!}})
-
-;; use-site — :instance only when commands need a target
-[:div
- {::v/behavior
-  [workbook {:instance [:invoice-sheet invoice-id]
-             :document document
-             :on-result [:invoice/workbook-result]}]}]
-
-;; from a re-frame handler
-{:fx [[:re-frame.freehand.host/command
-       {:target [:invoice-sheet invoice-id]
-        :op     :export-xlsx
-        :args   {:filename "invoice.xlsx"}}]]}
+(rf/reg-event :composer/refit-requested
+  (fn [_ _]
+    {:fx [[:re-frame.freehand.host/command
+           {:target :composer/body :op :refit}]]}))
 ```
 
 | Rule | Meaning |
 |---|---|
-| `:instance` / `:target` | caller-supplied **value** identity in frame/root scope — not a DOM path or “last mounted” |
+| `:target` | the caller-authored semantic id from the use site — not a DOM path or “last mounted” |
 | Timing | only the **currently committed** connection; never queued for a future mount |
-| Replay | never replayed after reconnect / trace replay |
-| Multi-root | name the Root Descriptor id when targets could collide; Freehand does not pick |
-| Return | no host handles in effects; async completion → generation-fenced intent |
-| Steady state | still flows through config + `update`; commands are the narrow one-shot escape |
+| Outcome | the channel records `:delivered` or `:refused` in [`v/command-log`](debugging.md#the-behavior-tool-plane) |
+| Return | the operation's return value is the connection's private memory and escapes nowhere |
+| Steady state | still flows through `:config` and `:update`; commands are the narrow one-shot escape |
 
-### UIx wrappers
+### Reaching for React's own protocols
 
-When the integration needs React’s real protocol surface (hooks, context, portals,
-ref merging, `asChild`, Suspense), write an **honest UIx wrapper**. Freehand does
-not emulate those in neutral Hiccup. Keep the wrapper’s **public props and outward
-intents** visible in the structural tree; mark the interior opaque.
+When the integration needs React's real protocol surface — hooks, context,
+portals, ref merging, `asChild`, Suspense — write that component in React-world
+and enter it through the child fold above. Freehand does not emulate those in
+neutral Hiccup and does not intend to.
+
+Keep the component's **public props and outward intents** ordinary Freehand
+values, so the structural tree still shows what crosses the boundary, and treat
+its interior as opaque.
 
 ## Outward React bridge (`v/->react`)
 
-Some React libraries demand a **component value** as a prop (cell renderer, drag
-overlay). That is how you put Freehand **inside someone else’s React DOM tree** —
-not by mounting a second full app, and not by inventing a fourth host shape.
+Some React libraries demand a **component value** as a prop — a grid's
+`cellRenderer`, a drag overlay, a virtual list's row component, a plugin slot.
+Every other verb on the door points inward; this one points out.
 
 ```clojure
-{:cellRenderer (v/->react person-cell)}
+;; value props already suit the view's ABI
+(def person-cell-react (v/->react person-cell))
 
-(v/->react person-cell {:map-props cell-props})
+;; a foreign parameter object gets one named projection
+(defn cell-props [params]
+  {:person-id (.. params -data -id)
+   :column-id (.. params -column getColId)})
+
+(def person-cell-mapped (v/->react person-cell {:map-props cell-props}))
 ```
 
-Think of it as the reverse of a host leaf: the foreign tree is the parent, Freehand
-is the island.
+What comes back mounts the descriptor exactly as an ordinary Freehand parent
+would, so events, subscriptions, error identity and commit fencing inside the
+exported subtree are the ones the view already had.
 
 | Rule | Meaning |
 |---|---|
-| Input | only a declared Freehand **descriptor** |
-| Cache | memoized React component by descriptor (+ stable mapper) identity |
-| Default props | shallow copy of own enumerable props except reserved `frame` |
-| `:map-props` | optional stable adapter: foreign props → one Freehand props map |
-| Frame | reserved `frame` prop or ambient context — **never creates** a frame |
-| Missing/dead frame | loud failure |
-| Not included | deep conversion, key camelCase magic, callback guessing, ref forward, children conversion |
-| JVM | typed host-operation error unless SSR adapter / `client-only` |
+| Input | a declared view **descriptor** only — a fn, a hiccup vector, an id keyword or a rendered form is refused |
+| Options | closed at one key, `:map-props`; an unknown option is refused rather than ignored |
+| Default props | every own enumerable property becomes a props entry **by exact name**, value untouched |
+| `:map-props` | one explicit adapter: raw foreign object in, one props map out |
+| `frame` | selects an already-live frame; **never creates** one |
+| `children` | React's content slot, arriving as the boundary's trailing children |
+| `ref` | **refused** — Freehand has no ref protocol |
+| Identity | stable, keyed on the view id, so a hot reload republishes rather than remounting the library's subtree |
+| JVM | absent, like the mount verbs — a component value has no meaning in a structural render |
 
-**Frame is required for Freehand to work inside that island.** Either the
-surrounding Freehand/React context already provides one, or the foreign parent
-passes a reserved `frame` prop pointing at a **live** frame you already created.
-The bridge will not mint a new world for you.
+**One shallow prop rule, or one explicit adapter.** Without `:map-props`,
+`"person-id"` is `:person-id` and `"acme/id"` is `:acme/id`: no camelisation and no
+deep walk. A library that hands over a large mutable parameter object supplies the
+adapter instead — deliberately ordinary top-level code at the host edge, a named
+and testable projection rather than a conversion rule the substrate would have to
+pretend was general.
 
-Protocols needing hooks, refs, or compound cloning still need a real UIx wrapper.
+**Three names belong to the bridge**, and the view sees none of them: `frame`,
+`children` and `ref`. Because `frame` is the bridge's name, a props map carrying
+`:frame` is refused too.
+
+**A frame is selected, never created.** Own-property *presence* decides, not
+truthiness, so an explicit `frame={null}` is a stated target that fails rather than
+falling through. With no `frame` prop the exported view resolves ambiently, exactly
+as a view mounted anywhere else does.
 
 ## DOM top layer
 
@@ -300,7 +354,7 @@ views. Host ephemera stay at explicit boundaries.
 | Focus a field when it appears | native `:auto-focus true` on the input | — |
 | Focus after a **semantic** open (dialog, rename) | top-layer / open state + CSS or browser dialog focus | small **behavior** that `.focus()`s on connect |
 | Measure layout / position before paint | CSS anchors where possible | registered behavior with `:layout` timing |
-| Scroll lock, trap, restore focus | top-layer / native dialog patterns | UIx wrapper if you need a full React focus library |
+| Scroll lock, trap, restore focus | native dialog patterns | a React focus library, entered as a child |
 | Third-party “needs a ref callback” | qualified leaf / wrapper owns the ref | never a bare ref prop on a Freehand view as app state |
 
 ```clojure
@@ -309,23 +363,18 @@ views. Host ephemera stay at explicit boundaries.
          :auto-focus true
          :on-input [:rename/drafted ::v/value]}]
 
-;; When you must call .focus() after connect — same registry shape as any behavior
-(defn connect-focus! [el _config]
-  (.focus el)
-  nil)   ; private memory optional
+;; When you must call .focus() after connect — an ordinary registered behavior
+(v/defbehavior focus-on-connect
+  {:connect (fn [{:keys [node]}] (.focus node) nil)})
 
-(host/defbehavior focus-on-connect
-  {:connect    connect-focus!
-   :update     (fn [_el _config mem] mem)
-   :disconnect (fn [_el _mem])
-   :ssr        :inert})
-;; Timing defaults to :passive; use :layout only for measure-then-place work
-;; (registry metadata on the registration — not use-site callback syntax).
-
-[:input {::v/behavior [focus-on-connect {}]
-         :value (v/sub [:rename/draft])
-         :on-input [:rename/drafted ::v/value]}]
+(v/defview rename-field [{:keys [draft]}]
+  [v/behavior {:use focus-on-connect}
+   [:input {:value draft
+            :on-input [:rename/drafted ::v/value]}]])
 ```
+
+`:timing` defaults to `:passive`; reach for `:layout` only when the work is
+measure-then-place and must land before the browser paints.
 
 Do not store DOM nodes in app-db. Do not invent mount-domain events for “I
 focused.” If focus is product-visible (which field is active), that is a re-frame
@@ -336,21 +385,21 @@ general on-mount API; prefer `:auto-focus` unless you need an imperative call.
 
 | Need | Shape |
 |---|---|
-| DatePicker value + callback | qualified leaf + `v/event` |
+| DatePicker value + callback | a React element in a child position, with `v/event` |
 | Vega/Mapbox owns a DOM node | registered behavior |
-| Radix / hooks / portals | UIx wrapper |
+| Radix / hooks / portals | a React component, entered through the child fold |
 | Grid wants a React component prop | `v/->react` |
 | Render failure UI | `v/error-boundary` (above) |
 | Exit animation after close | presence (+ top-layer for open) |
-| Framer / GSAP / other JS libs | host leaf or behavior (JS-library recipes) |
-| Autofocus / measure / `.focus()` | native attr first; else behavior / wrapper (above) |
+| Framer / GSAP / other JS libs | a React child or a registered behavior — see [JS libraries](js-libraries.md) |
+| Autofocus / measure / `.focus()` | the native attribute first; a registered behavior when you truly need the call |
 | Structure, spreads, theming | not host shapes — composition plane |
 
 ## If something feels wrong
 
 | Symptom | Fix |
 |---|---|
-| Bare React component as a vector head | `host/component` or UIx wrapper |
+| Bare React component at a vector head | create the element and put it in a **child** position |
 | Instance / DOM node in app-db | keep private memory in the behavior; config is data only |
 | Command “for later when it mounts” | commands hit the **live** connection only — no queue |
 | Error boundary never resets | change `:reset-key` — no imperative reset handle |
