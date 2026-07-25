@@ -3064,6 +3064,42 @@
 ;; `:halted-destroy` record, so the slot is moot there).
 (def ^:dynamic *run-frame-state-before* nil)
 
+(defn guard-open-drain!
+  "The SHARED open-event-drain guard — the `:rf.error/flush-in-open-epoch` signal
+  (Spec 006 §Render-batch finalization; Spec 009 §Error event catalogue). Reject a
+  synchronous registry-flush forced from `where` while a frame's run-to-completion
+  event drain is STILL OPEN: flushing there could publish partially-settled queued
+  update/commit work (a torn read/render).
+
+  It lives in CORE because it closes over no view state whatever — only
+  `*run-frame-state-before*` and the frame accessors above — so every substrate
+  whose synchronous flush can publish a render phase reaches THIS one fn:
+  `re-frame.ui.substrate/flush-render!` and `ui.test/flush!` on the compiled-view
+  substrate, `re-frame.freehand.substrate/flush-render!` on Freehand. One guard,
+  not one copy per substrate, and Freehand acquires it without requiring anything
+  from `re-frame.ui` (rf2-87ouj). Contrast the convergence bound, which cannot be
+  shared this way: each substrate's `converge-flush!` closes over that substrate's
+  OWN cell registry, so there the two implementations are deliberately independent
+  and the `:where` slot disambiguates them (rf2-jew4k).
+
+  `*run-frame-state-before*` is bound around the current event-pipeline run and
+  SURVIVES a handler destroying its own frame — a live registry scan cannot, since
+  destroy removes the active frame before the handler returns, which used to let a
+  destroy-self-then-flush call cross the guard and deliver render-phase work inside
+  the still-open run. Throws BEFORE the caller touches its registry (no partial
+  flush); a no-op outside any drain."
+  [where]
+  (when (some? *run-frame-state-before*)
+    (let [frame-id (frame-target->id *current-frame*)]
+      (error/throw-error!
+       :rf.error/flush-in-open-epoch where
+       (str where " was called while frame " (pr-str frame-id)
+            " is still inside its event drain — let the queued update and "
+            "commit phases run to completion before forcing a read/render batch")
+       {:recovery :no-recovery
+        :extra {:frame frame-id
+                :frame-epoch (frame-commit-epoch frame-id)}}))))
+
 (def ^:dynamic ^:private *event-owner*
   "Unforgeable exact-incarnation authority for the currently dequeued event.
 

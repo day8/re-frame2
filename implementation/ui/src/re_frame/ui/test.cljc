@@ -64,6 +64,7 @@
   namespace (bundle-isolation gate)."
   #?(:cljs (:require-macros [re-frame.ui.test]))
   (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.ui.presence-runtime :as presence]
             [re-frame.ui.reactive :as reactive]
             #?@(:clj [[re-frame.ui.compiler.emit-jvm :as emit-jvm]
@@ -535,12 +536,14 @@
    (do
      (defn- guard-open-drain!
        []
-       ;; The open-event-drain ruling is owned by `re-frame.ui.reactive` and shared
-       ;; with the first-party adapter's `flush-render!` — ONE guard, not two copies.
+       ;; The open-event-drain ruling is owned by CORE (`re-frame.frame`) and shared
+       ;; by every substrate whose synchronous flush can publish a render phase —
+       ;; this all-roots test spelling, the first-party adapter's `flush-render!`,
+       ;; and Freehand's. ONE guard, not one copy per substrate (rf2-87ouj).
        ;; It survives a handler destroying its own frame (`*run-frame-state-before*`
        ;; outlives a live-registry scan), so a destroy-self-then-flush call still
        ;; fails before delivering render-phase work inside the still-open run.
-       (reactive/guard-open-drain! 'rf.ui.test/flush!))
+       (frame/guard-open-drain! 'rf.ui.test/flush!))
 
      (defn- flush-async!
        [thunk]

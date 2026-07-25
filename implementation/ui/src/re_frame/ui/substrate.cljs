@@ -229,7 +229,7 @@
   contract for stacks that do not use ViewCells is untouched."
   ([] (ui-flush-render! (fn [] nil)))
   ([f]
-   (reactive/guard-open-drain! 're-frame.ui.substrate/flush-render!)
+   (frame/guard-open-drain! 're-frame.ui.substrate/flush-render!)
    (let [spine-flush (:flush-render! spine-adapter)]
      ;; One React sync-commit boundary: run the update and commit phases, then publish the
      ;; pending ViewCell notifications so React commits them before returning.

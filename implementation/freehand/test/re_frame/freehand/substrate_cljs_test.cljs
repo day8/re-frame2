@@ -16,6 +16,7 @@
   arrives, because its derived value is not `IWatchable`."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.freehand :as v]
             [re-frame.freehand.substrate :as fh-substrate]
             [re-frame.freehand.cell :as cell]
@@ -237,6 +238,58 @@
         (finally
           (off)
           (cell/flush!))))))
+
+;; ===========================================================================
+;; The open-drain guard — the shared core law, enforced here too
+;; ===========================================================================
+;;
+;; `flush-render!` preserves write-all-queued-events-THEN-one-read/render for a
+;; drain the THUNK opens. A flush forced from inside a drain that is ALREADY open
+;; is the torn case, and the law that rejects it is one implementation in core
+;; (`re-frame.frame/guard-open-drain!`) rather than one copy per substrate —
+;; it closes over the router's drain state and no cell state, so Freehand reaches
+;; it without requiring anything from `re-frame.ui` (rf2-87ouj).
+
+(deftest flush-inside-an-open-event-drain-throws-before-the-window-closes
+  (testing "A flush forced while a run-to-completion drain is still open would
+            close the pending window and commit React while queued update and
+            commit phases are still outstanding — a render phase published over
+            half-settled state. It fails loud instead, with the same id the
+            compiled-view substrate's flush raises, and it throws BEFORE the
+            window is touched, so nothing is published on the way out."
+    (let [[c off] (probe-cell ::in-drain (fn [] nil))]
+      (try
+        (cell/mark-dirty! c ::seed)
+        (is (= 1 (cell/pending-count)) "precondition: a cell is pending")
+        (let [e (binding [frame/*run-frame-state-before* {:rf/open-drain true}
+                          frame/*current-frame*          nil]
+                  (ex-of #(fh-substrate/flush-render!
+                           (fn [] (cell/mark-dirty! c ::inside)))))]
+          (is (= :rf.error/flush-in-open-epoch (error-id e))
+              "the shared open-drain guard rejected the in-drain flush")
+          (is (= 're-frame.freehand.substrate/flush-render! (:where (ex-data e)))
+              "and named THIS substrate's forcing site — the `:where` slot is what
+               distinguishes it from the compiled-view substrate's flush"))
+        (is (= 1 (cell/pending-count))
+            "the window was never touched: the seeded cell is still pending, and
+             the thunk's own mark never ran")
+        (finally
+          (off)
+          (cell/flush!))))))
+
+(deftest outside-a-drain-the-guard-is-a-no-op
+  (testing "The control for the row above. The guard consults the router's drain
+            state alone, so the overwhelmingly common case — a flush from ordinary
+            code — is untouched by it. Without this row the guard could be
+            rejecting EVERY flush and the row above would still be green."
+    (is (nil? frame/*run-frame-state-before*)
+        "precondition: no drain is open outside an event run")
+    (let [[c off] (probe-cell ::outside-drain (fn [] nil))]
+      (try
+        (cell/mark-dirty! c ::seed)
+        (is (nil? (fh-substrate/flush-render!)) "the flush ran and returned nil")
+        (is (= 0 (cell/pending-count)) "and really settled the window")
+        (finally (off) (cell/flush!))))))
 
 ;; ===========================================================================
 ;; Non-vacuity
