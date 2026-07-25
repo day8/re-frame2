@@ -457,6 +457,43 @@ it: `v/render-static`'s no-silent-elision proof resolves a dependency's facts fr
 its registered manifest's `:static-facts` when the ambient index cannot answer
 ([Spec 011 §The server render on the Freehand paved path](011-SSR.md#the-server-render-on-the-freehand-paved-path)).
 
+### The manifest ships into production, and that is the door's cost
+
+`v/manifest` is a published door ([API](API.md)), and a door that answers in a
+production build answers out of something the production build carries. It does.
+The manifest is inert quoted data spliced onto the compiled declaration's registry
+entry, under no `interop/debug-enabled?` gate, so an `:advanced` +
+`goog.DEBUG=false` bundle carries the roster keys, the site vocabulary, the
+`:re-frame.freehand/v1` grammar tag, the elision verdict, and **each site's own
+`:source-coord`** — which means a compiled declaration contributes a build-machine
+file path per *site*, on top of the one per declaration that every macro-driven
+registration contributes through core's always-on error-coord registry
+([001 §Production elision contract](001-Registration.md#production-elision-contract)).
+
+**Measured, not reasoned.** Against `out/freehand-release` (`:advanced`,
+`goog.DEBUG false`, a real mounted app) with `out/freehand-release-interpreted` as
+a same-configuration control whose entry declares **no** compiled view: `crossings`,
+`html-sites`, `subscriptions`, `capabilities`, `static-facts`, `serializable?` and
+`re-frame.freehand/v1` are present in the release bundle and **absent** from the
+control, so the sentinels discriminate rather than merely appear. Two neighbours do
+NOT discriminate and must not be cited as manifest evidence: `view-cell` and
+`source-coord` occur identically in the control, because the runtime and registry
+surfaces of any Freehand app carry them whether or not a manifest exists — the
+§The elision oracle discipline applies to a manifest's PRESENCE exactly as it does
+to a shell's absence. Docstrings mark the boundary: a view's docstring is not in
+the bundle, so what ships is structure and coordinates, never authored prose.
+
+Say it plainly rather than leave a reader to infer it from the door's existence:
+**a compiled declaration's static analysis is part of what a consumer ships.** It is
+the price of `v/manifest` being answerable at runtime, of `v/render-static`'s
+no-silent-elision proof resolving a dependency's `:static-facts` from a registered
+manifest in a build whose ambient index cannot answer, and of a tool being able to
+inventory a running application. Whether that price should instead be paid only in
+development — which would mean `v/manifest` returning `nil` in production, a
+**contract change to a published door** and not a build tweak — is an open design
+question and is deliberately not settled here. What is settled is that nothing may
+describe the manifest as production-erased while it is not.
+
 ### The elision oracle
 
 An omitted shell is an ABSENCE, and an absence is only as good as the instrument
@@ -2043,8 +2080,16 @@ rather than fabricating them (`tools/xray/spec/021` §3.4.1).
   the attributes, the ownership tracking, or the stamp/cleanup reaches a
   production build.
 - **Production erasure is a proof (I-12).** Compile-time defines + bundle-scan gates;
-  manifests, cause vectors, histories, warning text, and `data-rf2-*` strings are on the
-  scanned absence roster. The always-on Spec 009 error contracts remain.
+  cause vectors, histories, warning text, and `data-rf2-*` strings are on the
+  scanned absence roster. The always-on Spec 009 error contracts remain. **The static
+  manifest is NOT on that roster and does not belong on it as written** — it is carried
+  ungated on the compiled declaration's registry entry and is present in an `:advanced`
+  bundle, measured (§The manifest ships into production, and that is the door's cost).
+  That is a consequence of `v/manifest` being a published door that answers at runtime,
+  not a gap in the erasure proof; what would be a gap is a claim of absence no scan
+  makes. Evidence-record erasure is separately proven by
+  `implementation/scripts/check-freehand-evidence-elision.cjs`, which scans the
+  evidence doors and says nothing about manifests.
 - The `[view-id instance-token]` `:render-key` wire shape and the
   `[:rf.view/anonymous nil]` fallback for unregistered render fns are emitted by the
   Reagent, UIx, and reagent-slim adapters — first-class, actively-supported adapters;
