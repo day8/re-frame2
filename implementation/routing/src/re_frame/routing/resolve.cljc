@@ -373,9 +373,16 @@
   (`classification/lower-for-route`), which redacts the `:rf/route` projections a
   tool reads out of the slice but says nothing about a tag map on the trace bus.
   The plan's `:target` nonetheless carries `:url` / `:params` / `:query` — carrier
-  VALUES. Emitting them raw would reopen, by a route the classification cannot
-  see, exactly the URL-carrier egress class the routing sweeps closed. So the
-  mapping is deliberately lossy in two specific ways, and only those two:
+  VALUES — and this mapping declines to carry them. The reason is worth stating
+  precisely, because it is NOT that emitting them would breach a boundary: there
+  is no boundary here for a raw emit to reopen. The same carriers are already
+  ambient on the same drain — `:rf.nav/push-url`'s fx args carry the identical URL
+  string one trace row later, and the `:rf.route/navigate` event vector carries the
+  query values verbatim on `:rf.event/dispatched`. So the projection declines to
+  add a REDUNDANT copy of what is already there, and keeps the half that is
+  diagnostically load-bearing: WHICH keys were bound, not what they were bound to.
+  That is local emit-site hygiene, not a boundary the route classification
+  enforces on the trace bus. It is lossy in exactly two ways, and only those two:
 
     - the URL rides the EXISTING `egress/redact-url-tag` path — the ONE
       URL-carrier redactor routing already sends its route-miss and
