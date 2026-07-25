@@ -172,8 +172,9 @@
   {:non-clojure   "a CSS or ASCII-diagram fence — not Clojure at all"
    :prose-shape   "an illustrative data shape (an app-db slice, a build
                    diagnostic) with no verb in it to move"
-   :app-scaffold  "a consumer `ns` form or full application listing naming
-                   an adapter artefact this one takes no dependency on"
+   :app-scaffold  "a consumer `ns` form, or a full application listing whose
+                   parts each already have a fixture — a page-level scaffold
+                   with no single var for a row to point at"
    :host-boot     "a boot function needing a real `js/document` container"
    :foreign-npm   "an `ns` requiring an npm module that is on no classpath
                    here"
@@ -252,14 +253,14 @@
    "adoption.md"
    [[ 1 "465c90a78f6e" host/person-cell-renderer-props]]
    "build-a-view.md"
-   [[ 1 "943078a18a20" :app-scaffold]
+   [[ 1 "f0c3d822dd93" :app-scaffold]
     [ 2 "1ffd888b3d3f" first-view/register-counter-dataflow!]
     [ 3 "d2d23ba805b8" first-view/counter-v1]
     [ 4 "c7ca85a039f7" first-view/counter-v2]
     [ 5 "e848116f474a" first-view/counter-v3]
     [ 6 "c7ecf21136ef" first-view/note-row]
-    [ 7 "08cf75dd886e" :host-boot]
-    [ 8 "2736f15805d1" :app-scaffold]]
+    [ 7 "54f01ca77513" :host-boot]
+    [ 8 "6b6946d0b4bd" :app-scaffold]]
    "compilation.md"
    [[ 1 "2ed0def9d890" compilation/people-list-promotion-recipe]
     [ 2 "0e709b251a18" compilation/todo-row-compiled]
@@ -328,8 +329,8 @@
    [[ 1 "c00fd3636ace" first-view/cart-badge]
     [ 2 "5eca60041a06" :non-clojure]]
    "install.md"
-   [[ 1 "5bc803547be4" :build-config]
-    [ 2 "9730c941c63b" :app-scaffold]
+   [[ 1 "4812718ae9f1" :build-config]
+    [ 2 "88af3aed1747" :app-scaffold]
     [ 3 "54ad15b06540" host/unmount-root!]
     [ 4 "0673f40834e8" host/mount-panels!]
     [ 5 "ea8536be30aa" :build-config]]
