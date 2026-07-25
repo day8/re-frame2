@@ -1258,20 +1258,25 @@
                    (subs err (max 0 (- (count err) 400)) (count err)))))))))
 
 ;; ----------------------------------------------------------------------
-;; Test-count floor (rf2-qqzmf).
+;; What a lane claims, and what it must therefore prove (rf2-qqzmf).
 ;;
 ;; `clojure.test/run-tests` over an empty namespace set reports
 ;; `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.` and
 ;; cognitect exits 0 from that tally, so a discovery set that silently
-;; collapsed to nothing was indistinguishable from a green suite. The
-;; runner's `:summary` hook now fails a run that executed fewer tests than
-;; `RF2_MIN_TESTS` (default 1).
+;; collapsed to nothing was indistinguishable from a green suite.
 ;;
-;; Pinned BOTH ways, because a floor that cannot go red is the same defect
-;; wearing a different hat: a zero-test discovery set must exit 1, and an
-;; ordinary suite must still exit 0. Plus the configurable bound (a floor
-;; ABOVE the real count reds a genuinely green suite) and the malformed-value
-;; path (exit 2, never a silent fall back to the default).
+;; The rule is not "every lane must run tests" — it is that a lane which
+;; claims COVERAGE must prove it ran, while a lane which claims only
+;; RESOLUTION (`--probe`) must prove it resolved without running. Both halves
+;; are pinned, and both are pinned in BOTH directions, because a check that
+;; cannot go red is the same defect wearing a different hat:
+;;
+;;   suite: a zero-test discovery set exits 1; an ordinary suite exits 0;
+;;          a floor ABOVE the real count reds a genuinely green suite;
+;;          a malformed floor exits 2, never a silent default.
+;;   probe: a zero-test run exits 0 (the false RED this rule must not
+;;          create); a probe that GAINED tests exits 1 and says to drop the
+;;          flag.
 
 (deftest zero-test-discovery-is-red
   (testing "a run whose selector matches no namespace exits 1, not 0"
@@ -1327,6 +1332,78 @@
                    " run; got:\n" out))
           (is (str/includes? err "executed 1 test(s), below the floor of 2")
               (str "the diagnostic must name both counts; got stderr:\n" err)))))))
+
+(deftest probe-lane-with-zero-tests-is-green
+  (testing "a --probe lane exits 0 on zero tests — the floor must not false-red it"
+    (with-fixture-dir
+      (fn [dir]
+        ;; The two live probe lanes are implementation/adapters/reagent and
+        ;; implementation/adapters/uix: CLJS-only artefacts whose `:test`
+        ;; alias exists to prove deps + classpath resolve. `test.yml` documents
+        ;; the contract ("the cognitect test-runner returns 0 when there are
+        ;; no test namespaces") and names the jobs "Diagnostic skip-ok". This
+        ;; fixture dir has NO JVM test file at all — the same shape.
+        (let [{:keys [exit out err]} (run-runner dir "--probe")]
+          (is (zero? exit)
+              (str "a declared classpath probe must exit 0 on zero tests: a"
+                   " lane that claims resolution, not coverage, has nothing"
+                   " to run; got " exit "\n--- stdout ---\n" out
+                   "\n--- stderr ---\n" err))
+          (is (str/includes? out "Ran 0 tests")
+              (str "the probe must still have REACHED its summary — that is"
+                   " what proves deps resolved and the dirs were scanned;"
+                   " got:\n" out))
+          (is (not (str/includes? (str out err) "below the floor"))
+              (str "no coverage-floor diagnostic may appear on a probe lane;"
+                   " got\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          ;; Silent-on-success stands: a green probe announces nothing extra.
+          (let [non-blank (->> (str/split-lines out) (remove str/blank?))]
+            (is (= 2 (count non-blank))
+                (str "a green probe must emit exactly the canonical two"
+                     " summary lines and no announcement of its own; got:\n"
+                     (str/join "\n" non-blank)))))))))
+
+(deftest probe-lane-that-gained-tests-is-red
+  (testing "a --probe lane with tests is red: it now claims coverage"
+    (with-fixture-dir
+      (fn [dir]
+        ;; The exemption is a declaration, not a hole. The moment the lane has
+        ;; a JVM test it is claiming coverage, so it must drop `--probe` and
+        ;; take the floor — otherwise a real suite could sit behind a probe
+        ;; declaration and lose the floor silently.
+        (write-fixture! dir "probe_gained_fixture_test" "probe-gained-fixture-test"
+                        "(deftest a-passing-test (is (= 1 1)))")
+        (let [{:keys [exit out err]} (run-runner dir "--probe")]
+          (is (= 1 exit)
+              (str "a probe lane that executed tests must exit 1; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "0 failures, 0 errors.")
+              (str "the tally really was clean — the claim mismatch is what"
+                   " failed the run; got:\n" out))
+          (is (str/includes? err "declared a classpath probe")
+              (str "the diagnostic must name the mismatch; got stderr:\n" err))
+          (is (str/includes? err "drop --probe")
+              (str "the diagnostic must say what to do about it; got"
+                   " stderr:\n" err)))))))
+
+(deftest probe-flag-is-not-forwarded-to-cognitect
+  (testing "--probe is consumed by the wrapper, not passed to the test runner"
+    (with-fixture-dir
+      (fn [dir]
+        ;; cognitect owns its own arg contract and rejects what it does not
+        ;; know, so the wrapper's one flag must be stripped before delegating.
+        ;; A leaked `--probe` would surface as a cognitect parse error.
+        (write-fixture! dir "probe_strip_fixture_test" "probe-strip-fixture-test"
+                        "(deftest a-passing-test (is (= 1 1)))")
+        (let [{:keys [exit out err]} (run-runner dir "-r" "^zzz-matches-nothing$" "--probe")
+              both (str out err)]
+          (is (zero? exit)
+              (str "a probe whose selector matches nothing is still a green"
+                   " probe (0 tests is its correct outcome); got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (not (str/includes? both "--probe"))
+              (str "no diagnostic may echo --probe: a cognitect parse error"
+                   " naming it means the flag leaked through; got\n" both)))))))
 
 (deftest malformed-floor-is-a-configuration-error
   (testing "a non-integer RF2_MIN_TESTS exits 2 rather than silently defaulting"

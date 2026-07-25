@@ -29,7 +29,13 @@
          :extra-deps  {com.pitch/uix.dom {:mvn/version "1.4.4"}
                        ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../../test-quiet"}}
-         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+         ;; `--probe`: as the header says, this lane is classpath-probe-only
+         ;; (UIx is CLJS-only, so `test/` holds no JVM-runnable suite). Zero
+         ;; tests is the CORRECT outcome, so the runner's test-count floor
+         ;; (rf2-qqzmf) must not apply; the flag makes that a declared
+         ;; exemption rather than an accident. If a JVM test ever lands here,
+         ;; drop `--probe` and take the floor.
+         :main-opts   ["-m" "re-frame.test-quiet.runner" "--probe"]}
 
   ;; Clojars deploy, modeled on the Reagent adapter's flow.
   ;; The release workflow runs `clojure -M:clein deploy` from this
