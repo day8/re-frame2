@@ -5,8 +5,6 @@
     - `emit-activation-traces!` — the `:rf.route/activated` /
       `:rf.route/deactivated` lifecycle pair (Spec 012 §Trace events,
       rf2-dn26r);
-    - `identical-route-target?` — Spec 012 §Per-route data loading rule
-      3 short-circuit predicate;
     - `merge-route-slice` — the slice-publish merge over
       `[:rf.runtime/routing :current]` (encodes the slice-shape
       contract once for both the programmatic-nav and URL-driven paths,
@@ -89,30 +87,6 @@
     (trace/emit! :rf.event :rf.route/activated
                  (cond-> {:route-id next-id}
                    frame (assoc :frame frame)))))
-
-;; Per Spec 012 §Per-route data loading rule 3: same-route-id
-;; navigations with IDENTICAL params/query (and identical fragment) do
-;; not re-fire `:on-match` — the runtime compares the prospective slice
-;; against the current one and skips the dispatch when nothing relevant
-;; changed. Re-firing the loaders would re-fetch unchanged data on every
-;; redundant navigation (clicking the already-active nav link, a
-;; duplicate `[:rf.route/navigate {:to :route/cart}]`, popstate to the current
-;; URL), which is the data-refetch thrash the rule forbids. The
-;; fragment-only case (id/params/query equal, fragment changed) is the
-;; sibling short-circuit (rf2-8oxj6); this predicate is the stricter
-;; "nothing at all changed" case.
-(defn identical-route-target?
-  "True when the prospective navigation target (`id`/`params`/`query`/
-  `fragment`) is identical to the current route slice — a complete
-  no-op re-navigation. `prev` is the current slice (or nil before first
-  nav)."
-  [prev id params query fragment]
-  (boolean
-    (and prev
-         (= (:route-id prev) id)
-         (= (:params prev)   params)
-         (= (:query prev)    query)
-         (= (:fragment prev) fragment))))
 
 ;; Per Spec 012 §The route slice and Spec-Schemas §`:rf/runtime-db` the
 ;; published slice carries exactly `{:route-id :params :query :fragment
