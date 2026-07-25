@@ -325,12 +325,25 @@ events” or “you may not branch.”
       [:tr {:key (:id item)}
        (v/slot row item)])]])
 
-;; caller — pure, visible body
-[data-table
- {:rows people
-  :row  (v/render-fn [person]
-          [:td (:name person)])}]
+;; caller — pure, visible body, and compiled itself
+(v/defview people-table
+  {:compiled true}
+  [{:keys [people]}]
+  [data-table
+   {:rows people
+    :row  (v/render-fn [person]
+            [:td (:name person)])}])
 ```
+
+Note the caller’s own `{:compiled true}`. A slot is the one place the **caller**
+must be compiled too — the exception to
+[interpreted parent → compiled child: fine](#crossing-modes-and-seam-laws-author-facing)
+below, which still holds for ordinary child views. A `v/render-fn` written in an
+interpreted body answers raw Hiccup, and the compiled parent’s child collector
+refuses that value with `:rf.error/ui-tree-malformed` — “A compiled view produced
+a vector where a child was expected.” So the usual one-leaf promotion (mark the
+child `{:compiled true}`, leave callers untouched) does not reach a slot: promote
+the calling view as well, or leave both interpreted.
 
 If the row needs a subscription or its own events, extract
 `[person-row {:key … :id …}]`. Do not smuggle `sub` inside an opaque function
