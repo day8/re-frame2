@@ -125,12 +125,16 @@
           payload   (assoc base :written-back? true :new-variant-id id)]
       (result/edn-result payload))
     (catch #?(:clj Throwable :cljs :default) e
+      ;; Same relay as `write/register-or-error`, same projection: the
+      ;; registrar's raw Malli `:explain` carries live schema objects the
+      ;; JSON encoder cannot write (rf2-2z9u3).
       (result/error-result (str "Write-back failed: " (ex-message e))
                       (merge base
                              {:written-back?  false
                               :new-variant-id target-vid}
-                             (select-keys (ex-data e)
-                                          [:rf.error :explain]))))))
+                             (result/wire-safe-ex-data
+                               (select-keys (ex-data e)
+                                            [:rf.error :explain])))))))
 
 (defn tool-record-as-variant
   "Dev (or Write when `:write-back` is true): bridge the recorder's
