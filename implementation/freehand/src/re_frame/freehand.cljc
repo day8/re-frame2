@@ -602,6 +602,11 @@
      does. The tag is an unqualified keyword containing `-`, the options map
      is LITERAL, and `:properties` is the WHOLE v1 grammar — an unknown key,
      a namespaced tag or a runtime map is `:rf.ui.compile/bad-custom-element`.
+     So is `:class` or `:style` in `:properties`: those two are ATTRIBUTES
+     with grammars of their own — `:class` composes with the `.class#id` tag
+     sugar and `:style` carries the CSS map — and since a property is omitted
+     from markup, classifying one would render the element with that value
+     dropped from the HTML. They are refused rather than quietly rewritten.
      Undeclared names are attributes and an undeclared ELEMENT needs no
      declaration at all, so declaring is only ever the exception. One tag has
      one property manifest: two sources declaring it differently is

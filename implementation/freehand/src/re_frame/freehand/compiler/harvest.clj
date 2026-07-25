@@ -95,15 +95,25 @@
   (and (keyword? tag) (nil? (namespace tag))
        (clojure.string/includes? (name tag) "-")))
 
-(defn- valid-properties? [props]
+(defn- valid-properties?
+  "The macro's `:properties` grammar, mirrored: a literal set of unqualified
+  keywords, none of them on the v1 refusal roster
+  (`build/refused-property-names` — `:class`/`:style` are attributes, and
+  classifying one as a property drops it from markup; rf2-oazgv). The roster is
+  READ rather than respelled so the two doors cannot drift: a name this
+  recogniser seeded but the macro refuses would classify props against a
+  declaration the build is about to reject."
+  [props]
   (and (set? props)
-       (every? #(and (keyword? %) (nil? (namespace %))) props)))
+       (every? #(and (keyword? %) (nil? (namespace %))) props)
+       (not-any? build/refused-property-names props)))
 
 (defn- declaration
   "If `form` is a recognized, LITERAL `(<v>/custom-element <tag> <opts>)` — the
   exact shape the macro accepts — return `{:tag tag :properties #{…}}`, else
   nil. Anything the macro would reject (non-literal tag, non-map opts, unknown
-  option, non-literal `:properties`) is NOT recognized here: the macro still
+  option, non-literal `:properties`, a REFUSED property name) is NOT
+  recognized here: the macro still
   expands the form and reports the error with its own coordinates, so the
   declaration never silently seeds a bad classification (rf2-vxgfnd.141)."
   [heads form]

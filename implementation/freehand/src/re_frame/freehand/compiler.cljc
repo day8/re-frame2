@@ -515,6 +515,33 @@
                  "property names (kebab; :help-text -> the helpText JS "
                  "property); got " (pr-str props))
             {:tag tag :properties props}))
+    ;; The v1 refusal roster (rf2-oazgv): `:class` and `:style` are ATTRIBUTES,
+    ;; and a property-classified name is OMITTED from markup by contract — so
+    ;; accepting this declaration rendered an element with its class and style
+    ;; silently missing from the server's HTML while the structural fold still
+    ;; carried them. Refused at the DECLARATION rather than coerced: doing what
+    ;; the author probably meant, quietly, is the same fault as dropping it.
+    ;; Sorted so the diagnostic and its evidence read identically whichever
+    ;; order the author wrote the set in.
+    (let [refused (vec (sort (filter build/refused-property-names props)))
+          many?   (boolean (next refused))]
+      (when (seq refused)
+        (fail :rf.ui.compile/bad-custom-element
+              (str ":properties may not name "
+                   (str/join ", " (map pr-str refused))
+                   " — " (if many? "they are ATTRIBUTES, not JS properties"
+                                   "it is an ATTRIBUTE, not a JS property")
+                   ". :class composes with the .class#id tag sugar and :style "
+                   "carries the CSS map; on a custom element both follow DOM "
+                   "rules exactly as they do on a <div>. A property-classified "
+                   "name is OMITTED from server markup and applied at "
+                   "hydration, so this declaration renders the element with "
+                   (if many? "those values" "that value")
+                   " DROPPED from the HTML. Remove "
+                   (if many? "them" "it")
+                   " from :properties — an undeclared name already travels the "
+                   "attribute grammar, which is the whole answer here.")
+              {:tag tag :properties props :refused refused})))
     ;; compile-time registration (this JVM performs macroexpansion for
     ;; both hosts) routed through the build-scoped model so a removed /
     ;; renamed declaration drops its stale property classification with
