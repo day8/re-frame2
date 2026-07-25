@@ -11,17 +11,63 @@ disturbing beads-managed segments (`bd hooks install`).
 | Path | Purpose |
 |------|---------|
 | `post-merge` | Advisory: warn after `git pull` brings down MCP-source changes that invalidate the local server binary. **rf2-6jj3r.** |
+| `post-merge` | Advisory: warn after `git pull` when the hooks on disk no longer match this directory. **rf2-zt65l.** |
 | `pre-commit` | Refuse commits in the MAYOR checkout that touch worker-tracked surfaces. **rf2-ydl2p.** |
 | `pre-commit` | Refuse commits in a WORKER worktree that touch the beads DATABASE. **rf2-ia8o7.** |
 | `lib/check-stale-mcp-binary.sh` | POSIX-sh library used by `post-merge`. |
 | `lib/check-mayor-commit-boundary.sh` | POSIX-sh library used by `pre-commit` (rf2-ydl2p). |
 | `lib/check-beads-boundary.sh` | POSIX-sh library used by `pre-commit` (rf2-ia8o7) **and** by `scripts/check-beads-pr-boundary.sh`, the CI arm. |
-| `test-pre-commit.sh` | Library unit tests + sandboxed end-to-end smoke for both pre-commit blocks. |
+| `test-pre-commit.sh` | Library unit tests, sandboxed end-to-end smoke for both pre-commit blocks, the CI arm, and the installer. |
 
 The unit of installation is a marker **block**, not a hook: `pre-commit`
 carries two of them. The installers key their registries on block id
 (`mayor-commit-boundary`, `worker-beads-boundary`, `mcp-staleness`) so a
 hook can grow another block without either installer changing shape.
+
+## Installing, and staying installed
+
+One command, from anywhere in the repo:
+
+```sh
+sh scripts/install-git-hooks.sh                                        # POSIX
+powershell -ExecutionPolicy Bypass -File scripts/install-git-hooks.ps1  # Windows
+```
+
+It is idempotent, takes about a second, and only rewrites the blocks it owns
+(beads-managed segments from `bd hooks install` are left alone).
+
+**Once per clone is enough.** The installer writes to `<git-common-dir>/hooks`,
+and linked worktrees share that directory — no `core.hooksPath` indirection,
+nothing per-worktree. A worktree created a month after the install is guarded
+the moment it exists. That is asserted, not assumed: `test-pre-commit.sh`
+layer 6 adds a worktree after installing and checks it resolves the same hooks
+directory.
+
+To ask whether a checkout is currently guarded:
+
+```sh
+sh scripts/install-git-hooks.sh --check   # exit 0 = installed and current
+```
+
+### Why there is a staleness advisory (rf2-zt65l)
+
+The hooks on disk are **copies**. `git pull` updates the sources here and
+leaves the copies untouched, so every change to this directory is a fresh
+opportunity for the two to diverge silently — and they did. The beads
+boundary block (rf2-ia8o7) landed on 2026-07-22; the mayor checkout, and
+therefore all sixteen worktrees sharing its hooks directory, went on running
+a 2026-06-01 copy that did not contain it. For seven weeks the guard was
+documented, tested, and absent. Nothing was ever going to say so, because
+nothing ran the installer and nothing compared the two.
+
+The `post-merge` block closes that loop at the moment the drift is created:
+after every merge it runs `--check` and, when that fails, prints the repair
+command. It is advisory — it never fails the merge — and it is silent on a
+healthy checkout, because an advisory that fires on ordinary work gets muted.
+
+CI cannot cover this. The gate that matters here runs on a developer's
+laptop, and the only thing that can notice a stale copy is the machine
+holding it.
 
 ## The two boundaries
 
@@ -219,6 +265,19 @@ From rf2-ia8o7:
 7. Worker commit staging `.beads/config.yaml` → passes (allow-listed)
 8. Mayor commit staging `.beads/issues.jsonl` → passes (guard no-ops in primary)
 
+From rf2-zt65l, driving the real installer against a throwaway repo — the
+layers above stage the hook by hand, so without these the installer had no
+coverage at all:
+
+9. Fresh checkout installs clean; `--check` then certifies it
+10. Every registered block reaches the installed hooks (a partial install
+    was the bead's actual failure mode)
+11. A worktree created *after* the install shares the primary's hooks dir
+12. From that inherited install, a worker tracker commit is refused …
+13. … and an ordinary source commit from the same worktree is not
+14. Strip a block from the installed hook: `--check` fails and `post-merge`
+    says so; re-running the installer repairs it and the advisory goes quiet
+
 ## Discovery context
 
 The pre-commit hook landed in response to rf2-oswhk (#2136),
@@ -243,6 +302,9 @@ channel, the mayor's pre-commit will refuse the commit.
 - **`scripts/assert-worker-worktree.ps1`** — the edit-time complement.
 - **rf2-ia8o7 (PR #6677)** — the stale worker-snapshot incident that
   motivated the beads boundary.
+- **rf2-zt65l** — the seven-week gap between that boundary landing here and
+  reaching anybody's `.git/hooks`; source of the staleness advisory and the
+  installer's own test layer.
 - **`CLAUDE.md` > Beads durability** — the operator-facing rules,
   including the merge-side rule (never `--theirs`/`--ours` on `.beads`;
   resolve then regenerate).
