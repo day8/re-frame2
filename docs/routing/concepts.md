@@ -2,9 +2,9 @@
 
 <a id="routing-the-url-is-a-sub"></a>
 
-This page is the **routing model** — three moves, then loaders, guards, not-found,
-and URL binding. Full leave/enter recipes live in the how-tos; signatures live in
-[re-frame.routing](../api/re-frame.routing.md).
+This page is the **routing model** — three moves, then page data, guards,
+not-found, and URL binding. Full leave/enter recipes live in the how-tos;
+signatures live in [re-frame.routing](../api/re-frame.routing.md).
 
 To *build* a three-page app step by step, use the [tutorial](tutorial.md).
 
@@ -154,8 +154,8 @@ doors are covered).
 | Group | Keys | Controls |
 |---|---|---|
 | **Shape** | `:params`, `:query`, `:query-defaults` | URL ↔ maps |
-| **Lifecycle** | `:on-match`, `:can-leave`, `:can-enter` | Activate / guards |
-| **Layout** | `:doc`, `:parent`, `:tags`, `:scroll` | Nesting, grouping, scroll |
+| **Lifecycle** | `:on-match`, `:can-leave`, `:can-enter` | Fire-and-forget activation work / guards |
+| **Layout** | `:doc`, `:parent`, `:tags`, `:scroll` | Nesting (and `:resources` composition), grouping, scroll |
 | **Classification** | `:sensitive`, `:large` | Egress redaction of the route slice |
 | **Borrowed** | `:resources` (resources artefact), `:head` ([SSR head](../ssr/head.md)) | Server state / head model |
 
@@ -200,6 +200,28 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 No `:to` / `:url`: `:query-merge` folds into the current query, `:query` replaces it
 wholesale, `:fragment` moves the anchor. Route and params carry over untouched.
 
+That one request covers most of what a list page needs, and each spelling says
+exactly what it means:
+
+```clojure
+;; Pagination — change one key, keep the filters.
+(rf/dispatch [:rf.route/navigate {:query-merge {:page 2}}])
+
+;; A new filter resets the page — nil removes a key rather than writing a blank.
+(rf/dispatch [:rf.route/navigate {:query-merge {:tag "clojure" :page nil}}])
+
+;; Clear every filter — replace the query wholesale.
+(rf/dispatch [:rf.route/navigate {:query {}}])
+
+;; A tab the user shouldn't be able to Back through — replace, don't push.
+(rf/dispatch [:rf.route/navigate {:query-merge {:tab "comments"} :replace? true}])
+```
+
+Reading it back is one sub — `@(subscribe [:rf.route/query])` — and the route's
+`:query` schema has already coerced the values, so `:page` is the number `2` rather
+than `"2"`. Declare `:query-defaults` and a deep link to the bare `/search` arrives
+with `:page 1` filled in, because defaults are applied when a URL is matched.
+
 ### Linking from views
 
 <a id="linking-from-views"></a>
@@ -223,12 +245,41 @@ that decides eligibility itself — plain primary-button click, no modifier keys
 `:rf.route/url-requested` on a match, letting the browser follow every click it
 rejects.
 
+Every prop `route-link` doesn't claim is passed through to the `<a>`, so styling,
+`:data-*`, and ARIA attributes work as they do on any anchor. Two behaviour props
+it does claim: `:prefetch :intent`
+([warming a destination](#warming-a-destination-before-the-click)) and the address
+keys used to build the `href`.
+
+<a id="highlighting-the-active-link"></a>
+
+#### Highlighting the active link
+
+`route-link` computes **no** active state — it renders one anchor and nothing else.
+"Am I on this page?" is a comparison against a route sub, which is the same
+question a breadcrumb or a tab strip asks, so it belongs in your view:
+
+```clojure
+(rf/reg-view nav-link [props label]
+  (let [active? (= (:to props) @(subscribe [:rf.route/id]))]
+    [rf/route-link (cond-> props
+                     active? (assoc :aria-current "page"
+                                    :class (str (:class props) " is-active")))
+     label]))
+```
+
+Compare `[:rf.route/id]` for "this section is active" and the whole
+`[:rf.route/chain]` when a parent tab should light up for any of its children.
+For an exact-URL match — one entry in a filter strip, say — compare `:params` or
+`:query` too. `:aria-current "page"` is what a screen reader announces; the class
+is what you style.
+
 <a id="what-happens-in-order"></a>
 
 ### Order of effects
 
 Navigate runs in a **locked order**: update route slice in runtime-db → push URL →
-dispatch loaders. State before URL on purpose.
+dispatch activation events. State before URL on purpose.
 
 <a id="navigating-to-a-raw-url-string"></a>
 
@@ -249,10 +300,13 @@ The current route lives in **runtime-db** (not app-db). You read; you never writ
 @(rf/subscribe [:rf.route/transition])   ;; :idle | :loading | :error
 @(rf/subscribe [:rf.route/error])
 @(rf/subscribe [:rf.route/chain])        ;; :parent ancestry (nested layouts)
-@(rf/subscribe [:rf/pending-navigation]) ;; blocked leave/enter, or nil
+@(rf/subscribe [:rf/pending-navigation]) ;; a leave the user hasn't answered, or nil
 ```
 
-`:transition` drives a global progress bar without per-page loading flags:
+`:transition` drives a global progress bar without per-page loading flags. It is a
+projection over the route's blocking `:resources`
+([details](#when-a-loader-fails)), so the bar is honest about page data and quiet
+about everything else:
 
 ```clojure
 (rf/reg-view progress-bar []
@@ -291,32 +345,42 @@ No `<Outlet/>` — nesting is data. Child names `:parent`; compose shells from
             (reverse (butlast chain)))))
 ```
 
+`:parent` earns its keep twice over: it gives you the chain to fold, and it
+composes the ancestors' `:resources` into the child's plan
+([below](#parent-resources-compose-to-the-child)). Nothing else is inherited.
+
 Tutorial builds this: [Step 7](tutorial.md#step-7--a-shared-layout).
 
-## Loaders: declaring a page's data
+## Activation work and page data
 
 <a id="loaders-declaring-a-pages-data"></a>
 
-**`:on-match`** — vector of event vectors on activate (including same route with
+Two different jobs live next to a route, and keeping them apart is the whole trick.
+
+**`:on-match`** is the *activation hook* — a vector of event vectors the runtime
+fires and forgets whenever the route becomes active (including the same route with
 changed params; identical params don't re-fire):
 
 ```clojure
 (rf/reg-route :app/cart
-  {:on-match [[:cart/load-items] [:user/load-prefs]]
-   :on-error [:app/cart-load-failed]}
+  {:on-match [[:analytics/viewed-cart] [:cart/seed-ui-state]]}
   "/cart")
 ```
 
-<a id="when-a-loader-fails"></a>
+It runs client- and server-side, after the route slice is written and before any
+view renders off it. What it is *not* is a readiness mechanism: `:on-match` never
+moves `:rf.route/transition`, never waits for the async work its events start, and
+never turns a handler's failure into a route error. Work that `:on-match` merely
+kicks off keeps its status in the subsystem that owns it. A handler that throws
+surfaces on the ordinary [event error channel](../core/errors.md), attributed to
+the event that threw.
 
-Runs client- and server-side. On loader failure, `:transition` → `:error`; optional
-`:on-error` event fires once (first error wins; later loaders still run).
-
-### Declaring resources instead
+### Declaring the data a page needs
 
 <a id="declaring-resources-instead"></a>
 
-With the resources artefact, declare cached server reads on the route:
+Managed server reads that must be present before the page is honest are declared
+with `:resources`, from the resources artefact:
 
 ```clojure
 (rf/reg-route :realworld.article/show
@@ -335,6 +399,86 @@ With the resources artefact, declare cached server reads on the route:
 Ownership is nav-token keyed: leave or supersede → release; late replies
 **suppressed**. Per-user data uses a scope resolver (`{:from-db …}`) — fails closed
 when logged out. Full story: [Resources model](../resources/concepts.md).
+
+<a id="when-a-loader-fails"></a>
+
+### Readiness is a projection over the blocking resources
+
+`:rf.route/transition` and `:rf.route/error` report one honest fact: whether the
+blocking reads the active route plan declares are present, still on their first
+load, or failed.
+
+| Plan state | `:transition` | `:error` |
+|---|---|---|
+| A blocking first load is still pending | `:loading` | `nil` |
+| A blocking first load failed | `:error` | the first failure (`:rf.error/resource-route-blocking`) |
+| The plan could not be built at all | `:error` | `:rf.error/resource-route-plan` |
+| Every blocking read has usable data, or there are none | `:idle` | `nil` |
+
+A background refresh over data already on screen is not `:loading`, and a refresh
+failure stays on the resource's own channel rather than reddening the route. A
+non-blocking read, an [intent prefetch](#warming-a-destination-before-the-click),
+and `:on-match` never change either value. With no resources artefact loaded the
+route is always `:idle` — there is nothing to be honest about.
+
+### Parent resources compose to the child
+
+<a id="parent-resources-compose-to-the-child"></a>
+
+Naming a `:parent` opts the child into its ancestors' `:resources`. Activation
+plans the effective parent-to-leaf branch, so a shell read is declared **once** on
+the parent instead of restated in every tab:
+
+```clojure
+(rf/reg-route :app/profile
+  {:params    [:map [:username :string]]
+   :resources [{:resource  :app/profile
+                :params    (fn [route] {:username (get-in route [:params :username])})
+                :blocking? true}]}
+  "/profile/:username")
+
+(rf/reg-route :app/profile-favorites
+  {:parent    :app/profile                    ;; inherits the profile read above
+   :params    [:map [:username :string]]
+   :resources [{:resource  :app/favorited-articles
+                :params    (fn [route] {:username (get-in route [:params :username])})
+                :blocking? false}]}
+  "/profile/:username/favorites")
+```
+
+`:parent` *is* the opt-in — there is no separate inherit flag. Only `:resources`
+fold this way; `:on-match`, `:scroll`, `:head`, `:tags`, and the guards are not
+inherited, because unrelated metadata wants incompatible merge rules. Identical
+requirements contributed by more than one route in the branch are deduped to one
+fetch, and a child that restates a requirement its parent already contributes gets
+an advisory rather than a second fetch. Composing resources does not compose
+rendering: the layout chain is still yours to walk
+([Nested layouts](#nested-layouts)).
+
+<a id="warming-a-destination-before-the-click"></a>
+
+### Warming a destination before the click
+
+A link can warm its destination's data on hover, focus, or touch, so the click
+lands on a fetch already in flight:
+
+```clojure
+[rf/route-link {:to :app/article :params {:id "intro"} :prefetch :intent}
+ "Read more"]
+```
+
+`:intent` is the only accepted value — there is no render mode, viewport mode, or
+hover delay, and a passive render dispatches nothing. Under the hood the link
+dispatches `[:rf.route/prefetch {:to :app/article :params {:id "intro"}}]`, which
+you can also dispatch yourself from any event.
+
+A prefetch runs the *same* effective branch plan a real navigation would, in warm
+mode: every ensure is ownerless, `:blocking?` is inert, and no route state moves —
+no slice write, no URL, no scroll, no guards, no `:on-match`. Click through
+afterwards and the ordinary resource dedupe reuses the warmed work; never click and
+it stays garbage-collectable. Prefetch is a performance hint, not an authorization
+boundary — warming a destination whose `:can-enter` would deny is permitted and
+means nothing, because activation still evaluates the guard.
 
 ## Blocking a navigation
 
@@ -500,10 +644,10 @@ Copy-paste shape (pages and loaders are stubs — fill in as the tutorial does):
 
 <a id="a-hand-rolled-async-loader"></a>
 
-`:on-match` and `:resources` are the everyday loaders. Roll your own async fetch and
-you inherit the race they close: open article A, navigate to B before A's reply
-lands, late A overwrites B. Capture the **navigation token** when the load starts
-and gate delivery on it.
+`:resources` is the everyday way to load a page. Roll your own async fetch from
+`:on-match` and you inherit the race it closes: open article A, navigate to B
+before A's reply lands, late A overwrites B. Capture the **navigation token** when
+the load starts and gate delivery on it.
 
 Two hooks: `:rf.route/nav-token` **cofx** injects the live token into an
 `:on-match` handler; `:rf.route/with-nav-token` **fx** delivers a reply only while

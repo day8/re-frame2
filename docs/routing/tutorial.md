@@ -327,6 +327,12 @@ reach for the chain only when a shell wraps a *subtree*.
 > with the `case`/`reduce` you'd write for any conditional view. The only
 > routing-specific piece is the one `:rf.route/chain` read. [The model → Nested layouts](concepts.md#nested-layouts).
 
+> **`:parent` does one more thing.** Once you start declaring a page's data with
+> `:resources`, a child inherits its ancestors' declarations automatically — so a
+> shell read is written once on the parent instead of restated in every child.
+> Nothing else is inherited; `:on-match`, `:scroll`, and the guards stay per-route.
+> [The model → Parent resources compose to the child](concepts.md#parent-resources-compose-to-the-child).
+
 ## The complete shape
 
 | Piece | Surface | You supply |

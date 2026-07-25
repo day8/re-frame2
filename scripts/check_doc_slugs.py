@@ -415,13 +415,14 @@ _HANDBOOK_DOC_LINK_RE = re.compile(
 # The set is deliberately tiny and each key MUST be a real manifest anchor (a
 # self-test enforces that), so placement and the anchor manifest stay in lock-step.
 COMPAT_ANCHOR_PLACEMENT = {
-    # The loader-failure bookmark names the two-line "On loader failure ..."
-    # explanation, which sits between the "Loaders" heading and the unrelated
-    # "Declaring resources instead" heading. The anchor must precede that
-    # explanation so `#when-a-loader-fails` lands ON it, not on the resources
-    # section below it (the rf2-zq5i6 bug).
+    # The loader-failure bookmark names the explanation of what a failed page
+    # read does to the route. EP-0037 R1 retired route `:on-error`, so the
+    # passage it names is now the resource-derived readiness projection and its
+    # failure rows, not the old "On loader failure ..." lines. The anchor must
+    # still precede that passage so `#when-a-loader-fails` lands ON it rather
+    # than scrolling past onto the next section (the rf2-zq5i6 bug).
     ("docs/routing/concepts.md", "when-a-loader-fails"):
-        re.compile(r"On loader failure"),
+        re.compile(r"A blocking first load failed"),
 }
 
 

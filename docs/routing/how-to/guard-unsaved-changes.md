@@ -82,9 +82,33 @@ renders nothing until something is pending.
                                           :bypass-leave? true}]]]}))
 ```
 
-Saving would make the guard pass anyway — `:bypass-leave? true` makes the
-intent explicit. Same set form skips the target's `:can-enter` (`#{:enter}`) or both
-(`#{:leave :enter}`).
+Saving would make the guard pass anyway — `:bypass-leave? true` makes the intent
+explicit, and it is the only bypass there is. It skips *this* route's `:can-leave`
+for *this* one navigation; the target's `:can-enter` still runs, because an "enter
+anyway" flag would be a hole straight through the auth gate.
+
+## 5. Cover the hard exit too
+
+A pending value is a fact inside your app, so it cannot stop the browser closing the
+tab, following an external link, or reloading. That is a host concern, and the honest
+pairing is a `beforeunload` listener reading the *same* dirty state the guard reads:
+
+```clojure
+(defn install-unload-warning!
+  "Ask the browser to confirm a hard exit while the draft is dirty.
+   Same source of truth as :editor/can-leave? — one dirty flag, two exits."
+  []
+  (.addEventListener js/window "beforeunload"
+    (fn [e]
+      (when-not @(rf/subscribe [:editor/can-leave?])
+        (.preventDefault e)
+        (set! (.-returnValue e) "")))))   ;; the browser owns the wording
+```
+
+Call it once at boot. Routing deliberately does not wrap this: the browser shows its
+own non-customisable dialog, only when the user has interacted with the page, and
+only on a real unload — a second confirmation API pretending otherwise would be
+lying. Deriving both exits from one sub is what keeps them from disagreeing.
 
 ## Test it with zero DOM
 

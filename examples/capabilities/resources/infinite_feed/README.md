@@ -104,6 +104,17 @@ than guesses**: hand it a non-vector page with no accessor and it raises
 silently producing a list of nothing. (A feed whose pages are already bare
 vectors needs no accessor — those flatten by identity.)
 
+**The home page's link warms the feed on intent.** The one link into the timeline
+carries `:prefetch :intent`, so hovering (or focusing, or touching) it runs the
+destination's resource plan *without navigating* — the click then lands on page 0
+already in flight or cached rather than on the first-load skeleton. Warm mode is
+deliberately narrow: the ensure is **ownerless**, `:blocking?` is inert, and no
+route state moves — no slice write, no URL, no `:on-match`, no guards. Follow the
+link and ordinary dedupe reuses the warmed work; never follow it and the warmed
+entry stays garbage-collectable, owned by nobody. `:intent` is the only mode there
+is — a passive render dispatches nothing. See
+[intent prefetch](../../../../docs/routing/concepts.md#warming-a-destination-before-the-click).
+
 **Scope is the fail-closed leak boundary.** This feed is public — the same rows
 for every viewer — so it carries the explicit, auditable
 [`:scope`](../../../../docs/resources/glossary.md#scope) `:rf.scope/global` claim.

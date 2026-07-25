@@ -61,8 +61,8 @@ Colon-prefixed path segments capture into `:params`. `:on-match` is the event ve
 | `:query` | Schemas for query-string keys. |
 | `:query-defaults` | Default values for query keys absent from the URL. |
 | `:tags` | Free-form classification, e.g. `#{:auth-required :admin-only :public}`. |
-| `:parent` | Another route id; builds a chain readable via `:rf.route/chain`. |
-| `:on-match` | Event vector(s) to dispatch when the route activates. |
+| `:parent` | Another route id. Builds a chain readable via `:rf.route/chain`, **and** composes the ancestors' `:resources` into this route's effective plan (parent-to-leaf, with identical requirements deduped). `:parent` is itself the opt-in; nothing else — `:on-match`, `:scroll`, `:head`, `:tags`, the guards — is inherited. |
+| `:on-match` | Event vector(s) the runtime **fires and forgets** when the route activates. It is not a readiness mechanism: it never moves `:rf.route/transition` / `:rf.route/error`, never awaits the async work its events start, and never rewrites their failures into route state — a throwing handler surfaces on the ordinary event error channel. Managed page reads belong in `:resources`. |
 | `:can-leave` | Guard sub-query run before leaving the route. Closed boolean contract: `true` allows, `false` blocks. Any non-boolean also blocks and emits `:rf.error/can-leave-non-boolean`. The name reads positively, so `false` means "can NOT leave". The sub receives the pending target as an argument. See [Routing → Blocking a navigation](../routing/concepts.md#blocking-a-navigation). |
 | `:can-enter` | Guard sub-query run before entering the route (the auth-gate mirror of `:can-leave`). Closed boolean contract: `true` allows entry, `false` blocks. Any non-boolean also blocks and emits `:rf.error/can-enter-non-boolean`. A rejection is TERMINAL — nothing commits, no pending value is created, and the runtime dispatches `:rf.route/entry-denied` once. See [Routing → Guarding entry](../routing/concepts.md#guarding-entry--can-enter). |
 | `:scroll` | Scroll-restoration behaviour for this route. |
@@ -449,15 +449,16 @@ The `:route/link` registered view renders an `<a href=...>` from a route id. It 
 - **Signature**:
   ```clojure
   [route-link {:to :route-id :params {...} :query {...} :fragment "..."
-               :on-click f & html-attrs}
+               :prefetch :intent :on-click f & html-attrs}
    & children]
   ```
 - **Description**: The registered `:route/link` view.
 
-  - `:to` is the only required key. `:params`, `:query`, and `:fragment` are forwarded to `route-url` for href synthesis. Every other props key passes through to the `<a>` element.
+  - `:to` is the only required key. `:params`, `:query`, and `:fragment` are forwarded to `route-url` for href synthesis. `:prefetch` is the one behaviour key (below). Every other props key passes through to the `<a>` element — including `:aria-current` and `:class`, which is how an "active link" is styled: `route-link` computes **no** active state, so compare `:to` against `:rf.route/id` (or `:rf.route/chain`) in your own view. See [Routing → Highlighting the active link](../routing/concepts.md#highlighting-the-active-link).
   - A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted. The view calls `preventDefault`, then dispatches `[:rf.route/url-requested {:url ... :to ...}]` targeted at the frame that rendered the link.
   - Modifier-key / middle-button clicks, and anchors carrying native-handling attributes (`:target` other than `_self`, or `:download`), defer to the browser.
   - A caller-supplied `:on-click` runs first. If it calls `preventDefault`, the framework's interception is skipped.
+  - `:prefetch :intent` warms the destination on hover, focus, or touch by dispatching [`:rf.route/prefetch`](#events) with the link's own address (`:fragment` excluded — a fragment is never a resource input). `:intent` is the only accepted value; any other value, including `true`, opts out. Caller-supplied `:on-mouse-enter` / `:on-focus` / `:on-touch-start` handlers still run — the framework composes rather than replaces. CLJS only; SSR renders the anchor with no intent handlers.
   - The rendered href is encoded through the rendering frame's `:url-strategy`.
   - On the JVM the `:route/link` registration renders via [`route-link-render-ssr`](#route-link-render-ssr).
 - **Example**:
@@ -500,10 +501,11 @@ Standard events the runtime dispatches (or you dispatch) around routing.
 | `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). A co-equal sibling of `:rf.route/transitioned`: same slice-rewrite logic, not a delegate. Override it for custom URL-change handling. |
 | `:rf.route/transitioned` | URL-change handler for forward navigation — a link click or programmatic push (default scroll `:top`). The runtime dispatches this; you read it. |
 | `:rf.route/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. |
-| `:rf.route/navigation-blocked` | A `:can-leave` (leave) guard rejected a navigation. The pending nav slot carries the rejected navigation (`:direction :leave`). |
+| `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. The pending-nav slot carries the rejected attempt as `{:id :destination :target :cause :policy :requested-url :rejecting-route :rejecting-guard :url-restored?}`. The slot is **leave-only** — no direction discriminator, because there is only one thing it can be. |
 | `:rf.route/entry-denied` | A `:can-enter` guard rejected a navigation. **Terminal** — nothing commits and no pending value is created; dispatched exactly once per attempt with `{:destination :target :cause :requested-url :guard}`. The natural place to redirect (e.g. to login); a framework no-op default ships, so registering one is optional. |
-| `:rf.route/continue` | User-dispatched event proceeding a blocked navigation — "yes, leave the page." Re-runs `:can-enter` on resume. |
-| `:rf.route/cancel` | User-dispatched event abandoning a blocked navigation — "stay here, drop the pending nav." |
+| `:rf.route/continue` | User-dispatched event proceeding a blocked navigation — "yes, leave the page." Replays the pending value's `:destination` and `:policy` through the normal pipeline with a one-shot `:bypass-leave? true`, so the target's `:can-enter` is still evaluated. Event vector: `[:rf.route/continue pending-nav-id]`. |
+| `:rf.route/cancel` | User-dispatched event abandoning a blocked navigation — "stay here, drop the pending nav." Event vector: `[:rf.route/cancel pending-nav-id]`. |
+| `:rf.route/prefetch` | Warm a destination's effective resource plan without navigating: `[:rf.route/prefetch {:to :route/article :params {:slug "x"}}]`. Accepts a **named** address only (never `:url`); an invalid one rejects before planning with `:rf.error/prefetch-bad-address`. Runs the same parent-to-leaf plan a navigation would, in warm mode — every ensure ownerless, `:blocking?` inert, no route state, no guards, no `:on-match`. Frame-scoped, and a no-op beyond its `:rf.route/prefetched` summary trace when the resources artefact is absent or the plan is empty. `[route-link {… :prefetch :intent}]` dispatches it for you on hover / focus / touch. |
 
 ### Subscriptions
 
@@ -515,11 +517,11 @@ The full `:rf/route` slice is `{:route-id :params :query :fragment :transition :
 | `:rf.route/id` | Current route id (the slice's `:route-id`) |
 | `:rf.route/params` | Current path params |
 | `:rf.route/query` | Current query params |
-| `:rf.route/transition` | `:idle` / `:loading` / `:error` |
-| `:rf.route/error` | Current error map (when `:transition = :error`) |
+| `:rf.route/transition` | `:idle` / `:loading` / `:error` — a projection over the **blocking `:resources`** in the effective route plan. `:loading` while a blocking first load is pending; `:error` on a blocking first-load failure or a plan that could not be built; `:idle` otherwise (and always, with no resources artefact loaded). A background refresh, a non-blocking read, an intent prefetch, and `:on-match` never move it. |
+| `:rf.route/error` | The structured failure when `:transition` is `:error` — `:rf.error/resource-route-blocking` for a blocking first-load failure, `:rf.error/resource-route-plan` for a plan that could not be built; `nil` otherwise |
 | `:rf.route/fragment` | Current URL fragment (string or `nil`) |
 | `:rf.route/chain` | Vector of route ids from parent-most to current (per `:parent` links) |
-| `:rf/pending-navigation` | The pending-nav slot (per `:rf/pending-navigation` schema) when a navigation is blocked; `nil` otherwise. Read with `@(rf/subscribe [:rf/pending-navigation])`. |
+| `:rf/pending-navigation` | The pending-nav slot (per `:rf/pending-navigation` schema) when a `:can-leave` guard has parked a navigation; `nil` otherwise. Leave-only — a denied entry is terminal and parks nothing. Read with `@(rf/subscribe [:rf/pending-navigation])`. |
 
 ### Effects (`fx`)
 
@@ -531,7 +533,7 @@ The full `:rf/route` slice is `{:route-id :params :query :fragment :transition :
 | `[:rf.nav/capture-scroll {:url url-string}]` | `{:url ...}` map | `:client` | Capture the current scroll position into the host-side per-frame scroll-position cache (keyed by `url`) before leaving a route. |
 | `[:rf.route/with-nav-token {:rf/reply-to <reply-target> :nav-token <token>}]` | see notes | universal | Name an async-completion continuation by its canonical `:rf/reply-to` reply target and guard it with a navigation token. On a token match, the target is completed with the `:status :ok` reply map. If the token has been superseded by a later navigation, the completion is suppressed and `:rf.route.nav-token/stale-suppressed` fires. Optional args keys: `:route-id` (the captured route id, for the work-id), `:value` (rides the `:status :ok` reply map), `:completed-at`. |
 
-The nav-token wrapper guards against "user navigates away mid-load". The older load's reply carries the stale token. The runtime suppresses it, so the older page's data does not overwrite the newer page's state. Full semantics in [Routing → Loaders](../routing/concepts.md#loaders-declaring-a-pages-data).
+The nav-token wrapper guards against "user navigates away mid-load". The older load's reply carries the stale token. The runtime suppresses it, so the older page's data does not overwrite the newer page's state. Full semantics in [Routing → Activation work and page data](../routing/concepts.md#loaders-declaring-a-pages-data).
 
 ### Coeffects (`cofx`)
 
