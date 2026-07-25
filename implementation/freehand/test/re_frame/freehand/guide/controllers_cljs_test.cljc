@@ -43,45 +43,50 @@
   []
   ;; ---- library dataflow ------------------------------------------------
   (rf/reg-sub :fh.buffer/value
-    (fn [db [_ control reset-key external-value]]
-      (let [rec (get-in db [:fh.buffer/by-control control])]
-        (if (and rec (= (:reset-key rec) reset-key))
-          (:draft rec)
-          (or external-value "")))))
+    (fn [db [_ k revision baseline]]
+      (let [record (get-in db [:fh.buffer/by-key k])]
+        (if (v/controller-current? (:reset-key record) revision)
+          (:draft record)
+          (or baseline "")))))
 
   (rf/reg-event :fh.buffer/edited
-    (fn [{:keys [db]} [_ control reset-key text]]
-      {:db (assoc-in db [:fh.buffer/by-control control]
-                     {:reset-key reset-key :draft text})}))
+    (fn [{:keys [db]} [_ k revision text]]
+      {:db (assoc-in db [:fh.buffer/by-key k]
+                     {:reset-key revision :draft text})}))
 
   (rf/reg-event :fh.buffer/committed
-    (fn [{:keys [db]} [_ control reset-key on-commit]]
-      (let [rec (get-in db [:fh.buffer/by-control control])]
-        (if (and rec (= (:reset-key rec) reset-key))
-          {:db (update db :fh.buffer/by-control dissoc control)
-           :fx [[:dispatch (conj (vec on-commit) (:draft rec))]]}
-          {}))))   ; stale / already cancelled → no-op
+    (fn [{:keys [db]} [_ k revision on-commit]]
+      (let [record (get-in db [:fh.buffer/by-key k])]
+        (if (v/controller-current? (:reset-key record) revision)
+          {:db (update db :fh.buffer/by-key dissoc k)
+           :fx [[:dispatch (conj (vec on-commit) (:draft record))]]}
+          {}))))   ; superseded generation / already cancelled → no-op
 
   (rf/reg-event :fh.buffer/cancelled
-    (fn [{:keys [db]} [_ control reset-key]]
-      (let [rec (get-in db [:fh.buffer/by-control control])]
-        (if (and rec (= (:reset-key rec) reset-key))
-          {:db (update db :fh.buffer/by-control dissoc control)}
+    (fn [{:keys [db]} [_ k revision]]
+      (let [record (get-in db [:fh.buffer/by-key k])]
+        (if (v/controller-current? (:reset-key record) revision)
+          {:db (update db :fh.buffer/by-key dissoc k)}
           {})))))
 
 ;; ---- the control ---------------------------------------------------------
+;; The view asks for its record key and its generation FIRST and never
+;; destructures `:control` or `:reset-key` itself — the two verbs are the only
+;; door onto them, which is what buys the four refusals the page teaches.
 (v/defview buffered-field
-  [{:keys [control value reset-key on-commit placeholder]}]
-  (let [text (sub [:fh.buffer/value control reset-key value])]
+  [{:keys [value on-commit placeholder] :as props}]
+  (let [k        (v/controller-key ::buffered-field props)
+        revision (v/controller-revision ::buffered-field props)
+        text     (sub [:fh.buffer/value k revision value])]
     [:input
      {:value       text
       :placeholder placeholder
-      :on-input    [:fh.buffer/edited control reset-key ::v/value]
-      :on-blur     [:fh.buffer/committed control reset-key on-commit]
+      :on-input    [:fh.buffer/edited k revision ::v/value]
+      :on-blur     [:fh.buffer/committed k revision on-commit]
       :on-key-down (v/event [e]
                      (case (.-key e)
-                       "Enter"  [:fh.buffer/committed control reset-key on-commit]
-                       "Escape" [:fh.buffer/cancelled control reset-key]
+                       "Enter"  [:fh.buffer/committed k revision on-commit]
+                       "Escape" [:fh.buffer/cancelled k revision]
                        nil))}]))
 
 ;; ---------------------------------------------------------------------------
@@ -309,10 +314,11 @@
           "the live wiring writes the domain value straight from the site"))
     (let [buffered (t/with-render (t/render [lines-table-buffered {}]))
           inputs   (t/find-all buffered #(= :input (:tag %)))]
-      (is (= [[:fh.buffer/edited [:line 5 :label] 0 ::v/value]
-              [:fh.buffer/edited [:line 12 :label] 2 ::v/value]]
+      (is (= [[:fh.buffer/edited [::buffered-field [:line 5 :label]] 0 ::v/value]
+              [:fh.buffer/edited [::buffered-field [:line 12 :label]] 2 ::v/value]]
              (mapv #(:on-input (t/attrs %)) inputs))
-          "each row edits its OWN record, under its own generation")
+          "each row edits its OWN record, addressed by the (kind, address) pair
+           `v/controller-key` answers, under its own generation")
       (is (= ["five" "twelve"] (mapv #(:value (t/attrs %)) inputs))
           "and with no draft in flight both fall through to the domain value"))))
 
