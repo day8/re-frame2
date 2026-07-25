@@ -616,6 +616,24 @@ meaning becomes:
 | all blocking requirements have usable data or there are none | `:idle` | `nil` |
 | Resources artefact absent | `:idle` | `nil` |
 
+> **Erratum — 2026-07-26 (rf2-8yx7g, recording the rf2-kqxe6.17 ruling).** The
+> failed-load row above says the pick is the deterministic first failure "in
+> effective plan order." It graduated as the deterministic first failure in
+> **canonical CEDN-1 resource-key identity order** — not plan order, and not hash
+> order. The blocking slot written under the nav-token is a **set** of scoped
+> resource keys, so effective plan order is not recoverable at reconcile time;
+> persisting it was considered and rejected when rf2-kqxe6.17 was ruled, because
+> turning the set into an ordered structure threaded through
+> commit / settle / hydration / restore is machinery bought only to make an
+> arbitrary-but-deterministic tie-break match a sentence. Identity order is the
+> stronger guarantee in practice: it is stable across settles that prune
+> siblings, where plan order is not. The property the row exists to promise —
+> that the reported failure is deterministic rather than incidental — is
+> unchanged, and every other row is unchanged. Normative home:
+> [spec/012 §Route readiness is a resource projection](../../spec/012-Routing.md#route-readiness-is-a-resource-projection).
+> Provenance: ruled on rf2-kqxe6.17, recorded on rf2-kqxe6.18, prose landed on
+> PR #6916.
+
 The table uses Spec 016 terms, not router-local guesses:
 
 - a blocking requirement has **usable data** when its active resource identity
@@ -1034,6 +1052,40 @@ keeps its existing meaning—underlying failure/ex-data—and is never overloade
 with `:prefetch`; a plan-wide collapse cycle records its projected
 identity-group and contributor/local-id evidence there. The
 `:rf.resource/route-plan` trace uses the same `:plan-cause` vocabulary.
+
+> **Erratum — 2026-07-26 (rf2-8yx7g).** `:plan-cause` graduated as an
+> **optional** tag whose only member is **`:prefetch`**, on both the widened
+> `:rf.error/resource-route-plan` error and the `:rf.resource/route-plan` trace.
+> It is present on a warm-mode intent-preload row and **absent** on an
+> activation row; the five activation causes (`:link`, `:navigate`, `:popstate`,
+> `:initial`, `:ssr`) never appear on either. The paragraph above is corrected to
+> that shape; the ratified requirement that the widened tags carry `:route-id`,
+> that `:nav-token` ride only an activation attempt, that `:resource-id` ride
+> only a single-declaration failure, and that `:cause` never be overloaded with
+> `:prefetch`, all stand as written.
+>
+> **Why the narrower shape is the right one.** `:plan-cause` is not a lossy
+> subset of the door vocabulary — it is its **complement**. Every activation
+> planning failure is preceded, in the same drain and the same commit branch, by
+> the `:rf.route/planned` trace, which already carries the door under `:cause`
+> drawn from exactly those five values; `commit-navigation` has only two callers
+> (`routing/navigate.cljc` and `routing/url_change.cljc`) and both emit
+> `:rf.route/planned` immediately before consulting the resource plan. Prefetch
+> is the one planning path with **no** `:rf.route/planned` trace at all —
+> warmup is not activation — so it is the one path whose cause is not otherwise
+> on the bus. Carrying the door cause a second time on the activation rows would
+> also require widening the `:routing/on-route-entry` hook contract to thread it:
+> the hook hands the planner `{:route-meta :route-id :params :query :fragment
+> :nav-token :prev-id :prev-nav-token :ctx :app-db :runtime-db :branch
+> :branch-error :prev-identities}` and deliberately no door cause, because
+> routing does not ask the Resources artefact to reason about which door it came
+> through. One fact, one name, one place (`Conventions.md` §The naming rules).
+>
+> Normative home:
+> [spec/Spec-Schemas.md §`ResourceRoutePlanTags`](../../spec/Spec-Schemas.md#per-category-tags-schemas)
+> and the [spec/009 catalogue row](../../spec/009-Instrumentation.md#error-event-catalogue).
+> The 009 rows were brought into line with this shape by rf2-wsopx, for which
+> this erratum is the prerequisite.
 
 The stray `:rf.error/resource-route-plan-failed` spelling in Spec 012 is not a
 second category; graduation replaces it with the existing canonical
