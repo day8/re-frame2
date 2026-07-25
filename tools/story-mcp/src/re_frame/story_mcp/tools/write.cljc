@@ -269,9 +269,15 @@
     (let [id (story/reg-variant* vk (assoc body-v :origin config/origin))]
       (result/edn-result {:variant-id id :registered? true}))
     (catch Throwable e
+      ;; `wire-safe-ex-data` swaps the registrar's raw Malli `:explain`
+      ;; (live reified schema objects — not JSON-encodable) for the
+      ;; humanized projection. Without it a schema-violating body took
+      ;; the encoder down and the client got a `-32603` server fault
+      ;; naming a malli class instead of this error result (rf2-2z9u3).
       (result/error-result (str "Registration failed: " (ex-message e))
                       (merge {:variant-id vk}
-                             (select-keys (ex-data e) [:rf.error :explain]))))))
+                             (result/wire-safe-ex-data
+                               (select-keys (ex-data e) [:rf.error :explain])))))))
 
 (defn tool-register-variant
   "Write: programmatically register a variant. Gated behind

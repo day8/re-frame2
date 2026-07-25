@@ -382,10 +382,20 @@
               result    (try
                           ((:handler t) args)
                           (catch Throwable e
+                            ;; The `ex-data` relay runs through
+                            ;; `wire-safe-ex-data` for the same reason the
+                            ;; two write handlers do: a thrown Malli
+                            ;; `:explain` carries live schema objects, and
+                            ;; an un-encodable `:data` slot here would
+                            ;; escape this catch as a `-32603` server fault
+                            ;; — the belt-and-braces catch failing exactly
+                            ;; when it is needed (rf2-2z9u3). This is the
+                            ;; GENERIC arm: it guards every handler, not
+                            ;; just the two write surfaces.
                             (result/error-result (str "Tool handler threw: " (ex-message e))
                                             {:tool      tool-name
                                              :exception (.getName (class e))
-                                             :data      (ex-data e)})))
+                                             :data      (result/wire-safe-ex-data (ex-data e))})))
               ;; Skip dedup on error envelopes (small bespoke payload; the
               ;; flat `:rf.error` shape is more useful unwrapped than under
               ;; a cache-of-one marker).

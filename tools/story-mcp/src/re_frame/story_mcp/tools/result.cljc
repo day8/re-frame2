@@ -11,8 +11,14 @@
   `pr-edn` is the canonical EDN-stable stringifier for embedding Story
   data inside an MCP text content item.
 
-  No external story-mcp deps — `cap` / `cursor` / `args` / `egress`
-  / every category ns reaches here.")
+  `wire-safe-ex-data` is the one projection every handler that relays a
+  caught exception's `ex-data` onto `:structuredContent` runs it through.
+
+  No story-mcp ns deps — `cap` / `cursor` / `args` / `egress`
+  / every category ns reaches here. `malli.error` is the sole library
+  require, reached transitively through `re-frame.story` (whose registrar
+  hard-requires `malli.core`), exactly as `re-frame.error` is."
+  (:require [malli.error :as me]))
 
 (defn pr-edn
   "Serialise a value to a stable, EDN-round-trippable string. Used to
@@ -21,6 +27,44 @@
   [v]
   (binding [*print-readably* true]
     (pr-str v)))
+
+(defn wire-safe-ex-data
+  "Project a caught exception's `ex-data` into something the JSON encoder
+  can actually write, for the handlers that relay it onto
+  `:structuredContent`.
+
+  ONE slot needs projecting. `re-frame.story.registrar/validate-shape!`
+  puts the raw Malli `explain` map in `ex-data`, and its `:schema`
+  entries are LIVE reified `malli.core/Schema` objects, not data. Cheshire
+  cannot encode them, so relaying `:explain` verbatim made
+  `protocol/write-frame!` throw — past the tool handler, into
+  `server/handle-frame!`, which answered a protocol-level `-32603`
+  \"Server fault: Cannot JSON encode object of class:
+  malli.core$_and_schema$…\". The tool's own `isError: true` contract was
+  bypassed and the actionable message (which names the offending key and
+  the nearest declared slot) never left the JVM — on the single commonest
+  authoring mistake an agent makes through the write surface, a typo'd
+  variant slot (rf2-2z9u3).
+
+  So `:explain` is replaced by `:explain-humanized`, the
+  `malli.error/humanize` projection: plain maps, keywords and strings,
+  keyed by the failing slot (`{:compnent [\"disallowed key\"]}`), and
+  carrying the schema's own `:error/message` prose for the mutual-
+  exclusion `:fn` clauses. `:explain-humanized` is not a new word — it is
+  the slot `spec/010-Schemas.md` §humanize hook already defines for
+  exactly this value, and consumers there already read it in preference
+  to raw `:explain`. Renaming rather than adding also keeps the write
+  surface's error slot from colliding with `explain-variant`'s unrelated
+  plan-`:explain` projection.
+
+  Every other `ex-data` slot rides through untouched — `:reason`,
+  `:where`, `:recovery`, `:kind`, `:id` are all plain data."
+  [d]
+  (if-let [explain (:explain d)]
+    (-> d
+        (dissoc :explain)
+        (assoc :explain-humanized (me/humanize explain)))
+    d))
 
 (defn text-result
   "Build a success result with a single text content item. `structured`
