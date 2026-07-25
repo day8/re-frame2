@@ -51,8 +51,13 @@ Here is the rule in one table:
 | `v/defview` | `[view props]` | a real boundary (identity, invalidation, keys, …) |
 | plain `defn` helper | `(helper …)` | inline structure — never a vector head |
 
-Reverse those spellings and Freehand treats it as an authoring error. The public
-var is a **descriptor**, not `IFn` — `(greeting {:name "Ada"})` fails loudly.
+Reverse those spellings and Freehand treats it as an authoring error.
+`(greeting {:name "Ada"})` raises `:rf.error/view-called-directly` and names the
+three legal recoveries: mount it, inline it as a plain `defn`, or extract a shared
+helper. The var holds a **descriptor**, and it implements the host call protocol
+for precisely that reason — so calling one can explain itself rather than
+returning `nil`. `(ifn? greeting)` is therefore `true`, which is why `v/view?` is
+the question to ask when you mean "is this a view?".
 
 **Compilation is an option on the same declaration**, not a second macro and not a
 second namespace:
@@ -110,8 +115,8 @@ On click, Freehand dispatches `[:count/inc]` on the view’s frame. The vector i
 the **intent** — readable in source, visible to tools before it fires, assertable
 on the JVM without a DOM.
 
-Live scalars (text, checked, key) use **projection markers**. Freehand fills them
-in when the event fires:
+Live scalars — the text of an input, whether a box is checked, which key was
+pressed — use **projection markers**. Freehand fills them in when the event fires:
 
 ```clojure
 [:input {:value email
@@ -127,16 +132,16 @@ them.
 
 ## 4. One reactive state system — re-frame only
 
-Freehand has no `local`, no neutral hooks in ordinary views, and no public
-“who am I in the tree?” handle like `v/self` for writing state.
+Freehand has no view-local reactive cell, no neutral hooks in ordinary views, and
+no public “who am I in the tree?” handle for writing state.
 
 If state matters to the product, it lives in re-frame: app-db (or another
 frame-scoped store), events, and subscriptions.
 
 A few practical defaults:
 
-- **Reusable leaves** should usually be **props-only**: data in, Hiccup out.  
-- **Controlled fields** keep draft and validity in re-frame and use Freehand’s
+- **Reusable views** should usually be **props-only**: data in, intent out.  
+- **Controlled fields** keep draft and validity in re-frame and ride Freehand’s
   controlled-input door so typing stays correct.  
 - **Hard multi-step controls** (commit-on-blur, cancel, reject) can use a library
   **semantic controller** with an explicit `:control` address — optional packaging,
@@ -162,7 +167,7 @@ You can write ordinary Freehand screens when you can:
 
 | Symptom | Recovery |
 |---|---|
-| “I called my view as a function” | `[view props]` — public vars are not `IFn` |
+| `:rf.error/view-called-directly` | `[view props]` — a declared view is mounted, never called |
 | `v/sub` outside a view | `rf/subscribe-once` for probes; `v/sub` is render-only |
 | Closure on every button | prefer an event vector; escape forms only when needed |
 | Draft lives in a ratom / hook | move to re-frame (or a library controller later) |
@@ -181,21 +186,24 @@ tree.
 
 ```clojure
 (v/mount [app-root {}]
-         (js/document.getElementById "app"))
+         (js/document.getElementById "app")
+         {:frame {:id :my.app/main :initial-events [[:app/init]]}})
 ```
 
 **Root** = one React unit in one DOM container.  
 **Frame** = the re-frame world that root’s views use.
 
-**Preflight** ensures the frame exists and can seed before first paint. Inside the
-tree you rarely thread the frame through props — `sub` and handlers already bind
-to the **committed** frame.
+The `:frame` plan runs to completion **before** React sees anything, so a body
+that reads a subscription on its first render finds a frame that is already
+seeded. Inside the tree you never thread the frame through props — `v/sub` and
+event sites already bind to the **committed** frame.
 
 ### More than one container
 
-Two Freehand mounts can share one frame, or use different frames. When root
-identity could collide, supply an explicit `:root-id` (and frame options as the
-implementation defines them).
+Two Freehand mounts can share one frame or use different ones. A root's id is
+derived from the view it mounts, so mounting the same view twice needs a
+`:disambiguator` or an explicit `:root-id` at the second site — see
+[Install](install.md#two-roots-on-one-page).
 
 ### A Freehand island inside someone else’s React tree
 
@@ -206,26 +214,22 @@ answer is `v/->react`:
 {:cellRenderer (v/->react person-cell)}
 ```
 
-The bridge never **creates** a frame. It binds to an existing live frame via a
-reserved `frame` prop or ambient context. Missing or dead frames fail loudly.
+The bridge **selects** a frame; it never creates one. A `frame` prop — a frame-id
+keyword or a live frame value — scopes an already-live frame, and with no `frame`
+prop the exported view resolves ambiently exactly as a view mounted anywhere else
+does. *Presence* of the prop decides, not truthiness, so `frame={null}` is a
+stated target that fails loudly rather than falling through.
 
-### A different frame for part of the tree
+### There is no frame provider
 
-A Freehand **subtree** can retarget to another already-live frame (tool panel vs
-app). Props can look equal; retarget still rebinds. Ordinary shells always observe
-frame context; compiled shells may elide that only when the manifest proves it
-safe.
+A Freehand subtree cannot retarget itself onto a different frame. There is no
+`v/frame-provider`, no `v/frame` and no `data-frame` attribute, and the omission
+is deliberate rather than pending: a frame is chosen at a **root**, or at the
+`v/->react` bridge where foreign React hands one in.
 
-| Law | Meaning |
-|---|---|
-| Input | an already-live frame |
-| Effect | descendants’ `sub` and events rebind |
-| **Retarget beats memo** | rebind even when props are `rf=`-equal |
-| Missing / dead frame | loud failure |
-
-Public form is not frozen yet — do not invent `v/frame-provider`. Think “retarget
-this Freehand region,” not `data-frame` on a div. Multi-root mounts are separate:
-explicit `:root-id` when identity can collide.
+Two worlds on one page are therefore two roots. Mount the tool panel into its own
+container against its own frame, and mount the application into its own — which is
+also what makes them independently testable and independently tearable-down.
 
 ## What you give up on purpose
 
@@ -233,7 +237,7 @@ explicit `:root-id` when identity can collide.
 |---|---|
 | Ratoms, cursors, reactions | second reactive model |
 | Form-2 / Form-3 / positional view args | one declaration, one props map |
-| `local` / neutral refs / effects in ordinary views | app state in re-frame; host work explicit |
+| View-local cells, neutral refs, effects in ordinary views | app state in re-frame; host work explicit |
 | Automatic promotion to compiled | mode choice stays honest |
 | Bare React components as ordinary heads | foreign UI must be a named boundary |
 

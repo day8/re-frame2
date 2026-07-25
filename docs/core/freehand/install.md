@@ -1,137 +1,147 @@
-# Install and boot (target)
+# Install and boot
 
-You want Freehand on the page: **require → adapter → seed → mount**. This is the
-target day-one boot story. Coordinates and exact helper names are still landing —
-use the sequence, not guessed package pins.
+You want Freehand on the page. Four moves: **depend → install an adapter → mount →
+tear down**. Everything upstream of the view is ordinary re-frame2 and does not
+change.
 
-!!! warning "Pre-alpha"
+!!! warning "Pre-alpha: no Clojars coordinate"
 
-    Freehand is not yet a “paste this and ship” product. When Maven coordinates and
-    the adapter var publish, update this page and drop the placeholders.
+    `day8/re-frame2-freehand` is **not published**, and there is no date at which
+    it will be. It lives in the re-frame2 monorepo, so today you resolve it — and
+    `day8/re-frame2` with it — from a checkout using `:local/root`. Treat the
+    snippets below as the shape of the dependency, not as a coordinate you can
+    paste into a fresh project.
 
-## Happy path
+## Depend on the artefact
+
+```clojure
+;; deps.edn — resolved from a re-frame2 checkout beside your project
+{:deps {day8/re-frame2          {:local/root "../re-frame2/implementation/core"}
+        day8/re-frame2-freehand {:local/root "../re-frame2/implementation/freehand"}
+        day8/re-frame2-uix      {:local/root "../re-frame2/implementation/adapters/uix"}}}
+```
+
+Two optional artefacts join the same way when you need them:
+`day8/re-frame2-routing` for [`v/route-link`](#framework-views), and
+`day8/re-frame2-ssr` for [server rendering](ssr.md).
+
+## Boot: adapter, then mount
 
 ```clojure
 (ns my.app
   (:require [re-frame.core :as rf]
-            [re-frame.freehand :as v :refer [sub]]))
+            [re-frame.freehand :as v]
+            [re-frame.adapter.uix :as uix]))
+
+(v/defview app-root [_]
+  [:main [counter {:label "hello"}]])
 
 (defn ^:export run []
-  (rf/init! freehand-adapter)   ; placeholder name — same pattern as other adapters
-  ;; Prefer frame preflight so [:app/init] drains before paint (see below).
+  (rf/init! uix/adapter)
   (v/mount [app-root {}]
-           (js/document.getElementById "app")))
-
-;; later
-(v/unmount! mounted)   ; total teardown; not a domain event in the tree
+           (js/document.getElementById "app")
+           {:frame {:id :my.app/main :initial-events [[:app/init]]}}))
 ```
 
-Alias Freehand as **`v`**. Prefer `(sub …)` only where the ns `:refer`s it;
-otherwise write `(v/sub …)`.
+Alias Freehand as **`v`**. That alias is load-bearing beyond taste: `::v/value`
+only reads as `:re-frame.freehand/value` when `v` is the alias in that namespace.
 
-```text
-1. Install Freehand adapter  (rf/init! … — same as Reagent/UIx adapters)
-2. Seed a live frame before first paint when you care about flash
-3. v/mount the root view into a DOM container
-4. On leave: v/unmount!
+### Why the adapter is still required
+
+Freehand renders views, but re-frame2's **reactive substrate** is a separate
+contract, and it is the adapter that fills it. Until `(rf/init! …)` has run,
+minting a frame raises `:rf.error/no-adapter-installed`. Freehand's own
+interactive browser tests run against the **UIx** adapter, and it is the one to
+reach for on a new app; the Reagent and reagent-slim adapters implement the same
+contract and work identically if you already have one installed.
+
+Install it once, at boot, before the first frame exists. It is idempotent, so hot
+reload is safe.
+
+### Why the frame is seeded at the mount
+
+`v/mount`'s third argument is a closed options map, and `:frame` is the one you
+will use on day one. Given a `make-frame` options map carrying `:id`, the root
+**ensures** that frame and owns its lifetime; given a bare frame-id keyword, the
+root **scopes** a frame something else owns.
+
+The plan runs to completion **before** React is handed anything, so a view whose
+body reads a subscription on its first render finds app-db already seeded. That
+is what stops the empty-then-flash first paint — you do not need a `dispatch-sync`
+before `mount`.
+
+### Teardown
+
+```clojure
+(v/unmount! root)
 ```
 
-You are installing a **view layer**, not a second framework. Upstream re-frame2
-stays as it is.
+`v/mount` returns a root handle. Unmounting releases the root's id, container and
+`identifierPrefix` claims, disconnects every view boundary below it, and destroys
+the frame **if this root ensured it** — a frame it merely scoped is left alone.
+It is guarded rather than throwing: unmounting twice, or unmounting a root a newer
+root has superseded, is a no-op.
 
 ## Day-one checklist
 
-- `[re-frame.freehand :as v]` in the ns  
-- Adapter installed once at boot  
-- Seed before paint when empty flash matters  
-- `(v/mount [root {}] el)` for the paved path  
-- `(v/unmount! handle)` on teardown  
+- `[re-frame.freehand :as v]` in the namespace
+- One `(rf/init! …)` at boot, before any frame is minted
+- `(v/mount [root {}] el {:frame {:id … :initial-events […]}})`
+- `(v/unmount! root)` on teardown
 
-### Adapter install
+## Two roots on one page
 
-Other re-frame2 view layers use `(rf/init! some-adapter)`. Freehand follows that
-pattern. Until the public adapter var ships, treat the name as a **placeholder**:
-
-```clojure
-(rf/init! freehand-adapter)
-```
-
-Do not invent a second Freehand-only boot protocol.
-
-### Seeding vs mount (do not conflate them)
-
-| Concern | Owner |
-|---|---|
-| Ordered history / seed events | **Frame preflight** — same idea as `rf/make-frame`’s `:initial-events` in tests |
-| Attach a Freehand tree to a DOM node | **`v/mount`** (paved path) |
-| Root identity, SSR, advanced create/render/hydrate | **Root Descriptor** family (names land with implementation) |
-
-The spine does **not** define “third argument to `v/mount` carries
-`:initial-events`” as the public contract. Prefer:
-
-1. mint/bind the frame with preflight so `[:app/init]` (etc.) drains **before**
-   paint, then  
-2. `(v/mount [app-root {}] el)`  
-
-Advanced create/render/**hydrate** operations consume the **same** Root
-Descriptor shape as the paved mount path and return an opaque handle — exact
-helper names land with implementation. Structural tests reuse that plan so boot
-does not fork.
-
-### Dev-style sketch (temporary)
-
-Until polished preflight helpers ship, a temporary boot may seed with
-`dispatch-sync` (accept a possible empty first paint in dev):
+A root's identity is **derived** from the mounted view's registered id, so a single
+root authors nothing. Mount the same view twice and the derivation collides — say
+so at the second site:
 
 ```clojure
-(defn ^:export run []
-  (rf/init! freehand-adapter)
-  (rf/dispatch-sync [:app/init])
-  (v/mount [app-root {}]
-           (js/document.getElementById "app")))
+(v/mount [panel {:side :left}]  left  {:disambiguator :left})
+(v/mount [panel {:side :right}] right {:root-id :shop/right})
 ```
 
-### Production obligations
+A root claims its id, its container and its `identifierPrefix` before it renders
+anything, so a collision fails loud (`:rf.error/duplicate-root-id`,
+`:rf.error/root-container-in-use`) with the roots already on the page untouched.
 
-| Concern | Contract |
-|---|---|
-| **Seed before paint** | frame preflight / `:initial-events` (or equivalent), not “hope first render seeds” |
-| **HMR** | reuse the live frame; do not mint a fresh app-db every save |
-| **Multi-root** | supply `:root-id` only when identity could collide |
-| **Teardown** | `(v/unmount! handle)` — total host teardown |
+Re-mounting the **same** root-id into the **same** container re-renders the live
+root rather than allocating a second one. That is the hot-reload path: a reload
+mints a fresh descriptor for the redefined view, but the qualified id it keys on
+does not move, so app-db survives the save.
 
-## Shadow / build (when available)
+## Shadow build settings
 
-Expect a documented Shadow build that:
+Interpreted views need no build configuration at all. The **compiled** tier does:
+its analyzer and registries run at build time, behind one Shadow hook.
 
-- puts Freehand on the classpath with re-frame2  
-- does **not** pull tools into production bundles  
-- keeps test/debug evidence stripable in production  
+```clojure
+;; shadow-cljs.edn
+{:build-defaults {:build-hooks [(re-frame.freehand.compiler.build-hook/hook)]}}
+```
 
-Exact `shadow-cljs.edn` / deps snippets ship with implementation. Do not invent a
-second compiler plugin for Freehand — the design absorbs donor `re-frame.ui`
-machinery under Freehand ownership.
+Configure it once in `:build-defaults` rather than per build. There is no
+`:cache-blockers` tax — the hook harvests from cache-durable carriers, so a warm
+daemon start reuses Shadow's disk cache.
 
-## Target API status (names)
+## Framework views
 
-| Name | Stability for guide purposes |
-|---|---|
-| `v/defview`, `v/sub`, event vectors, `::v/value` / `::v/checked` / `::v/key` | Design-stable authoring core |
-| `v/mount`, `v/unmount!` | Design-stable paved path |
-| Root Descriptor, preflight, advanced create/render/hydrate | Design-stable **contracts**; public helper names may polish |
-| `v/check`, `{:compiled true}`, `v/markup` | Design-stable compile story |
-| `:children-policy` on descriptor / `defview` options | Design-stable ABI field |
-| `v/inspect-boundary`, `v/hot-views`, `v/orphans`, `v/behaviors` | Design-target tool surface; shapes may refine |
-| `re-frame.freehand.test` (`t/render`, settle, presence clock) | Design-target test surface |
-| Adapter install (`rf/init! …`) | re-frame2 pattern; Freehand adapter var name TBD |
-| Frame provider retarget | Design-required **law**; public form unpublished |
+Two of the descriptors on the door reach into sibling artefacts, and each fails
+loudly rather than degrading if that artefact is absent:
 
-## What not to do
+| Verb | Needs | Absent |
+|---|---|---|
+| `v/route-link` | `day8/re-frame2-routing` | `:rf.error/routing-artefact-missing` — never a dead link |
+| `v/render-static` | `day8/re-frame2-ssr` at render time | `:rf.error/ssr-artefact-missing`, naming the coordinate |
 
-| Don’t | Do |
-|---|---|
-| Design new product on `re-frame.ui` | Freehand absorbs the donor; ui is temporary |
-| Put frame ids on raw DOM as the boot path | Mount Freehand roots; frames bind to Freehand trees |
-| Treat mount kwargs as the home of seed events | Frame preflight owns ordered seed history |
-| Seed only after first paint in production | Preflight before paint |
-| Expect Clojars coordinates from this draft alone | Wait for release notes / published install how-to |
+`re-frame.freehand` takes no compile-time require on either, so a namespace that
+requires only Freehand still compiles.
+
+## If something feels wrong
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `:rf.error/no-adapter-installed` | no `rf/init!` before the first frame | install an adapter at boot |
+| First paint empty, then values appear | seeding after mount | seed with the mount's `:frame` `:initial-events` |
+| `:rf.error/duplicate-root-id` | one view mounted twice | `:disambiguator` or an explicit `:root-id` |
+| `::v/value` is not filling | the namespace does not alias Freehand as `v` | `[re-frame.freehand :as v]` |
+| Hot reload wipes app-db | remount into a fresh frame | same root-id, same container — the reload re-renders in place |
