@@ -105,8 +105,10 @@
      "History strategy `:install-listener!` — install a `window`
      `popstate` listener that calls `on-change` with the decoded (path-form)
      current URL. Returns a 0-arg teardown thunk. Does NOT do the initial
-     sync — the caller (`install-url-listener!`) drives that once at install
-     via `on-change` so it happens for every strategy uniformly."
+     sync — the caller (`re-frame.routing.history/install-listener-for-owner!`,
+     reached through the `reconcile-url-listener!` frame-lifecycle op) drives
+     that once at install, under cause `:initial` rather than through this
+     `on-change`, so it happens for every strategy uniformly."
      [on-change]
      (let [handler (fn [_event] (on-change (history-decode)))]
        (.addEventListener js/window "popstate" handler)
