@@ -37,6 +37,23 @@
 ;;   the ATTRIBUTE lowering and the same two forms reversed baked the property
 ;;   one. Declaration order is not an authoring decision.
 ;;
+;;   `:ce-on` declares `:on-detail`, a property name in the HANDLER family.
+;;   `on-*` is the event grammar and `:properties` is the property grammar, and
+;;   a web component may legitimately name a property `on-detail` — which is
+;;   the example `v/custom-element`'s own docstring gives. Every seam ranked
+;;   handler position FIRST and consulted the declaration only below it, so all
+;;   six lowering paths routed the declared name into the event grammar and the
+;;   render raised `:rf.error/view-bad-event`: one declaration, unable to say
+;;   anything at all about a whole valid property-name family. Its `:model`
+;;   twin carries the identical value in every row, so a path that renders one
+;;   and refuses the other names the PREFIX as the cause and nothing else.
+;;
+;;   And the control that keeps that repair honest: the declaration must not
+;;   lift the `on-*` FAMILY out of the event grammar. `:on-detail` on
+;;   `:ce-panel` — a declared element that does not declare the name — stays a
+;;   native event, and `:on-refused` pins the same map value meeting the event
+;;   grammar there.
+;;
 ;;   `:ce-plain` is declared nowhere. An undeclared ELEMENT needs no
 ;;   declaration at all, so declaring is only ever the exception.
 ;;
@@ -50,7 +67,7 @@
 ;; the only place "it was set as a property, not an attribute" is observable.
 {:fh/id "FH-STRUCT-011"
  :fh/law
- "A `(v/custom-element tag {:properties #{…}})` declaration classifies a prop identically on every lowering path — a compiled literal props map, a compiled element's dynamic props, the interpreted walk, `v/spread` and `v/spread-safe` — because the classification belongs to the declaration rather than to the tier that saw the prop. A declared name keeps its authored kebab key in the structural tree, keeps its value verbatim outside the attribute-value grammar, is named in the node's reserved `:rf.ui/property-props` set, is omitted from server markup under every spelling, and is applied in the browser as the ruled kebab -> camelCase JS property. Every other name is an attribute, an undeclared element is all-attributes, and declaration ORDER is not an authoring decision."
+ "A `(v/custom-element tag {:properties #{…}})` declaration classifies a prop identically on every lowering path — a compiled literal props map, a compiled element's dynamic props, the interpreted walk, `v/spread` and `v/spread-safe` — because the classification belongs to the declaration rather than to the tier that saw the prop. A declared name keeps its authored kebab key in the structural tree, keeps its value verbatim outside the attribute-value grammar, is named in the node's reserved `:rf.ui/property-props` set, is omitted from server markup under every spelling, and is applied in the browser as the ruled kebab -> camelCase JS property. The declaration is the SOLE classifier and it outranks HANDLER position: a declared `:on-detail` is a property on every path, an undeclared one is a native event on every path. Every other name is an attribute, an undeclared element is all-attributes, and declaration ORDER is not an authoring decision."
 
  ;; The declarations the case table is written against, all from the one
  ;; source `re-frame.freehand.custom-element-views`. Asserted against the live
@@ -59,7 +76,8 @@
  :declarations
  [{:tag :ce-panel   :properties #{:accent-color :help-text :scale}}
   {:tag :ce-attrish :properties #{:tab-index}}
-  {:tag :ce-below   :properties #{:model}}]
+  {:tag :ce-below   :properties #{:model}}
+  {:tag :ce-on      :properties #{:on-detail :model}}]
 
  ;; The tag that is deliberately absent from the registry.
  :undeclared-tag :ce-plain
@@ -159,6 +177,86 @@
           :children [{:tag :ce-below
                       :attrs {:model "m" :data-x "d"}
                       :rf.ui/property-props #{:model}}]
+          :rf.ui/tree-version 1}}
+
+  ;; THE `on-*` FAMILY. Each row below carries the identical value at a
+  ;; DECLARED `:on-detail` and at a declared `:model`, so the two props differ
+  ;; in nothing but their names — and beside them an UNDECLARED `:on-click`
+  ;; that has to stay a native event. A row that put `:model` in `:attrs` and
+  ;; the same value through the event grammar at `:on-detail` is the defect,
+  ;; and it fired on every one of these paths.
+  {:note "the interpreted walk: a declared `on-*` name is a PROPERTY, its `:model` twin carries the identical value, and the undeclared `:on-click` beside them is still a native event"
+   :view :on-literal
+   :tree {:view-id :re-frame.freehand.custom-element-views/on-literal
+          :children [{:tag :ce-on
+                      :attrs {:on-detail {:payload 1} :model {:payload 1}
+                              :data-x "d"}
+                      :events {:on-click [:clicked]}
+                      :rf.ui/property-props #{:on-detail :model}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "the compiled literal partition — which split every `on-*` key off BEFORE the declaration was consulted, so the declaration could not reach this name at all"
+   :view :on-literal-compiled
+   :tree {:view-id :re-frame.freehand.custom-element-views/on-literal-compiled
+          :children [{:tag :ce-on
+                      :attrs {:on-detail {:payload 1} :model {:payload 1}
+                              :data-x "d"}
+                      :events {:on-click [:clicked]}
+                      :rf.ui/property-props #{:on-detail :model}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "`v/spread` in an interpreted body: the runtime fold ranked handler position ahead of the declaration too"
+   :view :on-spread
+   :tree {:view-id :re-frame.freehand.custom-element-views/on-spread
+          :children [{:tag :ce-on
+                      :attrs {:on-detail {:payload 1} :model {:payload 1}
+                              :data-x "d"}
+                      :events {:on-click [:clicked]}
+                      :rf.ui/property-props #{:on-detail :model}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "`v/spread` beside a COMPILED element — the same runtime fold, reached from the other front end"
+   :view :on-spread-compiled
+   :tree {:view-id :re-frame.freehand.custom-element-views/on-spread-compiled
+          :children [{:tag :ce-on
+                      :attrs {:on-detail {:payload 1} :model {:payload 1}
+                              :data-x "d"}
+                      :events {:on-click [:clicked]}
+                      :rf.ui/property-props #{:on-detail :model}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "`v/spread-safe`: a CALLER's declared `on-*` property folds as a property under the owned props, and the caller's undeclared handler is still a native event"
+   :view :on-spread-safe
+   :args [{:caller {:on-detail {:payload 2} :on-click [:clicked] :data-y "y"}}]
+   :tree {:view-id :re-frame.freehand.custom-element-views/on-spread-safe
+          :props {:caller {:on-detail {:payload 2} :on-click [:clicked] :data-y "y"}}
+          :children [{:tag :ce-on
+                      :attrs {:on-detail {:payload 2} :model {:payload 1}
+                              :data-x "d" :data-y "y"}
+                      :events {:on-click [:clicked]}
+                      :rf.ui/property-props #{:on-detail :model}}]
+          :rf.ui/tree-version 1}}
+
+  ;; THE CONTROL, and the half that keeps the repair honest: ranking the
+  ;; declaration first must not turn the `on-*` family into properties. What
+  ;; admits a property is the NAME being declared — never the prefix, and never
+  ;; the element merely carrying a declaration somewhere.
+  {:note "the control: `:ce-panel` is DECLARED and does not declare `:on-detail`, so the same name on it is a native event — in `:events`, absent from `:rf.ui/property-props`"
+   :view :on-undeclared
+   :tree {:view-id :re-frame.freehand.custom-element-views/on-undeclared
+          :children [{:tag :ce-panel
+                      :attrs {:help-text "h" :data-x "d"}
+                      :events {:on-detail [:detail]}
+                      :rf.ui/property-props #{:help-text}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "the control, compiled: the partition still routes an undeclared `on-*` name to the event grammar, which is the behaviour the repair must leave alone"
+   :view :on-undeclared-compiled
+   :tree {:view-id :re-frame.freehand.custom-element-views/on-undeclared-compiled
+          :children [{:tag :ce-panel
+                      :attrs {:help-text "h" :data-x "d"}
+                      :events {:on-detail [:detail]}
+                      :rf.ui/property-props #{:help-text}}]
           :rf.ui/tree-version 1}}]
 
  ;; The ruled kebab -> camelCase JS property name — the spelling the client
@@ -169,7 +267,9 @@
  [{:note "the everyday case"                                  :attr :accent-color :property "accentColor"}
   {:note "and again, so one row is not the whole claim"        :attr :help-text    :property "helpText"}
   {:note "a single-word name is already its own property name" :attr :scale        :property "scale"}
-  {:note "a standard-attribute spelling still camelizes"       :attr :tab-index    :property "tabIndex"}]
+  {:note "a standard-attribute spelling still camelizes"       :attr :tab-index    :property "tabIndex"}
+  {:note "and so does an `on-*` name — the same one projection, with no handler-slot special case"
+   :attr :on-detail :property "onDetail"}]
 
  ;; A value outside the attribute-value grammar is legal as a declared PROPERTY
  ;; and refused as an attribute — on a declared element and an undeclared one
@@ -182,6 +282,24 @@
   {:note "and on an undeclared element, where nothing is a property"
    :form [:ce-plain {:scale {:min 0}}]
    :id   :rf.error/ui-tree-malformed}]
+
+ ;; The `on-*` control, as a REFUSAL. Ranking the declaration ahead of handler
+ ;; position must not lift the whole `on-*` family out of the event grammar:
+ ;; an UNDECLARED `on-*` name is a handler site, so the same map value that is
+ ;; a legal property at a declared name is an invalid options map there. The id
+ ;; differs from the rows above because the value met a different grammar, and
+ ;; that is exactly the claim — a name the declaration does not mention never
+ ;; leaves the event lane.
+ :on-refused
+ [{:note "an undeclared `on-*` name on the very element that declares `:on-detail`"
+   :form [:ce-on {:on-mystery {:payload 1}}]
+   :id   :rf.error/view-bad-event}
+  {:note "the declared name itself, on a DECLARED element that does not declare it"
+   :form [:ce-panel {:on-detail {:payload 1}}]
+   :id   :rf.error/view-bad-event}
+  {:note "and on an undeclared element, where nothing is a property"
+   :form [:ce-plain {:on-detail {:payload 1}}]
+   :id   :rf.error/view-bad-event}]
 
  ;; The SERVER's half, pinned whole because the claim is about absence. A
  ;; property-classified name appears under NO spelling; the attributes beside
@@ -200,7 +318,17 @@
   {:note "an undeclared element emits everything: nothing is omitted where nothing is a property"
    :view :undeclared             :html "<ce-plain accent-color=\"x\" data-y=\"y\"></ce-plain>"}
   {:note "the order-independent declaration omits its property on the server too"
-   :view :below-literal          :html "<ce-below data-x=\"d\"></ce-below>"}]
+   :view :below-literal          :html "<ce-below data-x=\"d\"></ce-below>"}
+  {:note "a declared `on-*` property is omitted exactly as any other property is, and the attribute beside it survives"
+   :view :on-literal             :html "<ce-on data-x=\"d\"></ce-on>"}
+  {:note "compiled: byte-identical, so the two modes agree about the server for this name family too"
+   :view :on-literal-compiled    :html "<ce-on data-x=\"d\"></ce-on>"}
+  {:note "`v/spread`: the runtime-classified path serialises identically"
+   :view :on-spread              :html "<ce-on data-x=\"d\"></ce-on>"}
+  {:note "`v/spread` beside a compiled element: the fourth path, same markup"
+   :view :on-spread-compiled     :html "<ce-on data-x=\"d\"></ce-on>"}
+  {:note "the control: an UNDECLARED `on-*` name is an event, and an event is not markup either — so the server sees the attribute alone"
+   :view :on-undeclared          :html "<ce-panel data-x=\"d\"></ce-panel>"}]
 
  ;; The BROWSER's half. The mounted element is the only place the difference
  ;; between "set as a property" and "written as an attribute" is observable —
@@ -218,4 +346,32 @@
   {:properties         {"accentColor" "blue"}
    :absent-attributes  ["accent-color" "accentcolor" "accentColor"]
    :attributes         {"data-x" "d" "label" "wide & <deep>"}
-   :absent-properties  ["label"]}}}
+   :absent-properties  ["label"]}}
+
+ ;; The BROWSER's half of the `on-*` family. Two tags backed by IDENTICAL
+ ;; element classes — an `onDetail` accessor with no attribute reflection —
+ ;; differing in exactly one thing: `ce-detail` is declared and `ce-detail-loose`
+ ;; is not. So the mounted difference cannot be attributed to the element, to
+ ;; the value, or to the path; only to the declaration.
+ ;;
+ ;; The control's observable is that NOTHING was set: an undeclared `on-*` name
+ ;; is a handler site, and a declarative event vector at a handler site outside
+ ;; a committed frame installs no listener and writes no prop. Had the repair
+ ;; lifted the whole `on-*` family into the property lane, the vector itself
+ ;; would be sitting on `el.onDetail`, which is what these rows would catch.
+ :dom-on
+ {:declared-tag   "ce-detail"
+  :undeclared-tag "ce-detail-loose"
+  :declared-properties #{:on-detail}
+  :props        {:on-detail {:payload 1} :data-x "d"}
+  :caller-props {:on-detail {:payload 2} :data-x "d"}
+  :expect
+  {:property           "onDetail"
+   :value              {:payload 1}
+   :caller-value       {:payload 2}
+   :absent-attributes  ["on-detail" "ondetail" "onDetail"]
+   :attributes         {"data-x" "d"}}
+  :expect-undeclared
+  {:absent-properties  ["onDetail"]
+   :absent-attributes  ["on-detail" "ondetail" "onDetail"]
+   :attributes         {"data-x" "d"}}}}

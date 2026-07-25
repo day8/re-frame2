@@ -1783,7 +1783,16 @@
               key-form   (get m :key)
               m*         (dissoc m :key :class :style :ref)
               ref-form   (get m :ref)
-              on?        (fn [k] (str/starts-with? (name k) "on-"))
+              ;; The handler/attribute partition, asked WITH the declaration
+              ;; rather than ahead of it. A declared `:on-detail` is a
+              ;; property, and this partition is what decided otherwise on the
+              ;; compiled tier: it ran on the `on-` prefix alone, so the
+              ;; property classification below never saw the key at all
+              ;; (rf2-sv2oq). The ordering is
+              ;; `re-frame.freehand.conversion`'s, shared with the four
+              ;; runtime seams, so one declaration cannot mean property at a
+              ;; `v/spread` and event grammar at a literal site.
+              on?        #(conv/handler-key? properties %)
               handler-ks (filter on? (keys m*))
               attr-ks    (remove on? (keys m*))
               ;; The element half of the door, ASKED not restated — the same
@@ -1848,7 +1857,7 @@
               attrs      (mapv (fn [k]
                                   (let [v (get m* k)
                                         n (name k)
-                                        property? (boolean (and properties (properties k)))
+                                        property? (conv/declared-property? properties k)
                                         ;; The ONE attribute whose authored
                                         ;; value may be collection-shaped — a
                                         ;; native <select>'s value IS the list
@@ -1961,6 +1970,11 @@
                       "the forwarded runtime attr map")
                  {:form props-form}))
     (let [owned-props        (analyze-literal-props e tag-info properties owned)
+          ;; The BARE `on-` grammar, and the compile-time twin of
+          ;; `node/owned-handler-keys` — the DENY law, which ranks the emitted
+          ;; slot a caller key would land in rather than lowering a value, so
+          ;; it does not take the declaration-ranked ordering the props
+          ;; partition above does (rf2-sv2oq; the reason is on that docstring).
           owned-handler-keys (into #{}
                                     (filter #(and (keyword? %)
                                                   (str/starts-with? (name %) "on-")))

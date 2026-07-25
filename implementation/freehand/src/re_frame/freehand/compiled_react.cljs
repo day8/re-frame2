@@ -143,11 +143,13 @@
 
   `multiple?` is the WHOLE forwarded map's multiple-select verdict, settled
   once by the caller — the one fact that decides what an EMPTY `<select>`
-  value is."
-  [o tag sugar site-id controlled? multiple? k raw]
+  value is. `declared` is the element's declared custom-element property
+  set, settled once the same way; it ranks a forwarded `:on-detail` as this
+  element's property rather than as a handler site (rf2-sv2oq)."
+  [o tag sugar site-id controlled? multiple? declared k raw]
   (let [k (conv/attr-key k)]
     (cond
-      (conv/handler-key? k)
+      (conv/handler-key? declared k)
       ;; A forwarded handler is a committed SITE like any other, keyed by the
       ;; spread's own lexical id plus the slot it lands in — so the map's
       ;; `:on-click` owns one stable proxy across re-renders, and two forwarded
@@ -181,9 +183,14 @@
         ;; the same merged map before writing any attribute. Without it a
         ;; forwarded `<select multiple>`'s explicitly nil `value` writes the
         ;; scalar empty string React reports as a shape error (rf2-sf9n5).
-        multiple?   (controlled/multiple-select? tag attrs nil)]
+        multiple?   (controlled/multiple-select? tag attrs nil)
+        ;; The declared property set, over the whole forwarded map and read
+        ;; once — the interpreted walk settles it the same way, before writing
+        ;; any entry. A plain DOM tag answers nil without a registry read.
+        declared    (conv/element-properties tag)]
     (reduce-kv (fn [_ k raw]
-                 (forward-entry! o tag sugar site-id controlled? multiple? k raw) nil)
+                 (forward-entry! o tag sugar site-id controlled? multiple? declared k raw)
+                 nil)
                nil attrs)
     ;; The DOM top layer's desired-state pair is Freehand vocabulary, not an
     ;; attribute, so a forwarded one becomes the commit-time host call here

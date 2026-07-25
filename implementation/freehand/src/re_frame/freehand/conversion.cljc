@@ -294,12 +294,64 @@
             v)
     (attr-value v)))
 
+;; ---------------------------------------------------------------------------
+;; Handler position vs a DECLARED property — one ordering, stated once
+;; ---------------------------------------------------------------------------
+;;
+;; `on-*` is the handler grammar; a `(v/custom-element tag {:properties #{…}})`
+;; set is the property grammar. They OVERLAP, because a web component may
+;; legitimately name a property `on-detail` — a `CustomEvent` detail bag, or a
+;; callback the element invokes itself — so something has to rank them.
+;;
+;; The DECLARATION wins. It is the only one of the two an author wrote down:
+;; the `on-*` prefix is a GUESS about intent, right for every plain DOM element
+;; and wrong for exactly the names a declaration mentions. Ranking the guess
+;; first makes the declaration unable to say anything at all about that name
+;; family, which is the "one declaration, every lowering path" law failing on
+;; the very example `v/custom-element`'s own docstring gives.
+;;
+;; The ordering is stated HERE, once, in the namespace every prop-LOWERING seam
+;; already requires: the compiled analyzer's literal partition,
+;; `node/dyn-attr-entry` (the structural walk, `v/spread` and the
+;; `v/spread-safe` caller fold), the interpreted React walk,
+;; `react/put-caller!` and `compiled-react/forward-entry!`. Each of those asked
+;; the handler question FIRST and reached the declaration only in an arm below
+;; it, so every one of them routed a declared `:on-detail` into the event
+;; grammar — where a map value is an options map and
+;; `:rf.error/view-bad-event` (rf2-sv2oq). Five seams, one missing ordering,
+;; five identical bugs: that is what a fact with five readers costs when the
+;; fact is not written down in one place. A seam that hands the declared set to
+;; [[handler-key?]] cannot get it wrong in either direction, because the
+;; handler arm and the property arm then read ONE predicate pair.
+;;
+;; NOT the `v/spread-safe` deny law, which asks a different question — which
+;; emitted SLOT a caller may not install into — and has no tag in hand to ask a
+;; declaration about (see [[re-frame.freehand.rules/caller-key-slot]]).
+
+(defn declared-property?
+  "Is `k` a DECLARED custom-element property of the element whose declared
+  `:properties` set is `properties` — nil wherever the tag can carry none
+  (see [[element-properties]])?
+
+  By the EXACT authored keyword, namespace included, which is the reading
+  every property branch already had: `:x/model` is an ordinary namespaced
+  attribute rather than the declared `:model`."
+  [properties k]
+  (and (some? properties) (contains? properties k)))
+
 (defn handler-key?
   "Is `k` a handler-position key? The grammar is the `on-` prefix followed
   by a hyphen, so `:on-click` is a handler site and `:online` is an
-  ordinary attribute."
-  [k]
-  (str/starts-with? (name k) "on-"))
+  ordinary attribute.
+
+  The 2-arity asks it of an element that may DECLARE properties, and a
+  DECLARED name is never a handler position — §Handler position vs a
+  declared property above. Every seam LOWERING a prop passes the element's
+  declared set (or nil); the 1-arity is the bare grammar, for the callers
+  that rank emitted slots rather than lower a value."
+  ([k] (str/starts-with? (name k) "on-"))
+  ([properties k]
+   (and (not (declared-property? properties k)) (handler-key? k))))
 
 ;; ---------------------------------------------------------------------------
 ;; Forwarded children — a RUN, not markup

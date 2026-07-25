@@ -129,6 +129,92 @@
           "the declared :scale keeps its map value verbatim"))))
 
 ;; ---------------------------------------------------------------------------
+;; The declaration outranks HANDLER position
+;; ---------------------------------------------------------------------------
+
+(deftest fh-struct-011-a-declared-on-name-is-a-property-on-every-path
+  (testing "Per FH-STRUCT-011: `on-*` is the handler grammar and `:properties`
+            is the property grammar, and they overlap — a web component may
+            name a property `on-detail`, which is the example
+            `v/custom-element`'s own docstring gives. The DECLARATION ranks
+            first, because it is the fact an author wrote down where the
+            prefix is only a guess.
+
+            Every seam ranked the guess first: the compiled analyzer
+            partitioned every `on-*` key off before consulting the
+            declaration, and `node/dyn-attr-entry`, the interpreted React walk
+            and both browser folds each tested handler position in an arm
+            ABOVE the property arm. So all six lowering paths sent a declared
+            `:on-detail` into the event grammar, where a map is an options map
+            and the render raised `:rf.error/view-bad-event` — one
+            declaration, unable to say anything at all about a whole valid
+            property-name family (rf2-sv2oq).
+
+            The rows are pinned against each other as well as against the
+            contract, and `:model` rides beside `:on-detail` in each one
+            carrying the IDENTICAL value: two props differing in nothing but
+            their names is what makes a red row name the prefix as the cause."
+    (let [element (fn [view] (first (:children (render-case {:view view}))))
+          paths   [:on-literal :on-literal-compiled :on-spread :on-spread-compiled]
+          trees   (mapv element paths)]
+      (is (apply = trees)
+          (str "the four lowering paths answer one element: "
+               (pr-str (zipmap paths trees))))
+      (let [el (first trees)]
+        (is (= #{:on-detail :model} (:rf.ui/property-props el))
+            "the declared `on-*` name is a property, beside its ordinary twin")
+        (is (= {:payload 1} (:on-detail (:attrs el)))
+            "and its map value is kept verbatim, outside the attribute-value grammar")
+        (is (= (:on-detail (:attrs el)) (:model (:attrs el)))
+            "the two declared props carry the same value, so only the NAME differs")
+        (is (= {:on-click [:clicked]} (:events el))
+            "and the undeclared `:on-click` beside them is still a native event")))))
+
+(deftest fh-struct-011-an-undeclared-on-name-stays-a-native-event
+  (testing "Per FH-STRUCT-011, the control: ranking the declaration ahead of
+            handler position must NOT lift the `on-*` family out of the event
+            grammar. What admits a property is the NAME being declared — never
+            the prefix, and never the element merely carrying a declaration
+            somewhere. `:ce-panel` is declared and does not declare
+            `:on-detail`, so the same name on it is a handler site: the value
+            lands in `:events`, the name is absent from
+            `:rf.ui/property-props`, and a value that is not a legal options
+            map is refused there exactly as it was before."
+    (let [element (fn [view] (first (:children (render-case {:view view}))))
+          controls (mapv element [:on-undeclared :on-undeclared-compiled])]
+      (is (apply = controls) "the interpreted and compiled controls agree")
+      (let [el (first controls)]
+        (is (= {:on-detail [:detail]} (:events el))
+            "the undeclared `:on-detail` is a native event site")
+        (is (= #{:help-text} (:rf.ui/property-props el))
+            "and is NOT named a property — only the element's actually-declared name is")
+        (is (not (contains? (:attrs el) :on-detail))
+            "so it never reaches the attribute map either")))
+    (is (seq (:on-refused struct-011)) "the fixture's `on-*` refusal rows loaded")
+    (doseq [{:keys [note form id]} (:on-refused struct-011)]
+      (is (= id (conf/caught-id #(tree/render form))) note))))
+
+(deftest fh-struct-011-a-forwarded-declared-on-name-folds-as-a-property
+  (testing "Per FH-STRUCT-011: `v/spread-safe`'s caller fold is its own seam in
+            both hosts, and it ranked handler position ahead of the
+            declaration like the rest. A CALLER's declared `on-*` prop folds
+            as a property under the owned props; the caller's undeclared
+            handler beside it is still a native event. The owned map declares
+            neither `on-*` name here, so the owned-key deny law has no handler
+            family to protect and this is the ordinary fold."
+    (let [el (first (:children (render-case
+                               {:view :on-spread-safe
+                                :args [{:caller {:on-detail {:payload 2}
+                                                 :on-click [:clicked]
+                                                 :data-y "y"}}]})))]
+      (is (= {:payload 2} (:on-detail (:attrs el)))
+          "the forwarded declared `on-*` prop is a property carrying its value verbatim")
+      (is (= #{:on-detail :model} (:rf.ui/property-props el))
+          "and is named in the property set beside the owned one")
+      (is (= {:on-click [:clicked]} (:events el))
+          "while the caller's undeclared handler is still a native event"))))
+
+;; ---------------------------------------------------------------------------
 ;; The property NAME
 ;; ---------------------------------------------------------------------------
 

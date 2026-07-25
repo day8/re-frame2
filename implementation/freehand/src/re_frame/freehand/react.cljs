@@ -281,23 +281,29 @@
   by this walk's ordinal."
   [o tag site! m]
   (when (some? m)
-    (reduce-kv
-      (fn [_ k raw]
-        (let [k    (conv/attr-key k)
-              slot (controlled/prop-slot k)]
-          (cond
-            (= :class k)
-            (put-class! o tag (when-some [owned (gobj/get o "className")] [owned]) raw)
+    ;; The element's declared property set, read ONCE for the whole forwarded
+    ;; map — a plain DOM tag answers nil without touching the registry. It
+    ;; ranks a forwarded `:on-detail`: declared, it is a property and reaches
+    ;; `put-plain-attr!` below; undeclared, it is the native event this fold
+    ;; has always made it (rf2-sv2oq).
+    (let [declared (conv/element-properties tag)]
+      (reduce-kv
+        (fn [_ k raw]
+          (let [k    (conv/attr-key k)
+                slot (controlled/prop-slot k)]
+            (cond
+              (= :class k)
+              (put-class! o tag (when-some [owned (gobj/get o "className")] [owned]) raw)
 
-            ;; owned wins
-            (and (some? slot) (gobj/containsKey o slot)) nil
+              ;; owned wins
+              (and (some? slot) (gobj/containsKey o slot)) nil
 
-            (conv/handler-key? k)
-            (when-some [proxy (site! slot raw)] (gobj/set o slot proxy))
+              (conv/handler-key? declared k)
+              (when-some [proxy (site! slot raw)] (gobj/set o slot proxy))
 
-            :else (put-attr! o tag k raw)))
-        nil)
-      nil m))
+              :else (put-attr! o tag k raw)))
+          nil)
+        nil m)))
   o)
 
 (defn- react-props
@@ -312,6 +318,13 @@
   changing which attribute reaches the DOM."
   [cand tag sugar-classes sugar-id attrs caller]
   (let [o (js-obj)
+        ;; The element's DECLARED custom-element property set, read once for
+        ;; the whole map — nil, without a registry read, for every plain DOM
+        ;; element. It is needed HERE and not only in `put-plain-attr!`
+        ;; because the handler/attribute fork happens above that write, and
+        ;; the declaration has to rank a `:on-*` name before the fork
+        ;; commits it to the event grammar.
+        declared    (conv/element-properties tag)
         ;; The controlled-input door is a property of the WHOLE element,
         ;; so its element half is settled once, before any handler site is
         ;; recorded. Presence of a `value`/`checked` SLOT is the test —
@@ -413,7 +426,11 @@
         (when-some [empty-slot (controlled/empty-control-slot tag k multi?)]
           (gobj/set o (key empty-slot) (react-control-value (val empty-slot))))
 
-        (conv/handler-key? k)
+        ;; The declaration outranks handler POSITION, so a declared
+        ;; `:on-detail` falls to `put-plain-attr!` below and is set as the
+        ;; `onDetail` property, while an undeclared one stays the native
+        ;; event this walk has always made it (rf2-sv2oq).
+        (conv/handler-key? declared k)
         (let [slot (conv/react-event-name k)]
           (when-some [proxy (handler-proxy cand tag controlled? slot raw)]
             (gobj/set o slot proxy)))

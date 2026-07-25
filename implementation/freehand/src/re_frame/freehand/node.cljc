@@ -726,6 +726,13 @@
   legal there and refused as an attribute. The nil-is-absent law still
   holds: a conditional property is the same law a conditional attribute is.
 
+  It outranks HANDLER position too, and that is the whole of what the
+  declaration is allowed to settle: `on-*` is a guess and `:properties` is
+  a statement, so a declared `:on-detail` is a property and an undeclared
+  one is a native event
+  ([[re-frame.freehand.conversion/handler-key?]]'s 2-arity, the same
+  ordering the compiled analyzer's partition and both browser folds take).
+
   An ordinary key passes through untouched, namespace and all: the
   structural tree carries authored names."
   [tag properties multi? [attrs events class style] k v]
@@ -748,16 +755,23 @@
       ;; composed while `:style` last-wins is the inconsistency this removes
       ;; (rf2-8jqw7; parallel to rf2-c9kus).
       (= :style k)          [attrs events class (if (some? style) [style v] v)]
-      (conv/handler-key? k) [attrs (if-let [c (classify-event tag k v)]
-                                     (assoc events k c)
-                                     events)
-                             class style]
+      ;; The handler question asked WITH the declaration, never ahead of it:
+      ;; a declared `:on-detail` is this element's property and falls through
+      ;; to the property arm below. Asked on the `on-` prefix alone it never
+      ;; reached that arm at all, so the declaration was silently unable to
+      ;; classify a whole valid property-name family and the value met the
+      ;; event grammar instead (rf2-sv2oq).
+      (conv/handler-key? properties k)
+      [attrs (if-let [c (classify-event tag k v)]
+               (assoc events k c)
+               events)
+       class style]
       ;; ABOVE the attribute fold rather than inside it, because a declared
       ;; property is not an attribute with a wider value grammar — it is a
       ;; different kind of prop, and routing it through `attr-entry` would
       ;; make the attribute rules carry an exception they have no business
       ;; knowing about (the controlled-slot reading of a nil among them).
-      (contains? properties k)
+      (conv/declared-property? properties k)
       [(cond-> attrs (some? v) (assoc k v)) events class style]
 
       :else                 [(if-let [e (attr-entry tag multi? k v)]
@@ -926,7 +940,16 @@
 
 (defn- owned-handler-keys
   "The `on-*` keys of a `v/spread-safe` OWNED props map — the handler families
-  the caller may not install either phase of."
+  the caller may not install either phase of.
+
+  The BARE `on-` grammar, deliberately, and not
+  [[re-frame.freehand.conversion/handler-key?]]'s declaration-ranked 2-arity:
+  this is the deny law, which ranks the emitted SLOT a caller key would land
+  in, and `(v/spread-safe owned caller)` carries no tag to ask a declaration
+  about. It costs nothing to be right anyway — a declared `:on-detail`'s
+  property slot and its handler slot are the same `onDetail` string — so the
+  deny still protects exactly the slot the owned property occupies, one phase
+  wider (rf2-sv2oq)."
   [owned]
   (into #{}
         (filter #(when-some [n (rules/caller-key-name %)]
