@@ -19,7 +19,9 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
+            [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
+            [re-frame.routing.events :as routing-events]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.resolve :as resolver]
             [re-frame.routing.subs :as routing-subs]
@@ -103,16 +105,79 @@
 
 ;; ---- branch + leaf plan ---------------------------------------------------
 
-(deftest branch-of-is-the-parent-to-leaf-chain
+(defn- plan-for
+  "The route plan for a bare `route-id` — the branch / branch-error fields are
+  derived from it alone."
+  [route-id]
+  (resolver/route-plan {:cause  :navigate
+                        :source {:to route-id}
+                        :target (resolver/resolved-target {:route-id route-id})}))
+
+(deftest plan-branch-is-the-parent-to-leaf-chain
   (routing/reg-route :route/dashboard {} "/dashboard")
   (routing/reg-route :route/reports {:parent :route/dashboard} "/dashboard/reports")
   (routing/reg-route :route/report {:parent :route/reports} "/dashboard/reports/:id")
-  (testing "the plan branch is [parent-most … leaf], shared with the :rf.route/chain sub reduction"
+  (testing "the plan branch is [parent-most … leaf]"
     (is (= [:route/dashboard :route/reports :route/report]
-           (resolver/branch-of :route/report)))
+           (:branch (plan-for :route/report))))
+    (is (nil? (:branch-error (plan-for :route/report)))))
+  (testing "on a chain that RESOLVES it agrees with the :rf.route/chain display
+            sub — the display walk is still correct for what it does"
     (is (= (routing-subs/chain-from-meta :route/report)
-           (resolver/branch-of :route/report))
-        "branch-of and the chain sub can never disagree — one :parent walk")))
+           (:branch (plan-for :route/report)))))
+  (testing "the plan also carries the walk's CONTRIBUTORS (route-id + route-meta
+            per segment) — the value commit-navigation hands the resource plan,
+            resolved once per navigation rather than re-walked at the commit"
+    (is (= [:route/dashboard :route/reports :route/report]
+           (mapv :route-id (:branch-contributors (plan-for :route/report)))))
+    (is (= (registrar/lookup :route :route/reports)
+           (:route-meta (second (:branch-contributors (plan-for :route/report))))))))
+
+;; ---- the plan branch is the FAIL-LOUD walk (rf2-cqyq2) ---------------------
+;;
+;; Two `:parent` walks exist deliberately. `subs/chain-from-meta` is the DISPLAY
+;; walk: defensive, swallows cycles, and INCLUDES an unregistered parent id in
+;; the chain it returns. `events/resolve-branch` is the PLANNING walk: fail-loud,
+;; reporting `{:branch-error {:kind :unknown-parent | :parent-cycle …}}`. And
+;; `events.cljc` says so in as many words — the display sub "swallows cycles
+;; defensively and is not a substitute here".
+;;
+;; The plan's `:branch` used the display walk while `commit-navigation`
+;; independently re-walked with the fail-loud one, so the plan REPORTED one
+;; branch and EXECUTED another — and they disagreed exactly on the
+;; malformed-registration cases where a diagnostic earns its keep.
+
+(deftest plan-branch-never-names-an-unregistered-route
+  (routing/reg-route :route/leaf {:parent :route/nowhere} "/leaf")
+  (testing "the premise: the two walks answer differently for an unregistered
+            :parent, and the display walk is the one that invents a route"
+    (is (= [:route/nowhere :route/leaf] (routing-subs/chain-from-meta :route/leaf))
+        "the display walk includes an id no route table entry backs")
+    (is (= {:kind :unknown-parent :route-id* :route/nowhere}
+           (:branch-error (routing-events/resolve-branch :route/leaf)))
+        "the planning walk refuses to resolve it"))
+  (testing "the PLAN now reports the fail-loud answer — an empty branch plus the
+            error, rather than a plausible two-segment branch naming
+            :route/nowhere while the activation aborts"
+    (let [plan (plan-for :route/leaf)]
+      (is (= [] (:branch plan)))
+      (is (not-any? #{:route/nowhere} (:branch plan)))
+      (is (= {:kind :unknown-parent :route-id* :route/nowhere} (:branch-error plan)))
+      (is (empty? (:branch-contributors plan))
+          "no contributors resolved, so the resource plan aborts rather than
+           composing over a truncated branch"))))
+
+(deftest plan-branch-reports-a-parent-cycle-rather-than-truncating-at-it
+  (routing/reg-route :route/ping {:parent :route/pong} "/ping")
+  (routing/reg-route :route/pong {:parent :route/ping} "/pong")
+  (testing "the display walk terminates silently at the cycle entry — a chain
+            that looks perfectly ordinary"
+    (is (= [:route/pong :route/ping] (routing-subs/chain-from-meta :route/ping))))
+  (testing "the plan reports the cycle"
+    (let [plan (plan-for :route/ping)]
+      (is (= [] (:branch plan)))
+      (is (= :parent-cycle (:kind (:branch-error plan))))
+      (is (= :route/ping (:route-id* (:branch-error plan)))))))
 
 (deftest leaf-plan-of-is-the-behaviour-preserving-on-match-loader
   (routing/reg-route :route/article
@@ -307,6 +372,47 @@
       (is (not (re-find #"tok-99" (pr-str tags))))
       (is (= "/invite/acct-42?invite=rf/redacted#rf/redacted" (:url tags))
           "the structured PATH survives — it is what a consumer branches on"))))
+
+(deftest planned-traces-branch-agrees-with-the-activation-rf2-cqyq2
+  (routing/reg-route :route/home {} "/")
+  (routing/reg-route :route/leaf {:parent :route/nowhere} "/leaf")
+  (quiet-nav-fx!)
+  (testing "a navigation to a route whose :parent is unregistered emits a
+            :rf.route/planned whose :branch names NO unregistered route, and
+            whose :branch-error is the same fail-loud error the activation
+            aborts on. Before this the trace read
+            :branch [:route/nowhere :route/leaf] — a plausible two-segment
+            branch naming a route that does not exist — with no hint that
+            planning had failed on that very chain."
+    (let [ts   (planned (rf/dispatch-sync [:rf.route/navigate {:to :route/leaf}]))
+          tags (:tags (first ts))]
+      (is (= 1 (count ts)))
+      (is (= [] (:branch tags)))
+      (is (not-any? #{:route/nowhere} (:branch tags))
+          "a tool reading the trace is not told a route exists that does not")
+      (is (= (select-keys (:branch-error (routing-events/resolve-branch :route/leaf))
+                          [:kind :route-id*])
+             (:branch-error tags))
+          "the trace's failure signal IS the activation's")))
+  (testing "and a well-formed branch carries no :branch-error at all — the tag is
+            a failure signal, not a slot that is always present"
+    (routing/reg-route :route/shell {} "/shell")
+    (routing/reg-route :route/child {:parent :route/shell} "/shell/child")
+    (let [tags (:tags (first (planned (rf/dispatch-sync
+                                        [:rf.route/navigate {:to :route/child}]))))]
+      (is (= [:route/shell :route/child] (:branch tags)))
+      (is (not (contains? tags :branch-error)))))
+  (testing "the :branch-error tag carries only registration-time identifiers —
+            a kind and a route id, never a route-meta map (a cycle's :chain
+            rides on the plan value, not on the trace bus)"
+    (routing/reg-route :route/ping {:parent :route/pong} "/ping")
+    (routing/reg-route :route/pong {:parent :route/ping} "/pong")
+    (rf/dispatch-sync [:rf.route/handle-url-change "/"])
+    (let [tags (:tags (first (planned (rf/dispatch-sync
+                                        [:rf.route/navigate {:to :route/ping}]))))]
+      (is (= {:kind :parent-cycle :route-id* :route/ping} (:branch-error tags)))
+      (is (not (re-find #":path|:rf.route/compiled|:chain" (pr-str (:branch-error tags))))
+          "no route metadata and no meta-bearing :chain reaches the trace"))))
 
 ;; ---- the URL -> ResolvedTarget extraction (ONE definition) ----------------
 
