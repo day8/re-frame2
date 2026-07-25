@@ -25,6 +25,14 @@
        returns them in CEDN-1 canonical order, so two inbound spellings of
        one query map yield `=` :query with identical key ORDER. Pinned over
        the generated draws, not just the example cases.
+    3. `:query-defaults` DO NOT BREAK THE PRISM (rf2-kqxe6.23). A route's
+       declared defaults live in the resolved TARGET and never in the URL:
+       `route-url` omits a key already at its default and `match-url` fills it
+       back, so the URL `route-url` emits is a FIXED POINT of
+       `route-url ∘ match-url` and the recovered `:query` is the drawn query
+       with the defaults filled. Drawn over a route that declares defaults —
+       properties 1-2 never drew one, which is precisely why the generator
+       could not find the door-parity split that shipped with them.
 
   ## Why a hand-rolled seeded PRNG (not clojure.test.check / Malli gen)
 
@@ -175,6 +183,85 @@
                   (recur (inc i) (lcg-next s3))))))]
       (is (nil? failure)
           (str "prism round-trip property failed: " (pr-str failure))))))
+
+;; ---- property 3: a `:query-defaults` route still round-trips ---------------
+;;
+;; The corpus combined `:query-defaults` with nothing: no suite drew a route
+;; declaring them, so the prism's own generative sweep could not see that
+;; `route-url` emitted a defaulted key the named-address doors never resolved.
+;; The draw below inhabits the shape. `:page` is the declared default; the
+;; drawn query's keys are undeclared STRING keys, so they can never collide
+;; with it (the keyword-discipline rule keeps undeclared URL keys as strings).
+
+(def ^:private default-page "1")
+
+(defn- gen-page-variant
+  "Draw one of the three interesting spellings of a defaulted query key:
+  ABSENT (the URL says nothing), AT-DEFAULT (the caller spells the declared
+  default explicitly), or OFF-DEFAULT (an ordinary non-default value). Returns
+  `[query-fragment next-state]`."
+  [state]
+  (case (rnd state 3)
+    0 [{} (lcg-next state)]
+    1 [{:page default-page} (lcg-next state)]
+    2 (let [[v s] (gen-token state)]
+        ;; keep it genuinely off-default
+        [{:page (if (= default-page v) (str v "x") v)} s])))
+
+(deftest prism-round-trips-over-a-query-defaults-route
+  (testing "for a route declaring :query-defaults, the emitted URL is a FIXED
+            POINT of route-url ∘ match-url and the recovered :query is the drawn
+            query with the defaults filled — the declared default lives in the
+            target, never in the URL"
+    (rf/reg-route :route/dflt {:query-defaults {:page default-page}} "/dflt")
+    (let [failure
+          (loop [i 0, s 97531]
+            (if (= i 300)
+              nil
+              (let [[q  s1] (gen-query s)
+                    [pg s2] (gen-page-variant s1)
+                    query   (merge q pg)
+                    url     (routing/route-url {:to :route/dflt :query query})
+                    m       (routing/match-url url)
+                    ;; the target the URL leg recovers: the drawn query with
+                    ;; every absent declared default filled in.
+                    expected (merge {:page default-page} query)
+                    ;; the URL that target derives — the fixed-point leg.
+                    url'     (routing/route-url {:to    :route/dflt
+                                                 :query (:query m)})]
+                (cond
+                  (nil? m)
+                  [:no-match query url]
+
+                  ;; (1) the recovered target is the drawn query + the defaults
+                  (not= expected (:query m))
+                  [:query query url (:query m) expected]
+
+                  ;; (2) the URL never spells a key at its declared default —
+                  ;; if it did, the same destination would derive two different
+                  ;; URLs depending on whether the address spelled the key.
+                  (and (= default-page (:page query))
+                       (str/includes? url "page="))
+                  [:default-spelled-in-url query url]
+
+                  ;; (3) FIXED POINT: route-url ∘ match-url is the identity on
+                  ;; every URL route-url itself emits.
+                  (not= url url')
+                  [:not-a-fixed-point query url url']
+
+                  ;; (4) canonical key order still holds on the inbound leg,
+                  ;; defaults interleaved into the SAME order
+                  (not= (canonical-key-order (keys expected))
+                        (vec (keys (:query m))))
+                  [:key-order query url (vec (keys (:query m)))]
+
+                  (true? (:validation-failed? m))
+                  [:validation-failed query url]
+
+                  :else
+                  (recur (inc i) (lcg-next s2))))))]
+      (is (nil? failure)
+          (str "query-defaults prism property failed: " (pr-str failure))))))
 
 (deftest prism-query-order-is-spelling-independent
   (testing "two inbound URLs spelling one generated query in DIFFERENT key

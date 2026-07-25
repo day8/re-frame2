@@ -134,7 +134,20 @@
                      {:request {:method :get :url (str "/api/articles/" slug)}}))
   (rf/reg-resource :conduit/settings
                    {:scope :rf.scope/global :params-schema [:map]}
-                   (fn [_params _ctx] {:request {:method :get :url "/api/user/settings"}})))
+                   (fn [_params _ctx] {:request {:method :get :url "/api/user/settings"}}))
+  ;; The profile read's identity includes a ROUTE QUERY key that the route
+  ;; declares a `:query-defaults` value for (rf2-kqxe6.23). `:tab` is
+  ;; `[:maybe :keyword]` DELIBERATELY: an unfilled default arrives as `nil`, and
+  ;; admitting it is what lets the door-parity and prefetch-reuse arms below
+  ;; OBSERVE the split as two resource identities instead of hiding it behind a
+  ;; planning failure. A route whose defaults reach every door never produces the
+  ;; nil.
+  (rf/reg-resource :conduit/profile
+                   {:scope         :rf.scope/global
+                    :params-schema [:map [:handle :string] [:tab [:maybe :keyword]]]}
+                   (fn [{:keys [handle tab]} _ctx]
+                     {:request {:method :get
+                                :url    (str "/api/profiles/" handle "?tab=" tab)}})))
 
 (defn- register-routes! []
   ;; The shell is an ordinary route that also happens to be a `:parent`. It
@@ -167,6 +180,25 @@
                  :can-enter [:conduit/signed-in?]
                  :resources [{:id :settings :resource :conduit/settings :blocking? true}]}
                 "/settings")
+  ;; The `:query-defaults` leaf (rf2-kqxe6.23). Nothing exotic — the exact shape
+  ;; `examples/real-apps/realworld_http/routing.cljs` ships four times over: a
+  ;; declared query key with a default, read by a resource's `:params` fn so the
+  ;; default is part of the READ's identity. The corpus combined
+  ;; `:query-defaults` with `:resources` nowhere, which is why door parity broke
+  ;; on it undetected: every door below must resolve the SAME `:tab`.
+  (rf/reg-route :conduit/profile
+                {:parent         :conduit/shell
+                 :params         [:map [:handle :string]]
+                 :query          [:map [:tab {:optional true}
+                                        [:enum :authored :favorited]]]
+                 :query-defaults {:tab :authored}
+                 :resources      [{:id        :profile
+                                   :resource  :conduit/profile
+                                   :params    (fn [route]
+                                                {:handle (get-in route [:params :handle])
+                                                 :tab    (get-in route [:query :tab])})
+                                   :blocking? true}]}
+                "/profile/:handle")
   (rf/reg-route :conduit/login {} "/login"))
 
 (defn- register-subs-and-events! []
@@ -322,6 +354,8 @@
 (def ^:private settings-key (state/scoped-resource-key* :rf.scope/global :conduit/settings {}))
 (defn- article-key [slug]
   (state/scoped-resource-key* :rf.scope/global :conduit/article {:slug slug}))
+(defn- profile-key [handle tab]
+  (state/scoped-resource-key* :rf.scope/global :conduit/profile {:handle handle :tab tab}))
 
 (defn- route-owners
   "The `[:route …]` owners currently attached to an entry."
@@ -333,6 +367,13 @@
   observable projection of the effective plan."
   [frame-id]
   (into #{} (map (fn [[_ e]] (:resource/key e))) (entries frame-id)))
+
+(defn- profile-identities
+  "Every `:conduit/profile` resource identity this frame holds an entry for. The
+  COUNT is the observable rf2-kqxe6.23 fact: a hover and a click on one link must
+  land on ONE identity, not two."
+  [frame-id]
+  (vec (sort-by str (filter #(= :conduit/profile (second %)) (identity-set frame-id)))))
 
 (defn- settle! [frame-id k data]
   (let [e (entry frame-id k)]
@@ -441,18 +482,34 @@
      :identities (identity-set f)}))
 
 (defn- door-footprint
-  "Activate `slug` through one door on its own freshly sealed frame, and return
-  that frame's plan footprint."
-  [frame-id door slug]
-  (let [f    (seal-frame! {:frame-id frame-id})
-        url  (str "/article/" slug)
-        addr {:to :conduit/article :params {:slug slug}}]
+  "Activate one destination through one door on its own freshly sealed frame, and
+  return that frame's plan footprint. `addr` is the NAMED address; `url` is the
+  same destination spelled as a URL."
+  [frame-id door {:keys [addr url]}]
+  (let [f (seal-frame! {:frame-id frame-id})]
     (case door
       :navigate (rf/dispatch-sync [:rf.route/navigate addr] {:frame f})
       :raw-url  (rf/dispatch-sync [:rf.route/navigate {:url url}] {:frame f})
       :link     (rf/dispatch-sync [:rf.route/url-requested (assoc addr :url url)] {:frame f})
       :url      (rf/dispatch-sync [:rf.route/handle-url-change url] {:frame f}))
     (plan-footprint f)))
+
+(defn- door-footprints
+  "The five doors' footprints for one destination, each on its own fresh frame —
+  the four client doors plus the SSR server door. `label` namespaces the frame
+  ids so two destinations can be checked in one test."
+  [label destination]
+  (let [client (into {} (map (fn [door]
+                               [door (door-footprint
+                                       (keyword "conduit" (str label "-" (name door)))
+                                       door destination)]))
+                     [:navigate :raw-url :link :url])
+        server (let [srv (seal-frame! {:frame-id (keyword "conduit" (str label "-ssr"))
+                                       :preset   :ssr-server})]
+                 (rf/dispatch-sync [:rf.route/handle-url-change (:url destination)]
+                                   {:frame srv})
+                 (plan-footprint srv))]
+    (assoc client :ssr server)))
 
 (deftest every-door-plans-the-same-branch-and-the-same-reads
   (register-app!)
@@ -464,19 +521,61 @@
                                :fragment nil}
                   :url        (str "/article/" slug)
                   :chain      [:conduit/shell :conduit/article]
-                  :identities #{viewer-key akey}}
-        client   (into {} (map (fn [door]
-                                 [door (door-footprint (keyword "conduit" (name door))
-                                                       door slug)]))
-                       [:navigate :raw-url :link :url])
-        server   (let [srv (seal-frame! {:frame-id :conduit/ssr-door :preset :ssr-server})]
-                   (rf/dispatch-sync [:rf.route/handle-url-change (str "/article/" slug)]
-                                     {:frame srv})
-                   (plan-footprint srv))]
-    (doseq [[door footprint] (assoc client :ssr server)]
+                  :identities #{viewer-key akey}}]
+    (doseq [[door footprint] (door-footprints
+                               "article"
+                               {:addr {:to :conduit/article :params {:slug slug}}
+                                :url  (str "/article/" slug)})]
       (testing (str "the " (name door) " door resolves the same target, the same "
                     "parent-to-leaf branch, and the same effective reads")
         (is (= expected footprint) (str "door " door " diverged"))))))
+
+(deftest every-door-plans-the-same-reads-for-a-query-defaults-route
+  (testing "rf2-kqxe6.23 — door parity holds for a route declaring
+            `:query-defaults`, the one shape the corpus never combined with
+            `:resources`. `match-url` fills the default for the three
+            URL-bearing doors; the NAMED-address door goes nowhere near
+            `match-url`, so until the fill moved into the ONE ResolvedTarget seam
+            the same destination committed `:query {}` here and
+            `{:tab :authored}` there — a different slice, a different derived
+            URL (a different history entry) and a different resource cache
+            identity depending on which door the user came through."
+    (register-app!)
+    (let [handle   "ada"
+          pkey     (profile-key handle :authored)
+          expected {:target     {:route-id :conduit/profile
+                                 :params   {:handle handle}
+                                 ;; the DECLARED DEFAULT, resolved — not `{}`,
+                                 ;; and not `{:tab nil}`
+                                 :query    {:tab :authored}
+                                 :fragment nil}
+                    ;; …and the URL stays free of the defaulted key: the target
+                    ;; carries the default, the URL never spells it, so one
+                    ;; destination has exactly ONE canonical URL.
+                    :url        (str "/profile/" handle)
+                    :chain      [:conduit/shell :conduit/profile]
+                    :identities #{viewer-key pkey}}]
+      (doseq [[door footprint] (door-footprints
+                                 "profile"
+                                 {:addr {:to :conduit/profile :params {:handle handle}}
+                                  :url  (str "/profile/" handle)})]
+        (testing (str "the " (name door) " door resolves the same target, URL, "
+                      "branch and effective reads")
+          (is (= expected footprint) (str "door " door " diverged")))))))
+
+(deftest a-url-that-spells-the-default-resolves-the-same-target
+  (testing "rf2-kqxe6.23 — `/profile/ada` and `/profile/ada?tab=authored` are the
+            same destination, so they resolve the same target and the same read.
+            The default-spelling URL is simply the non-canonical spelling: its
+            target derives the canonical URL back."
+    (register-app!)
+    (let [bare    (door-footprint :conduit/dflt-bare :url
+                                  {:url "/profile/ada"})
+          spelled (door-footprint :conduit/dflt-spelled :url
+                                  {:url "/profile/ada?tab=authored"})]
+      (is (= bare spelled))
+      (is (= "/profile/ada" (:url spelled))
+          "the canonical URL for the target omits the key already at its default"))))
 
 ;; ===========================================================================
 ;; 3. Intent warmup on a REAL link
@@ -553,6 +652,60 @@
               "…and joined the warm work rather than starting a second attempt")
           (is (= 1 (count @page-views))
               "the activation ran :on-match once — the prefetch had not"))))))
+
+(deftest hover-then-click-on-a-query-defaults-route-warms-one-identity
+  (testing "rf2-kqxe6.23 — R3's headline capability on a route declaring
+            `:query-defaults`. Hover the link, then click THAT SAME link: there
+            must be exactly ONE cache entry for the destination, carrying the
+            activation's real owner and still on its FIRST attempt.
+
+            While the named-address door skipped the defaults, the href, the
+            prefetch payload and the warm plan resolved `{:tab nil}` while the
+            activation resolved `{:tab :authored}` — so one link produced TWO
+            entries: the warm one ownerless, GC-eligible and never reused, and the
+            click arriving as a fresh `:attempt 1` on a second identity. It failed
+            SILENTLY: no error, no warning, a passive prefetch indistinguishable
+            from a working one without measuring — exactly the failure mode
+            `link/validate-prefetch!` argues for failing loud about."
+    (let [app    (boot-app!)
+          handle "ada"
+          pkey   (profile-key handle :authored)
+          props  {:to :conduit/profile :params {:handle handle} :prefetch :intent}]
+      (testing "the link the app renders and the payload it warms name the same
+                destination the click will activate"
+        (is (= (str "/profile/" handle)
+               (:href (second #?(:clj  (routing/route-link-render-ssr props "Profile")
+                                 :cljs (routing/route-link-render     props "Profile")))))
+            "the href omits the key already at its declared default")
+        (is (= [:rf.route/prefetch {:to :conduit/profile :params {:handle handle}}]
+               (link/prefetch-payload props))
+            "the payload is the address only — the defaults are resolved by the
+             prefetch handler, through the same seam the activation uses"))
+
+      ;; hover
+      (rf/dispatch-sync (link/prefetch-payload props) {:frame app})
+      (let [warmed (profile-identities app)]
+        (is (= 1 (count warmed)) "hover warmed exactly one profile identity")
+        (is (= [pkey] warmed)
+            "…and it is the identity the DEFAULT resolves to, not `{:tab nil}`")
+        (is (empty? (route-owners (entry app pkey)))
+            "the warm entry is ownerless — warmup is not activation"))
+
+      ;; click the same link
+      (rf/dispatch-sync [:rf.route/navigate {:to :conduit/profile :params {:handle handle}}]
+                        {:frame app})
+      (let [token    (:nav-token (slice app))
+            profiles (profile-identities app)
+            e        (entry app pkey)]
+        (is (= 1 (count profiles))
+            "ONE entry for the destination — the click joined the warm work
+             instead of starting a fresh load on a second identity")
+        (is (= [[:route :conduit/profile token]] (route-owners e))
+            "the activation attached its real owner to the WARMED entry")
+        (is (= 1 (:attempt e))
+            "…on the first attempt — the warm work was reused, not restarted")
+        (is (= {:tab :authored} (:query (slice app)))
+            "and the committed slice carries the resolved default")))))
 
 #?(:cljs
    (deftest the-real-anchor-intent-handler-composes-and-dispatches

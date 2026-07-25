@@ -43,8 +43,62 @@
               :query    {:tab "comments"}
               :fragment "reply-42"
               :url      "/articles/routing-as-data?tab=comments#reply-42"}))))
-  (testing "resolved-target never re-normalises — an empty :query stays {} exactly as the door resolved it"
+  (testing "the seam reflects rather than re-normalises — for a route declaring
+            no :query-defaults an empty :query stays {} exactly as the door
+            resolved it"
     (is (= {} (:query (resolver/resolved-target {:route-id :route/home :params {} :query {}}))))))
+
+;; ---- the ONE place `:query-defaults` are filled (rf2-kqxe6.23) -------------
+;;
+;; `:query` is the one ResolvedTarget field the seam RESOLVES rather than
+;; reflects: Spec 012 defines a ResolvedTarget as planner output "after
+;; matching, defaults, and validation", and this is the single function every
+;; door shapes its target through. Before this, only `match-url` filled
+;; defaults, so the named-address doors resolved a different target than the
+;; URL doors for one destination.
+
+(deftest resolved-target-fills-the-routes-declared-query-defaults
+  (routing/reg-route :route/page
+    {:params         [:map [:slug :string]]
+     :query          [:map [:tab {:optional true} [:enum :overview :comments]]]
+     :query-defaults {:tab :overview}}
+    "/p/:slug")
+  (routing/reg-route :route/plain {:params [:map [:slug :string]]} "/plain/:slug")
+  (testing "an absent declared-default key is filled — the named-address door
+            resolves the SAME :query match-url gives the URL doors"
+    (is (= {:tab :overview}
+           (:query (resolver/resolved-target {:route-id :route/page
+                                              :params   {:slug "x"}
+                                              :query    {}}))))
+    (is (= (:query (routing/match-url "/p/x"))
+           (:query (resolver/resolved-target {:route-id :route/page
+                                              :params   {:slug "x"}
+                                              :query    {}})))
+        "the two halves of the prism agree on what an absent key means"))
+  (testing "an explicit value WINS over the declared default — the fill is
+            membership-only, never a value transform"
+    (is (= {:tab :comments}
+           (:query (resolver/resolved-target {:route-id :route/page
+                                              :params   {:slug "x"}
+                                              :query    {:tab :comments}})))))
+  (testing "the fill is IDEMPOTENT, so a URL door whose query match-url already
+            filled lowers through the seam unchanged"
+    (let [once  (resolver/resolved-target {:route-id :route/page :params {:slug "x"} :query {}})
+          twice (resolver/resolved-target once)]
+      (is (= (:query once) (:query twice)))))
+  (testing "a route declaring no defaults is untouched — the common case is a
+            passthrough"
+    (is (= {} (:query (resolver/resolved-target {:route-id :route/plain
+                                                 :params   {:slug "x"}
+                                                 :query    {}}))))
+    (is (nil? (:query (resolver/resolved-target {:route-id :route/plain
+                                                 :params   {:slug "x"}})))
+        "an absent :query stays absent rather than being conjured into {}"))
+  (testing "an UNREGISTERED target resolves without throwing — the seam reads the
+            route table, so a not-found target simply has no defaults to fill"
+    (is (= {} (:query (resolver/resolved-target {:route-id :rf.route/not-found
+                                                 :params   {:url "/nope"}
+                                                 :query    {}}))))))
 
 ;; ---- branch + leaf plan ---------------------------------------------------
 

@@ -18,9 +18,11 @@
   the ResolvedTarget fact shape and the plan's diagnostic projection.
 
     - `resolved-target` — the `ResolvedTarget` facts `{:route-id :params
-      :query :fragment :url}`. Facts say `:route-id`; intent says `:to`. It is
-      the value the door commits (it feeds `commit-navigation`'s slice) — so
-      the seam is load-bearing, not a parallel diagnostic copy.
+      :query :fragment :url}`, after matching, defaults, and validation. Facts
+      say `:route-id`; intent says `:to`. It is the value the door commits (it
+      feeds `commit-navigation`'s slice) — so the seam is load-bearing, not a
+      parallel diagnostic copy, and it is where the route's declared
+      `:query-defaults` are filled for EVERY door (rf2-kqxe6.23).
     - `route-plan` — the internal route plan the door executes, carrying the
       R0 diagnostic projection: the source address / raw-URL request, the
       cause, the resolved target, the parent-to-leaf branch, and the
@@ -70,16 +72,44 @@
        :fragment \"reply-42\"
        :url      \"/articles/routing-as-data?tab=comments#reply-42\"}
 
-  after matching, defaults, and validation. It is a FACT, not another accepted
-  input spelling — facts say `:route-id`, intent says `:to`. The values are
-  reflected verbatim from what the door already resolved (route-id / params /
-  query / fragment / the committed URL); this reshaping never re-normalises,
-  so the target a door commits through here is byte-identical to the slice it
-  committed before R0b."
+  after matching, **defaults**, and validation. It is a FACT, not another
+  accepted input spelling — facts say `:route-id`, intent says `:to`.
+
+  `:route-id` / `:params` / `:fragment` / `:url` are reflected VERBATIM from
+  what the door already resolved. `:query` is the one field this seam resolves
+  rather than reflects: the route's declared `:query-defaults` are filled into
+  absent keys here (`registry/query-with-defaults`), because that is the
+  \"defaults\" step Spec 012's own definition of a `ResolvedTarget` names, and
+  this is the ONE place every door's target is shaped.
+
+  That single line is what makes the doors agree (rf2-kqxe6.23). `match-url`
+  fills defaults, so the three URL-bearing doors always had them; the
+  named-address doors — `[:rf.route/navigate {:to …}]`, `route-url`,
+  `rf/route-link`'s href projection and `[:rf.route/prefetch …]` — never go
+  through `match-url` and so never did. For a route declaring
+  `:query-defaults {:tab :overview}` the same destination therefore committed
+  `:query {}` through `{:to …}` and `{:tab :overview}` through every URL door:
+  a different slice, a different derived URL (a different history entry), and a
+  different resource cache identity depending on which door the user came
+  through — the exact split Spec 012 §The one planning pipeline forbids (\"Doors
+  differ in cause and history / scroll policy, not in target, entry, resource,
+  or readiness semantics\"), and the reason R3's intent prefetch was silently
+  inert for such routes (the warm entry and the click's entry landed on two
+  different identities, so hovering then clicking one link produced TWO cache
+  entries with the warm one orphaned).
+
+  Filling HERE rather than per-door is the point: `route-url`'s emission
+  inverse (`registry/query-without-defaults`) keeps the URL free of a key
+  already at its default, so no href changes and each target still has exactly
+  one canonical URL. The fill is idempotent, so a door whose query `match-url`
+  already filled lowers through unchanged, and it is membership-only — no
+  second normalisation pass, no per-door defaults hook, no public
+  defaults-resolution API."
   [{:keys [route-id params query fragment url]}]
   {:route-id route-id
    :params   params
-   :query    query
+   :query    (registry/query-with-defaults (registrar/lookup :route route-id)
+                                           query)
    :fragment fragment
    :url      url})
 

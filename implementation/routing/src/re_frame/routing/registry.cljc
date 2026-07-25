@@ -1047,6 +1047,88 @@
   (into (array-map)
         (sort-by (comp identity/canonical-bytes key) query)))
 
+;; ---- `:query-defaults`: the ONE fill rule and its emission inverse ---------
+;;
+;; `:query-defaults` is DESTINATION-LOCAL declaration (Spec 012 §Query strings
+;; and fragments): the route says what its own query means when a key is absent.
+;; So a filled default is a property of the resolved TARGET, not of the URL that
+;; happened to request it — the target carries it, the URL never spells it, and
+;; `match-url` puts it back on the way in. The two halves of that one rule live
+;; here, next to each other, because this is the namespace that owns what
+;; `:query-defaults` MEANS:
+;;
+;;   `query-with-defaults`    — fill absent keys. `match-url` calls it for the
+;;                              URL-bearing doors; `re-frame.routing.resolve/
+;;                              resolved-target` calls it for the named-address
+;;                              doors, which is the ONE seam every door's target
+;;                              is shaped through.
+;;   `query-without-defaults` — drop a key already at its declared default, on
+;;                              URL EMISSION only.
+;;
+;; Before rf2-kqxe6.23 only the first half existed and only `match-url` ran it,
+;; so `{:to …}` / `route-url` / a link's href / `[:rf.route/prefetch …]` resolved
+;; a DIFFERENT `:query`, a different URL and a different resource identity than
+;; the three URL doors for the same destination — and R3's intent prefetch was
+;; silently inert for every route declaring defaults (the warm entry and the
+;; click's entry landed on two different identities).
+
+(defn query-with-defaults
+  "Fill the route's declared `:query-defaults` into `query`: every key the route
+  declares a default for and `query` does not already carry is added. Returns
+  `query` untouched when the route declares no defaults, so the common case
+  allocates nothing.
+
+  This is the ONE fill definition. Both prism legs and every navigation door
+  reach it: `match-url` for the URL-bearing doors, and
+  `re-frame.routing.resolve/resolved-target` — the single `ResolvedTarget`
+  fact-shaping seam — for the named-address doors (`{:to …}`, `route-url`'s href
+  projection, `[:rf.route/prefetch …]`). That is what makes Spec 012's governing
+  law hold (§The one planning pipeline: \"Doors differ in cause and history /
+  scroll policy, not in target, entry, resource, or readiness semantics\") and
+  what makes `:params` / `:query` / `:query-defaults` the \"contract surface that
+  `match-url` and `route-url` agree on\" (§Reserved route-metadata keys) true
+  rather than aspirational.
+
+  Membership only — never a value transform, and never a key the route did not
+  declare a default for. IDEMPOTENT, so a door whose query is already filled
+  (every URL door, via `match-url`) may lower through it again for free.
+  TOTAL over any key kind: the fill tests `contains?`, so — unlike a canonical
+  reorder — a heterogeneous or host query key cannot make it throw on a path
+  that runs before the caller-bug boundary."
+  [route-meta query]
+  (let [defaults (:query-defaults route-meta)]
+    (if (empty? defaults)
+      query
+      (reduce-kv (fn [m k v] (if (contains? m k) m (assoc m k v)))
+                 query
+                 defaults))))
+
+(defn query-without-defaults
+  "The emission inverse of `query-with-defaults`: drop every query key whose
+  value is EXACTLY the value the route declares as that key's default. Applied
+  by `route-url` when it builds the query string, and nowhere else.
+
+  A URL that omits a defaulted key already MEANS the default — `match-url` fills
+  it back — so spelling it is redundant, and emitting it would make the URL a
+  door-dependent fact: the same destination would derive `/p/x` from a link
+  (whose address omits the key) and `/p/x?tab=overview` from the resolved target
+  (which carries it), i.e. two history entries for one place. Omitting keeps ONE
+  canonical URL per target and makes `route-url ∘ match-url` the identity on
+  every URL re-frame2 itself emits.
+
+  Membership only, and only for keys the route itself declares a default for; an
+  equal-looking value under an undeclared key is untouched. Applied AFTER
+  `:query`-schema validation, so a schema that REQUIRES a defaulted key still
+  validates against the caller's full query — the omission is an emission rule,
+  not a validation hole."
+  [route-meta query]
+  (let [defaults (:query-defaults route-meta)]
+    (if (empty? defaults)
+      query
+      (into (array-map)
+            (remove (fn [[k v]] (and (contains? defaults k) (= v (get defaults k)))))
+            query))))
+
 (defn- coerce-path
   "Coerce a `{keyword-key string-value}` PATH-capture map against the
   precompiled `params-coerce` table (`{:keyword-key type-form}`, from the
@@ -1261,20 +1343,18 @@
                           ;; behalf of attacker-controlled URLs.
                           coerced       (when raw-query
                                           (coerce-query query-coerce defaults raw-query))
-                          ;; Defaults: short-circuit when the route declares no
-                          ;; defaults (the common case). When both raw-query and
-                          ;; defaults are empty, fall back to an empty array-map
-                          ;; so the slice's `:query` shape stays consistent and
-                          ;; `validate-route-shape` below runs against a map.
-                          merged        (cond
-                                          (and (nil? coerced) (empty? defaults)) (array-map)
-                                          (empty? defaults)                      coerced
-                                          :else
-                                          (reduce-kv
-                                            (fn [m k v]
-                                              (if (contains? m k) m (assoc m k v)))
-                                            (or coerced (array-map))
-                                            defaults))
+                          ;; Defaults: the ONE fill rule
+                          ;; (`query-with-defaults`), the same one the
+                          ;; named-address doors reach through
+                          ;; `re-frame.routing.resolve/resolved-target` — so the
+                          ;; URL half and the `{:to …}` half of the prism cannot
+                          ;; disagree about what an absent query key means
+                          ;; (rf2-kqxe6.23). An absent query string falls back to
+                          ;; an empty array-map so the slice's `:query` shape
+                          ;; stays consistent and `validate-route-shape` below
+                          ;; runs against a map.
+                          merged        (query-with-defaults
+                                          route-meta (or coerced (array-map)))
                           ;; rf2-t3cfil (EP-0012 tier-2 routing consumer sweep):
                           ;; reorder the surviving query entries into CEDN-1
                           ;; canonical KEY order — the inbound mirror of
@@ -1888,13 +1968,25 @@
            ;; group; `{/:base}?` absent → `/`, present → `/x`.
            path-out (let [s (apply str parts)]
                       (if (= "" s) "/" s))
-           ;; The nil-elided query map is
-           ;; computed once at the top of the fn so the SAME elided map
-           ;; both feeds `:query`-schema validation AND drives URL emission.
-           ;; `{:page nil}` omits the key rather than emitting a bare
-           ;; `?page=`; a present-but-falsy value (`false`, `0`, `""`) is a
-           ;; legitimate query value and round-trips, but `nil` means
-           ;; "absent" and is elided.
+           ;; The query the URL actually spells. Two elisions, in this order:
+           ;;
+           ;;   1. NIL-valued keys, elided at the top of the fn so the SAME
+           ;;      elided map both feeds `:query`-schema validation AND drives
+           ;;      URL emission. `{:page nil}` omits the key rather than
+           ;;      emitting a bare `?page=`; a present-but-falsy value (`false`,
+           ;;      `0`, `""`) is a legitimate query value and round-trips, but
+           ;;      `nil` means "absent" and is elided.
+           ;;   2. Keys already at the route's DECLARED DEFAULT
+           ;;      (`query-without-defaults`, rf2-kqxe6.23). A URL that omits a
+           ;;      defaulted key already means the default — `match-url` fills it
+           ;;      back — so the resolved target carries it and the URL never
+           ;;      spells it. That keeps ONE canonical URL per target: a link
+           ;;      (whose address omits the key) and the resolved target (which
+           ;;      carries it) derive the SAME href instead of two history
+           ;;      entries for one place. Deliberately AFTER the `:query`-schema
+           ;;      validation above, so a schema that REQUIRES a defaulted key
+           ;;      still validates against the caller's full query.
+           url-query (query-without-defaults route-meta emitted-query)
            ;; Query keys are already CEDN-guarded by the
            ;; canonical-order sort that built `emitted-query` (it runs each
            ;; surviving key through `identity/canonical-bytes`, which throws
@@ -1916,7 +2008,7 @@
            ;; of `(str :asc)` -> `%3Aasc` (which match-url reads as the string
            ;; `":asc"`). Applies after the key/value CEDN guard; a non-enum
            ;; value (or a string key the route never declared) is a passthrough.
-           qs (when (seq emitted-query)
+           qs (when (seq url-query)
                 (str "?"
                      (clojure.string/join "&"
                        (map (fn [[k v]]
@@ -1927,7 +2019,7 @@
                                    "="
                                    (url/url-encode (enum-keyword-token
                                                      (get query-coerce k) v))))
-                            emitted-query))))
+                            url-query))))
            ;; Per Spec 012 §Fragments §Programmatic navigation with
            ;; fragments: the 4-arity emits `#fragment` when non-nil and
            ;; non-empty. Empty-string fragments collapse to no fragment.

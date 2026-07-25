@@ -59,7 +59,7 @@ Colon-prefixed path segments capture into `:params`. `:on-match` is the event ve
 | `:doc` | Free-form description; pair tools read this. |
 | `:params` | Schemas for path segments. |
 | `:query` | Schemas for query-string keys. |
-| `:query-defaults` | Default values for query keys absent from the URL. |
+| `:query-defaults` | Default values for query keys that are absent. Filled in wherever a target is resolved, so every door — a URL, a link, `{:to …}`, a prefetch — resolves the same `:query`. A key already at its default is not emitted into the URL (`match-url` fills it back), so each destination has one canonical URL. |
 | `:tags` | Free-form classification, e.g. `#{:auth-required :admin-only :public}`. |
 | `:parent` | Another route id. Builds a chain readable via `:rf.route/chain`, **and** composes the ancestors' `:resources` into this route's effective plan (parent-to-leaf, with identical requirements deduped). `:parent` is itself the opt-in; nothing else — `:on-match`, `:scroll`, `:head`, `:tags`, the guards — is inherited. |
 | `:on-match` | Event vector(s) the runtime **fires and forgets** when the route activates. It is not a readiness mechanism: it never moves `:rf.route/transition` / `:rf.route/error`, never awaits the async work its events start, and never rewrites their failures into route state — a throwing handler surfaces on the ordinary event error channel. Managed page reads belong in `:resources`. |
@@ -133,6 +133,7 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
   - `:to` is the only required key (requests spell the route id `:to`; facts spell it `:route-id`). `:params`, `:query`, and `:fragment` are optional.
   - `:fragment` appends `#fragment` when it is a non-empty string (`nil` / `""` append nothing).
   - Nil-valued query keys are silently elided. A nil required path param is an error.
+  - A query key already at the route's declared `:query-defaults` value is **not emitted** — `match-url` fills it back, so spelling it would give one destination two URLs. Validation still runs against the caller's full query.
   - Query keys are emitted percent-encoded, in a deterministic canonical order.
   - **Address-only.** `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll` / `:bypass-leave?`), and any unknown key reject **loud** (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than being silently ignored. There is no in-place form — a pure helper cannot read the current route.
 
