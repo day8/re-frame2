@@ -7,7 +7,12 @@
 
     - accepts ONLY a closed named `:rf/route-address` (never a raw `:url`); an
       invalid address rejects BEFORE planning with `:rf.error/prefetch-bad-
-      address`, dispatching no ensures and leaving current readiness untouched;
+      address`, dispatching no ensures and leaving current readiness untouched.
+      Invalid covers BOTH halves: the structural shape, and whether the named
+      destination RESOLVES — an unregistered `:to`, a missing required path
+      param, or `:params` / `:query` that fail the route's schemas reject here
+      too, so prefetch can only ever warm the same registered, validated
+      destination a full activation would (`destination-error` below);
     - resolves the destination + the effective parent-to-leaf branch (routing
       owns the `:parent` walk — `re-frame.routing.events/resolve-branch`) and
       hands it to the late-bound `:routing/on-route-prefetch` warm plan (owned
@@ -40,7 +45,60 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.routing.address :as address]
             [re-frame.routing.events :as routing-events]
+            [re-frame.routing.registry :as registry]
             [re-frame.trace :as trace]))
+
+(defn- destination-error
+  "The named-destination RESOLUTION / VALIDATION gate — run after the structural
+  address gate and BEFORE any planning.
+
+  `address/prefetch-address-error` proves the request is a closed
+  `:rf/route-address`; it cannot know whether that destination is REGISTERED, or
+  whether the supplied `:params` / `:query` satisfy the route's declared schemas.
+  While the structural gate was the only gate, prefetch warmed destinations a
+  real activation refuses: `{:to :route/does-not-exist}` returned `{}` after a
+  SUCCESS summary trace, and a registered `/probe/:id` with `:id` omitted reached
+  the warm hook as `{:params {}}` — the WRONG resource identity — where the same
+  address through `route-url` raises `:rf.error/no-such-route` /
+  `:rf.error/missing-route-param`.
+
+  So the destination resolves through `registry/route-url`, the ONE
+  named-destination resolution / validation boundary the programmatic door
+  already lowers to (Spec 012 §Bidirectional URL ↔ params): the only surface that
+  adjudicates a NAMED address against the route's registration AND its `:params`
+  / `:query` schemas. Prefetch owns no URL (no history, no slice), so the built
+  URL is discarded — the boundary is consulted for its VERDICT, which is exactly
+  the fact prefetch was missing. No new resolver, no new public surface.
+
+  Returns nil when the destination resolves, else the
+  `:rf.error/prefetch-bad-address` payload `{:reason <kw> :keys [<offending>]}`
+  (plus `:route-id` when the throw named one). `:reason` is the bare NAME of the
+  `route-url` error id — `:no-such-route`, `:missing-route-param`,
+  `:route-url-validation`, `:route-url-non-edn-value` — disjoint from the
+  structural gate's reasons, with `:unresolved-destination` as the total
+  fall-through for a throw that carries no `:rf.error/id`.
+
+  The verdict is projected to STRUCTURE ONLY. `route-url`'s ex-data for
+  `:rf.error/route-url-validation` embeds `:value` (the caller's raw params /
+  query) and `:error` (a Malli explainer that reproduces the failing value
+  verbatim) — the URL-carrier class the navigate door has to redact at its own
+  emit site (`navigate/redact-route-error-tags`, rf2-zsm03). A trace tag is an
+  egress surface the route's `:sensitive` classification cannot reach, so this
+  carries the offending KEY and the route id and never a value."
+  [address]
+  (try
+    (registry/route-url address)
+    nil
+    (catch #?(:clj Throwable :cljs :default) ex
+      (let [{:keys [route-id param slot] :as data} (ex-data ex)]
+        (cond-> {:reason (if-let [id (:rf.error/id data)]
+                           (keyword (name id))
+                           :unresolved-destination)
+                 :keys   (cond
+                           param [param]
+                           slot  [slot]
+                           :else [:to])}
+          route-id (assoc :route-id route-id))))))
 
 (defn prefetch-handler
   "`:rf.route/prefetch` event handler. Registered by the facade so a `:reload`
@@ -50,9 +108,10 @@
   `:rf/route-address`. The handler:
     1. requires the carried frame stamp (`:rf.frame/id`) — a cascade-event
        invariant, so the summary trace lands in the emitting frame's epoch;
-    2. rejects a request that is not a closed `:rf/route-address` with
-       `:rf.error/prefetch-bad-address` BEFORE any planning (no ensures, current
-       readiness untouched);
+    2. rejects a request that is not a closed `:rf/route-address`, or whose
+       destination does not RESOLVE against the route registry and its schemas,
+       with `:rf.error/prefetch-bad-address` BEFORE any planning (no ensures, no
+       summary trace, current readiness untouched);
     3. resolves the destination route-id + params and the effective parent-to-
        leaf branch, then consults the late-bound `:routing/on-route-prefetch`
        warm plan;
@@ -69,17 +128,26 @@
   (let [frame (frame/require-frame-stamp!
                 frame :rf.route/prefetch
                 {:where 'rf.route/prefetch-handler})]
-    (if-let [bad (address/prefetch-address-error request)]
-      ;; Invalid address: reject BEFORE planning. No ensures dispatched, current
-      ;; route readiness untouched. Distinct channel from a resource PLANNING
-      ;; failure (a well-formed address whose plan can't be built).
+    ;; TWO gates, in this order, both BEFORE planning: the STRUCTURAL address
+    ;; gate (is this a closed `:rf/route-address`?) and then the DESTINATION
+    ;; gate (does that address resolve to a registered, schema-valid
+    ;; destination?). `or` short-circuits, so a malformed request never reaches
+    ;; the registry and the structural `:reason` still wins — Spec 012 §Route-plan
+    ;; prefetch's "an invalid address rejects BEFORE planning".
+    (if-let [bad (or (address/prefetch-address-error request)
+                     (destination-error request))]
+      ;; Invalid address: reject BEFORE planning. No ensures dispatched, NO
+      ;; success summary trace, current route readiness untouched. Distinct
+      ;; channel from a resource PLANNING failure (a well-formed address, for a
+      ;; destination that DOES resolve, whose resource plan can't be built).
       (do
         (trace/emit-error! :rf.error/prefetch-bad-address
                            (cond-> {:where    :event
                                     :reason   (:reason bad)
                                     :keys     (:keys bad)
                                     :recovery :no-recovery}
-                             frame (assoc :frame frame)))
+                             (:route-id bad) (assoc :route-id (:route-id bad))
+                             frame           (assoc :frame frame)))
         {})
       (let [route-id (:to request)
             params   (:params request {})
