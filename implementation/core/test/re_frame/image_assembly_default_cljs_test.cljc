@@ -438,6 +438,68 @@
               (reg-desc "shop.cart" :event :cart/add ::a)]))
         "only the superseded default's [kind id]")))
 
+;; ---- the framework default's CARRIER CLASSIFICATION rides an override -----
+;;
+;; rf2-kqxe6.20: replacing a framework default replaces BEHAVIOUR. The payload
+;; the framework itself constructs and dispatches (the `:rf.route/entry-denied`
+;; denial map, whose `:requested-url` / `:destination` / `:target` embed query
+;; values and path params) is not the application's to re-describe, so the
+;; framework's own `:sensitive` declaration carries across the override. This is
+;; NOT metadata inheritance: nothing else carries, and nothing but a framework
+;; replaceable default triggers it.
+
+(deftest framework-default-carrier-classification-rides-an-override
+  (testing "an app registration over a framework default keeps the framework's
+            OWN carrier classification, with no boilerplate on the app side"
+    (ss/record-descriptor! :event ::denied
+                           {:rf/framework-default? true
+                            :sensitive             [[:requested-url] [:destination]]
+                            :handler-fn            ::fw-noop})
+    (is (= {:sensitive [[:requested-url] [:destination]]}
+           (asm/framework-default-classification :event ::denied))
+        "the framework's own copy is still readable after supersession")
+    (is (= {:handler-fn ::app :sensitive [[:requested-url] [:destination]]}
+           (asm/retain-framework-default-classification
+             :event ::denied {:handler-fn ::app}))
+        "an override declaring NOTHING still classifies the framework's carriers")))
+
+(deftest an-app-declaration-is-additive-over-the-retained-carriers
+  (testing "the retention is a UNION — the framework's paths first, then the
+            override's own, de-duplicated. Neither side silently loses"
+    (ss/record-descriptor! :event ::denied
+                           {:rf/framework-default? true
+                            :sensitive             [[:requested-url] [:target]]
+                            :handler-fn            ::fw-noop})
+    (is (= [[:requested-url] [:target] [:guard]]
+           (:sensitive (asm/retain-framework-default-classification
+                         :event ::denied {:sensitive [[:guard]]})))
+        "the app's own path is appended, not dropped")
+    (is (= [[:requested-url] [:target]]
+           (:sensitive (asm/retain-framework-default-classification
+                         :event ::denied {:sensitive [[:target]]})))
+        "an override restating a framework path does not duplicate it")))
+
+(deftest retention-is-identity-for-everything-that-is-not-a-framework-default
+  (testing "nothing is inherited outside the narrow rule: an ordinary id, a
+            PROVENANCED descriptor stamping the marker (the forgery case), and a
+            framework default declaring no carriers all pass the metadata
+            through untouched — the same value, not an equal copy"
+    (ss/record-descriptor! :event ::ordinary {:handler-fn ::app
+                                             :sensitive  [[:token]]})
+    (ss/record-descriptor! :event ::forged {:rf.provenance/ns      "shop.auth"
+                                            :rf/framework-default? true
+                                            :sensitive             [[:secret]]
+                                            :handler-fn            ::app})
+    (ss/record-descriptor! :event ::bare-default {:rf/framework-default? true
+                                                  :handler-fn            ::fw-noop})
+    (doseq [id [::ordinary ::forged ::bare-default ::never-registered]]
+      (let [m {:handler-fn ::app}]
+        (is (identical? m (asm/retain-framework-default-classification :event id m))
+            (str "identity-preserving for " id))))
+    (is (nil? (asm/framework-default-classification :event ::forged))
+        "a provenanced descriptor stamping the reserved marker is not the
+         framework's own copy — the same unforgeability the supersession seam has")))
+
 (deftest an-explicit-image-is-unaffected-by-the-default-seam
   (testing "an explicit :select-ns image selects by provenance namespace, so the
             framework's own no-provenance default was never selectable there.
