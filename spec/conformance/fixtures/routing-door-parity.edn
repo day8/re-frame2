@@ -6,30 +6,58 @@
 ;; door (popstate / initial / SSR) all resolve to one canonical target.
 ;; Doors differ only in cause-specific history/scroll effects.
 ;;
-;; The fixture pins the R0 arms of door parity:
-;;   1. NAMED-ADDRESS door — a programmatic `{:to ... :params ...}` navigate
-;;      commits the target and PUSHES the URL.
-;;   2. RAW-URL door — a programmatic `{:url ...}` navigate to the SAME
-;;      destination resolves to an IDENTICAL target and is therefore a rule-3
-;;      no-op (returns {}): no second push, no token. The no-op is the strict
-;;      oracle — the raw-URL door could only be identical if it resolved to
-;;      exactly the target the named-address door committed.
-;;   3. URL-DRIVEN door — `[:rf.route/handle-url-change url]` (the shared
-;;      popstate / initial / SSR entry) lands the SAME target from the URL and
-;;      does NOT push (the URL already came from the browser).
+;; EVERY DOOR LEAVES A POSITIVE FOOTPRINT. This fixture deliberately sends
+;; each door to a DISTINCT destination, so each door's contribution is
+;; asserted by the PRESENCE of a distinguishable effect rather than by the
+;; absence of one. That is not a stylistic choice — it is forced by the
+;; harness. `check-effects-routed` and `check-trace-emissions` are both
+;; ORDER-PRESERVING SUBSET matchers ("extras are tolerated"), so no
+;; `:fixture/expect` key in this runner can assert that an effect did NOT
+;; fire. A fixture that pins a door by "no second push" therefore pins
+;; nothing: deleting that door leaves every assertion satisfied. The three
+;; destinations below (`named` → `raw-url` → `url-driven`) make each door
+;; independently load-bearing:
+;;
+;;   1. NAMED-ADDRESS door — `{:to :route/article :params {:slug "named"}}`
+;;      commits `named` and PUSHES `/articles/named`.
+;;   2. RAW-URL door — `{:url "/articles/raw-url"}` commits `raw-url` and
+;;      PUSHES `/articles/raw-url`. Forward navigation, so `:strategy :top`.
+;;   3. URL-DRIVEN door — `[:rf.route/handle-url-change "/articles/url-driven"]`
+;;      (the shared popstate / initial / SSR entry) commits `url-driven` and
+;;      does NOT push (the URL already came from the browser); the popstate
+;;      default `:strategy :restore` is its signature.
+;;
+;; CONVERGENCE IS ASSERTED POSITIVELY by the `:rf.nav/scroll` `:from` / `:to`
+;; descriptors. Each door's `:to` is the SAME canonical `{:id :params}` target
+;; shape reached from a different door input, and each door's `:from` is the
+;; previous door's `:to` — so the chain pins both the shared resolver output
+;; and the order the doors ran in. Delete door 1 and `/articles/named` is
+;; never pushed; delete door 2 and `/articles/raw-url` is never pushed AND
+;; door 3's `:from` is wrong; delete door 3 and the final target is `raw-url`
+;; instead of `url-driven` AND the `:restore` scroll never fires.
 ;;
 ;; The pure resolver parity is proven directly by the calls: match-url (the
 ;; raw-URL door's resolver) and route-url (the named-address door's URL
 ;; builder) are inverse and converge on the same target/URL; round-trip pins
 ;; the identity.
 ;;
+;; NOT ASSERTED HERE: the rule-3 no-op (a raw-URL navigate to the
+;; already-current target returning `{}`). It is inherently an absence claim
+;; and this runner cannot grade one; it has its own coverage in
+;; routing-on-match-no-rerun-on-identical.edn and
+;; implementation/routing/test/re_frame/routing_classification_test.clj.
+;;
+;; The neuter probe that proves this fixture bites — deleting any one door
+;; reds it — lives in implementation/core/test/re_frame/conformance_test.clj
+;; (`door-parity-fixture-bites`).
+;;
 ;; Per [012 §The one planning pipeline] (#the-one-planning-pipeline) and
 ;; [§URL changes are events] (#url-changes-are-events).
 
 {:fixture/id           :routing/door-parity
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx}
- :fixture/doc          "EP-0037 R0 door parity (row 2): a named-address navigate, a matching raw-URL navigate, and the URL-driven handle-url-change door all resolve to one canonical target. The raw-URL navigate to the already-current target is a strict rule-3 no-op (proving it resolved identically to the named-address door); the URL-driven door lands the same target without a history push. Only the named-address door pushes. match-url and route-url are inverse and converge (calls)."
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx :core/trace}
+ :fixture/doc          "EP-0037 R0 door parity (row 2): a named-address navigate, a raw-URL navigate, and the URL-driven handle-url-change door all lower to ONE resolver. Each door drives a DISTINCT destination so it leaves a positive, independently load-bearing footprint: doors 1 and 2 each push their own URL; door 3 commits its target and never pushes, carrying the popstate-default :restore scroll. The chained :rf.nav/scroll :from/:to descriptors assert convergence on the one canonical target shape — and the door ordering — by presence rather than absence. match-url and route-url are inverse and converge (calls)."
 
  :fixture/registry
  {:event {:rf/init                    {:doc "Seed the current route."}
@@ -53,40 +81,63 @@
  :fixture/frame-config {:initial-events [[:rf/init]] :platform :client}
 
  :fixture/dispatches
- [;; (1) Named-address door — commits route/article, PUSHES the URL.
-  [:rf.route/navigate {:to :route/article :params {:slug "routing-as-data"}}]
+ [;; (1) Named-address door — commits `named`, PUSHES /articles/named.
+  [:rf.route/navigate {:to :route/article :params {:slug "named"}}]
 
-  ;; (2) Raw-URL door to the SAME destination — resolves to an identical
-  ;;     target, so it is a rule-3 no-op ({}). No second push. The absence of
-  ;;     a change strictly proves the raw URL resolved to exactly the named
-  ;;     target committed by (1).
-  [:rf.route/navigate {:url "/articles/routing-as-data"}]
+  ;; (2) Raw-URL door — a DIFFERENT destination, so it must resolve the URL
+  ;;     through the same resolver and commit it: PUSHES /articles/raw-url.
+  [:rf.route/navigate {:url "/articles/raw-url"}]
 
-  ;; (3) URL-driven door (popstate / initial / SSR) — lands the SAME target
-  ;;     from the URL; does NOT push (the URL came from the browser).
-  [:rf.route/handle-url-change "/articles/routing-as-data"]]
+  ;; (3) URL-driven door (popstate / initial / SSR) — commits `url-driven`
+  ;;     from the URL and does NOT push (the URL came from the browser).
+  [:rf.route/handle-url-change "/articles/url-driven"]]
 
  :fixture/calls
  ;; Pure resolver parity: the raw-URL door's resolver (match-url) and the
  ;; named-address door's URL builder (route-url) are inverse and converge on
  ;; the same target/URL; round-trip pins the identity.
- [{:call :match-url :url "/articles/routing-as-data"
-   :expect {:route-id :route/article :params {:slug "routing-as-data"} :query {} :fragment nil :validation-failed? false}}
-  {:call :route-url :route-id :route/article :params {:slug "routing-as-data"}
-   :expect "/articles/routing-as-data"}
-  {:call :round-trip :url "/articles/routing-as-data"}]
+ [{:call :match-url :url "/articles/raw-url"
+   :expect {:route-id :route/article :params {:slug "raw-url"} :query {} :fragment nil :validation-failed? false}}
+  {:call :route-url :route-id :route/article :params {:slug "raw-url"}
+   :expect "/articles/raw-url"}
+  {:call :round-trip :url "/articles/raw-url"}]
 
  :fixture/expect
- ;; All three doors converge on one canonical target. Submap match tolerates
- ;; :transition/:nav-token/etc.
+ ;; The URL-driven door ran last, so the canonical target it resolved is the
+ ;; committed one. Load-bearing on door 3: without it the slug is "raw-url".
  {:final-runtime-db
   {:rf.runtime/routing
    {:current {:route-id :route/article
-              :params   {:slug "routing-as-data"}
+              :params   {:slug "url-driven"}
               :query    {}
               :fragment nil}}}
 
-  ;; Only the named-address door (1) drives a history push. The raw-URL door
-  ;; (2) no-ops; the URL-driven door (3) never pushes.
+  ;; The full ordered navigation-effect chain. Each push names the door that
+  ;; produced it; each scroll's :from/:to pins the canonical target shape both
+  ;; the door before and the door itself resolved to.
   :effects-routed
-  [{:fx-id :rf.nav/push-url :args "/articles/routing-as-data"}]}}
+  [;; (1) named-address door
+   {:fx-id :rf.nav/push-url :args "/articles/named"}
+   {:fx-id :rf.nav/scroll
+    :args  {:strategy :top
+            :from     {:id :route/home}
+            :to       {:id :route/article :params {:slug "named"}}}}
+   ;; (2) raw-URL door — same resolver, distinct destination
+   {:fx-id :rf.nav/push-url :args "/articles/raw-url"}
+   {:fx-id :rf.nav/scroll
+    :args  {:strategy :top
+            :from     {:id :route/article :params {:slug "named"}}
+            :to       {:id :route/article :params {:slug "raw-url"}}}}
+   ;; (3) URL-driven door — no push; popstate-default :restore
+   {:fx-id :rf.nav/scroll
+    :args  {:strategy :restore
+            :from     {:id :route/article :params {:slug "raw-url"}}
+            :to       {:id :route/article :params {:slug "url-driven"}}}}]
+
+  ;; Both matchers CONSUME each match, so listing :rf.route/navigate twice
+  ;; requires two actual run-starts — the duplicate entry is load-bearing.
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/init}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/navigate}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/navigate}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/handle-url-change}}]}}

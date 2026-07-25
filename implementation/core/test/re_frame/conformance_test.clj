@@ -224,6 +224,48 @@
                 {:fixture/expect {:final-app-db {} :epoch-records []}}))
       "corpus-checked expectation keys must NOT be flagged unknown"))
 
+;; ---- rf2-kqxe6.2 NEUTER PROBE for routing/door-parity ---------------------
+;;
+;; The door-parity fixture claims all three navigation doors lower to ONE
+;; resolver. It used to assert doors 2 and 3 purely by the ABSENCE of a further
+;; history push — and both `check-effects-routed` and `check-trace-emissions`
+;; are ORDER-PRESERVING SUBSET matchers ("extras are tolerated"), so no
+;; `:fixture/expect` key in this runner can grade an absence. The fixture
+;; therefore passed with doors 2 and 3 DELETED, proving nothing it advertised.
+;; The repair gives every door a distinct destination and thus a positive
+;; footprint; this probe is what holds the repair in place.
+
+(defn- door-parity-fixture []
+  (or (some (fn [[n f]] (when (= n "routing-door-parity.edn") f)) (all-fixtures))
+      (throw (ex-info "routing-door-parity.edn is missing from the corpus" {}))))
+
+(defn- without-doors
+  "The fixture with the 0-based `:fixture/dispatches` indices in `idxs` removed."
+  [fixture idxs]
+  (let [drop? (set idxs)]
+    (update fixture :fixture/dispatches
+            #(vec (keep-indexed (fn [i d] (when-not (drop? i) d)) %)))))
+
+(deftest door-parity-fixture-bites
+  (let [fixture (door-parity-fixture)
+        passes? (fn [f] (:passed? (runner/run-fixture f host)))]
+    (is (passes? fixture)
+        "the door-parity fixture must pass as shipped")
+    (doseq [[door idx] [["named-address" 0] ["raw-URL" 1] ["URL-driven" 2]]]
+      (is (not (passes? (without-doors fixture [idx])))
+          (str "deleting the " door " door MUST red the door-parity fixture")))
+    (is (not (passes? (without-doors fixture [1 2])))
+        "the named-address door alone MUST NOT satisfy the door-parity fixture")
+    ;; The `:fixture/calls` leg cannot be probed by DELETION — removing an
+    ;; expectation can never fail a subset-matching runner. Perturbing one
+    ;; proves the pure-resolver leg is graded rather than silently skipped.
+    (is (not (passes? (assoc fixture :fixture/calls
+                            [{:call     :route-url
+                              :route-id :route/article
+                              :params   {:slug "raw-url"}
+                              :expect   "/articles/DELIBERATELY-WRONG"}])))
+        "a wrong :fixture/calls expectation MUST red the door-parity fixture")))
+
 ;; ---- rf2-ska8zk NEGATIVE self-test for the :expect-graph guard ------------
 ;;
 ;; The broad derivation-graph fixture pins the live graph's {:mode :live
