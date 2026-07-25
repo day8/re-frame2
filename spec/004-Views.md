@@ -1786,8 +1786,11 @@ event handler:
   (two live connections claiming one id), an unregistered operation, and a
   malformed command each refuse with a stable diagnostic id and perform no host
   work.
-- **It returns no handle.** A result that matters to domain state comes back as
-  an event the behavior dispatches through its generation-fenced context.
+- **It returns no handle, and its return is IGNORED.** A command is performed for
+  its effect on the host, and it does not replace the connection's private memory
+  either — only `:connect` writes that (§The registration and the closed timing
+  set). A result that matters to domain state comes back as an event the behavior
+  dispatches through its generation-fenced context.
 
 A command is not a request/response layer and not a second event system. The
 split is taught plainly: state changed → an event updates app state → the view

@@ -626,10 +626,11 @@
       (is (thrown? :default (carrier "click:dead"))
           "invoking it the way a library would THROWS — the whole point of the
            carrier not being callable")
-      (let [el (react/createElement rpilot/acme-widget rpilot/dead-carrier-props)]
-        (is (identical? el (fr/element el))
+      (let [el      (react/createElement rpilot/acme-widget rpilot/dead-carrier-props)
+            ^js kid (fr/element el)]
+        (is (identical? el kid)
             "the child fold passes a finished React element through IDENTICALLY")
-        (is (identical? carrier (.-onPing (.-props (fr/element el))))
+        (is (identical? carrier (unchecked-get (.-props kid) "onPing"))
             "so the carrier is still the carrier on the other side — there is no
              materialisation point on this path at all")))))
 
