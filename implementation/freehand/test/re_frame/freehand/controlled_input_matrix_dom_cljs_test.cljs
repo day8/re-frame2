@@ -53,6 +53,14 @@
   arms drive the composition protocol themselves), and the single-mode
   depth rests on the three field tests above.
 
+  What that map does NOT claim, and each of those tests says so in its own
+  words: a headless Chromium has no platform input engine, so they
+  dispatch the composition-event PROTOCOL a browser really dispatches —
+  `compositionstart` / `compositionupdate` / `compositionend` with real
+  `InputEvent`s carrying `isComposing` — rather than exercising a real
+  Japanese IME. That is the honest ceiling of the browser lane, and it is
+  the same ceiling the F6b promise was written against.
+
   Rides the browser lane through its `-dom-cljs-test` suffix; under node
   it has no DOM and says so."
   (:require ["react" :as react]
