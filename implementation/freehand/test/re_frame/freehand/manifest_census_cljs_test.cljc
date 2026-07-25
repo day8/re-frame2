@@ -20,10 +20,17 @@
   2. **Every entry is source-locatable** — `FH-STRUCT-010` again. A count
      of three subscriptions that cannot say which three lines is a fact
      nothing can act on, so each entry carries the required keys and a
-     whole `:source-coord`. The coordinate is TOTAL — a site the reader
-     anchored nowhere inherits its declaration's position — which is why
-     this half is host-neutral even though the exact positions are not
-     (`re-frame.freehand.manifest-source-coord-jvm-test` pins those).
+     whole `:source-coord`. Every census declaration is written at top
+     level, so the reader anchored it: what this proves is the TOTAL arm
+     — a site the reader anchored nowhere inherits its declaration's
+     position rather than a fabricated line — which is why this half is
+     host-neutral even though the exact positions are not
+     (`re-frame.freehand.manifest-source-coord-jvm-test` pins those). The
+     other arm is ABSENCE, unreachable from a top-level census and proven
+     by `re-frame.freehand.manifest-total-or-absent-coord-jvm-test`: a
+     declaration a wrapper macro generated without copying `(meta &form)`
+     leaves no reader location for a site to inherit, and its entries
+     OMIT the key rather than carry a partial map.
      Only two of the six rosters are non-empty over this census, so the
      row asserted here would pass over nothing on the other four:
      `re-frame.freehand.manifest-roster-coverage-cljs-test` owns the
@@ -104,9 +111,12 @@
             entry of every roster carries the keys the fixture requires —
             including the `:source-coord` that names the form which produced
             it — so a manifest fact traces back to a line rather than only to
-            a view. The coordinate is TOTAL: a site the reader anchored
-            nowhere inherits its declaration's position, so the field is
-            present on every entry on every host."
+            a view. The census declarations are anchored, so this is the TOTAL
+            arm: a site the reader anchored nowhere inherits its declaration's
+            position, and the field is present and whole on every entry on
+            every host. The ABSENT arm — a declaration the reader anchored
+            nowhere at all, whose entries omit the key — belongs to
+            `re-frame.freehand.manifest-total-or-absent-coord-jvm-test`."
     (let [required (:required-keys struct-010)
           coord-ks (:source-coord-keys struct-010)
           findings (:finding-rosters struct-010)]

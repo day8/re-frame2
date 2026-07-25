@@ -36,9 +36,11 @@
   build-log line it must agree with came from the same reader. A single
   cross-host table of exact coordinates would therefore have to assert
   something false on one host. The host-neutral half of the contract —
-  that every roster entry carries a well-formed `:source-coord` at all —
-  is `FH-STRUCT-010`, asserted on both hosts in
-  `re-frame.freehand.manifest-census-cljs-test`."
+  that every roster entry of an ANCHORED declaration carries a well-formed
+  `:source-coord` at all — is `FH-STRUCT-010`, asserted on both hosts in
+  `re-frame.freehand.manifest-census-cljs-test`; the declaration nothing
+  anchored, whose entries omit the field, is
+  `re-frame.freehand.manifest-total-or-absent-coord-jvm-test`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]))
 
