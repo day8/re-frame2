@@ -72,8 +72,9 @@ ships that meaning rather than leaving each adapter to guess.
 The denial handler drains *before* the render step, so you have two ways to
 supersede it:
 
-- **`[:rf.server/redirect {:location "/login"}]`** — the login bounce. Redirect
-  precedence (above) truncates the HTML *and* replaces the status.
+- **`[:rf.server/redirect {:location "/login"}]`** — the login bounce.
+  [Redirect precedence](#redirects-truncate-the-render) truncates the HTML *and*
+  replaces the status.
 - **`[:rf.server/set-status 404]`** — or any other status, winning by last-write.
   Use `404` when you would rather hide that the route exists at all.
 
