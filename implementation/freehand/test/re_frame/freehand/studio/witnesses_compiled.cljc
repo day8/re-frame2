@@ -21,7 +21,7 @@
               :style      {:padding-left 4 :color "rebeccapurple"}
               :data-index i
               :title      "row"}
-   [:img.avatar {:src "/a.png" :alt ""}]
+   [:img.avatar {:src "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" :alt ""}]
    [:span.label "row "]
    [:em.badge i]])
 
@@ -54,16 +54,21 @@
   [:span.w2read {:data-i i} (str (v/sub [:studio/tick]))])
 
 (v/defview w2
-  "Many small boundaries under one root."
+  "Many small SUB-FREE boundaries under one root — the elision witness."
   {:compiled true}
-  [{:keys [free reads]}]
-  [:div.w2
-   [:ul.free
-    (for [i (range free)]
-      [w2-free {:key i :i i}])]
-   [:ul.reads
-    (for [i (range reads)]
-      [w2-read {:key i :i i}])]])
+  [{:keys [free]}]
+  [:ul.free
+   (for [i (range free)]
+     [w2-free {:key i :i i}])])
+
+(v/defview w2r
+  "Many small REACTIVE boundaries under one root — the control on the
+  elision witness. Neither tier can elide these."
+  {:compiled true}
+  [{:keys [reads]}]
+  [:ul.reads
+   (for [i (range reads)]
+     [w2-read {:key i :i i}])])
 
 ;; --- W3 — an ordinary form/control ------------------------------------------
 

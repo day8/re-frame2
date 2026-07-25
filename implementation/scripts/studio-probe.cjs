@@ -27,6 +27,7 @@ function arg(name, dflt) {
 }
 const BUILD   = arg('build', 'studio-probe');
 const PROFILE = process.argv.includes('--profile');
+const QUERY   = arg('query', '');
 const DIR     = path.join(ROOT, 'out', BUILD);
 
 const PAGE = `<!doctype html><meta charset="utf-8"><title>studio probe</title>
@@ -34,7 +35,8 @@ const PAGE = `<!doctype html><meta charset="utf-8"><title>studio probe</title>
 
 function serve(dir) {
   const server = http.createServer((req, res) => {
-    const name = req.url === '/' ? 'index.html' : req.url.replace(/^\//, '').split('?')[0];
+    const bare = req.url.split('?')[0];
+    const name = (bare === '/' || bare === '') ? 'index.html' : bare.replace(/^\//, '');
     const file = path.join(dir, name);
     if (!file.startsWith(dir) || !fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, {
@@ -59,10 +61,32 @@ function selfTimeTable(profile) {
     const key = `${f.functionName || '(anonymous)'}  ${(f.url || '').split('/').pop()}:${f.lineNumber}`;
     self.set(key, (self.get(key) || 0) + 1);
   }
-  return [...self.entries()]
+  const lines = [...self.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 45)
+    .slice(0, 30)
     .map(([k, n]) => `${(100 * n / total).toFixed(2)}%  ${String(n).padStart(6)}  ${k}`);
+
+  // Bucket every sample by WHO the frame belongs to. This is the headroom
+  // question: what share of a mount is substrate code at all, versus React,
+  // the DOM, the engine and idle. Buckets are decided by the frame's own
+  // name, so nothing is attributed by assumption.
+  const bucket = new Map();
+  for (const id of profile.samples) {
+    const n = byId.get(id);
+    const fn = n ? (n.callFrame.functionName || '(anonymous)') : '(unknown)';
+    const url = n ? (n.callFrame.url || '') : '';
+    let b;
+    if (/^\(/.test(fn)) b = fn;                                  // (idle) (program) (gc)
+    else if (/freehand|re_frame/.test(fn)) b = 'substrate: freehand/re-frame';
+    else if (/^\$cljs\$core|^\$clojure\$/.test(fn)) b = 'substrate: cljs.core / clojure.string';
+    else if (/^\$goog\$/.test(fn)) b = 'substrate: goog';
+    else if (url === '') b = 'host: DOM/native';
+    else b = 'react + engine (mangled)';
+    bucket.set(b, (bucket.get(b) || 0) + 1);
+  }
+  const buckets = [...bucket.entries()].sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${(100 * n / total).toFixed(2)}%  ${String(n).padStart(6)}  ${k}`);
+  return [...lines, '', '--- by bucket ---', ...buckets, `total samples: ${total}`];
 }
 
 (async () => {
@@ -90,7 +114,8 @@ function selfTimeTable(profile) {
     await session.send('Profiler.start');
   }
 
-  await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
+  const url = `http://127.0.0.1:${port}/` + (QUERY ? `?${QUERY}` : '');
+  await page.goto(url, { waitUntil: 'load' });
   await page.waitForFunction('window.__STUDIO_DONE__ === true', null, { timeout: 300000 });
 
   if (PROFILE) {
@@ -110,5 +135,38 @@ function selfTimeTable(profile) {
     for (const e of pageErrors.slice(0, 10)) console.error(`  ${e}`);
     process.exit(1);
   }
-  console.log(JSON.stringify({ build: BUILD, ...out }, null, 2));
+  if (QUERY) console.log(JSON.stringify(out));
+  else summarise(out, BUILD);
+  fs.writeFileSync(path.join(ROOT, 'out', `${BUILD}-raw.json`), JSON.stringify(out, null, 2));
 })().catch((e) => { console.error(e); process.exit(1); });
+
+function stats(xs) {
+  const s = [...xs].sort((a, b) => a - b);
+  const q = (p) => s[Math.min(s.length - 1, Math.max(0, Math.ceil(p * s.length) - 1))];
+  return { n: s.length, min: s[0], p50: q(0.5), p95: q(0.95), max: s[s.length - 1],
+           mean: s.reduce((a, b) => a + b, 0) / s.length };
+}
+const f2 = (x) => (typeof x === 'number' ? x.toFixed(3) : String(x));
+
+function table(title, group, keys) {
+  console.log(`\n### ${title}`);
+  console.log(['arm', ...keys.flatMap((k) => [`${k} p50`, `${k} min`, `${k} max`])].join('\t'));
+  for (const [arm, rows] of Object.entries(group)) {
+    const cells = keys.flatMap((k) => {
+      const st = stats(rows.map((r) => r[k]));
+      return [f2(st.p50), f2(st.min), f2(st.max)];
+    });
+    console.log([arm, ...cells].join('\t'));
+  }
+}
+
+function summarise(out, build) {
+  console.log(`# studio probe — ${build}`);
+  console.log(`fixture: ${JSON.stringify(out.fixture)}`);
+  console.log(`precise memory: ${out['precise-memory?']}`);
+  console.log(`manifests: ${JSON.stringify(out.manifests)}`);
+  console.log(`parity: ${JSON.stringify(out.parity)}`);
+  table('MOUNT (ms)', out.mounts, ['react-ms', 'layout-ms', 'settle-ms', 'frame-ms']);
+  table('MOUNT heap delta (bytes)', out.mounts, ['heap-bytes']);
+  table('UPDATE (ms)', out.updates, ['react-ms', 'layout-ms', 'settle-ms']);
+}
