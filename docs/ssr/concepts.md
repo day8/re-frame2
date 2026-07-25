@@ -324,7 +324,7 @@ The framework ships a default projector that maps the obvious cases — a routin
     *refuses* throws nothing — it is the app working correctly — so the runtime
     stamps `403` on the response directly, before your `:rf.route/entry-denied`
     handler drains. Nothing for you to project; see
-    [the entry-denial `403` floor](response.md#one-status-the-framework-writes-for-you-the-entry-denial-403).
+    [the entry-denial `403` floor](response.md#a-status-the-framework-writes-for-you-the-entry-denial-403).
 
 The wiring facts, one at a time:
 
