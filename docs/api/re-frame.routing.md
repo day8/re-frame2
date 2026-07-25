@@ -1,6 +1,6 @@
 # re-frame.routing
 
-Routes are data. You register a route with a path and a metadata map (`:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`, …). URL changes become events. The current route lives in the frame's runtime-db at `[:rf.runtime/routing :current]` and is read via the `:rf/route` sub. Navigation is dispatching an event.
+Routes are data. You register a route with a path and a metadata map (`:params`, `:query`, `:on-match`, `:can-leave`, `:can-enter`, …). URL changes become events. The current route lives in the frame's runtime-db at `[:rf.runtime/routing :current]` and is read via the `:rf/route` sub. Navigation is dispatching an event.
 
 This namespace is the public boot point and façade for the routing artefact. Requiring it wires every routing event, fx, cofx, and sub. The `reg-route` macro is published on the `re-frame.core` facade. The rest of the surface lives here:
 
@@ -60,11 +60,9 @@ Colon-prefixed path segments capture into `:params`. `:on-match` is the event ve
 | `:params` | Schemas for path segments. |
 | `:query` | Schemas for query-string keys. |
 | `:query-defaults` | Default values for query keys absent from the URL. |
-| `:query-retain` | Keys to preserve across navigations to other routes. |
 | `:tags` | Free-form classification, e.g. `#{:auth-required :admin-only :public}`. |
 | `:parent` | Another route id; builds a chain readable via `:rf.route/chain`. |
 | `:on-match` | Event vector(s) to dispatch when the route activates. |
-| `:on-error` | Event vector dispatched if any `:on-match` event errors. |
 | `:can-leave` | Guard sub-query run before leaving the route. Closed boolean contract: `true` allows, `false` blocks. Any non-boolean also blocks and emits `:rf.error/can-leave-non-boolean`. The name reads positively, so `false` means "can NOT leave". The sub receives the pending target as an argument. See [Routing → Blocking a navigation](../routing/concepts.md#blocking-a-navigation). |
 | `:can-enter` | Guard sub-query run before entering the route (the auth-gate mirror of `:can-leave`). Closed boolean contract: `true` allows entry, `false` blocks. Any non-boolean also blocks and emits `:rf.error/can-enter-non-boolean`. A rejection is TERMINAL — nothing commits, no pending value is created, and the runtime dispatches `:rf.route/entry-denied` once. See [Routing → Guarding entry](../routing/concepts.md#guarding-entry--can-enter). |
 | `:scroll` | Scroll-restoration behaviour for this route. |
@@ -111,7 +109,7 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
 
   - Returns `nil` when no route matches. Also fails closed to `nil` on malformed percent-encoding anywhere in the URL.
   - When the route declares `:params` / `:query` schemas and the parsed values fail them, `:validation-failed?` is `true` and the explanation rides under `:validation-error`.
-  - Query keys the route declares (via `:query` / `:query-defaults` / `:query-retain`) come back as keyword keys, in a deterministic canonical order. Undeclared keys stay strings.
+  - Query keys the route declares (via `:query` / `:query-defaults`) come back as keyword keys, in a deterministic canonical order. Undeclared keys stay strings.
 - **Example**:
   ```clojure
   ;; with (rf/reg-route :user/show {} "/users/:id") registered:
