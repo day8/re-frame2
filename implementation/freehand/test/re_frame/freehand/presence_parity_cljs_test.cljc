@@ -1,16 +1,21 @@
 (ns re-frame.freehand.presence-parity-cljs-test
-  "FH-PRESENCE-001 — a presence boundary projects one structural value, in
-  both modes and on both hosts.
+  "FH-PRESENCE-001 and FH-PRESENCE-004 — a presence boundary, and the
+  presence-aware child under it, project one structural value each, in both
+  modes and on both hosts.
 
   The retention behaviour is a runtime machine (FH-PRESENCE-002 pins the
   state machine, FH-PRESENCE-003 the real browser). This suite pins the
-  STRUCTURAL projection: the `:rf.ui/presence` marker, the terminal
-  `:timeout-ms`, and the retained children rendered `:present`. It renders
-  the interpreted views in `re-frame.freehand.presence-views` AND their
-  `{:compiled true}` twins against the SAME `FH-PRESENCE-001` fixture rows —
-  same call sites, same pinned trees, the view-id namespace the only
-  mechanical substitution — so an interpreted `(v/presence …)` and a
-  compiled one are proven to denote the same node.
+  STRUCTURAL projection: `FH-PRESENCE-001` the presence NODE — the
+  `:rf.ui/presence` marker, the terminal `:timeout-ms`, and the retained
+  children rendered `:present` — and `FH-PRESENCE-004` the CHILD's own
+  `(v/presence-phase)` read, which a render with no lifecycle answers
+  `:present`. It renders the interpreted views in
+  `re-frame.freehand.presence-views` AND their `{:compiled true}` twins
+  against the SAME fixture rows — same call sites, same pinned trees, the
+  view-id namespace the only mechanical substitution — so an interpreted
+  `(v/presence …)` and a compiled one are proven to denote the same node,
+  and a phase read is proven to be a fact about the RENDERER rather than
+  about the compiler.
 
   Running on the JVM and in ClojureScript is the cross-host arm: the
   lowering is `.cljc` and its output is asserted against one fixture value
@@ -105,7 +110,7 @@
           "the presence node is the boundary's child, not adopted away"))))
 
 ;; ---------------------------------------------------------------------------
-;; The phase READ under a structural render — rf2-erqin
+;; FH-PRESENCE-004 — the phase READ under a structural render (rf2-erqin)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The rows above pin the presence NODE. These pin the presence-aware CHILD:
@@ -118,56 +123,60 @@
 ;; ClojureScript arm was an unconditional `react/useContext`, and `t/render`
 ;; opens no React render, so the identical declaration threw
 ;; `TypeError: Cannot read properties of null (reading 'useContext')`.
+;;
+;; It is a GOVERNED row rather than two ordinary tests, and the reason is the
+;; ledger's own: FH-PRESENCE-001's declarations carry no phase read, so its
+;; green never implied this and could not have caught the regression. A law
+;; proven only by tests the conformance census cannot see is a law that can be
+;; deleted without the index noticing (rf2-nxykb).
 
-(v/defview toast-card
-  "The presence-aware child Spec 004 §Presence teaches: it owns its exit
-  styling and accessibility by reading its OWN phase. Nothing here is
-  host-bearing — the read is the whole point."
-  [{:keys [label]}]
-  (let [phase    (v/presence-phase)
-        exiting? (= :unmounting phase)]
-    [:div.toast {:class       (when exiting? "toast--exit")
-                 :aria-hidden (when exiting? "true")
-                 :data-phase  (name phase)}
-     label]))
+(def presence-004 (conf/fixture :FH-PRESENCE-004))
 
-(v/defview toast-stack
-  "The same child under a real boundary — the whole declaration a consumer
-  writes, rendered structurally in one call."
-  [_]
-  [:div.stack
-   (v/presence {:timeout-ms 300}
-     [toast-card {:key "a" :label "saved"}])])
+(deftest fh-presence-004-a-phase-reading-child-renders-in-both-modes
+  (testing "Per FH-PRESENCE-004: a declaration that reads its own
+            (v/presence-phase) renders under t/render — outside a boundary and
+            under one — and the tree it produces is one pinned value from the
+            interpreted declaration and from its compiled twin. The tree
+            equality is the whole assertion: the expected :attrs maps are
+            exact, so a phase other than :present, a stray exit class or a
+            stray :aria-hidden all fail here."
+    (is (seq (:cases presence-004)) "the fixture's case table loaded")
+    (doseq [{:keys [note view args tree]} (:cases presence-004)]
+      (let [interpreted (get views/by-name view)
+            promoted    (get compiled/by-name view)
+            call        (into [] args)]
+        (is (some? interpreted) (str "the fixture names an interpreted view: " view))
+        (is (some? promoted) (str "the fixture names a promoted twin: " view))
+        (is (= tree (tree/render (into [interpreted] call)))
+            (str note " (interpreted)"))
+        (is (= (as-compiled-ids tree) (tree/render (into [promoted] call)))
+            (str note " (compiled — the same node, from the same call)"))))))
 
-(deftest a-presence-phase-reading-child-renders-structurally
-  (testing "A view that reads its own (v/presence-phase) renders under
-            t/render on both hosts, and reads :present — the one phase a
-            render with no retention machine can truthfully report."
-    (let [t    (t/render [toast-card {:label "saved"}])
-          card (t/find t #(= :div (:tag %)))]
-      (is (= "present" (:data-phase (t/attrs card)))
-          "the child stamped the phase it read")
-      (is (= "toast" (:class (t/attrs card)))
-          "and no exit class — a structural render is never :unmounting")
-      (is (not (contains? (t/attrs card) :aria-hidden))
-          "nor is the exiting subtree hidden from the a11y tree")
-      (is (= "saved" (t/text t))
-          "the child rendered its content rather than throwing"))))
-
-(deftest a-presence-phase-read-under-a-boundary-renders-structurally
-  (testing "The same child UNDER a (v/presence …) boundary renders too, and
-            agrees with the boundary's own marker: the node says :present and
-            so does every child that asks."
-    (let [t        (t/render [toast-stack {}])
-          stack    (t/find t #(= :div (:tag %)))
-          presence (t/find t :rf.ui/presence)
-          card     (t/find presence #(= :div (:tag %)))]
+(deftest fh-presence-004-the-structural-phase-is-present-and-nothing-exits
+  (testing "Per FH-PRESENCE-004, said in the fixture's own vocabulary rather
+            than left implied by a map equality: the phase the child READ is
+            the one a render with no retention machine can truthfully report,
+            and the two exit facts FH-PRESENCE-003 asserts are PRESENT while
+            :unmounting are asserted ABSENT here. Read through the public
+            `t/find` / `t/attrs` a consumer's own structural test calls."
+    (let [phase      (:structural-phase presence-004)
+          exit-class (:exit-class presence-004)
+          exit-aria  (:exit-aria presence-004)
+          rendered   (t/render [views/phase-stack {}])
+          stack      (t/find rendered #(= :div (:tag %)))
+          presence   (t/find rendered :rf.ui/presence)
+          card       (t/find presence #(= :div (:tag %)))]
+      (is (and (string? phase) (seq phase)) "the fixture states the phase")
       (is (= "stack" (:class (t/attrs stack)))
           "the whole declaration rendered rather than throwing")
-      (is (= {:phase :present :timeout-ms 300} (:rf.ui/presence presence))
-          "the boundary node renders its children :present")
-      (is (= "present" (:data-phase (t/attrs card)))
-          "and the child's own read agrees with it")
+      (is (= {:phase (keyword phase) :timeout-ms 300} (:rf.ui/presence presence))
+          "the boundary node renders its children in that phase")
+      (is (= phase (:data-phase (t/attrs card)))
+          "and the child's own read agrees with the boundary")
+      (is (not (re-find (re-pattern exit-class) (:class (t/attrs card))))
+          "no exit class — a structural render is never :unmounting")
+      (is (not (contains? (t/attrs card) exit-aria))
+          "nor is the subtree hidden from the accessibility tree")
       (is (= "saved" (t/text presence))
           "with its content in place"))))
 

@@ -1220,11 +1220,16 @@ below is one implementation, not two that agree.
   and accessibility: it stamps `inert` / `aria-hidden` and its exit class against
   `(v/presence-phase)` = `:unmounting`, and its stylesheet honours
   `prefers-reduced-motion`.
-- **The structural projection.** The JVM structural host has no lifecycle, so it
+- **The structural projection.** The structural render has no lifecycle, so it
   renders every retained child `:present` and exposes the presence fact
   structurally as a fragment carrying `:rf.ui/presence {:phase :present
   :timeout-ms n}` — a droppable reserved marker, so a consumer that does not
-  read it sees a plain fragment of `:present` children.
+  read it sees a plain fragment of `:present` children. That is a fact about the
+  RENDERER, not about the host or the mode: the structural render answers
+  `(v/presence-phase)` = `:present` on the JVM and in ClojureScript alike, and
+  from an interpreted declaration and a `{:compiled true}` one alike, so a
+  presence-aware child RENDERS under a structural test rather than reaching for
+  a lifecycle that is not there.
 - **Test behaviour.** A deterministic clock advances retention without a
   wall-clock sleep, so a retention window closes exactly when a test says and a
   run carries no wall-clock flake.
