@@ -245,9 +245,13 @@
 ;; query values and path params). Mark those argument paths sensitive so
 ;; dispatched-event trace copies redact their carrier values; handlers and
 ;; the `:rf/pending-navigation` sub still receive the original in-process map.
-;; An application handler REPLACING one of these defaults replaces its
-;; registration meta too, so it re-declares `:sensitive` if it wants the same
-;; trace redaction — the classification rides the registration, not the id.
+;; Both payloads are FRAMEWORK-CONSTRUCTED, so this classification is the
+;; framework's own fact about its own payload shape, not something an
+;; application handler has any reason to restate. An application handler
+;; REPLACING one of these defaults replaces the BEHAVIOUR only: the declaration
+;; below rides forward and unions with anything the app declares
+;; (`image-assembly/retain-framework-default-classification`, rf2-kqxe6.20), so
+;; the canonical auth recipe keeps the redaction with no boilerplate.
 (def ^:private nav-carrier-sensitive
   [[:requested-url] [:destination] [:target]])
 (events/reg-event :rf.route/navigation-blocked

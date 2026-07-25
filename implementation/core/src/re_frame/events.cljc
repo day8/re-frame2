@@ -1030,7 +1030,18 @@
     ;; author paths (EP-0025 — frame-declared paths are the sole app-db
     ;; classification mechanism).
     (classification/validate-classification! :event meta)
-    (let [requires-parsed (cofx/parse-requires id (:rf.cofx/requires meta))]
+    ;; rf2-kqxe6.20: replacing a framework REPLACEABLE DEFAULT
+    ;; (`:rf.route/entry-denied` / `:rf.route/navigation-blocked`) replaces
+    ;; BEHAVIOUR — not the framework's own payload shape. The carriers the
+    ;; framework CONSTRUCTS in that payload (`:requested-url` / `:destination` /
+    ;; `:target`) embed query values and path params, so their `:sensitive`
+    ;; classification is the framework's own fact and rides forward across the
+    ;; override, unioned with anything this registration declared. Runs AFTER
+    ;; `validate-classification!` so a malformed app declaration still fails on
+    ;; its own terms; a no-op for every id that is not a framework default.
+    (let [meta            (image-assembly/retain-framework-default-classification
+                            :event id meta)
+          requires-parsed (cofx/parse-requires id (:rf.cofx/requires meta))]
       (registrar/register! :event id
         (cond-> (assoc (-> meta source-coords/merge-coords merge-form-source)
                        :handler-fn   handler-fn
