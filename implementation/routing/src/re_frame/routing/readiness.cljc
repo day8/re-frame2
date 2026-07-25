@@ -28,7 +28,12 @@
   `:require` this namespace, and publishing a `:routing/project-readiness`
   late-bind hook for a three-line `cond` would cost more than the duplication
   removes. The two agree today — error beats loading beats idle in both — and
-  nothing but this note keeps them agreeing.
+  a shared conformance assertion keeps them agreeing:
+  `re-frame.readiness-projector-conformance-cljs-test` drives every Spec 012
+  input class through BOTH halves, each in its own vocabulary, and fails on a
+  divergence. It lives under `implementation/resources/test/` because that is
+  the only tree that can require both namespaces; it pins agreement and does
+  NOT imply the two should be unified.
 
   R1 applies this over R0's behaviour-preserving leaf-only plan; R2 swaps the
   plan input for the parent-to-leaf branch plan without changing the table.")
