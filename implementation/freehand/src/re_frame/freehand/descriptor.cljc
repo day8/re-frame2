@@ -679,10 +679,14 @@
       (str k " is a declared " role " position on " host-id ", so it takes a (v/"
            (name role) " [args …] …) carrier"
            (if (vector? value)
+             ;; The offending value rides the ex-data as a bounded SHAPE
+             ;; summary and is deliberately NOT printed here (Spec 015
+             ;; §Data-Classification): an event vector at a foreign position
+             ;; carries whatever the caller put in it.
              (str " — not a bare event vector. Freehand does not silently convert one at "
                   "a foreign position: the host may itself want a vector there, and "
-                  "guessing would confuse a host value with re-frame intent. Write "
-                  "(v/event [& args] " (pr-str value) ").")
+                  "guessing would confuse a host value with re-frame intent. Wrap the "
+                  "intent in a carrier — (v/event [& args] the-vector).")
              (str "; the call supplied a " (name (:type (error/diag-value-summary value)))
                   ".")))
       :supply-the-declared-callback-carrier
