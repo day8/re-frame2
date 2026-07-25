@@ -22,9 +22,9 @@ Two findings carry that, and either one alone would be enough:
 
 1. **At equal semantics, `v/$` and compiled Hiccup allocate the same.** The
    measured ratio is **1.011** — `v/$` allocating 1.1% *more*, not less — and it
-   was 1.011 in all eight independent JVM runs, to three decimal places, with
-   0.00% within-run spread. There is no render-work argument for the fork in
-   either direction.
+   was 1.011 in all seven independent JVM runs that observed it, to three
+   decimal places, with 0.00% within-run spread. There is no render-work
+   argument for the fork in either direction.
 2. **The two front ends are disjoint, and the setpoint's own preservation
    clause decides between them.** ER-01 asks for a comparison that preserves
    "descriptor, callback, ViewCell, structure, and evidence semantics." The
@@ -126,9 +126,10 @@ Across three fresh JVMs the ratios were stable to the third decimal:
 | `v/$`+keys ÷ interpreted | 0.793 | 0.812 | 0.812 |
 | **`v/$`+keys ÷ compiled** | **1.011** | **1.011** | **1.011** |
 
-Five earlier runs during development gave 1.011 as well. The compiled-versus-
-interpreted ratio does drift by about two points between JVMs; the arm-to-arm
-ratio that decides ER-01 does not drift at all.
+Four earlier development runs, in their own fresh JVMs, gave 1.011 as well —
+seven observations in total. The compiled-versus-interpreted ratio does drift by
+about two points between JVMs; the arm-to-arm ratio that decides ER-01 does not
+drift at all.
 
 Two things follow.
 
