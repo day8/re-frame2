@@ -504,8 +504,9 @@
   "The authored, machine-first prose — everything except the two generated
    slices (the compile-rejection roster and the authoring surface).
    Grounded in the re-frame.ui public surface
-   (implementation/ui/src/re_frame/ui.cljc) and the docs
-   (docs/core/re-frame.ui/)."
+   (implementation/ui/src/re_frame/ui.cljc) and the normative grammar
+   (spec/004-Views.md). The donor guide it was also drawn from is gone;
+   the Freehand guide at docs/core/freehand/ replaced it."
   "# re-frame.ui context sheet
 
 `re-frame.ui` is re-frame2's **compiled-view substrate**. You write views with
@@ -734,8 +735,11 @@ below carries the exact id + fix:
 
 ## Deep references
 
-- Docs: `docs/core/re-frame.ui/` (mental model, build-a-view, state,
-  events-and-handlers, interop-and-limits, testing, ssr, presence).
+- Docs: `docs/core/freehand/` — the Freehand guide, which replaced the donor
+  chapters (mental-model, build-a-view, state, events-and-handlers,
+  host-boundaries, limits-and-escapes, testing, ssr, presence). Freehand is the
+  view layer new work is written against; this sheet describes what an app
+  already on `re-frame.ui` has today.
 - Spec: `spec/004-Views.md` (the normative grammar).
 - API: the `re-frame.ui` / `re-frame.ui.test` API references.")
 

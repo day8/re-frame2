@@ -492,7 +492,8 @@ Deep references, in the re-frame2 repo:
 - [`references/ui-context.md`](references/ui-context.md) — the generated
   context sheet: authoring-surface disposition + the full compile-rejection
   roster (regenerated from the compiler; drift-checked in CI).
-- `docs/core/re-frame.ui/` — the guide (mental model, build-a-view, state,
-  events-and-handlers, interop-and-limits, testing, ssr, presence).
+- `docs/core/freehand/` — the Freehand guide, which replaced the donor
+  chapters (mental-model, build-a-view, state, events-and-handlers,
+  host-boundaries, limits-and-escapes, testing, ssr, presence).
 - `skills/re-frame2-setup/references/shadow-cljs.md` — the Shadow settings, held against the real build config by a drift gate.
 - `spec/004-Views.md` — the normative grammar.
