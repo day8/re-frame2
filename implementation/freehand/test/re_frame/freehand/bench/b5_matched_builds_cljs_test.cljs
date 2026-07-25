@@ -20,23 +20,50 @@
   between two hand-copied entries, and prose in a docstring cannot catch it
   coming back.
 
-  Three things keep it honest, and the first two need no bundle on disk:
+  Five things keep it honest, and only the last needs a bundle on disk:
 
     - the matched-entry CENSUS proves the two arms differ only in lowering,
       and that neither carries a namespace docstring — `:advanced` does not
       strip one and the view manifest ships it once per declared view, which
       is how +339 bytes of prose used to ride the delta;
+    - the BUILD-MAP census proves the other half of the same premise. The two
+      arms' shadow build maps are hand-copied neighbours, and moving one arm's
+      `:target`, `:optimizations`, `:infer-externs` or `goog.DEBUG` would leave
+      the source census green while turning the delta into a reading of a
+      compiler flag. One structural equality over the two maps, excluding only
+      `:output-dir` and the module `:init-fn`, closes that (#6909 audit);
     - [[re-frame.freehand.bench.b5/promotion-delta]] is exercised over
       synthetic measured artefacts, so the delta arithmetic has coverage on
       every `npm run test:freehand` run, built bundles or not;
     - the three artefacts route through the SAME probe the mixed lane uses —
       [[re-frame.freehand.bench.b5/measure-bundle]] and
       [[re-frame.freehand.bench.b5/workload]] — so no new bench framework is
-      introduced; the three shapes are just three inputs to it.
+      introduced; the three shapes are just three inputs to it;
+    - the IDENTITY CONTROL proves the raw delta owes nothing to the fixture's
+      own naming: rename the arms' identity token to any other of the same
+      length in both artefacts and the raw delta comes back bit-identical
+      ([[re-frame.freehand.bench.b5/canonicalise-arm-identity]]). Asserted for
+      RAW only, because for the compressed encodings it is measurably false —
+      `b5/causal-isolation` carries how false, per encoding.
+
+  ## Two matched arms, and one representative mixed bundle
 
   The `:mixed` shape is the SHIPPED-COST artefact, built from its own entry
   with its own ids and prose. It is measured here for context; no delta is
-  taken against it.
+  taken against it, and it is deliberately NOT byte-matched to the pair.
+
+  D021's B5 row asks for `representative interpreted, compiled, and mixed
+  production bundles` and a `per-promoted-view delta`. A delta needs two arms
+  held still against each other; it never needed three. So the pair carries the
+  delta and the mixed shape carries the headline shipped cost — which is the
+  thing a consumer actually pays, and it is a real small app rather than a
+  fixture built to be subtractable. Folding the mixed entry into the matched
+  shape would buy a middle reading nothing asks for at the cost of rewriting
+  the four surfaces that name `re-frame.freehand.release-app` by sentinel
+  (`check-freehand-reachability.cjs`, `check-freehand-evidence-elision.cjs`,
+  `b5-reachability-control-app`, `_changed-surfaces.test.cjs`). Recorded on
+  `rf2-rhg4q`; `interpreted < mixed < compiled` is NOT a lowering series and
+  nothing here reads it as one.
 
   The real bundles are measured only when all three have been built. A delta
   taken against a shape that was never built is a number about nothing, so
@@ -85,6 +112,7 @@
   `D021-performance-budgets-and-release-evidence.md`."
   (:require ["fs" :as fs]
             [clojure.string :as string]
+            [clojure.edn :as edn]
             [cljs.test :refer-macros [deftest is testing]]
             [re-frame.freehand.bench :as bench]
             [re-frame.freehand.bench.b5 :as b5]
@@ -279,8 +307,23 @@
         (is (= "compiled" (get-in record [:fixture :compiled-artefact])))
         (is (re-find #"character for character" (get-in record [:fixture :matched-on]))
             "the matched claim travels with the record, in the terms the census checks")
-        (is (re-find #"gzip and brotli" (get-in record [:fixture :not-matched-on]))
-            "and so does what is left over — a caveat in a reviewer's memory is not evidence"))
+        (let [left-over (get-in record [:fixture :not-matched-on])]
+          (is (re-find #"differ in CONTENT" left-over)
+              "and so does what is left over — a caveat in a reviewer's memory is not evidence")
+          (is (re-find #"causal-isolation states by how much" left-over)
+              "and it hands the reader on to the per-encoding measurement rather than waving at it")))
+      (testing "and it says WHICH encodings the lowering attribution holds for.
+                The #6909 audit's finding was that the source claim said `only
+                lowering` while the compressed deltas measurably carried the
+                arms' identity content; the repair is not a softer adjective but
+                a per-encoding statement that rides every record."
+        (let [ci (get-in record [:fixture :causal-isolation])]
+          (is (re-find #"EXACTLY for the raw delta" ci)
+              "raw is the one figure presented as lowering and nothing else")
+          (is (re-find #"identity-sensitive" ci)
+              "and brotli is named for what it is")
+          (is (re-find #"babc7fb540" ci)
+              "with the revision the percentages were read at — an unstamped absolute goes stale silently")))
       (testing "and it names the BUILD POSTURE the two artefacts were produced
                 under. :advanced is held still as a setting by the two build
                 definitions; the posture is what holds it still as an outcome,
@@ -316,6 +359,112 @@
       (is (= 3 (count (set (vals paths)))) "the three artefacts are distinct files")
       (is (= b5/default-bundle-path (:mixed paths))
           "the mixed shape is the existing :freehand-release bundle"))))
+
+;; ---------------------------------------------------------------------------
+;; The identity control — no bundle required for the substitution's own law
+;; ---------------------------------------------------------------------------
+
+(defn- utf8-bytes
+  "How many BYTES `s` occupies as UTF-8 — the unit `b5/measure-bundle`'s
+  `:raw-bytes` is in.
+
+  Not `count`, which answers UTF-16 code units. The bundles carry non-ASCII
+  characters in their string literals, so the two differ: at `babc7fb540` the
+  raw delta is 17,373 bytes and 17,363 code units. Comparing an invariance in
+  one unit against a delta in the other fails by exactly that gap, which reads
+  like a broken invariant rather than a mismatched ruler."
+  [s]
+  (.byteLength js/Buffer s "utf8"))
+
+(deftest canonicalising-the-arm-identity-is-byte-neutral-per-arm
+  (testing "The substitution the raw delta's causal isolation rests on. Each
+            arm's identity token is twelve characters in both spellings, and
+            the probe tokens are four, so replacing one with another cannot
+            change a single arm's byte count however many times it occurs — and
+            therefore cannot change the DELTA between two arms either. Asserted
+            here on strings so the law is covered on every run, and asserted on
+            the real artefacts below when they exist."
+    (doseq [token b5/arm-identity-probe-tokens]
+      (is (= 4 (count token)) "every probe token is the length of the none/full it replaces")
+      (doseq [original ["lowered-none" "lowered_none" "lowered-full" "lowered_full"]]
+        (let [s (str "a:" original "/bump b:" original ".cljs c:" original)
+              c (b5/canonicalise-arm-identity s token)]
+          (is (= (utf8-bytes s) (utf8-bytes c))
+              (str "substituting " token " into " original " preserves byte length"))
+          (is (not (string/includes? c original))
+              "and leaves no occurrence of the arm's own token behind")
+          (is (= 3 (dec (count (.split c (str "lowered" (subs original 7 8) token)))))
+              "every occurrence is substituted, not just the first"))))
+    (testing "and the two arms canonicalise to the SAME string — which is the
+              whole point: a reading taken over the result cannot tell which
+              arm produced it"
+      (let [i (b5/canonicalise-arm-identity "id:lowered-none/bump src:lowered_none.cljs" "arm0")
+            c (b5/canonicalise-arm-identity "id:lowered-full/bump src:lowered_full.cljs" "arm0")]
+        (is (= i c))))))
+
+;; ---------------------------------------------------------------------------
+;; The BUILD MAPS — the other half of the matched premise, censused
+;; ---------------------------------------------------------------------------
+
+(defn- shadow-config
+  "`implementation/shadow-cljs.edn` as data, read from the directory the Node
+  lane runs in.
+
+  The file carries build-time reader tags (`#shadow/env`), which are shadow's
+  to resolve and none of this census's business — `:default` folds each to its
+  literal argument so the read succeeds without this test knowing what any tag
+  means. Through the `opts` arity deliberately, NOT
+  `cljs.reader/register-default-tag-parser!`: that mutates a global the whole
+  suite shares, and a sibling bench test asserts that an unregistered tag still
+  THROWS for a plain reader. Registering one here made that test pass
+  vacuously."
+  []
+  (edn/read-string {:default (fn [_tag value] value)}
+                   (.readFileSync fs "shadow-cljs.edn" "utf8")))
+
+(def ^:private arm-build-ids
+  {:interpreted :freehand-release-interpreted
+   :compiled    :freehand-release-compiled})
+
+(deftest the-two-arm-build-maps-differ-only-in-output-dir-and-entry
+  (testing "The census above proves the two ENTRY SOURCES differ only in
+            lowering. This proves the other half of the same premise, which
+            that census cannot see: that the two BUILD MAPS agree. They are
+            hand-copied neighbours in shadow-cljs.edn, and the #6909 audit
+            noted that moving one arm's :target, :optimizations,
+            :infer-externs or goog.DEBUG would leave every other check in this
+            file green while destroying acceptance #1 — the delta would then
+            be a reading of a compiler flag wearing lowering's name.
+
+            One structural equality, excluding exactly the two slots that MUST
+            differ: :output-dir (each arm needs its own) and the module's
+            :init-fn (which names the arm's entry, the variable itself)."
+    (let [builds (:builds (shadow-config))
+          arm    #(get builds (get arm-build-ids %))
+          [i c]  [(arm :interpreted) (arm :compiled)]]
+      (is (map? i) "the interpreted arm's build is declared")
+      (is (map? c) "the compiled arm's build is declared")
+      (is (= (dissoc i :output-dir :modules) (dissoc c :output-dir :modules))
+          (str "the two arm builds agree on everything but :output-dir and the "
+               "entry; they differ in " (pr-str (->> (dissoc i :output-dir :modules)
+                                                     (remove (fn [[k v]] (= v (get c k))))
+                                                     (map first)))))
+      (is (= [:main] (keys (:modules i))) "one module each")
+      (is (= (keys (:modules i)) (keys (:modules c))))
+      (is (= (dissoc (get-in i [:modules :main]) :init-fn)
+             (dissoc (get-in c [:modules :main]) :init-fn))
+          "and the module maps agree on everything but the entry fn")
+      (testing "and the equality is not vacuous — the settings the delta's
+                comparability actually rests on are present and are the ones a
+                release build is meant to have"
+        (is (= :browser (:target i)))
+        (is (= :advanced (get-in i [:compiler-options :optimizations])))
+        (is (false? (get-in i [:compiler-options :closure-defines 'goog.DEBUG]))
+            "goog.DEBUG is pinned false rather than left to release's default")
+        (is (not= (:output-dir i) (:output-dir c)) "each arm has its own output dir")
+        (is (not= (get-in i [:modules :main :init-fn])
+                  (get-in c [:modules :main :init-fn]))
+            "and its own entry — the one variable")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The real matched artefacts, when all three have been built
@@ -420,6 +569,29 @@
                   (str "the " (name arm) " bundle names nothing of the " (name other) " arm"))
               (is (zero? (occurrences source (arm-entry-file other)))
                   (str "nor cites its source file in a coordinate"))))
+          ;; And the RAW delta's causal isolation, proved on the artefacts
+          ;; rather than inferred from the sources. The two arms are two
+          ;; namespaces, so their ids, manifests and source coordinates differ
+          ;; in identity CONTENT. Rename that token to any other of the same
+          ;; length in BOTH bundles and the raw delta must come back
+          ;; bit-identical — which is what earns the raw figure the right to be
+          ;; presented as lowering and nothing else. It is not asserted for the
+          ;; compressed encodings, because it is measurably false there:
+          ;; b5/causal-isolation carries the measured size per encoding.
+          (doseq [token b5/arm-identity-probe-tokens]
+            (let [ci (b5/canonicalise-arm-identity (:source interp) token)
+                  cc (b5/canonicalise-arm-identity (:source compiled) token)]
+              (is (= (:raw-bytes delta) (- (utf8-bytes cc) (utf8-bytes ci)))
+                  (str "the raw delta is invariant under renaming the arm identity to "
+                       token " — so no part of it is the fixture's own naming"))))
+          ;; Non-vacuous: the token really is in both artefacts. The counts are
+          ;; deliberately NOT compared — the compiled arm ships more, and the
+          ;; extra are its own source coordinates, which exist because the
+          ;; views were lowered and so belong in the delta.
+          (doseq [[arm src] {:interpreted (:source interp) :compiled (:source compiled)}]
+            (is (pos? (count (re-seq b5/arm-identity-pattern src)))
+                (str "the " (name arm) " bundle really does carry its arm identity — "
+                     "an invariance over zero occurrences would prove nothing")))
           ;; The delta is a fact about the two artefacts; it gates nothing.
           (is (number? (:raw-bytes delta)) "the per-promotion raw delta is a number")
           (is (= (:raw-bytes delta) (- (:raw-bytes compiled) (:raw-bytes interp)))
