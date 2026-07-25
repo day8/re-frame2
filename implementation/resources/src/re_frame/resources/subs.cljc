@@ -583,22 +583,20 @@
   in-flight work record's `:page-index` — a load-more APPENDS at a POSITIVE
   index (the tail), a page-0 fetch / refetch fetches index 0. The sub joins
   the entry's `:current-work` pointer to its live work-ledger row and reads the
-  recorded page index. false when the feed is not fetching, has no live work,
-  or the live work is a page-0 fetch / whole-feed refresh. Per Spec 016
-  §Causal event — load-more (R2) / §Subscription contract."
+  recorded page index. Liveness is `work-ledger/live-work?`, the ONE definition
+  of that question (rf2-kqxe6.6); the row is re-read here only for its
+  `:page-index`. false when the feed is not fetching, has no live work, or the
+  live work is a page-0 fetch / whole-feed refresh. Per Spec 016 §Causal event
+  — load-more (R2) / §Subscription contract."
   [runtime-db entry]
   (boolean
     (when (and (some? entry) (= :fetching (:status entry)))
-      (let [work-id (:current-work entry)
-            record  (when work-id (work-ledger/get-record runtime-db work-id))
-            status  (:status record)]
-        (and (some? record)
-             ;; the work is genuinely LIVE (not terminal / doomed) …
-             (not (work-ledger/terminal? status))
-             (not= :abort-requested status)
+      (let [work-id (:current-work entry)]
+        ;; the work is genuinely LIVE (not terminal / doomed) …
+        (and (work-ledger/live-work? runtime-db work-id)
              ;; … and it is a load-more APPEND (a positive page index), not a
              ;; page-0 fetch / whole-feed refresh (index 0 / absent).
-             (let [pi (:page-index record)]
+             (let [pi (:page-index (work-ledger/get-record runtime-db work-id))]
                (and (integer? pi) (pos? pi))))))))
 
 (defn fetching-next?-sub-fn
