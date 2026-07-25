@@ -280,25 +280,24 @@
   decoration beside them. Naming what an entry states is how a row says which
   hand is empty.
 
-  The narrow set this used to name — coordinates and nothing else — was the gap
-  itself: `:prop`, `:classification`, `:serializable?`, `:sync?` and `:handler`
-  were recorded in the analyzer's site index and dropped by the manifest
-  projection, so an event-site read could say WHERE a view dispatches from and
-  not WHAT it dispatches (rf2-z0blg). The manifest publishes them now, so the
-  set names the whole vocabulary and the gap it used to name is closed.
+  The narrow set this used to name — coordinates and nothing else — WAS the gap:
+  `:prop`, `:classification`, `:serializable?`, `:sync?` and `:handler` were
+  recorded in the analyzer's site index and dropped by the manifest projection,
+  so an event-site read could say WHERE a view dispatches from and not WHAT it
+  dispatches (rf2-z0blg). The manifest publishes them now, so this names the
+  whole vocabulary rather than the remainder of an unpublished one.
 
-  A fact that is genuinely unknown is stated as an absence rather than left out:
-  `:handler` is the `:opaque` marker and `:event-id` is `nil` exactly where the
-  handler is not statically known data — see [[event-site]]. A reader therefore
-  never has to decide whether a missing key means this build does not publish
-  the fact or the site does not have it."
+  An unknown fact is STATED unknown rather than left out — `:handler` is the
+  `:opaque` marker and `:event-id` is `nil` exactly where the handler is not
+  statically known data ([[event-site]]) — so a reader never has to work out
+  whether a missing key means the site lacks the fact or the build lacks it."
   #{:sid :source-coord :path :prop :classification :serializable? :sync?
     :handler :event-id})
 
 (defn- event-site
   "One event site, with its handler-shape honesty stated per entry — the rule
-  [[dependency-site]] applies to a subscription's `:query`, applied to the
-  handler form the manifest records.
+  [[dependency-site]] applies to a subscription's `:query`, over the handler
+  form the manifest records.
 
   A fully-literal handler IS the shape that will dispatch, so it is projected
   verbatim. A handler carrying a captured local or a call is a form whose value
