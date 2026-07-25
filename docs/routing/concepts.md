@@ -468,9 +468,13 @@ lands on a fetch already in flight:
 ```
 
 `:intent` is the only accepted value — there is no render mode, viewport mode, or
-hover delay, and a passive render dispatches nothing. Under the hood the link
-dispatches `[:rf.route/prefetch {:to :app/article :params {:id "intro"}}]`, which
-you can also dispatch yourself from any event.
+hover delay, and a passive render dispatches nothing. To opt out, **leave
+`:prefetch` off**: a key that is present with any other value fails loud at the
+render site rather than quietly giving you a passive link, because a link that
+should have been warming and isn't looks exactly like one that is. Under the hood
+the link dispatches
+`[:rf.route/prefetch {:to :app/article :params {:id "intro"}}]`, which you can also
+dispatch yourself from any event.
 
 A prefetch runs the *same* effective branch plan a real navigation would, in warm
 mode: every ensure is ownerless, `:blocking?` is inert, and no route state moves —
