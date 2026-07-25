@@ -107,6 +107,10 @@ CLJS_EXTS = (".cljs", ".cljc")
 COGNITECT_DEFAULT_DIRS = ("test",)
 COGNITECT_DEFAULT_REGEX = r".*\-test$"
 
+#: shadow-cljs's default `:ns-regexp` for a `:node-test` / `:browser-test`
+#: build that does not declare one.
+SHADOW_DEFAULT_NS_REGEXP = r"-test$"
+
 #: A `.cljc` test namespace declaring that the JVM lane is its only lane.
 JVM_ONLY_SUFFIX = "-jvm-test"
 
@@ -315,8 +319,10 @@ def cljs_lanes(repo: Path):
             if not target or target.group(1) not in (":node-test", ":browser-test"):
                 continue
             regexp = re.search(r':ns-regexp\s+"((?:[^"\\]|\\.)*)"', body)
-            if not regexp:
-                raise SystemExit(f"error: build {name} in {config} has no :ns-regexp")
+            # shadow-cljs's own default when a test build omits the key.  Model
+            # it rather than erroring: a gate that refuses a legal config is a
+            # false red, and B4 still holds the build to reaching something.
+            selector = unescape_edn_string(regexp.group(1)) if regexp else SHADOW_DEFAULT_NS_REGEXP
             own = read_string_vector(body, ":source-paths")
             if own is not None:
                 declared = [project / p for p in own]
@@ -337,7 +343,7 @@ def cljs_lanes(repo: Path):
             lanes.append(Lane(name=f"{config.parent.relative_to(repo).as_posix()}:{name}"
                               if config.parent != repo else name,
                               runtime="cljs", roots=roots,
-                              regex=re.compile(unescape_edn_string(regexp.group(1))),
+                              regex=re.compile(selector),
                               full_match=False,
                               defined_in=config.relative_to(repo).as_posix(),
                               missing_roots=missing))
