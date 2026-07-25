@@ -229,24 +229,27 @@
   `:rf.trace/dispatch-id` in scope) bypass the ring entirely per the
   B3 ruling — they stream live to listeners only and are never retained.
 
-  Routing chain for the destination frame-id:
-    1. `:frame` under `:tags` (the router stamps it on most in-run
-       emits).
-    2. Top-level `:frame` on the envelope.
-    3. The late-bound `:frame/current-frame-id` hook (published by
-       `re-frame.frame` at ns-load) — covers sub recompute / view
-       render emits where the call site doesn't stamp `:frame` but the
-       in-flight run's `frame/*current-frame*` is bound.
+  The destination frame-id is the event's own `[:tags :frame]` — the
+  single canonical raw-event frame path (Spec 009 §Frame identity on
+  the raw event; `re-frame.trace/trace-event-frame` is the accessor
+  consumers outside the trace subsystem read it through, and this ns
+  cannot require it — `re-frame.trace` requires THIS ns).
+
+  This used to be a three-tier chain — the tag, then a top-level
+  `:frame` on the envelope, then the late-bound
+  `:frame/current-frame-id` hook — because emit sites that didn't stamp
+  the tag left the ring nothing else to route on. `build-event` now
+  supplies the tag from the ambient frame for every such site
+  (`re-frame.trace/stamp-frame`, rf2-hbmeb), so the fallbacks were the
+  SAME resolution done a second time; keeping them would let the ring
+  and the event's own tag disagree about which frame a row belongs to.
+  There is no top-level `:frame` on a raw trace event at all.
 
   No-op in production (production never reaches the emit site)."
   [ev]
   (when interop/debug-enabled?
     (let [dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])
-          frame-id    (or (get-in ev [:tags :frame])
-                          (:frame ev)
-                          (when-let [current-frame
-                                     (late-bind/get-fn-cached :frame/current-frame-id)]
-                            (current-frame)))]
+          frame-id    (get-in ev [:tags :frame])]
       ;; Frameless emits (no in-flight run) skip the ring. The B3
       ;; ruling is that frameless events stream live to listeners only
       ;; and are never retained. A `:dispatch-id` without a resolvable

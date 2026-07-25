@@ -163,7 +163,7 @@
   [events]
   (reduce (fn [acc ev]
             (if-let [id (dispatch-id ev)]
-              (if-let [frame (or (get-in ev [:tags :frame]) (:frame ev))]
+              (if-let [frame (get-in ev [:tags :frame])]
                 (update acc id (fnil conj #{}) frame)
                 acc)
               acc))
@@ -177,7 +177,6 @@
   default-frame traces so errors/warnings still ride with their run."
   [frame-index ev]
   (or (get-in ev [:tags :frame])
-      (:frame ev)
       (when-let [id (dispatch-id ev)]
         (let [frames (get frame-index id)]
           (when (= 1 (count frames))
