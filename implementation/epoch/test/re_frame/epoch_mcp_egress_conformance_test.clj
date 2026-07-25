@@ -389,17 +389,19 @@
   for a plain one.
 
   The rows are harvested off the trace bus rather than read out of the settled
-  epoch record because epoch CAPTURE DROPS THEM: `epoch.capture/capture-event!`
-  derives an event's frame as `(or (:frame tags) (:frame event))`, and the whole
-  family stamps `:rf.frame/id` — so `frame-id` is nil for every row and nothing
-  is buffered. Measured, not inferred: this cascade puts 7 family rows on the bus
-  and 0 into the 3 epoch records it settles. That is a real bug (fidelity: the
-  resource lifecycle is absent from every epoch a tool reads; coverage: the
-  epoch-side projector has never run over a real record) and it is filed as
-  rf2-hbmeb, NOT fixed here — the repair is a production capture-seam change,
-  outside this bead's one-fixture-gains-one-family fence. Until it lands, a real
-  record carrying real family rows is assembled by splicing
-  (`record-carrying-resource-rows`)."
+  epoch records because ONE record is one dequeued event: this cascade is three
+  dispatches, so its 7 family rows are spread across 3 records (the sensitive
+  `ensure`'s, the plain `ensure`'s, the `release-owner`'s). Every scan below
+  wants them together, which `record-carrying-resource-rows` assembles.
+
+  They used also to be harvested here because epoch capture DROPPED them
+  outright — `capture-event!` resolved an event's frame from `[:tags :frame]`
+  and the whole family stamped only its `:rf.frame/id` EVIDENCE key, so the
+  cascade put 7 rows on the bus and 0 into the 3 records it settled. Fixed in
+  rf2-hbmeb: `build-event` now supplies the canonical `[:tags :frame]` routing
+  tag for emit sites that don't stamp one, and the rows land. The proof that
+  they do — bus counted against record, over a real cascade — lives in
+  `epoch_egress_resource_trace_test`'s §(8)."
   [frame-id]
   (let [rows (atom [])
         k    ::resource-family-recorder]
@@ -422,10 +424,17 @@
     @rows))
 
 (defn- record-carrying-resource-rows
-  "The frame's last REAL epoch record with `rows` appended to its
-  `:trace-events` — the record a forwarder would ship if epoch capture retained
-  the family (rf2-hbmeb). Everything else about the record is the producer's:
-  its own trace rows, `:sub-runs`, `:effects`, bookkeeping slots and frame."
+  "The frame's last REAL epoch record with the cascade's WHOLE set of family
+  rows appended to its `:trace-events` — one record carrying every row the
+  scans below want to see at once, which no single real record does (one record
+  is one dequeued event, and this cascade is three). Everything else about the
+  record is the producer's: its own trace rows, `:sub-runs`, `:effects`,
+  bookkeeping slots and frame.
+
+  Since rf2-hbmeb the record already carries its OWN family rows, so the last
+  record's `:rf.resource/owner-released` appears twice here. Harmless: every
+  scan below is either a whole-set leak scan or a `first`-match lookup by
+  `[operation resource-id]`, and both read the same row either way."
   [frame-id rows]
   (update (last (rf/epoch-history frame-id)) :trace-events (fnil into []) rows))
 
