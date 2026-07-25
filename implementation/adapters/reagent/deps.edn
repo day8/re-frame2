@@ -18,7 +18,14 @@
  {:test {:extra-paths ["test"]
          :extra-deps  {;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../../test-quiet"}}
-         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+         ;; `--probe`: this lane claims only that the artefact's deps and
+         ;; classpath RESOLVE, not that it covers anything. The adapter ns is
+         ;; CLJS-only, so `test/` holds no JVM-runnable suite and zero tests
+         ;; is the CORRECT outcome here — the runner's test-count floor
+         ;; (rf2-qqzmf) must not apply, and saying so explicitly is what
+         ;; keeps that a declared exemption rather than an accident. If a
+         ;; JVM test ever lands here, drop `--probe` and take the floor.
+         :main-opts   ["-m" "re-frame.test-quiet.runner" "--probe"]}
 
   ;; Clojars deploy, modeled on re-frame v1's release flow.
   ;; The release workflow runs `clojure -M:clein deploy` from this

@@ -67,18 +67,36 @@
   reaches stdout directly.  The contract is exercised by
   `re-frame.test-quiet-runner-contract-test`.
 
-  ## The test-count floor
+  ## What a lane claims, and what it must therefore prove
 
   Exit code is otherwise owned by cognitect-test-runner: 0 on green, 1 on
   any failure or error (and 1 on a CLI parse error).  This wrapper adds
-  exactly one exit rule of its own — a run that executed FEWER than
-  `RF2_MIN_TESTS` tests (default 1) is red, however clean its tally.
-  `run-tests` over an empty namespace set reports `Ran 0 tests
-  containing 0 assertions. / 0 failures, 0 errors.` and cognitect exits 0
-  from that, so a discovery set that silently collapsed to nothing — a
-  `-r`/`-n` selector matching no namespace, a `:test` alias that lost its
-  `:extra-paths [\"test\"]`, a renamed test file — is currently
-  indistinguishable from a green suite.  See `parse-min-tests`."
+  exactly one exit rule of its own, and which form it takes depends on
+  what the lane claims:
+
+   - a SUITE lane claims coverage, so it must prove it RAN: fewer than
+     `RF2_MIN_TESTS` tests executed (default 1) is red, however clean the
+     tally.  `run-tests` over an empty namespace set reports `Ran 0 tests
+     containing 0 assertions. / 0 failures, 0 errors.` and cognitect exits
+     0 from that, so a discovery set that silently collapsed to nothing —
+     a `-r`/`-n` selector matching no namespace, a `:test` alias that lost
+     its `:extra-paths [\"test\"]`, a renamed test file — was
+     indistinguishable from a green suite.  See `parse-min-tests`.
+   - a PROBE lane claims only that its deps and classpath RESOLVE, so zero
+     tests is its correct outcome and the coverage floor must not apply.
+     Such a lane says so explicitly by passing `--probe` in its `:test`
+     alias `:main-opts` (`implementation/adapters/reagent` and
+     `implementation/adapters/uix` are the two: their `test/` trees are
+     CLJS-only).  A probe still has to prove something mechanically: it
+     must reach its summary having executed exactly zero tests.  Reaching
+     the summary at all means deps resolved and the discovery dirs were
+     scanned; and if the lane ever GAINS a JVM test it goes red, because it
+     is then claiming coverage and must drop `--probe` and take the floor.
+
+  `--probe` is this wrapper's only own flag and is stripped before args are
+  forwarded to cognitect.  Nothing is printed on a green probe: the
+  silent-on-success contract stands, and the probe's proof is the assertion,
+  not an announcement."
   (:require
     [re-frame.test-quiet]
     [clojure.string :as str]
@@ -485,16 +503,19 @@
 ;; The project already holds this standard in two places and had not
 ;; generalised it:
 ;;   - `re-frame.test-quiet.shadow-node/execute-cli` rejects a `--test=`
-;;     selector that matches no var, "precisely because run-test-vars over
+;;     SELECTOR that matches no var, "precisely because run-test-vars over
 ;;     an empty set reports a 0-test success";
 ;;   - `re-frame.conformance-runner` asserts `(>= (count run) 150)` over the
-;;     conformance corpus.
-;; Both say the same thing: a run that executed nothing is a configuration
-;; error, not a pass.  The floor below applies that to the whole-suite path
-;; every per-artefact `:test` alias takes.
+;;     conformance CENSUS.
+;; Both are places that claim COVERAGE, and both say the same thing: a run
+;; that executed nothing is a configuration error, not a pass.  Neither is a
+;; resolution probe — the existing standard was already scoped this way, and
+;; the floor below generalises it to the whole-suite path every per-artefact
+;; `:test` alias takes rather than widening it to lanes that claim something
+;; else (see the ns docstring, and `probe-flag`).
 ;;
 ;; The DEFAULT floor is 1 rather than a per-artefact calibrated number.
-;; That is deliberate: 1 is the bound that can never go stale (no artefact
+;; That is deliberate: 1 is the bound that can never go stale (no SUITE lane
 ;; will ever legitimately ship zero tests), while ~20 hand-maintained
 ;; per-artefact numbers would have to be re-ratcheted on ordinary churn and
 ;; buy detection only for a PARTIAL collapse — which no observed instance of
@@ -527,6 +548,28 @@
     (let [n (try (Long/parseLong (str/trim raw))
                  (catch NumberFormatException _ nil))]
       (if (and n (not (neg? n))) n ::invalid))))
+
+(def ^:private probe-flag
+  "The one flag this wrapper owns, stripped before args reach cognitect.
+
+  A lane passes it in its `:test` alias `:main-opts` to declare that it
+  claims RESOLUTION, not coverage — its deps and classpath must load, and
+  zero tests is its correct outcome. The declaration lives in the artefact's
+  own `deps.edn` rather than in a job definition or an env var so that
+  `clojure -M:test` behaves identically in CI and on a laptop, and so the
+  exemption is self-documenting where the lane is defined."
+  "--probe")
+
+(defn- split-runner-args
+  "Partition `args` into this wrapper's own flags and the args to forward
+  verbatim to cognitect-test-runner. Returns `[{:probe? bool} forwarded]`.
+
+  Only `--probe` is ours; everything else — including anything unrecognised —
+  is forwarded, so cognitect keeps owning its own arg contract and its own
+  parse-error diagnostics."
+  [args]
+  [{:probe? (boolean (some #{probe-flag} args))}
+   (remove #{probe-flag} args)])
 
 (defn- resolve-min-tests!
   "`parse-min-tests` over the live environment, exiting 2 (a configuration
@@ -562,9 +605,11 @@
   invocation.  On a RED run it replays the buffered stderr ring `sb` to
   `real-err`, then delegates to `prior` (the `:summary` method installed
   before this invocation) so the canonical summary line still prints, and
-  finally enforces the `min-tests` floor (see `parse-min-tests`).
+  finally enforces this lane's claim — the `min-tests` floor for a suite
+  lane, or the zero-test expectation for a `--probe` lane (see the ns
+  docstring and `parse-min-tests`).
 
-  `:summary` is where the floor belongs because it is the one place that
+  `:summary` is where both belong because it is the one place that
   holds BOTH the executed-test count and control before cognitect exits.
   clojure.test's `run-tests` computes its summary map, calls `do-report` on
   it, and RETURNS that same map to cognitect, which derives the process exit
@@ -608,7 +653,7 @@
   the `*err*` ring was bound — so it is never fed back into the buffer. Each
   captured chunk is written verbatim under a red-run header, mirroring the
   CLJS replay's `[test-quiet]` prefix.  On green the buffer is dropped."
-  [^StringBuilder sb ^java.io.Writer real-err prior min-tests]
+  [^StringBuilder sb ^java.io.Writer real-err prior {:keys [probe? min-tests]}]
   (fn summary-replay [m]
     (let [{:keys [fail error]} m]
       (when (pos? (+ (or fail 0) (or error 0)))
@@ -634,24 +679,40 @@
     ;; Delegate to the prior :summary so the canonical
     ;; "Ran N tests…/K failures, J errors." line still prints.
     (when prior (prior m))
-    ;; Then the floor: fewer tests executed than this lane requires is red,
-    ;; however clean the tally (rf2-qqzmf).
-    (let [ran (or (:test m) 0)]
-      (when (< ran min-tests)
-        (.write real-err
-                (str "\n[test-quiet] ERROR: this run executed " ran
-                     " test(s), below the floor of " min-tests
-                     " (" min-tests-env-var ").\n"
-                     ;; ASCII only: this diagnostic is written through the
-                     ;; platform-default stderr encoding, where an em dash
-                     ;; renders as a replacement char on a Windows console.
-                     "A whole-suite run that discovered no tests is a"
-                     " configuration error: a `-r`/`-n` selector matching"
-                     " nothing, a `:test` alias missing\n"
-                     "its `:extra-paths [\"test\"]`, a renamed test file."
-                     " It is not a pass. Failing the run (rf2-qqzmf).\n"))
-        (.flush real-err)
-        (System/exit 1)))))
+    ;; Then this lane's own claim (rf2-qqzmf). A suite lane claims coverage
+    ;; and must prove it RAN; a probe lane claims resolution and must prove
+    ;; it resolved WITHOUT running. Diagnostics are ASCII only: they go
+    ;; through the platform-default stderr encoding, where an em dash renders
+    ;; as a replacement char on a Windows console.
+    (let [ran   (or (:test m) 0)
+          fail! (fn [message]
+                  (.write real-err (str "\n[test-quiet] ERROR: " message))
+                  (.flush real-err)
+                  (System/exit 1))]
+      (cond
+        ;; A probe reaching this hook has already proved what it claims:
+        ;; deps resolved and the discovery dirs were scanned. All that is
+        ;; left is that it really is a probe.
+        probe?
+        (when (pos? ran)
+          (fail! (str "this lane is declared a classpath probe (" probe-flag
+                      ") but executed " ran " test(s).\n"
+                      "A lane with tests claims COVERAGE, not resolution:"
+                      " drop " probe-flag " from its `:test` alias"
+                      " `:main-opts`\n"
+                      "so the test-count floor applies to it (rf2-qqzmf).\n")))
+
+        (< ran min-tests)
+        (fail! (str "this run executed " ran " test(s), below the floor of "
+                    min-tests " (" min-tests-env-var ").\n"
+                    "A suite lane that discovered no tests is a"
+                    " configuration error: a `-r`/`-n` selector matching"
+                    " nothing, a `:test` alias\n"
+                    "missing its `:extra-paths [\"test\"]`, a renamed test"
+                    " file. It is not a pass. Failing the run"
+                    " (rf2-qqzmf).\n"
+                    "If this lane claims only that its classpath RESOLVES,"
+                    " declare that with " probe-flag " instead.\n"))))))
 
 (def ^:dynamic *register-flush-hook!*
   "Test seam over the JVM shutdown-hook registry for `-main`'s stdout
@@ -709,9 +770,12 @@
   ;; cognitect's parse diagnostics go to `*out*` (the filter), not `*err*`,
   ;; and that path `System/exit`s before `-main`'s `finally` can run (see
   ;; `make-summary-replay-method`).
-  (let [;; Resolved BEFORE anything is rebound so a malformed floor is a
-        ;; plain stderr diagnostic + exit 2, not a buffered one (rf2-qqzmf).
-        min-tests  (resolve-min-tests!)
+  (let [;; This lane's claim, resolved BEFORE anything is rebound so a
+        ;; malformed floor is a plain stderr diagnostic + exit 2, not a
+        ;; buffered one (rf2-qqzmf). `--probe` is ours and is stripped from
+        ;; what cognitect sees.
+        [{:keys [probe?]} forwarded-args] (split-runner-args args)
+        claim      {:probe? probe? :min-tests (resolve-min-tests!)}
         real-out   *out*
         real-err   *err*
         sys-err    System/err
@@ -733,7 +797,7 @@
         ;; ring/`real-err` behind.
         prior-summary (get-method clojure.test/report :summary)
         summary-fn    (make-summary-replay-method stderr-sb real-err prior-summary
-                                                  min-tests)]
+                                                  claim)]
     (install-summary-method! summary-fn)
     ;; Route raw `System/err` bytes into the same ring as `*err*` so a
     ;; library that writes `System.err` directly is buffered too. Each chunk
@@ -771,7 +835,7 @@
     (binding [*out* filtering
               *err* buffered-e]
       (try
-        (apply cognitect.test-runner/-main args)
+        (apply cognitect.test-runner/-main forwarded-args)
         (finally
           (.flush filtering)
           ;; Returning paths (notably help) restore System/err + the prior
