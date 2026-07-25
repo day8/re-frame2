@@ -2,9 +2,15 @@
   "The reactive substrate adapter contract. Per Spec 006.
 
   The runtime is substrate-agnostic; every host-specific reactivity concern
-  goes through these ten functions. The reference ships the first-party
-  re-frame.ui adapter plus the transition Reagent and UIx browser
-  adapters, and plain-atom for JVM / SSR / headless use.
+  goes through these ten functions. The reference ships FOUR first-class,
+  actively-supported browser adapters — Freehand's own observation adapter
+  (`re-frame.freehand`) plus the Reagent, reagent-slim and UIx renderer
+  adapters. None of the four is transitional, a fallback, or scheduled for
+  removal (EP-0036); they are permanent siblings. Alongside them, plain-atom
+  and ssr cover JVM / SSR / headless use. The DONOR `re-frame.ui`
+  compiled-view substrate carries a fifth adapter that is in-tree ONLY: it has
+  no published coordinate (`day8/re-frame2-ui` will never publish) and is
+  being absorbed into Freehand.
 
   Required functions (6):
     make-state-container, read-container, replace-container!,
@@ -18,16 +24,18 @@
 
   An adapter is a Clojure map with these keys plus a `:kind` discriminator
   keyword. Canonical framework members live under the reserved
-  `:rf.adapter/*` namespace (`:rf.adapter/reagent` / `:rf.adapter/reagent-slim`
-  / `:rf.adapter/ui` / `:rf.adapter/uix` / `:rf.adapter/plain-atom` /
-  `:rf.adapter/ssr`); user-supplied adapters report as `:custom` when they
+  `:rf.adapter/*` namespace (`:rf.adapter/freehand` / `:rf.adapter/reagent` /
+  `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/plain-atom` /
+  `:rf.adapter/ssr`, plus `:rf.adapter/ui` which only DONOR in-tree code can
+  produce); user-supplied adapters report as `:custom` when they
   don't pick a canonical kind. It is installed into the process via
   install-adapter! and introspected via current-adapter (keyword) and
   current-adapter-spec (the full map).
 
   There is no default-adapter registry and no ns-load side-effect.
-  Each adapter ns (`re-frame.ui`, re-frame.adapter.reagent / .uix,
-  re-frame.substrate.plain-atom, re-frame.ssr) exports an `adapter`
+  Each adapter ns (re-frame.freehand, re-frame.adapter.reagent /
+  .reagent-slim / .uix, re-frame.substrate.plain-atom, re-frame.ssr — and
+  `re-frame.ui` in donor in-tree code) exports an `adapter`
   var (the spec map); consumers require the ns and pass the var
   explicitly via `(rf/init! reagent/adapter)`. Explicit > implicit
   at the call site, and an app requiring only the adapter it needs
@@ -175,8 +183,9 @@
 (defn current-adapter
   "Return the discriminator keyword identifying the installed adapter, or
   nil if none. Per Spec 006 §Adapter introspection: one of
-  `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/ui`, `:rf.adapter/uix`,
-  `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or
+  `:rf.adapter/freehand`, `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`,
+  `:rf.adapter/uix`, `:rf.adapter/plain-atom`, `:rf.adapter/ssr`,
+  `:rf.adapter/ui` (donor in-tree code only), or
   `:custom` for user-supplied adapters that didn't pick a canonical kind.
 
   This answers \"what substrate am I on?\" — predicate / branch code.
