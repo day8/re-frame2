@@ -1,0 +1,61 @@
+;; FH-DIAG-003 — the compiled manifest publishes the compile-tier finding
+;; roster, and a finding is governed as a FINDING rather than as a site.
+;;
+;; `:diagnostics` is the one manifest roster whose entries are not lexical
+;; sites. The other six name a form the compiler READ — a `sub`, an event
+;; handler, a slot, a `(frame)` read, a `v/html`, a view crossing — and so own
+;; the `{:file :line :column}` source coordinate FH-STRUCT-010 makes total over
+;; them. A finding is MINTED from a node instead: it names the node's `:tag` and
+;; the deterministic `:path` that reaches it, plus the compiler-minted stable
+;; `:sid` its printed warning quotes. Those three are what locate it, and this
+;; fixture governs that shape rather than bending a finding into the site law —
+;; a synthetic coordinate on a finding would satisfy the other row and mean
+;; nothing.
+;;
+;; The roster matters most where it is SILENT. A suppressed finding prints
+;; nothing — that is what suppression is — so the manifest entry carrying the
+;; author's `:reason` is its only trace, and a codebase's waivers are readable
+;; from nowhere else (`004D §Compile-tier warnings`: "A suppressed finding
+;; remains a manifest fact carrying its reason"). `:suppressed-keys` therefore
+;; pins the conditional half of the entry shape: `:reason` rides a suppressed
+;; entry and rides no other, so neither a lost reason nor a reason invented for
+;; a finding nobody waived can pass.
+;;
+;; `:findings` is the census, and it is TOTAL: each declaration's whole roster,
+;; in source order, with every hand-writable field of every entry. A count would
+;; leave the contents unasserted and a per-entry key contract asserted over an
+;; empty roster passes loudest of all, so the census carries all three cases the
+;; law distinguishes —
+;;
+;;   :clean-panel          no finding at all, so the roster is EMPTY rather than
+;;                         absent: "this declaration is clean" is a positive
+;;                         claim, and absence would be silence a reader could
+;;                         not tell from a manifest that predates the roster.
+;;   :waived-drag-surface  one SUPPRESSED finding, carrying its reason. Silent
+;;                         on stderr; visible only here.
+;;   :unnamed-icon-button  one REPORTED finding, carrying no reason. This is the
+;;                         arm that also prints, and its presence is what stops
+;;                         the suppressed row above from being the only shape
+;;                         the census ever inspects.
+;;
+;; `:sid` is the one field the census does not pin: it is a content digest the
+;; compiler mints, so a fixture literal would be a copy of the implementation
+;; rather than a statement about it. The suite pins its SHAPE — a non-blank
+;; string — and `004D §Compile-tier warnings` owns the promise that the build
+;; log and the manifest quote the same one.
+{:fh/id "FH-DIAG-003"
+ :required-keys   #{:sid :id :tag :path :suppressed?}
+ :suppressed-keys #{:reason}
+ :findings
+ {:clean-panel []
+  :waived-drag-surface
+  [{:id          :rf.ui.compile/a11y-click-non-interactive
+    :tag         :div
+    :path        [0]
+    :suppressed? true
+    :reason      "drag surface; the keyboard path is the toolbar button"}]
+  :unnamed-icon-button
+  [{:id          :rf.ui.compile/a11y-missing-accessible-name
+    :tag         :button
+    :path        []
+    :suppressed? false}]}}

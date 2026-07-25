@@ -44,6 +44,17 @@
 ;; The split is ASSERTED, not assumed: an `:analyzer` roster must be empty across
 ;; the public census, so the day one becomes reachable its row has to move here
 ;; deliberately instead of drifting.
+;;
+;; `:finding-rosters` names the manifest rosters that are NOT lexical-site
+;; rosters, and so are outside every law above. `:diagnostics` is the one: its
+;; entries are compile-tier FINDINGS, minted from a node rather than read as a
+;; form, located by the node's `:tag` and `:path` and carrying no
+;; `:source-coord` for the coordinate law to govern. It is declared HERE, beside
+;; the rosters it is not one of, so the manifest's roster keys are accounted for
+;; exhaustively — site rosters under the rows above, finding rosters under
+;; `FH-DIAG-003`, and nothing quietly omitted. A new roster key on the manifest
+;; therefore has to be classified into one of the two rather than dropping
+;; through an exclusion written into a test.
 {:fh/id "FH-STRUCT-010"
  :roster-coverage
  {:subscriptions {:surface :public   :entries 1}
@@ -60,6 +71,7 @@
   :frame-ops     #{:sid :source-coord :path}
   :crossings     #{:view-id :lowering :source-coord :path}}
  :source-coord-keys #{:file :line :column}
+ :finding-rosters #{:diagnostics}
  :views
  {:label
   {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
