@@ -166,6 +166,7 @@ already pinned in requirements.txt).
 from __future__ import annotations
 
 import argparse
+import functools
 import re
 import sys
 import tempfile
@@ -177,9 +178,29 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_doc_slugs import _slug_index  # noqa: E402
 
+# One reader for shadow-cljs build configuration, borrowed from the gate whose
+# whole thesis is that a lane roster is READ and never listed
+# (check_test_lane_bijection.py, "THE LANES ARE READ, NEVER LISTED").  This
+# census consults exactly two of those builds — the ones that schedule its CLJS
+# lanes — and a second EDN reader written here to do it would be the drift class
+# both gates exist to close.
+from check_test_lane_bijection import (  # noqa: E402
+    SHADOW_DEFAULT_NS_REGEXP,
+    match_delimiter,
+    read_map_entries,
+    strip_edn_comments,
+    unescape_edn_string,
+)
+
 INDEX_REL = Path("spec/conformance/freehand/conformance-index.md")
 FIXTURES_REL = Path("spec/conformance/freehand/fixtures")
 TESTS_REL = Path("implementation/freehand/test")
+SHADOW_CLJS_REL = Path("implementation/shadow-cljs.edn")
+
+# This script's own checkout.  The build configuration is a fact about the repo
+# that DEFINES the lanes, not about whatever tree a `--repo-root` names, and the
+# census self-test runs against synthetic trees that carry no build at all.
+_SCRIPT_REPO = Path(__file__).resolve().parent.parent
 
 # The area roster, in index order.  Closed at any given moment — an id or a
 # section naming an area that is not here fails — but the programme EP
@@ -1105,19 +1126,29 @@ def _reached(path: Path, graph: _Graph) -> dict[str, bool]:
                 out[row_id] = out.get(row_id, False) or witness
     return out
 
-# Which lane runs a test file, derived from the three discovery rules in force —
-# not asserted here, mirrored from where they are actually configured:
+# Which lane runs a test file (`_lanes_for`).  Three discovery rules, and where
+# each one comes from:
 #
-#   jvm      `clojure -M:test` in implementation/freehand.  cognitect-test-runner
-#            discovers namespaces ending `-test` over the `:clj` platform, which
-#            is `.clj` + `.cljc`.
-#   node     `npm run test:freehand` — the :node-test-freehand build's ns-regexp
-#            `^re-frame\.freehand\..+-cljs-test$`, which matches `-cljs-test` AND
-#            `-dom-cljs-test`, over `.cljs` + `.cljc`.
-#   browser  `npm run test:browser` — the :browser-test build's ns-regexp
-#            `-dom-cljs-test$`, `.cljs` only.  The mounted tier: real DOM, real
-#            listeners.
+#   jvm      `clojure -M:test` in implementation/freehand.  The runner discovers
+#            namespaces ending `-test` over the `:clj` platform, which is `.clj`
+#            + `.cljc`.  Stated here, because the rule lives in that artefact's
+#            deps.edn `:test` alias rather than in any file this census reads.
+#   node     `npm run test:freehand` — the :node-test-freehand build.
+#   browser  `npm run test:browser` — the :browser-test build.  The mounted tier:
+#            real DOM, real listeners.
 LANES: tuple[str, ...] = ("jvm", "node", "browser")
+
+# rf2-k41ph — the two CLJS lanes name their BUILD and nothing else.  Each build's
+# `:ns-regexp` is read from the config at `_cljs_lane_selectors`, never restated
+# here: a copy of a selector is a second authority with nothing holding it in
+# step with the first, so an edit to either side silently desynchronises this
+# census's lane model from the selection the build actually performs — and a
+# census whose lane model is wrong keeps certifying rows against lanes they have
+# left.  Deriving it makes that divergence unrepresentable.
+_CLJS_LANE_BUILDS: dict[str, str] = {
+    "node": ":node-test-freehand",
+    "browser": ":browser-test",
+}
 
 _QUALIFIED_HOST_LANES = frozenset({"browser"})
 
@@ -1494,19 +1525,89 @@ _CITATION_EXCLUDED = (
 _CITATION_SUFFIXES = (".md",)
 
 
-def _lanes_for(path: Path) -> frozenset[str]:
-    """The lanes that run the test file at `path` (see LANES)."""
-    name = path.name
-    if name.endswith("_test.clj"):
-        return frozenset({"jvm"})
-    if name.endswith("_test.cljc"):
-        return frozenset({"jvm", "node"} if name.endswith("_cljs_test.cljc")
-                         else {"jvm"})
-    if name.endswith("_dom_cljs_test.cljs"):
-        return frozenset({"node", "browser"})
-    if name.endswith("_cljs_test.cljs"):
-        return frozenset({"node"})
-    return frozenset()
+def _namespace_of(path: Path, test_root: Path) -> str:
+    """The namespace a test file under `test_root` declares.
+
+    Munged from the path rather than read from the `(ns …)` form, because that is
+    what the runners do: a namespace whose name disagreed with its path could not
+    be loaded from it at all.
+    """
+    return ".".join(
+        path.relative_to(test_root).with_suffix("").parts
+    ).replace("_", "-")
+
+
+@functools.lru_cache(maxsize=None)
+def _cljs_lane_selectors() -> tuple[tuple[str, re.Pattern[str]], ...]:
+    """`(lane, selector)` for each CLJS lane, READ from the build that schedules
+    it — see `_CLJS_LANE_BUILDS` for which build owns which lane, and why the
+    selector is not written down here (rf2-k41ph).
+
+    Two things make the derivation load-bearing rather than decorative.  Selection
+    is shadow-cljs's `re-find`, so `search` and not `match`; and each derived
+    selector is held to PARTITIONING this repo's Freehand test tree — selecting at
+    least one namespace and rejecting at least one.  A derivation is the one
+    mechanism a restatement cannot drift from, and also the one that can fail
+    SILENTLY: a pattern that matches nothing quietly empties a lane, and a pattern
+    that matches everything quietly serves every cell of every row.  Both look
+    exactly like a green census.  The floor is what makes them look like a red one.
+    """
+    config = _SCRIPT_REPO / SHADOW_CLJS_REL
+    text = strip_edn_comments(config.read_text(encoding="utf-8"))
+    at = re.search(r":builds\s*\{", text)
+    if not at:
+        raise SystemExit(
+            f"error: {SHADOW_CLJS_REL.as_posix()} declares no :builds map, so no "
+            "CLJS lane selector can be derived (rf2-k41ph)."
+        )
+    builds = dict(read_map_entries(
+        text[at.end():match_delimiter(text, at.end() - 1) - 1]
+    ))
+    test_root = _SCRIPT_REPO / TESTS_REL
+    namespaces = [_namespace_of(p, test_root)
+                  for p in sorted(test_root.rglob("*"))
+                  if p.suffix in _CLJ_SUFFIXES]
+    selectors: list[tuple[str, re.Pattern[str]]] = []
+    for lane, build in _CLJS_LANE_BUILDS.items():
+        if build not in builds:
+            raise SystemExit(
+                f"error: {SHADOW_CLJS_REL.as_posix()} declares no {build} build, "
+                f"so the {lane} lane's selector cannot be derived.  A renamed "
+                "build is a lane this census can no longer model (rf2-k41ph)."
+            )
+        found = re.search(r':ns-regexp\s+"((?:[^"\\]|\\.)*)"', builds[build])
+        # shadow-cljs's own default when a test build omits the key — modelling it
+        # is what keeps a legal config from reading as a broken derivation.
+        selector = re.compile(unescape_edn_string(found.group(1)) if found
+                              else SHADOW_DEFAULT_NS_REGEXP)
+        selected = [ns for ns in namespaces if selector.search(ns)]
+        if not selected or len(selected) == len(namespaces):
+            raise SystemExit(
+                f"error: {build}'s :ns-regexp {selector.pattern!r} selects "
+                f"{'every one of' if selected else 'none'} of the "
+                f"{len(namespaces)} namespace(s) under {TESTS_REL.as_posix()}/, "
+                f"so the {lane} lane's derived membership is vacuous — it would "
+                "empty the lane, or serve every cell of every row, without "
+                "reddening a thing (rf2-k41ph)."
+            )
+        selectors.append((lane, selector))
+    return tuple(selectors)
+
+
+def _lanes_for(path: Path, test_root: Path) -> frozenset[str]:
+    """The lanes that run the test file at `path` (see LANES).
+
+    The platform a lane runs on gates it before its selector does: a `.clj` file
+    is nothing to a CLJS build however its namespace is spelled.
+    """
+    lanes = set()
+    if path.suffix in (".clj", ".cljc") and path.stem.endswith("_test"):
+        lanes.add("jvm")
+    if path.suffix in (".cljs", ".cljc"):
+        ns = _namespace_of(path, test_root)
+        lanes |= {lane for lane, selector in _cljs_lane_selectors()
+                  if selector.search(ns)}
+    return frozenset(lanes)
 
 
 class _Proof(NamedTuple):
@@ -1544,7 +1645,7 @@ def _scan_proof_sites(
     graphs = {platform: _read_tree(repo_root, platform)
               for platform in _PLATFORM_LANES}
     for path in sorted(test_root.rglob("*")):
-        file_lanes = _lanes_for(path)
+        file_lanes = _lanes_for(path, test_root)
         if path.suffix not in _CLJ_SUFFIXES or not file_lanes:
             continue
         reached: dict[str, tuple[set[str], set[str]]] = {}
