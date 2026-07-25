@@ -18,6 +18,7 @@
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.events :as events]
+            [re-frame.freehand.test :as t]
             [re-frame.router :as router]
             #?(:clj [re-frame.core])))
 
@@ -293,6 +294,74 @@
           "the ordinary closed-roster recovery, not a key-condition one")
       (is (= ["Enter"] (:unknown-keys (conf/caught-data run)))
           "the string key is reported as the unknown OPTION it is"))))
+
+(v/defview menu-with-a-key-condition-map [_]
+  [:ul {:on-key-down {"Enter" [:menu/activate] "Escape" [:menu/close]}} [:li "Open"]])
+
+(defn- structural-key-down-verdict
+  "The STRUCTURAL render's verdict on the same non-roster map, taken through
+  the public `t/render` a consumer's own structural test calls."
+  []
+  #(t/render [menu-with-a-key-condition-map {}]))
+
+(deftest fh-event-002-the-structural-render-classifies-a-map-at-an-event-position
+  (testing "Per FH-EVENT-002, whose modes are `common jvm browser`: the
+            STRUCTURAL render reaches the same verdict as a committed site
+            for the same authored map, because it consults the same
+            `events/event-plan` roster rather than recording whatever it
+            was handed.
+
+            This is the tier a consumer TESTS on. It used to record a
+            non-roster map verbatim while the mounted walk raised
+            `:rf.error/view-bad-event` and the compiled build raised
+            `:rf.ui.compile/bad-handler-options` for that same
+            declaration — so a green `.cljc` structural suite certified a
+            view neither shipping tier would accept, which is exactly how
+            the deleted D007 key-condition map survived in the guide
+            (rf2-5xjxj)."
+    (let [run (structural-key-down-verdict)]
+      (is (= :rf.error/view-bad-event (conf/caught-id run))
+          "the structural render refuses it")
+      (is (= :use-the-closed-listener-options (:recovery (conf/caught-data run)))
+          "with the closed-roster recovery, not a structural one")
+      (is (= ["Enter" "Escape"] (:unknown-keys (conf/caught-data run)))
+          "naming the string keys as the unknown OPTIONS they are"))))
+
+(deftest fh-event-002-the-structural-and-mounted-tiers-agree-on-one-map
+  (testing "Per FH-EVENT-002: the same authored value gets the SAME verdict
+            whichever tier reads it. Asserted as an EQUALITY between the two
+            tiers rather than as two independent expectations, so the claim
+            is agreement itself — a later change that moved one diagnostic
+            without the other fails here even if both are individually
+            defensible."
+    (let [value      {"Enter" [:menu/activate] "Escape" [:menu/close]}
+          mounted    #(events/site (events/candidate (events/owner :app/menu))
+                                   :on-key-down value events/payload-map
+                                   {:tag :ul :controlled? false :slot "onKeyDown"})
+          structural (structural-key-down-verdict)]
+      (is (= (conf/caught-id mounted) (conf/caught-id structural))
+          "one error id across the two tiers")
+      (is (= (:recovery (conf/caught-data mounted))
+             (:recovery (conf/caught-data structural)))
+          "one recovery across the two tiers")
+      (is (= (:unknown-keys (conf/caught-data mounted))
+             (:unknown-keys (conf/caught-data structural)))
+          "and one report of what was wrong"))))
+
+(deftest fh-event-002-the-structural-render-still-records-a-roster-options-map
+  (testing "NON-VACUITY for the two rows above: the structural render
+            refuses a NON-ROSTER map and nothing more. A legal options map
+            still renders, and still records VERBATIM — the authored map,
+            not the normalized plan, which is the tree FH-STRUCT-002 pins
+            and the value a promoted declaration is compared against."
+    (let [options {:event [:cart/checkout] :prevent-default true}
+          tree    (t/render [:form {:on-submit options}])]
+      (is (= options (:on-submit (:events tree)))
+          "the authored options map is recorded exactly as written")
+      (is (= conf/no-throw
+             (conf/caught-id #(t/render [:button {:on-click [:cart/open 7]}])))
+          "and an ordinary event vector still renders"))))
+
 
 (deftest fh-event-002-a-site-yields-one-event-or-nil
   (testing "Per FH-EVENT-002: a committed site's callback yields exactly

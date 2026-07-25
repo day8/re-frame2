@@ -496,6 +496,31 @@
     ;; and composing it with nothing produced a copy of the sugar vector.
     (conv/class-string (if (zero? (count parts)) sugar (into (vec sugar) parts)))))
 
+(defn- reject-non-data!
+  "Refuse a handler value that cannot be RECORDED — an event intent or an
+  options map carrying a function or a host object somewhere inside it —
+  and answer the value when it is clean.
+
+  This is the structural tree's own law rather than the event grammar's:
+  both shapes are recorded VERBATIM, so a value inside one has to print and
+  read back EQUAL or the tree stops being the comparable data a test
+  asserts against (§Data). A function records as the opaque marker when it
+  IS the handler value; it cannot ride inside one. `slot` names the
+  offending position in the author's own words."
+  [tag k v slot]
+  (when-let [[path bad] (non-data v)]
+    (malformed!
+      're-frame.freehand/render
+      (str "The " k " handler on " tag " carries a " (offender-name bad)
+           (at-path path)
+           " inside its " slot ". An " slot " is recorded verbatim and is data "
+           "through and through — a test compares it as data and the event system "
+           "dispatches it as data, so a value inside one has to print and read back "
+           "EQUAL. A function records as the opaque marker when it IS the handler "
+           "value; it cannot ride inside the " slot ".")
+      {:attr k :path path :value (shape bad)}))
+  v)
+
 (defn- fn-carried?
   "Is `x` a value whose SPELLING is testable and whose BEHAVIOUR is not — a
   bare function, or one of the declared roster callbacks (`v/event`,
@@ -526,38 +551,36 @@
   emit at a DOM site — so promotion moves nothing.
 
   An intent and an options map are recorded VERBATIM, so they must already
-  be data — a function riding as an event argument would record an intent
-  that cannot be compared, printed, or dispatched as the site's own
-  (§Data)."
+  be data ([[reject-non-data!]]) — a function riding as an event argument
+  would record an intent that cannot be compared, printed, or dispatched as
+  the site's own (§Data).
+
+  A MAP is additionally held to the CLOSED listener-options roster, and the
+  verdict is not taken here: [[re-frame.freehand.events/event-plan]] owns
+  the event grammar and is total over it, so this canonicaliser CONSULTS
+  that one classification rather than running a second one beside it
+  (rf2-5xjxj). Without it a map was recorded verbatim whatever its keys,
+  and the tier a consumer TESTS on silently accepted what the tier they
+  ship on rejects — the mounted walk raises `:rf.error/view-bad-event` from
+  the same roster and the compiled build raises
+  `:rf.ui.compile/bad-handler-options` at the same map. `.cljc` structural
+  tests are a cross-host claim (FH-EVENT-002, whose modes are `common jvm
+  browser`), so one authored mistake must get one verdict on every host.
+
+  The PLAN is discarded, deliberately. What this seam takes from
+  `event-plan` is its VERDICT, never its normalization: the plan drops a
+  listener option authored `false` while the structural tree records the
+  authored map exactly as written (FH-STRUCT-002), and recording the plan
+  would change the tree that every promoted declaration is compared
+  against."
   [tag k v]
   (cond
     (nil? v)    nil
-    (vector? v) (do (when-let [[path bad] (non-data v)]
-                      (malformed!
-                        're-frame.freehand/render
-                        (str "The " k " handler on " tag " carries a " (offender-name bad)
-                             (at-path path)
-                             " inside its event intent. An event vector is recorded "
-                             "verbatim and is data through and through — a test compares "
-                             "it as data and the event system dispatches it as data, so "
-                             "an argument inside it has to print and read back EQUAL. A "
-                             "function records as the opaque marker when it IS the handler "
-                             "value; it cannot ride inside the intent.")
-                        {:attr k :path path :value (shape bad)}))
+    (vector? v) (reject-non-data! tag k v "event intent")
+    (map? v)    (do (reject-non-data! tag k v "options map")
+                    (events/event-plan v)
                     v)
-    (map? v)    (do (when-let [[path bad] (non-data v)]
-                      (malformed!
-                        're-frame.freehand/render
-                        (str "The " k " handler on " tag " carries a " (offender-name bad)
-                             (at-path path)
-                             " inside its options map. An options map is recorded verbatim "
-                             "and is data through and through — the structural tree prints "
-                             "and reads back EQUAL, so a value inside one has to survive "
-                             "that round trip. A function records as the opaque marker "
-                             "when it IS the handler value; it cannot ride inside the "
-                             "options.")
-                        {:attr k :path path :value (shape bad)}))
-                    v)
+
     (fn-carried? v)
     {:rf.ui/opaque :fn}
 
@@ -567,6 +590,7 @@
       (str "The " k " handler site on " tag " carries a " (type-name v)
            ". A handler is an event vector, an options map carrying one, or a function.")
       {:attr k :value (shape v)})))
+
 
 (defn- dyn-attr-entry
   "Fold one author-space attribute entry into the
