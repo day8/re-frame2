@@ -209,7 +209,7 @@
                          (when (and (contains? corpus page) (contains? roster page))
                            (concat
                              (when (not= (count found) (count rows))
-                               [[:count (format "%s — %d fenced blocks on the page, %d roster rows"
+                               [[:count (format "%s — the page has %d fenced blocks; the roster has %d rows"
                                                 page (count found) (count rows))]])
                              (for [[block row] (map vector found rows)
                                    :when (not= (:digest block) (second row))]
