@@ -23,6 +23,10 @@
 # THE FIX: EXPORT FIRST. A checkpoint asks the Dolt database what the tracker
 # says (`bd export`) instead of trusting whatever sits in the working tree.
 #
+# The commit carries the rows that changed and nothing else: `bd export` does
+# not fix the order of the memory rows, so the file is written in minimal-diff
+# order first (rf2-51uz1.1, Write-MinimalDiffOrder below).
+#
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts/beads-checkpoint.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts/beads-checkpoint.ps1 -Message "chore(beads): checkpoint (6931 merged)"
@@ -111,6 +115,74 @@ function Write-HeadCopy {
     }
 }
 
+# Write $Export's rows to $OutFile, but emit every row HEAD already carries in
+# HEAD's order first, and only then the rows that are genuinely new, in export
+# order.
+#
+# WHY (rf2-51uz1.1). Test-SameContent below already stops a reorder-ONLY export
+# from becoming a commit. It does nothing for the normal case: one real row
+# changed, so the checkpoint commits, and the raw export carries every unrelated
+# memory reorder along with it. Measured on the first real checkpoint after this
+# helper landed: 211 additions / 208 deletions staged, of which 200 added rows
+# were byte-identical to 200 removed rows. Pure relocation. Eleven added and
+# eight removed lines were the actual tracker change, buried.
+#
+# The output is the export's row MULTISET exactly - no row is invented, dropped
+# or edited, so `bd import` sees the same database either way. Only the line
+# ORDER differs, and JSONL row order carries no meaning to the importer. What it
+# buys is a diff that is exactly (rows HEAD had and the export does not) plus
+# (rows the export has and HEAD does not): no relocation lines at all.
+#
+# CRLF is stripped so a Windows checkout's `git checkout HEAD -- .beads` copy
+# still matches the LF rows `bd export` emits - the same reason
+# Test-SameContent strips it. Output is LF, byte-for-byte the export's own rows,
+# and UTF-8 WITHOUT a BOM: the tracker is 10 MB of other people's words and a
+# BOM would corrupt the first row.
+function Write-MinimalDiffOrder {
+    param([string]$Export, [string]$HeadCopy, [string]$OutFile)
+
+    $exportLines = foreach ($l in [System.IO.File]::ReadLines($Export)) { $l -replace "`r$", '' }
+    $exportLines = [string[]]$exportLines
+
+    # Remaining count per distinct row, consumed as rows are emitted. An
+    # ordinal comparer so this matches sh's byte comparison rather than the
+    # current culture's collation.
+    $remaining = New-Object 'System.Collections.Generic.Dictionary[string,int]' ([System.StringComparer]::Ordinal)
+    foreach ($l in $exportLines) {
+        if ($remaining.ContainsKey($l)) { $remaining[$l] = $remaining[$l] + 1 }
+        else { $remaining[$l] = 1 }
+    }
+
+    $out = New-Object 'System.Collections.Generic.List[string]' ($exportLines.Count)
+
+    # Pass 1: HEAD's rows, in HEAD's order, for every row the export still has.
+    if (Test-Path -LiteralPath $HeadCopy) {
+        foreach ($raw in [System.IO.File]::ReadLines($HeadCopy)) {
+            $l = $raw -replace "`r$", ''
+            if ($remaining.ContainsKey($l) -and $remaining[$l] -gt 0) {
+                $remaining[$l] = $remaining[$l] - 1
+                $out.Add($l)
+            }
+        }
+    }
+
+    # Pass 2: whatever the export has left over, in export order.
+    foreach ($l in $exportLines) {
+        if ($remaining[$l] -gt 0) {
+            $remaining[$l] = $remaining[$l] - 1
+            $out.Add($l)
+        }
+    }
+
+    $sw = New-Object System.IO.StreamWriter($OutFile, $false, (New-Object System.Text.UTF8Encoding $false))
+    try {
+        $sw.NewLine = "`n"
+        foreach ($l in $out) { $sw.WriteLine($l) }
+    } finally {
+        $sw.Dispose()
+    }
+}
+
 # Same SET of rows, regardless of order.
 #
 # Order matters here because `bd export` does not fix the order of the trailing
@@ -166,6 +238,8 @@ $tmpExport = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(),
                                        "rf2-bdchk-export-$PID.jsonl")
 $tmpHead   = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(),
                                        "rf2-bdchk-head-$PID.jsonl")
+$tmpOrdered = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(),
+                                        "rf2-bdchk-ordered-$PID.jsonl")
 
 try {
     # -----------------------------------------------------------------------
@@ -232,7 +306,24 @@ try {
 
     # The export is trustworthy - it is now the working tracker. From here on
     # the working file cannot be a stale revert, whatever it was a moment ago.
-    Copy-Item -LiteralPath $tmpExport -Destination $tracker -Force
+    #
+    # It is written in MINIMAL-DIFF order (rf2-51uz1.1) rather than raw export
+    # order, so the staged ledger shows the rows that changed and nothing else.
+    # The row-count check is the safety net: the rewrite must reproduce the
+    # export's rows exactly, and if it ever does not, the raw export wins.
+    # Losing a row to a cosmetic reordering would be a far worse bug than the
+    # churn it removes.
+    Write-MinimalDiffOrder -Export $tmpExport -HeadCopy $tmpHead -OutFile $tmpOrdered
+    $orderedRows = Get-RowCount -Path $tmpOrdered
+    if ($orderedRows -eq $exportRows) {
+        Copy-Item -LiteralPath $tmpOrdered -Destination $tracker -Force
+    } else {
+        [Console]::Error.WriteLine(
+            "beads-checkpoint: minimal-diff rewrite produced $orderedRows rows for a " +
+            "$exportRows-row export; committing the raw export instead (order churn, " +
+            'but no lost rows).')
+        Copy-Item -LiteralPath $tmpExport -Destination $tracker -Force
+    }
 
     if (Test-SameContent -A $tracker -B $tmpHead) {
         Write-Output "beads-checkpoint: nothing to checkpoint ($exportRows rows, unchanged)."
@@ -248,5 +339,5 @@ try {
     Write-Output "beads-checkpoint: committed $tracker ($exportRows rows, HEAD had $headRows)."
 }
 finally {
-    Remove-Item -LiteralPath $tmpExport, $tmpHead -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $tmpExport, $tmpHead, $tmpOrdered -Force -ErrorAction SilentlyContinue
 }

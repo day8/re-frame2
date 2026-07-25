@@ -56,7 +56,8 @@
 #   8. The checkpoint helper (scripts/beads-checkpoint.sh, rf2-51uz1), driven
 #      against a stub `bd`: a close that lives only in the database survives the
 #      pre-pull checkout, a broken export commits nothing, and a memory reorder
-#      is not a commit.
+#      is not a commit — nor does one ride along with a real change
+#      (rf2-51uz1.1), while the >1/10 shrink guard still refuses.
 #
 # Usage:
 #   sh scripts/git-hooks/test-pre-commit.sh
@@ -1196,6 +1197,13 @@ rm -rf "$RBOX"
 # trusting the working file, which makes the revert unreachable. The cases
 # below drive it against a stub `bd` so the assertions are hermetic and the
 # real tracker is never touched.
+#
+# WHAT THE COMMIT CARRIES is the second axis (rf2-51uz1.1). `bd export` does not
+# fix the order of the memory rows, so a checkpoint that copies the raw export
+# buries the rows that changed under a few hundred relocation lines. 8f pins the
+# reorder-ONLY export producing no commit at all; 8h pins the normal case — one
+# real edit commits exactly that edit — and 8i pins the shrink guard that the
+# ordering work must not cost.
 # ----------------------------------------------------------------------------
 
 printf '\n[8] checkpoint helper: export from the database, never the working file\n'
@@ -1390,6 +1398,98 @@ case "$out" in
     fi ;;
 esac
 git -C "$CREPO" worktree remove --force "$CWORKER" >/dev/null 2>&1 || true
+
+# 8h: A REAL CHANGE COMMITS THE REAL CHANGE ONLY (rf2-51uz1.1). 8f covers the
+# reorder-ONLY export. The case that actually bit was the NORMAL one: a genuine
+# row edit makes the checkpoint commit, and the raw export then carried every
+# unrelated memory reorder along with it — 200 of 211 staged additions were
+# byte-identical to removed lines, so the eleven that mattered were invisible.
+#
+# Here rf2-a closes (the one real edit) while the four untouched memories are
+# shuffled. The commit must show the two rf2-a lines and NOTHING else: no
+# memory row may appear on either side of the diff.
+before=$(git -C "$CREPO" rev-parse HEAD)
+{
+  printf '{"_type":"issue","id":"rf2-a","status":"open"}\n'
+  printf '{"_type":"issue","id":"rf2-b","status":"closed"}\n'
+  printf '{"_type":"memory","key":"m1","value":"one"}\n'
+  printf '{"_type":"memory","key":"m2","value":"two"}\n'
+  printf '{"_type":"memory","key":"m3","value":"three"}\n'
+  printf '{"_type":"memory","key":"m4","value":"four"}\n'
+} > "$CBOX/db.jsonl"
+out=$(run_checkpoint "$CREPO")
+case "$out" in
+  EXIT=0) : ;;
+  *) fail "(8h-seed) could not establish the four-memory baseline ($out)"; cat "$CERR" >&2 ;;
+esac
+
+# Now: rf2-a closes, and the four untouched memories come back in a different
+# order — exactly what `bd export` does on every invocation.
+{
+  printf '{"_type":"issue","id":"rf2-a","status":"closed"}\n'
+  printf '{"_type":"issue","id":"rf2-b","status":"closed"}\n'
+  printf '{"_type":"memory","key":"m3","value":"three"}\n'
+  printf '{"_type":"memory","key":"m1","value":"one"}\n'
+  printf '{"_type":"memory","key":"m4","value":"four"}\n'
+  printf '{"_type":"memory","key":"m2","value":"two"}\n'
+} > "$CBOX/db.jsonl"
+before=$(git -C "$CREPO" rev-parse HEAD)
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+case "$out" in
+  EXIT=0)
+    if [ "$before" = "$after" ]; then
+      fail "(8h) a real row edit produced no commit"
+      cat "$COUT" >&2
+    else
+      # Diff body only: added/removed rows, not the +++/--- headers.
+      cdiff=$(git -C "$CREPO" diff "$before" "$after" -- .beads/issues.jsonl \
+                | grep '^[+-]' | grep -v '^[+-][+-]')
+      churn=$(printf '%s\n' "$cdiff" | grep '"_type":"memory"' || true)
+      real=$(printf '%s\n' "$cdiff" | grep '"id":"rf2-a"' || true)
+      if [ -n "$churn" ]; then
+        fail "(8h) the commit carried memory-row churn alongside the real edit"
+        printf '%s\n' "$churn" >&2
+      elif [ -z "$real" ]; then
+        fail "(8h) the commit did not carry the real edit"
+        printf '%s\n' "$cdiff" >&2
+      elif [ "$(printf '%s\n' "$cdiff" | awk 'END{print NR}')" != "2" ]; then
+        fail "(8h) the commit carried more than the two rf2-a lines"
+        printf '%s\n' "$cdiff" >&2
+      else
+        pass "(8h) a real edit commits ONLY the changed rows; shuffled memories do not move"
+      fi
+      # The committed file must still be the export's row SET, whole — a
+      # cosmetic reordering that loses a row would be the worse bug.
+      if [ "$(git -C "$CREPO" show HEAD:.beads/issues.jsonl | LC_ALL=C sort)" \
+           = "$(LC_ALL=C sort < "$CBOX/db.jsonl")" ]; then
+        pass "(8h) and the committed rows are the export's rows exactly, none lost"
+      else
+        fail "(8h) the minimal-diff rewrite changed the committed ROW SET"
+      fi
+    fi ;;
+  *) fail "(8h) checkpoint failed on a real edit + reordered memories ($out)"; cat "$CERR" >&2 ;;
+esac
+
+# 8i: THE SHRINK GUARD STILL BITES. Not a new behaviour — a regression net for
+# the one it would be tempting to relax while making 8h pass. It fired for real
+# on a deliberate `bd gc` (2642 -> 2372 rows) and correctly refused, sending the
+# operator to a hand commit. A cosmetic-ordering change must not cost that.
+before=$(git -C "$CREPO" rev-parse HEAD)
+printf '{"_type":"issue","id":"rf2-a","status":"closed"}\n' > "$CBOX/db.jsonl"
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+case "$out" in
+  EXIT=0) fail "(8i) a 6-of-7-row shrink was checkpointed; the guard is gone" ;;
+  *)
+    if [ "$before" = "$after" ] && grep -q 'tenth of the' "$CERR" \
+       && grep -q 'untouched' "$CERR"; then
+      pass "(8i) a >1/10 shrink is still refused, and the tracker is untouched"
+    else
+      fail "(8i) the shrink was refused for the wrong reason, or the tree moved"
+      cat "$CERR" >&2
+    fi ;;
+esac
 
 rm -rf "$CBOX"
 
