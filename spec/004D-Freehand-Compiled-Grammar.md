@@ -787,9 +787,18 @@ same-spelled user macro is rejected, and a hostile local named `some?` / `when`
 cannot capture the compiler-generated nil test or branch).
 
 **DOM prop spelling is pinned:** hyphenated lowercase words mirroring React's camelCase
-— `:on-click`, `:on-key-down`, `:on-input` (never `:on-keydown`). Handler-map options:
-`{:event […] :prevent-default true :stop-propagation true :capture true :passive true
-:once true}` — the DOM listener vocabulary is explicit, not implied.
+— `:on-click`, `:on-key-down`, `:on-input` (never `:on-keydown`). The handler-map option
+roster is closed at six keys, and **no one legal map carries all six**: `:passive` and
+`:prevent-default` are mutually exclusive, because a passive listener promises the
+browser it will never call `preventDefault`, so a map carrying both is refused —
+`:rf.ui.compile/contradictory-handler-options` at compile time, and the same verdict
+from the canonical options plan the interpreted and structural tiers ask. The two sides
+of the native-attachment lane carry the roster between them: on the blocking side
+`{:event […] :prevent-default true :stop-propagation true :capture true :once true}`, and
+on the passive side
+`{:event […] :passive true :stop-propagation true :capture true :once true}`. The DOM
+listener vocabulary is explicit, not implied (`FH-EVENT-002` governs both the closed
+roster and the exclusion).
 
 **Prop conversion is compile-time, contextual, and total:** DOM attribute casing,
 `:style` maps (keyword values stringify), `:class` string/vector/map-of-flags; component
