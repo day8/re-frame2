@@ -11,8 +11,7 @@ One namespace:
 ```clojure
 (ns my.app
   (:require [re-frame.core :as rf]
-            [re-frame.freehand :as v :refer [sub]]
-            [re-frame.adapter.uix :as uix]))
+            [re-frame.freehand :as v :refer [sub]]))
 ```
 
 The `:as v` alias matters for projection keywords later. With that alias,
@@ -144,14 +143,16 @@ a frame id.
 
 ```clojure
 (defn ^:export run []
-  (rf/init! uix/adapter)
+  (rf/init! v/adapter)
   (v/mount [counter {}]
            (js/document.getElementById "root")
            {:frame {:id :my.app/main :initial-events [[:app/init]]}}))
 ```
 
 Three things happen there, in order. `rf/init!` installs the reactive substrate —
-without it, minting a frame raises `:rf.error/no-adapter-installed`. The `:frame`
+without it, minting a frame raises `:rf.error/no-adapter-installed`. `v/adapter` is
+Freehand's own; an app already on Reagent or UIx installs that adapter here instead.
+The `:frame`
 plan mints `:my.app/main` and drains `[:app/init]` **before** React is handed
 anything, so the first render reads a seeded app-db rather than flashing an empty
 count. Then the root attaches to `#root`.
@@ -178,8 +179,7 @@ The contracts to remember:
 ```clojure
 (ns my.app
   (:require [re-frame.core :as rf]
-            [re-frame.freehand :as v :refer [sub]]
-            [re-frame.adapter.uix :as uix]))
+            [re-frame.freehand :as v :refer [sub]]))
 
 ;; ---- dataflow: plain re-frame2 --------------------------------------------
 
@@ -205,7 +205,7 @@ The contracts to remember:
 ;; ---- mount ----------------------------------------------------------------
 
 (defn ^:export run []
-  (rf/init! uix/adapter)
+  (rf/init! v/adapter)
   (v/mount [counter {}]
            (js/document.getElementById "root")
            {:frame {:id :my.app/main :initial-events [[:app/init]]}}))

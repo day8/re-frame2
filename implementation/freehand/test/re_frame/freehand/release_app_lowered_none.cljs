@@ -49,8 +49,7 @@
 
 (ns re-frame.freehand.release-app-lowered-none
   (:require [re-frame.core :as rf]
-            [re-frame.freehand :as v]
-            [re-frame.adapter.uix :as uix]))
+            [re-frame.freehand :as v]))
 
 ;; ---------------------------------------------------------------------------
 ;; Handlers — ordinary re-frame2. The root's preflight plan seeds app-db
@@ -95,18 +94,23 @@
    [counter-b {:label "b"}]])
 
 (defn ^:export -main
-  "The build's `:init-fn`. Installs the UIx adapter, then mounts the root
-  into `#app`, owning the frame it runs over so the bundle carries the whole
-  preflight path.
+  "The build's `:init-fn`. Installs Freehand's own adapter, then mounts the
+  root into `#app`, owning the frame it runs over so the bundle carries the
+  whole preflight path.
 
   The reactive substrate needs an adapter before the first frame is made
   (Spec 006 §Adapter selection at boot): `make-state-container` raises
   `:rf.error/no-adapter-installed` until `rf/init!` has run. The mount is
   INTERACTIVE — a click dispatches an event, app-db changes and the view
   re-renders — so the adapter has to bridge reactive change into React's
-  re-render, exactly as a shipped Freehand app would."
+  re-render.
+
+  That adapter is now Freehand's OWN (`v/adapter`, rf2-vo8fb). Both halves of
+  the matched pair install the SAME one, so lowering stays the only variable
+  between the two bundles — and neither of them carries a wrapper library it
+  never renders an element through."
   []
-  (rf/init! uix/adapter)
+  (rf/init! v/adapter)
   (v/mount [app {}]
            (js/document.getElementById "app")
            {:frame {:id             ::frame

@@ -109,6 +109,61 @@ elements — the child path is browser-only, like the mount verbs.
     [:span.badge "3"])
   ```
 
+## Boot
+
+### `adapter`
+
+- **Kind**: Var (a map) — CLJS / browser only
+- **Signature**:
+  ```clojure
+  (rf/init! v/adapter)
+  ```
+- **Description**: Freehand's own **reactive-substrate adapter**. Install it once, at
+  boot, before the first frame is minted — `make-state-container` raises
+  `:rf.error/no-adapter-installed` until `rf/init!` has run. It is the closed
+  substrate contract plus the canonical discriminator `:kind :rf.adapter/freehand`.
+
+  **Why Freehand needs one, given that it renders itself.** An adapter is not a
+  renderer. Freehand puts elements on the page through `react-dom/client`; what the
+  substrate contract asks for is the *observation* half — the container app-db lives
+  in, and a derived value that says when it moved. Freehand shipped only the first
+  until this adapter existed, so an interactive page had to install UIx or Reagent
+  purely to obtain the second.
+
+  It is built on the core React spine (`re-frame.substrate.spine`), shared by every
+  React-shaped adapter, and takes **no new dependency**: Freehand already requires
+  `react` and `react-dom/client`.
+
+  Two things it does that the shared spine does not:
+
+  | | |
+  |---|---|
+  | **Disposal drains your roots first** | `(rf/destroy-adapter!)` unmounts every live Freehand root — releasing their subscriptions, disconnecting their ViewCells, destroying a frame a root *ensured* — and disposes the spine second, because the drain needs the containers the spine teardown removes. Both phases are attempted whatever either does; a drain failure stays primary and a spine failure rides it as `rfFreehandAdapterCleanupError`. |
+  | **`flush-render!` returns settled** | a ViewCell invalidation arms a *later* microtask, so a plain `flushSync` would return with the page stale. This adapter closes the pending window inside React's commit boundary and then converges to a bounded fixed point. |
+
+  **The wrapper adapters remain first-class.** Reagent, UIx and reagent-slim are
+  independently supported *renderer* adapters and this one competes with none of them.
+  Bring-your-own-adapter also stays legitimate for a mixed application under the
+  single-adapter runtime — install the external adapter, and unmount your Freehand
+  roots with `v/unmount!` before destroying it. Note that an external adapter's own
+  synchronous test helpers do not acquire Freehand's ViewCell-settling semantics.
+
+  Browser-only, like the mount verbs: the value stands on the CLJS React spine, and a
+  JVM structural render has no React roots to compose a lifecycle over. See
+  [spec/006-ReactiveSubstrate.md](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract).
+- **Example**:
+  ```clojure
+  (ns my.app
+    (:require [re-frame.core :as rf]
+              [re-frame.freehand :as v]))
+
+  (defn ^:export run []
+    (rf/init! v/adapter)
+    (v/mount [app-root {}]
+             (js/document.getElementById "app")
+             {:frame {:id :my.app/main :initial-events [[:app/init]]}}))
+  ```
+
 ## Roots and mounting
 
 ### `mount`

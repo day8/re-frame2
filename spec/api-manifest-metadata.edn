@@ -195,6 +195,26 @@
   ;; removal / rename. The JVM structural counterpart is the tree emitter,
   ;; which the door does not publish. Spec 004C owns the mount grammar and
   ;; teardown; Spec 011 owns hydration and the fallback.
+  ;; `adapter` (EP-0036 F6, rf2-vo8fb) is the Freehand reactive-substrate
+  ;; adapter — the value `(rf/init! v/adapter)` installs, `:kind
+  ;; :rf.adapter/freehand`. It rides this `:cljs-only` block with the mount
+  ;; verbs and for their reason: it is built on the core React spine
+  ;; (`re-frame.substrate.spine`, CLJS) and its lifecycle composition is about
+  ;; React roots, so a JVM arm could only be present-and-throwing. The machinery
+  ;; lives in the INTERNAL `re-frame.freehand.substrate` (not
+  ;; `re-frame.freehand.adapter` — a CLJS namespace cannot share a JS path with
+  ;; this Var), which is not rowed, exactly as the donor's
+  ;; `re-frame.ui.substrate` was not rowed behind `re-frame.ui/adapter`.
+  ;;
+  ;; FRONT-PORCH, and this is the one Freehand row where the tier is a
+  ;; statement: an application's FIRST line of boot is `(rf/init! v/adapter)`,
+  ;; and the paved path cannot start without it. That is also why the tier
+  ;; differs from the `:adapter`-tier wrapper adapters
+  ;; (`re-frame.adapter.{reagent,uix}/adapter`): those are chosen against a
+  ;; renderer, this is the substrate's own observation wiring for a substrate
+  ;; that renders itself, and it is what a Freehand app reaches for by default.
+  ;; Spec 006 owns the adapter contract.
+  {:namespace "re-frame.freehand" :var "adapter" :kind :var :facade? false :tier :front-porch :owner "006" :status "EP-0036" :runtime-verified? true}
   {:namespace "re-frame.freehand" :var "mount" :kind :fn :facade? true :tier :front-porch :owner "004C" :status "EP-0036" :runtime-verified? false}
   {:namespace "re-frame.freehand" :var "hydrate-root" :kind :fn :facade? true :tier :front-porch :owner "011" :status "EP-0036" :runtime-verified? false}
   {:namespace "re-frame.freehand" :var "unmount!" :kind :fn :facade? true :tier :front-porch :owner "004C" :status "EP-0036" :runtime-verified? false}
