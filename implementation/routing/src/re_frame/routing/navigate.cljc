@@ -251,7 +251,7 @@
         (let [destination? (address/destination? request)
               url-target   (:url request)
               {:keys [route-id path-params query-params matched-fragment unmatched-url
-                      throw-reason requested-url external-url-target?]}
+                      throw-reason malformed? requested-url external-url-target?]}
               (cond
                 ;; rf2-cylse.4 (SECURITY -- open-redirect): an external-classed
                 ;; `:url` target fails closed BEFORE match-url, identical to
@@ -263,22 +263,55 @@
                  :requested-url        url-target
                  :external-url-target? true}
 
-                ;; URL-string target (escape hatch). `match-url-fail-closed`
-                ;; catches any throw -> nil match + `:throw-reason`, so a
-                ;; throwing `:url` fails closed to `:rf.route/not-found` (the
-                ;; same fail-closed path as a bare miss). An unmatched URL keeps
-                ;; the REQUESTED url on the address bar (rf2-0zr2o).
+                ;; URL-string target (escape hatch). rf2-teov0: this door lowers
+                ;; to the SAME `resolver/url-resolution` extraction every other
+                ;; URL-bearing door reaches, rather than reading the URL a second
+                ;; time. It was the last surviving second reader of "what does
+                ;; this URL mean", and `plan.cljc`'s not-found section claims the
+                ;; `:reason` vocabulary is shared "byte-for-byte" across both
+                ;; entry points — which it was not: the inline derivation never
+                ;; ran the `malformed-url?` scan, so a malformed percent-encoding
+                ;; arriving HERE (the door Spec 012 documents as taking dynamic /
+                ;; user-supplied URLs, and `egress.cljc` names as the class most
+                ;; likely to carry `?token=` / `#access_token=`) stamped a bare
+                ;; `{:url …}` and emitted no EP-0015 diagnostic, while the same
+                ;; URL through `:rf.route/handle-url-change` stamped
+                ;; `:reason :malformed-url` and warned.
+                ;;
+                ;; The extraction supplies the shared FACTS; the ratified
+                ;; programmatic policy layers on top of them, exactly as
+                ;; `url_change.cljc` layers `fragment-only?` on the seam's raw
+                ;; `:match` rather than on the normalised target:
+                ;;
+                ;;   - `(:route-id match)` — NOT the normalised `:rf.route/not-found`.
+                ;;     A schema-validation miss is a MATCH, and the programmatic
+                ;;     door's ratified behaviour on one (Spec 012 §resolve-target
+                ;;     table / §Validation-error surfacing) is to reject the
+                ;;     caller's bug through `route-url` below, NOT to route to
+                ;;     not-found the way the URL-driven door does. Taking the
+                ;;     matched id, params, and query preserves that asymmetry
+                ;;     byte-for-byte.
+                ;;   - `(:params target)` on a MISS — the seam's normalised
+                ;;     not-found params, which is where the `:reason`
+                ;;     discriminators (`:malformed-url`, `:match-error`, or none)
+                ;;     now come from instead of being re-derived here.
+                ;;   - `match-url` always carries `:route-id` when it matches, so
+                ;;     `(when-not matched? …)` is the same unmatched-URL test as
+                ;;     the old `(when-not (:route-id match) …)`. An unmatched URL
+                ;;     keeps the REQUESTED url on the address bar (rf2-0zr2o).
+                ;;   - `(:fragment target)` is nil on a malformed URL (the
+                ;;     fragment may itself be the decode-fail site) and the
+                ;;     matched fragment otherwise.
                 (some? url-target)
-                (let [{:keys [match throw-reason]}
-                      (registry/match-url-fail-closed url-target)]
+                (let [{:keys [match matched? malformed? throw-reason target]}
+                      (resolver/url-resolution url-target)]
                   {:route-id         (or (:route-id match) :rf.route/not-found)
-                   :path-params      (if throw-reason
-                                       (plan/not-found-params url-target throw-reason)
-                                       (:params match (plan/not-found-params url-target nil)))
+                   :path-params      (if matched? (:params match) (:params target))
                    :query-params     (:query match {})
-                   :matched-fragment (:fragment match)
-                   :unmatched-url    (when-not (:route-id match) url-target)
+                   :matched-fragment (:fragment target)
+                   :unmatched-url    (when-not matched? url-target)
                    :throw-reason     throw-reason
+                   :malformed?       malformed?
                    :requested-url    url-target})
 
                 ;; Route-id destination -- build a FRESH address (omitted
@@ -513,10 +546,17 @@
                   ;; `:rf.warning/malformed-url`; an unmatched URL that resolved
                   ;; to `:rf.route/not-found` with no such route registered
                   ;; surfaces `:rf.warning/no-not-found-route`.
+                  ;; rf2-teov0: `:malformed?` is the shared extraction's answer,
+                  ;; not a hardcoded `false`. Passing `false` into the SHARED
+                  ;; intent builder is what made the parity structural in form and
+                  ;; absent in fact — the two callers built the same intent list
+                  ;; from DIFFERENT inputs, so the one input that mattered never
+                  ;; reached it. Mutually exclusive with `:throw-reason` by
+                  ;; construction (a throw pre-empts the malformed scan).
                   (plan/emit-intents!
                     (plan/fallback-telemetry-intents
                       {:throw-reason  throw-reason
-                       :malformed?    false
+                       :malformed?    malformed?
                        :no-not-found? (boolean (and unmatched-url (nil? route-meta)))
                        :url           requested-url
                        :frame         frame}))
