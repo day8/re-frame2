@@ -13,9 +13,9 @@
   - `:wait` ms → JS `setTimeout` (CLJS) or `Thread/sleep` (JVM).
   - `:flush-presence` → the presence-clock advance
     (`re-frame.story.play.presence/advance!` → the host's
-    `re-frame.ui.test/flush-presence!`); `:cannot-run` with no presence
-    host installed (rf2-36biz — an advance that did not happen never
-    reports a clean verdict).
+    `re-frame.freehand.presence-runtime/advance-clock!`); `:cannot-run`
+    with no presence host installed (rf2-36biz — an advance that did not
+    happen never reports a clean verdict).
   - `:assert-db` path value → read from `rf/app-db-value` and compare.
   - `:assert-db` path :pred fn-or-sym → invoke the predicate. A FN
     handed in directly is called as-is (advanced-CLJS-safe); a SYMBOL
@@ -1077,7 +1077,7 @@
                 :message     (str "cannot run " (pr-str step)
                                   " — no presence host is installed, so the "
                                   "presence clock did not advance. An app "
-                                  "that renders re-frame.ui compiled views "
+                                  "that renders Freehand views "
                                   "installs the verb by requiring "
                                   "re-frame.story.play.presence-host (or by "
                                   "calling re-frame.story.play.presence/"
@@ -1086,10 +1086,10 @@
 
 (defn- exec-flush-presence!
   "Execute a `[:flush-presence]` / `[:flush-presence ms]` step — advance the
-  compiled-view PRESENCE clock through the installed host verb
+  framework's PRESENCE clock through the installed host verb
   (`re-frame.story.play.presence/advance!` → the framework's
-  `re-frame.ui.test/flush-presence!`), so a variant rendering a
-  `(ui/presence {:timeout-ms n} …)` boundary settles its retained
+  `re-frame.freehand.presence-runtime/advance-clock!`), so a variant rendering
+  a `(v/presence {:timeout-ms n} …)` boundary settles its retained
   (`:unmounting`) children WITHOUT a wall-clock sleep.
 
   Bare `[:flush-presence]` advances to quiescence (every pending exit
@@ -1101,7 +1101,7 @@
   REQUESTED, and with no host installed it did not happen — so the run reports
   the distinct THIRD status rather than a clean verdict over a clock that
   never moved. \"No hook installed\" does not prove \"no presence runtime
-  exists\": an app can load `re-frame.ui` and simply omit the bridge call.
+  exists\": an app can load Freehand and simply omit the bridge call.
   Nor can a following assertion be relied on to carry the refusal — the
   grammar requires no following assertion, and an `:assert-db` one needs only
   the headless floor. The refusal NAMES its install path so it is actionable.

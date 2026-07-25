@@ -242,8 +242,12 @@
      static-export release) `ovr-ctx/override-context` is nil — the whole
      sub-override seam is compiled out, including the `subscribe` consult
      — so this fn returns `child` unchanged instead of mounting a
-     Provider on a nil context. Mirrors
-     `re-frame.ui.sub-overrides/provider-element`'s gate."
+     Provider on a nil context. The gate is not this namespace's
+     invention: `re-frame.adapter.sub-override-context` initialises the
+     context var to nil in production WITHOUT calling
+     `React.createContext`, so every mount site owes the same
+     `interop/debug-enabled?` test to avoid mounting a Provider on
+     nothing."
      [overrides child]
      (if interop/debug-enabled?
        [:r> (.-Provider ovr-ctx/override-context) #js {:value overrides} child]

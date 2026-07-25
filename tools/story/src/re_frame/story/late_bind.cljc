@@ -106,25 +106,27 @@
                                      JVM (no DOM / substrate), so
                                      `render-variant` returns `:cannot-run`.
 
-  - `:flush-presence!`             — a `re-frame.ui`-hosted shell →
+  - `:flush-presence!`             — a Freehand-hosted shell →
                                      `re-frame.story.play.presence` (consumed
                                      by the `[:flush-presence]` script step).
-                                     Advances the compiled-view PRESENCE fake
-                                     clock so a variant rendering a
-                                     `(ui/presence …)` boundary settles its
-                                     retained (`:unmounting`) children
+                                     Advances the PRESENCE fake clock so a
+                                     variant rendering a `(v/presence …)`
+                                     boundary settles its retained
+                                     (`:unmounting`) children
                                      deterministically, with no wall-clock
                                      sleep. Signature: `(f ms-or-nil) → any`
                                      — nil means 'to quiescence', mirroring
-                                     the two arities of the framework verb
-                                     `re-frame.ui.test/flush-presence!`.
+                                     the two arities of the framework advance
+                                     `re-frame.freehand.presence-runtime/
+                                     advance-clock!`.
                                      Story's shipped jar must not depend on
-                                     the never-published `day8/re-frame2-ui`,
-                                     so the verb arrives through this hook
-                                     rather than a `:require`. Installed by
-                                     ONE `:require` of the optional bridge
+                                     the pre-publication
+                                     `day8/re-frame2-freehand`, so the verb
+                                     arrives through this hook rather than a
+                                     `:require`. Installed by ONE `:require`
+                                     of the optional bridge
                                      `re-frame.story.play.presence-host`,
-                                     which holds the `re-frame.ui` dependency
+                                     which holds the Freehand dependency
                                      on the app's side of the seam. Unlike
                                      every other hook here, an ABSENT
                                      `:flush-presence!` is NOT a no-op: a
