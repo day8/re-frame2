@@ -226,16 +226,42 @@
     (coll? x)   (some contains-secret? x)
     :else       false))
 
-(defn- leaks-cedn-token?
-  "Whether a CEDN-1 encoded scoped key survives anywhere in `x`. Broader than
+(defn- cedn-tokens
+  "Every CEDN-1 encoded scoped key surviving anywhere in `x`. Broader than
   `contains-secret?`: a `state/key-id` is `identity/canonical-bytes` — a
   REVERSIBLE PLAINTEXT encoding, not a digest — so a key-id in a trace tag
   discloses the entry's scope + params in the clear inside a string the
   shape-driven projector can only read as an opaque scalar (rf2-5o52l). This
   catches ANY key-id, not only one carrying this suite's secret, so a future
-  emit site that reintroduces the class fails here even with innocuous params."
+  emit site that reintroduces the class fails here even with innocuous params.
+
+  Returns the offending tokens rather than a boolean so a failure REPORTS the
+  plaintext it found — `(is (empty? …))` prints them, `(is (not (some? …)))`
+  prints `true`, and the whole point of this class is that the leaked bytes are
+  hiding inside something that looks opaque."
   [x]
-  (boolean (re-find #"v\[k:" (pr-str x))))
+  (vec (re-seq #"v\[k:[^\]]*\]*" (pr-str x))))
+
+(defn- secret-leak-paths
+  "Every path in `x` whose leaf string carries the secret, each with the
+  offending value. The path-reporting counterpart of `contains-secret?` — same
+  predicate, but a failure NAMES the slot that leaked instead of printing
+  `(not (not true))`. Used by the resource-family scans, where the whole
+  diagnostic value is knowing which of a row's dozen tag slots let the bytes
+  through."
+  [x]
+  (let [found (atom [])
+        walk  (fn walk [path v]
+                (cond
+                  (string? v) (when (.contains ^String v ^String secret-password)
+                                (swap! found conj [path v]))
+                  (map? v)    (doseq [[k vv] v]
+                                (walk (conj path k) k)
+                                (walk (conj path k) vv))
+                  (coll? v)   (doseq [[i vv] (map-indexed vector v)]
+                                (walk (conj path i) vv))))]
+    (walk [] x)
+    @found))
 
 (defn- count-leaf-strings-at-least
   "Walk `x` and count leaf strings whose length is `>= n`. Used to bound
@@ -1113,10 +1139,10 @@
       ;; without touching it.
       (testing "ACCEPTANCE — no raw sensitive bytes anywhere in the projected
                 resource family, in either representation"
-        (is (not (contains-secret? proj-rows))
+        (is (empty? (secret-leak-paths proj-rows))
             "the raw secret is absent from every leaf of every projected
-             resource-family row")
-        (is (not (leaks-cedn-token? projected))
+             resource-family row — a failure here NAMES the leaking tag slot")
+        (is (empty? (cedn-tokens projected))
             "and no CEDN-1 key-id egresses under ANY tag of the WHOLE record —
              a key-id would disclose the same scope + params in the clear while
              looking opaque, and this one holds record-wide today"))
@@ -1205,7 +1231,7 @@
           "and its `:aborted` work-id's embedded key")
       (is (not (:sensitive? tags))
           "a plain row is NOT stamped :sensitive?")
-      (is (not (leaks-cedn-token? tags))
+      (is (empty? (cedn-tokens tags))
           "no CEDN-1 token rides the plain row either — the emit-site rule is
            owner-independent")
       (testing "the plain owner's params are the real map, not a token"
