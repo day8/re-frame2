@@ -249,7 +249,7 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 # it does not exist.
 #
 # But a site is not a proof.  What makes a row proven is that an ASSERTION runs
-# against the fixture, and nine shapes are indistinguishable from a proof to a
+# against the fixture, and ten shapes are indistinguishable from a proof to a
 # scan that stops short of the assertions:
 #
 #     ;; (conf/fixture :FH-CALL-001)              a comment
@@ -268,6 +268,8 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 #     (deftest t (is (= :fx 1)))                  binding, read as the Var
 #     (def fx (conf/fixture :FH-CALL-001))        the binding QUOTED — the token,
 #     (deftest t (is (= `fx 1)))                  and not a reference to it
+#     (def fx (conf/fixture :FH-CALL-001))        the quoted datum ANNOTATED, so
+#     (deftest t (is (vector? '^{:a 1} [fx])))    the quote's EXTENT was miscounted
 #
 # The first three are the false greens the first merged-PR audit found; the
 # fourth was the same mistake waiting; the next two are what the SECOND audit
@@ -275,10 +277,12 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 # as reading assertions; the next two are the THIRD, because reading assertions is
 # not the same as reading them in the namespace and on the platform that has them;
 # the ninth is the FOURTH, because a name is not any run of symbol characters —
-# `:fx` was read as `fx`, and a datum stood in for a Var; and the last is the
-# FIFTH, because a token is not a reference either — `` `fx `` IS the token `fx`,
-# and quoted data is data.  Each one lets a law be retired by deletion — comment
-# out the proof, keep the line — with the gate still calling the row proven.
+# `:fx` was read as `fx`, and a datum stood in for a Var; the tenth is the FIFTH,
+# because a token is not a reference either — `` `fx `` IS the token `fx`, and
+# quoted data is data; and the last is the SIXTH, because knowing WHICH datum is
+# quoted still leaves HOW FAR it reaches, and `^` reaches over two datums rather
+# than one.  Each one lets a law be retired by deletion — comment out the proof,
+# keep the line — with the gate still calling the row proven.
 #
 # So the scan reads FORMS, then the ASSERTIONS, then the NAMES — and it reads a
 # name from a TOKEN BOUNDARY, in an EVALUATED position.  Three reductions come
@@ -292,6 +296,13 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 #     _evaluated  what EVALUATES            every quoted datum — `'x`, `` `x ``,
 #                                           `(quote x)` — with `~x` islands
 #                                           inside a syntax quote recovered
+#
+# All three ask `_datum_end` how far a datum reaches, so its arithmetic is the one
+# place a mistake reaches all of them: `#_` discards a datum, a reader conditional
+# pairs its arms as datums, and a quote blanks one.  `^` is the shape that gets
+# that arithmetic wrong if it is filed with the one-datum prefixes, because it
+# consumes its metadata AND the target that metadata annotates — see
+# `_META_PREFIX`.
 #
 # Then `_top_level_forms` splits what survives on balanced parens; `_SYMBOL_RE`
 # matches a symbol only where one STARTS, so a keyword stays data; `_read_tree`
@@ -463,26 +474,37 @@ def _blank(chunk: str) -> str:
 
 
 _OPENERS = {"(": ")", "[": "]", "{": "}"}
-# The reader macro prefixes: `#`, `'`, `` ` ``, `~`, `~@`, `@` and `^meta`.  Each
-# belongs to the datum that FOLLOWS it, which is one fact and therefore one
-# authority — `_datum_end` needs it to find a datum's extent and `_evaluated`
-# needs it to find where a quoted datum begins.
-_PREFIXES = "#'`~@^"
+# The reader macro prefixes that belong to the ONE datum following them: `#`,
+# `'`, `` ` ``, `~`, `~@` and `@`.  One fact and therefore one authority —
+# `_datum_end` needs it to find a datum's extent and `_evaluated` needs it to
+# find where a quoted datum begins.  `~@` is two of these characters and both are
+# in the set, so one loop reads it.
+_PREFIXES = "#'`~@"
+# `^` is the prefix that is NOT one of them, and reading it as one was a false
+# green a merged-PR audit had to reproduce.  `^` consumes TWO datums — its
+# metadata and then the target that metadata annotates — so `'^{:audit true} [fx]`
+# is a quote over the whole annotated vector, not a quote over the map with the
+# vector left standing beside it.  Counted the wrong way, `_evaluated` blanked
+# `'^{:audit true}` and left `[fx]` exposed as a live reference, so a `deftest`
+# whose only mention of the fixture was inside quoted data proved a row — while
+# the `(quote ^{:audit true} [fx])` spelling of the same datum correctly red,
+# because there the whole list is blanked and no extent is counted.  Its own
+# constant, and its own step in `_datum_end`, because "belongs to the datum that
+# follows" is exactly the sentence that is untrue of it.
+_META_PREFIX = "^"
 
 
 def _prefix_end(text: str, start: int) -> int:
     """The index of the datum the run of reader prefixes at `start` introduces.
 
     `start` itself when there is no prefix there, so this is safe to call on any
-    position a datum may begin at.  `~@` is one prefix spelled two characters,
-    and the inner step is what keeps its `@` from being read as a deref of
-    nothing.
+    position a datum may begin at.  `^` is not among them and stops the run: the
+    datum a `^` introduces begins AT the `^`, and how far it then reaches is
+    `_datum_end`'s question rather than this one's.
     """
     i, n = start, len(text)
     while i < n and text[i] in _PREFIXES:
         i += 1
-        if i < n and text[i] == "@":
-            i += 1
     return i
 
 
@@ -491,6 +513,11 @@ def _datum_end(text: str, start: int) -> int:
 
     Whitespace and stacked `#_`s are skipped first, so `#_ #_ a b` discards both
     `a` and `b` the way the reader does.
+
+    A `^` reaches over TWO datums, and the step is recursive so that the shapes
+    which stack fall out of one rule rather than three: `^:private ^:const x`
+    annotates twice, `^{:doc "d"} 'x` annotates a datum carrying its own prefix,
+    and `^:m ^:n [a b]` ends where the vector ends.
     """
     i = start
     n = len(text)
@@ -504,6 +531,9 @@ def _datum_end(text: str, start: int) -> int:
     if i >= n:
         return n
     i = _prefix_end(text, i)
+    if i < n and text[i] == _META_PREFIX:
+        # The metadata datum, and then the datum it annotates.
+        return _datum_end(text, _datum_end(text, i + 1))
     if i < n and text[i] in _OPENERS:
         return _form_end(text, i)
     if i < n and text[i] == '"':
@@ -654,6 +684,17 @@ def _evaluated(text: str) -> str:
     the three were silent and the third was red only by lexical accident (the
     `'` fell inside `_SYMBOL_HEAD`, so `'fx` came back as the unresolvable token
     `'fx`).  Accidentally loud is not the same as right.
+
+    WHICH datum is quoted is only half of it; the other half is HOW FAR the datum
+    reaches, and that is `_datum_end`'s arithmetic rather than this function's.
+    A merged-PR audit found the two prefix spellings standing a row up again
+    through `'^{:audit true} [fx]`, because `^` was filed with the prefixes that
+    introduce ONE datum: the blank ended at the metadata map's `}` and left
+    `[fx]` beside it in code.  The `(quote ^{:audit true} [fx])` spelling of the
+    same datum was red throughout — its extent is the LIST, so no `^` was
+    counted — and that difference is what made it arithmetic and not policy.
+    Fixed where extent lives, so `#_` and the reader conditionals get the
+    correction with it.
 
     AND IT IS A NARROWING, NOT A REFUSAL, which is the half that keeps it honest.
     Inside a syntax quote, `~x` and `~@x` ARE evaluated — that is what they are
@@ -1618,6 +1659,14 @@ def _cell_lanes(mode: str, host: str) -> frozenset[str]:
 # `{:compiled true}` and a quoted `re-frame.freehand.compiler.…` witness nothing
 # either, and the marker cannot disagree with the names beside it.
 #
+# And blanking quoted data is only as sound as the EXTENT of the datum blanked.
+# `'^{:audit true} [panel]` had its quote counted as reaching the metadata map
+# alone, so `[panel]` stayed in code and witnessed a compiled tier the assertion
+# never entered — while the same datum written `(quote ^{:audit true} [panel])`
+# red, because a list's extent needs no prefix arithmetic.  `_datum_end` reads `^`
+# as the two-datum prefix it is for that reason (`_META_PREFIX`), and every pass
+# that asks how far a datum reaches gets the correction.
+#
 # What stays TEXTUAL within what does evaluate, and is stated rather than hidden,
 # is the marker itself: a statement mentioning a live `{:compiled true}` map
 # literal or a spelled-out `re-frame.freehand.compiler.…` as DATA still witnesses.
@@ -2117,6 +2166,101 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
+        # Red: A QUOTED DATUM MAY BE ANNOTATED, and reading `^` as a one-datum
+        # prefix let the annotation carry the quote away from what it quoted.  The
+        # extent of `'^{:audit true} [fx]` is the whole annotated vector; counted
+        # as `'` over the MAP, the blank ended at the `}` and `[fx]` stood there
+        # in code, so a `deftest` naming the fixture only inside quoted data
+        # proved the row.  This assertion is true in Clojure with no `fx` binding
+        # in the image at all - which is the plainest statement of what it does
+        # not read.
+        "census_metadata_reader_quote_shaped_like_the_fixture_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (vector? '^{:audit true} [fx])))\n"},
+            (),
+            (),
+        ),
+        # Red: the syntax-quoted twin of the same annotated datum.  Both spellings
+        # go through one extent calculation, so pinning both is what says the fix
+        # is the extent rather than a patch on the `'` branch.
+        "census_metadata_syntax_quote_shaped_like_the_fixture_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (vector? `^{:audit true} [fx])))\n"},
+            (),
+            (),
+        ),
+        # Red, AND THE CONTROL THAT LOCALISED THE FAULT.  The same annotated datum
+        # in the `(quote …)` spelling was ALREADY red, because there the extent is
+        # the LIST and no `^` is counted - so the census's verdict turned on which
+        # of three equivalent spellings the author reached for, and the difference
+        # between them was the prefix arithmetic and nothing else.  Red by rule
+        # now, like its two twins above.
+        "census_metadata_quote_form_shaped_like_the_fixture_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (vector? (quote ^{:audit true} [fx]))))\n"},
+            (),
+            (),
+        ),
+        # Red: annotations STACK, and `^` reaches over each of them to the target.
+        # One `^` handled and the next left standing would be the same bug with a
+        # smaller radius, so the extent step recurses rather than special-casing
+        # one caret.
+        "census_stacked_metadata_on_a_quoted_fixture_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= '^:audit ^:slow fx 1)))\n"},
+            (),
+            (),
+        ),
+        # Red: THE SAME EXTENT READ BY A DIFFERENT PASS, and a false green found by
+        # asking where else a datum's reach is counted rather than only where the
+        # audit pointed.  `#_` discards the next datum, and the next datum here is
+        # the ANNOTATED `def` - so the whole binding is discarded.  Counted the
+        # short way, only the metadata went and the `def` survived to bind a
+        # fixture the reader never sees, which is `census_discarded_proof_site`
+        # defeated by one annotation.
+        "census_metadata_on_a_discarded_proof_site": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "#_^{:audit true}\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (seq fx)))\n"},
+            (),
+            (),
+        ),
+        # Green, and the control for OVER-tightening on this axis.  An annotation
+        # is not a quote: `^{:audit true} fx` in an evaluated position IS the Var
+        # reference, metadata and all.  Read the extent as "the caret swallows the
+        # target" rather than "the caret's DATUM is the pair" and this honest row
+        # reds.
+        "census_metadata_on_an_evaluated_fixture_reference": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (seq ^{:audit true} fx)))\n"},
+            (),
+            (),
+        ),
+        # Green, and the half of the extent fix that RECOVERS an edge rather than
+        # removing one.  `~` unquotes the datum after it, and when that datum is
+        # annotated the datum is the pair - so `~^{:audit true} fx` evaluates the
+        # Var inside the template.  Counted the short way the unquote reached only
+        # the metadata MAP and `fx` stayed blanked with the rest of the quote, so
+        # this honest row red at `DEAD PROOF SITE`: the miscount cost a green here
+        # and gave one away above, from one arithmetic error in one place.
+        "census_metadata_on_an_unquote_island_reads_the_fixture": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (= `(a ~^{:audit true} fx) 1)))\n"},
+            (),
+            (),
+        ),
         # Red: the same reduction on the OTHER surface a datum reaches a fixture
         # through.  Here the quoted datum is the `(conf/fixture …)` CALL itself,
         # so the id is read straight off the assertion without a binding in
@@ -2428,6 +2572,69 @@ def _build_census_fixtures(base: Path) -> None:
                                  "(v/defview panel {:compiled true} [_] [:div])\n"
                                  "(def fx (conf/fixture :FH-CALL-001))\n"
                                  "(deftest t (is (= 'panel (first fx))))\n"},
+            (),
+            (),
+        ),
+        # Red: THE ANNOTATED-DATUM EXTENT ON THE WITNESS AXIS.  The fixture is
+        # genuinely read - `(map? fx)` is a real reference in the same statement -
+        # so nothing but the mode witness is in question, exactly as the audit
+        # isolated it.  The declaration is named ONLY inside a quoted annotated
+        # vector, and the short extent left `[panel]` standing in code, so a
+        # `compiled jvm` row was witnessed by a datum.
+        "census_metadata_reader_quote_shaped_like_the_compiled_declaration": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (and (map? fx)\n"
+                                 "           (vector? '^{:audit true} [panel]))))\n"},
+            (),
+            (),
+        ),
+        # Red: the syntax-quoted twin on the witness axis.  Four reds is what the
+        # family costs: two spellings x two axes, because one extent calculation
+        # serves both and a pin on one axis alone would not say so.
+        "census_metadata_syntax_quote_shaped_like_the_compiled_declaration": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (and (map? fx)\n"
+                                 "           (vector? `^{:audit true} [panel]))))\n"},
+            (),
+            (),
+        ),
+        # Red, and the already-red control for the pair above: the `(quote …)`
+        # spelling of the same annotated vector, whose extent is the list and was
+        # therefore never miscounted.  Its twins differed from it by the prefix
+        # arithmetic alone.
+        "census_metadata_quote_form_shaped_like_the_compiled_declaration": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (and (map? fx)\n"
+                                 "           (vector? (quote ^{:audit true} "
+                                 "[panel])))))\n"},
+            (),
+            (),
+        ),
+        # Green, and the over-tightening control on the witness axis.  The same
+        # vector UNQUOTED: `[^{:audit true} panel]` evaluates its annotated
+        # element, so the assertion really does reach the declaration and the
+        # `compiled` claim really is witnessed.  One `'` apart from the first red
+        # above, and the rule has to keep them apart in both directions.
+        "census_metadata_on_an_evaluated_declaration_reference": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (and (map? fx)\n"
+                                 "           (vector? [^{:audit true} panel]))))\n"},
             (),
             (),
         ),
@@ -2786,6 +2993,17 @@ def _run_self_tests(verbose: bool = False) -> int:
          "DEAD PROOF SITE"),
         ("census_reader_quote_shaped_like_the_fixture_binding", 1,
          "DEAD PROOF SITE"),
+        ("census_metadata_reader_quote_shaped_like_the_fixture_binding", 1,
+         "DEAD PROOF SITE"),
+        ("census_metadata_syntax_quote_shaped_like_the_fixture_binding", 1,
+         "DEAD PROOF SITE"),
+        ("census_metadata_quote_form_shaped_like_the_fixture_binding", 1,
+         "DEAD PROOF SITE"),
+        ("census_stacked_metadata_on_a_quoted_fixture_binding", 1,
+         "DEAD PROOF SITE"),
+        ("census_metadata_on_a_discarded_proof_site", 1, "DEAD PROOF SITE"),
+        ("census_metadata_on_an_evaluated_fixture_reference", 0, None),
+        ("census_metadata_on_an_unquote_island_reads_the_fixture", 0, None),
         ("census_quoted_fixture_call_is_not_a_read", 1, "DEAD PROOF SITE"),
         ("census_unquote_inside_a_syntax_quote_reads_the_fixture", 0, None),
         ("census_nested_syntax_quote_does_not_read_the_fixture", 1,
@@ -2816,6 +3034,13 @@ def _run_self_tests(verbose: bool = False) -> int:
          "UNWITNESSED MODE"),
         ("census_reader_quote_shaped_like_the_compiled_declaration", 1,
          "UNWITNESSED MODE"),
+        ("census_metadata_reader_quote_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
+        ("census_metadata_syntax_quote_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
+        ("census_metadata_quote_form_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
+        ("census_metadata_on_an_evaluated_declaration_reference", 0, None),
         ("census_unquote_inside_a_syntax_quote_witnesses_the_mode", 0, None),
         ("census_quoted_compiled_marker_does_not_witness", 1,
          "UNWITNESSED MODE"),
