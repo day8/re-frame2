@@ -2335,18 +2335,79 @@ test('cljs-browser is job-gated on cljs_browser and is REQUIRED (rf2-drpa3.70)',
   );
 });
 
-test('freehand conformance PROSE is not a fixture — no over-broadening (rf2-drpa3.66)', () => {
-  // The route is the fixtures root, not spec/conformance/freehand/**. The
-  // index and its README are held by the always-on conformance workflow and
-  // its validator, which this bead deliberately leaves alone.
+// ---------------------------------------------------------------------------
+// rf2-49upn — the conformance INDEX joins its fixtures on the arm.
+//
+// scripts/check_freehand_conformance_index.py proves the STATIC half of every
+// active row: an assertion under implementation/freehand/test/ reaches the
+// row's fixture, from a lane serving every (mode, host) cell the row claims.
+// The DYNAMIC half — that the assertion PASSES — is the lane exit codes, which
+// the census cannot see. freehand-conformance.yml is unfiltered and
+// Python-only, so an index-only PR used to certify the claim on a commit where
+// jvm-freehand, `cljs` and cljs-browser were all SKIPPED (the shape the #6907
+// merged-PR audit flagged). Arming the index binds the two halves to one
+// commit under `all-required-passed`.
+//
+// Both directions are pinned: the index arms the three lanes, its two sibling
+// documents under the same root do not.
+// ---------------------------------------------------------------------------
+
+test('the freehand conformance INDEX arms the lanes that execute its rows (rf2-49upn)', () => {
+  const result = classify('spec/conformance/freehand/conformance-index.md');
+  assert.equal(
+    result.implementation_jvm,
+    'true',
+    'the index must arm implementation_jvm — the jvm lane serves every `jvm` and `ssr` cell a row can claim',
+  );
+  assert.equal(
+    result.cljs_node_test,
+    'true',
+    'the index must arm cljs_node_test — the node lane serves the structural tier of the `browser` column',
+  );
+  assert.equal(
+    result.cljs_browser,
+    'true',
+    'the index must arm cljs_browser — the Chromium lane serves the mounted tier and every qualified `host:<name>` cell',
+  );
+});
+
+test('freehand conformance PROSE is not the index — no over-broadening (rf2-drpa3.66, rf2-49upn)', () => {
+  // The route is the fixtures root plus the index, NOT
+  // spec/conformance/freehand/**. donor-inventory.md is a different ledger —
+  // check_donor_inventory.py censuses live re-frame.ui consumers across the
+  // working tree, which no Freehand suite asserts on. README.md is the
+  // document that DEFINES the addressing scheme: it speaks in illustrative ids
+  // and is excluded from the census's own citation scan for that reason.
+  // Neither can change what a lane proves, so neither pays for three lanes.
   for (const file of [
     'spec/conformance/freehand/README.md',
-    'spec/conformance/freehand/conformance-index.md',
     'spec/conformance/freehand/donor-inventory.md',
   ]) {
     const result = classify(file);
     assert.equal(result.implementation_jvm, 'false', `${file} must not arm implementation_jvm`);
     assert.equal(result.cljs_node_test, 'false', `${file} must not arm cljs_node_test`);
+    assert.equal(result.cljs_browser, 'false', `${file} must not arm cljs_browser`);
+  }
+});
+
+test('the index arm reaches all three lanes through REQUIRED jobs (rf2-49upn)', () => {
+  // Arming an output binds nothing unless the lane it arms is still gated on
+  // that output AND still reachable from the single required context. The
+  // sibling pins below cover jvm-freehand and cljs-browser; `cljs` is the node
+  // lane, and this is the third leg of the same tripod.
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  assert.match(
+    jobBlock(workflow, 'cljs'),
+    /if: needs\.detect_changed_surfaces\.outputs\.cljs_node_test == 'true'/,
+    'the `cljs` job must stay gated on cljs_node_test, or arming it schedules nothing',
+  );
+  const aggregator = jobBlock(workflow, 'all-required-passed');
+  for (const job of ['jvm-freehand', 'cljs', 'cljs-browser']) {
+    assert.match(
+      aggregator,
+      new RegExp(`- ${job}\\r?\\n`),
+      `aggregator must list ${job} in needs: — otherwise the census's claim rides an advisory lane`,
+    );
   }
 });
 
