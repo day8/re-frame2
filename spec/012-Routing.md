@@ -1657,13 +1657,9 @@ This is the exact opposite of a **framework standard** (`:rf/set-db`, `:rf.inter
 The two registrations carry the reserved registration-meta marker **`:rf/framework-default? true`** ([Conventions §Reserved registration metadata](Conventions.md#reserved-registration-metadata-framework-owned)). The framework seeds them through its internal registration path, which captures no source provenance, so image assembly reads the marker together with the absent `:rf.provenance/ns` to recognise the framework's *own* copy — and stops projecting it into the application layer exactly when an application registration for the same id is present. Two consequences follow, and both matter:
 
 - **Order still decides nothing.** Two *application* namespaces registering the same framework-default id remain an ambiguous collision (`:rf.error/image-duplicate-id`), just like any other duplicate id. The seam removes the framework's own seeding from the app layer; it does not introduce a winner rule.
-- **The replacement replaces the whole registration.** An application handler supplies its own registration metadata, so the framework's `:sensitive` declaration on the denial payload's URL carriers (`:requested-url` / `:destination` / `:target`, see [§Navigation blocking](#navigation-blocking--the-leave-only-pending-protocol)) does **not** carry over. An application whose denial payloads are trace-visible re-declares it:
+- **What is replaced is the BEHAVIOUR — not the framework's description of its own payload.** The denial / block payload is *framework-constructed*, so the `:sensitive` declaration on its URL carriers (`:requested-url` / `:destination` / `:target`, which embed query values and path params — see [§Navigation blocking](#navigation-blocking--the-leave-only-pending-protocol)) is a fact about the framework's payload shape, not something the application is asked to restate. It therefore **rides across the override**: an ordinary `(rf/reg-event :rf.route/entry-denied (fn …))` with no metadata map at all still redacts those carriers at every trace / off-box projection, and `rf/handler-meta` reports the effective classification. An override that declares `:sensitive` of its own gets the **union** — the framework's carriers plus its own paths. Nothing else carries over: not the marker, not framework authority, not `:doc`, not the handler.
 
-    ```clojure
-    (rf/reg-event :rf.route/entry-denied
-      {:sensitive [[:requested-url] [:destination] [:target]]}
-      (fn [{:keys [db]} [_ {:keys [destination]}]] …))
-    ```
+    This retention is scoped precisely to a replaceable framework default's carrier classification. There is no general metadata inheritance — replace any other registration and its metadata is entirely yours.
 
 <a id="the-fresh-return-recipe"></a>
 #### The fresh-return recipe (auth)
