@@ -284,13 +284,28 @@
   when the batch is sequential — the first failing element's
   `:bad-index` and a value-free `:shape` (path / op / kind / arity /
   type, never the leaf value). This mirrors `assoc-in-safe`, which
-  reports path + parent TYPE instead of the parent VALUE."
+  reports path + parent TYPE instead of the parent VALUE.
+
+  ## The ex-message (Spec 009 §The thrown-error shape)
+
+  The message is the human `reason` sentence + the tripped boundary +
+  a trailing `[:rf.error/<id>]` greppability token, with `:rf.error/id`
+  the sole machine discriminator. It is relayed off-box (rf2-jquiy):
+  the encode side of this gate is reached from `diff-encode-epochs`,
+  which pair-mcp runs inside a tool handler, and `server.cljs`'s
+  `invoke-and-guard` puts `(.-message err)` — and NOT the ex-data —
+  into the `:handler-threw` envelope the agent receives. A bare
+  `(str error-id)` therefore shipped the agent the stringified
+  discriminator with every actionable slot stranded in ex-data.
+  `reason` and `where` are both static, value-free strings supplied by
+  the calling boundary, so promoting them into the message cannot leak
+  an app-db leaf (EP-0015 — see above)."
   [schema element-schema data where error-id reason summarize]
   (when validate-patches?
     (when-let [validate (resolve-malli-validate)]
       (when-not (validate schema data)
         (let [[bad-index shape] (first-bad validate element-schema data summarize)]
-          (throw (ex-info (str error-id)
+          (throw (ex-info (str reason " at " where " [" error-id "]")
                           (cond-> {:rf.error/id error-id
                                    :where       where
                                    :recovery    :no-recovery

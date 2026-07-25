@@ -132,9 +132,22 @@
 (defn- fail!
   "Throw a structured plan-construction error. Mirrors the
   `:rf.error/story-*` family the registrar / extends layers use so tools
-  surface plan failures the same way registration failures surface."
+  surface plan failures the same way registration failures surface.
+
+  The ex-message is the canonical Spec 009 thrown-error shape: the human
+  `reason` sentence carrying a trailing `[:rf.error/<id>]` greppability
+  token, with `:rf.error/id` the sole machine discriminator. That is
+  load-bearing rather than cosmetic (rf2-jquiy) — story-mcp's tool
+  dispatcher relays `(ex-message e)` verbatim into the MCP result
+  (`tools/wire_pipeline.cljc` `(str \"Tool handler threw: \" …)`), so a
+  plan failure raised under `explain` / `variant-plan` is read by the
+  consumer AI on the other end of the wire. A bare `(str id)` shipped it
+  the stringified discriminator and discarded the sentence sitting right
+  there in `:reason`. Hand-rolled inline rather than routed through
+  `re-frame.error`: `tools/` is bundle-isolated and MUST NOT
+  `:require re-frame.*`."
   [id reason data]
-  (throw (ex-info (str id)
+  (throw (ex-info (str reason " [" id "]")
                   (merge {:rf.error/id id
                           :where       'rf.story/variant-plan
                           :recovery    :fix-registration

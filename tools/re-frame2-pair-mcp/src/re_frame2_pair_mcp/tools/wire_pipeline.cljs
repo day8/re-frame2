@@ -265,7 +265,18 @@
           :snapshot-map (run-snapshot-map payload opts)
           :epoch-vector (run-epoch-vector payload opts)
           :scalar-value (run-scalar-value payload opts)
-          (throw (ex-info ":rf.error/pair-mcp-unknown-wire-pipeline-kind"
+          ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape:
+          ;; the human sentence + a trailing `[:rf.error/<id>]` token IS the
+          ;; ex-message. Load-bearing here (rf2-jquiy) — `server.cljs`'s
+          ;; `invoke-and-guard` relays `(.-message err)` into the
+          ;; `:handler-threw` envelope, so this text is what the agent on the
+          ;; other end of the MCP wire reads. Hand-rolled inline: `tools/`
+          ;; MUST NOT `:require re-frame.*`.
+          (throw (ex-info (str "run-wire-pipeline got an unknown :kind "
+                               (pr-str kind)
+                               " — expected one of :snapshot-map, :epoch-vector, "
+                               ":scalar-value"
+                               " [" :rf.error/pair-mcp-unknown-wire-pipeline-kind "]")
                           {:rf.error/id :rf.error/pair-mcp-unknown-wire-pipeline-kind
                            :where    're-frame2-pair-mcp/run-wire-pipeline
                            :recovery :no-recovery
