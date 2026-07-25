@@ -361,6 +361,30 @@
                                           (merge (:query current) query-params merge-in)
                                           query-params)]
                              (into {} (remove (comp nil? val)) merged))
+              ;; EP-0037 R0b: shape the ResolvedTarget ONCE, HERE — before the
+              ;; URL, before stage 3's no-op classification, before the guards
+              ;; and before the commit — so every one of them sees the same
+              ;; facts. `resolver/resolved-target` is the seam that fills the
+              ;; route's declared `:query-defaults` (rf2-kqxe6.23), which
+              ;; `match-url` has always done for the URL-bearing doors and this
+              ;; door never did: without it `{:to :d/page :params {:slug "x"}}`
+              ;; committed `:query {}` where `/p/x` committed
+              ;; `{:tab :overview}` — a different slice, a different derived
+              ;; URL and a different resource identity for one destination. It
+              ;; matters that the fill lands BEFORE `identical-nav?` too: a
+              ;; repeat navigate to a place reached by URL otherwise compared
+              ;; unequal against the current slice and re-fired `:on-match` on a
+              ;; fresh nav-token.
+              ;;
+              ;; The `:url` arrives below (it is derived FROM these facts), so
+              ;; the two consumers assoc it on. One target value feeds the
+              ;; guards, the plan and the commit — no door spells the
+              ;; ResolvedTarget shape twice.
+              resolved     (resolver/resolved-target {:route-id route-id
+                                                      :params   path-params
+                                                      :query    query-params
+                                                      :fragment fragment})
+              query-params (:query resolved)
               ;; Build the push URL. An external / unmatched target skips
               ;; `route-url`; a `route-url` throw is a caller bug -> emit
               ;; `:rf.error/schema-validation-failure` (`:where :event`) and
@@ -425,11 +449,9 @@
             (if-let [decided (decisions/decide
                                {:rdb                    rdb
                                 :frame                  frame
-                                :target                 {:route-id route-id
-                                                         :params   path-params
-                                                         :query    query-params
-                                                         :fragment fragment
-                                                         :url      url}
+                                ;; the ONE resolved target, plus the URL derived
+                                ;; from it — not a second spelling of the facts.
+                                :target                 (assoc resolved :url url)
                                 :requested-url          url
                                 :cause                  :navigate
                                 :policy                 (decisions/normalize-policy request)
@@ -473,24 +495,19 @@
                       ;; resolved-target / route-plan seam. `:cause :navigate`;
                       ;; the source is the extracted address (a `:to` request),
                       ;; the raw-URL escape (`{:url ...}`), or the in-place edit.
-                      ;; The plan's `:target` is the ResolvedTarget the commit
-                      ;; publishes — byte-identical to the slice this door
-                      ;; committed before R0b — so the seam is load-bearing, not
-                      ;; a parallel diagnostic copy. Its `:branch` / `:leaf-plan`
-                      ;; are the R0 diagnostic projection (Spec 012 §Resolved
-                      ;; target and the plan diagnostic projection).
+                      ;; The plan's `:target` is the SAME `resolved` value the
+                      ;; guards decided against and the commit publishes — so the
+                      ;; seam is load-bearing, not a parallel diagnostic copy.
+                      ;; Its `:branch` / `:leaf-plan` are the R0 diagnostic
+                      ;; projection (Spec 012 §Resolved target and the plan
+                      ;; diagnostic projection).
                       route-plan (resolver/route-plan
                                    {:cause  :navigate
                                     :source (cond
                                               url-target              {:url url-target}
                                               (contains? request :to) (address/extract-address request)
                                               :else                   (select-keys request address/edit-keys))
-                                    :target (resolver/resolved-target
-                                              {:route-id route-id
-                                               :params   path-params
-                                               :query    query-params
-                                               :fragment fragment
-                                               :url      url})})]
+                                    :target (assoc resolved :url url)})]
                   ;; Shared fail-closed telemetry (rf2-2zyvj / rf2-u8qe7y): a
                   ;; match-url throw on a `:url` target surfaces
                   ;; `:rf.warning/malformed-url`; an unmatched URL that resolved

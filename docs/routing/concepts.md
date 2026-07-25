@@ -79,6 +79,14 @@ Path params and query params stay **separate maps** end to end.
 `:query-defaults` is **destination-local** — it describes this route's own query.
 No metadata key reaches into another route's query.
 
+Because the declaration belongs to the destination, a filled default belongs to the
+**resolved target** rather than to the URL that asked for it. Every way in fills it —
+a deep link, a `route-link` click, `[:rf.route/navigate {:to :app/search}]`, a
+prefetch — so `:page` reads `1` no matter which. And the URL never spells a value the
+route would fill anyway: `route-url` omits a key already at its default, so
+`/search?q=x` and `/search?q=x&page=1` are the same destination and the shorter one is
+the canonical link.
+
 ### Carrying global state through the URL
 
 A destination address is taken **literally**. `[:rf.route/navigate {:to :app/cart}]`
@@ -220,7 +228,7 @@ exactly what it means:
 Reading it back is one sub — `@(subscribe [:rf.route/query])` — and the route's
 `:query` schema has already coerced the values, so `:page` is the number `2` rather
 than `"2"`. Declare `:query-defaults` and a deep link to the bare `/search` arrives
-with `:page 1` filled in, because defaults are applied when a URL is matched.
+with `:page 1` filled in, because defaults are applied wherever a target is resolved.
 
 ### Linking from views
 

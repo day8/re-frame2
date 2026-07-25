@@ -46,6 +46,7 @@
             [re-frame.routing.address :as address]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.registry :as registry]
+            [re-frame.routing.resolve :as resolver]
             [re-frame.trace :as trace]))
 
 (defn- destination-error
@@ -112,9 +113,12 @@
        destination does not RESOLVE against the route registry and its schemas,
        with `:rf.error/prefetch-bad-address` BEFORE any planning (no ensures, no
        summary trace, current readiness untouched);
-    3. resolves the destination route-id + params and the effective parent-to-
-       leaf branch, then consults the late-bound `:routing/on-route-prefetch`
-       warm plan;
+    3. resolves the destination through the ONE `ResolvedTarget` seam every
+       navigation door lowers to (`re-frame.routing.resolve/resolved-target`, so
+       the warm plan is keyed by the identity the activation will commit — the
+       route's `:query-defaults` included) plus the effective parent-to-leaf
+       branch, then consults the late-bound `:routing/on-route-prefetch` warm
+       plan;
     4. emits one `:rf.route/prefetched` summary trace and splices the warm
        plan's ownerless ensure dispatches into the returned fx. It writes NO
        runtime-db — prefetch owns no route state.
@@ -149,10 +153,22 @@
                              (:route-id bad) (assoc :route-id (:route-id bad))
                              frame           (assoc :frame frame)))
         {})
-      (let [route-id (:to request)
-            params   (:params request {})
-            query    (:query request {})
-            fragment (:fragment request)
+      (let [;; The destination lowers to the ONE ResolvedTarget seam every
+            ;; navigation door lowers to (`resolver/resolved-target`), so a warm
+            ;; plan is built from the SAME facts the activation will commit —
+            ;; including the route's declared `:query-defaults`. Prefetch
+            ;; resolving the address itself is what made R3's headline capability
+            ;; silently inert for a route declaring defaults (rf2-kqxe6.23):
+            ;; hovering warmed `{:tab nil}` while the click activated
+            ;; `{:tab :overview}`, so the same link produced TWO cache entries —
+            ;; the warm one ownerless, GC-eligible and never reused, and the
+            ;; click arriving as a fresh `:attempt 1`. No error, no warning; the
+            ;; feature simply did nothing.
+            {:keys [route-id params query fragment]}
+            (resolver/resolved-target {:route-id (:to request)
+                                       :params   (:params request {})
+                                       :query    (:query request {})
+                                       :fragment (:fragment request)})
             ;; Routing owns the `:parent` walk; the Resources warm plan composes
             ;; the contributors. Branch resolution is fail-loud — an unresolved
             ;; / cyclic `:parent` rides down as `:branch-error` and becomes a
