@@ -22,10 +22,13 @@ THE LANES ARE READ, NEVER LISTED.  A lane roster inside this script would be
 the staleness class the gate exists to catch, so every lane comes from the file
 that defines it:
 
-  * CLJS lanes  -- `implementation/shadow-cljs.edn`: each build whose `:target`
-    is `:node-test` or `:browser-test`, its `:ns-regexp`, and its
-    `:source-paths` (the build's own if it overrides, else the top-level
-    vector).  Selection is shadow-cljs's own `re-find` semantics.
+  * CLJS lanes  -- every `shadow-cljs.edn` in the tree: each build whose
+    `:target` is `:node-test` or `:browser-test`, its `:ns-regexp`, and its
+    source roots (the build's own `:source-paths` if it overrides, else the
+    config's, else -- for the `:deps true` / `:deps {:aliases [...]}` shape --
+    the sibling `deps.edn`).  Selection is shadow-cljs's `re-find` semantics.
+    A config with no sibling `deps.edn` has no resolvable classpath and is not
+    a lane (that is what separates a live build from a template payload).
   * JVM lanes   -- the artefact rosters in `scripts/test-jvm-implementation.sh`
     and `scripts/test-jvm-tools.sh`, each artefact's `deps.edn` `:test` alias
     supplying its discovery dirs (`--dir`, cognitect's default `test`) and its
@@ -66,7 +69,7 @@ THE FOUR RULES
       elsewhere.  Borrowed trees are held by B1 only.  (Today that line falls
       between `implementation/**` and `tools/**`; the `tools/{story,xray,
       machines-viz}` test trees carry `.cljc` suites that no CLJS lane selects
-      and are tracked separately -- see rf2-mtrgt.)
+      and are tracked separately -- see rf2-odlm3.)
 
   B3  PHANTOM PATH.  Every root a lane declares must exist.  A renamed or
       deleted directory silently empties the lane that pointed at it, and the
