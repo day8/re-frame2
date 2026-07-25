@@ -108,6 +108,7 @@
   behaviors and commands."
   (:require [re-frame.error :as error]
             [re-frame.freehand.eq :as eq]
+            [re-frame.freehand.events :as events]
             [re-frame.fx :as fx]
             #?@(:cljs [["react" :as react]
                        [re-frame.freehand.refs :as refs]
@@ -250,7 +251,12 @@
 
 (defn- check-lifecycle!
   [id k f]
-  (when (and (some? f) (not (ifn? f)))
+  ;; A roster callback carrier is `ifn?` — it implements the host call
+  ;; protocol in order to THROW (rf2-yn5nj) — so `ifn?` alone would let one
+  ;; register here and defer the refusal to the connect that calls it, with
+  ;; a message about foreign props that has nothing to do with a lifecycle
+  ;; slot. It is named, so the refusal stays where it was: at registration.
+  (when (and (some? f) (or (events/callback? f) (not (ifn? f))))
     (bad-args!
       'v/defbehavior
       (str "The " k " entry of behavior " id " is a " (type-name f)

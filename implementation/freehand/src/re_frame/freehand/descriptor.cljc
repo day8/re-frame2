@@ -102,45 +102,17 @@
      strictly more precise.
 
      The roster is the host call protocol's OWN roster, not the two or
-     three arities a realistic mistake uses. A skipped arity would not
-     fall through to nothing — it would fall through to the host's
-     `AbstractMethodError` (JVM) or `Invalid arity` (CLJS), which is the
-     poor first-encounter message this ruling exists to remove,
-     reintroduced at a different arity. Generating the roster keeps that
-     completeness from costing forty lines of noise.
-
-     The remaining ceiling is the HOST's, not a Freehand asymmetry. The
-     JVM's `IFn` declares a trailing `Object[]` arity plus `applyTo`, so
-     every JVM call is didactic. ClojureScript's `IFn` declares
-     twenty-one `-invoke` arities and REFUSES a variadic one (`Bad method
-     signature in protocol implementation`), so a CLJS call carrying more
-     than twenty arguments answers with the host's own `Invalid arity` —
-     exactly as `cljs.core`'s own `IFn` types do. The law that could have
-     been threatened is that a call must never SUCCEED, and it is not: at
-     every arity, on both hosts, the call raises."
+     three arities a realistic mistake uses, and it is
+     [[re-frame.freehand.events/call-protocol]] that says what that roster
+     is — for the descriptor here and for the roster callback carrier,
+     which owes the same answer for the same reason (rf2-yn5nj)."
      [tname call-fn print-tag id-key]
-     (let [cljs?  (some? (:ns &env))
-           invoke (if cljs? '-invoke 'invoke)
-           this   '_this
-           body   (list call-fn 'entry)
-           args   (fn [n] (map #(symbol (str "_a" %)) (range n)))
-           meth   (fn [as] (list invoke (vec (cons this as)) body))]
-       (concat
-         (list 'deftype tname '[entry]
-               'Object
-               (list 'toString [this]
-                     (list 'str print-tag (list id-key 'entry)))
-               (if cljs? 'IFn 'clojure.lang.IFn))
-         (map (comp meth args) (range 0 21))
-         ;; Both hosts close the roster with the twenty-fixed-plus-rest
-         ;; arity their call protocol declares last; on the JVM that
-         ;; trailing slot is an `Object[]`.
-         [(meth (concat (args 20)
-                        [(if cljs? '_rest (with-meta '_rest {:tag 'objects}))]))]
-         ;; The JVM's `IFn` additionally declares `applyTo`, which is what
-         ;; `apply` reaches — and how a Reagent tree calls a component.
-         (when-not cljs?
-           [(list 'applyTo [this '_args] body)])))))
+     (concat
+       (list 'deftype tname '[entry]
+             'Object
+             (list 'toString ['_this]
+                   (list 'str print-tag (list id-key 'entry))))
+       (events/call-protocol (some? (:ns &env)) (list call-fn 'entry)))))
 
 (def-descriptor-type ViewDescriptor re-frame.freehand.descriptor/direct-call!
   "#re-frame.freehand/view " :view-id)
@@ -489,7 +461,11 @@
   (str "A Freehand vector head must be one of exactly three things: a view declared "
        "with v/defview, a keyword naming a DOM or custom element, or a declared host "
        "descriptor; got a " (value-tag head) "."
-       (when (ifn? head)
+       ;; A roster carrier is `ifn?` too — it implements the call protocol
+       ;; in order to throw, exactly as the descriptor does — and the
+       ;; plain-function recovery is not its recovery, so it is excluded
+       ;; rather than mis-advised.
+       (when (and (ifn? head) (not (events/callback? head)))
          (str " A plain function is never an internal vector head - declare it with "
               "v/defview to mount it as a boundary, or call it with parentheses as an "
               "inline helper."))
