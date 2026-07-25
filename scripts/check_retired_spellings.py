@@ -85,9 +85,11 @@ retired SHAPES:
       backticked), `skills/re-frame2/references/tooling/routing.md`,
       `spec/Spec-Schemas.md`, and
       `spec/conformance/fixtures/routing-query-keyword-discipline.edn`. The
-      last three are outside this gate's scan surface (see SCAN SURFACE) —
-      the boundary is what keeps the rule correct if it is ever pointed at
-      them, and the self-test pins all five verbatim.
+      last three carry a suffix this gate never opens (`.md`, `.edn`) — the
+      `skills/` one sits inside a scanned TREE, so it is the suffix filter and
+      not the roster that keeps it out. The boundary is what keeps the rule
+      correct if the suffix filter is ever widened, and the self-test pins all
+      five verbatim.
 
 WHERE A SHAPE IS TOO AMBIGUOUS TO LINT WITHOUT NOISE (documented, not shipped)
 
@@ -116,9 +118,12 @@ code without unacceptable false-positive noise:
 
 SCAN SURFACE
 
-Framework source under `implementation/` — `.clj` / `.cljc` / `.cljs`. The
-default excludes `test/` trees: tests legitimately ASSERT the retired
-spelling is gone (the `event_context_coeffect_keys_test` checks
+Every Clojure source tree in the repo — `.clj` / `.cljc` / `.cljs` under
+`implementation/`, `examples/`, `tools/`, `skills/`, `testbeds/`, `migration/`
+and `docs/tools/`. See `DEFAULT_SCAN_DIRS` for the roster, the two trees
+deliberately left off it, and why `implementation/` alone was not enough
+(rf2-kqxe6.25). The default excludes `test/` trees: tests legitimately ASSERT
+the retired spelling is gone (the `event_context_coeffect_keys_test` checks
 `(not (contains? cofx :frame))`, and the SSR end-to-end test feeds `:url` /
 `:to` to assert the throw). A test fixture deliberately exercising a retired
 spelling is correct, not drift. Pass `--include-tests` to scan them too
@@ -144,13 +149,48 @@ from typing import Iterable, NamedTuple
 # Scan surface
 # --------------------------------------------------------------------------
 
-# Framework reference implementation. `tools/` is bundle-isolated dev tooling
-# (NOT framework source) and `examples/` is consumer-shaped; the EP-0007
-# enforcement rule targets framework source, so the default surface is
-# `implementation/`. The runtime guards + this gate keep the framework clean;
-# consumer code reintroducing a retired spelling is caught by the runtime
-# throw at their call site.
-DEFAULT_SCAN_DIR = "implementation"
+# EVERY Clojure source tree in the repo, minus the two documented exclusions
+# below. rf2-kqxe6.25: the surface used to be `implementation/` alone, on the
+# reasoning that `tools/` is bundle-isolated dev tooling and `examples/` is
+# consumer-shaped, so only framework source needed the ratchet. That reasoning
+# does not survive EP-0037 R5, which retired `:query-retain` with NO alias and
+# then had rf2-kqxe6.12 / .13 migrate `examples/` and `skills/` off it. A
+# reintroduction in the trees a reader COPIES FROM is the likeliest
+# reintroduction there is, and it was the one the ratchet could not see: the
+# rule fired correctly on a planted `examples/` occurrence the moment it was
+# pointed at it, so only the invocation was scoped.
+#
+# The roster covers every top-level directory that carries a tracked
+# `.clj`/`.cljc`/`.cljs` file today, so no tree is unratcheted. Verify with:
+#
+#   git ls-files | grep -E '\.clj[cs]?$' | sed -E 's#/.*##' | sort -u
+#
+# Two trees on that list are deliberately absent, and both would break the gate
+# rather than merely widen it:
+#
+#   * `scripts/` — `scripts/_test_fixtures/` is where this gate's own POSITIVE
+#     self-test fixtures live. They plant the retired spellings on purpose; a
+#     live scan over them would be red by construction, forever.
+#   * `docs/` — mkdocs stages `spec/` and `migration/` into `docs/spec/` and
+#     `docs/migration/` at build time (see `.gitignore`), so a checkout that has
+#     run `mkdocs build` carries GENERATED copies of trees scanned here already.
+#     Scanning `docs/` would double-report a real finding and could report a
+#     stale one from a copy predating the fix. `docs/tools` — the playground SCI
+#     source, the only tracked Clojure under `docs/` — is rostered directly, so
+#     nothing is lost.
+#
+# `spec/` carries no Clojure source at all (prose + EDN fixtures), and this
+# gate's suffix filter is source-only, so it is not a candidate: the retirement
+# NOTES there are held by the self-test's verbatim prose phase instead.
+DEFAULT_SCAN_DIRS = (
+    "implementation",
+    "examples",
+    "tools",
+    "skills",
+    "testbeds",
+    "migration",
+    "docs/tools",
+)
 
 _SOURCE_SUFFIXES = (".clj", ".cljc", ".cljs")
 
@@ -503,10 +543,13 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--scan-dir",
+        action="append",
         default=None,
+        dest="scan_dirs",
         help=(
-            "Directory (relative to repo-root) to scan. Defaults to "
-            f"'{DEFAULT_SCAN_DIR}'."
+            "Directory (relative to repo-root) to scan. Repeatable. Defaults to "
+            "every Clojure source tree in the repo: "
+            f"{', '.join(DEFAULT_SCAN_DIRS)}."
         ),
     )
     parser.add_argument(
@@ -545,25 +588,39 @@ def main(argv: list[str]) -> int:
         )
         return 2
 
-    scan_root = repo_root / (args.scan_dir or DEFAULT_SCAN_DIR)
-    if not scan_root.exists():
-        sys.stderr.write(f"error: scan dir {scan_root} does not exist.\n")
+    scan_dirs = args.scan_dirs or list(DEFAULT_SCAN_DIRS)
+    scan_roots = [repo_root / d for d in scan_dirs]
+
+    # A rostered tree that has been renamed or deleted is NOT skipped. Skipping
+    # is how a widened gate quietly narrows again — it would report success for
+    # a tree it never opened, which is the whole defect class rf2-kqxe6.25 is
+    # about. Same posture as the test-lane bijection gate's phantom-path rule.
+    missing = [r for r in scan_roots if not r.exists()]
+    if missing:
+        for root in missing:
+            sys.stderr.write(f"error: scan dir {root} does not exist.\n")
         return 2
 
     if args.verbose:
-        n = sum(1 for _ in _iter_source_files(scan_root, args.include_tests))
+        n = sum(
+            1
+            for root in scan_roots
+            for _ in _iter_source_files(root, args.include_tests)
+        )
         sys.stderr.write(
-            f"scanning {n} framework source file(s) under "
-            f"{scan_root.relative_to(repo_root)} "
+            f"scanning {n} source file(s) under "
+            f"{', '.join(str(r.relative_to(repo_root)) for r in scan_roots)} "
             f"(tests {'included' if args.include_tests else 'excluded'})...\n"
         )
 
-    findings = scan(scan_root, include_tests=args.include_tests)
+    findings: list[Finding] = []
+    for root in scan_roots:
+        findings.extend(scan(root, include_tests=args.include_tests))
     if findings:
         _report(findings, repo_root)
         return 1
     if args.verbose:
-        sys.stderr.write("no retired spellings in framework source.\n")
+        sys.stderr.write("no retired spellings in any scanned source tree.\n")
     return 0
 
 

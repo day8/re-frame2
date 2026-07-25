@@ -420,18 +420,25 @@ jobs:
 
       # EP-0007 §Enforcement retired-spelling gate (rf2-ziak6w). EP-0007 rule 2
       # ("no stable accepted synonyms") gets the no-floor-lint treatment "where
-      # shapes allow": a retired spelling reappearing in framework source is a
-      # CI failure, not a doc note. Two merged renames are lintable — the bare
+      # shapes allow": a retired spelling reappearing in repo source is a CI
+      # failure, not a doc note. THREE merged renames are lintable — the bare
       # `:frame` event-context COEFFECT read (retired by rf2-1m6rf1 for
-      # `:rf.frame/id`) and the `:url` / `:to` redirect-TARGET key on an SSR
-      # redirect fx (retired by rf2-vngir for `:location`). The gate scopes to
-      # the retired SHAPES (the coeffect-read accessors; a `:url`/`:to` key in
-      # a `:rf.server/(safe-)redirect` form) so it NEVER fires on the
-      # sanctioned public `:frame` opt, the trace `:frame` tag, the fx-handler
-      # ctx `:frame`, or client-navigation `:url`. Pure Python stdlib (no extra
-      # deps). Self-test first (proves the gate fires on each retired shape +
-      # stays green on every sanctioned counterpart), then the live scan
-      # asserts implementation/ framework source is clean. Hosted in this
+      # `:rf.frame/id`), the `:url` / `:to` redirect-TARGET key on an SSR
+      # redirect fx (retired by rf2-vngir for `:location`), and route metadata
+      # `:query-retain` (retired by EP-0037 R5 / rf2-jlmgt with no alias). The
+      # gate scopes to the retired SHAPES (the coeffect-read accessors; a
+      # `:url`/`:to` key in a `:rf.server/(safe-)redirect` form; the
+      # `:query-retain` keyword token) so it NEVER fires on the sanctioned
+      # public `:frame` opt, the trace `:frame` tag, the fx-handler ctx
+      # `:frame`, client-navigation `:url`, or a backticked retirement note.
+      # Pure Python stdlib (no extra deps). Self-test first (proves the gate
+      # fires on each retired shape + stays green on every sanctioned
+      # counterpart), then the live scan asserts the corpus is clean.
+      #
+      # rf2-kqxe6.25 — the live scan covers EVERY Clojure source tree, not just
+      # `implementation/`. Both invocations are bare because the roster is
+      # declared in the script (`DEFAULT_SCAN_DIRS`), so this one and
+      # `scripts/test-fast-pr.sh`'s cannot widen apart. Hosted in this
       # always-on PR-spine python job so a retired spelling blocks the merge
       # regardless of which surface a PR touches. See
       # scripts/check_retired_spellings.py.

@@ -463,16 +463,21 @@ run "README inventory ratchet" "python scripts/check_readme_inventories.py" \
   python "$spine_root/scripts/check_readme_inventories.py"
 
 # EP-0007 §Enforcement retired-spelling gate (rf2-ziak6w): a retired spelling
-# reappearing in framework source is a CI failure, not a doc note.  Catches
-# the bare `:frame` event-context coeffect read (retired by rf2-1m6rf1 for
-# `:rf.frame/id`) and the `:url` / `:to` redirect-target key on an SSR
-# redirect fx (retired by rf2-vngir for `:location`).  Scoped precisely to
-# the retired SHAPES so it never fires on the sanctioned public `:frame` opt,
-# the trace `:frame` tag, the fx-handler ctx `:frame`, or client-navigation
-# `:url`.  Runs unconditionally (the surface is implementation/ source, not
-# markdown).  Self-test first (proves the gate fires on each retired shape and
-# stays green on every sanctioned counterpart), then the live scan asserts
-# framework source is clean.  See scripts/check_retired_spellings.py.
+# reappearing in repo source is a CI failure, not a doc note.  THREE retired
+# spellings are lintable — the bare `:frame` event-context coeffect read
+# (retired by rf2-1m6rf1 for `:rf.frame/id`), the `:url` / `:to`
+# redirect-target key on an SSR redirect fx (retired by rf2-vngir for
+# `:location`), and route metadata `:query-retain` (retired by EP-0037 R5 /
+# rf2-jlmgt with no alias).  Scoped precisely to the retired SHAPES so it never
+# fires on the sanctioned public `:frame` opt, the trace `:frame` tag, the
+# fx-handler ctx `:frame`, or client-navigation `:url`.  Runs unconditionally,
+# and over EVERY Clojure source tree — not just implementation/ (rf2-kqxe6.25:
+# the `examples/` + `skills/` corpus a reader copies from was the one place the
+# ratchet could not see).  The roster lives in the script, so this invocation
+# and test.yml's cannot widen apart.  Self-test first (proves the gate fires on
+# each retired shape and stays green on every sanctioned counterpart), then the
+# live scan asserts the corpus is clean.  See
+# scripts/check_retired_spellings.py.
 run "retired-spelling gate self-test" "python scripts/check_retired_spellings.py --self-test" \
   python "$spine_root/scripts/check_retired_spellings.py" --self-test
 
