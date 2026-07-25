@@ -694,6 +694,32 @@ jobs:
       # detect a missing sibling. That detection is the `needs:` edge's
       # job. Keep the two together — drop the edge and this step turns
       # back into a mask, which is the rf2-p4a93 defect.
+      #
+      # POM FIDELITY OF THIS INSTALL (rf2-1zbpw). This is the one clein
+      # invocation in the workflow that runs against an UN-REWRITTEN
+      # deps.edn: the Rewrite step below edits ssr-ring's file, never
+      # ssr's, so `implementation/ssr/deps.edn` still says
+      # {:local/root "../core"} at this point. Measured locally at
+      # 0.0.1.alpha, that turns out to be inert rather than merely
+      # fail-safe. `clein install` is `clean` + `copy-src` + `b/jar` +
+      # `b/install` and never calls `write-pom`, so it installs the JAR
+      # ALONE — no sibling `.pom` in ~/.m2 and none inside the jar. The
+      # locally-installed day8/re-frame2-ssr therefore declares no
+      # dependencies at all; a pom-less local artefact resolves silently
+      # and contributes nothing transitively. Nothing here needs it to:
+      # ssr-ring names day8/re-frame2 as its OWN direct top-level
+      # coordinate, separately rewritten and separately installed by the
+      # core step above, so this job's classpath never walks an edge
+      # through ssr's metadata.
+      #
+      # And the pom that consumers actually get is a different artefact
+      # entirely — it is built by the `ssr` value of the deploy-leaf
+      # matrix, whose Rewrite step runs BEFORE its clein deploy, so the
+      # published day8/re-frame2-ssr pom carries
+      # `day8/re-frame2 <VERSION>` correctly. Verified by generating both
+      # poms from this leaf: un-rewritten prints "Skipping coordinate:
+      # {:local/root …/core …}" and emits org.clojure/clojure only;
+      # rewritten emits day8/re-frame2 at the release version.
       - name: Install ssr to runner ~/.m2
         working-directory: implementation/ssr
         run: clojure -M:clein install
