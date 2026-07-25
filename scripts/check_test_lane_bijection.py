@@ -38,9 +38,9 @@ A new artefact, a new build, a renamed directory or a retightened regex is
 therefore picked up by construction.
 
 WHAT COUNTS AS A TEST FILE.  A file that carries at least one TOP-LEVEL
-`(deftest` -- column 0, which is every one of the repo's ~20k deftests.  Naming
-is not consulted, so a test file that does not follow the `_test` filename
-convention is still in the universe.  This also makes the repo's one deftest
+`(deftest` -- column 0, which is where every one of the repo's deftests is
+written.  Naming is not consulted, so a test file that does not follow the
+`_test` filename convention is still in the universe.  This also makes the repo's one deftest
 GENERATOR (`implementation/core/test/re_frame/adapter/react_shared_suite_tests.clj`,
 a `defmacro` whose expansion emits the deftests, invoked from the namespaces
 that want the shared suite) fall out for free: it has no top-level deftest of
