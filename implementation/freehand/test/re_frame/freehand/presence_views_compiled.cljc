@@ -35,8 +35,38 @@
     [:li.row {:key 1} "one"]
     [:li.row {:key 2} "two"]))
 
+;; ---------------------------------------------------------------------------
+;; FH-PRESENCE-004 — the presence-aware CHILD, which reads its own phase
+;; ---------------------------------------------------------------------------
+
+(v/defview phase-card
+  "The presence-aware child, PROMOTED. `(v/presence-phase)` is a body form
+  the compiled analyzer knows, and the phase it answers is decided by the
+  RENDERER rather than by the compiler — so a compiled declaration under a
+  structural render reads `:present` exactly as its interpreted twin does."
+  {:compiled true}
+  [{:keys [label]}]
+  (let [phase    (v/presence-phase)
+        exiting? (= :unmounting phase)]
+    [:div.toast {:class       (when exiting? "toast--exit")
+                 :aria-hidden (when exiting? "true")
+                 :data-phase  (name phase)}
+     label]))
+
+(v/defview phase-stack
+  "The same child under a compiled boundary. The crossing is compiled ->
+  compiled, so the whole declaration is one mode; the fixture's expected
+  view-ids are rewritten onto this namespace and nothing else changes."
+  {:compiled true}
+  [_]
+  [:div.stack
+   (v/presence {:timeout-ms 300}
+     [phase-card {:key "a" :label "saved"}])])
+
 (def by-name
   "Fixture view-name keyword -> the declared view. Keyed identically to
   `presence-views/by-name`, so one fixture table drives both."
-  {:toasts toasts
-   :rooted rooted})
+  {:toasts     toasts
+   :rooted     rooted
+   :phase-card phase-card
+   :phase-stack phase-stack})

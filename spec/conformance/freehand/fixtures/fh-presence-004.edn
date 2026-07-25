@@ -1,0 +1,82 @@
+;; FH-PRESENCE-004 — the presence-aware CHILD's own phase read, under a
+;; structural render, on both hosts and in both modes.
+;;
+;; The other three rows pin the boundary and the machine. FH-PRESENCE-001 pins
+;; the presence NODE — the `:rf.ui/presence` marker, the terminal
+;; `:timeout-ms`, children `:present`. FH-PRESENCE-002 pins the pure transition
+;; algebra. FH-PRESENCE-003 pins what React DOES with a retained subtree in a
+;; real browser, including the child's read reaching `:unmounting`.
+;;
+;; None of them pins the child's read under a render with NO lifecycle, and
+;; that is a separate law rather than a corollary of the first. FH-PRESENCE-001's
+;; declarations carry no `(v/presence-phase)` at all, so its green says nothing
+;; about the read: the ClojureScript arm of `presence-phase` was once an
+;; unconditional `react/useContext`, `t/render` opens no React render, and the
+;; identical declaration therefore rendered on the JVM and threw
+;; `Cannot read properties of null (reading 'useContext')` in ClojureScript —
+;; with all three presence rows green throughout (rf2-erqin, rf2-nxykb).
+;;
+;; THE LAW IS ABOUT THE RENDERER, NOT THE COMPILER. A structural render has no
+;; lifecycle, so its presence node says `{:phase :present …}` and every child
+;; that asks is told `:present` — whichever host runs the render, and whichever
+;; mode lowered the declaration. That is what makes a `.cljc` structural test of
+;; a presence-aware child a cross-host claim, which is the whole reason
+;; `t/render` exists. So the rows below are rendered against the interpreted
+;; declarations in `re-frame.freehand.presence-views` AND their
+;; `{:compiled true}` twins in `re-frame.freehand.presence-views-compiled`, on
+;; the JVM and in the node runtime, from one pinned value.
+;;
+;; The child is pinned OUTSIDE a boundary as well as inside one, because
+;; `:present` outside a boundary is half the read's contract (Spec 004
+;; §Presence, the phase read) and it is what keeps a presence-aware child
+;; reusable anywhere.
+;;
+;; The two exit facts are pinned by ABSENCE, and the tree equality is what pins
+;; them: the expected `:attrs` map is exact, so a stray `:aria-hidden` or an
+;; exit class composed into `:class` fails the row. `:exit-class` and
+;; `:exit-aria` name them so the suite can say WHICH absence it is asserting
+;; rather than leaving it implied by a map that happens not to contain them —
+;; the same two facts FH-PRESENCE-003 asserts are PRESENT while `:unmounting`.
+;;
+;; `:view` names a declaration in the presence-views namespaces; `:args` is the
+;; boundary call's argument tail; the expected `:view-id`s are the interpreted
+;; namespace's, and the compiled arm rewrites them onto the twin namespace.
+{:fh/id "FH-PRESENCE-004"
+ :fh/law
+ "Under a structural render — which carries no lifecycle — `(v/presence-phase)` answers `:present`, so a presence-aware child renders rather than throwing: identically on the JVM and in ClojureScript, from an interpreted declaration and its `{:compiled true}` twin, inside a boundary and outside one, and with no exit class and no `aria-hidden` stamped."
+
+ ;; The phase a render with no retention machine can truthfully report, and
+ ;; the only one it may report.
+ :structural-phase "present"
+
+ ;; The two exit facts, named so their ABSENCE is asserted rather than implied.
+ :exit-class "toast--exit"
+ :exit-aria  :aria-hidden
+
+ :cases
+ [{:note "outside any boundary — the read answers :present, so the child is reusable anywhere"
+   :view :phase-card
+   :args [{:label "saved"}]
+   :tree {:view-id :re-frame.freehand.presence-views/phase-card
+          :props {:label "saved"}
+          :children
+          [{:tag :div :attrs {:data-phase "present" :class "toast"}
+            :children ["saved"]}]
+          :rf.ui/tree-version 1}}
+
+  {:note "under a real boundary — the node says :present and so does every child that asks"
+   :view :phase-stack
+   :args [{}]
+   :tree {:view-id :re-frame.freehand.presence-views/phase-stack
+          :children
+          [{:tag :div :attrs {:class "stack"}
+            :children
+            [{:rf.ui/presence {:phase :present :timeout-ms 300}
+              :children
+              [{:view-id :re-frame.freehand.presence-views/phase-card
+                :props {:label "saved"}
+                :key "a"
+                :children
+                [{:tag :div :attrs {:data-phase "present" :class "toast"}
+                  :children ["saved"]}]}]}]}]
+          :rf.ui/tree-version 1}}]}
