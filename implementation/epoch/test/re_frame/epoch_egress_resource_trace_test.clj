@@ -35,6 +35,7 @@
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
             [re-frame.resources.state :as state]
+            [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             ;; load-bearing: publishes the :resources/* late-bind hooks,
@@ -504,3 +505,186 @@
           tags      (:tags (first (:trace-events projected)))]
       (is (= http-error-envelope (:error tags))
           "the raw envelope rides with :include-sensitive?"))))
+
+;; ---------------------------------------------------------------------------
+;; (rf2-wd9im) the SHAPE-driven fail-closed default — a scoped key sitting in a
+;; slot the projector's vocabulary does not NAME.
+;; ---------------------------------------------------------------------------
+;;
+;; rf2-7qbxbm flipped the `:else` to fail CLOSED, but only over ONE value shape:
+;; a MAP. A SEQUENTIAL value under an unnamed slot still fell through verbatim,
+;; so `:rf.resource/route-plan`'s `:blocking` / `:identities` — EP-0037 R1/R2
+;; VECTORS OF SCOPED KEYS on a row that predates the projector — egressed a
+;; `:sensitive?` owner's resolved scope and canonical params RAW, while the
+;; IDENTICAL keys under `:matched` tokenized. The repair reads SHAPE rather than
+;; slot name, which also covers `:optimistic-keys` / `:forced-keys` /
+;; `:revisions` and the scoped key EMBEDDED in every resource work-id.
+
+(defn- route-plan-tags
+  "A `:rf.resource/route-plan` row's tags in the shape `route.cljc` emits them
+  (EP-0037 R1/R2): `:blocking` + `:identities` are VECTORS OF SCOPED KEYS,
+  `:branch` is a vector of route ids that MUST ride verbatim, and `:removed` is
+  an INT COUNT (the same slot NAME the mutation-settlement rows use for a key
+  vector — the row and the projector were written against different mental
+  models of `:removed`, and both must be handled)."
+  [blocking identities]
+  {:rf.frame/id :test/rt
+   :route-id    :r/article
+   :nav-token   7
+   :branch      [:r/root :r/article]
+   :ensured     2
+   :kept        1
+   :removed     1
+   :blocking    blocking
+   :identities  identities})
+
+(deftest off-box-redacts-route-plan-blocking-and-identities
+  (testing "rf2-wd9im — a :rf.resource/route-plan row's :blocking / :identities
+            plan-membership slots are VECTORS OF SCOPED KEYS under no NAMED slot;
+            a :sensitive? owner's scope + params must tokenize PER KEY, not
+            egress raw"
+    (let [k1        (sk :rf.scope/global :secret/article {:auth-token secret})
+          k2        (sk :rf.scope/global :secret/article
+                        {:auth-token (str secret "-2")})
+          record    (record-with
+                      [(event :rf.resource/route-plan (route-plan-tags [k1] [k1 k2]))])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))
+          [bscope brid bparams] (first (:blocking tags))]
+      (testing ":blocking tokenizes per key"
+        (is (= :secret/article brid) "the resource-id (position 1) survives")
+        (is (redacted-component? bscope) "the scope is tokenized")
+        (is (redacted-component? bparams) "the canonical params are tokenized"))
+      (testing ":identities tokenizes per key, preserving per-key DISTINCTNESS
+                so a tool's per-key joins survive"
+        (is (= 2 (count (:identities tags))))
+        (is (every? #(= :secret/article (second %)) (:identities tags)))
+        (is (every? #(redacted-component? (nth % 2)) (:identities tags)))
+        (is (apply not= (map #(nth % 2) (:identities tags)))
+            "two distinct keys keep two distinct digests"))
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the plan's structural attribution rides verbatim"
+        (is (= :r/article (:route-id tags)))
+        (is (= 7 (:nav-token tags)))
+        (is (= [:r/root :r/article] (:branch tags))
+            "a vector of ROUTE IDS is scalar-only and must NOT be tokenized")
+        (is (= 2 (:ensured tags)))
+        (is (= 1 (:kept tags)))
+        (is (= 1 (:removed tags))
+            "this row's :removed is an INT COUNT, not a key vector — it rides"))
+      (testing "NO raw secret survives anywhere in the projected record"
+        (is (not (contains-secret? projected)))))))
+
+(deftest unnamed-slot-projects-identically-to-named-slot
+  (testing "rf2-wd9im anti-drift — the SAME scoped keys under a NAMED slot
+            (:matched) and under UNNAMED slots (:blocking / :identities) must
+            project IDENTICALLY. This is the property that makes the shape-driven
+            default a replacement for growing the slot roster rather than a
+            second, weaker projection that can drift from it."
+    (let [k1        (sk :rf.scope/global :secret/article {:auth-token secret})
+          k2        (sk [:rf.scope/session {:username secret}]
+                        :derived/profile {:slug "me"})
+          ks        [k1 k2]
+          record    (record-with
+                      [(event :rf.resource/route-plan
+                              {:rf.frame/id :test/rt
+                               :matched     ks     ; NAMED  → roster arm
+                               :blocking    ks     ; UNNAMED → shape arm
+                               :identities  ks})]) ; UNNAMED → shape arm
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= (:matched tags) (:blocking tags))
+          ":blocking projects exactly as the NAMED :matched does")
+      (is (= (:matched tags) (:identities tags))
+          ":identities projects exactly as the NAMED :matched does")
+      (is (every? redacted-component? (map first (:blocking tags)))
+          "both keys' scopes tokenized (the derived scope included)")
+      (is (not (contains-secret? projected))))))
+
+(deftest off-box-keeps-plain-owner-plan-membership-verbatim
+  (testing "rf2-wd9im guard — a PLAIN owner's :blocking / :identities ride
+            VERBATIM. The shape-driven default projects through the OWNER
+            classification, exactly as the named slots do, so closing the leak
+            costs no over-redaction on the ordinary route plan."
+    (let [k1        (sk :rf.scope/global :plain/article {:slug "welcome"})
+          record    (record-with
+                      [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= [k1] (:blocking tags)) "a plain owner's :blocking rides verbatim")
+      (is (= [k1] (:identities tags)) "a plain owner's :identities rides verbatim")
+      (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
+
+(deftest off-box-redacts-scoped-key-embedded-in-resource-work-id
+  (testing "rf2-wd9im — a RESOURCE work-id is
+            `[:rf.work/resource <scoped-key> <generation>]`, so the scoped key
+            (and with it a sensitive owner's scope + params) is EMBEDDED one
+            level down in the :work/id tag on the majority of rows in the family
+            — :work-started / :fetch-started / :deduped / :succeeded / … . No
+            slot roster names :work/id, and the value is a vector, so it rode the
+            verbatim :else. The shape-driven default reaches it by DEPTH."
+    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
+          work-id    (work-ledger/resource-work-id scoped-key 3)
+          record     (record-with
+                       [(event :rf.resource/work-started
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :generation 3 :work/id work-id
+                                :status :running :cause :ensure})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))
+          [marker embedded generation] (:work/id tags)]
+      (is (= :rf.work/resource marker) "the work-kind marker rides verbatim")
+      (is (= 3 generation) "the generation rides verbatim")
+      (is (= :secret/article (second embedded))
+          "the embedded key's resource-id survives (attribution)")
+      (is (redacted-component? (first embedded))
+          "the embedded key's scope is tokenized")
+      (is (redacted-component? (nth embedded 2))
+          "the embedded key's params are tokenized")
+      (is (= (:resource/key tags) embedded)
+          "the embedded key projects exactly as the row's own :resource/key")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "NO raw secret survives anywhere in the projected record"
+        (is (not (contains-secret? projected)))))))
+
+(deftest off-box-keeps-scalar-only-work-id-and-set-tags-verbatim
+  (testing "rf2-wd9im guard — the shape default must not over-redact the
+            scalar-only collections the family relies on: a MUTATION work-id
+            `[:rf.work/mutation <id> <instance>]` carries no scoped key, and
+            `:tags` rides as a SET whose egress KIND tools read (scoped-key
+            identity is kind-sensitive, rf2-wgutc2, so the walk must not collapse
+            a set / seq to a vector)"
+    (let [record    (record-with
+                      [(event :rf.mutation/succeeded
+                              {:rf.frame/id :test/rt :mutation :m/del :instance 1
+                               :work/id [:rf.work/mutation :m/del 1]
+                               :tags    #{:tag/articles :tag/feed}
+                               :left-stale 2})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= [:rf.work/mutation :m/del 1] (:work/id tags))
+          "a mutation work-id is scalar-only and rides verbatim")
+      (is (= #{:tag/articles :tag/feed} (:tags tags))
+          "a SET-valued tag rides verbatim AND stays a set")
+      (is (set? (:tags tags)) "the collection KIND is preserved")
+      (is (= 2 (:left-stale tags)))
+      (is (not (:sensitive? tags))
+          "a row with no key-bearing slot is NOT stamped sensitive"))))
+
+(deftest trusted-local-include-sensitive-keeps-raw-plan-membership
+  (testing "rf2-wd9im — the trusted-local :include-sensitive? opt-in keeps the
+            raw plan membership + the raw embedded work-id key (the local-raw
+            boundary — the shape-driven redaction is the off-box DEFAULT, not an
+            unconditional strip)"
+    (let [k1        (sk :rf.scope/global :secret/article {:auth-token secret})
+          work-id   (work-ledger/resource-work-id k1 3)
+          record    (record-with
+                      [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))
+                       (event :rf.resource/work-started
+                              {:rf.frame/id :test/rt :work/id work-id})])
+          projected (epoch/projected-record record {:include-sensitive? true})
+          [plan work] (:trace-events projected)]
+      (is (= [k1] (:blocking (:tags plan))) "raw :blocking rides")
+      (is (= [k1] (:identities (:tags plan))) "raw :identities rides")
+      (is (= work-id (:work/id (:tags work))) "raw embedded work-id key rides"))))
+
