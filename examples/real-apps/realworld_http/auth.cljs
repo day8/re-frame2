@@ -161,6 +161,24 @@
         (assoc-in [:auth :user] nil)
         (assoc-in [:auth :token] nil))}))
 
+;; ONE definition of "we don't know who this is yet", used from two places that
+;; must not be allowed to drift: the `:auth/restoring-session?` sub (views) and
+;; the `:rf.route/entry-denied` handler (routing.cljs), which needs the same
+;; answer from inside an ordinary event handler where subs aren't available. Two
+;; copies of this predicate is how you get a deep link that is deferred by one
+;; site and never settled by the other.
+;;
+;; It reads the two DURABLE paths rather than the machine's `:restoring` state
+;; on purpose: the machine snapshot lives in runtime-db and is not reachable
+;; from a `:db` value, and the durable slice is the thing the guard judges.
+(defn restoring-session?
+  "True when a saved JWT is present but the user it stands for has not been
+   restored yet — the cold-boot window in which identity is genuinely unknown.
+   PURE: takes an app-db value, reads nothing ambient."
+  [db]
+  (and (nil? (get-in db [:auth :user]))
+       (not (str/blank? (get-in db [:auth :token])))))
+
 (rf/reg-event :auth/post-login-redirect
   {:doc "Drop the freshly-signed-in user back where they were headed before
          the auth guard sent them to login (`[:auth :return-to]`, stashed in
@@ -181,6 +199,66 @@
        :fx [[:dispatch (if return-to
                          [:rf.route/navigate (assoc return-to :replace? true)]
                          [:rf.route/navigate {:to :realworld/home}])]]})))
+
+;; ----------------------------------------------------------------------------
+;; THE COLD-BOOT DEEP-LINK WINDOW  (the one genuinely subtle bit of this app)
+;; ----------------------------------------------------------------------------
+;;
+;; Here is the sequence that has to work, and it is worth spelling out because
+;; getting it wrong is invisible until someone bookmarks `/settings`.
+;;
+;; The frame runs its `:initial-events` first, so `:auth/initialise` has put the
+;; saved JWT in app-db before the URL-bound frame's first URL→slice sync (core.cljs
+;; §MOUNT). But the IDENTITY that token stands for arrives from `GET /user`, and
+;; frame setup settles only SYNCHRONOUS work — it does not await an in-flight
+;; request (EP-0027 §Construction). So the first URL resolution judges a reader
+;; whose token is known and whose user is not yet.
+;;
+;; `:can-enter` is a closed boolean — there is no third "ask me again later"
+;; answer, and there should not be: a guard that could return `:pending` would
+;; put a tri-state in every app's auth sub. Instead the guard says the honest
+;; `false` (no user, no entry), entry denial does what it always does — commits
+;; NOTHING, parks nothing, terminal — and the DENIAL HANDLER decides what that
+;; refusal means. During the restore window it means "wait", not "go to login":
+;; routing.cljs stashes the destination and stays put. Then whichever way restore
+;; settles, this event resolves the stash:
+;;
+;;   restore succeeds → a FRESH navigate at the stashed destination. Denial was
+;;                      terminal, so this is an ordinary new attempt the guard
+;;                      re-evaluates from scratch — no bypass flag, no resume.
+;;   restore fails    → the reader is parked on a URL nothing committed, so land
+;;                      them on login and KEEP the stash for the return trip.
+;;
+;; A PUBLIC deep link never enters this window at all: its route commits on the
+;; first sync, no denial fires, nothing is stashed, and this event is a no-op.
+(rf/reg-event :auth/settle-deferred-entry
+  {:doc "Resolve the protected deep link `:rf.route/entry-denied` DEFERRED while
+         cold-boot identity was unknown. Dispatched once restore has settled, by
+         BOTH outcomes — `:auth/session-restored` (success) and the machine's
+         `:abandon-restore` action (failure) — and it reads the settled auth slice
+         rather than being told which happened. No stash → nothing to settle, and
+         the deep link the reader cold-booted on stays exactly where it is."}
+  (fn handler-auth-settle-deferred-entry [{:keys [db]} _]
+    (let [return-to (get-in db [:auth :return-to])
+          restored? (some? (get-in db [:auth :user]))]
+      (cond
+        ;; No deferred entry: a public deep link, or no deep link at all.
+        (nil? return-to)
+        {}
+
+        ;; Identity restored — take the fresh attempt. Read AND clear the stash
+        ;; in one step, exactly as `:auth/post-login-redirect` does, so a later
+        ;; interactive login can't get bounced to a stale target.
+        restored?
+        {:db (update db :auth dissoc :return-to)
+         :fx [[:dispatch [:rf.route/navigate (assoc return-to :replace? true)]]]}
+
+        ;; Restore failed (expired / revoked / unreachable). The stash SURVIVES:
+        ;; a successful interactive sign-in returns the reader to the exact
+        ;; destination via `:auth/post-login-redirect`.
+        :else
+        {:fx [[:dispatch [:rf.route/navigate {:to       :realworld.auth/login
+                                              :replace? true}]]]}))))
 
 ;; ============================================================================
 ;; AUTH STATE MACHINE
@@ -262,7 +340,27 @@
     (fn [{[_ {:keys [error]}] :event}]
       {:data {:error (rh/failure->message error)}})
 
+    :abandon-restore
+    ;; Cold-boot restore FAILED — the saved JWT was rejected (expired, revoked)
+    ;; or the server was unreachable. Clear the now-invalid session and the
+    ;; persisted token, then STAY PUT: a deep link to a PUBLIC page must remain
+    ;; readable as an anonymous visitor. Being yanked home is the price of a
+    ;; deliberate LOGOUT (`:clear-session` below), not of a failed restore.
+    ;; `:auth/settle-deferred-entry` is what handles the one case where staying
+    ;; put would strand the reader on a blank page — a PROTECTED deep link the
+    ;; guard deferred, for which nothing was ever committed. It runs after
+    ;; `:auth/clear-session` has committed, so it sees a confirmed-anonymous
+    ;; slice and takes its login branch.
+    (fn [_]
+      {:data {:error nil}
+       :fx [[:dispatch [:auth/clear-session]]
+            [:auth.session/persist {:token nil}]
+            [:dispatch [:auth/settle-deferred-entry]]]})
+
     :clear-session
+    ;; Interactive LOGOUT (from :authed): clear the session and the persisted
+    ;; token, then navigate home — signing out deliberately lands you on the
+    ;; public home page. A FAILED RESTORE uses `:abandon-restore` above instead.
     (fn [_]
       {:data {:error nil}
        :fx [[:dispatch [:auth/clear-session]]
@@ -285,7 +383,7 @@
 
     :restoring
     {:on {:auth/success        {:target :authed}
-          :auth/restore-failed {:target :idle   :action :clear-session}}}
+          :auth/restore-failed {:target :idle   :action :abandon-restore}}}
 
     :authed
     {:on {:auth/logout {:target :idle :action :clear-session}
@@ -342,16 +440,20 @@
 
 (rf/reg-event :auth/session-restored
   {:doc       "Cold-boot session restore succeeded (a saved JWT was present
-               and accepted): store the session and re-persist the JWT
-               defensively (in case the server rotated it), but do NOT
-               navigate — a deep link must stay put. The reply rides a map
-               payload classified :sensitive so the token is redacted at
-               event egress."
+               and accepted): store the session, re-persist the JWT
+               defensively (in case the server rotated it), and settle any
+               protected deep link the guard DEFERRED while identity was
+               unknown. It never navigates on its own account — a public deep
+               link must stay put. The reply rides a map payload classified
+               :sensitive so the token is redacted at event egress."
    :sensitive [[:value :user :token]]}
   (fn handler-auth-session-restored [{:keys [db]} [_ {:keys [value]}]]
     (let [user (:user value)]
       {:db (store-session-db db user)
+       ;; `:db` commits before `:fx` runs, so `:auth/settle-deferred-entry`
+       ;; below reads the RESTORED user and takes its "let them in" branch.
        :fx [[:auth.session/persist {:token (:token user)}]
+            [:dispatch [:auth/settle-deferred-entry]]
             [:dispatch [:auth/flow [:auth/success]]]]})))
 
 ;; ============================================================================
@@ -538,6 +640,15 @@
 
 (rf/reg-sub :auth/token
   (fn [db _] (get-in db [:auth :token])))
+
+(rf/reg-sub :auth/restoring-session?
+  {:doc "True for the ONE window where the reader's identity is genuinely
+         unknown: a saved JWT is in app-db but the user it stands for has not
+         come back from `GET /user` yet. The view layer's door onto
+         `restoring-session?`; the `:rf.route/entry-denied` handler
+         (routing.cljs) calls the same predicate directly, because an event
+         handler has a db value but no subs."}
+  (fn [db _] (restoring-session? db)))
 
 (rf/reg-sub :auth/flow-state
   {:doc "The current auth machine snapshot."}
