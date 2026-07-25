@@ -61,6 +61,13 @@ matter to you: `(rf/destroy-adapter!)` unmounts every live Freehand root before 
 disposes anything, and its `flush-render!` returns with the page settled rather than
 leaving the repaint to a microtask.
 
+That settled return is a promise about a drain the flush itself opens. Forced from
+**inside** one that is already open — an event handler, or anything it calls, reaching
+for `flush-render!` — it is refused with `:rf.error/flush-in-open-epoch` instead,
+because rendering there would publish half-settled state: queued events whose update
+and commit phases have not run yet. There is nothing to recover; let the drain reach
+quiescence and flush once.
+
 Unmount your roots with `v/unmount!` **before** destroying an adapter. The drain above
 is a safety net — it stops a root you forgot from holding subscriptions and DOM past
 the adapter's life — but only `v/unmount!` runs while the adapter is live, so only
