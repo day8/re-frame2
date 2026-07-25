@@ -36,4 +36,4 @@ The skill triggers on its surfaces automatically. To force-load:
 - Source: [`skills/re-frame2-ui/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-ui)
 - `SKILL.md`: [`skills/re-frame2-ui/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-ui/SKILL.md)
 - Generated reference: [`skills/re-frame2-ui/references/ui-context.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-ui/references/ui-context.md)
-- Install recipe: [Install re-frame.ui and configure Shadow](../core/how-to/install-re-frame-ui.md). The donor guide chapters have been replaced by the [Freehand guide](../core/freehand/index.md), which is the view layer new work is written against.
+- The donor guide chapters and the donor install recipe have been replaced by the [Freehand guide](../core/freehand/index.md) and its [install page](../core/freehand/install.md), which is the view layer new work is written against. `day8/re-frame2-ui` has no published Maven coordinate and never will, so there is no install recipe to link here.

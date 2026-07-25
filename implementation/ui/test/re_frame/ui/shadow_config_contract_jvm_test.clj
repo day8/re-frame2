@@ -1,40 +1,51 @@
 (ns re-frame.ui.shadow-config-contract-jvm-test
-  "rf2-vxgfnd.196 — pin the PUBLISHED re-frame.ui Shadow configuration against
-  the repository's own real wiring.
+  "rf2-vxgfnd.196 — pin the re-frame.ui Shadow configuration the repository
+  hands authors against the repository's own real wiring.
 
-  `docs/core/how-to/install-re-frame-ui.md` ships ONE setting as a consumer
-  contract (the old `:cache-blockers #{re-frame.ui}` tax was removed at the S6
-  cut-over, rf2-u53yy.1):
+  ONE setting is the whole consumer contract (the old `:cache-blockers
+  #{re-frame.ui}` tax was removed at the S6 cut-over, rf2-u53yy.1):
 
       :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
 
-  and a supported shadow-cljs version. This suite proves the published text
-  still matches what the repository ACTUALLY configures — never a fourth
-  hand-copy of the rule.
+  plus a supported shadow-cljs version. This suite proves every holder of that
+  rule still matches what the repository ACTUALLY configures — never a
+  hand-copy free to drift.
 
   THE DESIGN CONSTRAINT, and the whole point of the bead: this namespace
   contains NO literal expected value. It never spells the hook form, never
   spells a version number. The expected value IS
   `implementation/shadow-cljs.edn`, read at run time. The only literals here are
-  the KEY name being compared at (`:build-defaults`) and the markdown anchors —
+  the KEY name being compared at (`:build-defaults`) and the markdown anchor —
   coordinates, not truth. A gate that restates the rule can only ever confirm
   its own copy of it (the rf2-5e3ic failure mode: gates that answered `true` for
   a 404 and for a path outside the repo).
 
-  Four holders, compared as DATA:
+  Three holders, compared as DATA:
 
-    1. the published page       docs/core/how-to/install-re-frame-ui.md
-    2. this repo's own build    implementation/shadow-cljs.edn        (top level)
-    3. the consumer scaffold    examples/ui/minimal-counter/shadow-cljs.edn
-    4. the setup skill          skills/re-frame2-setup/references/shadow-cljs.md
+    1. this repo's own build    implementation/shadow-cljs.edn        (top level)
+    2. the consumer scaffold    examples/ui/minimal-counter/shadow-cljs.edn
+    3. the setup skill          skills/re-frame2-setup/references/shadow-cljs.md
 
-  Holder 4 arrives with rf2-ftb3s. The setup skill points authors at the
-  published page for the reasoning and carries only the settings themselves,
-  behind the same `rf2:shadow-ui-contract` anchor — so the skill is pinned to
-  the real build config rather than becoming a fourth copy free to drift.
+  The setup skill carries only the settings themselves, behind the
+  `rf2:shadow-ui-contract` anchor — so it is pinned to the real build config
+  rather than being a copy free to drift.
 
-  Each is a separate lever: mutate any ONE of the three and this suite reds,
-  naming which holder diverged.
+  THERE WAS A FOURTH (rf2-ote5u). `docs/core/how-to/install-re-frame-ui.md`
+  published the same contract and a supported shadow-cljs version, and this
+  suite compared it like the rest. The page is GONE: it advertised a
+  `day8/re-frame2-ui` Maven coordinate that was ruled never-to-be-published
+  (rf2-a32r7), and re-frame.ui is the donor being absorbed into Freehand. Its
+  content is not homeless — the contract it restated lives in the two real
+  configs and the skill above, all still compared here, and the shadow-cljs
+  version it published lives in the two REAL pins (`implementation/package.json`
+  and the scaffold's `deps.edn`), which are still compared to each other below.
+  A published page was always a restatement; deleting it removes a copy, not a
+  source. The Freehand install page (`docs/core/freehand/install.md`) is NOT its
+  successor here — it configures a DIFFERENT hook
+  (`re-frame.freehand.compiler.build-hook`) and belongs to its own contract.
+
+  Each holder is a separate lever: mutate any ONE and this suite reds, naming
+  which holder diverged.
 
   Shape assertions run BEFORE any comparison (the
   `frame-destroyed-op-schema-jvm-test` precedent): a moved anchor, a deleted
@@ -49,7 +60,14 @@
 ;; Locating the repo — cwd-independent, no hardcoded depth
 ;; ---------------------------------------------------------------------------
 
-(def ^:private page-rel "docs/core/how-to/install-re-frame-ui.md")
+;; The repo-root MARKER. A durable, always-present root file with no stake in
+;; any artefact's fate — deliberately not a docs page and not a compared
+;; holder, because locating the repo BY a holder means deleting that holder
+;; errors every test in the suite rather than failing the one comparison that
+;; actually lost its subject (rf2-ote5u: this locator used to walk for the
+;; published how-to). Same marker and same walk as the sibling
+;; `slice-memo-lifetime-census-jvm-test` in this directory.
+(def ^:private root-marker-rel "AGENTS.md")
 (def ^:private impl-config-rel "implementation/shadow-cljs.edn")
 (def ^:private example-config-rel "examples/ui/minimal-counter/shadow-cljs.edn")
 (def ^:private example-deps-rel "examples/ui/minimal-counter/deps.edn")
@@ -57,18 +75,23 @@
 (def ^:private skill-rel "skills/re-frame2-setup/references/shadow-cljs.md")
 
 (defn- repo-root
-  "Walk up from the working dir until a directory holds BOTH the published page
-  and this repo's own shadow config. `clojure -M:test` runs from
-  implementation/ui; CI and editors may start elsewhere."
+  "Walk up from the working dir until a directory holds BOTH the repo-root
+  marker and this repo's own shadow config. `clojure -M:test` runs from
+  implementation/ui; CI and editors may start elsewhere.
+
+  Both anchors are kept deliberately: the marker identifies the repository, and
+  `implementation/shadow-cljs.edn` is the source of truth every comparison
+  below reads, so a walk that found a root without it would defer a certain
+  failure to a less obvious place."
   []
   (or (some (fn [dir]
               (let [d (.getCanonicalFile (io/file dir))]
-                (when (and (.isFile (io/file d page-rel))
+                (when (and (.isFile (io/file d root-marker-rel))
                            (.isFile (io/file d impl-config-rel)))
                   d)))
             (take 8 (iterate #(io/file % "..") (io/file "."))))
       (throw (ex-info "rf2-vxgfnd.196: cannot locate the repo root"
-                      {:looking-for [page-rel impl-config-rel]
+                      {:looking-for [root-marker-rel impl-config-rel]
                        :cwd (System/getProperty "user.dir")}))))
 
 (def ^:private root (delay (repo-root)))
@@ -87,30 +110,32 @@
   (edn/read-string {:default (fn [_tag v] v)} (slurp-rel rel)))
 
 ;; ---------------------------------------------------------------------------
-;; The published page — parsed out of the markdown at run time
+;; The prose holder — parsed out of the markdown at run time
 ;; ---------------------------------------------------------------------------
 
 (defn- anchored-block
   "The body of the fenced ```<lang> block immediately following the HTML comment
-  anchor `<!-- anchor -->`. Throws when the anchor or its fence is gone, so
-  moving either reds here instead of quietly yielding nil."
-  [markdown anchor lang]
+  anchor `<!-- anchor -->` in `rel`. Throws when the anchor or its fence is
+  gone, so moving either reds here instead of quietly yielding nil. `rel` is
+  carried for the diagnosis only — it names the holder that lost its anchor."
+  [rel markdown anchor lang]
   (let [pat  (re-pattern (str "(?s)<!--\\s*" (java.util.regex.Pattern/quote anchor)
                               "\\s*-->\\s*```" lang "\\r?\\n(.*?)```"))
         body (second (re-find pat markdown))]
     (when (str/blank? (str body))
       (throw (ex-info (str "rf2-vxgfnd.196: no ```" lang " block follows the "
-                           anchor " anchor in the published page")
-                      {:page page-rel :anchor anchor})))
+                           anchor " anchor in " rel)
+                      {:holder rel :anchor anchor})))
     body))
 
 (defn- anchored-contract
-  "The two-setting map a MARKDOWN holder publishes behind the shared
-  `rf2:shadow-ui-contract` anchor, as data. Every prose holder — the published
-  page, the setup skill — carries the settings under the same anchor, so one
-  reader serves them all."
+  "The one-setting map a MARKDOWN holder carries behind the shared
+  `rf2:shadow-ui-contract` anchor, as data. The reader is written against the
+  ANCHOR rather than against one file, so a second prose holder enrols by
+  carrying the anchor rather than by growing a reader of its own."
   [rel]
-  (let [form (edn/read-string (anchored-block (slurp-rel rel)
+  (let [form (edn/read-string (anchored-block rel
+                                              (slurp-rel rel)
                                               "rf2:shadow-ui-contract"
                                               "clojure"))]
     (when-not (map? form)
@@ -118,34 +143,12 @@
                       {:holder rel :read form})))
     form))
 
-(defn- published-contract
-  "The two-setting map the published how-to page publishes, as data."
-  []
-  (anchored-contract page-rel))
-
 (defn- skill-contract
-  "The two-setting map the re-frame2-setup skill hands authors, as data. The
-  skill points at the published page for the reasoning and carries only the
-  settings — this is what stops that block being a fourth free-drifting copy."
+  "The one-setting map the re-frame2-setup skill hands authors, as data. The
+  skill carries only the settings — this is what stops that block being a copy
+  free to drift from the build config it claims to describe."
   []
   (anchored-contract skill-rel))
-
-(defn- published-shadow-version
-  "The shadow-cljs version the page publishes, dug out of the `:shadow` alias it
-  shows. Reads the coordinate the page actually prints — no version literal
-  lives in this file."
-  []
-  (let [form (edn/read-string (anchored-block (slurp-rel page-rel)
-                                              "rf2:shadow-ui-version"
-                                              "clojure"))
-        v    (->> (get-in form [:aliases :shadow :extra-deps])
-                  (keep (fn [[sym coord]]
-                          (when (= "shadow-cljs" (name sym)) (:mvn/version coord))))
-                  first)]
-    (when (str/blank? (str v))
-      (throw (ex-info "rf2-vxgfnd.196: the published version block carries no shadow-cljs coordinate"
-                      {:read form})))
-    v))
 
 ;; ---------------------------------------------------------------------------
 ;; The real holders
@@ -190,88 +193,71 @@
             (str impl-config-rel " :build-defaults :build-hooks is not a non-empty vector")))))
   (testing "the removed :cache-blockers tax is gone from every real config (S6 cut-over, rf2-u53yy.1)"
     ;; The whole point of S6: the tax line must not creep back into any real
-    ;; shadow-cljs.edn holder. (The anchored contract blocks in the page and the
-    ;; skill are pinned one-setting by the comparisons below; the page's prose
-    ;; may still discuss the removal.)
+    ;; shadow-cljs.edn holder. (The skill's anchored contract block is pinned
+    ;; one-setting by the comparison below.)
     (doseq [rel [impl-config-rel example-config-rel]]
       (is (not (contains? (read-config rel) :cache-blockers))
           (str rel " still carries the removed :cache-blockers install tax")))
-    ;; And the anchored contract blocks themselves must be exactly one setting.
-    (is (not (contains? (published-contract) :cache-blockers))
-        (str page-rel " anchored contract block still carries :cache-blockers"))
+    ;; And the anchored contract block itself must be exactly one setting.
     (is (not (contains? (skill-contract) :cache-blockers))
         (str skill-rel " anchored contract block still carries :cache-blockers"))))
 
-(deftest published-page-is-parseable
-  (testing "both anchors resolve to blocks that read as data"
-    ;; anchored-block / published-* throw on a moved anchor; calling them here
-    ;; converts that into a named failure rather than an error inside a
-    ;; comparison test.
-    (is (map? (published-contract)))
-    (is (string? (published-shadow-version))))
-  (testing "the setup skill's anchored block resolves too"
-    ;; Same conversion for holder 4: delete the skill's anchor or its fence and
-    ;; the failure names the skill, rather than surfacing inside the comparison.
+(deftest prose-holder-is-parseable
+  (testing "the setup skill's anchored block resolves to a block that reads as data"
+    ;; anchored-block throws on a moved anchor; calling it here converts that
+    ;; into a named failure rather than an error inside a comparison test —
+    ;; delete the skill's anchor or its fence and the failure names the skill.
     (is (map? (skill-contract)))))
 
 ;; ---------------------------------------------------------------------------
-;; The drift comparisons — three levers, one per holder
+;; The drift comparisons — one lever per holder
 ;; ---------------------------------------------------------------------------
-
-(deftest published-contract-matches-this-repos-own-build
-  (testing "the page publishes exactly what implementation/shadow-cljs.edn configures"
-    (is (= (top-level-contract impl-config-rel) (published-contract))
-        (str "the published snippet in " page-rel " has drifted from "
-             impl-config-rel ". Reconcile the page against the real build "
-             "config — the config is the source of truth."))))
-
-(deftest published-contract-matches-the-consumer-scaffold
-  (testing "the runnable example carries exactly what the page tells consumers to write"
-    (is (= (top-level-contract example-config-rel) (published-contract))
-        (str "the published snippet in " page-rel " has drifted from "
-             example-config-rel ". A consumer copying the page would not get "
-             "the scaffold's configuration."))))
 
 (deftest setup-skill-matches-this-repos-own-build
   (testing "the setup skill hands authors exactly what a real build configures"
-    ;; Compared against the CONFIG rather than the page, deliberately: the
-    ;; config is the source of truth this suite exists to defend, so mutating
-    ;; either the skill's block or the real build reds here. A skill compared
-    ;; only against the page would agree with a page that had itself drifted.
+    ;; Compared against the CONFIG, which is the source of truth this suite
+    ;; exists to defend, so mutating either the skill's block or the real build
+    ;; reds here.
     (is (= (top-level-contract impl-config-rel) (skill-contract))
         (str "the anchored block in " skill-rel " has drifted from "
              impl-config-rel ". An author following the setup skill would not "
              "configure re-frame.ui the way this repo actually does — "
-             "reconcile the skill against the real build config, and see "
-             page-rel " for the published reasoning."))))
+             "reconcile the skill against the real build config."))))
 
 (deftest the-two-real-configs-agree
   (testing "this repo and the scaffold configure re-frame.ui identically"
-    ;; Transitively implied by the two tests above, but asserted directly so a
-    ;; failure names the two configs rather than blaming the page.
+    ;; A consumer copying the runnable scaffold must get what this repo itself
+    ;; builds with. Asserted directly so a failure names the two configs.
     (is (= (top-level-contract impl-config-rel)
            (top-level-contract example-config-rel))
         (str impl-config-rel " and " example-config-rel
              " no longer configure re-frame.ui the same way."))))
 
 ;; ---------------------------------------------------------------------------
-;; Version posture — a concrete pin (3.4.10) within the supported, tested range
-;; 3.4.0–3.4.11 (rf2-u53yy.1 S6). The pin published on the page must still equal
-;; the pins the repo and the scaffold actually build with — lockstep.
+;; Version posture — a concrete pin within the supported, tested range
+;; 3.4.0–3.4.11 (rf2-u53yy.1 S6). The npm half and the scaffold's Clojure half
+;; must pin the SAME shadow-cljs — lockstep across the two real holders.
+;;
+;; This compared a third value until rf2-ote5u: the version the published
+;; how-to advertised. That page is gone, and with it the only holder that was
+;; a restatement rather than a build input. What remains is the comparison
+;; that could always break a real build — the npm CLI this repo runs and the
+;; Clojure coordinate the scaffold resolves are the same shadow-cljs, or a
+;; consumer following the scaffold builds against a different one than we test.
 ;; ---------------------------------------------------------------------------
 
-(deftest published-version-matches-every-pin
-  (testing "the supported version on the page is the version actually pinned"
-    (let [published (published-shadow-version)
-          npm       (npm-shadow-version impl-package-rel)
-          example   (deps-shadow-version example-deps-rel)]
+(deftest the-two-real-pins-agree
+  (testing "the npm half and the scaffold's Clojure half pin the same shadow-cljs"
+    (let [npm     (npm-shadow-version impl-package-rel)
+          example (deps-shadow-version example-deps-rel)]
+      ;; Non-vacuity first: two blank reads would compare equal and pass on a
+      ;; repo that had lost both pins.
       (is (not (str/blank? (str npm)))
           (str "no shadow-cljs pin found in " impl-package-rel))
       (is (not (str/blank? (str example)))
           (str "no thheller/shadow-cljs coordinate found in " example-deps-rel))
-      (is (= published npm)
-          (str "the page's supported shadow-cljs version (" published ") has "
-               "drifted from " impl-package-rel " (" npm ")"))
-      (is (= published example)
-          (str "the page's supported shadow-cljs version (" published ") has "
-               "drifted from " example-deps-rel " (" example ")")))))
+      (is (= npm example)
+          (str "the shadow-cljs pin in " impl-package-rel " (" npm ") has "
+               "drifted from " example-deps-rel " (" example "). A consumer "
+               "following the scaffold would build against a different "
+               "shadow-cljs than this repo tests with.")))))

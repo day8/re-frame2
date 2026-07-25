@@ -67,7 +67,7 @@ Two things to know:
 
 With the hook missing the app throws on namespace load rather than running with no registries to resolve its compiled views against.
 
-**Why the hook is load-bearing, the supported shadow-cljs version range, and a warm-start smoke check are published as a shipped contract** in [Install re-frame.ui and configure Shadow](../../../docs/core/how-to/install-re-frame-ui.md). That page is the source of truth. The block above is the same contract, held against it by a drift gate rather than retyped, so read the page for the reasoning instead of expecting it restated here.
+**The block above is not a copy anyone has to keep in step by hand.** It is held against this repository's own `implementation/shadow-cljs.edn` — the configuration re-frame2 itself builds with — by the drift gate in `implementation/ui/test/re_frame/ui/shadow_config_contract_jvm_test.clj`, which compares the settings as data and reds if either side moves. The real build config is the source of truth; this block is pinned to it.
 
 ## The `index.html` that loads the bundle
 

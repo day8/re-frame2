@@ -188,7 +188,6 @@ nav:
     - "Run to completion (detail)": core/run-to-completion.md
     - "How-to recipes":
       - core/how-to/index.md
-      - "Install re-frame.ui and configure Shadow": core/how-to/install-re-frame-ui.md
       - "Boot and mount an app": core/how-to/boot-and-mount-an-app.md
       - "Add auth": core/how-to/add-auth.md
       - "Build a form": core/how-to/build-a-form.md
