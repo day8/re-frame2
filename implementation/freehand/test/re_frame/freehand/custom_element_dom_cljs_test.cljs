@@ -87,15 +87,17 @@
   [_]
   [:ce-detail {:on-detail {:payload 1} :data-x "d"}])
 
-(v/defview detail-literal-compiled {:compiled true}
+(v/defview detail-literal-compiled
   "The BUILD-time classification: a literal declared property is resolved to
   its camelCase name at compile time and never consults the registry at all."
+  {:compiled true}
   [_]
   [:ce-detail {:on-detail {:payload 1} :data-x "d"}])
 
-(v/defview detail-spread-compiled {:compiled true}
+(v/defview detail-spread-compiled
   "`compiled-react/forward-entry!` — a map the compiler never saw, folded
   onto a compiled element. Its own seam, with no structural counterpart."
+  {:compiled true}
   [{:keys [props]}]
   [:ce-detail (v/spread props)])
 
