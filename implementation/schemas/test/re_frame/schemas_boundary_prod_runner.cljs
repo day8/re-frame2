@@ -13,13 +13,17 @@
   `Ran N tests containing M assertions.` summary to the browser console
   (via `*print-fn*` → `console.log`), which is exactly what the
   Playwright runner (scripts/run-browser-tests.cjs) watches for. No DOM
-  reporter is needed because the orchestrator polls the console stream."
-  (:require [cljs.test :as test]
-            [shadow.test :as st]
-            [shadow.test.env :as env]
-            ;; Pull the prod-mode boundary smoke into the test
-            ;; environment so shadow.test/run-all-tests discovers it.
-            [re-frame.schemas-boundary-prod-test]))
+  reporter is needed because the orchestrator polls the console stream.
+
+  It requires no test namespace, for the reason
+  `re-frame.prod-elision-runner` sets out at length: the `:browser-test`
+  target injects every `:ns-regexp` match as a module entry on each compile
+  cycle, so `-boundary-prod-test$` is what puts the smoke in this lane. The
+  single require this namespace used to carry was accurate, which is the
+  trap — it read as the mechanism while being a coincidence of there being
+  exactly one match."
+  (:require [shadow.test :as st]
+            [shadow.test.env :as env]))
 
 (defn ^:export init []
   (-> (env/get-test-data)

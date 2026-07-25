@@ -1,67 +1,53 @@
 (ns re-frame.prod-elision-runner
-  "Custom browser-test runner for the production-mode elision smoke
-  builds (rf2-2zdu trace listener elision; rf2-uwg5 source-coord
-  DOM annotation elision; rf2-00li UIx wrap-view elision;
-  rf2-hqbeh `:on-error` always-on survival).
+  "Custom browser-test runner for the production-mode elision smoke builds
+  (`:browser-test-prod-elision`).
 
-  Mirrors `re-frame.schemas-boundary-prod-runner` (Spec 010 prod-mode
-  smoke runner): the default shadow-cljs `:browser-test` runner-ns
+  ## The one job
+
+  Mirrors `re-frame.schemas-boundary-prod-runner` (Spec 010 prod-mode smoke
+  runner): the default shadow-cljs `:browser-test` runner-ns
   `shadow.test.browser` uses `cljs-test-display.core/init!`, which does
   `(set! root-node-id …)` on a `(goog-define root-node-id …)`. Under
-  `:advanced` Closure rejects re-assignment of a `@define`.
+  `:advanced` Closure rejects re-assignment of a `@define`, so the build
+  fails before a single test runs.
 
   This runner bypasses cljs-test-display and runs `cljs.test/run-tests`
   directly. The default cljs.test reporter writes the
   `Ran N tests containing M assertions.` summary to the browser console
   (via `*print-fn*` → `console.log`), which is what the Playwright
-  orchestrator (scripts/run-browser-tests.cjs) watches for."
-  (:require [cljs.test :as test]
-            [shadow.test :as st]
-            [shadow.test.env :as env]
-            ;; Pull each prod-mode smoke namespace into the test
-            ;; environment so shadow.test/run-all-tests discovers it.
-            [re-frame.trace-listener-elision-prod-test]
-            [re-frame.source-coord-dom-elision-prod-test]
-            [re-frame.adapter.uix-source-coord-dom-elision-prod-test]
-            [re-frame.on-error-elision-prod-test]
-            ;; Per rf2-9pxj70 — the three EP-0008-promoted always-on
-            ;; teardown / write-race rows
-            ;; (`:rf.error/frame-teardown-failed`,
-            ;; `:rf.error/write-after-destroy`,
-            ;; `:rf.error/on-destroy-handler-exception`) were exercised
-            ;; only by the DEV `:node-test` runner; this pins their
-            ;; production-survival under `:advanced` + `goog.DEBUG=false`,
-            ;; matching the older always-on rows in
-            ;; `on-error-elision-prod-test`.
-            [re-frame.teardown-always-on-elision-prod-test]
-            [re-frame.event-emit-elision-prod-test]
-            ;; Per rf2-gmrks — `:rf.error/flow-eval-exception` rides
-            ;; the always-on error-emit substrate (Spec 013 §Failure
-            ;; semantics rule 4 + Resolved decisions, rf2-0q0du).
-            ;; This prod-elision test pins the production-survival
-            ;; contract under `:advanced` + `goog.DEBUG=false`.
-            [re-frame.flow-eval-exception-elision-prod-test]
-            ;; Per rf2-xxd6z — runtime prod-elision pins for the
-            ;; routing / http / flows trace-emit surfaces. Companion
-            ;; behavioural check to the string-grep sentinel sweep in
-            ;; `scripts/check-elision.cjs`; pins that no `:rf.route/*`
-            ;; / `:rf.http/*` / `:rf.flow/*` events are delivered to a
-            ;; registered trace listener under `:advanced` +
-            ;; `goog.DEBUG=false`.
-            [re-frame.routing-trace-emit-elision-prod-test]
-            [re-frame.http-trace-emit-elision-prod-test]
-            [re-frame.flows-trace-emit-elision-prod-test]
-            ;; Per rf2-l7hlm — `:advanced` prod-elision pins replicated
-            ;; for the trace-bus (ring buffer), epoch (Tool-Pair
-            ;; §Time-travel surface), and frame-provider / render-key
-            ;; (Spec 004 §Render-tree primitives) machinery. Sibling
-            ;; to the existing rf2-2zdu (trace listener),
-            ;; rf2-hqbeh (`:on-error`) and rf2-uwg5 (source-coord DOM)
-            ;; pins; together they cover every dev-only sub-surface
-            ;; under `:advanced` + `goog.DEBUG=false`.
-            [re-frame.trace-bus-elision-prod-test]
-            [re-frame.epoch-elision-prod-test]
-            [re-frame.frame-provider-render-key-elision-prod-test]))
+  orchestrator (scripts/run-browser-tests.cjs) watches for.
+
+  ## What discovers the tests, and what does not
+
+  `:ns-regexp` does, and this namespace has no say in it. The
+  `:browser-test` target resolves the roster on every compile cycle
+  (`shadow.build.targets.browser-test/test-resolve`) and injects EVERY
+  match as a module entry:
+
+      (assoc-in [::modules/config :test :entries]
+        (-> '[shadow.test.env] (into test-namespaces) (conj runner-ns)))
+
+  where `test-namespaces` comes from `shadow.build.test-util/find-test-
+  namespaces` — the build's `:namespaces` when it declares any, and every
+  classpath namespace matching `:ns-regexp` otherwise. This build declares
+  no `:namespaces`, so `-elision-prod-test$` is the whole roster and a
+  file is in the lane the moment it is named to match.
+
+  So this runner deliberately requires NO test namespace. It used to
+  require thirteen, under a comment saying the list was what put them in
+  the test environment. It was not: the same run that loaded those
+  thirteen ran 116 tests, and the thirteen carry 64 `deftest`s between
+  them — the other 52 arrived by `:ns-regexp`, exactly as every one of the
+  thirteen already had. A list that cannot omit anything cannot be read
+  as authoritative either, and a maintainer who believed it would
+  conclude that the files missing from it did not run.
+
+  If a lane ever needs an authoritative roster, the place to put it is the
+  build's `:namespaces` key, which `find-test-namespaces` honours AHEAD of
+  `:ns-regexp` — there a missing entry is a real, detectable omission
+  instead of a comment."
+  (:require [shadow.test :as st]
+            [shadow.test.env :as env]))
 
 (defn ^:export init []
   (-> (env/get-test-data)
