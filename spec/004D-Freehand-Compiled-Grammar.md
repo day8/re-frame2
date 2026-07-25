@@ -332,7 +332,7 @@ lexical site index — never a re-derivation a second pass could drift from.
 | `:subscriptions` | each `sub` read: the query it read and its site coordinates |
 | `:events` | each committed event handler site and its source coordinate |
 | `:slots` | each compiled render-slot site, and whether its `render-fn` was inline |
-| `:html-sites` | each trusted-markup `ui/html` site |
+| `:html-sites` | each trusted-markup `v/html` site |
 | `:crossings` | the internal-view boundaries the body mounts, each MARKED with the mode it crosses into (§Manifests mark the crossing) |
 | `:capabilities` | the union of the structural capability bits the AST names (`:html` / `:foreign` / `:render-slot` / `:render-fn` / `:custom-element` / `:spread` / `:spread-safe` / `:behavior`) with the reactive and host-hook bits the sites own |
 
@@ -876,7 +876,7 @@ everything else.
 
 | id | fires when | stays silent when |
 |---|---|---|
-| `:rf.ui.compile/a11y-missing-accessible-name` | a literal `:button`, `:a` with an `:href`, or `:img` is **provably** nameless: no `:aria-label` / `:aria-labelledby` / `:title` (and no `:alt` on an `:img`), and — for the content-named controls — a wholly literal subtree containing no text | any dynamic child, `(sub …)`, branch, child view, foreign component, `ui/html`, or props spread could supply the name; `:alt ""` (a declared decorative image); `aria-hidden` / `role="presentation"` markup |
+| `:rf.ui.compile/a11y-missing-accessible-name` | a literal `:button`, `:a` with an `:href`, or `:img` is **provably** nameless: no `:aria-label` / `:aria-labelledby` / `:title` (and no `:alt` on an `:img`), and — for the content-named controls — a wholly literal subtree containing no text | any dynamic child, `(sub …)`, branch, child view, foreign component, `v/html`, or props spread could supply the name; `:alt ""` (a declared decorative image); `aria-hidden` / `role="presentation"` markup |
 | `:rf.ui.compile/a11y-invalid-literal-aria` | a literal `aria-*` name is absent from the pinned WAI-ARIA states-and-properties table, or a **literal** value falls outside that attribute's token set / numeric kind | the value is computed at runtime (the name is still checked); the value is a valid token, a boolean, or a number; the attribute is free-form text or an IDREF |
 | `:rf.ui.compile/a11y-click-non-interactive` | a literal generic host element carries an `:on-click` with no native interactive semantics and **no** `:role` at all — keyboard and assistive-technology users cannot reach it | any `:role` (even a dynamic one), a props spread, `contenteditable`, `aria-hidden`, a custom element, or an explicitly focusable element that already handles keys |
 | `:rf.ui.compile/a11y-presence-exit-interactive` | focusable markup is authored **inline** under a `(ui/presence …)` boundary, so it stays in the tab order for the whole exit window | the child is a view or foreign component (it can read its own phase); the markup is not focusable; `:disabled`, `:tab-index -1`, `inert`, `aria-hidden`, or a props spread |
@@ -1283,7 +1283,7 @@ enter/exit retention is out of scope):
 | `(ui/spread-safe owned caller)` | the **literal safe-spread policy** (S3) — a component library forwards a consumer's runtime attr map onto an internal element without clobbering owned props or forfeiting the sync door. `owned` is a LITERAL props map (analysed as element props, so a controlled owned site keeps the door); the structural/controlled/identity keys `:key`/`:ref`/`:value`/`:checked` and the owned `:on-*` handlers are denied to `caller` in **every build** (§The safe-spread policy) |
 | `(ui/portal node child)` | React portal; frame context passes through **[WAVE-2]** |
 | `(ui/client-only {:fallback tpl} client-tpl)` | browser-only subtree; the fallback is mandatory and MUST be capability-free (compiler-checked); the JVM and first hydration render the fallback, then one root phase-flip swaps all sites in a single update (per [011 §Phase flip](011-SSR.md#phase-flip)) |
-| `(ui/html string)` | **trusted markup, low-friction.** Renders the string as HTML, explicitly. The spelling *is* the contract: the visible call marks the one place escaping is bypassed; manifests record the site; both emitters treat it identically. Strings anywhere else always escape. |
+| `(v/html string)` | **trusted markup, low-friction.** Renders the string as HTML, explicitly. The spelling *is* the contract: the visible call marks the one place escaping is bypassed; manifests record the site; both emitters treat it identically. Strings anywhere else always escape. |
 | `(ui/error-boundary {:fallback view :reset-key val :on-error [:ev …]} child)` | the explicit error component. Catches render/lifecycle throws below it (React does not catch event-handler or async errors — those keep their own typed paths); `:on-error` dispatches **after** the failing commit through a captured live frame (never during render, I-1); the fallback renders with `:error` + declared props and cannot recursively dispatch; changing `:reset-key` clears the caught error (retry = a state change that changes the key); the JVM/SSR renders the child under the server failure policy (per [011](011-SSR.md)) — boundaries are a client recovery mechanism. |
 | `re-frame.ui.data` | the interpreter for genuinely runtime-authored UI (CMS trees) — a **separate artifact**, never in a compiled browser bundle by accident |
 
@@ -1336,19 +1336,35 @@ admitted there through the visible `ui/spread` opt-in:
   (its props never enter the structural tree), so a foreign spread renders under
   the same `ui/client-only` rule as any foreign head.
 
-### Trusted markup — what `ui/html` does not do
+### Trusted markup — what `v/html` does not do
 
-`ui/html` is the one place escaping is bypassed, and the bypass is a **naming**
-device rather than a safety device. The call is visible in the template, the
-compiler manifest records every site, and the compiled view declares an `:html`
-capability — so the set of bypasses in a codebase is finite and enumerable by
-construction. That enumerability *is* the mechanism. **`re-frame.ui` does not
-sanitise.**
+`v/html` is the one place escaping is bypassed, and the bypass is a **naming**
+device rather than a safety device. The call is visible in the template, and in a
+`{:compiled true}` declaration the compiler manifest records every site with its
+source coordinate while the view declares an `:html` capability — so the set of
+bypasses is finite and enumerable by construction. That enumerability *is* the
+mechanism. **Neither Freehand nor `re-frame.ssr` sanitises.**
+
+**The census is a COMPILED-tier fact, and the interpreted tier does not have
+one.** An interpreted declaration makes the call visible in the source and
+nothing more: there is no build step to record a site at, so a codebase on the
+paved path is enumerable by *reading* — the same grep a reviewer would run for
+any other verb — and not by asking a manifest. That asymmetry is stated here
+rather than papered over, because a promise of a census the interpreted mode
+cannot keep would be worse than no promise at all. What the two tiers DO share
+is every rule below: the position law, the host refusals and the string check
+are one implementation, reached from both front ends and on both hosts.
+
+Nor does the compiled grammar reach for a census it cannot have. It admits the
+`v/html` **form**, lexically visible at its own site — not an opaque helper
+result that happens to carry a markup marker. A value the compiler cannot see is
+a value it cannot record, and admitting one would turn the roster from an
+enumeration into a sample.
 
 | Host | What the string becomes | Escaping / filtering applied |
 |---|---|---|
 | Browser | the parent element's React `dangerouslySetInnerHTML` — `{__html: s}` | **none** — React assigns it to `innerHTML` verbatim |
-| JVM | the trusted-HTML node `{:html s}`, carried by normalization `N` as an opaque raw-markup leaf and compared verbatim | **none** — no escape pass runs over it (the tree→HTML serialiser lands S5 and is contracted to write these leaves verbatim, per [004B §Children, text, and escaping](004B-UI-Tree-and-Conversion.md#children-text-and-escaping)) |
+| JVM | the trusted-HTML node `{:html s}`, carried by normalization `N` as an opaque raw-markup leaf and compared verbatim | **none** — no escape pass runs over it: the tree→HTML serialiser writes these leaves verbatim, per [004B §Children, text, and escaping](004B-UI-Tree-and-Conversion.md#children-text-and-escaping) |
 
 There is no allowlist, no tag or attribute filter, no `javascript:`-scheme gate, and
 no DOM-purifier pass on either host. A `<script>` element, an `onerror=` attribute,
@@ -1357,11 +1373,19 @@ or a `javascript:` href inside the string reaches the document exactly as writte
 The checks that *do* exist are **shape** checks, and they are deliberately partial:
 
 - The form takes exactly one argument and must be the **sole child** of a non-void
-  DOM element (`[:div (ui/html s)]`) — violations are the compile errors
+  DOM element (`[:div (v/html s)]`) — violations are the compile errors
   `:rf.ui.compile/bad-html`, `:rf.ui.compile/html-not-sole-child`, and
-  `:rf.ui.compile/void-children`.
+  `:rf.ui.compile/void-children`. The INTERPRETED walks hold the same law at
+  render, through `:rf.error/ui-tree-malformed`: a sibling, a spliced run, a
+  fragment or a view whose whole body is the call has no element to own the
+  markup, and there is one sentence for all of them on both hosts.
+- **The node shape is not an authoring form.** `{:html s}` is what the tree
+  carries and what the SSR serialiser writes; the door answers a private
+  nominal value instead, and an `:html`-bearing map reaching a child position is
+  refused. A map spelling would be a second, quieter bypass — no visible call,
+  no manifest site, and none of the rules in this list.
 - A **static host element that rejects trusted markup rejects it at compile.**
-  `(ui/html …)` beneath a literal `<textarea>` is `:rf.ui.compile/html-in-textarea`,
+  `(v/html …)` beneath a literal `<textarea>` is `:rf.ui.compile/html-in-textarea`,
   naming `:value` (or an ordinary text child) as the escape — a textarea's content
   is `value`/`defaultValue`, never `dangerouslySetInnerHTML`, which React 19 rejects
   on a textarea. A literal `<textarea>` renders its content from a **single text
@@ -1373,26 +1397,27 @@ The checks that *do* exist are **shape** checks, and they are deliberately parti
   Object]`), naming `:value` or a single text child as the escape. A literal
   `<script>`/`<style>` is an HTML raw-text element that
   React renders from a **single text body**: it accepts no body, one text-producing
-  child, or a sole `(ui/html s)`, but a multiple-child or visibly structural body is
+  child, or a sole `(v/html s)`, but a multiple-child or visibly structural body is
   `:rf.ui.compile/raw-text-children` (React would otherwise join the children into a
   warning array that loses the body, or drop/stringify a structural child), naming
-  `(str …)` or `(ui/html s)` as the escape. Both are static rules on the known host
+  `(str …)` or `(v/html s)` as the escape. Both are static rules on the known host
   tag; a runtime-dynamic child stays programmer-trusted. The equivalent hand-written
   structural-tree shapes reject at the SSR seam — see
   [004B §Children, text, and escaping](004B-UI-Tree-and-Conversion.md#children-text-and-escaping).
-- A **literal** non-string scalar (`(ui/html 42)`) is rejected at compile time. A
+- A **literal** non-string scalar (`(v/html 42)`) is rejected at compile time. A
   **runtime** expression is accepted unvalidated — the compiler cannot know the
   value, and the site is recorded as non-serialisable.
-- A non-string value reaching the JVM node builder raises
-  `:rf.error/ui-tree-malformed`. The browser applies no equivalent check to the
-  **value**: it is handed to React as written. The gap is in value validation
-  alone — the browser is not unguarded at runtime, as the spelling rule below
-  makes plain.
+- A non-string value raises `:rf.error/ui-tree-malformed`, on **either** host and
+  in **either** mode: the check is one shared function both front ends reach when
+  they fill the element's trusted-markup slot, so `(v/html (:body article))` on a
+  nil field answers the same diagnostic interpreted and compiled, in the browser
+  and on the JVM. (It once held on the JVM alone, and the browser handed the value
+  to React as written.)
 - The prop spellings (`:dangerouslySetInnerHTML`, `:dangerously-set-inner-html`,
-  `:inner-html`) are compile errors naming `(ui/html …)` as the replacement — there
+  `:inner-html`) are compile errors naming `(v/html …)` as the replacement — there
   is exactly one spelling, and it is a node variant, not a prop. **The rule is not
-  compile-time only.** A prop map assembled at runtime — `(ui/spread base
-  overrides)`, or the `caller` map of `(ui/spread-safe owned caller)` — is denied
+  compile-time only.** A prop map assembled at runtime — `(v/spread base
+  overrides)`, or the `caller` map of `(v/spread-safe owned caller)` — is denied
   the same spellings on **both hosts**, throwing `:rf.error/ui-tree-malformed`.
   The deny compares each key's **canonical emitted slot** rather than matching a
   list of spellings, so every alias reducing to React's raw-markup slot — keyword,
@@ -1400,15 +1425,15 @@ The checks that *do* exist are **shape** checks, and they are deliberately parti
   a different slot is left alone precisely because it cannot reach that slot. It
   runs in **every build**: an advanced production build denies exactly what dev
   denies, production being the only build an attacker meets. A runtime map is
-  otherwise the one place raw markup can reach React with no `(ui/html …)` trust
+  otherwise the one place raw markup can reach React with no `(v/html …)` trust
   assertion visible anywhere in the source. The sanctioned escape is unchanged —
-  `(ui/html …)`, attached at its own visible site, outside the runtime prop map.
+  `(v/html …)`, attached at its own visible site, outside the runtime prop map.
 
-**The caller's guarantee.** Every `(ui/html s)` site asserts that `s` is trusted
+**The caller's guarantee.** Every `(v/html s)` site asserts that `s` is trusted
 markup: an author-controlled literal, or a value that passed a real sanitiser at the
 boundary where it entered the app. "Trusted" is a claim about the string's
 *provenance*, not about its content — the framework cannot check it and does not
-try. Passing user-, tenant-, or CMS-authored markup into `ui/html` without
+try. Passing user-, tenant-, or CMS-authored markup into `v/html` without
 sanitising it first is an arbitrary-script-injection XSS vector, and that call is
 the app's to make. This is the same posture the SSR host adapter's shell hooks take
 ([011 §Trusted shell hook contract](011-SSR.md#trusted-shell-hook-contract)): the
@@ -1416,17 +1441,33 @@ framework names the boundary, validates the shape, and points at structured
 alternatives; the content trust itself is caller-owned. See
 [Security §XSS at output boundaries](Security.md#xss-at-output-boundaries).
 
+**Trusted Types is a known limitation, not an integration.** A page served with
+`Content-Security-Policy: require-trusted-types-for 'script'` makes the browser
+refuse a plain string assigned to `innerHTML`, and React's
+`dangerouslySetInnerHTML` is exactly such an assignment — so a `v/html` site on
+such a page throws in the *browser*, from the host, and Freehand neither
+converts the string to a `TrustedHTML` object nor offers a policy hook to do so.
+That is a deliberate non-goal for the same reason there is no sanitiser: minting
+trusted types is a *content policy* decision, and a substrate that took it would
+be establishing trust rather than naming where trust was asserted. An
+application under that CSP directive keeps its own policy at the boundary where
+the markup enters, and hands `v/html` a string it has already cleared — or does
+not use the verb. The JVM/SSR path is unaffected: the serialiser writes the leaf
+into markup, and there is no `innerHTML` assignment for the directive to
+intercept.
+
 **Prefer, in order:** ordinary template children (strings everywhere else always
-escape — full 5-char escaping in text and attribute values); a compiled child view
-for structured content; `re-frame.ui.data` for genuinely runtime-authored trees.
-Reach for `ui/html` only when the markup itself is the data *and* its provenance is
-trusted — a build-time Markdown render, a sanitiser's output, a static SVG string.
+escape — full 5-char escaping in text and attribute values); a declared child view
+for structured content; `v/markup` for a genuinely runtime-authored *hiccup* tree,
+which is a template value and not a markup string. Reach for `v/html` only when
+the markup itself is the data *and* its provenance is trusted — a build-time
+Markdown render, a sanitiser's output, a static SVG string.
 
 ### The document head is host-owned
 
 **No compiled structural form renders into `<head>`.** `re-frame.ui` mounts into a
 root element inside `<body>` (§Roots and mounting), and every structural template
-form in this Spec — elements, fragments, compiled views, `ui/html` — produces nodes
+form in this Spec — elements, fragments, compiled views, `v/html` — produces nodes
 beneath that root: there is no head-targeting form, no `ui/head`, and no head
 channel in the view AST or the JVM tree. The document head belongs to the **host** —
 the HTML shell the app serves and, for server-rendered apps, Spec 011's structured
@@ -1434,7 +1475,7 @@ the HTML shell the app serves and, for server-rendered apps, Spec 011's structur
 head model from `app-db` through registered fns and applies position-appropriate
 escaping at every leaf.
 
-`ui/html` does not widen this. It is the sole child of a **DOM element** in the
+`v/html` does not widen this. It is the sole child of a **DOM element** in the
 rendered tree, and `<head>` is neither a mount target nor reachable from a template,
 so trusted markup cannot be used to reach into it.
 
@@ -1878,7 +1919,7 @@ rather than fabricating them (`tools/xray/spec/021` §3.4.1).
 - **Compiler manifest — what *can* happen.** Per view, dev: source coords, prop slots +
   schema, template fingerprint, hook signature, capability bits, and every site (subs
   with query shapes; events with event shapes + `:serializable?`/`:dynamic` flags;
-  effects; presence sites; trusted-markup `ui/html` sites) with source +
+  effects; presence sites; trusted-markup `v/html` sites) with source +
   template path. No runtime values;
   useful before mount — consumed by Xray, Story, editors, and agents.
 - **Committed instance record — what *did* happen.** Published only at connected commit;
@@ -2114,7 +2155,7 @@ browser renders it, the server renders it" is scoped to exactly this table:
 
 | Feature | JVM structural render |
 |---|---|
-| structure, props, subs, branches, lists, event intent, `ui/html` | full semantics (subs via the pure snapshot path — no ownership, no watches) |
+| structure, props, subs, branches, lists, event intent, `v/html` | full semantics (subs via the pure snapshot path — no ownership, no watches) |
 | `local` | contributes its **initial value**; the setter is absent — invoking it in a JVM test raises `:rf.error/jvm-host-op` |
 | `ui/ref` | an **inert ref** (`current` nil, stays nil); passing it to a `:ref` position is fine (refs never appear in JVM tree output) |
 | `effect` | does not run; recorded as capability metadata |
@@ -2289,7 +2330,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §Loading state is explicit | **S2** | `sub` never fetches |
 | §Presence | **S4** | enter/exit retention; `flush-presence!` fake-clock fixtures; JVM `:present` |
 | §Interop — `ui/raw` | **S1** → completes **S4** | compile form + opaque marker in the tree (S1); foreign-boundary corpus (S4) |
-| §Interop — `ui/html` | **S1** | dual-emitter agreement; the single escaping bypass; manifest site recording |
+| §Interop — `v/html` | **S1** | dual-emitter agreement; the single escaping bypass; manifest site recording |
 | §Interop — `ui/error-boundary` | **S3** | phase semantics; `:reset-key`; server-policy contrast |
 | §Interop — `ui/client-only` | **S3** → completes **S5** | capability-free fallback check (S3); SSR phase flip (S5) |
 | §`ui/route-link` — framework-provided compiled view | **S3** | ordinary-defview compilation (no intrinsic branch); strategy-encoded href truth; handler-free path-form SSR shell; the routing-owned late-bound seam (`:routing/link-model` / `:routing/activate-link!`) + `:rf.error/routing-artefact-missing` when routing is absent; the click law (plain-left intercept + `:source :router` committed-frame dispatch; modifier / middle / native deferral; caller `:on-click`-first veto) is [012](012-Routing.md)'s |
@@ -2303,7 +2344,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §Roots and mounting — hydration + Root Manifest v1 | **S5** | manifest extension keys; multi-root hydration + failed-root isolation |
 | `ui.test` surfaces this Spec references | **S1** core (render/find/find-all/text/attrs over Tier-1 trees; the frame-targeted synchronous `dispatch!` dispatch-and-drain, no mounted variant; `query` enforces the tier split) → **S2** mounted semantics (Promise-backed `with-root`; native-CSS `query`; Promise-backed zero/thunk `flush!` on CLJS, synchronous nil on JVM; platform APIs for already-host-owned DOM mechanics, no gesture DSL) → **S4** `flush-presence!` | selector-grammar fixtures; JVM-subset enforcement; real React mount/query/total-teardown/open-drain/forgotten-await/fixed-point fixtures. Compiled event-vector delivery through native events rides the S3 handler row, not the S2 mount surface |
 | §View identity and the instrumentation surface | **S3** → full evidence schema **S6** (rf2-vxgfnd.98.1) | manifests, instance records, cause vectors, Xray consumption (compile-time site anchors exist from S1; the **bounded evidence subset** asserts S3; the full per-commit committed-instance record + six-kind `:rf.view/causes` vector assert S6 under `re-frame.ui.tool/schema-version` 3, with `parent-render-key` + a singular record `frame-id` + five further cause kinds deferred-with-triggers per EP-0033 §S6 view-evidence delta); production erasure G-7/G-11 |
-| §The JVM structural subset — structure/props/branches/lists/event intent/`ui/html` + `:rf.error/jvm-host-op` | **S1** | Tier-1 rendering against the tree contract |
+| §The JVM structural subset — structure/props/branches/lists/event intent/`v/html` + `:rf.error/jvm-host-op` | **S1** | Tier-1 rendering against the tree contract |
 | §The JVM structural subset — subs via the pure snapshot path | **S2** | the Q32/Q22 answer: `sub` *grammar* compiles at S1, but no Stage-1 Tier-1 fixture exercises a sub read — a Tier-1 render through a sub site (frame or `:sub-overrides`) is an S2 assertion |
 | §Hot reload — the view-side contract | **S2** | the full HMR matrix ([EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7) places it with reactivity, deliberately early) |
 | §Removed forms — the absences | **S1** | absences are compile errors + export-surface checks from the first slice |

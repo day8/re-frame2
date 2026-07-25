@@ -2,7 +2,7 @@
   "skill_name": "reagent-migration",
   "schema_version": "1",
   "convention": "anthropics/skills/skill-creator evals.json — two kinds. `kind:\"trigger\"` fixtures carry `should_trigger` for description-optimisation (train/held-out trigger accuracy). `kind:\"behavioural\"` fixtures carry a `tier` (M/D/R) and `expectations[]` asserting the skill applies / reasons / declines correctly on a Reagent→Freehand fixture input.",
-  "notes": "Positives target Reagent-view→Freehand prompts on an already-re-frame2 app (v/defview, deref-drop, moving off Reagent hiccup). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), and the first-class 'stay on Reagent' non-goal. Behavioural fixtures cover the M/D/R tiers, and several exist specifically to catch the failure mode of emitting a Freehand verb that is described in the design corpus but not exported (local, effect, ref, a trusted-markup form; the outward React bridge v/->react was once such a gap and has since shipped, so it is verified against the live roster rather than assumed absent).",
+  "notes": "Positives target Reagent-view→Freehand prompts on an already-re-frame2 app (v/defview, deref-drop, moving off Reagent hiccup). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), and the first-class 'stay on Reagent' non-goal. Behavioural fixtures cover the M/D/R tiers, and several exist specifically to catch the failure mode of emitting a Freehand verb that is described in the design corpus but not exported (local, effect, ref). That set SHRINKS as slices land, and the fixtures are verified against the live spec/API.md roster rather than assumed absent: the outward React bridge v/->react was once such a gap, and the trusted-markup verb v/html was another — both have since shipped, and their fixtures moved from R to M rather than being deleted.",
   "evals": [
     {"id": 1,  "kind": "trigger", "name": "explicit-views-to-freehand", "should_trigger": true,  "prompt": "Migrate my Reagent views to Freehand — I'm already on re-frame2 and want the re-frame-native view layer."},
     {"id": 2,  "kind": "trigger", "name": "reg-view-to-defview",        "should_trigger": true,  "prompt": "Convert my reg-view components to v/defview."},
@@ -111,12 +111,14 @@
        "Decides the WHOLE view with the author (cardinal rule 2); does NOT invent a Freehand host descriptor or wrapper verb for the foreign head."
      ]},
 
-    {"id": 22, "kind": "behavioural", "tier": "R", "name": "r-trusted-markup-holds",
+    {"id": 22, "kind": "behavioural", "tier": "M", "name": "m-trusted-markup-converts",
      "prompt": "Migrate this to Freehand:\n(defn article-body [html] [:div.body {:dangerouslySetInnerHTML {:__html html}}])",
      "expectations": [
-       "Declines (MIG-34): :dangerouslySetInnerHTML is refused and no trusted-markup verb is exported, so the view stays on Reagent.",
+       "Converts (MIG-34): the prop is refused under every spelling, and the replacement is the exported trusted-markup verb — (v/defview article-body [{:keys [html]}] [:div.body (v/html html)]).",
+       "Places the call as the SOLE child of the element, replacing the children rather than sitting beside them.",
+       "States that neither Freehand nor SSR sanitises: the string is written verbatim exactly as dangerouslySetInnerHTML wrote it, so whatever cleared the markup before the migration still has to clear it after — the rewrite changes the spelling, not the trust.",
        "Does NOT reach for v/markup — v/markup crosses a HICCUP VALUE into a compiled body (MIG-30); it does not parse or inject an HTML string, and using it here would render the markup as text.",
-       "Does not invent v/html or any other unexported form (cardinal rule 6)."
+       "Verifies v/html against the live spec/API.md roster rather than assuming it absent (cardinal rule 6 is about not inventing UNEXPORTED forms; this one shipped)."
      ]},
 
     {"id": 23, "kind": "behavioural", "tier": "M", "name": "m-mount-and-frame-preflight",
