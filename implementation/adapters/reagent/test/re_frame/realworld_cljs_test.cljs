@@ -173,11 +173,11 @@
 
   (with-new-frame [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :realworld.test/login-success
                                                     :auth.session/persist :rf/no-op}})]
-    ;; EP-0017 (rf2-16ck78): `:auth/initialise` consumes the RECORDABLE+PROVIDED
-    ;; `:auth.session/token` coeffect — its value rides the dispatch token,
-    ;; supplied here exactly as `realworld.core/run` supplies it at the boundary
-    ;; (node-side localStorage is absent, so the token is nil). Dispatched
-    ;; explicitly (rather than via `:initial-events`).
+    ;; EP-0017 (rf2-16ck78): `:auth/initialise` consumes the recordable
+    ;; `:auth.session/token` coeffect. Live, its registered supplier reads
+    ;; localStorage; a test pins an exact value through the dispatch-site
+    ;; `:rf.cofx` stub, which is the seam the registration itself documents.
+    ;; Node has no localStorage, so nil is also what the supplier would return.
     (rf/dispatch-sync [:auth/initialise]
                       {:frame f :rf.cofx {:auth.session/token nil}})
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
@@ -222,8 +222,8 @@
                         :body   {:errors {:body ["email or password is invalid"]}}})
 
   (with-new-frame [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
-    ;; EP-0017 (rf2-16ck78): supply the RECORDABLE+PROVIDED `:auth.session/token`
-    ;; on the boot dispatch token (nil node-side), mirroring `realworld.core/run`.
+    ;; EP-0017 (rf2-16ck78): pin the recordable `:auth.session/token` through the
+    ;; dispatch-site `:rf.cofx` stub (nil node-side, as the supplier would give).
     (rf/dispatch-sync [:auth/initialise]
                       {:frame f :rf.cofx {:auth.session/token nil}})
     ;; rf2-agb5jk (item 1): drive login through the credential-owning form-submit
@@ -1246,6 +1246,210 @@
         "interactive login bounces home via :auth/session-established → :auth/post-login-redirect")))
 
 ;; ============================================================================
+;; auth — THE COLD-BOOT DEEP-LINK RACE (rf2-k85nd)
+;; ============================================================================
+;;
+;; `session-restore-with-token-test` above pins "restore stays put", but it cannot
+;; see this bug, and it is worth saying why so nobody deletes what follows as a
+;; duplicate. That test (a) hand-dispatches `:rf.route/handle-url-change` instead of
+;; letting the URL-bound frame do its own initial sync, (b) navigates to a PUBLIC
+;; route first, and (c) uses a canned stub that answers `GET /user` SYNCHRONOUSLY —
+;; so by the time any route is judged, the user is already restored. Three
+;; conveniences, each of which independently hides the race.
+;;
+;; What actually happens in a browser: the frame runs `:initial-events` (the token
+;; lands in app-db), and THEN its POST-CREATE hook does the first URL→slice sync.
+;; Frame setup settles only SYNCHRONOUS work — it does not await the in-flight
+;; `GET /user` (EP-0027 §Construction). So the very first route decision is made
+;; against `[:auth :user]` = nil, and before the fix `:rf.route/entry-denied`
+;; replace-navigated a genuinely signed-in reader to `/login`, permanently.
+;;
+;; So this exercise removes all three conveniences:
+;;   - a REAL `:url-bound? true` frame whose own initial sync is the first
+;;     navigation, driven by a `:url-strategy` whose `:decode` reports the deep
+;;     link (the frame lifecycle, not a hand-rolled `handle-url-change`);
+;;   - the deep link is PROTECTED and it is the FIRST route ever seen;
+;;   - the restore reply is DEFERRED — the managed-HTTP override captures the
+;;     request and answers nothing until the test chooses to.
+
+(defn- decode-to-url-strategy
+  "A `:url-strategy` whose `:decode` always reports `url`, so a real
+   `:url-bound? true` frame's own initial URL→slice sync lands on the deep link
+   this test picked. Node has no `window`, so `history-url-strategy` would decode
+   `\"/\"` and the boot would sync to home — which is precisely the case that
+   cannot fail. All five CLJS-required legs are callable (Spec 012 §URL
+   strategies validates the shape at frame construction); the three browser legs
+   are inert because there is no address bar to move."
+  [url]
+  {:encode            (fn [path] path)
+   :decode            (fn [] url)
+   :push!             (fn [_href] nil)
+   :replace!          (fn [_href] nil)
+   :install-listener! (fn [_on-change] (fn teardown [] nil))})
+
+(defn- reg-capturing-managed!
+  "Register an `:rf.http/managed` override that CAPTURES each request into `sink`
+   and replies to NONE of it. That is what makes a restore genuinely deferred:
+   the request is outstanding across the frame's initial URL sync, exactly as a
+   real 20ms-plus round trip is."
+  [fx-id sink]
+  (rf/reg-fx fx-id
+    {:platforms #{:client :server}}
+    (fn [_frame-ctx args]
+      (swap! sink conj args)
+      nil)))
+
+(defn- settle-managed!
+  "Deliver a success reply for a captured managed request, the way the real
+   transport does: the canonical reply envelope appended as the second positional
+   arg of the one-element `:on-success` target."
+  [frame args value]
+  (rf/dispatch-sync (conj (:on-success args) {:status :ok :value value})
+                    {:frame frame}))
+
+(defn- settle-managed-failure!
+  "The failure twin of `settle-managed!` — a rejected JWT (401)."
+  [frame args]
+  (rf/dispatch-sync (conj (:on-failure args)
+                          {:status :error
+                           :error  {:kind :rf.http/http-4xx :status 401}})
+                    {:frame frame}))
+
+(defn- booting-frame!
+  "A frame wired the way `realworld.core/mount!` wires the real one: URL-bound,
+   the app's three ordered `:initial-events`, managed HTTP pointed at a capturing
+   override. The saved JWT rides the `:auth/initialise` STEP's own `:rf.cofx`
+   (EP-0027 §`:initial-events` — a map step may carry ordinary dispatch opts), so
+   the recordable coeffect is stubbed at the one seam its own registration
+   documents, and node's absent localStorage is not in the way."
+  [url token sink]
+  (frame/make-anon-frame-record!
+    {:url-bound?     true
+     :url-strategy   (decode-to-url-strategy url)
+     :initial-events [[:auth/classify-token]
+                      {:event [:auth/initialise]
+                       :opts  {:rf.cofx {:auth.session/token token}}}
+                      [:app/initialise]]
+     :fx-overrides   {:rf.http/managed      (do (reg-capturing-managed!
+                                                  :realworld.test/deferred-managed sink)
+                                                :realworld.test/deferred-managed)
+                      :auth.session/persist :rf/no-op
+                      :rf.nav/push-url      :rf/no-op
+                      :rf.nav/replace-url   :rf/no-op}}))
+
+(defn- cold-boot-deep-link-race-test []
+  (let [restored-user {:username "alice" :email "alice@example.com" :token "jwt-saved"}]
+
+    ;; --- 1. THE REGRESSION: protected deep link + saved token + deferred reply.
+    ;;     Before the fix this ended on /login with the reader's session intact
+    ;;     but unreachable. ---
+    (let [sink (atom [])]
+      (with-new-frame [f (booting-frame! "/settings" "jwt-saved" sink)]
+        (let [st #(rf/frame-state-value f)]
+          ;; The frame's OWN initial sync has already run by the time make-frame
+          ;; returned — no hand-dispatched navigation anywhere in this arm.
+          (is (= "jwt-saved" (get-in (rf/app-db-value f) [:auth :token]))
+              ":initial-events seeded the saved token before the first URL sync")
+          (is (= 1 (count @sink))
+              "boot fired exactly one request — the restore GET /user")
+          (is (nil? (rf/compute-sub [:auth/user] (st)))
+              "and it is still outstanding: identity is genuinely unknown")
+
+          (is (not= :realworld.auth/login (rf/compute-sub [:rf.route/id] (st)))
+              "THE BUG: a signed-in reader's protected deep link must NOT be bounced to login")
+          (is (nil? (rf/compute-sub [:rf.route/id] (st)))
+              "the refusal is still TERMINAL — no route committed, no :on-match, nothing protected ran")
+          (is (= {:to :realworld.user/settings}
+                 (get-in (rf/app-db-value f) [:auth :return-to]))
+              "the destination is stashed, waiting on restore")
+          (is (true? (rf/compute-sub [:realworld.routing/deferred-entry?] (st)))
+              "the shell shows 'restoring your session', not 'page not found'")
+
+          ;; The reply lands.
+          (settle-managed! f (first @sink) {:user restored-user})
+          (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (st)))
+              "restore settled → the fresh attempt enters the ORIGINAL destination")
+          (is (= "alice" (:username (rf/compute-sub [:auth/user] (st))))
+              "the restored session is stored")
+          (is (= :authed (rf/compute-sub [:auth/state] (st))))
+          (is (nil? (get-in (rf/app-db-value f) [:auth :return-to]))
+              "the stash was read AND cleared in one step")
+          (is (false? (rf/compute-sub [:realworld.routing/deferred-entry?] (st)))
+              "the deferred window is over"))))
+
+    ;; --- 2. FAIL-CLOSED, part one: the deep link carries the exact address.
+    ;;     A protected deep link with params, query and #fragment returns to all
+    ;;     of it, not to a bare route. ---
+    (let [sink (atom [])]
+      (with-new-frame [f (booting-frame! "/editor/my-slug?tab=preview#comments" "jwt-saved" sink)]
+        (let [st #(rf/frame-state-value f)]
+          (is (= {:to       :realworld.editor/edit
+                  :params   {:slug "my-slug"}
+                  :query    {"tab" "preview"}
+                  :fragment "comments"}
+                 (get-in (rf/app-db-value f) [:auth :return-to]))
+              "the deferred stash is the FULL destination — query and #fragment included")
+          (settle-managed! f (first @sink) {:user restored-user})
+          (is (= :realworld.editor/edit (rf/compute-sub [:rf.route/id] (st))))
+          (is (= {:slug "my-slug"} (rf/compute-sub [:rf.route/params] (st))))
+          (is (= {"tab" "preview"} (rf/compute-sub [:rf.route/query] (st)))
+              "the query survived the deferral — NOT stranded")
+          (is (= "comments" (rf/compute-sub [:rf.route/fragment] (st)))
+              "the #fragment survived the deferral — NOT stranded"))))
+
+    ;; --- 3. FAIL-CLOSED, part two: an EXPIRED token. The saved JWT is rejected,
+    ;;     so the reader is anonymous after all and must land on login — with the
+    ;;     stash kept for the post-sign-in return. ---
+    (let [sink (atom [])]
+      (with-new-frame [f (booting-frame! "/settings" "jwt-expired" sink)]
+        (let [st #(rf/frame-state-value f)]
+          (is (nil? (rf/compute-sub [:rf.route/id] (st)))
+              "deferred while the restore is in flight, exactly as in arm 1")
+          (settle-managed-failure! f (first @sink))
+          (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (st)))
+              "a rejected JWT is fail-closed: the deferred entry resolves to LOGIN")
+          (is (nil? (get-in (rf/app-db-value f) [:auth :token]))
+              "the stale credential was cleared")
+          (is (= {:to :realworld.user/settings}
+                 (get-in (rf/app-db-value f) [:auth :return-to]))
+              "the stash SURVIVES a failed restore, for :auth/post-login-redirect")
+          ;; And the ordinary interactive sign-in completes the journey.
+          (rf/dispatch-sync [:auth/store-session {:username "alice" :token "fresh"}] {:frame f})
+          (rf/dispatch-sync [:auth/post-login-redirect] {:frame f})
+          (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (st)))
+              "signing in returns the reader to the page they originally asked for"))))
+
+    ;; --- 4. FAIL-CLOSED, part three: NO saved token. There is nothing to wait
+    ;;     for, so the bounce is IMMEDIATE — the deferral must be conditional, or
+    ;;     it would be a hole rather than a fix. ---
+    (let [sink (atom [])]
+      (with-new-frame [f (booting-frame! "/settings" nil sink)]
+        (let [st #(rf/frame-state-value f)]
+          (is (empty? @sink)
+              "no saved token → no restore request at all")
+          (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (st)))
+              "a genuinely logged-out deep link is refused IMMEDIATELY — no deferral")
+          (is (false? (rf/compute-sub [:realworld.routing/deferred-entry?] (st)))
+              "and the shell renders login, not 'restoring your session'"))))
+
+    ;; --- 5. A PUBLIC deep link is untouched by any of this: its route commits on
+    ;;     the first sync, nothing is stashed, and a later restore leaves it
+    ;;     exactly where it is. ---
+    (let [sink (atom [])]
+      (with-new-frame [f (booting-frame! "/article/some-slug" "jwt-saved" sink)]
+        (let [st #(rf/frame-state-value f)]
+          (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (st)))
+              "a public deep link commits immediately, restore or no restore")
+          (is (nil? (get-in (rf/app-db-value f) [:auth :return-to]))
+              "nothing was denied, so nothing was stashed")
+          (let [restore-req (first (filter #(str/includes? (str (get-in % [:request :url])) "/user")
+                                           @sink))]
+            (settle-managed! f restore-req {:user restored-user}))
+          (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (st)))
+              "restore STAYS PUT — a public deep link is never navigated away from")
+          (is (= :authed (rf/compute-sub [:auth/state] (st)))))))))
+
+;; ============================================================================
 ;; core — top-level smoke: boots the app, checks per-feature initialisers
 ;; populate the expected slices.
 ;; ============================================================================
@@ -1255,11 +1459,12 @@
                                  :fx-overrides {:rf.http/managed      :realworld.test/canned-success-empty
                                                 :auth.session/persist :rf/no-op}})]
     ;; EP-0017 (rf2-16ck78): `:auth/initialise` is no longer in the
-    ;; `:app/initialise` fan-out — it consumes the RECORDABLE+PROVIDED
-    ;; `:auth.session/token` coeffect, which `realworld.core/run` supplies on a
-    ;; dedicated boundary dispatch (the `:dispatch` fx does not forward
-    ;; `:rf.cofx`). Mirror that boundary dispatch here so the :auth slice is
-    ;; seeded (node-side token is nil).
+    ;; `:app/initialise` fan-out — it consumes the recordable
+    ;; `:auth.session/token` coeffect, and the `:dispatch` fx does not forward
+    ;; `:rf.cofx`, so it earns its own `:initial-events` step in the real app.
+    ;; Dispatch it explicitly here, pinning the token through the dispatch-site
+    ;; `:rf.cofx` stub the coeffect's own registration documents (node has no
+    ;; localStorage for the supplier to read, so the value would be nil anyway).
     (rf/dispatch-sync [:auth/initialise]
                       {:frame f :rf.cofx {:auth.session/token nil}})
     ;; After init: the :auth + :articles slices and the
@@ -1353,6 +1558,12 @@
 (deftest realworld-session-restore
   (testing "restore-with-token reaches :authed, stores the session, and does NOT navigate (rf2-svj926)"
     (session-restore-with-token-test)))
+
+(deftest realworld-cold-boot-deep-link-race
+  (testing "a URL-bound cold boot at a PROTECTED deep link with a saved token and a
+            DEFERRED restore reply resolves to the requested route, never to login
+            (rf2-k85nd)"
+    (cold-boot-deep-link-race-test)))
 
 (deftest realworld-core-smoke
   (testing "app boot populates :auth, :articles, and :tags slices"

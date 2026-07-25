@@ -149,6 +149,21 @@
       (assoc-in [:auth :user] (dissoc user :token))
       (assoc-in [:auth :token] (:token user))))
 
+;; ONE definition of "we don't know who this is yet", used from three places that
+;; must not be allowed to drift: the `:auth/viewer-resolving?` sub (the app shell),
+;; the `:realworld/viewer` scope resolver's fail-closed branch (scope.cljs), and
+;; the `:rf.route/entry-denied` handler (routing.cljs), which needs the same answer
+;; from inside an ordinary event handler where subs aren't available. Two copies of
+;; this predicate is how you get a deep link that one site defers and another never
+;; settles.
+(defn restoring-session?
+  "True when a saved JWT is present but the user it stands for has not been
+   restored yet — the cold-boot window in which the viewer is genuinely unknown.
+   PURE: takes an app-db value, reads nothing ambient."
+  [db]
+  (and (nil? (get-in db [:auth :user]))
+       (not (str/blank? (get-in db [:auth :token])))))
+
 (rf/reg-event :auth/store-session
   {:doc "Store the authenticated session — the standalone, directly-dispatchable
          form of `store-session-db` (test fixtures and any external caller
@@ -291,6 +306,56 @@
                          [:rf.route/navigate (assoc return-to :replace? true)]
                          [:rf.route/navigate {:to :realworld/home}])]]})))
 
+;; ----------------------------------------------------------------------------
+;; THE COLD-BOOT DEEP-LINK WINDOW
+;; ----------------------------------------------------------------------------
+;;
+;; The sibling of the principal-switch re-ensure above, and the same root cause
+;; seen from the ROUTING side rather than the resources side.
+;;
+;; The frame runs `:initial-events` before its first URL→slice sync, so the saved
+;; JWT is in app-db by then. The IDENTITY it stands for is not: restore is an
+;; asynchronous `GET /user`, and frame setup settles only SYNCHRONOUS work — it
+;; does not await an in-flight request (EP-0027 §Construction). So the first URL
+;; resolution judges a reader whose token is known and whose user is not yet, and
+;; `:can-enter` on a protected deep link honestly answers `false`.
+;;
+;; Denial is TERMINAL, which is what makes this safe to wait out: nothing commits,
+;; nothing is parked, no route `:resources` are planned. routing.cljs's
+;; `:rf.route/entry-denied` therefore stashes the destination and STAYS PUT while
+;; `restoring-session?` holds, instead of bouncing a possibly-signed-in reader to
+;; login. This event resolves that stash once restore settles, either way
+;; (rf2-k85nd).
+(rf/reg-event :auth/settle-deferred-entry
+  {:doc "Resolve the protected deep link `:rf.route/entry-denied` DEFERRED while
+         cold-boot identity was unknown. Dispatched once restore has settled, by
+         BOTH outcomes — `:auth/session-restored` (success) and the machine's
+         `:abandon-restore` action (failure) — and it reads the settled auth slice
+         rather than being told which happened. On success it makes a FRESH
+         navigate attempt at the stash, which the guard re-evaluates as the
+         ordinary new attempt it is, and whose route entry plans the page's
+         `:resources` under the now-resolved viewer. On failure the reader is
+         parked on a URL nothing committed, so it lands them on login and KEEPS
+         the stash for the post-sign-in return. No stash → nothing to settle, and
+         a public deep link stays exactly where it is."}
+  (fn [{:keys [db]} _]
+    (let [return-to (get-in db [:auth :return-to])
+          restored? (some? (get-in db [:auth :user]))]
+      (cond
+        (nil? return-to)
+        {}
+
+        restored?
+        ;; Read AND clear the stash in one step, exactly as
+        ;; `:auth/post-login-redirect` does, so a later interactive login cannot
+        ;; be bounced to a stale target.
+        {:db (update db :auth dissoc :return-to)
+         :fx [[:dispatch [:rf.route/navigate (assoc return-to :replace? true)]]]}
+
+        :else
+        {:fx [[:dispatch [:rf.route/navigate {:to       :realworld.auth/login
+                                              :replace? true}]]]}))))
+
 ;; ============================================================================
 ;; AUTH STATE MACHINE — :auth/flow
 ;; ============================================================================
@@ -358,10 +423,16 @@
       ;; RESOLVES the viewer to `[:rf.scope/viewer :anonymous]`, so `:auth/ensure-
       ;; viewer-route` re-plans the current route's reads under the anonymous
       ;; viewer — the mirror of `:auth/session-restored`, minus the sign-in.
+      ;; `:auth/settle-deferred-entry` runs last, after `:auth/clear-session` has
+      ;; committed, so it sees a confirmed-anonymous slice. It is the one case
+      ;; where "stay put" would strand the reader: a PROTECTED deep link the guard
+      ;; deferred, for which nothing was ever committed, so there is no page to
+      ;; stay on. A public deep link stashes nothing and it no-ops.
       {:data {:error nil}
        :fx [[:dispatch [:auth/clear-session]]
             [:realworld-resources.session/persist {:token nil}]
-            [:dispatch [:auth/ensure-viewer-route]]]})
+            [:dispatch [:auth/ensure-viewer-route]]
+            [:dispatch [:auth/settle-deferred-entry]]]})
 
     :record-error
     ;; The appended HTTP reply is the canonical envelope; the classified
@@ -452,17 +523,24 @@
 (rf/reg-event :auth/session-restored
   {:doc       "Cold-boot session restore succeeded (a saved JWT was present
                and accepted): store the session, re-persist the JWT
-               defensively (in case the server rotated it), and re-plan the
-               current route's reads under the freshly-resolved viewer — but
-               do NOT navigate, a deep link must stay put. The reply rides a
-               map payload classified :sensitive so the token is redacted at
-               event egress."
+               defensively (in case the server rotated it), re-plan the
+               current route's reads under the freshly-resolved viewer, and
+               settle any protected deep link the guard DEFERRED while identity
+               was unknown. It never navigates on its own account — a public
+               deep link must stay put. The reply rides a map payload
+               classified :sensitive so the token is redacted at event egress."
    :sensitive [[:value :user :token]]}
   (fn [{:keys [db]} [_ {:keys [value]}]]
     (let [user (:user value)]
+      ;; `:db` commits before `:fx` runs, so both dispatches below see the restored
+      ;; viewer. `:auth/ensure-viewer-route` re-plans whatever route DID commit (a
+      ;; public deep link); `:auth/settle-deferred-entry` handles the case where
+      ;; none did because the guard deferred a protected one. Exactly one of the two
+      ;; has work to do, so there is no double-fetch.
       {:db (store-session-db db user)
        :fx [[:realworld-resources.session/persist {:token (:token user)}]
             [:dispatch [:auth/ensure-viewer-route]]
+            [:dispatch [:auth/settle-deferred-entry]]
             [:dispatch [:auth/flow [:auth/success]]]]})))
 
 ;; ============================================================================
@@ -641,10 +719,10 @@
          defer the route page and show a brief 'restoring session' state instead,
          until `:auth/session-restored` / `:abandon-restore` resolve the viewer
          and re-ensure the route's reads. Mirrors exactly the resolver's nil
-         branch."}
-  (fn [db _]
-    (and (nil? (get-in db [:auth :user]))
-         (not (str/blank? (get-in db [:auth :token]))))))
+         branch. It is also the window in which `:rf.route/entry-denied` DEFERS a
+         protected deep link's login bounce (routing.cljs) — same question, and
+         `restoring-session?` above is its one definition."}
+  (fn [db _] (restoring-session? db)))
 
 (rf/reg-sub :auth.login-form/draft    (fn [db _] (get-in db [:auth :login-form :draft])))
 (rf/reg-sub :auth.register-form/draft (fn [db _] (get-in db [:auth :register-form :draft])))

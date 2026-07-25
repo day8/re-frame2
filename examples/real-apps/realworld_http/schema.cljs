@@ -68,12 +68,27 @@
   [:map
    [:user      [:maybe ws/SessionUser]]
    [:token     [:maybe :string]]
+   ;; Mirror `:rf/route-destination` (spec/Spec-Schemas.md) EXACTLY, because that
+   ;; is literally what lands here — the denial payload's `:destination`, verbatim.
+   ;; Two things it gets right that a hand-drawn four-key map does not:
+   ;;   - the address branch is MINIMAL. `destination-of` emits `{:to id}` and adds
+   ;;     `:params` / `:query` / `:fragment` only when non-empty, so demanding all
+   ;;     four made the commonest denial of all — a bare `/settings` — fail
+   ;;     validation and roll the stash back, silently costing the reader their
+   ;;     post-login return (rf2-k85nd).
+   ;;   - the RAW branch exists. A destination the runtime cannot reify without
+   ;;     changing the requested URL stays `{:url …}`, and that must be storable
+   ;;     too.
    [:return-to {:optional true}
-    [:map
-     [:to       :keyword]
-     [:params   :map]
-     [:query    :map]
-     [:fragment [:maybe :string]]]]])
+    [:or
+     [:map {:closed true}
+      [:to       :keyword]
+      [:params   {:optional true} :map]
+      [:query    {:optional true} :map]
+      [:fragment {:optional true} [:maybe :string]]]
+     [:map {:closed true}
+      [:url      :string]
+      [:fragment {:optional true} [:maybe :string]]]]]])
 
 ;; Machine snapshots aren't app-db — they live in the runtime-db partition at
 ;; [:rf.runtime/machines :snapshots <id>]. And `reg-app-schema` only polices

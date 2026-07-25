@@ -39,7 +39,13 @@
             [re-frame.routing :as routing]
             ;; Loading resources is what makes `:resources` route-metadata
             ;; accepted — it's the late-bound routing extension.
-            [re-frame.resources]))
+            [re-frame.resources]
+            ;; For `auth/restoring-session?` — the ONE definition of the cold-boot
+            ;; window in which identity is not yet known, shared with the
+            ;; `:auth/viewer-resolving?` sub so the denial handler below and the app
+            ;; shell can never disagree about it. (No cycle: auth requires http /
+            ;; schema / scope, none of which requires this ns.)
+            [realworld-resources.auth :as auth]))
 
 ;; ============================================================================
 ;; ROUTES — each declares the server-state its page needs via `:resources`
@@ -121,7 +127,8 @@
           dispatches out of band — so a re-render can't re-run the load and stomp
           on edits you've got in flight."
    :on-match [[:settings/load]]
-   :tags #{:requires-auth}} "/settings")
+   :tags #{:requires-auth}
+   :can-enter [:realworld-resources.routing/authed?]} "/settings")
 
 (rf/reg-route :realworld.editor/new
   {:doc       "Create a new article (requires auth). `:on-match` resets the editor
@@ -132,6 +139,7 @@
                nothing to load."
    :tags      #{:requires-auth}
    :on-match  [[:editor/initialise]]
+   :can-enter [:realworld-resources.routing/authed?]
    :can-leave [:editor/can-leave?]} "/editor")
 
 (rf/reg-route :realworld.editor/edit
@@ -154,6 +162,7 @@
    :resources [{:resource  :realworld/article
                 :params    (fn [route] {:slug (get-in route [:params :slug])})
                 :blocking? false}]
+   :can-enter [:realworld-resources.routing/authed?]
    :can-leave [:editor/can-leave?]} "/editor/:slug")
 
 (rf/reg-route :realworld.article/show
@@ -224,88 +233,86 @@
   {:doc "Fallback when no other route matches."} "/_404")
 
 ;; ============================================================================
-;; AUTH GUARD
+;; AUTH GATE — :can-enter
 ;; ============================================================================
 ;;
-;; Route-level auth turns out to be nothing exotic — just a plain interceptor. It
-;; redirects unauthenticated users away from any `:requires-auth`-tagged route to
-;; login, stashing where they were headed under `[:auth :return-to]` so we can
-;; bounce them back afterward. Crucially it guards all three navigation entry
-;; points — programmatic nav, anchor click, and URL-bar / popstate — so there's no
-;; back door: a protected route is unreachable while logged out, by any path. See
-;; route guard: ../../../docs/routing/glossary.md#route-guard.
-
-;; `current` is the current route slice ([:rf.runtime/routing :current]) — needed
-;; to resolve an in-place request (no :to / :url — stay on the current route,
-;; change only the query / #fragment) the same way the runtime does. Without it a
-;; session that expires WHILE on a `:requires-auth` route could navigate in place
-;; straight past the guard.
+;; Route-level auth is the framework's `:can-enter` guard, the entry-side mirror
+;; of `:can-leave`: each `:requires-auth` route above declares
+;; `:can-enter [:realworld-resources.routing/authed?]` and the runtime consults it
+;; inside the ONE navigation planning pipeline. So a protected page is unreachable
+;; while logged out through EVERY door — programmatic nav, an anchor click, a
+;; URL-bar deep link, a reload, Back/Forward — with no per-door plumbing.
 ;;
-;; What comes back is the FULL resolved address — `{:to :params :query :fragment}`,
-;; a valid `:rf.route/navigate` request in its own right — so the guard can stash
-;; the EXACT place the user was headed, not a bare route. A partial `{:to :params}`
-;; would strand the query string and #fragment: a deep-link to
-;; `/editor/my-slug?draft=1#preview` would bounce back to a bare `/editor/my-slug`
-;; after login. `:query` / `:params` default to `{}` (never nil); `:fragment` is
-;; `nil` when absent.
-(defn- resolve-nav-target [[ev-id a _b] current]
-  (case ev-id
-    :rf.route/navigate (let [{:keys [to url params query fragment]} a]  ;; a is the flat request map
-                         (cond
-                           to  {:to to :params (or params {}) :query (or query {}) :fragment fragment}   ;; route-id destination
-                           url (when-let [{:keys [route-id params query fragment]} (routing/match-url url)]  ;; {:url ...} escape hatch
-                                 {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})
-                           :else                            ;; in-place — stay on the current route, patch query / #fragment
-                           {:to       (:route-id current)
-                            :params   (or (:params current) {})
-                            :query    (or query (:query current) {})
-                            :fragment (if (contains? a :fragment) fragment (:fragment current))}))
-    :rf.route/url-requested  (let [{:keys [to params url query fragment]} a]
-                         (cond
-                           to  {:to to :params (or params {}) :query (or query {}) :fragment fragment}
-                           url (when-let [{:keys [route-id params query fragment]} (routing/match-url url)]
-                                 {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})))
-    :rf.route/handle-url-change (when-let [{:keys [route-id params query fragment]} (routing/match-url a)]
-                                  {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})
-    nil))
+;; This app used to spell the same gate as a frame-wide interceptor over the
+;; navigation events, and the retirement is worth recording rather than quietly
+;; erasing (rf2-k85nd). An interceptor has to normalise every door ITSELF:
+;; `:rf.route/navigate` in three request forms (a route id, the `{:url …}` escape
+;; hatch, an in-place query/#fragment edit that names no route at all),
+;; `:rf.route/url-requested`, and `:rf.route/handle-url-change` — some forty lines
+;; of `match-url` and current-slice resolution whose only job is completeness, and
+;; whose bug is always the SAME bug: the door it forgot is the door that lets a
+;; logged-out visitor in. Spec 012 §Three doors says so outright, and it is why an
+;; auth-guard interceptor fails OPEN. `:can-enter` has nothing to enumerate.
+;; A frame interceptor is still the right tool when the policy genuinely is not
+;; about routes — a maintenance-mode lockout, a feature flag over a whole section.
+;; See ../../../docs/routing/how-to/require-sign-in-on-a-route.md
 
-;; The guard is a registered interceptor, referenced by id
-;; (`:realworld-resources.routing/auth-guard`) from the demo frame's
-;; `:interceptors` chain — set in the `frame-root {:id …}` ensure form in
-;; core.cljs rather than dropped in inline. The timing works out because
-;; `reg-interceptor` is a top-level load-time registration, and core.cljs requires
-;; this ns: the descriptor is registered well before the provider's config goes
-;; looking for it at frame creation.
-(rf/reg-interceptor :realworld-resources.routing/auth-guard
-  {:doc "Route-level auth guard: redirect unauthenticated users away from
-         `:requires-auth`-tagged routes to login, stashing the FULL address they
-         were headed for (path, params, query, and #fragment) under
-         `[:auth :return-to]` so `:auth/post-login-redirect` (auth.cljs) can bounce
-         them back to the exact URL."}
-  {:before (fn auth-guard-before [ctx]
-             ;; The route slice is framework runtime-db state — read it from the
-             ;; :rf.db/runtime coeffect so an in-place request resolves to the
-             ;; protected route the user is already on.
-             (if-let [{:keys [to] :as target} (resolve-nav-target
-                                                (get-in ctx [:coeffects :event])
-                                                (get-in ctx [:coeffects :rf.db/runtime
-                                                             :rf.runtime/routing :current]))]
-               (let [route-meta  (rf/handler-meta :route to)
-                     needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
-                     logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
-                 (if (and needs-auth? (not logged-in?))
-                   (-> ctx
-                       (assoc :rf/skip-handler? true)
-                       ;; `target` IS the full resolved address {:to :params :query
-                       ;; :fragment} — stash it whole so the bounce-back returns to
-                       ;; the exact URL, query string and #fragment included.
-                       (assoc-in [:effects :db]
-                                 (assoc-in (get-in ctx [:coeffects :db])
-                                           [:auth :return-to] target))
-                       (assoc-in [:effects :fx]
-                                 [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]))
-                   ctx))
-               ctx))})
+;; The guard sub. `true` → OK to enter. It reads the durable `[:auth :user]`
+;; presence, not the machine's `:authed` state, because the durable slice is what
+;; a reload rebuilds. `:can-enter` subs receive the pending target as a second
+;; arg — unused here, since the answer is the same for every protected route.
+;;
+;; It does NOT try to report "still finding out": `:can-enter` is a closed boolean
+;; by design, and a tri-state guard would push "maybe" into every app's auth sub.
+;; Mid-restore the honest answer is `false` — there is no user — and the DENIAL
+;; HANDLER below is where "no user YET" is told apart from "no user, full stop".
+(rf/reg-sub :realworld-resources.routing/authed?
+  {:doc "The :can-enter auth guard: true when a user is signed in. Read by the
+         :requires-auth routes' :can-enter slot."}
+  :<- [:auth/user]
+  (fn [user _] (some? user)))
+
+;; The denial handler — the FRESH-RETURN recipe (Spec 012 §Entry is terminal).
+;; Entry denial is TERMINAL: the runtime commits nothing and parks nothing (no
+;; route slice, no URL push, no `:on-match`, and no route `:resources` planned), so
+;; there is no paused transition to resume. The recipe is three ordinary steps:
+;; stash the denied destination, replace-navigate to login, and after a successful
+;; sign-in dispatch a FRESH navigate at the stash. The guard re-evaluates on that
+;; attempt because it IS an ordinary new attempt — no bypass, no resume.
+;;
+;; `:destination` arrives already resolved — a `:rf/route-destination` carrying
+;; path params, query and #fragment, and a valid `:rf.route/navigate` request in
+;; its own right — so the stash is the EXACT address the reader wanted and needs no
+;; `match-url` re-derivation. That is the whole forty lines the retired
+;; interceptor's `resolve-nav-target` existed to reproduce.
+;;
+;; THE ONE BRANCH. A refusal has two meanings, and only the handler can tell them
+;; apart:
+;;
+;;   "you are not signed in"  → bounce to login. The ordinary case.
+;;   "we don't know yet"      → STAY PUT and wait. A cold boot with a saved JWT
+;;                              whose `GET /user` is still in flight: the reader
+;;                              may well be signed in, and bouncing them to login
+;;                              here is the bug this branch prevents. Nothing has
+;;                              committed, so nothing protected is exposed while we
+;;                              wait; `:auth/settle-deferred-entry` (auth.cljs)
+;;                              picks the stash up the moment restore settles.
+;;
+;; Both branches are fail-CLOSED: the deferred branch grants nothing, it only
+;; declines to give up. Registering this handler is optional — the framework ships
+;; a no-op default, which would make a denial a silent hard deny.
+(rf/reg-event :rf.route/entry-denied
+  {:doc "Steer a logged-out visitor who tried to enter a :requires-auth route to
+         login, remembering the FULL destination they were headed for (route,
+         params, query, and #fragment) so the return lands on the exact URL.
+         While a cold-boot session restore is still in flight the visitor's
+         identity is unknown, so the bounce is DEFERRED rather than taken —
+         `:auth/settle-deferred-entry` resolves the stash once restore settles."}
+  (fn [{:keys [db]} [_ {:keys [destination]}]]
+    (cond-> {:db (assoc-in db [:auth :return-to] destination)}
+      (not (auth/restoring-session? db))
+      (assoc :fx [[:dispatch [:rf.route/navigate {:to       :realworld.auth/login
+                                                  :replace? true}]]]))))
 
 ;; ============================================================================
 ;; ROUTER WIRING  (base-path-aware)

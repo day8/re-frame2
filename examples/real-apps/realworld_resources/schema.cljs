@@ -47,20 +47,31 @@
    would roll the login back. The resource cache scope isn't stored here — it's
    derived from :user's :username by the named session resolver (see
    realworld-resources.scope). :return-to is the optional post-login bounce-back
-   target the routing auth-guard stashes — the FULL resolved address
-   (`{:to :params :query :fragment}`, a valid `:rf.route/navigate` request in its
-   own right) so the bounce-back returns to the exact URL (path, params, query,
-   and #fragment), not just the bare route. `:auth/post-login-redirect` reads and
-   clears it (auth.cljs)."
+   target routing.cljs's `:rf.route/entry-denied` handler stashes: the denial
+   payload's `:destination`, a `:rf/route-destination` and a valid
+   `:rf.route/navigate` request in its own right, so the bounce-back returns to the
+   exact URL (path, params, query, and #fragment), not just the bare route.
+   `:auth/post-login-redirect` and `:auth/settle-deferred-entry` read and clear it
+   (auth.cljs)."
   [:map
    [:user      [:maybe ws/SessionUser]]
    [:token     [:maybe :string]]
+   ;; Mirror `:rf/route-destination` (spec/Spec-Schemas.md) EXACTLY — it is what
+   ;; lands here, verbatim, off the `:rf.route/entry-denied` payload. The address
+   ;; branch is MINIMAL (`{:to id}` plus only the non-empty of params / query /
+   ;; fragment), so demanding all four keys made a bare `/settings` denial fail
+   ;; validation and roll the stash back; and the raw `{:url …}` escape has to be
+   ;; storable too (rf2-k85nd). The twin in realworld_http/schema.cljs is identical.
    [:return-to {:optional true}
-    [:map
-     [:to       :keyword]
-     [:params   :map]
-     [:query    :map]
-     [:fragment [:maybe :string]]]]])
+    [:or
+     [:map {:closed true}
+      [:to       :keyword]
+      [:params   {:optional true} :map]
+      [:query    {:optional true} :map]
+      [:fragment {:optional true} [:maybe :string]]]
+     [:map {:closed true}
+      [:url      :string]
+      [:fragment {:optional true} [:maybe :string]]]]]])
 
 (def FormSlice
   "The standard form-draft slice, shared by the login / register / settings

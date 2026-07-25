@@ -319,15 +319,19 @@
 (defn- return-to [frame] (get-in (rf/app-db-value frame) [:auth :return-to]))
 
 (defn- guarded-frame!
-  "A fresh anon frame with the example's REAL auth-guard interceptor installed on
-   its chain — exactly the way core.cljs wires it onto the `:rf/default` app-frame
-   (`:interceptors [:realworld-resources.routing/auth-guard]`) — so a routing
-   dispatch actually runs the guard. `:url-bound? true` lets the route slice track
-   the current route (needed so an in-place request resolves against it); url-push
-   is a no-op so navigation is deterministic without a browser."
+  "A fresh anon frame carrying NO `:interceptors` chain — which is the point.
+   Route auth is `:can-enter` metadata on the protected routes themselves
+   (routing.cljs), registered at ns load, so a frame needs no auth wiring at all
+   for the guard to run: the runtime consults it on the one navigation planning
+   pipeline. This helper used to install the retired
+   `:realworld-resources.routing/auth-guard` interceptor here, mirroring the
+   frame config core.cljs used to carry (rf2-k85nd).
+
+   `:url-bound? true` lets the route slice track the current route (needed so an
+   in-place request resolves against it); url-push is a no-op so navigation is
+   deterministic without a browser."
   []
   (frame/make-anon-frame-record! {:url-bound?   true
-                                  :interceptors [:realworld-resources.routing/auth-guard]
                                   :fx-overrides {:rf.nav/push-url :rf/no-op}}))
 
 (defn- gc-recheck!
@@ -1315,13 +1319,20 @@
           ":ui/article-deleted navigates home on a successful delete"))))
 
 (deftest auth-guard-return-to-preserves-full-address
-  ;; rf2-78x8j (twin of rf2-k5zty in realworld_http) — the auth-guard's return-to
-  ;; stash is the FULL resolved address ({:to :params :query :fragment}), so a login
-  ;; bounce-back lands on the EXACT URL the visitor was headed for, not a bare route.
-  ;; Before the fix the stash was {:id :params}, stranding the query string and
-  ;; #fragment. This drives the REAL example wiring: the auth-guard interceptor
-  ;; (routing.cljs) writes the crumb, and :auth/post-login-redirect (auth.cljs) reads
-  ;; it back wholesale via [:rf.route/navigate (assoc return-to :replace? true)].
+  ;; rf2-78x8j (twin of rf2-k5zty in realworld_http) — the return-to stash is the
+  ;; FULL resolved address, so a login bounce-back lands on the EXACT URL the
+  ;; visitor was headed for, not a bare route. Before the fix the stash was
+  ;; {:id :params}, stranding the query string and #fragment.
+  ;;
+  ;; rf2-k85nd retargeted this onto the `:can-enter` gate: the guard is route
+  ;; metadata, the runtime hands the denial handler an already-resolved
+  ;; `:destination` (a `:rf/route-destination`), routing.cljs writes THAT to the
+  ;; crumb, and :auth/post-login-redirect (auth.cljs) reads it back wholesale via
+  ;; [:rf.route/navigate (assoc return-to :replace? true)]. The retired auth-guard
+  ;; interceptor re-derived the address itself with `match-url`; the destination is
+  ;; the framework's own answer, so the expectations below are the MINIMAL
+  ;; destination shape (no `:query {}` / `:fragment nil` padding) rather than the
+  ;; interceptor's always-four-keys map.
   (testing "examples/real-apps/realworld_resources — auth return-to preserves query + #fragment (rf2-78x8j)"
 
     ;; --- 1. destination deep-link carrying BOTH a query and a #fragment ---
@@ -1370,31 +1381,59 @@
           "the in-place edit under an expired session is refused → login")
       (is (= {:to       :realworld.editor/edit
               :params   {:slug "my-slug"}
-              :query    {}
               :fragment "comments"}
              (return-to f))
           "the in-place edit's resolved address (current route + new #fragment) is stashed whole"))
 
     ;; --- 3. absent query/#fragment and an unmatched URL degrade gracefully ---
     (with-new-frame [f (guarded-frame!)]
-      ;; A guarded destination with NO query and NO fragment stashes clean defaults —
-      ;; :query {} (never nil, so it validates against the schema's `:query :map`
-      ;; slot) and :fragment nil — no nil leaking through the `(or query {})` guard.
+      ;; A guarded destination with NO query and NO fragment stashes the MINIMAL
+      ;; named address — `{:to id}`, no `:params {}` / `:query {}` / `:fragment nil`
+      ;; padding, because `:rf/route-destination`'s address branch omits what is
+      ;; empty. This is the commonest denial there is, so it is the one the
+      ;; AuthSlice `:return-to` schema has to accept — and demanding all four keys
+      ;; is exactly what used to roll this stash back (rf2-k85nd).
       (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
       (is (= :realworld.auth/login (route-id f))
           "logged-out reload of a guarded route with no query/#fragment → login")
-      (is (= {:to :realworld.user/settings :params {} :query {} :fragment nil}
+      (is (= {:to :realworld.user/settings}
              (return-to f))
-          "absent query/#fragment degrade to {} / nil — clean defaults, valid against the schema")
+          "a bare guarded destination stashes the minimal named address, and it SURVIVES the commit")
 
-      ;; An unmatched URL is not a protected route — resolve yields no guarded
-      ;; target, so the guard stays inert (no redirect, no new stash, no crash).
+      ;; An unmatched URL is not a protected route — no `:can-enter` to consult, so
+      ;; the gate is inert (no redirect, no new stash, no crash).
       (let [crumb (return-to f)]
         (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-route-zzzz"] {:frame f})
         (is (not= :realworld.auth/login (route-id f))
-            "an unmatched URL is not gated — the guard leaves it alone")
+            "an unmatched URL is not gated — the gate leaves it alone")
         (is (= crumb (return-to f))
-            "an unmatched URL leaves the existing crumb untouched — no spurious re-stash")))))
+            "an unmatched URL leaves the existing crumb untouched — no spurious re-stash")))
+
+    ;; --- 4. THE DEFERRED WINDOW: a protected deep link mid-restore is NOT
+    ;;     bounced to login (rf2-k85nd) ---
+    (with-new-frame [f (guarded-frame!)]
+      ;; Cold boot with a saved JWT but no restored user yet — exactly what the
+      ;; frame's `:initial-events` leave behind while `GET /user` is in flight.
+      ;; `:rf.http/managed` is stubbed to CAPTURE and not reply (see `init!`), so
+      ;; the restore genuinely stays outstanding, which is the whole point.
+      (rf/dispatch-sync [:auth/initialise]
+                        {:frame f
+                         :rf.cofx {:realworld-resources.session/token "jwt-in-flight"}})
+      (is (nil? (get-in (rf/app-db-value f) [:auth :user]))
+          "identity has not arrived — the restore GET is still outstanding")
+      (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
+      (is (not= :realworld.auth/login (route-id f))
+          "identity unknown → the login bounce is DEFERRED, not taken")
+      (is (= {:to :realworld.user/settings} (return-to f))
+          "the deferred destination is stashed for :auth/settle-deferred-entry")
+      ;; Restore lands: the stash is consumed by a FRESH navigate that the guard
+      ;; now allows.
+      (rf/dispatch-sync [:auth/store-session {:username "eve" :token "jwt-in-flight"}] {:frame f})
+      (rf/dispatch-sync [:auth/settle-deferred-entry] {:frame f})
+      (is (= :realworld.user/settings (route-id f))
+          "restore settled → the fresh attempt enters the originally-requested route")
+      (is (nil? (return-to f))
+          "the stash was consumed"))))
 
 ;; ============================================================================
 ;; 12. THE PROFILE TABS' :parent BRANCH — this table's own EP-0037 R2 wiring

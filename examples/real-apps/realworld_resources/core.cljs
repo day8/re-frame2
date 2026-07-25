@@ -239,11 +239,18 @@
 ;; The frame is created, configured, and seeded in exactly one place: the
 ;; `frame-root {:id …}` ensure form at the render root. On first mount it
 ;; creates the frame under `app-frame` and applies the config — `:url-bound? true`
-;; so it owns the URL, the auth-guard interceptor referenced by id, and the demo
-;; `:rf.http/managed` routed through the in-process backend stub so reads and
-;; writes work with no network in sight — then runs `:initial-events` once. A hot
-;; reload reuses the frame and skips the re-seed (durable app-db survives). That
-;; same id is what every in-tree `dispatch` / `subscribe` resolves against.
+;; so it owns the URL, and the demo `:rf.http/managed` routed through the
+;; in-process backend stub so reads and writes work with no network in sight —
+;; then runs `:initial-events` once. A hot reload reuses the frame and skips the
+;; re-seed (durable app-db survives). That same id is what every in-tree
+;; `dispatch` / `subscribe` resolves against.
+;;
+;; Notice there is no `:interceptors` chain here any more. Route auth used to ride
+;; a frame-wide `:realworld-resources.routing/auth-guard` interceptor over the
+;; navigation events; it is now `:can-enter` metadata on the protected routes
+;; themselves (routing.cljs), which the runtime consults on the ONE planning
+;; pipeline every door funnels through. See routing.cljs §AUTH GATE for why the
+;; interceptor spelling fails open (rf2-k85nd).
 ;;
 ;; The order of `:initial-events` matters, for two reasons:
 ;;   - `:auth/classify-token` goes first. The JWT at [:auth :token] is a durable
@@ -313,7 +320,6 @@
                                 :doc             "RealWorld-on-resources demo frame."
                                 :url-bound?      true
                                 :url-strategy    routing/url-strategy
-                                :interceptors    [:realworld-resources.routing/auth-guard]
                                 :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}
                                 :initial-events  [[:auth/classify-token]
                                                       [:auth/initialise]
