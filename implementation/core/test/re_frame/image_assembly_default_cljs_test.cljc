@@ -345,3 +345,106 @@
           "resolves to the standard's own copy; the no-provenance shadow was dropped")
       (is (contains? (:rf.gen/resolver gen) [:event :cart/add])
           "ordinary app descriptors still project into the default generation"))))
+
+;; ===========================================================================
+;; 5. Framework REPLACEABLE DEFAULTS (rf2-0r6q4) — the framework's own
+;;    no-provenance seeding of an id the APPLICATION is invited to register
+;; ===========================================================================
+;;
+;; A framework DEFAULT is the mirror image of a framework STANDARD. A standard
+;; encodes an execution invariant and is PROTECTED — an app must not shadow it.
+;; A default (`:rf.route/entry-denied`, Spec 012 §Entry is terminal) is the
+;; framework's stand-in for a decision the app is invited to make, so an app
+;; registration of the same id is the DOCUMENTED override. Before rf2-0r6q4 the
+;; documented recipe was the broken path: the default image selected the
+;; framework's own copy alongside the app's and refused to let selection order
+;; decide (`:rf.error/image-duplicate-id`).
+
+(defn- fw-default-desc
+  "The framework's OWN copy of a replaceable default — carries the reserved
+  `:rf/framework-default?` marker and NO `:rf.provenance/ns` (the framework
+  seeds through its internal registration path, which captures no provenance)."
+  [kind id impl]
+  {:rf.provenance/ns      nil
+   :kind                  kind
+   :id                    id
+   :handler-fn            impl
+   :rf/framework-default? true})
+
+(deftest framework-default-alone-resolves-normally
+  (testing "with NO application registration the framework's own default is the
+            only descriptor for its [kind id] and projects unchanged — denial
+            stays safe for an app that registers nothing"
+    (let [pool [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
+                (reg-desc "shop.cart" :event :cart/add ::cart-add)]
+          gen  (asm/assemble-default pool)]
+      (is (= ::fw-noop
+             (:handler-fn (asm/resolve-descriptor gen :event :rf.route/entry-denied)))
+          "the framework default resolves")
+      (is (contains? (:rf.gen/resolver gen) [:event :cart/add])))))
+
+(deftest application-registration-supersedes-the-framework-default
+  (testing "a PROVENANCED application registration of a framework-default id
+            assembles cleanly and WINS — the framework's own no-provenance copy
+            is not projected into the app layer once the app supplied its own.
+            This is the rf2-0r6q4 fix: before it, this threw
+            :rf.error/image-duplicate-id"
+    (let [pool [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
+                (reg-desc "shop.auth" :event :rf.route/entry-denied ::app-denial)]
+          gen  (asm/assemble-default pool)]
+      (is (= ::app-denial
+             (:handler-fn (asm/resolve-descriptor gen :event :rf.route/entry-denied)))
+          "the application's handler is what the frame runs"))))
+
+(deftest two-application-registrations-of-a-default-id-still-collide
+  (testing "the seam is NOT a winner rule. Two DISTINCT application namespaces
+            registering the same framework-default id remain ambiguous — image
+            assembly still refuses to let selection order decide"
+    (let [pool [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
+                (reg-desc "shop.auth"  :event :rf.route/entry-denied ::a)
+                (reg-desc "shop.admin" :event :rf.route/entry-denied ::b)]]
+      (is (= :rf.error/image-duplicate-id
+             (assembly-error-id #(asm/assemble-default pool)))))))
+
+(deftest the-framework-default-marker-is-not-forgeable-from-app-code
+  (testing "the marker only identifies the FRAMEWORK's own copy: it is read
+            together with nil provenance. An app descriptor stamping the
+            reserved key on itself is still an ordinary provenanced app
+            registration, so a genuine app-vs-app collision still fails loud"
+    (let [pool [(assoc (reg-desc "shop.auth"  :event :cart/add ::a)
+                       :rf/framework-default? true)
+                (reg-desc "shop.admin" :event :cart/add ::b)]]
+      (is (= :rf.error/image-duplicate-id
+             (assembly-error-id #(asm/assemble-default pool))))
+      (is (false? (asm/framework-default-descriptor?
+                    (assoc (reg-desc "shop.auth" :event :cart/add ::a)
+                           :rf/framework-default? true)))
+          "a provenanced descriptor is never the framework's own copy"))))
+
+(deftest superseded-framework-default-keys-is-precise
+  (testing "the key set names ONLY the framework defaults an application has
+            actually registered over — not every framework default, and not
+            every colliding id"
+    (is (= #{} (asm/superseded-framework-default-keys
+                 [(reg-desc "shop.cart" :event :cart/add ::a)]))
+        "no framework defaults in the pool → no keys, one pass")
+    (is (= #{} (asm/superseded-framework-default-keys
+                 [(fw-default-desc :event :rf.route/entry-denied ::fw)]))
+        "an unsuperseded framework default is NOT in the set")
+    (is (= #{[:event :rf.route/entry-denied]}
+           (asm/superseded-framework-default-keys
+             [(fw-default-desc :event :rf.route/entry-denied ::fw)
+              (reg-desc "shop.auth" :event :rf.route/entry-denied ::app)
+              (reg-desc "shop.cart" :event :cart/add ::a)]))
+        "only the superseded default's [kind id]")))
+
+(deftest an-explicit-image-is-unaffected-by-the-default-seam
+  (testing "an explicit :select-ns image selects by provenance namespace, so the
+            framework's own no-provenance default was never selectable there.
+            The app's registration is simply the image's descriptor"
+    (let [pool     [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
+                    (reg-desc "shop.auth" :event :rf.route/entry-denied ::app-denial)]
+          explicit (image/image {:id :shop/auth :select-ns {:include ["shop.auth"]}})
+          gen      (asm/assemble [explicit] pool)]
+      (is (= ::app-denial
+             (:handler-fn (asm/resolve-descriptor gen :event :rf.route/entry-denied)))))))

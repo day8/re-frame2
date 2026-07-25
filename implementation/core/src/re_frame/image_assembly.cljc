@@ -115,6 +115,13 @@
       standard-replacement hook, if ever wanted, is a separate standards-track
       decision; EP-0026 does not add one.
 
+  A framework **DEFAULT** ([[framework-default-descriptor?]], rf2-0r6q4) is the
+  opposite kind of registration and must not be confused with a standard: it is
+  the framework's stand-in for a decision the APPLICATION is invited to make
+  (`:rf.route/entry-denied`), so an app registration of the same id is the
+  documented override rather than a violation. It is protected from nothing; it
+  simply stops being projected into the app layer once the app supplies its own.
+
   EP-0026 (rf2-dlvmpc) also removed image-declared host capabilities end-to-end:
   there is no `:rf.image/requires`, no `make-frame :capabilities`, and no
   `:rf.gen/requires` / capability-check seam.
@@ -521,6 +528,74 @@
   [standard-descriptor]
   (and (boolean (:rf.standard/replaceable? standard-descriptor))
        (empty? (:rf.standard/requires-conformance standard-descriptor #{}))))
+
+;; ---- framework REPLACEABLE DEFAULTS (rf2-0r6q4) ---------------------------
+;;
+;; Distinct from a framework STANDARD (above), and the exact opposite policy. A
+;; standard encodes an execution invariant and is PROTECTED — an app must not
+;; shadow it. A framework DEFAULT is the framework's stand-in for a decision the
+;; APPLICATION is invited to make: the framework seeds one so the feature is
+;; safe when the app registers nothing, and an app registration of the same id
+;; is the documented, intended override. `:rf.route/entry-denied` and
+;; `:rf.route/navigation-blocked` (Spec 012 §Navigation blocking) are today's
+;; members — the framework ships no-op handlers so a `:can-enter` denial /
+;; `:can-leave` block always resolves, and the auth recipe replaces them.
+;;
+;; A framework default is seeded through the framework's own internal
+;; registration path, so — like a standard's registrar copy — it lands in the
+;; source store with NO `:rf.provenance/ns`. Without this seam the default image
+;; would select BOTH it and the app's provenanced registration and
+;; `resolve-within-image` would (correctly, for two app registrations) refuse to
+;; let selection order decide: `:rf.error/image-duplicate-id`. The documented
+;; override path was therefore the broken path.
+;;
+;; The resolution is NOT a winner rule and NOT a precedence tier. The framework's
+;; own no-provenance seeding is simply not an app registration, so it is not
+;; projected into the app layer once the app has supplied its own — the same
+;; reasoning the standard-shadow filter already applies. Order still decides
+;; nothing: two APP registrations of one framework-default id remain an
+;; `:rf.error/image-duplicate-id` collision.
+
+(def framework-default-key
+  "The reserved registration-meta key marking a framework registration as a
+  REPLACEABLE DEFAULT — the framework's stand-in for an application decision,
+  which an application registration of the same id supersedes (Conventions
+  §Reserved registration metadata). Stamped by the owning framework registrar
+  (today: the routing façade, on `:rf.route/entry-denied` /
+  `:rf.route/navigation-blocked`); read here."
+  :rf/framework-default?)
+
+(defn framework-default-descriptor?
+  "True when `descriptor` is the framework's OWN copy of a REPLACEABLE DEFAULT:
+  it carries `:rf/framework-default? true` AND no `:rf.provenance/ns` (the
+  framework seeds defaults through its internal registration path, which
+  captures no source provenance). The nil-provenance requirement is what makes
+  the mark unforgeable from app code — an app registration always carries the
+  provenance its `reg-*` macro captured, so stamping the reserved key on one
+  cannot turn it into the framework's copy. Pure."
+  [descriptor]
+  (and (boolean (get descriptor framework-default-key))
+       (nil? (:rf.provenance/ns descriptor))))
+
+(defn superseded-framework-default-keys
+  "The `[kind id]` pairs in `descriptors` for which the framework's own
+  REPLACEABLE-DEFAULT copy is SUPERSEDED by an application registration — i.e.
+  the pool holds BOTH the framework's nil-provenance default AND at least one
+  PROVENANCED (namespace-authored) descriptor for the same `[kind id]`. Returns
+  `#{}` when the pool carries no framework defaults (the overwhelming common
+  case, and one pass over the pool to establish it). Pure."
+  [descriptors]
+  (let [default-keys (into #{}
+                           (comp (filter framework-default-descriptor?)
+                                 (map descriptor-kind+id))
+                           descriptors)]
+    (if (empty? default-keys)
+      #{}
+      (into #{}
+            (comp (filter #(and (some? (:rf.provenance/ns %))
+                                (contains? default-keys (descriptor-kind+id %))))
+                  (map descriptor-kind+id))
+            descriptors))))
 
 ;; ---- the collision validator — THE central \"order never decides\" guarantee
 ;;      (EP-0023 §Image Composition / §Image Validation) ----------------------
@@ -1002,23 +1077,36 @@
   standard-collision gate on the default path only, breaking the documented
   guarantee that the default path fails loud exactly as the explicit path.
 
-  An EXPLICIT `:select-ns` image is unaffected — it selects by provenance
-  namespace, and a standard's registrar shadow carries no `:rf.provenance/ns`,
-  so it is never glob-selectable anyway."
+  DEFAULT-IMAGE SUPERSEDED-DEFAULT FILTER (rf2-0r6q4): the same reasoning
+  applies to the framework's REPLACEABLE DEFAULTS — see
+  [[superseded-framework-default-keys]]. A framework default's own registrar
+  copy is likewise nil-provenance framework seeding, not an app registration,
+  so it is dropped from the default image's whole-store selection exactly when
+  an application registration for its `[kind id]` is in the pool. With no
+  application registration it is the only descriptor and resolves unchanged.
+
+  An EXPLICIT `:select-ns` image is unaffected by EITHER filter — it selects by
+  provenance namespace, and the framework's own registrar copies (standard or
+  default) carry no `:rf.provenance/ns`, so they are never glob-selectable
+  anyway."
   [image descriptors]
   (lower-inline-descriptors
     (if (default-image? image)
       (let [standard-keys (into #{}
                                 (map descriptor-kind+id)
-                                (standard-descriptors))]
+                                (standard-descriptors))
+            superseded    (superseded-framework-default-keys descriptors)]
         (into []
-              ;; Drop ONLY the framework's OWN no-provenance registrar shadow of
-              ;; a standard (rf2-x76af2.29). A PROVENANCED app descriptor
-              ;; colliding with a standard must SURVIVE so it reaches
+              ;; Drop ONLY the framework's OWN no-provenance registrar copy —
+              ;; of a standard (rf2-x76af2.29), or of a REPLACEABLE DEFAULT the
+              ;; application has registered over (rf2-0r6q4). A PROVENANCED app
+              ;; descriptor colliding with a standard must SURVIVE so it reaches
               ;; `check-standard-collision!` and fails loud — symmetric with the
               ;; explicit path — instead of being silently dropped here.
-              (remove #(and (contains? standard-keys (descriptor-kind+id %))
-                            (nil? (:rf.provenance/ns %))))
+              (remove #(let [k+id (descriptor-kind+id %)]
+                         (and (nil? (:rf.provenance/ns %))
+                              (or (contains? standard-keys k+id)
+                                  (contains? superseded k+id)))))
               descriptors))
       (image/select-descriptors image descriptors))))
 
