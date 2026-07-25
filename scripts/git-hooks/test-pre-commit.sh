@@ -5,7 +5,8 @@
 # the mayor commit boundary (rf2-ydl2p) and the worker beads boundary
 # (rf2-ia8o7). They are mirror images, so one harness covers both.
 #
-# Four layers:
+# Six layers — the last two widen past the pre-commit hook itself, to the CI
+# arm that shares its classifier and to the installer that puts it on disk:
 #
 #   1. Library unit tests — invoke
 #      scripts/git-hooks/lib/check-mayor-commit-boundary.sh directly with
@@ -771,6 +772,179 @@ esac
 
 rm -rf "$CIBOX"
 rm -f "$CIERR"
+
+# ----------------------------------------------------------------------------
+# Layer 6: the INSTALLER, end to end (rf2-zt65l).
+#
+# Layers 2 and 4 stage the hook by hand, deliberately, so that they test hook
+# BEHAVIOUR rather than installation. That left the installer itself with no
+# coverage — and rf2-zt65l is precisely an installation failure. The source
+# hook grew the beads-boundary block on 2026-07-22; nobody re-ran the
+# installer; every checkout kept running a 2026-06-01 copy that lacked the
+# guard. For seven weeks the boundary was documented, tested, and absent.
+#
+# So this layer drives `scripts/install-git-hooks.sh` for real and asserts the
+# property the whole exercise is about: after one install a checkout is
+# guarded, a linked worktree created afterwards inherits that guard, an
+# ordinary commit is untouched, and when the install later drifts something
+# says so.
+# ----------------------------------------------------------------------------
+
+printf '\n[6] installer end-to-end: install, inherit, bite, detect drift\n'
+
+IBOX=$(mktemp -d "${TMPDIR:-/tmp}/rf2-hookinstall-XXXXXX")
+IERR="$IBOX/stderr.txt"
+IREPO="$IBOX/repo"
+IWORKER="$IBOX/worker"
+INSTALLER="$REPO_ROOT/scripts/install-git-hooks.sh"
+
+(
+  mkdir -p "$IREPO/scripts/git-hooks/lib" "$IREPO/.beads"
+  cd "$IREPO"
+  git init -q -b main
+  git config user.email 'hookinstall-test@example.invalid'
+  git config user.name 'hookinstall-test'
+  git config commit.gpgsign false
+  # A faithful miniature of the repo: installer, hook sources and libs,
+  # tracked, at the paths the installer and the hooks resolve against.
+  cp "$INSTALLER" scripts/
+  cp "$REPO_ROOT/scripts/git-hooks/pre-commit" \
+     "$REPO_ROOT/scripts/git-hooks/post-merge" scripts/git-hooks/
+  cp "$REPO_ROOT"/scripts/git-hooks/lib/*.sh scripts/git-hooks/lib/
+  printf '{"id":"seed","title":"seed"}\n' > .beads/issues.jsonl
+  git add scripts .beads/issues.jsonl
+  git commit -q -m 'seed: installer + hook sources'
+) >/dev/null 2>&1
+
+run_in_repo() {
+  # $1 = directory, rest = command. Echoes EXIT=<n>; stderr lands in $IERR.
+  d="$1"; shift
+  ( cd "$d" && "$@" >/dev/null 2>"$IERR" ) && echo "EXIT=0" || echo "EXIT=$?"
+}
+
+# 6a: a fresh checkout installs clean, and --check then certifies it.
+out=$(run_in_repo "$IREPO" sh scripts/install-git-hooks.sh)
+case "$out" in
+  EXIT=0) pass "(6a) installer runs clean on a fresh checkout" ;;
+  *) fail "(6a) installer failed on a fresh checkout ($out)"; cat "$IERR" >&2 ;;
+esac
+
+out=$(run_in_repo "$IREPO" sh scripts/install-git-hooks.sh --check)
+case "$out" in
+  EXIT=0) pass "(6b) --check certifies the install it just made" ;;
+  *) fail "(6b) --check rejected a fresh install ($out)"; cat "$IERR" >&2 ;;
+esac
+
+# 6c: every source block reached disk. The bead's failure mode was an
+# install that looked fine because SOME blocks were present.
+installed_ok=1
+for spec in \
+  "pre-commit:# --- BEGIN re-frame2 mayor commit boundary (rf2-ydl2p) ---" \
+  "pre-commit:# --- BEGIN re-frame2 worker beads boundary (rf2-ia8o7) ---" \
+  "post-merge:# --- BEGIN re-frame2 MCP-staleness check (rf2-6jj3r) ---" \
+  "post-merge:# --- BEGIN re-frame2 hook-install staleness check (rf2-zt65l) ---"; do
+  hook_file="$IREPO/.git/hooks/${spec%%:*}"
+  marker="${spec#*:}"
+  if ! grep -Fq "$marker" "$hook_file" 2>/dev/null; then
+    installed_ok=0
+    fail "(6c) block absent from installed ${spec%%:*}: $marker"
+  fi
+done
+[ "$installed_ok" = "1" ] && pass "(6c) every registered block reached the installed hooks"
+
+# 6d: a linked worktree created AFTER the install inherits the guard. This is
+# the property that makes one install enough: worktrees share the primary's
+# hooks directory (no core.hooksPath indirection), so nobody has to remember
+# to re-install per worktree.
+git -C "$IREPO" worktree add -q -b worker/hooks-test "$IWORKER" >/dev/null 2>&1
+prim_hooks=$( cd "$IREPO" && cd "$(git rev-parse --git-path hooks)" && pwd )
+wt_hooks=$( cd "$IWORKER" && cd "$(git rev-parse --git-path hooks)" && pwd )
+if [ "$prim_hooks" = "$wt_hooks" ]; then
+  pass "(6d) a worktree created after install shares the primary's hooks dir"
+else
+  fail "(6d) worktree hooks dir diverged: '$wt_hooks' vs '$prim_hooks'"
+fi
+
+# 6e: THE BITE. From that inherited install, a worker commit of the tracker
+# database is refused, and the message names the file.
+out=$(run_in_repo "$IWORKER" sh -c 'printf "{\"id\":\"worker-edit\"}\n" > .beads/issues.jsonl && git add .beads/issues.jsonl && git commit -q -m "worker: commit the tracker"')
+case "$out" in
+  EXIT=0) fail "(6e) FALSE GREEN: worker commit of .beads/issues.jsonl was allowed" ;;
+  *)
+    if grep -q '\.beads/issues\.jsonl' "$IERR"; then
+      pass "(6e) inherited guard BITES: worker tracker commit refused, names the file"
+    else
+      fail "(6e) refused, but the diagnostic never names the tracker"
+      cat "$IERR" >&2
+    fi
+    ;;
+esac
+git -C "$IWORKER" reset -q HEAD >/dev/null 2>&1 || true
+git -C "$IWORKER" checkout -q -- .beads/issues.jsonl >/dev/null 2>&1 || true
+
+# 6f: NO FALSE POSITIVE. An ordinary source commit from the same worktree is
+# untouched. A guard that costs every commit gets bypassed with --no-verify,
+# which is worse than no guard.
+out=$(run_in_repo "$IWORKER" sh -c 'mkdir -p implementation/core/src && echo "(ns foo)" > implementation/core/src/foo.cljc && git add implementation/core/src/foo.cljc && git commit -q -m "worker: ordinary source commit"')
+case "$out" in
+  EXIT=0) pass "(6f) ordinary source commit from the same worktree passes" ;;
+  *) fail "(6f) FALSE POSITIVE: an ordinary source commit was refused ($out)"; cat "$IERR" >&2 ;;
+esac
+
+# 6g: DRIFT IS DETECTED. Reproduce rf2-zt65l exactly — strip the beads block
+# from the installed hook, leaving the others intact, as a stale copy would.
+sed '/# --- BEGIN re-frame2 worker beads boundary (rf2-ia8o7) ---/,/# --- END re-frame2 worker beads boundary (rf2-ia8o7) ---/d' \
+  "$IREPO/.git/hooks/pre-commit" > "$IBOX/pre-commit.stale"
+cp "$IBOX/pre-commit.stale" "$IREPO/.git/hooks/pre-commit"
+chmod +x "$IREPO/.git/hooks/pre-commit"
+
+out=$(run_in_repo "$IREPO" sh scripts/install-git-hooks.sh --check)
+case "$out" in
+  EXIT=0) fail "(6g) --check certified a hook missing the beads boundary block" ;;
+  *)
+    if grep -q 'pre-commit' "$IERR"; then
+      pass "(6g) --check detects the stale hook and names it"
+    else
+      fail "(6g) --check failed but did not name the stale hook"
+      cat "$IERR" >&2
+    fi
+    ;;
+esac
+
+# 6h: and the post-merge advisory SAYS so, unprompted, on the next pull —
+# the arm that would have caught this bead's seven-week gap.
+out=$(run_in_repo "$IREPO" sh .git/hooks/post-merge)
+if grep -q 'install-git-hooks.sh' "$IERR"; then
+  pass "(6h) post-merge advisory reports the stale install and names the repair"
+else
+  fail "(6h) post-merge stayed silent about a stale install ($out)"
+  cat "$IERR" >&2
+fi
+
+# 6i: re-running the installer repairs it, and the advisory then goes quiet.
+# An advisory that fires on a healthy checkout is a nag, and nags get muted.
+out=$(run_in_repo "$IREPO" sh scripts/install-git-hooks.sh)
+case "$out" in
+  EXIT=0)
+    out=$(run_in_repo "$IREPO" sh scripts/install-git-hooks.sh --check)
+    case "$out" in
+      EXIT=0) pass "(6i) re-running the installer repairs the drift" ;;
+      *) fail "(6i) install did not repair the drift ($out)"; cat "$IERR" >&2 ;;
+    esac
+    ;;
+  *) fail "(6i) repair install failed ($out)"; cat "$IERR" >&2 ;;
+esac
+
+out=$(run_in_repo "$IREPO" sh .git/hooks/post-merge)
+if [ -s "$IERR" ]; then
+  fail "(6j) post-merge advisory fires on a healthy install (nag)"
+  cat "$IERR" >&2
+else
+  pass "(6j) post-merge advisory silent on a healthy install"
+fi
+
+git -C "$IREPO" worktree remove --force "$IWORKER" >/dev/null 2>&1 || true
+rm -rf "$IBOX"
 
 # ----------------------------------------------------------------------------
 # Summary

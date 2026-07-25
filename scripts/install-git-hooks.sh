@@ -8,6 +8,9 @@
 #
 # Installs (one marker BLOCK each; a hook may carry several):
 #   - post-merge  (rf2-6jj3r) MCP-staleness advisory warning.
+#   - post-merge  (rf2-zt65l) hook-install staleness advisory: re-runs this
+#                 script's own --check after every pull, so a change under
+#                 scripts/git-hooks/ cannot sit uninstalled unnoticed.
 #   - pre-commit  (rf2-ydl2p) refuses commits in the MAYOR checkout that
 #                 touch worker-tracked surfaces. Activation gated by a
 #                 marker file at `<git-common-dir>/mayor-marker`, which
@@ -47,6 +50,9 @@ block_spec() {
   case "$1" in
     mcp-staleness)
       printf 'post-merge\t# --- BEGIN re-frame2 MCP-staleness check (rf2-6jj3r) ---\t# --- END re-frame2 MCP-staleness check (rf2-6jj3r) ---\n'
+      ;;
+    hook-staleness)
+      printf 'post-merge\t# --- BEGIN re-frame2 hook-install staleness check (rf2-zt65l) ---\t# --- END re-frame2 hook-install staleness check (rf2-zt65l) ---\n'
       ;;
     mayor-commit-boundary)
       printf 'pre-commit\t# --- BEGIN re-frame2 mayor commit boundary (rf2-ydl2p) ---\t# --- END re-frame2 mayor commit boundary (rf2-ydl2p) ---\n'
@@ -210,6 +216,7 @@ this checkout behaves like a worker worktree from the hook'\''s POV).
 
 rc=0
 install_block mcp-staleness || rc=$?
+install_block hook-staleness || rc=$?
 install_block mayor-commit-boundary || rc=$?
 install_block worker-beads-boundary || rc=$?
 install_mayor_marker || rc=$?
