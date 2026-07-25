@@ -625,7 +625,19 @@ global default, or hover-delay knob (Governing Law 1 — a passive render dispat
 nothing, so prefetch never fires merely because a view rendered or scrolled into
 view). `:prefetch` is a routing control key on every link surface: it is validated
 and **stripped before DOM emission** alongside `:to` / `:params` / `:query` /
-`:fragment`, so it never reaches the `<a>` as an unknown attribute. The installed
+`:fragment`, so it never reaches the `<a>` as an unknown attribute.
+
+**Validation is fail-loud, and an absent key is the only way to be passive.** A
+`:prefetch` that is PRESENT with any other value — an unsupported mode borrowed
+from another router (`:render`, `:viewport`), a boolean, an explicit `nil` or
+`false`, a typo — is a caller bug and throws
+[`:rf.error/route-link-bad-prefetch`](009-Instrumentation.md#error-event-catalogue)
+at the render site. Stripping it instead would render a link indistinguishable from a
+working one: nothing on screen, nothing in the log, and the warm-up the author
+asked for silently absent until someone measured. The check lives in routing's one
+shared link calculation and runs on **both hosts**, so `rf/route-link`,
+`ui/route-link`, and `v/route-link` reject the same values the same way — the SSR
+shell included, which must not accept a mode the hydrated client rejects. The installed
 intent handlers **compose with**, rather than replace, a caller-supplied
 `:on-mouse-enter` / `:on-focus` / `:on-touch-start`, and dispatch to the same
 render-time-captured frame the click handler targets — so a prefetch warms the
