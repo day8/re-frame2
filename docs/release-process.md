@@ -101,6 +101,8 @@ verify-version-lockstep ──► test ──► deploy-core
 
 **Why fan-out (not strict serial).** A strict topological linearization would suffice; the deps-graph data is wider — every leaf but one has core as its only re-frame2 dependency, so the CI graph realises a valid topological sort that exploits the parallelism: the eleven independent leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The leaves group into per-feature artefacts (schemas, machines, routing, flows, http, ssr, ssr-ring, resources, epoch) and the view layer — the three substrate adapters (reagent, the default; reagent-slim; uix). The authoritative roster is always the `deploy-leaf` matrix in [`release.yml`](../.github/workflows/release.yml), plus the one leaf that job deliberately excludes, `ssr-ring`.
 
+**The view layer, as consumers meet it.** The app template (`tools/template/`, `day8/re-frame2-template`) scaffolds against this released view layer through its substrate menu: `:reagent` (the default) and `:uix`. The menu is deliberately narrower than the adapter set — `day8/reagent-slim` is published but has no scaffold of its own, so a slim consumer starts from the Reagent variant and swaps the adapter coordinate. Adding a substrate to the `deploy-leaf` matrix does not automatically add a template variant; the two are decided separately.
+
 ### The one inter-leaf edge
 
 `ssr-ring` is the exception, and the release DAG treats it as one. `implementation/ssr-ring/deps.edn` declares two in-repo coordinates in its published `:deps` — `day8/re-frame2` and `day8/re-frame2-ssr` — and the workflow rewrites both to `:mvn/version`, so the published pom for `day8/re-frame2-ssr-ring` depends on a `day8/re-frame2-ssr` version that has to exist on Clojars.
@@ -112,8 +114,6 @@ So `ssr-ring` ships in a stage of its own, `deploy-ssr-ring`, with `needs: [depl
 > If the `ssr` leaf does not publish successfully, `ssr-ring` does not publish at all.
 
 That edge is stronger than the pom requires — it also blocks `ssr-ring` behind leaves it does not depend on — and deliberately so: under [Recovery](#recovery-from-a-partial-deploy) any leaf failure is resolved by bumping `VERSION` and re-shipping every artefact, so a leaf skipped because a sibling failed was going to be superseded regardless. Blocking costs nothing; publishing an unresolvable coordinate cannot be undone. `implementation/scripts/_release-dag-policy.test.cjs` parses the workflow's job graph on every PR and fails if a leaf carrying a second in-repo coordinate is placed back in the matrix, or if the ordering edge disappears (rf2-p4a93).
-
-**The view layer, as consumers meet it.** The app template (`tools/template/`, `day8/re-frame2-template`) scaffolds against this released view layer through its substrate menu: `:reagent` (the default) and `:uix`. The menu is deliberately narrower than the adapter set — `day8/reagent-slim` is published but has no scaffold of its own, so a slim consumer starts from the Reagent variant and swaps the adapter coordinate. Adding a substrate to the `deploy-leaf` matrix does not automatically add a template variant; the two are decided separately.
 
 ## Pre-flight checklist
 
