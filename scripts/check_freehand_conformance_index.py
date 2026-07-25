@@ -101,14 +101,16 @@ and, from the execution census:
                              read through a helper that asserts in some OTHER
                              namespace and not in the one that wrote the call.
                              The shape a text scan calls proof.
-    * UNWITNESSED MODE     — an `active` row claims the `compiled` mode and no
-                             assertion proving it REACHES the compiled tier.
-                             The lane axis cannot see the mode axis — the JVM
-                             lane serves `interpreted jvm` and `compiled jvm`
-                             alike — so without a witness the mode token is
-                             parsed and never evidenced; and a witness merely
-                             PRESENT in the file evidences nothing about the
-                             assertion beside it.
+    * UNWITNESSED MODE     — an `active` row claims the `compiled` mode on a
+                             host, and no assertion proving it REACHES the
+                             compiled tier in a lane that serves that cell.  The
+                             lane axis cannot see the mode axis — the JVM lane
+                             serves `interpreted jvm` and `compiled jvm` alike —
+                             so without a witness the mode token is parsed and
+                             never evidenced; a witness merely PRESENT in the
+                             file evidences nothing about the assertion beside
+                             it, and one in a reader branch the cell never reads
+                             evidences nothing about that cell.
     * UNEXECUTED CELL      — an `active` row claims a (mode, host) cell that no
                              lane among its ASSERTING tests serves.  A
                              `common jvm browser` row read only from a `.cljs`
@@ -619,6 +621,14 @@ class _Graph(NamedTuple):
 def _ns_context(cleaned: str, fallback: str) -> tuple[str, _NsContext]:
     """`(namespace, context)` read off a file's `ns` form.
 
+    The libspec shapes read are the ones the Freehand suites write:
+    `[ns :as alias]`, `[ns :as-alias alias]` and `[ns :refer [names]]` /
+    `:refer-macros`, under `:require` or `:require-macros`, with any `#?`
+    conditional already reduced to this platform's branch.  A shape not read
+    here — a prefix list, say — leaves its alias unresolved, and an unresolved
+    alias costs a `DEAD PROOF SITE` on an honest row rather than a silent green:
+    it fails towards the noisy side, which is the side to fail on.
+
     A file with no readable `ns` form gets `fallback` — a name derived from its
     path — so its bindings stay private to it rather than pooling with every
     other anonymous file's.
@@ -627,9 +637,11 @@ def _ns_context(cleaned: str, fallback: str) -> tuple[str, _NsContext]:
         (f for f in _top_level_forms(cleaned) if _NS_FORM_RE.match(f)), ""
     )
     named = _NS_FORM_RE.match(form)
+    if not named:
+        return fallback, _NsContext({}, {}, frozenset())
     aliases: dict[str, str] = {}
     referred: dict[str, str] = {}
-    for clause in _datums(_inner(form)) if named else []:
+    for clause in _datums(_inner(form)):
         if not _REQUIRE_CLAUSE_RE.match(clause):
             continue
         for spec in _datums(_inner(clause))[1:]:
@@ -649,8 +661,7 @@ def _ns_context(cleaned: str, fallback: str) -> tuple[str, _NsContext]:
         alias for alias, target in aliases.items()
         if _COMPILE_TIER_NS_RE.search(target)
     )
-    return (named.group(1) if named else fallback,
-            _NsContext(aliases, referred, tier))
+    return named.group(1), _NsContext(aliases, referred, tier)
 
 
 def _compiled_here(text: str, context: _NsContext) -> bool:
@@ -1280,11 +1291,17 @@ def _lanes_for(path: Path) -> frozenset[str]:
 
 class _Proof(NamedTuple):
     """One file's proof of one row: where it is, the lanes its assertions run
-    in, and whether those assertions reach the compiled tier."""
+    in, and the lanes in which those assertions reach the compiled tier.
+
+    Two lane sets rather than a lane set and a flag, because a witness is only
+    evidence where it RUNS.  A `#?(:cljs …)` compile-tier reference vouches for
+    the node lane and says nothing about the JVM, and a row claiming
+    `compiled jvm` needs the witness on the JVM.
+    """
 
     path: Path
     lanes: frozenset[str]
-    compiled: bool
+    compiled: frozenset[str]
 
 
 def _scan_proof_sites(
@@ -1310,17 +1327,17 @@ def _scan_proof_sites(
         file_lanes = _lanes_for(path)
         if path.suffix not in _CLJ_SUFFIXES or not file_lanes:
             continue
-        reached: dict[str, tuple[set[str], bool]] = {}
+        reached: dict[str, tuple[set[str], set[str]]] = {}
         for platform in _platforms(path):
+            served = file_lanes & _PLATFORM_LANES[platform]
             for row_id, witness in _reached(path, graphs[platform]).items():
-                lanes, was = reached.get(row_id, (set(), False))
-                reached[row_id] = (
-                    lanes | (file_lanes & _PLATFORM_LANES[platform]),
-                    was or witness,
-                )
-        for row_id, (lanes, witness) in sorted(reached.items()):
+                lanes, witnessed = reached.setdefault(row_id, (set(), set()))
+                lanes |= served
+                if witness:
+                    witnessed |= served
+        for row_id, (lanes, witnessed) in sorted(reached.items()):
             proving.setdefault(row_id, []).append(
-                _Proof(path, frozenset(lanes), witness)
+                _Proof(path, frozenset(lanes), frozenset(witnessed))
             )
         # Named but unreachable — the shape a commented-out, reader-discarded or
         # never-read fixture leaves behind.  Read off the RAW text: the whole
@@ -1404,6 +1421,11 @@ def _cell_lanes(mode: str, host: str) -> frozenset[str]:
 # therefore whatever the ASSERTING STATEMENT reaches — itself, or through the
 # bindings it names, across a `:refer`/`:as` hop into the support namespace where
 # a census of declarations lives.  Suite presence buys nothing.
+#
+# And a witness is evidence only where it RUNS, so it is carried per LANE like
+# the proof itself.  A compile-tier reference in a `#?(:cljs …)` branch vouches
+# for the node lane and says nothing about the JVM, so a `compiled jvm` row needs
+# its witness on the JVM.  The defect names the host for that reason.
 #
 # `interpreted` and `common` get no witness, and saying so is the honest half of
 # this.  Interpreted is the DEFAULT lowering — a declaration is interpreted by
@@ -1492,30 +1514,37 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
                 "nobody reads is a law nobody proves"
             )
         else:
+            witnessed: set[str] = set()
+            for proof in proving:
+                witnessed |= proof.compiled
             for host in hosts:
                 serving = _cell_lanes(mode, host)
-                if lanes & serving:
+                if not lanes & serving:
+                    defects.append(
+                        f"  UNEXECUTED CELL: {INDEX_REL.as_posix()}:{line_no} "
+                        f"[{row_id}] claims the `{mode}` x `{host}` cell, which "
+                        f"the {'/'.join(sorted(serving))} lane(s) prove (Spec "
+                        "008 #the-hostmode-matrix), but the tests that ASSERT "
+                        f"on its fixture run in the "
+                        f"{'/'.join(sorted(lanes)) or 'no'} lane(s) - narrow "
+                        "the applicability cell or prove the law where it "
+                        "claims to bind"
+                    )
                     continue
-                defects.append(
-                    f"  UNEXECUTED CELL: {INDEX_REL.as_posix()}:{line_no} "
-                    f"[{row_id}] claims the `{mode}` x `{host}` cell, which "
-                    f"the {'/'.join(sorted(serving))} lane(s) prove (Spec 008 "
-                    "#the-hostmode-matrix), but the tests that ASSERT on its "
-                    f"fixture run in the {'/'.join(sorted(lanes)) or 'no'} "
-                    "lane(s) - narrow the applicability cell or prove the law "
-                    "where it claims to bind"
-                )
-            if mode == "compiled" and not any(p.compiled for p in proving):
+                if mode != "compiled" or witnessed & serving:
+                    continue
                 where = ", ".join(sorted(p.path.name for p in proving))
                 defects.append(
                     f"  UNWITNESSED MODE: {INDEX_REL.as_posix()}:{line_no} "
-                    f"[{row_id}] claims the `compiled` mode, but no ASSERTION "
-                    f"proving it in {where} reaches the compiled tier - neither "
-                    "a `{:compiled true}` declaration nor a "
+                    f"[{row_id}] claims the `compiled` mode on `{host}`, but no "
+                    f"ASSERTION proving it in {where} reaches the compiled tier "
+                    f"in the {'/'.join(sorted(serving))} lane(s) that cell runs "
+                    "in - neither a `{:compiled true}` declaration nor a "
                     "`re-frame.freehand.compiler.*` reference is reachable from "
                     "the asserting statement, directly or through the bindings "
                     "it names.  A `:require` line at the top of the file is not "
-                    "a witness: the JVM lane serves `interpreted jvm` and "
+                    "a witness, and neither is one in a reader branch this cell "
+                    "never reads: the JVM lane serves `interpreted jvm` and "
                     "`compiled jvm` alike, so without a reachable witness the "
                     "mode token is a claim nobody checked.  Prove the law "
                     "THROUGH the compiled tier, or say `interpreted` / `common` "
@@ -2076,6 +2105,32 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
+        # Red: the witness in a reader branch the claimed cell never reads.  The
+        # compile-tier marker is real and it is `:cljs`-only, so it vouches for
+        # the node lane and says nothing about the JVM the row claims.
+        "census_compiled_witness_only_in_the_other_reader_branch": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(defn probe [] #?(:cljs {:compiled true}\n"
+                                 "                  :clj nil))\n"
+                                 "(deftest t (is (= (seq fx) (probe))))\n"},
+            (),
+            (),
+        ),
+        # Green: the same suite on the row that cell actually witnesses.  The
+        # `browser` column is proven in the node lane, which is where the `:cljs`
+        # branch runs - so the narrowing is a narrowing, not a refusal.
+        "census_compiled_witness_serves_the_cell_its_branch_runs_in": (
+            {"CALL": _row(applicability="compiled browser")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(defn probe [] #?(:cljs {:compiled true}\n"
+                                 "                  :clj nil))\n"
+                                 "(deftest t (is (= (seq fx) (probe))))\n"},
+            (),
+            (),
+        ),
         # Green: the witness carried across a `:require` hop, which is the shape
         # the real manifest suites have - the census of `{:compiled true}`
         # declarations lives in a support namespace and the assertion reads it
@@ -2307,6 +2362,9 @@ def _run_self_tests(verbose: bool = False) -> int:
          "UNWITNESSED MODE"),
         ("census_compiled_witness_in_a_neighbouring_statement", 1,
          "UNWITNESSED MODE"),
+        ("census_compiled_witness_only_in_the_other_reader_branch", 1,
+         "UNWITNESSED MODE"),
+        ("census_compiled_witness_serves_the_cell_its_branch_runs_in", 0, None),
         ("census_compiled_witness_in_a_required_support_ns", 0, None),
         ("census_reader_conditional_hides_the_browser_arm", 1, "UNEXECUTED CELL"),
         ("census_unexecuted_host", 1, "UNEXECUTED CELL"),

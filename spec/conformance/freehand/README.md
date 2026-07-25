@@ -244,8 +244,13 @@ the top, a declaration anywhere below it — vouches for assertions that touch
 neither, so keeping the require and asserting on the raw fixture instead kept the
 row's `compiled` claim standing while nothing compiled ran. Presence is not
 proof, in the same way and for the same reason that a fixture named in a file is
-not a fixture a test reads. A row claiming `compiled` with no *reachable* witness
-is an `UNWITNESSED MODE`.
+not a fixture a test reads.
+
+And the witness is only evidence where it *runs*. A compile-tier reference inside
+a `#?(:cljs …)` branch vouches for the node lane and says nothing about the JVM,
+so the witness is required in a lane serving the cell that claims it: a
+`compiled jvm` row needs it on the JVM. A `compiled` cell with no witness in a
+lane that serves it is an `UNWITNESSED MODE`, and it names the host.
 
 `interpreted` and `common` carry no such witness, and the census claims none.
 Interpreted is the *default* lowering — a declaration is interpreted by carrying
