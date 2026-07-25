@@ -364,6 +364,143 @@
         "continue cleared the pending slot (resume completed from the raw value)")))
 
 ;; ===========================================================================
+;; rf2-kqxe6.20 — the carrier classification SURVIVES a public behaviour
+;; override of a replaceable framework default.
+;;
+;; `:rf.route/entry-denied` / `:rf.route/navigation-blocked` are replaceable
+;; framework defaults (Spec 012 §Replaceable framework defaults): an ordinary
+;; `rf/reg-event` under the same id is the documented auth recipe. The payload
+;; those events carry is FRAMEWORK-constructed, so its URL carriers are the
+;; framework's own `:sensitive` declaration — and it must not evaporate because
+;; the application supplied its own handler. Before rf2-kqxe6.20 it did: the
+;; canonical auth recipe (which declares no metadata at all) silently shipped
+;; the full denied destination to trace / off-box observation.
+;;
+;; These cases drive the PUBLIC `rf/reg-event` spelling every doc, example and
+;; skill teaches — no `:sensitive` boilerplate — and assert redaction where
+;; egress actually happens, not merely that metadata is present.
+;; ===========================================================================
+
+(defn- entry-fixture!
+  "A `/account` route guarded by a `:can-enter` that says NO, plus no-op nav fx —
+  so any entry door produces a terminal denial."
+  []
+  (rf/reg-route :route/account {:can-enter [:auth/signed-in?]} "/account")
+  (rf/reg-route :route/home    {} "/home")
+  (rf/reg-sub   :auth/signed-in? (fn [_ _] false))
+  (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+  (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf/dispatch-sync [:rf.route/transitioned "/home"]))
+
+(defn- traced-event-payload
+  "Run `f` with a trace listener attached and return the arg-map of the first
+  traced dispatched-event vector whose id is `event-id` — i.e. the EGRESS copy
+  of the payload, after classification projection."
+  [event-id f]
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::carrier (fn [ev] (swap! traces conj ev)))
+    (try (f) (finally (rf/unregister-listener! :trace ::carrier)))
+    (->> @traces
+         (keep (fn [ev]
+                 (let [v (or (-> ev :tags :rf.event/v) (-> ev :tags :event))]
+                   (when (and (vector? v) (= event-id (first v)))
+                     (second v)))))
+         first)))
+
+(deftest public-entry-denied-override-still-redacts-carriers-on-egress
+  (testing "rf2-kqxe6.20: the canonical auth recipe — a bare public
+            `rf/reg-event :rf.route/entry-denied` with NO :sensitive
+            boilerplate — still redacts :requested-url / :destination / :target
+            in the dispatched-event trace, while the handler itself receives the
+            RAW payload in-process"
+    (entry-fixture!)
+    (let [seen (atom [])]
+      ;; THE canonical recipe, verbatim: behaviour only, no metadata map.
+      (rf/reg-event :rf.route/entry-denied
+                    (fn [{:keys [db]} [_ {:keys [destination] :as denial}]]
+                      (swap! seen conj denial)
+                      {:db (assoc-in db [:auth :return-to] destination)}))
+      (let [payload (traced-event-payload
+                      :rf.route/entry-denied
+                      #(rf/dispatch-sync
+                         [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
+        (is (some? payload) "the entry-denied event vector was traced")
+        (is (= privacy/redacted-sentinel (:requested-url payload))
+            ":requested-url redacted on the egress copy after the override")
+        (is (= privacy/redacted-sentinel (:destination payload))
+            ":destination redacted on the egress copy after the override")
+        (is (= privacy/redacted-sentinel (:target payload))
+            ":target redacted on the egress copy after the override")
+        (is (= :auth/signed-in? (:guard payload)) "the structural :guard slot kept"))
+      ;; Handler invocation is unchanged — called exactly once, with RAW values.
+      (is (= 1 (count @seen)) "the app handler ran exactly once")
+      (let [denial (first @seen)]
+        (is (= "/account?invite=SECRET100" (:requested-url denial))
+            "the in-process handler saw the RAW requested URL")
+        (is (= {"invite" "SECRET100"} (:query (:destination denial)))
+            "the in-process handler saw the RAW replayable destination — the
+             recipe stashes it and replays it after a successful sign-in")))))
+
+(deftest public-navigation-blocked-override-still-redacts-carriers-on-egress
+  (testing "rf2-kqxe6.20: the leave half behaves identically — a bare public
+            override of :rf.route/navigation-blocked keeps the pending-nav
+            carrier redaction on the dispatched-event trace"
+    (block-fixture!)
+    (let [seen (atom [])]
+      (rf/reg-event :rf.route/navigation-blocked
+                    (fn [_ [_ pending]] (swap! seen conj pending) {}))
+      (let [payload (traced-event-payload
+                      :rf.route/navigation-blocked
+                      #(rf/dispatch-sync
+                         [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}]))]
+        (is (some? payload) "the navigation-blocked event vector was traced")
+        (is (= privacy/redacted-sentinel (:requested-url payload)))
+        (is (= privacy/redacted-sentinel (:destination payload)))
+        (is (= privacy/redacted-sentinel (:target payload)))
+        (is (= :link (:cause payload)) "the structural :cause slot kept"))
+      (is (= 1 (count @seen)) "the app handler ran exactly once")
+      (is (= "/cart?coupon=SECRET100" (:requested-url (first @seen)))
+          "the in-process handler saw the RAW requested URL (resume needs it)"))))
+
+(deftest an-app-classification-is-additive-over-the-retained-carriers
+  (testing "rf2-kqxe6.20: an override that DOES declare :sensitive gets both —
+            its own paths AND the framework's carriers. The retention is a
+            union, not a replacement in the other direction"
+    (entry-fixture!)
+    (rf/reg-event :rf.route/entry-denied
+                  {:sensitive [[:guard]]}
+                  (fn [_ _] {}))
+    (is (= [[:requested-url] [:destination] [:target] [:guard]]
+           (:sensitive (rf/handler-meta :event :rf.route/entry-denied)))
+        "framework carriers first, then the app's own declaration")
+    (let [payload (traced-event-payload
+                    :rf.route/entry-denied
+                    #(rf/dispatch-sync
+                       [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
+      (is (= privacy/redacted-sentinel (:requested-url payload))
+          "the framework's carrier still redacts")
+      (is (= privacy/redacted-sentinel (:guard payload))
+          "the app's own declared path redacts too"))))
+
+(deftest the-retained-carriers-survive-a-hot-reload-re-registration
+  (testing "rf2-kqxe6.20: re-evaluating the app namespace re-registers the
+            override. The framework's own copy is retained in the source store,
+            so the carriers ride the SECOND registration too — the classification
+            does not decay across a hot reload"
+    (entry-fixture!)
+    (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
+    (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
+    (is (= [[:requested-url] [:destination] [:target]]
+           (:sensitive (rf/handler-meta :event :rf.route/entry-denied)))
+        "no duplication, no decay")
+    (let [payload (traced-event-payload
+                    :rf.route/entry-denied
+                    #(rf/dispatch-sync
+                       [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
+      (is (= privacy/redacted-sentinel (:requested-url payload))
+          "still redacted after the re-registration"))))
+
+;; ===========================================================================
 ;; rf2-mtzv5m — route classification applied at :rf/route SUB-EGRESS surfaces.
 ;;
 ;; A route declares projection-relative `:sensitive` / `:large` paths; at
