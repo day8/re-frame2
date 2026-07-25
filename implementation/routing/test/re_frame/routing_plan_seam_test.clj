@@ -23,7 +23,8 @@
             [re-frame.routing.resolve :as resolver]
             [re-frame.routing.subs :as routing-subs]
             [re-frame.routing.url-change :as url-change]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rts]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each rts/reset-runtime)
 
@@ -113,6 +114,144 @@
       (is (= (set resolver/r0-projection-keys) (set (keys proj)))))
     (testing "the projection is a pure view of the plan the doors already build"
       (is (= (select-keys plan resolver/r0-projection-keys) proj)))))
+
+;; ---- the projection as trace tags (mayor ruling on rf2-kqxe6.3) ------------
+;;
+;; The projection was unreachable from an executed navigation: only a tool
+;; holding a plan VALUE could read it. The ruled fix is one trace per door
+;; commit branch — carrying the URL through the EXISTING `redact-url-tag` path
+;; and the params / query KEY SETS rather than their values, because a trace tag
+;; is an egress surface the route's `:sensitive` classification (lowered against
+;; runtime-db slice PATHS) cannot reach.
+
+(deftest plan-trace-tags-carries-the-projection-without-the-carriers
+  (routing/reg-route :route/section {} "/section")
+  (routing/reg-route :route/article
+    {:parent :route/section :on-match [[:article/load] [:comments/load 7]]}
+    "/section/:slug")
+  (let [plan (resolver/route-plan
+               {:cause  :navigate
+                :source {:to :route/article :params {:slug "x"} :query {:invite "SECRET100"}}
+                :target (resolver/resolved-target
+                          {:route-id :route/article
+                           :params   {:slug "x"}
+                           :query    {:invite "SECRET100" :tab :comments}
+                           :fragment "reply-42"
+                           :url      "/section/x?invite=SECRET100&tab=comments#reply-42"})})
+        tags (resolver/plan-trace-tags plan)]
+    (testing "the non-carrier halves of the projection ride WHOLE"
+      (is (= :navigate (:cause tags)))
+      (is (= :route/article (:route-id tags)))
+      (is (= [:route/section :route/article] (:branch tags)))
+      (is (= [:article/load :comments/load] (:leaf-plan-ids tags))
+          "the leaf plan's event IDs — not their argument positions"))
+    (testing "the URL rides the EXISTING redact-url-tag path — path kept, query
+              VALUES and the whole #fragment redacted. No second redaction route
+              for the same datum."
+      (is (= "/section/x?invite=rf/redacted&tab=rf/redacted#rf/redacted"
+             (:url tags))))
+    (testing "params / query contribute KEY SETS, not values — that :invite was
+              bound is diagnostic; that invite=SECRET100 is the leak"
+      (is (= [:slug] (:param-keys tags)))
+      (is (= [:invite :tab] (:query-keys tags)))
+      (is (not (contains? tags :params)))
+      (is (not (contains? tags :query))))
+    (testing "and NOTHING in the tag map reproduces a carrier value — not the
+              query value, not the fragment, not the caller's :source address"
+      (is (not (re-find #"SECRET100" (pr-str tags))))
+      (is (not (re-find #"reply-42" (pr-str tags))))
+      (is (not (contains? tags :source))))
+    (testing "a param-less / query-less target yields empty key sets, never nil"
+      (let [bare (resolver/plan-trace-tags
+                   (resolver/route-plan
+                     {:cause :initial :source {:url "/section"}
+                      :target (resolver/resolved-target
+                                {:route-id :route/section :params {} :query {}
+                                 :url "/section"})}))]
+        (is (= [] (:param-keys bare)))
+        (is (= [] (:query-keys bare)))
+        (is (= [] (:leaf-plan-ids bare)))
+        (is (= "/section" (:url bare)) "a bare path is not a carrier — verbatim")))))
+
+(defn- quiet-nav-fx!
+  "No-op the host navigation fx so a JVM navigation commits without reaching a
+  browser-only handler."
+  []
+  (doseq [fx-id [:rf.nav/push-url :rf.nav/replace-url
+                 :rf.nav/capture-scroll :rf.nav/scroll
+                 :rf.server/set-status]]
+    (fx/reg-fx fx-id {:platforms #{:server :client}} (fn [_ _] nil))))
+
+(defmacro ^:private planned
+  "The `:rf.route/planned` traces emitted while `body` runs."
+  [& body]
+  `(with-trace-recorder! [traces# {:pred #(= :rf.route/planned (:operation %))}]
+     ~@body
+     @traces#))
+
+(deftest every-door-commit-branch-emits-one-plan-trace
+  (routing/reg-route :route/home {} "/")
+  (routing/reg-route :route/article {:on-match [[:article/load]]} "/articles/:slug")
+  (quiet-nav-fx!)
+  (testing "the PROGRAMMATIC door — the projection is now reachable from an
+            executed navigation, which is the whole completeness obligation"
+    (let [ts (planned (rf/dispatch-sync [:rf.route/navigate {:to :route/article
+                                                             :params {:slug "a"}}]))]
+      (is (= 1 (count ts)) "exactly one plan trace per commit")
+      (let [{:keys [cause route-id branch leaf-plan-ids frame]} (:tags (first ts))]
+        (is (= :navigate cause))
+        (is (= :route/article route-id))
+        (is (= [:route/article] branch))
+        (is (= [:article/load] leaf-plan-ids))
+        (is (= :rf/default frame)
+            "frame-stamped — epoch capture admits only frame-tagged traces"))))
+  (testing "the URL-driven door reports which of its four sub-doors fired"
+    (doseq [[cause dispatch] {:link     [:rf.route/transitioned "/articles/b"]
+                              :popstate [:rf.route/handle-url-change "/articles/c"
+                                         {:rf.route/cause :popstate}]
+                              :initial  [:rf.route/handle-url-change "/articles/d"]}]
+      (let [ts (planned (rf/dispatch-sync dispatch))]
+        (is (= 1 (count ts)) (str cause " emitted exactly one plan trace"))
+        (is (= cause (:cause (:tags (first ts))))
+            (str "a door that hardcoded one cause for four sub-doors fails here"))
+        (is (= :rf/default (:frame (:tags (first ts))))))))
+  (testing "the SSR feed reports :ssr off the frame's :platform"
+    (let [f  (frame/make-anon-frame-record! {:platform :server})
+          ts (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/e"]
+                                        {:frame f}))]
+      (is (= 1 (count ts)))
+      (is (= :ssr (:cause (:tags (first ts)))))
+      (is (= f (:frame (:tags (first ts))))
+          "attributed to the SERVER frame, not the ambient :rf/default")))
+  (testing "the NON-commit branches emit none — an exact no-op and a
+            fragment-only anchor change are not plan commits"
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/f"])
+    (is (empty? (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/f"])))
+        "an exact no-op plans nothing")
+    (is (empty? (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/f#anchor"])))
+        "a fragment-only transition plans nothing (no nav-token, no re-plan)")))
+
+(deftest an-executed-navigations-plan-trace-is-not-a-carrier
+  (routing/reg-route :route/home {} "/")
+  (routing/reg-route :route/invite {} "/invite/:id")
+  (quiet-nav-fx!)
+  (testing "a real navigation carrying a secret in its query and fragment emits a
+            plan trace that reproduces NEITHER — the projection became reachable
+            without becoming a carrier"
+    (let [ts (planned
+               (rf/dispatch-sync [:rf.route/navigate
+                                  {:to       :route/invite
+                                   :params   {:id "acct-42"}
+                                   :query    {:invite "SECRET100"}
+                                   :fragment "tok-99"}]))
+          tags (:tags (first ts))]
+      (is (= 1 (count ts)))
+      (is (= [:id] (:param-keys tags)))
+      (is (= [:invite] (:query-keys tags)))
+      (is (not (re-find #"SECRET100" (pr-str tags))))
+      (is (not (re-find #"tok-99" (pr-str tags))))
+      (is (= "/invite/acct-42?invite=rf/redacted#rf/redacted" (:url tags))
+          "the structured PATH survives — it is what a consumer branches on"))))
 
 ;; ---- the URL -> ResolvedTarget extraction (ONE definition) ----------------
 

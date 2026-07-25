@@ -33,10 +33,16 @@
       branch, and the leaf plan. This adds no public `RoutePlan` constructor
       or promise-returning router object — its observable laws are public and
       its projection is a pure derivation.
+    - `plan-trace-tags` — the projection as `:rf.route/planned` TRACE tags, the
+      ONE mapping both door commit branches emit through so the projection is
+      reachable from an executed navigation without the trace becoming a
+      carrier.
 
   Everything here is PURE. Internal namespace; the public facade is
   `re-frame.routing`."
-  (:require [re-frame.registrar :as registrar]
+  (:require [re-frame.identity :as identity]
+            [re-frame.registrar :as registrar]
+            [re-frame.routing.egress :as egress]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.subs :as routing-subs]))
@@ -230,3 +236,61 @@
   already build."
   [plan]
   (select-keys plan r0-projection-keys))
+
+;; ---- the projection as trace tags -----------------------------------------
+
+(defn- bound-keys
+  "The KEY SET of a resolved `:params` / `:query` map, as a vector in the total
+  canonical order (`identity/canonical-bytes`) the rest of routing reports key
+  sets in — so a heterogeneous EDN-key map never trips a `compare`-based `sort`.
+  Empty vector for nil / `{}`."
+  [m]
+  (vec (sort-by identity/canonical-bytes (keys m))))
+
+(defn plan-trace-tags
+  "Project a route `plan` into the `:rf.route/planned` trace tags. ONE
+  definition, called from every door commit branch, so the R0 diagnostic
+  projection is REACHABLE from an executed navigation (Spec 012 §Resolved target
+  and the plan diagnostic projection).
+
+  A trace tag is an EGRESS surface, and the route's `:sensitive` classification
+  cannot reach it: that classification is lowered against runtime-db slice PATHS
+  (`classification/lower-for-route`), which redacts the `:rf/route` projections a
+  tool reads out of the slice but says nothing about a tag map on the trace bus.
+  The plan's `:target` nonetheless carries `:url` / `:params` / `:query` — carrier
+  VALUES. Emitting them raw would reopen, by a route the classification cannot
+  see, exactly the URL-carrier egress class the routing sweeps closed. So the
+  mapping is deliberately lossy in two specific ways, and only those two:
+
+    - the URL rides the EXISTING `egress/redact-url-tag` path — the ONE
+      URL-carrier redactor routing already sends its route-miss and
+      blocked-navigation URL slots through. It keeps the structured PATH (what a
+      consumer branches on) and redacts the query-string and `#fragment` carrier
+      values. No second redaction route for the same datum.
+    - `:params` / `:query` VALUES are NOT carried. Their KEY SETS are: that `:id`
+      and `:invite` were bound is diagnostically useful; that `invite=SECRET100`
+      is the leak. A key set is not a carrier.
+
+  The plan's `:source` — the caller's raw address / URL request — is a carrier by
+  the same argument and is not carried either; `:cause` already names the door
+  that supplied it and `:route-id` names what it resolved to. `:branch` is a
+  vector of route ids and `:leaf-plan-ids` the leaf plan's event ids, both
+  registration-time identifiers rather than runtime values, so both ride whole.
+
+  Callers add the `:frame` stamp (the in-flight drain's frame), which is
+  load-bearing rather than cosmetic: epoch capture admits only frame-tagged
+  traces and the frame-level trace-disable gate keys suppression off it (Spec 012
+  §Trace events — Frame attribution)."
+  [{:keys [cause target branch leaf-plan]}]
+  (-> {:cause         cause
+       :route-id      (:route-id target)
+       :url           (:url target)
+       :param-keys    (bound-keys (:params target))
+       :query-keys    (bound-keys (:query target))
+       :branch        (vec branch)
+       ;; The leaf plan's event IDs. An `:on-match` entry is authored route
+       ;; metadata, but its argument positions are still values on an egress
+       ;; surface; the id is the diagnostic half. Total over a non-sequential
+       ;; entry so a malformed `:on-match` cannot throw on the trace path.
+       :leaf-plan-ids (mapv #(if (sequential? %) (first %) %) leaf-plan)}
+      egress/redact-url-tag))

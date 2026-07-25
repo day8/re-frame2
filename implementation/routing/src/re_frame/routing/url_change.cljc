@@ -264,7 +264,17 @@
       (fragment-only-fx rdb prev fragment capture-fx scroll-fx frame)
 
       :else
-      (do
+      ;; EP-0037 R0b: the URL-driven door lowers to the SAME resolved-target /
+      ;; route-plan seam as the programmatic door. The plan's `:target` is the
+      ;; very ResolvedTarget `url-resolution` produced above — the value the link
+      ;; door's stage 3 and guards already decided against, now published into
+      ;; the slice, so the seam is load-bearing rather than a parallel diagnostic
+      ;; copy. Its `:cause` / `:branch` / `:leaf-plan` are the R0 diagnostic
+      ;; projection (Spec 012 §Resolved target and the plan diagnostic
+      ;; projection). The raw URL IS the source here.
+      (let [route-plan (resolver/route-plan {:cause  cause
+                                             :source {:url url}
+                                             :target resolved-target})]
         ;; rf2-u8qe7y: the fail-closed warning telemetry
         ;; (`:rf.warning/malformed-url` for a `match-url` throw / malformed
         ;; %-encoding — rf2-6t1xb / rf2-4ic0f; `:rf.warning/no-not-found-route`
@@ -309,28 +319,27 @@
                          throw-reason (assoc :reason throw-reason)
                          malformed?   (assoc :reason :malformed-url))
                        egress/redact-url-tag)])))
+        ;; EP-0037 R0b: ONE `:rf.route/planned` trace per door commit branch, so
+        ;; the R0 diagnostic projection is REACHABLE from an executed navigation
+        ;; rather than only from a tool holding a plan value. This door stands for
+        ;; FOUR of the five causes (`:link` / `:popstate` / `:initial` / `:ssr`),
+        ;; so the `cause` it was handed is what distinguishes them on the stream.
+        ;; `resolver/plan-trace-tags` is the ONE projection-to-tags mapping (the
+        ;; programmatic door emits through it too) and it is what keeps the trace
+        ;; from becoming a carrier: the URL rides the existing `redact-url-tag`
+        ;; path and `:params` / `:query` contribute KEY SETS, not values.
+        (trace/emit! :rf.event :rf.route/planned
+                     (cond-> (resolver/plan-trace-tags route-plan)
+                       frame (assoc :frame frame)))
         ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
         ;; allocated/activation traces, the slice publish (targeting
         ;; `:current`, so sibling routing-runtime keys are untouched),
         ;; and the fx assembly are the shared commit shape. The
         ;; URL-driven path passes NO `push-fx` — the browser URL already
         ;; changed (popstate / initial / link-click pushState).
-        ;;
-        ;; EP-0037 R0b: the URL-driven door lowers to the SAME resolved-target
-        ;; / route-plan seam as the programmatic door. The plan's `:target` is
-        ;; the very ResolvedTarget `url-resolution` produced above — the value
-        ;; the link door's stage 3 and guards already decided against, now
-        ;; published into the slice, so the seam is load-bearing rather than a
-        ;; parallel diagnostic copy. Its `:cause` / `:branch` / `:leaf-plan` are
-        ;; the R0 diagnostic projection (Spec 012 §Resolved target and the plan
-        ;; diagnostic projection). The raw URL IS the source here.
         (routing-events/commit-navigation
           rdb
-          (assoc (:target (resolver/route-plan
-                            {:cause  cause
-                             :source {:url url}
-                             :target resolved-target}))
-                 :transition transition)
+          (assoc (:target route-plan) :transition transition)
           on-match-vec
           {:prev-id        (get-in rdb [:rf.runtime/routing :current :route-id])
            ;; rf2-vdyrls: the prior route's nav-token — the second half of the
