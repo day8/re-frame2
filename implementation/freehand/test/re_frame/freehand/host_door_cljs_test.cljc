@@ -202,31 +202,51 @@
     (is (= [:children :ssr] (:required-options react-006)))
     (is (= #{:callbacks :children :ssr :map-props :props}
            (set (:closed-options react-006))))
-    ;; The declaration refuses at MACRO EXPANSION, so the negative arm is
-    ;; asserted through the expander rather than through a form that could
-    ;; not be compiled into this file at all.
-    (let [expand #(try (v/expand-defhost true {:line 1} "f.cljc" 'my.ns 'h %)
-                       (catch #?(:clj Exception :cljs :default) e
-                         (:rf.ui.compile/error (ex-data e))))
-          id     (:declaration-error-id react-006)]
-      (is (= id (expand ['C {:ssr :client-only}]))
-          "no :children policy")
-      (is (= id (expand ['C {:children :none}]))
-          "no :ssr policy")
-      (is (= id (expand ['C {:children :sometimes :ssr :client-only}]))
-          "a children policy outside the closed roster")
-      (is (= id (expand ['C {:children :none :ssr :maybe}]))
-          "an SSR policy outside the closed roster")
-      (is (= id (expand ['C {:children :none :ssr :client-only :kind :leaf}]))
-          "an option outside the closed roster — including a reserved one")
-      (is (= id (expand ['C {:children :none :ssr :client-only
-                             :callbacks {:onChange :render-fn}}]))
-          "a role outside the two declarable ones")
-      (is (map? (:opts (v/parse-defhost-args ['C {:children :none :ssr :client-only}])))
-          "control: the legal spelling parses, so the reds above are the mutation talking")
-      (is (some? (v/expand-defhost true {:line 1} "f.cljc" 'my.ns 'h
-                                   ['C {:children :none :ssr :client-only}]))
-          "control: the legal declaration expands"))))
+    (let [entry (descriptor/host-entry declared-host)]
+      (is (contains? entry :children) "the live declaration carries what it must state")
+      (is (contains? entry :ssr)))))
+
+#?(:clj
+   (deftest fh-react-006-a-malformed-declaration-refuses-at-expansion
+     (testing "Per FH-REACT-006: the refusals are MACRO-EXPANSION refusals,
+               so a bad declaration never becomes a head a build accepts and
+               a render discovers. Driven through the expander rather than
+               written as declarations in this file, because a declaration
+               here would fail this namespace's own compile instead of an
+               assertion inside it.
+
+               JVM-only, and that is the whole statement rather than a gap:
+               macro expansion happens on the JVM for BOTH compilation
+               targets, so this IS the ClojureScript behaviour."
+       (let [expand #(try (v/expand-defhost true {:line 1} "f.cljc" 'my.ns 'h %)
+                          (catch Exception e (:rf.ui.compile/error (ex-data e))))
+             id     (:declaration-error-id react-006)]
+         (is (= id (expand ['C {:ssr :client-only}]))
+             "no :children policy")
+         (is (= id (expand ['C {:children :none}]))
+             "no :ssr policy")
+         (is (= id (expand ['C {:children :sometimes :ssr :client-only}]))
+             "a children policy outside the closed roster")
+         (is (= id (expand ['C {:children :none :ssr :maybe}]))
+             "an SSR policy outside the closed roster")
+         (is (= id (expand ['C {:children :none :ssr {:fallback [:div] :extra 1}}]))
+             "an SSR map with a second key")
+         (is (= id (expand ['C {:children :none :ssr :client-only :kind :leaf}]))
+             "an option outside the closed roster — including a reserved one")
+         (is (= id (expand ['C {:children :none :ssr :client-only
+                                :callbacks {:onChange :render-fn}}]))
+             "a role outside the two declarable ones")
+         (is (= id (expand ['C {:children :none :ssr :client-only
+                                :callbacks {:children :event}}]))
+             "a callback position naming a reserved call-ABI slot")
+         (is (= id (expand ['C]))
+             "a declaration with no options map at all")
+         (is (map? (:opts (v/parse-defhost-args ['C {:children :none :ssr :client-only}])))
+             "control: the legal spelling parses, so the reds above are the mutation talking")
+         (is (some? (expand ['C {:children :none :ssr :client-only}]))
+             "control: the legal declaration expands")
+         (is (not= id (expand ['C {:children :none :ssr :client-only}]))
+             "and expanding it is not itself the refusal")))))
 
 ;; ===========================================================================
 ;; FH-REACT-007 — three disjoint planes
