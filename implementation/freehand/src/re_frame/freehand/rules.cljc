@@ -2085,6 +2085,63 @@
   (when (or (keyword? k) (string? k) (symbol? k))
     (name k)))
 
+;; ---------------------------------------------------------------------------
+;; The caller-key slot projection, remembered
+;; ---------------------------------------------------------------------------
+;;
+;; [[caller-key-slot]] began life as the deny law's comparator — asked once per
+;; `v/spread-safe` key, at an authoring boundary nobody renders in a loop. It is
+;; no longer only that. `re-frame.freehand.controlled/prop-slot` delegates to
+;; it, `controlled-props?` maps that over EVERY attribute key of an element to
+;; settle the controlled-input door, and the interpreted React walk asks
+;; `controlled-props?` TWICE per element — once in `react-props` and once for
+;; the `put-caller!` fold. So an ordinary four-attribute element re-derives
+;; eight slot names per render, and a keyed run of 300 such rows re-derives
+;; 2,400.
+;;
+;; The projection is `react-prop-name`, whose camelization is a `str/replace`
+;; over a regex with a function replacement. A CPU profile of the interpreted
+;; walk in a PRODUCTION browser (`:advanced`, `goog.DEBUG false`) put
+;; `clojure.string/replace` at the top of its named frames — 5.1% of all
+;; samples, the largest single named cost in the walk — and caller attribution
+;; put 5.8 of its 5.9 points under this one function.
+;;
+;; This is the same argument, and the same remedy, that
+;; `re-frame.freehand.conversion` §Remembered projections already makes for the
+;; `.class#id` parse and the React prop and handler names: an author's markup
+;; spells its attribute keys as lexical CONSTANTS, so the answer is asked for
+;; over and over and is always the same. The cache lives HERE rather than there
+;; because `conversion` depends on `rules` and not the other way round, and
+;; because the callers that made it hot reach `rules` directly.
+;;
+;; Keyed on the author NAME rather than on the authored key, and BOUNDED for
+;; the reason the siblings are: the key space belongs to the author, and a
+;; caller minting keys per render would otherwise grow the map without limit.
+;; Past the limit the projection costs what it always cost.
+;;
+;; The nil answer stays OUTSIDE the cache. `caller-key-slot` answers nil for a
+;; key that is not nameable at all, and a cache that stored nil could not tell
+;; a miss from a remembered nil; `caller-key-name` settles that question first,
+;; and what is memoised is total over the strings it admits.
+
+(def ^:private slot-cache-limit 4096)
+
+(def ^:private caller-key-slot-cache (atom {}))
+
+(defn- caller-key-slot-by-name
+  "The emitted slot for an author attribute NAME. Total over strings — an
+  `on-*` name takes the handler projection, everything else the react-dom
+  attribute table — so a remembered answer is never confusable with a miss."
+  [n]
+  (if-some [hit (get @caller-key-slot-cache n)]
+    hit
+    (let [v (if (str/starts-with? n "on-")
+              (react-event-name n false)
+              (react-prop-name n))]
+      (swap! caller-key-slot-cache
+             (fn [m] (if (< (count m) slot-cache-limit) (assoc m n v) m)))
+      v)))
+
 (defn caller-key-slot
   "The React/DOM prop-name SLOT the host converters actually emit a
   `v/spread-safe` caller key into — the ONE canonicalization the owned-key deny
@@ -2100,9 +2157,7 @@
   targets properties) — this is the deny/structural/handler classification."
   [k]
   (when-some [n (caller-key-name k)]
-    (if (str/starts-with? n "on-")
-      (react-event-name n false)
-      (react-prop-name n))))
+    (caller-key-slot-by-name n)))
 
 (def reserved-ref-slot
   "The emitted SLOT React reserves for a ref, DERIVED from `:ref` through the
