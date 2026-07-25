@@ -100,7 +100,17 @@
                        ;; a SELECTED commit's occurrence projection. Enumerated here
                        ;; too so criterion 1's "all emitted record kinds" is literal —
                        ;; the seam's own kind states the four axes like every other.
-                       ["a selected commit's occurrence projection" (ev/commit-projection 812)]]]
+                       ["a selected commit's occurrence projection"
+                        (ev/commit-projection {:generation 812
+                                               :frame      :rf/default
+                                               :reads      [{:site-key 0 :query [:person 7]
+                                                             :frame-id :rf/default :owned? true}]})]
+                       ;; The same kind at a commit with nothing to say: a
+                       ;; headless probe against no frame, reading nothing. Both
+                       ;; slots are PRESENT and empty rather than omitted, which
+                       ;; is the distinction the schema exists for.
+                       ["a selected commit that read nothing"
+                        (ev/commit-projection {:generation 0 :frame nil :reads nil})]]]
       (doseq [{:keys [key]} ev/projection-fields]
         (is (contains? p key) (str label " states " key)))
       (is (= [] (ev/defects p)) (str label " is emittable")))))

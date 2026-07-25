@@ -3,6 +3,12 @@
   so cannot be made by exercising it.
 
   1. **Retention is Spec 009's, and there is no second mechanism.** The
+     current-occurrence index (rf2-xftdv) does not change this: it holds one
+     row per CONNECTED occurrence and drops it at disconnect, so it has no
+     time axis to retain anything along — and the third section below pins
+     the two properties that let it exist at all, that it names no schema
+     and that every call into it is dev-gated.
+
      schema names the existing per-frame retained-event ring and keeps
      nothing itself. Checked over the interned vars of every loaded
      Freehand namespace rather than over the text of any file: a store is
@@ -259,3 +265,82 @@
                    "precisely BECAUSE a shipping bundle never requires it. If the door now "
                    "needs the tool tier, the schema has a second path onto the render path and "
                    "this whole boundary needs re-deciding — do not simply delete this row.")))))))
+
+;; ---------------------------------------------------------------------------
+;; 3 — the current-occurrence index is on the render path, and dev-gated there
+;; ---------------------------------------------------------------------------
+
+(deftest the-current-occurrence-index-names-no-schema
+  (testing "`re-frame.freehand.occurrences` (rf2-xftdv) IS reachable from the
+            public door — the commit seam and `disconnect!` write it — so if it
+            named the evidence schema the roster pinned above would have to
+            widen to three, and the claim that the schema reaches the RENDER
+            PATH through `cell` alone would be gone. It deliberately names no
+            schema: it stores values it is handed, keyed by whatever the caller
+            says identifies an occurrence, and validation stays at the seam. That
+            is what lets a live index sit on the render path without becoming a
+            second door onto the schema, and it is asserted rather than left as
+            an intention."
+    (let [graph     (require-graph)
+          reachable (reachable-from graph 're-frame.freehand)]
+      (is (contains? graph 're-frame.freehand.occurrences)
+          "the index is a Freehand source namespace this walk saw")
+      (is (contains? reachable 're-frame.freehand.occurrences)
+          (str "the index is supposed to be REACHABLE from the door — the commit seam writes "
+               "it. If it is not, either the seam was removed or the index is dead, and this "
+               "whole section is asserting a wiring that is gone."))
+      (is (not (contains? (freehand-namespaces-mentioning graph 're-frame.freehand.evidence)
+                          're-frame.freehand.occurrences))
+          (str "re-frame.freehand.occurrences now names the evidence schema. It is reachable "
+               "from the public door, so that makes it a SECOND door onto the schema from the "
+               "shipping render path — exactly what the roster above is pinned closed to "
+               "prevent. Either keep the index schema-free (it needs no schema: it stores "
+               "values the seam already validated) or re-decide the boundary deliberately.")))))
+
+(defn- top-level-forms
+  "Every top-level form in `f`, read (never evaluated) with reader conditionals
+  preserved so a form that exists on one host only is still seen."
+  [^java.io.File f]
+  (with-open [r (java.io.PushbackReader. (io/reader f))]
+    (binding [*read-eval* false]
+      (doall (take-while #(not= ::eof %)
+                         (repeatedly #(read {:read-cond :preserve :eof ::eof} r)))))))
+
+(deftest every-index-call-site-sits-inside-the-dev-gate
+  (testing "The index must not ship, and the reason it does not is CAUSAL rather
+            than incidental: every call into it is inside
+            `re-frame.interop/debug-enabled?`, the gate Closure folds to `false`
+            under `:advanced` + `goog.DEBUG=false` — taking the calls, their
+            arguments and every path into the namespace with them, so nothing
+            reaches the atom for the compiler to keep it alive for.
+
+            Asserted over `cell.cljc`'s own top-level forms rather than over a
+            bundle, because this is the property a bundle probe cannot explain
+            even when it holds: a grep can say a string is absent, and only the
+            source can say WHY. The control-build probe
+            (`npm run test:freehand-evidence-elision`) is the complementary
+            half — it proves the seam's own doors really do disappear.
+
+            Over-approximate in the safe direction: the whole enclosing
+            top-level form must mention the gate, so a call moved out of its
+            `when` and into a sibling arm of the same `defn` would still pass
+            here — and would still be inside a gated function. A call added to a
+            function with no gate anywhere reds."
+    (let [cell-src (io/file (source-root) "re_frame" "freehand" "cell.cljc")
+          forms    (top-level-forms cell-src)
+          calling  (filter (fn [form]
+                             (some #(str/starts-with? (str %) "occurrences/")
+                                   (symbols-in form)))
+                           forms)]
+      (is (.isFile cell-src) "the commit seam's source file was located")
+      (is (<= 2 (count calling))
+          (str "at least two top-level forms should call the index — the commit seam writes a "
+               "row and `disconnect!` drops one. Found " (count calling)
+               ", so either the release seam is gone or this walk stopped seeing the calls."))
+      (doseq [form calling]
+        (is (contains? (set (symbols-in form)) 're-frame.interop/debug-enabled?)
+            (str "a top-level form in cell.cljc calls re-frame.freehand.occurrences/… without "
+                 "naming re-frame.interop/debug-enabled? anywhere in it, so the current-"
+                 "occurrence index has an UNGATED path onto the shipping render path and will "
+                 "not dead-code-eliminate. The offending form starts: "
+                 (subs (pr-str form) 0 (min 120 (count (pr-str form))))))))))
