@@ -43,9 +43,10 @@ view is a boundary, and the subtree above it waits.
 Before touching a view, scan its whole body for **D/R hits**, then route by tier:
 
 - **An R hit → hold the WHOLE view on Reagent**, honestly, and record why.
-  Trusted markup (MIG-34), `:ref` (MIG-29), Reagent introspection and schedulers
-  (MIG-35), a frame-pinned reactive read (MIG-03). →
-  [`catalog-reject.md`](catalog-reject.md).
+  `:ref` (MIG-29), Reagent introspection and schedulers (MIG-35), a frame-pinned
+  reactive read (MIG-03). → [`catalog-reject.md`](catalog-reject.md). (Trusted
+  markup, MIG-34, was on this list until the verb shipped; it is a mechanical
+  rewrite now, recorded under that leaf's §No longer a hold.)
 - **A D hit → decide it with the author, then convert the WHOLE view or hold the
   WHOLE view** — never a partial body. The judgment calls are catalogued in
   [`catalog-judgment.md`](catalog-judgment.md): state (MIG-16), lifecycle

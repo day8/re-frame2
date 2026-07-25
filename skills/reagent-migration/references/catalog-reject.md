@@ -32,19 +32,6 @@ decorates and can reach no other. If the ref exists to do bounded work on one
 node — focus it, measure it, attach an observer, drive a chart — write the
 behavior. If the ref exists to *hand the node to something else*, hold the view.
 
-### MIG-34 — `dangerouslySetInnerHTML` / trusted markup
-
-```clojure
-[:div {:dangerouslySetInnerHTML {:__html s}}]
-```
-
-The prop is refused, and no trusted-markup verb is exported yet. A view that
-renders pre-rendered HTML (a CMS body, rendered Markdown) **stays on Reagent**.
-
-Do not reach for `v/markup` here: `v/markup` crosses a **hiccup value** into a
-compiled body (MIG-30). It does not parse or inject an HTML string, and using it
-that way renders the markup as text.
-
 ### MIG-03 — a read pinned to a non-ambient frame
 
 ```clojure
@@ -108,6 +95,39 @@ never a view rewrite, and **not** a reason to hold the view: its own deref
 converts fine (MIG-02) once the sub body is made pure.
 
 ## No longer a hold
+
+**MIG-34 — `dangerouslySetInnerHTML` / trusted markup.** Freehand now exports a
+trusted-markup verb, so a view that renders pre-rendered HTML — a CMS body,
+rendered Markdown — converts.
+
+```clojure
+;; before → after
+[:div {:dangerouslySetInnerHTML {:__html s}}]   =>   [:div (v/html s)]
+```
+
+The prop is still refused under every spelling, including one smuggled through a
+runtime `v/spread`, and the refusal now names a verb that exists. Three parts of
+the rewrite are load-bearing:
+
+- **The call is the SOLE child of the element**, and it replaces the children —
+  `[:div (v/html s)]`, never `[:div (v/html s) [:span "x"]]`. A Reagent view that
+  set the prop *and* passed children was already relying on React dropping one of
+  them; pick the channel deliberately.
+- **`s` must be a string** at render, on both hosts and in both modes. A view
+  whose field is sometimes nil needs `(v/html (or s ""))` or a branch — the
+  substrate refuses rather than rendering nothing.
+- **`<textarea>` and void elements are refused.** A Reagent textarea setting the
+  prop was already broken in React 19; its content is `:value`.
+
+**Freehand does not sanitise, and neither does SSR** — the string is written
+verbatim, exactly as `dangerouslySetInnerHTML` was. The conversion changes the
+spelling and nothing about the trust: whatever cleared the markup before the
+migration still has to clear it after. What it buys is that a `{:compiled true}`
+declaration records every site on its manifest, so the bypasses become listable.
+
+Do not reach for `v/markup` here: `v/markup` crosses a **hiccup value** into a
+compiled body (MIG-30). It does not parse or inject an HTML string, and using it
+that way renders the markup as text.
 
 **MIG-09 / MIG-10 — foreign React components and their fn-valued props.** The
 React host boundary is now open in **both** directions, so a foreign React

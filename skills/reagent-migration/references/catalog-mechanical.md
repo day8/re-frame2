@@ -101,7 +101,7 @@ Freehand's props are **kebab-case**, one spelling per name:
 {:className c :htmlFor x :onClick …}   =>   {:class c :for x :on-click …}
 ```
 
-`:class-name` and `:html-for` are refused with `:class` / `:for` named as the replacement; `:children` is reserved (children are positional). `data-*` and `aria-*` pass through verbatim, as do names React does not recognise. `:onClick` both respells *and* lifts its dispatch (MIG-04). `:dangerouslySetInnerHTML` has no shipped Freehand door → MIG-34 (R).
+`:class-name` and `:html-for` are refused with `:class` / `:for` named as the replacement; `:children` is reserved (children are positional). `data-*` and `aria-*` pass through verbatim, as do names React does not recognise. `:onClick` both respells *and* lifts its dispatch (MIG-04). `:dangerouslySetInnerHTML` is refused under every spelling and does not respell to a prop at all — it becomes the trusted-markup verb in the element's CHILD position → MIG-34.
 
 ## MIG-12 — strip the `doall` laziness workaround
 

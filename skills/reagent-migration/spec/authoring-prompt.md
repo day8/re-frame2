@@ -24,7 +24,7 @@
 >
 > *Voice: tight, declarative, recipe-shaped; full sentences over dash-chained fragments. Tables for rule lookups; code blocks for before→after shapes. Cite `MIG-NN` in every catalogue.*
 >
-> *Don't: ship or invoke a codemod; oversell Freehand (it is pre-alpha — say so); emit `local` / `effect` / `ref` / `v/html` / `v/check` or any other verb absent from `spec/API.md` (verify against the live roster — names like `v/->react` and `v/client-only` have since shipped); add `{:compiled true}` during a migration pass; write `*.md` outside `skills/reagent-migration/` (except the index registration in `skills/README.md` + the docs mirror/nav); commit anything under `ai/`; use this repo's testbeds or paths as examples (stay generic); claim AI authorship in commits/PR.*
+> *Don't: ship or invoke a codemod; oversell Freehand (it is pre-alpha — say so); emit `local` / `effect` / `ref` / `v/check` or any other verb absent from `spec/API.md` (verify against the live roster — names like `v/->react`, `v/client-only` and `v/html` have since shipped); add `{:compiled true}` during a migration pass; write `*.md` outside `skills/reagent-migration/` (except the index registration in `skills/README.md` + the docs mirror/nav); commit anything under `ai/`; use this repo's testbeds or paths as examples (stay generic); claim AI authorship in commits/PR.*
 >
 > *Open the PR titled `feat(skills): reagent-migration — AI skill for Reagent→Freehand view migration`. Body: the sibling shape matched, the M/D/R catalogue distilled (which rules), the optional/second/pre-alpha framing, the incremental procedure, the per-tier evals. Surface OQ1/OQ2 from `design.md` for Mike.*
 

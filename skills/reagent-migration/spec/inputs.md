@@ -49,10 +49,10 @@ rather than trusting this list**; it grows a row at a time.
 
 `docs/EP/EP-0036-*`, `docs/design/freehand/decisions/` and
 `docs/design/freehand/draft-guide/` describe the design, including forms that
-are **declared and not exported** — `local`, `effect`, `ref`, `v/html`,
+are **declared and not exported** — `local`, `effect`, `ref`,
 `v/check`, a React interop hook tier. They are useful for understanding *why* a
 shape is the way it is, and dangerous as a source of call shapes: some names once
-on this list (`v/->react`, `v/client-only`) have since shipped, which is exactly
+on this list (`v/->react`, `v/client-only`, `v/html`) have since shipped, which is exactly
 why **every verb goes through §1 before it is written** (design L9) rather than a
 remembered "not yet" list.
 
