@@ -85,8 +85,9 @@ resources ensure, stub, and read exactly as they do anywhere else:
 
 ## 3. Deep links, and the 404
 
-Pasted link, reload, back/forward, and the SSR request all funnel through
-`:rf.route/handle-url-change` — drive it directly:
+Pasted link, reload, Back/Forward, and the SSR request all funnel through
+`:rf.route/handle-url-change` — drive it directly. A bare dispatch on a test
+frame is the deep-link and initial-load door:
 
 ```clojure
 (deftest deep-link-resolves
@@ -105,6 +106,32 @@ Pasted link, reload, back/forward, and the SSR request all funnel through
 `:reason` distinguishes plain miss, schema failure (`:validation`), and malformed
 percent-encoding (`:malformed-url`) — one assertion each if the not-found view
 branches on it.
+
+### Say which door you meant
+
+The route outcome is the same through all three, but the **cause** the runtime
+records is not — and the cause is what a `:rf.route/planned` projection, an
+entry denial and a blocked navigation all report. One dispatch shape per door:
+
+```clojure
+;; deep link, reload, initial load — a bare dispatch on a client frame
+(rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro"])
+
+;; Back/Forward — stand in for the framework's own listener by carrying its rider
+(rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro"
+                   {:rf.route/cause :popstate}])
+
+;; SSR — the same bare dispatch, on a server frame
+(rf/with-new-frame [f (rf/make-frame {:platform :server})]
+  (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro"]))
+```
+
+Only the `:url-bound?` frame's listener stamps that rider in a real app, so
+spell it only when you are standing in for that listener — and never install a
+listener of your own to obtain it, because the rider *is* the simulation.
+Without it a client dispatch resolves as `:initial`, so a test that calls itself
+the Back/Forward case proves the right outcome and misnames the door it came
+through.
 
 ## 4. The guards, with zero DOM
 
