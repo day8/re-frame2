@@ -2578,24 +2578,30 @@ jobs:
     # `goog.DEBUG` and holds the app still, proving a DEV-GATED SEAM elides;
     # this pair holds the flag still and moves the APP, proving an UNUSED
     # MODULE elides. The controller strings are absent from the goog.DEBUG=true
-    # control too, so that build cannot prove this claim. At bb86e780a2 the
-    # control measures 733,971 chars against production's 730,039 — 3,932
+    # control too, so that build cannot prove this claim. At 4cdd518035 the
+    # control measures 734,264 chars against production's 730,332 — 3,932
     # chars of controller runtime an unusing page does not ship.
     #
-    # That is a FROM-CLEAN reading, and rf2-bl1gp is why it now says so. The
-    # figure it replaces (744,100 vs 752,791, 8,691 chars) read as a plain
-    # fact and was not one: a shadow-cljs build that compiles fresh in a
-    # process where a SIBLING build was served from cache gets different
-    # Closure identifier/property renaming (confirmed in #6915), so running
-    # the evidence-elision gate first in the same tree moved it — there, far
-    # enough to invert the sign. `npm run test:freehand-reachability` now
-    # clears both builds' output and compile caches before compiling
-    # (`clean:freehand-reachability`, the pattern `build:freehand-matched`
-    # established), so the reading is the from-clean one whatever ran before
-    # it. The GATE never depended on any of this:
+    # Read the DELTA, not the absolutes, and read it as a FROM-CLEAN reading.
+    # rf2-bl1gp is why it now says so. The figure it replaces (744,100 vs
+    # 752,791, 8,691 chars) read as a plain fact and was not one: a
+    # shadow-cljs build that compiles fresh in a process where a SIBLING
+    # build was served from cache gets different Closure identifier/property
+    # renaming (confirmed in #6915), so running the evidence-elision gate
+    # first in the same tree moved it — there, far enough to invert the sign.
+    # `npm run test:freehand-reachability` now clears both builds' output and
+    # compile caches before compiling (`clean:freehand-reachability`, the
+    # pattern `build:freehand-matched` established), so the reading is the
+    # from-clean one whatever ran before it.
+    #
+    # The absolutes still drift with ordinary code growth, which is why the
+    # revision is named: over the two base revisions this was measured at
+    # they moved together by 293 chars while the delta stayed at exactly
+    # 3,932. The delta is the claim; the absolutes are provenance.
+    #
+    # The GATE never depended on any of this:
     # check-freehand-reachability.cjs asserts present/absent, never bytes, and
-    # passes 2/2 in every posture — including the four measured while wiring
-    # the clean step up, which all agreed once it was in place.
+    # passes 2/2 in every posture measured while wiring the clean step up.
     #
     # No browser and no Clojure CLI: two shadow-cljs releases plus a string
     # inspection over the emitted bytes, so the JDK/Node/Maven trio is enough
