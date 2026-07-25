@@ -30,7 +30,7 @@
   The observable is the emitted `:rf.ui/property-props`, never that
   something threw: the defect this pins away is silent and well-formed.
 
-  Replaces the donor `re-frame.ui.custom-element-warm-staleness-jvm-test`."
+  Replaces the donor `custom_element_warm_staleness_jvm_test`."
   (:require [cljs.env :as cljs-env]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.freehand.compiler.build :as build]

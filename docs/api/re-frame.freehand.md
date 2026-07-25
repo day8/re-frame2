@@ -109,6 +109,56 @@ elements — the child path is browser-only, like the mount verbs.
     [:span.badge "3"])
   ```
 
+### `custom-element`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (custom-element tag {:properties #{:help-text …}})
+  ```
+- **Description**: declare which of a custom element's props are JS **properties**
+  rather than attributes — the one fact about a web component Freehand cannot read
+  off the element and will not guess.
+
+  A web component's rich inputs are properties: `el.scale = {…}` is how a map, a
+  vector or a host object gets in, and nothing about the keyword `:scale` says so.
+  Undeclared, the name travels the attribute grammar, whose rule for an
+  unrecognized kebab spelling is to pass it through **verbatim** — so React writes
+  the *attribute* `scale`, the element's setter never runs, and the component mounts
+  renderable but **inert**, with nothing reported anywhere. Camelising the key by
+  hand fixes the browser and breaks the **server**: a server cannot set a property,
+  so a declared property is omitted from markup and applied at hydration, and only a
+  declaration says which props those are.
+
+  **One declaration answers every path** — a compiled literal props map, a compiled
+  element's dynamic props, the interpreted walk, a `v/spread` or `v/spread-safe`
+  forwarded map, the React writer, and the JVM structural tree the SSR serialiser
+  folds. A declared name keeps its authored kebab key in the structural tree and its
+  value **verbatim**, outside the attribute-value grammar — which is exactly what
+  admits the map in the example below — and reaches the DOM under the ruled
+  camelCase property name: `:help-text` sets `helpText`.
+
+  Top-level and compile-resolvable, and it registers the way `v/defview` does. The
+  tag is an unqualified keyword containing `-`, the options map is **literal**, and
+  `:properties` is the **whole** v1 grammar — an unknown key, a namespaced tag or a
+  runtime map raises `:rf.ui.compile/bad-custom-element`. Declaring is only ever the
+  exception: undeclared names are attributes, and an undeclared *element* needs no
+  declaration at all.
+
+  One tag has one property manifest. Two sources declaring it differently is
+  `:rf.ui.compile/custom-element-conflict` at build time and
+  `:rf.error/custom-element-conflict` at registration — never a winner picked by
+  load order. `rf=`-equal duplicates co-exist, and a source replacing its own
+  declaration is what a REPL re-eval and a hot reload do.
+- **Example**:
+  ```clojure
+  (v/custom-element :ui-slider {:properties #{:scale :on-detail}})
+
+  (v/defview volume [_]
+    [:ui-slider {:scale      {:min 0 :max 10}   ; a PROPERTY: set verbatim
+                 :aria-label "Volume"}])        ; an attribute, as always
+  ```
+
 ## Boot
 
 ### `adapter`

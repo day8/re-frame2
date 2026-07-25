@@ -19,11 +19,11 @@
   the only place \"set as a property, not written as an attribute\" is
   observable at all.
 
-  This file replaces the donor family
-  `re-frame.ui.custom-element-{classification,order,spread-parity}-jvm-test`:
-  three suites that each drove one path against its own ad-hoc views. One
-  fixture over one view roster says the same thing once, and says which
-  path failed."
+  This file replaces the donor family's
+  `custom_element_{classification,order,spread_parity}_jvm_test` — three
+  suites that each drove one path against its own ad-hoc views. One fixture
+  over one view roster says the same thing once, and says which path
+  failed."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.conversion :as conv]

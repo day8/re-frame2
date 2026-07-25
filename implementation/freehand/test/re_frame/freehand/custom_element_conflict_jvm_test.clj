@@ -32,7 +32,7 @@
 
   JVM-only because macroexpansion is: this is the compile-time sibling of
   the runtime `:rf.error/custom-element-conflict` the registry raises.
-  Replaces the donor `re-frame.ui.custom-element-conflict-jvm-test`."
+  Replaces the donor `custom_element_conflict_jvm_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.freehand.compiler :as compiler]
             [re-frame.freehand.compiler.build :as build]))
