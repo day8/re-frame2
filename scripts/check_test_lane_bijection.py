@@ -111,6 +111,11 @@ JVM_ONLY_SUFFIX = "-jvm-test"
 
 TOP_LEVEL_DEFTEST = re.compile(r"^\(deftest", re.MULTILINE)
 
+#: Build output and dependency trees.  Nothing under them defines a lane or a
+#: test the lanes select, and walking them dominates the runtime.
+PRUNED_DIRS = frozenset({".git", "node_modules", ".shadow-cljs", ".cpcache",
+                         "out", "target", "site", ".venv", "__pycache__"})
+
 
 # --------------------------------------------------------------------------
 # EDN / shell reading.  Enough of a reader to pull vectors, maps and strings
@@ -279,10 +284,12 @@ def cljs_lanes(repo: Path):
     (`tools/template/resources/**`) or a fragment probe.
     """
     lanes = []
-    configs = sorted(repo.rglob("shadow-cljs.edn"))
-    for config in configs:
-        if "node_modules" in config.parts or ".shadow-cljs" in config.parts:
-            continue
+    configs = []
+    for dirpath, dirnames, filenames in os.walk(repo):
+        dirnames[:] = [d for d in dirnames if d not in PRUNED_DIRS]
+        if "shadow-cljs.edn" in filenames:
+            configs.append(Path(dirpath) / "shadow-cljs.edn")
+    for config in sorted(configs):
         if not (config.parent / "deps.edn").is_file():
             continue
         text = strip_edn_comments(config.read_text(encoding="utf-8"))
@@ -385,36 +392,79 @@ class TestFile:
     ext: str
     #: True when some CLJS lane root that OWNS its tree contains this file.
     on_owned_cljs_root: bool = False
+    #: Every ancestor directory, as strings, so "is this file under one of the
+    #: lane's roots?" is a set intersection rather than a walk per (lane, root).
+    ancestors: frozenset = frozenset()
 
 
 def discover(lanes, repo: Path):
-    """Map every lane root to its test files, keyed by (path, derived ns)."""
+    """Map every lane root to its test files, keyed by (path, derived ns).
+
+    A root is walked once and a file is read once no matter how many lanes share
+    it -- every CLJS build in `implementation/shadow-cljs.edn` shares one
+    `:source-paths` vector, so the naive shape re-reads the whole tree per lane.
+    """
+    defines_test = {}       # absolute path -> bool
+    walked = {}             # root -> [(path, ext)] of test-defining files
     found = {}
+
+    def scan(root: Path):
+        if root in walked:
+            return walked[root]
+        hits = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in PRUNED_DIRS]
+            for filename in filenames:
+                ext = os.path.splitext(filename)[1]
+                if ext not in TEST_EXTS:
+                    continue
+                path = Path(dirpath) / filename
+                key = str(path)
+                if key not in defines_test:
+                    try:
+                        defines_test[key] = bool(TOP_LEVEL_DEFTEST.search(
+                            path.read_text(encoding="utf-8")))
+                    except (UnicodeDecodeError, OSError):
+                        defines_test[key] = False
+                if defines_test[key]:
+                    hits.append((path, ext))
+        walked[root] = hits
+        return hits
+
     for lane in lanes:
         for root, owned in lane.roots:
-            for dirpath, _dirnames, filenames in os.walk(root):
-                for filename in filenames:
-                    ext = os.path.splitext(filename)[1]
-                    if ext not in TEST_EXTS:
-                        continue
-                    path = Path(dirpath) / filename
-                    try:
-                        text = path.read_text(encoding="utf-8")
-                    except (UnicodeDecodeError, OSError):
-                        continue
-                    if not TOP_LEVEL_DEFTEST.search(text):
-                        continue
-                    ns = str(path.relative_to(root).with_suffix("")).replace(os.sep, ".").replace("_", "-")
-                    key = (str(path), ns)
-                    entry = found.setdefault(key, TestFile(path=path, ns=ns, ext=ext))
-                    if lane.runtime == "cljs" and owned:
-                        entry.on_owned_cljs_root = True
+            for path, ext in scan(root):
+                ns = str(path.relative_to(root).with_suffix("")).replace(os.sep, ".").replace("_", "-")
+                entry = found.get((str(path), ns))
+                if entry is None:
+                    entry = TestFile(path=path, ns=ns, ext=ext,
+                                     ancestors=frozenset(str(p) for p in path.parents))
+                    found[(str(path), ns)] = entry
+                if lane.runtime == "cljs" and owned:
+                    entry.on_owned_cljs_root = True
     return list(found.values())
 
 
 def loadable_by(lane: Lane, test_file: TestFile) -> bool:
     exts = CLJS_EXTS if lane.runtime == "cljs" else JVM_EXTS
     return test_file.ext in exts
+
+
+def select(lanes, files):
+    """One pass, both directions: lanes-per-file (B1/B2) and files-per-lane (B4)."""
+    selected_by = {id(f): [] for f in files}
+    reached_by = {lane.name: [] for lane in lanes}
+    for lane in lanes:
+        lane_roots = frozenset(str(root) for root, _owned in lane.roots)
+        for test_file in files:
+            if not loadable_by(lane, test_file):
+                continue
+            if lane_roots.isdisjoint(test_file.ancestors):
+                continue
+            if lane.selects(test_file.ns):
+                selected_by[id(test_file)].append(lane)
+                reached_by[lane.name].append(test_file)
+    return selected_by, reached_by
 
 
 def check(lanes, files, repo: Path):
@@ -429,17 +479,7 @@ def check(lanes, files, repo: Path):
                 f"`{entry}` in {lane.defined_in}, which does not exist. The lane runs "
                 f"whatever is left and stays green.")
 
-    selected_by = {id(f): [] for f in files}
-    for lane in lanes:
-        roots = [root for root, _owned in lane.roots]
-        for test_file in files:
-            if not loadable_by(lane, test_file):
-                continue
-            if not any(root == test_file.path.parent or root in test_file.path.parents
-                       for root in roots):
-                continue
-            if lane.selects(test_file.ns):
-                selected_by[id(test_file)].append(lane)
+    selected_by, reached_by = select(lanes, files)
 
     def rel(p: Path) -> str:
         try:
@@ -482,11 +522,7 @@ def check(lanes, files, repo: Path):
 
     # B4 -- a selector that reaches nothing (or a probe that reaches something).
     for lane in lanes:
-        roots = [root for root, _owned in lane.roots]
-        reached = [f for f in files
-                   if loadable_by(lane, f)
-                   and any(root == f.path.parent or root in f.path.parents for root in roots)
-                   and lane.selects(f.ns)]
+        reached = reached_by[lane.name]
         if lane.probe:
             if reached:
                 failures.append(
@@ -648,15 +684,11 @@ def main(argv=None) -> int:
     files = discover(lanes, repo)
 
     if args.verbose:
+        _, reached_by = select(lanes, files)
         for lane in lanes:
-            roots = [root for root, _owned in lane.roots]
-            reached = sum(1 for f in files
-                          if loadable_by(lane, f)
-                          and any(root == f.path.parent or root in f.path.parents for root in roots)
-                          and lane.selects(f.ns))
             flag = " [probe]" if lane.probe else ""
             print(f"  {lane.runtime:4s} {lane.name:52s} /{lane.regex.pattern}/ "
-                  f"-> {reached} test file(s){flag}")
+                  f"-> {len(reached_by[lane.name])} test file(s){flag}")
         print(f"  {len(lanes)} lanes, {len(files)} test-defining files")
 
     failures = check(lanes, files, repo)
