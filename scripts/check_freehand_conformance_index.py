@@ -266,28 +266,41 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 #     (deftest t (expect fx))                     platform, credited on both
 #     (def fx (conf/fixture :FH-CALL-001))        a KEYWORD spelled like the
 #     (deftest t (is (= :fx 1)))                  binding, read as the Var
+#     (def fx (conf/fixture :FH-CALL-001))        the binding QUOTED — the token,
+#     (deftest t (is (= `fx 1)))                  and not a reference to it
 #
 # The first three are the false greens the first merged-PR audit found; the
 # fourth was the same mistake waiting; the next two are what the SECOND audit
 # found still standing after the first fix, because reading forms is not the same
 # as reading assertions; the next two are the THIRD, because reading assertions is
 # not the same as reading them in the namespace and on the platform that has them;
-# and the last is the FOURTH, because a name is not any run of symbol characters —
-# `:fx` was read as `fx`, and a datum stood in for a Var.  Each one lets a law be
-# retired by deletion — comment out the proof, keep the line — with the gate still
-# calling the row proven.
+# the ninth is the FOURTH, because a name is not any run of symbol characters —
+# `:fx` was read as `fx`, and a datum stood in for a Var; and the last is the
+# FIFTH, because a token is not a reference either — `` `fx `` IS the token `fx`,
+# and quoted data is data.  Each one lets a law be retired by deletion — comment
+# out the proof, keep the line — with the gate still calling the row proven.
 #
 # So the scan reads FORMS, then the ASSERTIONS, then the NAMES — and it reads a
-# name from a TOKEN BOUNDARY.  `_strip` blanks comments, string and character
-# literals, `#_`-discarded data and `(comment …)` forms at any depth;
-# `_top_level_forms` splits what survives on balanced parens; `_SYMBOL_RE` matches
-# a symbol only where one STARTS, so a keyword stays data; `_read_tree` binds every
-# definition to the namespace that wrote it, once per platform; and a site counts
-# only when an ASSERTING STATEMENT of a `deftest` reaches it — written in one, or
-# bound to a name one uses, directly or through a helper it calls, with "the same
-# name" meaning the same binding rather than the same spelling.  A statement that
-# asserts nothing contributes nothing, and a file carrying no `deftest` proves
-# nothing, whatever its name.
+# name from a TOKEN BOUNDARY, in an EVALUATED position.  Three reductions come
+# first, one per question, and every reading downstream is taken off the same
+# reduced text so that none of them can drift from another:
+#
+#     _strip      what is not code          comments, strings, character
+#                                           literals, `#_` discards, and
+#                                           `(comment …)` at any depth
+#     _read_as    what THIS PLATFORM reads  `#?` / `#?@` reduced to one branch
+#     _evaluated  what EVALUATES            every quoted datum — `'x`, `` `x ``,
+#                                           `(quote x)` — with `~x` islands
+#                                           inside a syntax quote recovered
+#
+# Then `_top_level_forms` splits what survives on balanced parens; `_SYMBOL_RE`
+# matches a symbol only where one STARTS, so a keyword stays data; `_read_tree`
+# binds every definition to the namespace that wrote it, once per platform; and a
+# site counts only when an ASSERTING STATEMENT of a `deftest` reaches it — written
+# in one, or bound to a name one uses, directly or through a helper it calls, with
+# "the same name" meaning the same binding rather than the same spelling.  A
+# statement that asserts nothing contributes nothing, and a file carrying no
+# `deftest` proves nothing, whatever its name.
 _FIXTURE_CALL_RE = re.compile(
     r"\(\s*(?:[A-Za-z0-9.*+!_'?<>=-]+/)?fixture\s+(:FH-[A-Z]+-\d{3})\b"
 )
@@ -1594,15 +1607,23 @@ def _cell_lanes(mode: str, host: str) -> frozenset[str]:
 # its witness on the JVM.  The defect names the host for that reason.
 #
 # Reachability is only as sound as NAME RESOLUTION, which is where this last got
-# out.  Both surfaces are reached by symbol, and a keyword is a symbol run behind
-# a `:` — so `:panel` witnessed a `(v/defview panel {:compiled true} …)` and
-# `:check/findings` witnessed the alias `check`, from data the assertion compares
-# against and never calls.  `_SYMBOL_RE` reads from a token boundary for that
-# reason.  What stays TEXTUAL, and is stated rather than hidden, is the marker
-# itself: a statement mentioning `{:compiled true}` or a spelled-out
-# `re-frame.freehand.compiler.…` as DATA still witnesses, because the marker is
-# read off the statement's text.  Reachability is what was missing and is enforced;
-# distinguishing a marker used as data from one used as code is not claimed.
+# out — twice, one level apart.  Both surfaces are reached by symbol, and a keyword
+# is a symbol run behind a `:` — so `:panel` witnessed a
+# `(v/defview panel {:compiled true} …)` and `:check/findings` witnessed the alias
+# `check`, from data the assertion compares against and never calls.  `_SYMBOL_RE`
+# reads from a token boundary for that reason.  And a token boundary was still not
+# enough, because `` `panel `` and `(quote panel)` ARE the token: what they are not
+# is a reference to the Var.  `_evaluated` blanks quoted data for that reason, and
+# BOTH halves of the witness are read off its output — so a quoted
+# `{:compiled true}` and a quoted `re-frame.freehand.compiler.…` witness nothing
+# either, and the marker cannot disagree with the names beside it.
+#
+# What stays TEXTUAL within what does evaluate, and is stated rather than hidden,
+# is the marker itself: a statement mentioning a live `{:compiled true}` map
+# literal or a spelled-out `re-frame.freehand.compiler.…` as DATA still witnesses.
+# Reachability and evaluation context are what were missing and are enforced;
+# distinguishing a marker used as data from one used as code, inside evaluated
+# code, is not claimed.
 #
 # `interpreted` and `common` get no witness, and saying so is the honest half of
 # this.  Interpreted is the DEFAULT lowering — a declaration is interpreted by
@@ -2059,6 +2080,90 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
+        # Red: A QUOTED SYMBOL IS NOT THE VAR IT NAMES, which is the same dead
+        # def again and the axis a FOURTH merged-PR audit found still open.  The
+        # token boundary above reads `:fx` as data because a keyword is not a
+        # token; it reads `(quote fx)` as the Var because this one IS the token
+        # `fx`.  What separates them is not spelling, it is EVALUATION CONTEXT —
+        # the reader hands `=` a symbol, not the fixture — and no boundary can
+        # see that.  Three spellings, one rule, all three pinned: the family is
+        # what makes it a rule rather than two examples.
+        "census_quote_form_shaped_like_the_fixture_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= (quote fx) 1)))\n"},
+            (),
+            (),
+        ),
+        # Red: the same datum syntax-quoted.  `` ` `` is the spelling a template
+        # reaches for, so it is the one most likely to be written by accident.
+        "census_syntax_quote_shaped_like_the_fixture_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= `fx 1)))\n"},
+            (),
+            (),
+        ),
+        # Red: the reader-prefix spelling, and the reason the family is pinned
+        # whole.  This shape was ALREADY red - and only by accident, because `'`
+        # fell inside `_SYMBOL_HEAD`, so the scan handed back the unresolvable
+        # token `'fx`.  Accidentally loud is not the same as right: a census
+        # whose verdict turns on which of three equivalent spellings an author
+        # reached for is reporting a coincidence.  Red by rule now.
+        "census_reader_quote_shaped_like_the_fixture_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= 'fx 1)))\n"},
+            (),
+            (),
+        ),
+        # Red: the same reduction on the OTHER surface a datum reaches a fixture
+        # through.  Here the quoted datum is the `(conf/fixture …)` CALL itself,
+        # so the id is read straight off the assertion without a binding in
+        # between - and the call no more runs than the symbol resolves.
+        "census_quoted_fixture_call_is_not_a_read": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(deftest t\n"
+                                 "  (is (= '(conf/fixture :FH-CALL-001) 1)))\n"},
+            (),
+            (),
+        ),
+        # Green, AND THE CONTROL THAT KEEPS THE RULE A NARROWING.  Inside a
+        # syntax quote `~fx` IS evaluated - that is what unquote is for - so the
+        # island is read as code and the row is proven.  Without this the rule
+        # above would be a refusal to read templates at all, which is breakage
+        # wearing strictness.
+        "census_unquote_inside_a_syntax_quote_reads_the_fixture": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= `(a ~fx) 1)))\n"},
+            (),
+            (),
+        ),
+        # Red: a NESTED syntax quote raises the level, and a `~` inside it
+        # belongs to the inner quote - so `fx` is quoted by the outer one and
+        # evaluates nowhere.  The green above and this red differ by one
+        # backtick, which is why the level is tracked rather than the character
+        # counted.
+        "census_nested_syntax_quote_does_not_read_the_fixture": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= `(a `(b ~fx)) 1)))\n"},
+            (),
+            (),
+        ),
+        # Green, and the control for OVER-tightening, which is the other way to
+        # get this wrong.  A `'` inside a token belongs to the token: `fx'` is
+        # one name, not a quote over `fx`.  Read the boundary the wrong way and
+        # this honest row reds.
+        "census_prime_suffixed_binding_is_one_token": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx' (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (seq fx')))\n"},
+            (),
+            (),
+        ),
         # Red: the id appears inside a docstring.  Prose about a law is not a
         # proof of it, and prose is where an id is MOST likely to be written.
         "census_proof_site_in_a_docstring": (
@@ -2126,6 +2231,22 @@ def _build_census_fixtures(base: Path) -> None:
                                  "             :refer [expect-tree]]))\n"
                                  "(def fx (conf/fixture :FH-CALL-001))\n"
                                  "(deftest t (expect-tree fx))\n"},
+            (),
+            (),
+        ),
+        # Red: A QUOTED ASSERTION ASSERTS NOTHING - the reduction on the third
+        # surface a quoted datum reached through, and the one that makes the fix
+        # a pipeline stage rather than three special cases.  The helper RETURNS
+        # `'(is (seq fx))`: a list.  Read textually it looked like the honest
+        # helper two cases above, so `helper` was credited with an `is`, the
+        # `(helper)` statement counted as asserting, and `fx` came along in the
+        # same quoted list.  One reduction, applied once per file, closes all
+        # three surfaces at once - names, fixture calls and assertion heads.
+        "census_quoted_assertion_in_a_called_helper": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(defn helper [] '(is (seq fx)))\n"
+                                 "(deftest t (is true) (helper))\n"},
             (),
             (),
         ),
@@ -2270,6 +2391,85 @@ def _build_census_fixtures(base: Path) -> None:
                                  "(v/defview panel {:compiled true} [_] [:div])\n"
                                  "(def fx (conf/fixture :FH-CALL-001))\n"
                                  "(deftest t (is (= :not-panel (first fx))))\n"},
+            (),
+            (),
+        ),
+        # Red: THE SAME PAIR ONE LEVEL UP, on the witness axis - the second half
+        # of what the FOURTH merged-PR audit reproduced.  `(quote panel)` really
+        # does contain the token `panel`, so the token boundary that closed
+        # `:panel` has nothing to say about it, and the graph walked to the
+        # `{:compiled true}` declaration from a datum.  The fixture still comes
+        # through `(first fx)`, so nothing but the mode witness is in question:
+        # the axis is isolated, exactly as the audit isolated it.
+        "census_quote_form_shaped_like_the_compiled_declaration": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= (quote panel) (first fx))))\n"},
+            (),
+            (),
+        ),
+        # Red: the syntax-quoted spelling of the same witness.
+        "census_syntax_quote_shaped_like_the_compiled_declaration": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= `panel (first fx))))\n"},
+            (),
+            (),
+        ),
+        # Red: the reader-prefix spelling, already red by the same lexical
+        # accident as its fixture-axis twin and red by rule now.
+        "census_reader_quote_shaped_like_the_compiled_declaration": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= 'panel (first fx))))\n"},
+            (),
+            (),
+        ),
+        # Green: the narrowing control on THIS axis.  The declaration is named
+        # inside a template and UNQUOTED, so the assertion really does evaluate
+        # the Var and really does reach the compiled tier.  One `~` apart from
+        # the red above.
+        "census_unquote_inside_a_syntax_quote_witnesses_the_mode": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (= `(a ~panel) (first fx))))\n"},
+            (),
+            (),
+        ),
+        # Red: the reduction reaching the TEXTUAL half of the witness too.  The
+        # marker reading stays textual - a statement mentioning `{:compiled true}`
+        # as an evaluated map literal still witnesses, and that bound is stated -
+        # but a QUOTED marker is not mentioned in code at all, so it witnesses
+        # nothing.  Reading the marker off the same reduced text as the names is
+        # what keeps the two halves from disagreeing.
+        "census_quoted_compiled_marker_does_not_witness": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (= '{:compiled true} (first fx))))\n"},
+            (),
+            (),
+        ),
+        # Red: the other textual marker, quoted.  A quoted namespace SYMBOL is a
+        # name the assertion compares against, not a tier it enters - the same
+        # thing `:check/findings` was, spelled the other way.
+        "census_quoted_tier_namespace_does_not_witness": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (= 're-frame.freehand.compiler.check\n"
+                                 "         (first fx))))\n"},
             (),
             (),
         ),
@@ -2580,12 +2780,24 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_dead_def", 1, "DEAD PROOF SITE"),
         ("census_keyword_shaped_like_the_fixture_binding", 1,
          "DEAD PROOF SITE"),
+        ("census_quote_form_shaped_like_the_fixture_binding", 1,
+         "DEAD PROOF SITE"),
+        ("census_syntax_quote_shaped_like_the_fixture_binding", 1,
+         "DEAD PROOF SITE"),
+        ("census_reader_quote_shaped_like_the_fixture_binding", 1,
+         "DEAD PROOF SITE"),
+        ("census_quoted_fixture_call_is_not_a_read", 1, "DEAD PROOF SITE"),
+        ("census_unquote_inside_a_syntax_quote_reads_the_fixture", 0, None),
+        ("census_nested_syntax_quote_does_not_read_the_fixture", 1,
+         "DEAD PROOF SITE"),
+        ("census_prime_suffixed_binding_is_one_token", 0, None),
         ("census_proof_site_in_a_docstring", 1, "DEAD PROOF SITE"),
         ("census_comment_form_inside_a_deftest", 1, "DEAD PROOF SITE"),
         ("census_dead_branch_in_a_called_helper", 1, "DEAD PROOF SITE"),
         ("census_deftest_that_asserts_nothing", 1, "DEAD PROOF SITE"),
         ("census_helper_carries_the_assertion", 0, None),
         ("census_referred_helper_carries_the_assertion", 0, None),
+        ("census_quoted_assertion_in_a_called_helper", 1, "DEAD PROOF SITE"),
         ("census_same_name_helper_in_an_unrelated_file", 1, "DEAD PROOF SITE"),
         ("census_platform_split_helper_asserts_on_one_host", 1,
          "UNEXECUTED CELL"),
@@ -2597,6 +2809,17 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_keyword_shaped_like_the_compiled_declaration", 1,
          "UNWITNESSED MODE"),
         ("census_keyword_not_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
+        ("census_quote_form_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
+        ("census_syntax_quote_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
+        ("census_reader_quote_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
+        ("census_unquote_inside_a_syntax_quote_witnesses_the_mode", 0, None),
+        ("census_quoted_compiled_marker_does_not_witness", 1,
+         "UNWITNESSED MODE"),
+        ("census_quoted_tier_namespace_does_not_witness", 1,
          "UNWITNESSED MODE"),
         ("census_compile_tier_witnesses_the_mode", 0, None),
         ("census_namespaced_keyword_shaped_like_the_tier_alias", 1,
