@@ -73,6 +73,7 @@
             ["zlib" :as zlib]
             ["vm" :as vm]
             ["crypto" :as crypto]
+            [clojure.string :as string]
             [re-frame.freehand.bench.measure :as m]))
 
 ;; ---------------------------------------------------------------------------
@@ -109,13 +110,17 @@
   identical character for character once the three `{:compiled true}` markers
   are dropped and the equal-length `lowered-none`/`lowered-full` segment is
   renamed, which `b5-matched-builds-cljs-test` asserts on every run — under
-  the same `:advanced` and the same `goog.DEBUG` false. A byte that differs
-  between them differs because of lowering.
+  the same `:advanced` and the same `goog.DEBUG` false. A RAW byte that
+  differs between them differs because of lowering; the compressed encodings
+  carry a small residue of the arm identity itself, and [[causal-isolation]]
+  states which claim holds for which encoding.
 
   `:mixed` is the SHIPPED-COST artefact (`:freehand-release`, one interpreted
-  leaf and its compiled twin under one root). It is built from its own entry
-  with its own registered ids and its own prose, so it is measured here for
-  context and is NOT byte-matched to the pair: no delta is taken against it."
+  leaf and its compiled twin under one root) — D021's `mixed production
+  bundle`, and a REPRESENTATIVE one rather than a third matched arm. It is
+  built from its own entry with its own registered ids and its own prose, so
+  it is measured here for context and is NOT byte-matched to the pair: no
+  delta is taken against it, because the delta only ever needed two arms."
   {:interpreted interpreted-bundle-path
    :mixed       default-bundle-path
    :compiled    compiled-bundle-path})
@@ -241,6 +246,11 @@
   not a per-view one. [[promotion-delta-workload]] publishes both, and names
   the per-view figure for the mean it is.
 
+  And it is attributable to lowering EXACTLY in raw bytes and only
+  APPROXIMATELY under the compressed encodings — [[causal-isolation]] carries
+  the measured difference, and rides the fixture so the distinction travels
+  with the numbers instead of living in this docstring.
+
   Lowering is the only variable across the pair. The two entries are one
   source in two states: identical character for character once the three
   `{:compiled true}` markers are dropped and the `lowered-none`/`lowered-full`
@@ -262,7 +272,11 @@
   `d5794fded8` (1.4%). That denominator is a past reading at a named
   revision, not this record's own figure — the record carries its own, and a
   caveat quoting a stale one beside a live measurement reads as an
-  inconsistency in the evidence (`rf2-hce4p`). The pair now measures 0.
+  inconsistency in the evidence (`rf2-hce4p`). The pair now measures 0 in RAW
+  bytes, and `b5-matched-builds-cljs-test` proves that on the artefacts
+  themselves every run rather than inferring it from the sources: rename the
+  arm token to any other token of the same length and the raw delta comes back
+  bit-identical ([[canonicalise-arm-identity]]).
 
   ## The bytes are only comparable under one build posture
 
@@ -321,18 +335,105 @@
        "under any other posture is a different measurement and not comparable "
        "with this one"))
 
+(def arm-identity-pattern
+  "The two arms' distinguishing IDENTITY TOKEN as it reaches the artefacts —
+  `lowered-none` / `lowered-full` in the hyphen spelling every id derived from
+  the namespace carries, and `lowered_none` / `lowered_full` in the underscore
+  spelling the compiled tier's source coordinates carry.
+
+  All four are twelve characters, which is the fixture property the raw delta's
+  causal isolation rests on. See [[canonicalise-arm-identity]]."
+  #"lowered([-_])(?:none|full)")
+
+(def arm-identity-probe-tokens
+  "Four-character replacement tokens the identity probe substitutes for the
+  arms' own `none` / `full`, deliberately unalike: a neutral label, a
+  single-character run, and a real word both arms could plausibly have shared.
+
+  Several, not one, because the quantity being probed is SENSITIVE — one token
+  samples one point of it and reads like a constant. The #6909 audit published
+  a single-token brotli figure of −16 bytes; sweeping seven tokens at
+  `babc7fb540` found a 227-byte spread, so that figure was one sample of
+  something an order of magnitude larger. See [[causal-isolation]]."
+  ["arm0" "aaaa" "same"])
+
+(defn canonicalise-arm-identity
+  "`source` with the arms' identity token replaced by `token`, in both
+  spellings, so a reading taken over the result cannot be told which arm it
+  came from.
+
+  This is the control for the delta's one remaining fixture asymmetry: the two
+  arms are two NAMESPACES, so every id, manifest entry and source coordinate
+  derived from the namespace differs in CONTENT between them. `token` must be
+  four characters — the length of the `none` / `full` it stands in for — which
+  is what makes the substitution byte-neutral per arm however many times it
+  occurs, and therefore what makes the RAW delta invariant under it.
+
+  Occurrence counts are NOT equal between the arms and are not meant to be: at
+  `babc7fb540` the interpreted arm shipped 23 and the compiled arm 29, and the
+  six extra are compiled-tier source coordinates that exist BECAUSE the views
+  were lowered. Those bytes are lowering's own and belong in the delta. What
+  this controls for is the token's CONTENT, not its census."
+  [source token]
+  (string/replace source arm-identity-pattern (str "lowered$1" token)))
+
+(def causal-isolation
+  "WHICH of the delta's encodings is attributable to lowering, and how
+  exactly — the audit finding this fixture exists to carry (`rf2-x4jda`,
+  merged-PR audit #6909).
+
+  The pair holds lowering as the only variable in the SOURCES, but a compressed
+  size is not a sum of its input's parts: the same bytes in a different
+  arrangement compress differently, so the arms' differing identity CONTENT
+  reaches the compressed deltas even though its LENGTH is controlled. Measured
+  by substituting equal-length probe tokens into both artefacts
+  ([[canonicalise-arm-identity]]) and re-taking the delta:
+
+    - RAW — the contribution is EXACTLY zero, for every probe token, by
+      construction. Asserted on the real artefacts on every built-bundle run,
+      so this is the one figure the pair may present as lowering and nothing
+      else.
+    - GZIP (6 and 9) — the delta moved by at most 9 bytes across seven probe
+      tokens at `babc7fb540`, against deltas of 4,794 and 4,738: ≤0.2%.
+      Attributable to lowering to within a handful of bytes.
+    - BROTLI — the delta moved across a 227-byte spread (−198 to +29) at the
+      same revision, against a 3,781-byte delta: up to ≈5%. The brotli figure
+      is a real fact about the two artefacts, but it may NOT be read as a
+      lowering-only number.
+
+  Those percentages are a reading at a NAMED revision, and the revision is
+  named because that is the only thing that keeps an absolute honest as the
+  bundles move. The stable claim is the ordering — raw exact, gzip within a
+  handful, brotli sensitive at the hundred-byte scale — and it is the ordering
+  a reader should carry away."
+  (str "attribution to lowering holds EXACTLY for the raw delta and only "
+       "approximately for the compressed ones. The two arms are two "
+       "namespaces, so their ids, manifests and source coordinates differ in "
+       "identity CONTENT; the tokens are the same LENGTH, which makes the raw "
+       "delta provably invariant under renaming them (asserted every built "
+       "run) but does not make a compressed delta invariant, because "
+       "compression is not a sum of its input's parts. Substituting "
+       "equal-length probe tokens at babc7fb540 moved the gzip-6/gzip-9 "
+       "deltas by at most 9 bytes of 4,794/4,738 (≤0.2%) and the brotli delta "
+       "across a 227-byte spread of 3,781 (up to ~5%). Read raw as lowering, "
+       "gzip as lowering within a handful of bytes, and brotli as "
+       "identity-sensitive"))
+
 (def not-matched-on
   "What the two arms do NOT hold still, stated so a reader can discount it.
 
   Published in the delta's fixture because a caveat that lives only in a
-  reviewer's memory is not part of the evidence. See [[promotion-delta]]."
+  reviewer's memory is not part of the evidence. See [[promotion-delta]] and
+  [[causal-isolation]], which carries the measured size of the residue."
   (str "they remain two NAMESPACES, so the identity strings each ships — the "
        "registered event/sub/frame ids, the view manifest, the compiled tier's "
        "source coordinates — differ in CONTENT: lowered-none against "
-       "lowered-full. The two segments are the same length, so the raw delta "
-       "carries none of that; differing content can still move a few bytes "
-       "under gzip and brotli. The per-view figures are a MEAN over the "
-       "promoted view count, not a per-declaration observation"))
+       "lowered-full. The two segments are the same length, so the RAW delta "
+       "carries none of that (proved on the artefacts every built run, not "
+       "inferred); differing content still moves the compressed deltas, and "
+       ":causal-isolation states by how much per encoding. The per-view "
+       "figures are a MEAN over the promoted view count, not a "
+       "per-declaration observation"))
 
 (defn promotion-delta-workload
   "The per-promotion byte delta as a WORKLOAD, so it reaches the SAME door
@@ -371,9 +472,10 @@
                     "; the per-view figures are that total divided by the "
                     promoted-views " view declarations the two entries promote "
                     "together — a MEAN, not a per-declaration observation")
-               :matched-on     matched-on
-               :not-matched-on not-matched-on
-               :build-posture  matched-build-posture}
+               :matched-on       matched-on
+               :not-matched-on   not-matched-on
+               :causal-isolation causal-isolation
+               :build-posture    matched-build-posture}
      :baseline {:kind      :interpreted-vs-compiled
                 :reference {:arm  :interpreted
                             :note (str "the interpreted-only twin " (:path interpreted)
