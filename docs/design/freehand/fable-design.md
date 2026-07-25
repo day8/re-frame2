@@ -2,9 +2,9 @@
 
 **Freehand** is the product name, and the single public entry point is
 `re-frame.freehand`, with `v` as the documented source alias (D001) — all
-dream code below uses `v`. Edge namespaces (`re-frame.freehand.host`,
-`re-frame.freehand.test` — aliased `host`/`v.test` here) exist only where a
-host-only or test-only capability materially clarifies; compiler and runtime
+dream code below uses `v`. Edge namespaces (`re-frame.freehand.test`, plus the
+later accepted `.form` and `.controls`) exist only where a bounded capability
+materially clarifies; there is no public `.host` namespace. Compiler and runtime
 namespaces stay internal; `re-frame.view` is NOT published as an alias (one
 door, per the absorption ruling), and `re-frame.ui` is a donor namespace only,
 deleted at the gate.
@@ -25,6 +25,14 @@ claim is verified at source (`file:line` in this checkout; decision headers for
 rulings); estimates and knowledge-sourced claims are labelled. Provenance and
 the verification ledger are in Appendix C.
 
+**2026-07-26 completion addendum.** The later accepted
+[`product-completion-setpoint.md`](product-completion-setpoint.md) and
+[D022](decisions/D022-public-react-host-door.md) extend the original twenty-one
+decisions. Where this dossier still distinguishes a qualified leaf from a
+React-owned wrapper, or sketches a different inward React door, the later
+setpoint controls: both are implementation shapes behind one `v/defhost`
+descriptor kind.
+
 Two premises govern everything below:
 
 - **The compiled tier is assumed (operator axiom).** Some applications will have
@@ -35,7 +43,7 @@ Two premises govern everything below:
 - **One reactive state system: re-frame.** Events and subscriptions are the only
   reactive model. No ratoms, no hooks-shaped state, no component-local reactive
   cells in the neutral core. Hooks exist only inside visibly React-bound
-  wrappers.
+  components registered through `v/defhost`.
 
 ---
 

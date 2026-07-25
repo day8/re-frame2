@@ -131,9 +131,10 @@ or a wrapper instead of asking Freehand to guess.
 Bare functions remain legal at native `:on-*` sites and as opaque values passed
 between internal views; the site's stable outer adapter owns native callback
 lifetime. They are rejected in declared foreign callback positions, where phase
-and identity are otherwise unknown, with a diagnostic that names the roster. A
-qualified host leaf's schema identifies those positions; an unknown or
-protocol-heavy foreign surface needs a wrapper.
+and identity are otherwise unknown, with a diagnostic that names the roster.
+D022's host declaration identifies those positions through its mandatory
+`:callbacks` map; a protocol-heavy foreign surface remains React-owned behind
+that same declared host boundary.
 
 Per-site ownership is the public law, not the private key representation. The
 interpreted runtime may key a site by committed normalized-node identity while the
@@ -167,7 +168,7 @@ adapters, memoized React children, and deterministic callback diagnostics.
 
 - [Codex design, §4 “Event law”](../codex-design.md#event-law) gives the role-specific
   callback table and per-event-site ownership law.
-- [Codex design, §5 “Three host shapes”](../codex-design.md#three-host-shapes) places
+- [Codex design, §5 “Host ownership routes”](../codex-design.md#host-ownership-routes) places
   React-owned callback protocols in wrappers.
 - [Fable design, §2.1 “Dream code”](../fable-design.md#21-dream-code) introduces the
   dispatcher and four-form escape roster.

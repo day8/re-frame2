@@ -19,9 +19,9 @@ belongs on the one main authoring surface.
 
 ## The problem
 
-Freehand normally points inward: a Freehand tree can mount a qualified React
-leaf or wrapper. Some React libraries reverse the direction and demand a React
-component value:
+Freehand normally points inward: a Freehand tree can mount a React component or
+React-owned wrapper through D022's one declared host kind. Some React libraries
+reverse the direction and demand a React component value:
 
 ```clojure
 {:cellRenderer (v/->react person-cell)}
@@ -352,7 +352,7 @@ Unlocks:
 
 ## Source basis
 
-- [Codex design — Three host shapes](../codex-design.md#three-host-shapes) defines
+- [Codex design — Host ownership routes](../codex-design.md#host-ownership-routes) defines
   `v/->react` as the outward half of the wrapper boundary.
 - [Codex design — React-library integration](../codex-design.md#react-library-integration)
   identifies component-as-prop and compound React protocols as separate cases.

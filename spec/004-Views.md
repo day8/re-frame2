@@ -76,7 +76,7 @@ answer beside it.
    prove parity through common conformance values and fixtures.
 
 The detailed rulings behind these laws are the Freehand decision register
-(`docs/design/freehand/decisions/`, D001–D021). They are all ruled; a slice cites
+(`docs/design/freehand/decisions/`, D001–D022). They are all ruled; a slice cites
 them, it does not reopen them.
 
 ## What this Spec owns, and what it defers
@@ -2424,7 +2424,7 @@ A Freehand implementation MUST NOT provide:
   standalone artifact is removed when internal conformance, the pilots, and consumer
   migration are complete.
 
-The full rulings D001–D021 and their rationale are the Freehand decision register
+The full rulings D001–D022 and their rationale are the Freehand decision register
 (`docs/design/freehand/decisions/`); the programme topology, migration map, and
 release gates are
 [EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md).

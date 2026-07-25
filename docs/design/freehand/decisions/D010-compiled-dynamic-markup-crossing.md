@@ -50,7 +50,7 @@ diagnostics. The compiled form therefore presents a choice:
 
 The issue is not cross-mode child mounting. A statically named descriptor such
 as `[field-help-view props]` is an explicit mounted boundary and is required to
-work in both directions. Nor is it a qualified React leaf or wrapper. The issue
+work in both directions. Nor is it a D022-declared React host. The issue
 is an arbitrary runtime value that the compiled template would have to interpret
 as more Freehand markup.
 

@@ -10,18 +10,20 @@ built by absorbing the useful `re-frame.ui` machinery.
 |---|---|
 | [`codex-design.md`](codex-design.md) | product spine: the ratified target, boundaries, conformance contract, and technical dependency order |
 | [`fable-design.md`](fable-design.md) | argued dossier: worked code, corpus fitness, semantic traces, alternatives, wounds, and pre-mortems |
+| [`product-completion-setpoint.md`](product-completion-setpoint.md) | accepted 2026-07-26 problem statements, design completions, execution rulings, and evidence gates |
 | [`studio/fitness-harness.md`](studio/fitness-harness.md) | evidence and acceptance pressure from applications, re-com, and hard browser cases |
-| [`decisions/`](decisions/README.md) | D001–D021, each with its explicit ratified ruling and rationale |
+| [`decisions/`](decisions/README.md) | D001–D022, each with its explicit ratified ruling and rationale |
 | the draft guide | PROMOTED and gone from this tree. It was the operator's working draft, and it became the shipped guide at [`docs/core/freehand/`](../../core/freehand/index.md) (rf2-fby7o), refined there against what actually landed. Its history is in git; keeping a second, staler copy beside the real one would only invite readers to the wrong page. |
 
 ## Authority
 
 This directory is not a parallel specification tree. Operator rulings and
-EP-0036 control the programme. For target details not yet migrated into `spec/`,
-the product spine carries the ratified design. As each implementation slice lands,
-the owning specification becomes the canonical contract for that surface. The
-argued dossier and fitness harness explain and test the design; they do not enlarge
-the API.
+EP-0036 control the programme. The product-completion setpoint records the later
+accepted delta. For target details not yet migrated into `spec/`, the product
+spine plus that setpoint carry the ratified design. As each implementation slice
+lands, the owning specification becomes the canonical contract for that surface.
+The argued dossier and fitness harness explain and test the design; they do not
+enlarge the API.
 
 Current donor-era specs continue to describe current shipped behavior until their
 Freehand migration lands. That temporary difference between “shipped now” and
