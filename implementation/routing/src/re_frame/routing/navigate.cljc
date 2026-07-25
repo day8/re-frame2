@@ -397,9 +397,19 @@
               ;; ResolvedTarget seam below (rf2-gxq7z1's rule, now applied for
               ;; EVERY door rather than only this one — rf2-kqxe6.7), so the
               ;; written slice matches the pushed URL.
-              query-params (if-let [merge-in (:query-merge request)]
-                             (merge (:query current) query-params merge-in)
-                             query-params)
+              ;;
+              ;; The trailing `or {}` is the OTHER thing the deleted `into {}`
+              ;; did, kept because it is load-bearing and was not the rule that
+              ;; moved: a present-but-nil `:query` (`{:to :x :query nil}`) means
+              ;; the same "clear the query" as `:query {}` — presence, not
+              ;; truthiness, discriminates (`address/edit-keys`) — and the
+              ;; branches above hand it through as nil. The seam must NOT do
+              ;; this one: there, an ABSENT `:query` stays absent rather than
+              ;; being conjured into `{}`, which is a different fact.
+              query-params (or (if-let [merge-in (:query-merge request)]
+                                 (merge (:query current) query-params merge-in)
+                                 query-params)
+                               {})
               ;; EP-0037 R0b: shape the ResolvedTarget ONCE, HERE — before the
               ;; URL, before stage 3's no-op classification, before the guards
               ;; and before the commit — so every one of them sees the same
