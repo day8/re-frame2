@@ -224,11 +224,21 @@ jobs:
       # B5's matched build row. The three shapes hold the entry structure,
       # the optimisation level and `goog.DEBUG` still and vary only lowering,
       # so the delta between the outer two is a reading of promotion. (Not
-      # exclusively: the twins are two namespaces and each ships its own ids
-      # and namespace docstring. The published fixture names that confound —
-      # see re-frame.freehand.bench.b5/not-matched-on.)
+      # exclusively: the twins are two namespaces and each ships its own ids.
+      # The published fixture names that confound — see
+      # re-frame.freehand.bench.b5/not-matched-on.)
+      #
+      # Through the npm script, not a bare `npx shadow-cljs release` over the
+      # three ids: the script clears the three shapes' build caches and output
+      # dirs first, which is what pins the posture the published delta is
+      # measured under (re-frame.freehand.bench.b5/matched-build-posture,
+      # rf2-hce4p). This runner has no .shadow-cljs cache to clear, so the
+      # clearing is a no-op here — which is the point. CI's figure used to be
+      # stable only because of that, an unstated property of this job's cache
+      # configuration; now it is stable because the entry point says so, and
+      # a local re-measurement gets the same number instead of a different one.
       - name: Build the three matched release bundles
-        run: npx shadow-cljs release freehand-release freehand-release-interpreted freehand-release-compiled
+        run: npm run build:freehand-matched
 
       # `test:freehand` is the artefact here: the B5 rows publish their
       # records to stdout as `;;`-headed EDN, exactly as the sibling lanes

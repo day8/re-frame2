@@ -882,9 +882,20 @@
   ;; below, which holds lowering and flips goog.DEBUG to prove the evidence
   ;; seam DCEs out of production; here lowering is the variable, not the flag.
   ;;
-  ;; Built with `shadow-cljs release freehand-release-interpreted
-  ;; freehand-release-compiled`; the bundles land at
-  ;; out/freehand-release-interpreted/main.js and
+  ;; Built with `npm run build:freehand-matched` — NOT with a bare
+  ;; `shadow-cljs release` over the three ids. The npm script clears out/ and
+  ;; .shadow-cljs/builds/ for all three shapes first, and that clearing is
+  ;; part of the measurement's method rather than housekeeping: Closure's
+  ;; identifier and property renaming for a build that compiles fresh differs
+  ;; from that of the same build compiling fresh in a process where a SIBLING
+  ;; build was served from cache. Measured at c8f0ae6ddb the compiled arm came
+  ;; out 742,512 bytes from a cleared cache and 738,437 with its siblings
+  ;; warm — the same 4,312 functions, 4,075 raw bytes apart, 23% of that run's
+  ;; delta. Both reproduce exactly on repeat, so an unpinned posture publishes
+  ;; two different answers at one revision (rf2-hce4p); the script pins the
+  ;; cleared-cache one and b5/matched-build-posture states it in the record.
+  ;;
+  ;; The bundles land at out/freehand-release-interpreted/main.js and
   ;; out/freehand-release-compiled/main.js. No :dev-http — like every other
   ;; advanced build here they are compiled and measured, never served.
   :freehand-release-interpreted

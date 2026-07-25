@@ -88,15 +88,17 @@
 (def interpreted-bundle-path
   "The arm of the MATCHED PAIR with no view lowered
   (`:freehand-release-interpreted`, entry
-  `re-frame.freehand.release-app-lowered-none`). Built with `shadow-cljs
-  release freehand-release-interpreted`."
+  `re-frame.freehand.release-app-lowered-none`). Built by `npm run
+  build:freehand-matched` — see [[matched-build-posture]] for why the pair is
+  built by that script and not by a bare `shadow-cljs release`."
   "out/freehand-release-interpreted/main.js")
 
 (def compiled-bundle-path
   "The arm of the MATCHED PAIR with every view lowered
   (`:freehand-release-compiled`, entry
   `re-frame.freehand.release-app-lowered-full`) — no interpreted view reaches
-  this bundle. Built with `shadow-cljs release freehand-release-compiled`."
+  this bundle. Built by `npm run build:freehand-matched`, same posture as its
+  twin; see [[matched-build-posture]]."
   "out/freehand-release-compiled/main.js")
 
 (def matched-bundle-paths
@@ -256,8 +258,19 @@
 
   Both were confounds until `rf2-x4jda`: the entries this pair replaced had
   differently-worded docstrings and namespace names of different lengths,
-  together worth +252 raw bytes of a 17,905-byte raw delta (1.4%). The pair
-  now measures 0.
+  together worth +252 raw bytes of the 17,905-byte raw delta READ AT
+  `d5794fded8` (1.4%). That denominator is a past reading at a named
+  revision, not this record's own figure — the record carries its own, and a
+  caveat quoting a stale one beside a live measurement reads as an
+  inconsistency in the evidence (`rf2-hce4p`). The pair now measures 0.
+
+  ## The bytes are only comparable under one build posture
+
+  Lowering is the only variable in the SOURCES, but the artefacts are Closure
+  output, and Closure's renaming depends on how the build was invoked as well
+  as on what it compiled. [[matched-build-posture]] states the posture the
+  pair is built under and what deviating from it costs; it rides the fixture
+  so no delta is ever cited without it.
 
   Both maps must be from the same [[measure-bundle]] shape; the raw, gzip
   (6 and 9) and brotli deltas are answered, plus each side's digest so the
@@ -278,7 +291,35 @@
        "every run by b5-matched-builds-cljs-test. Same handlers, same view "
        "bodies, same root DOM id, no namespace docstring on either (:advanced "
        "does not strip one and the manifest ships it per declared view), same "
-       ":advanced optimisation, same goog.DEBUG false, same output shape"))
+       ":advanced optimisation, same goog.DEBUG false, same output shape, and "
+       "the same cleared-cache build posture — stated in full by :build-posture"))
+
+(def matched-build-posture
+  "The BUILD POSTURE both arms are compiled under, published in the fixture
+  because the bytes are only comparable within one posture.
+
+  `:advanced` is held still as a SETTING by the two build definitions; this is
+  what holds it still as an OUTCOME. Closure's identifier and property
+  renaming for a build that compiles fresh is not the same when a SIBLING
+  build in the same process was served from the shadow-cljs cache — same
+  functions, different names, thousands of bytes apart. Nothing in the
+  artefacts records which way they were built, so two honest runs at one
+  revision could publish two different deltas under the same `:revision`
+  (`rf2-hce4p`). `npm run build:freehand-matched` removes the three shapes'
+  `out/` and `.shadow-cljs/builds/` directories before compiling them, which
+  pins the cleared-cache posture; this string is how the record says so."
+  (str "both arms compiled from a CLEARED build cache by `npm run "
+       "build:freehand-matched`, which removes out/ and .shadow-cljs/builds/ "
+       "for all three shapes before compiling them in one invocation. The "
+       "clearing is part of the method, not housekeeping: an arm that "
+       "compiles fresh in a process where a SIBLING build was served from "
+       "cache gets different Closure identifier and property renaming. "
+       "Measured at c8f0ae6ddb the compiled arm came out 742,512 bytes from a "
+       "cleared cache and 738,437 with its siblings warm — the same 4,312 "
+       "functions, 4,075 raw bytes apart, 23% of that run's 17,758-byte "
+       "delta. Both figures reproduce exactly on repeat, so a delta taken "
+       "under any other posture is a different measurement and not comparable "
+       "with this one"))
 
 (def not-matched-on
   "What the two arms do NOT hold still, stated so a reader can discount it.
@@ -331,7 +372,8 @@
                     promoted-views " view declarations the two entries promote "
                     "together — a MEAN, not a per-declaration observation")
                :matched-on     matched-on
-               :not-matched-on not-matched-on}
+               :not-matched-on not-matched-on
+               :build-posture  matched-build-posture}
      :baseline {:kind      :interpreted-vs-compiled
                 :reference {:arm  :interpreted
                             :note (str "the interpreted-only twin " (:path interpreted)
