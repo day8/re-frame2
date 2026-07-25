@@ -123,6 +123,32 @@
           twice (resolver/resolved-target once)]
       (is (= (:fragment once) (:fragment twice))))))
 
+(deftest a-bare-trailing-hash-url-resolves-to-no-fragment
+  ;; rf2-kqxe6.7 — the deliberate URL-door consequence of moving the collapse to
+  ;; the seam, pinned so it is a decision on the record rather than a side
+  ;; effect. `match-url` still reports `:fragment ""` for a bare trailing `#`
+  ;; (its own contract, unchanged and separately pinned in the registry suite);
+  ;; the RESOLVED TARGET built from it now says nil.
+  ;;
+  ;; That is the agreement `normalize-fragment` was written for and only the
+  ;; programmatic door had: `route-url` emits `/page` for this target, so while
+  ;; the URL door kept `""` the slice claimed a fragment its own canonical URL
+  ;; does not spell — and `/page` -> `/page#` counted as an in-page anchor
+  ;; change, emitting `:rf.route/fragment-changed` for a move between two URLs
+  ;; that denote the same place. It is now the exact no-op rule 3 already
+  ;; describes.
+  (routing/reg-route :route/page {} "/page")
+  (is (= "" (:fragment (routing/match-url "/page#")))
+      "match-url's own contract is untouched")
+  (is (nil? (:fragment (resolver/target-of-url "/page#")))
+      "but the resolved target carries no fragment")
+  (is (= (dissoc (resolver/target-of-url "/page")  :url)
+         (dissoc (resolver/target-of-url "/page#") :url))
+      "so both spellings resolve to one target, differing only in the requested
+       :url each preserves verbatim")
+  (is (= "/page" (routing/route-url {:to :route/page}))
+      "which is the URL that target derives — slice and address bar agree"))
+
 ;; ---- the ONE place `:query-defaults` are filled (rf2-kqxe6.23) -------------
 ;;
 ;; `:query` is the one ResolvedTarget field the seam RESOLVES rather than
