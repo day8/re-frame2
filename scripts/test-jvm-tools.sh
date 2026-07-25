@@ -9,6 +9,16 @@ tools=(
   tools/story
   tools/story-mcp
   tools/mcp-base
+  # rf2-4hc9p — found by the test-lane bijection gate
+  # (scripts/check_test_lane_bijection.py) as an ORPHAN: the dev-only
+  # open-in-editor server ships a JVM suite with a fully wired `:test`
+  # alias, but no lane ran it. `open_in_editor_server_test.clj` is `.clj`,
+  # so the `node-test-testbed-support` CLJS build that carries this tree on
+  # its source paths cannot load it, and the artefact was on neither JVM
+  # roster — its tests ran in no lane at all, in CI or locally. Listed here
+  # (the whole suite is seconds) so the lane exists; the matching CI job is
+  # tracked separately (rf2-a6r1t).
+  tools/testbed-support
   tools/mcp-conformance/wire-vocab
 )
 
