@@ -755,7 +755,7 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
 2. **Identify the URL pattern for each.** Use the canonical grammar — [012 §Path-pattern grammar](012-Routing.md#path-pattern-grammar-canonical) is the single source of truth (literal segments, `:name` path params, `{...}?` optional groups, `*name` splats). Do not restate the grammar in handler comments or auxiliary docs; cross-reference 012.
 3. **Distinguish path params from query params.**
    - Path: captured by `:name` / `*name` segments — declared in `:params` schema.
-   - Query: parsed from `?key=value&...` — declared in `:query` schema, with `:query-defaults` and `:query-retain` for ergonomics.
+   - Query: parsed from `?key=value&...` — declared in the `:query` schema, with `:query-defaults` for absent keys. Carrying query state ACROSS routes is an application-level pure fold over the destination address, not route metadata.
 4. **Identify per-route data dependencies.** Use `:on-match` (vector of events the runtime dispatches when this route becomes active, server- and client-side).
 5. **Verify the route ids are unused.** `(rf/registrations :route)` enumerates registered routes.
 
@@ -789,7 +789,6 @@ slot:
   {:doc            "Search results."
    :query          [:map [:q :string] [:page {:optional true} :int]]
    :query-defaults {:page 1}
-   :query-retain   #{:theme :locale}                      ;; carry through subsequent navigations
    :on-match       [[:search/run]]}
   "/search")
 

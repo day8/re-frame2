@@ -3684,8 +3684,7 @@ The shape of the **stored / effective** route-meta. Reserved keys per [012 §Res
    [:path            :string]                                              ;; the VALUE slot (rf2-wvh95f F1), merged into stored meta; conforms to :rf/route-pattern
    [:params          {:optional true} :any]                                ;; Malli schema for path params
    [:query           {:optional true} :any]                                ;; Malli schema for query/search params
-   [:query-defaults  {:optional true} [:map-of :keyword :any]]             ;; defaults for absent query keys
-   [:query-retain    {:optional true} [:set :keyword]]                     ;; query keys carried through subsequent navigations
+   [:query-defaults  {:optional true} [:map-of :keyword :any]]             ;; defaults for absent query keys. Destination-LOCAL: there is no metadata key that reaches into another route's query. EP-0037 R5 retired `:query-retain`; cross-route carry is the application's pure fold over the destination address. Per [012 §Carrying query state across routes](012-Routing.md#carrying-query-state-across-routes).
    [:tags            {:optional true} [:set :keyword]]
    [:parent          {:optional true} :keyword]                            ;; parent route id; used by :rf.route/chain sub
    [:on-match        {:optional true} [:vector [:vector :any]]]            ;; events the runtime FIRES-AND-FORGETS after a successful activation (EP-0037 R1). Never drives readiness; a planning-failure target dispatches none. Per [012 §Per-route data loading](012-Routing.md#per-route-data-loading).

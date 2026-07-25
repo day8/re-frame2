@@ -8,12 +8,16 @@
 ;; The two enforcement edges:
 ;;
 ;;   1. **Declared vocabulary** (rf2-3k3o7 + rf2-5ifai). Only query keys
-;;      named by the route's `:query` schema, `:query-defaults`, or
-;;      `:query-retain` are promoted to keyword keys. Unknown keys keep
+;;      named by the route's `:query` schema or `:query-defaults` are
+;;      promoted to keyword keys. Unknown keys keep
 ;;      their string form. The rf2-5ifai cut also removed the legacy
 ;;      no-schema "keyword-all" fallback -- a route that declares NO
 ;;      vocabulary now keeps every URL key as a string. Authors who want
 ;;      keyword keys declare them. (Pre-alpha -- no back-compat shim.)
+;;      EP-0037 R5 retired the third source, `:query-retain`: a key that was
+;;      keyword-promoted solely because a retain declaration named it now
+;;      stays a STRING until the route declares it in `:query` /
+;;      `:query-defaults`. The `/migrated` route below is that migration.
 ;;
 ;;   2. **Enum-only keyword values** (rf2-3k3o7 + rf2-qot6ii). Only
 ;;      `[:enum :a :b ...]` allowlists gate the string->keyword intern. A
@@ -60,9 +64,12 @@
    :route/defaults  {:path           "/defaults"
                      :query-defaults {:page 1 :sort "asc"}}
 
-   ;; `:query-retain` extends the declared keyword vocabulary.
-   :route/retain    {:path         "/retain"
-                     :query-retain #{:theme}}}}
+   ;; EP-0037 R5 migration: `:theme` used to be keyword-promoted by a
+   ;; `:query-retain #{:theme}` declaration. With retain retired, keeping the
+   ;; keyword key means DECLARING it -- the explicit migration the EP requires
+   ;; instead of preserving keyword promotion as hidden residue.
+   :route/migrated  {:path  "/migrated"
+                     :query [:map [:theme {:optional true} :string]]}}}
 
  :fixture/calls
  ;; --- Bare route, no declared vocabulary --------------------------------
@@ -117,9 +124,11 @@
             :fragment nil
             :validation-failed? false}}
 
-  ;; --- `:query-retain` keys count as declared vocabulary -------------
-  {:call :match-url :url "/retain?theme=dark&surprise=x"
-   :expect {:route-id :route/retain
+  ;; --- EP-0037 R5: the migrated declaration keeps the keyword key -----
+  ;; `:theme` is keyword'd because the route DECLARES it, not because an
+  ;; ambient retain slot named it; `surprise` is undeclared and stays a string.
+  {:call :match-url :url "/migrated?theme=dark&surprise=x"
+   :expect {:route-id :route/migrated
             :params   {}
             :query    {:theme "dark" "surprise" "x"}
             :fragment nil
