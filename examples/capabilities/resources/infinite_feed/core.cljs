@@ -253,7 +253,17 @@
         merged list passively and dispatches a causal load-more. No app-db
         list slice, no cursor threading, no append reducer — the runtime owns
         it all."]
+   ;; `:prefetch :intent` warms the destination on hover / focus / touch, so the
+   ;; click lands on page 0 already in flight or cached instead of on the
+   ;; first-load skeleton. It runs the SAME plan the navigation would, in warm
+   ;; mode: the ensure is ownerless, `:blocking?` is inert, and no route state
+   ;; moves — no slice, no URL, no `:on-match`, no guards. Follow the link and
+   ;; ordinary resource dedupe reuses the warmed work rather than refetching;
+   ;; never follow it and nothing is left owned. `:intent` is the only mode —
+   ;; a passive render dispatches nothing. See
+   ;; ../../../../docs/routing/concepts.md#warming-a-destination-before-the-click
    [:p [rf/route-link {:to :infinite-feed.app/timeline
+                       :prefetch :intent
                        :data-testid "route-link-timeline"}
         "Open the timeline →"]]])
 
