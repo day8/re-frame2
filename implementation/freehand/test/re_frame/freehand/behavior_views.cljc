@@ -82,15 +82,16 @@
 ;; The ordinary imperative-library shape — a VOID-returning host mutator
 ;; ---------------------------------------------------------------------------
 ;;
-;; FH-BEHAVIOR-009 (rf2-wj1ao). Every other behavior here returns its memory
-;; from `:update` and from each command, which is what a Clojure author writes
-;; without thinking about it — and it is NOT what the libraries a behavior
-;; exists for look like. `map.setOptions(…)`, `workbook.setValue(…)`,
-;; `chart.update(spec)` and `addEventListener` all mutate and answer NOTHING, so
-;; the first one of those to run through a lifecycle entry whose return replaced
-;; the memory erased the very instance `:disconnect` has to release. `mutator`
-;; is that shape, faithfully: the memory is built once by `:connect` and every
-;; later entry is a void mutator.
+;; FH-BEHAVIOR-009 (rf2-wj1ao). Until this row landed, every behavior in this
+;; corpus returned its memory from `:update` and from each command — which is
+;; what a Clojure author writes without thinking about it, and it is exactly
+;; why the defect was invisible here for as long as it was. It is also NOT what
+;; the libraries a behavior exists for look like: `map.setOptions(…)`,
+;; `workbook.setValue(…)`, `chart.update(spec)` and `addEventListener` all
+;; mutate and answer NOTHING, so the first one of those to run through a
+;; lifecycle entry whose return replaced the memory erased the very instance
+;; `:disconnect` has to release. `mutator` is that shape, faithfully: the memory
+;; is built once by `:connect` and every later entry is a void mutator.
 
 (defn- void-mutate!
   "An ordinary JS-shaped host mutator: it mutates the instance and answers
