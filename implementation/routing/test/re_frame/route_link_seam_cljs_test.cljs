@@ -82,6 +82,16 @@
       (is (= "/articles/intro?tab=summary" href))
       (is (= {:url "/articles/intro?tab=summary" :to :route/article
               :params {:id "intro"} :query {:tab :summary}}
+             (second payload)))))
+  ;; rf2-e9974: `:fragment` is the one payload slot neither link surface had an
+  ;; assertion for, and it is now synthesised by the SHARED
+  ;; `url-requested-payload` that `rf/route-link` also runs — so the slot is
+  ;; pinned here and at the `rf/route-link` click (see
+  ;; `plain-left-click-passes-params-query-and-fragment`).
+  (testing "a fragment rides the payload as well as the href"
+    (let [{:keys [href payload]} (link/link-model {:to :route/cart :fragment "totals"} nil)]
+      (is (= "/cart#totals" href))
+      (is (= {:url "/cart#totals" :to :route/cart :fragment "totals"}
              (second payload))))))
 
 (deftest link-model-detects-native-anchors

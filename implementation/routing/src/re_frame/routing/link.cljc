@@ -70,11 +70,13 @@
   "Synthesise the `<a>` href from the link control keys (`:to` /
   `:params` / `:query` / `:fragment`), strip those control keys (plus
   `:on-click`, which the CLJS path replaces and the SSR path drops) off
-  `props`, and return `[path-url base-attrs]`. The base attrs carry the
+  `props`, and return `[path-url base-attrs address]`. The base attrs carry the
   synthesised `:href` plus every passthrough HTML attr; both the CLJS
   and SSR render fns build on it so the control-key list lives in ONE
   place and cannot drift between the two halves of the Spec 011 render
-  contract.
+  contract. `address` is the extracted address the href was built FROM, handed
+  back so the CLJS render's click payload names the destination through the
+  same single extraction rather than reading `props` a second time.
 
   `route-url` builds the path-form URL
   (`/active`); `encode` maps it to the rendered `:href` — one of the four
@@ -101,10 +103,12 @@
   ;; rejects an unsupported mode on the client AND in the SSR shell rather than
   ;; stripping it silently on the way to the `<a>`.
   (validate-prefetch! props)
-  (let [{:keys [to params query fragment]} (address/extract-address props)
+  (let [{:keys [to params query fragment] :as addr} (address/extract-address props)
         path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
-    [path-url (-> (apply dissoc props (concat address/address-keys address/link-behavior-keys))
-                  (assoc :href (encode path-url)))]))
+    [path-url
+     (-> (apply dissoc props (concat address/address-keys address/link-behavior-keys))
+         (assoc :href (encode path-url)))
+     addr]))
 
 (defn prefetch-payload
   "The `[:rf.route/prefetch {address}]` dispatch vector for a link whose props
@@ -127,6 +131,25 @@
        (cond-> {:to to}
          (seq params) (assoc :params params)
          (seq query)  (assoc :query query))])))
+
+(defn- url-requested-payload
+  "The `[:rf.route/url-requested {…}]` dispatch vector a link click carries —
+  the ONE definition, run by `rf/route-link` (`route-link-render`) and by the
+  `link-model` seam the compiled `ui/route-link` consumes, so the navigation
+  identity the two surfaces dispatch cannot drift.
+
+  `address` is the EXTRACTED address (`address/extract-address`), never a
+  bespoke destructuring of the caller's props, so the payload names the same
+  destination the rendered `:href` was built from; `path-url` is the PATH-FORM
+  url `route-url` built from it (the cascade is path-form throughout, so a
+  strategy's `:encode` touches only the `:href`). Empty `:params` / `:query`
+  and an absent `:fragment` are omitted, not carried as empty values."
+  [{:keys [to params query fragment]} path-url]
+  [:rf.route/url-requested
+   (cond-> {:url path-url :to to}
+     (seq params) (assoc :params params)
+     (seq query)  (assoc :query query)
+     fragment     (assoc :fragment fragment))])
 
 #?(:cljs
    (defn- compose-intent-handler
@@ -205,6 +228,38 @@
                (not (nil? download)))))))
 
 #?(:cljs
+   (defn activate-link!
+     "THE router-attributed click decision for a route-link anchor, in ONE
+     place: `rf/route-link`'s own `:on-click` (`route-link-render`, below) and
+     the compiled `ui/route-link` both run this body, so neither surface states
+     the click law for itself. Also PUBLISHED as the `:routing/activate-link!`
+     late-bound seam, which is how the optional re-frame.ui artefact reaches it
+     without statically requiring routing.
+
+     `e` is the native click event; `on-click` is the caller-supplied
+     `:on-click` (or nil); `render-frame` is the render-time-captured frame id;
+     `payload` and `native?` come from `url-requested-payload` /
+     `native-anchor?` (`link-model` bundles both for the ui side).
+
+     Runs the caller `:on-click` first; then, unless the anchor is native (new
+     tab / download), the caller already prevented the default, or the click is
+     not a plain primary-button click (a modifier-key or auxiliary-button click
+     keeps the browser's open-in-new-tab affordance), calls `.preventDefault`
+     and dispatches `payload` to the captured render frame with `:source
+     :router` (so the L2 epoch timeline tags the cascade as a routing-substrate
+     dispatch, per rf2-t1lxr / rf2-1ve9h). `:frame render-frame` is an explicit
+     dispatch opt — the router targets the rendering frame verbatim even though
+     the render scope has unwound by click time (rf2-o3nam4), so the dispatch
+     always lands on the CURRENTLY-committed frame (retarget-safe)."
+     [e on-click render-frame payload native?]
+     (when on-click (on-click e))
+     (when (and (not native?)
+                (not (.-defaultPrevented e))
+                (plain-left-click? e))
+       (.preventDefault e)
+       (router/dispatch! payload {:source :router :frame render-frame}))))
+
+#?(:cljs
    (defn route-link-render
      "Render fn for the `:route/link` registered view. Exposed (without
      the registry wrap) so tests can call it directly without going
@@ -224,26 +279,21 @@
      props map is passed through to the underlying `<a>` element (e.g.
      `:class`, `:title`, `:id`, `:aria-label`).
 
-     If the caller supplies an `:on-click` fn, it is invoked first; when
-     it calls `.preventDefault` (or otherwise the event's
-     `defaultPrevented` is true after it returns) the framework's
-     plain-left-click interception is skipped — the caller has taken
-     responsibility for the navigation. Otherwise the standard rules
-     apply: plain left-click → `preventDefault` + dispatch
-     `:rf.route/url-requested`; modifier-key or middle-click → no interception.
-
-     Anchors carrying native-handling attributes
-     (`:target` other than `_self`, or `:download`) are NOT intercepted on
-     a plain left-click either — they look like a normal anchor in the DOM
-     and the user expects native new-tab / download behaviour
-     (see `native-anchor?`).
+     The click is handed to `activate-link!` and the payload to
+     `url-requested-payload`, the two definitions the compiled `ui/route-link`
+     also runs — so this render fn states no part of the click law or the
+     dispatch shape for itself, and the two link surfaces Spec 012 declares
+     behaviourally identical are identical by construction rather than by
+     inspection. Read `activate-link!` for the law (caller `:on-click` first,
+     defer on `defaultPrevented` / a native anchor / a modifier or
+     auxiliary-button click, else `preventDefault` + dispatch).
 
      Performance (rf2-r1in4): this is render-path code — every
      `[rf/route-link ...]` re-render walks `route-url` for the href.
      Large nav menus re-rendering frequently amortise the cost over many
      calls; see `route-url`'s perf note for the precompute follow-on
      should it become a bottleneck."
-     [{:keys [to params query fragment on-click] :as props} & children]
+     [{:keys [on-click] :as props} & children]
      (let [;; rf2-o3nam4: CAPTURE the render-time frame ONCE, here at render —
            ;; NOT at click time. `:route/link` is registered via `reg-view*`
            ;; with this prebuilt fn, so it does NOT receive the `reg-view`
@@ -269,13 +319,21 @@
            ;; the click dispatch — the cascade is path-form throughout, so the
            ;; encode touches ONLY the href. One of the four consult points.
            encode (:encode (strategy/url-strategy-for-frame-id render-frame))
-           [url base-attrs] (href-attrs props encode)
+           [url base-attrs address] (href-attrs props encode)
+           ;; The click payload comes from the ONE synthesiser
+           ;; (`url-requested-payload`) over the address `href-attrs` already
+           ;; extracted — the href and the payload therefore name the same
+           ;; destination by construction, not by two readings of `props`.
+           payload (url-requested-payload address url)
            ;; Anchors carrying native-handling attributes
            ;; (`target="_blank"`, `download`) must let the browser handle
            ;; the click — SPA interception would defeat new-tab / download.
-           ;; Computed once at render against the resolved attrs (post
-           ;; control-key strip) so the string/keyword attr forms are seen.
-           native? (native-anchor? base-attrs)
+           ;; Computed once at render, off the RAW props — the same side
+           ;; `link-model` reads, so the two link surfaces cannot disagree.
+           ;; (`:target` / `:download` are neither address nor behaviour keys,
+           ;; so the strip does not touch them; reading pre-strip makes that
+           ;; independence explicit rather than incidental.)
+           native? (native-anchor? props)
            ;; EP-0037 R3: `:prefetch :intent` warms the destination's resources
            ;; on credible user intent (hover / focus / touch). The handlers
            ;; compose with caller-supplied ones of the same name and dispatch to
@@ -287,34 +345,9 @@
            intent-attrs (prefetch-intent-attrs props render-frame)
            attrs (merge
                    (assoc base-attrs
-                        :on-click
-                        (fn [e]
-                          (when on-click (on-click e))
-                          (when (and (not native?)
-                                     (not (.-defaultPrevented e))
-                                     (plain-left-click? e))
-                            (.preventDefault e)
-                            ;; Per rf2-t1lxr: route-link click → :router
-                            ;; origin so the L2 epoch timeline tags the
-                            ;; resulting :rf.route/url-requested cascade as a
-                            ;; routing-substrate dispatch (not :ui). Per
-                            ;; rf2-1ve9h the single closed-enum
-                            ;; functional-origin axis is `:source` —
-                            ;; routing-internal dispatches stamp
-                            ;; `:source :router`. rf2-o3nam4: carry the
-                            ;; captured render-time frame so the dispatch
-                            ;; targets the rendering frame even though the
-                            ;; render scope has unwound by click time. `:frame`
-                            ;; is an explicit dispatch opt, so the router uses
-                            ;; it verbatim (its resolution order #1) — no
-                            ;; ambient read.
-                            (router/dispatch!
-                              [:rf.route/url-requested
-                               (cond-> {:url url :to to}
-                                 (seq params)   (assoc :params params)
-                                 (seq query)    (assoc :query  query)
-                                 fragment       (assoc :fragment fragment))]
-                              {:source :router :frame render-frame}))))
+                          :on-click
+                          (fn [e]
+                            (activate-link! e on-click render-frame payload native?)))
                    ;; compose the prefetch intent handlers OVER the base attrs
                    ;; (they wrap any caller-supplied intent handler); nil when
                    ;; the link did not opt into `:prefetch :intent`.
@@ -336,7 +369,7 @@
   `/active` and the hydrated anchor carries `#/active`, both pointing at
   the same route."
   [props & children]
-  (let [[_url attrs] (href-attrs props identity)]
+  (let [[_url attrs _address] (href-attrs props identity)]
     (into [:a attrs] children)))
 
 ;; ---------------------------------------------------------------------------
@@ -359,6 +392,9 @@
 ;;                      caller `:on-click`, defer on defaultPrevented / native? /
 ;;                      modifier / auxiliary-button, else preventDefault + dispatch
 ;;                      to the captured render frame with `:source :router`).
+;;                      DEFINED ABOVE, beside the click predicates it reads,
+;;                      because `rf/route-link`'s own `:on-click` calls it too —
+;;                      it is the shared click law first and a ui seam second.
 ;;
 ;; The ui side captures its render frame (its compiled `(ui/frame)` bundle's
 ;; `:frame` id) and threads it through both hooks; it owns nothing but the
@@ -377,10 +413,12 @@
      :native? <true when the anchor carries native-handling attrs the
               framework must not intercept even on a plain left click>}
 
-  Owns route-url synthesis + strategy encode + payload synthesis + native-attr
-  detection, so the ui artefact reaches route-link semantics through this one
-  seam without exposing routing internals (strategy encode, frame capture,
-  source stamping) as separate hooks. The JVM branch encodes path-form (SSR has
+  Bundles route-url synthesis, strategy encode, the shared
+  `url-requested-payload`, and native-attr detection, so the ui artefact reaches
+  route-link semantics through this one seam without exposing routing internals
+  (strategy encode, frame capture, source stamping) as separate hooks — and
+  reaches the SAME payload synthesiser `rf/route-link` uses, not a copy of it.
+  The JVM branch encodes path-form (SSR has
   no address bar); on hydration the CLJS render re-encodes through the frame
   strategy. Per Spec 012 §Linking from views and the rf2-5yovjt ruling."
   [target render-frame]
@@ -388,7 +426,8 @@
   ;; (`address/extract-address`) — the same closed key class `rf/route-link`,
   ;; `route-url`, and `:rf.route/navigate` resolve through. `native-anchor?`
   ;; still reads the FULL `target` (the `:target` / `:download` DOM attrs live
-  ;; outside the address class).
+  ;; outside the address class) — the same side `route-link-render` reads, so
+  ;; the two surfaces classify a native anchor identically by construction.
   ;;
   ;; EP-0037 R3: `link-model` is the one link calculation the compiled
   ;; `ui/route-link` runs on BOTH hosts, so the `:prefetch` value is validated
@@ -396,46 +435,13 @@
   ;; installs no intent handlers), which left the server render accepting an
   ;; unsupported mode the client rejected.
   (validate-prefetch! target)
-  (let [{:keys [to params query fragment]} (address/extract-address target)
+  (let [{:keys [to params query fragment] :as addr} (address/extract-address target)
         path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
         encode   #?(:cljs (:encode (strategy/url-strategy-for-frame-id render-frame))
                     :clj  identity)]
     {:href    (encode path-url)
-     :payload [:rf.route/url-requested
-               (cond-> {:url path-url :to to}
-                 (seq params) (assoc :params params)
-                 (seq query)  (assoc :query  query)
-                 fragment     (assoc :fragment fragment))]
+     :payload (url-requested-payload addr path-url)
      :native? (native-anchor? target)}))
-
-#?(:cljs
-   (defn activate-link!
-     "The `:routing/activate-link!` seam (CLJS only). THE router-attributed
-     click decision for a compiled `ui/route-link` anchor — the SAME click law
-     `route-link-render` applies to `rf/route-link`, kept inside routing so the
-     ui artefact reimplements none of it.
-
-     `e` is the native click event; `on-click` is the caller-supplied `:on-click`
-     (or nil); `render-frame` is the ui view's captured render-frame id; `payload`
-     and `native?` come from `link-model`.
-
-     Runs the caller `:on-click` first; then, unless the anchor is native (new
-     tab / download), the caller already prevented the default, or the click is
-     not a plain primary-button click (a modifier-key or auxiliary-button click
-     keeps the browser's open-in-new-tab affordance), calls `.preventDefault` and
-     dispatches `payload` to the captured render frame with `:source :router` (so
-     the L2 epoch timeline tags the cascade as a routing-substrate dispatch, per
-     rf2-t1lxr / rf2-1ve9h). `:frame render-frame` is an explicit dispatch opt —
-     the router targets the rendering frame verbatim even though the render scope
-     has unwound by click time (rf2-o3nam4), so the dispatch always lands on the
-     CURRENTLY-committed frame (retarget-safe)."
-     [e on-click render-frame payload native?]
-     (when on-click (on-click e))
-     (when (and (not native?)
-                (not (.-defaultPrevented e))
-                (plain-left-click? e))
-       (.preventDefault e)
-       (router/dispatch! payload {:source :router :frame render-frame}))))
 
 #?(:cljs
    (defn prefetch-on-intent!
