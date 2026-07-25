@@ -51,6 +51,39 @@
     {:test-syms []}
     args))
 
+;; ----------------------------------------------------------------------
+;; Whole-suite test-count floor (rf2-qqzmf).
+;;
+;; `unmatched-selectors` below already refuses to call a `--test=` selection
+;; that matched nothing a success. The whole-suite path had no such guard:
+;; `shadow.build.test-util/find-test-namespaces` returns `[]` when a build's
+;; `:ns-regexp` matches nothing and says nothing about it, so a one-character
+;; suffix drift or a dropped `:source-paths` entry emptied a lane and still
+;; printed `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.`
+;; The floor generalises the selector guard to that path. Kept here, beside
+;; it, because both express the same rule and both must stay unit-pinnable
+;; without importing the `:dev/always` runner ns.
+
+(def default-min-tests
+  "Floor applied when `RF2_MIN_TESTS` is unset: a whole-suite build that
+  discovered no test vars is a configuration error, not a pass." 1)
+
+(defn parse-min-tests
+  "Resolve the test-count floor from `raw` — an `RF2_MIN_TESTS` value, or
+  nil/blank when unset. Returns the floor as a number, or `::invalid` when
+  `raw` is present but not a non-negative integer.
+
+  Same name and same semantics as the JVM runner's own
+  `re-frame.test-quiet.runner/parse-min-tests`, including the refusal to
+  treat a malformed value as \"unset\": `RF2_MIN_TESTS=1O` (letter O) quietly
+  disabling the gate that catches silent non-execution would be the same bug
+  in a new place."
+  [raw]
+  (if (or (nil? raw) (str/blank? raw))
+    default-min-tests
+    (let [n (js/Number (str/trim raw))]
+      (if (and (js/Number.isInteger n) (not (neg? n))) n ::invalid))))
+
 (defn unmatched-selectors
   "The subset of `test-syms` that matched no var in `matched-vars`.
 

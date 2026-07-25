@@ -7,6 +7,13 @@
  * target generates with shadow.test.browser as the runner-ns), waits for
  * cljs.test to finish, parses the summary, and exits 0 on green / 1 on red.
  *
+ * "Green" means BOTH halves of the summary: a clean failure tally AND at
+ * least RF2_MIN_TESTS tests actually executed (default 1). The tally alone
+ * is not enough — `Ran 0 tests containing 0 assertions. / 0 failures, 0
+ * errors.` is what a lane whose `:ns-regexp` selected nothing prints, and
+ * shadow-cljs's find-test-namespaces returns `[]` on no match silently
+ * (rf2-qqzmf).
+ *
  * Done-signal strategy: shadow.test.browser's default reporter writes the
  * cljs.test :summary report via `console.log` (default cljs.test prints
  * to *out*, which under the browser is the console). It does NOT render
@@ -27,6 +34,7 @@ const {
   formatCompactSummary,
   isVerboseTests,
   parseFailureCounts,
+  parseRanCounts,
   summaryPartsFromText,
 } = require('./lib/browser-test-report.cjs');
 // `sleep` is the shared poll primitive — verbatim the same
@@ -38,6 +46,37 @@ const URL = process.env.BROWSER_TEST_URL || 'http://localhost:8021';
 const TIMEOUT_MS = parseInt(process.env.BROWSER_TEST_TIMEOUT_MS || '120000', 10);
 const POLL_MS = 200;
 const VERBOSE_TESTS = isVerboseTests();
+
+// The test-count floor (rf2-qqzmf). ONE name across every whole-suite lane:
+// the JVM runner (re-frame.test-quiet.runner) and the CLJS node runner
+// (re-frame.test-quiet.shadow-node) read the same variable. Because it is
+// one name, scope it to the lane you are running — a value calibrated for
+// the 30-file :browser-test build will red :browser-test-prod-elision.
+const MIN_TESTS_ENV_VAR = 'RF2_MIN_TESTS';
+// Default 1, not a per-lane calibrated number: 1 is the bound that can never
+// go stale (no lane legitimately runs zero tests), and it is exactly what
+// three shadow-cljs `:browser-test` builds selected by a single `:ns-regexp`
+// suffix need — a one-character suffix drift or a dropped `:source-paths`
+// entry empties a lane silently and shadow-cljs says nothing.
+const DEFAULT_MIN_TESTS = 1;
+
+// Resolve the floor, or return null after explaining a malformed value. A
+// malformed floor must NOT fall back to the default: `RF2_MIN_TESTS=1O`
+// (letter O) quietly disabling the gate that catches silent non-execution
+// would be this bug wearing a hat.
+function resolveMinTests(raw) {
+  if (raw == null || String(raw).trim() === '') return DEFAULT_MIN_TESTS;
+  const n = Number(String(raw).trim());
+  if (!Number.isInteger(n) || n < 0) {
+    console.error(
+      `${MIN_TESTS_ENV_VAR}="${raw}" is not a non-negative integer. It is the ` +
+        `minimum number of tests this lane must run; leave it unset for the ` +
+        `default of ${DEFAULT_MIN_TESTS}.`,
+    );
+    return null;
+  }
+  return n;
+}
 
 // One-purpose bridge for the ViewCell evidence retention fixture. Browser
 // JavaScript has no deterministic GC primitive, while Playwright exposes the
@@ -128,6 +167,11 @@ function flushDiagnostics(diagnostics) {
 async function main() {
   const diagnostics = createDiagnosticBuffer();
   let browser = null;
+
+  // Resolved before Chromium launches: a malformed floor is a configuration
+  // error, not something to discover after a two-minute browser run.
+  const minTests = resolveMinTests(process.env[MIN_TESTS_ENV_VAR]);
+  if (minTests === null) return 2;
 
   try {
     browser = await chromium.launch({ headless: true });
@@ -242,6 +286,32 @@ async function main() {
       console.error(
         `cljs.test summary was green, but the browser emitted ` +
           `${pageErrors.length} uncaught pageerror(s) — failing the run (rf2-mwx08).`,
+      );
+      printSummaryDetails(summary);
+      flushDiagnostics(diagnostics);
+      return 1;
+    }
+
+    // rf2-qqzmf: the verdict above is derived from the FAILURE tally alone,
+    // which `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.`
+    // satisfies. A lane whose `:ns-regexp` selected nothing therefore looked
+    // identical to a green suite. The `Ran N` count this runner has already
+    // parsed is the missing half of the verdict.
+    const ranCounts = parseRanCounts(summary.ran);
+    if (!ranCounts) {
+      console.error('Could not parse the "Ran N tests" count; failing the run.');
+      printSummaryDetails(summary);
+      flushDiagnostics(diagnostics);
+      return 1;
+    }
+    if (ranCounts.tests < minTests) {
+      console.error(
+        `cljs.test summary was green, but the lane ran ${ranCounts.tests} ` +
+          `test(s) — below the floor of ${minTests} (${MIN_TESTS_ENV_VAR}) — ` +
+          `failing the run (rf2-qqzmf). A browser lane that discovered no ` +
+          `tests is a configuration error: a renamed test namespace, a ` +
+          `one-character :ns-regexp suffix drift, or a dropped :source-paths ` +
+          `entry empties the build silently.`,
       );
       printSummaryDetails(summary);
       flushDiagnostics(diagnostics);

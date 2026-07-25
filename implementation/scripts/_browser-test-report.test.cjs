@@ -6,6 +6,7 @@ const {
   formatCompactSummary,
   isVerboseTests,
   parseFailureCounts,
+  parseRanCounts,
   summaryPartsFromText,
 } = require('./lib/browser-test-report.cjs');
 
@@ -86,6 +87,40 @@ test('a Ran line with no failures/errors line yet surfaces ran only (rf2-mwx08)'
   ].join('\n'));
   assert.equal(parts.ran, 'Ran 8 tests containing 20 assertions.');
   assert.equal(parts.failErr, null);
+});
+
+// rf2-qqzmf: the `Ran N tests containing M assertions.` integers were
+// captured by RAN_RE and never read, so every browser lane's verdict came
+// from the failure tally alone — and a lane that ran NOTHING satisfies it.
+// This is the auditor's own repro, now a pin: the zero-test blob must yield
+// a readable count of 0 for the runner's floor to act on.
+test('ran-count parser exposes the executed-test count (rf2-qqzmf)', () => {
+  assert.deepEqual(
+    parseRanCounts('Ran 12 tests containing 34 assertions.'),
+    { tests: 12, assertions: 34 },
+  );
+  // The zero-test summary the audit fed the runner's own library. Its
+  // failure tally is clean, so only this count distinguishes it from green.
+  const parts = summaryPartsFromText(
+    'Ran 0 tests containing 0 assertions.\n0 failures, 0 errors.\n',
+  );
+  assert.deepEqual(parseFailureCounts(parts.failErr), { failures: 0, errors: 0 });
+  assert.deepEqual(parseRanCounts(parts.ran), { tests: 0, assertions: 0 });
+  // Singular forms ("Ran 1 test containing 1 assertion.") are the same regex.
+  assert.deepEqual(
+    parseRanCounts('Ran 1 test containing 1 assertion.'),
+    { tests: 1, assertions: 1 },
+  );
+});
+
+test('ran-count parser returns null for unparseable / null input (rf2-qqzmf)', () => {
+  // A null return is NOT "zero tests" — the runner must treat an
+  // unparseable summary as its own failure, never as a count to compare.
+  assert.equal(parseRanCounts(null), null);
+  assert.equal(parseRanCounts(undefined), null);
+  assert.equal(parseRanCounts(''), null);
+  assert.equal(parseRanCounts('0 failures, 0 errors.'), null);
+  assert.equal(parseRanCounts('Ran some tests'), null);
 });
 
 test('failure count parser returns numeric counts', () => {

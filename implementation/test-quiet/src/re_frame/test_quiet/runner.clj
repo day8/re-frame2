@@ -67,9 +67,18 @@
   reaches stdout directly.  The contract is exercised by
   `re-frame.test-quiet-runner-contract-test`.
 
-  Exit code is owned by cognitect-test-runner: 0 on green, 1 on any
-  failure or error (and 1 on a CLI parse error).  This wrapper adds no
-  exit logic and changes none of it."
+  ## The test-count floor
+
+  Exit code is otherwise owned by cognitect-test-runner: 0 on green, 1 on
+  any failure or error (and 1 on a CLI parse error).  This wrapper adds
+  exactly one exit rule of its own — a run that executed FEWER than
+  `RF2_MIN_TESTS` tests (default 1) is red, however clean its tally.
+  `run-tests` over an empty namespace set reports `Ran 0 tests
+  containing 0 assertions. / 0 failures, 0 errors.` and cognitect exits 0
+  from that, so a discovery set that silently collapsed to nothing — a
+  `-r`/`-n` selector matching no namespace, a `:test` alias that lost its
+  `:extra-paths [\"test\"]`, a renamed test file — is currently
+  indistinguishable from a green suite.  See `parse-min-tests`."
   (:require
     [re-frame.test-quiet]
     [clojure.string :as str]
@@ -470,6 +479,73 @@
       (flush [])
       (close []))))
 
+;; ----------------------------------------------------------------------
+;; Whole-suite test-count floor (rf2-qqzmf).
+;;
+;; The project already holds this standard in two places and had not
+;; generalised it:
+;;   - `re-frame.test-quiet.shadow-node/execute-cli` rejects a `--test=`
+;;     selector that matches no var, "precisely because run-test-vars over
+;;     an empty set reports a 0-test success";
+;;   - `re-frame.conformance-runner` asserts `(>= (count run) 150)` over the
+;;     conformance corpus.
+;; Both say the same thing: a run that executed nothing is a configuration
+;; error, not a pass.  The floor below applies that to the whole-suite path
+;; every per-artefact `:test` alias takes.
+;;
+;; The DEFAULT floor is 1 rather than a per-artefact calibrated number.
+;; That is deliberate: 1 is the bound that can never go stale (no artefact
+;; will ever legitimately ship zero tests), while ~20 hand-maintained
+;; per-artefact numbers would have to be re-ratcheted on ordinary churn and
+;; buy detection only for a PARTIAL collapse — which no observed instance of
+;; this failure class has been.  `RF2_MIN_TESTS` is there for a caller that
+;; does want a calibrated bound on a specific lane.
+
+(def ^:private min-tests-env-var
+  "Environment variable naming this lane's test-count floor.  Shared with
+  the CLJS node runner (`re-frame.test-quiet.shadow-node`) and the browser
+  runner (`implementation/scripts/run-browser-tests.cjs`) so the floor has
+  ONE name across every whole-suite lane.  Because it is one name, scope it
+  to the lane you are running — a value calibrated for the ~380-file node
+  build will red a single-artefact JVM suite."
+  "RF2_MIN_TESTS")
+
+(def ^:private default-min-tests
+  "Floor applied when `RF2_MIN_TESTS` is unset." 1)
+
+(defn- parse-min-tests
+  "Resolve the test-count floor from `raw` (an `RF2_MIN_TESTS` value, or
+  nil/blank when unset).  Returns the floor as a long, or `::invalid` when
+  `raw` is present but not a non-negative integer.
+
+  A malformed floor is `::invalid` rather than a silent fall back to the
+  default: `RF2_MIN_TESTS=1O` (letter O) quietly disabling the very gate
+  that catches silent non-execution would be this bug wearing a hat."
+  [raw]
+  (if (or (nil? raw) (str/blank? raw))
+    default-min-tests
+    (let [n (try (Long/parseLong (str/trim raw))
+                 (catch NumberFormatException _ nil))]
+      (if (and n (not (neg? n))) n ::invalid))))
+
+(defn- resolve-min-tests!
+  "`parse-min-tests` over the live environment, exiting 2 (a configuration
+  error, distinct from cognitect's 1 = red) on a malformed value."
+  []
+  (let [raw    (System/getenv min-tests-env-var)
+        parsed (parse-min-tests raw)]
+    (if (= ::invalid parsed)
+      (do (binding [*out* *err*]
+            (println (str "ERROR: " min-tests-env-var "=" (pr-str raw)
+                          " is not a non-negative integer."))
+            (println (str "  " min-tests-env-var
+                          " is the minimum number of tests this run must"
+                          " execute; leave it unset for the default of "
+                          default-min-tests "."))
+            (flush))
+          (System/exit 2))
+      parsed)))
+
 (defn- install-summary-method!
   "Install `f` as `clojure.test/report`'s `:summary` method, or — when `f`
   is nil — remove any installed method so the multimethod falls back to its
@@ -485,7 +561,20 @@
   "Build the `clojure.test/report :summary` method for ONE `-main`
   invocation.  On a RED run it replays the buffered stderr ring `sb` to
   `real-err`, then delegates to `prior` (the `:summary` method installed
-  before this invocation) so the canonical summary line still prints.
+  before this invocation) so the canonical summary line still prints, and
+  finally enforces the `min-tests` floor (see `parse-min-tests`).
+
+  `:summary` is where the floor belongs because it is the one place that
+  holds BOTH the executed-test count and control before cognitect exits.
+  clojure.test's `run-tests` computes its summary map, calls `do-report` on
+  it, and RETURNS that same map to cognitect, which derives the process exit
+  code from `(zero? (+ fail error))` — a tally a 0-test run satisfies.  A
+  reporter cannot amend the returned map, so a sub-floor run exits 1 from
+  here directly, mirroring how the CLJS node runner's `:end-run-tests`
+  reporter owns `js/process.exit`.  The floor is checked AFTER the delegate
+  prints, so the operator sees the real `Ran N tests …` tally above the
+  explanation.  The stdout flush hook `-main` registers runs on this exit,
+  so nothing buffered in the banner-filtering writer is lost.
 
   `:summary` is the JVM-side counterpart to the CLJS `:end-run-tests`
   reporter: it fires once at the end of `run-tests` from the same
@@ -519,7 +608,7 @@
   the `*err*` ring was bound — so it is never fed back into the buffer. Each
   captured chunk is written verbatim under a red-run header, mirroring the
   CLJS replay's `[test-quiet]` prefix.  On green the buffer is dropped."
-  [^StringBuilder sb ^java.io.Writer real-err prior]
+  [^StringBuilder sb ^java.io.Writer real-err prior min-tests]
   (fn summary-replay [m]
     (let [{:keys [fail error]} m]
       (when (pos? (+ (or fail 0) (or error 0)))
@@ -544,7 +633,25 @@
             (.flush real-err)))))
     ;; Delegate to the prior :summary so the canonical
     ;; "Ran N tests…/K failures, J errors." line still prints.
-    (when prior (prior m))))
+    (when prior (prior m))
+    ;; Then the floor: fewer tests executed than this lane requires is red,
+    ;; however clean the tally (rf2-qqzmf).
+    (let [ran (or (:test m) 0)]
+      (when (< ran min-tests)
+        (.write real-err
+                (str "\n[test-quiet] ERROR: this run executed " ran
+                     " test(s), below the floor of " min-tests
+                     " (" min-tests-env-var ").\n"
+                     ;; ASCII only: this diagnostic is written through the
+                     ;; platform-default stderr encoding, where an em dash
+                     ;; renders as a replacement char on a Windows console.
+                     "A whole-suite run that discovered no tests is a"
+                     " configuration error: a `-r`/`-n` selector matching"
+                     " nothing, a `:test` alias missing\n"
+                     "its `:extra-paths [\"test\"]`, a renamed test file."
+                     " It is not a pass. Failing the run (rf2-qqzmf).\n"))
+        (.flush real-err)
+        (System/exit 1)))))
 
 (def ^:dynamic *register-flush-hook!*
   "Test seam over the JVM shutdown-hook registry for `-main`'s stdout
@@ -602,7 +709,10 @@
   ;; cognitect's parse diagnostics go to `*out*` (the filter), not `*err*`,
   ;; and that path `System/exit`s before `-main`'s `finally` can run (see
   ;; `make-summary-replay-method`).
-  (let [real-out   *out*
+  (let [;; Resolved BEFORE anything is rebound so a malformed floor is a
+        ;; plain stderr diagnostic + exit 2, not a buffered one (rf2-qqzmf).
+        min-tests  (resolve-min-tests!)
+        real-out   *out*
         real-err   *err*
         sys-err    System/err
         filtering  (java.io.PrintWriter. (banner-filtering-writer real-out))
@@ -622,7 +732,8 @@
         ;; (see the `finally`), never leaving a global closure over this run's
         ;; ring/`real-err` behind.
         prior-summary (get-method clojure.test/report :summary)
-        summary-fn    (make-summary-replay-method stderr-sb real-err prior-summary)]
+        summary-fn    (make-summary-replay-method stderr-sb real-err prior-summary
+                                                  min-tests)]
     (install-summary-method! summary-fn)
     ;; Route raw `System/err` bytes into the same ring as `*err*` so a
     ;; library that writes `System.err` directly is buffered too. Each chunk
