@@ -129,8 +129,9 @@ MISSING_HINT = {
 # :deps.
 EXTRA_HINT = {
     ("day8", "re-frame2-ui"):
-        " re-frame2-ui is PRE-PUBLICATION and test-only — it must stay"
-        " under Story's :test alias, never in the published :deps.",
+        " re-frame2-ui NEVER PUBLISHES — it is in-tree donor code, consumed"
+        " by :local/root and test-only, so it must stay under Story's :test"
+        " alias, never in the published :deps.",
     ("day8", "re-frame2-epoch"):
         " The epoch artefact is test-only for Story (both consumers read"
         " the late-bound facade) — it must stay under the :test alias.",

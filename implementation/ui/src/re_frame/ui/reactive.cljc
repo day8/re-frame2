@@ -215,16 +215,18 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---------------------------------------------------------------------------
-;; Observation-port ABI lockstep (Spec 006 §The internal observation port)
+;; Observation-port ABI guard (Spec 006 §The internal observation port)
 ;;
-;; This ns is the SOLE reactive consumer of the internal observation port, and
-;; from ABI v2 onward it RELIES on the `read` evidence axis `:node-key` — the
+;; This ns is a reactive consumer of the internal observation port, and from ABI
+;; v2 onward it RELIES on the `read` evidence axis `:node-key` — the
 ;; reincarnation-identity `evidence-moved?` consumes below (rf2-vxgfnd.14/.93).
 ;; So it PINS the ABI it compiled against and asserts it AT LOAD: a core that
 ;; predates the `:node-key` read axis is a BOOT ERROR
 ;; (`:rf.error/observation-port-version-mismatch`, always-on + fanned through
 ;; the production error-emit axis), never a silently-missed reincarnation
-;; correction. Core and re-frame2-ui release on a lockstep train.
+;; correction. This consumer is in-tree donor code that never publishes, so it
+;; is always built from the SAME COMMIT as core: the guard catches a stale build
+;; inside the migration window, not skew between two released artifacts.
 ;; ---------------------------------------------------------------------------
 
 (def ^:const expected-observation-port-abi
@@ -233,7 +235,7 @@
   `evidence-moved?` compares to classify a same-id frame REINCARNATION across
   the render→commit gap as MOVEMENT even when node-version + frame/registry
   epochs coincide. Asserted against the live port at load
-  (`assert-port-abi-version!`) so artifact drift fails loud at boot."
+  (`assert-port-abi-version!`) so a stale build fails loud at boot."
   2)
 
 (obs/assert-port-abi-version! expected-observation-port-abi)

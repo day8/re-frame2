@@ -1092,7 +1092,7 @@ asserts on what was rendered:
 Story does NOT model presence, own a clock, or reimplement the three-phase
 machine — `re-frame.story.play.presence` is a thin seam that CALLS the
 framework verb. Because Story's shipped jar must not depend on the
-pre-publication `day8/re-frame2-ui`, the verb arrives through the
+never-published `day8/re-frame2-ui`, the verb arrives through the
 `:flush-presence!` late-bind hook rather than a `:require`.
 
 **Installing the presence host is one `:require`.** An app that mounts the

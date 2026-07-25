@@ -36,10 +36,10 @@
   `:rf.ui.tool/version` is surfaced as `:version-mismatch?` rather than
   mis-parsed — the versioned-degrade contract the tier promises consumers.
 
-  TEST-SCOPED. `re-frame.ui` (`day8/re-frame2-ui`) is pre-publication, so
-  Story's shipped jar must not depend on it; this consumer lives under the
-  `:test` alias (which pins `day8/re-frame2-ui` on the JVM classpath — the
-  top-level `:node-test` build already carries `ui/src`). It is the PROOF the
+  TEST-SCOPED. `re-frame.ui` (`day8/re-frame2-ui`) is in-tree donor code that
+  never publishes, so Story's shipped jar must not depend on it; this consumer
+  lives under the `:test` alias (which pins the donor tree on the JVM classpath
+  by `:local/root` — the top-level `:node-test` build already carries `ui/src`). It is the PROOF the
   tool projections are useful beyond one UI, which is exactly what the bead asks.
   Pure `.cljc` (data → data) so both the JVM `clojure -M:test` gate and the
   node `npm run test:cljs` gate exercise it.

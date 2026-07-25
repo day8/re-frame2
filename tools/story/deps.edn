@@ -81,9 +81,9 @@
                        ;; compiled-view tool tier (`re-frame.ui.tool`) + renders
                        ;; the JVM structural tree (`re-frame.ui.test/render`),
                        ;; both in `day8/re-frame2-ui`. TEST-ONLY: that artefact
-                       ;; is PRE-PUBLICATION (no :clein deploy — see its
-                       ;; deps.edn), so Story's published jar must NOT depend on
-                       ;; it; the consumer + its fixtures live under the `:test`
+                       ;; NEVER PUBLISHES (in-tree donor code, no :clein deploy
+                       ;; — see its deps.edn), so Story's published jar must NOT
+                       ;; depend on it; consumer + fixtures live under the `:test`
                        ;; alias. The top-level `:node-test` build already carries
                        ;; `ui/src` on its source-paths, so `npm run test:cljs`
                        ;; resolves the same reads without this entry; this gives
