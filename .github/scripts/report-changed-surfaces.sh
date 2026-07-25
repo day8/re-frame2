@@ -1299,10 +1299,22 @@ else
         # must fire BOTH the `cljs` (node-test) job and the `cljs-browser`
         # job — the latter runs the `*-dom-cljs-test` export/redaction +
         # chart DOM suites under headless Chromium (where EP-0015 image-
-        # export egress is verified). No tools_jvm / mcp_conformance /
-        # template_expensive fan-out: machines-viz has no JVM suite, is not
-        # consumed by an MCP wrapper, and is not part of the deps-new
-        # template's generated app.
+        # export egress is verified). No mcp_conformance /
+        # template_expensive fan-out: machines-viz is not consumed by an MCP
+        # wrapper and is not part of the deps-new template's generated app.
+        #
+        # rf2-as6bg — this arm used to claim machines-viz "has no JVM suite".
+        # It does: a wired `:test` alias, on `scripts/test-jvm-tools.sh`'s
+        # roster. 29 of its 31 suites are `*_cljs_test.*` and ride the two
+        # CLJS gates above, but `engine_grammar_parity_test.cljc` and
+        # `mermaid_public_smoke_test.cljc` match neither `cljs-test$`
+        # (`:node-test`) nor `-dom-cljs-test$` (`:browser-test`), so they run
+        # in the JVM lane ONLY — and no CI job runs that lane. Setting
+        # tools_jvm here would NOT close it: none of the five jvm-tools-*
+        # jobs runs machines-viz, so it would fire five unrelated probes and
+        # still skip these two files. Closing it needs a
+        # `jvm-tools-machines-viz` job; test.yml is hot-zone, so that half of
+        # rf2-as6bg is sequenced separately.
         #
         # spec-md guard (mirrors story/xray above): a pure documentation
         # change under tools/machines-viz/spec/**.md cannot affect any
@@ -1322,6 +1334,32 @@ else
             cljs_browser=true
             ;;
         esac
+        ;;
+      tools/testbed-support/*)
+        # rf2-as6bg — this tree had NO arm at all, so a testbed-support-only
+        # PR classified as zero changed surfaces and ran zero gates. Not just
+        # the JVM suite the bijection gate found (rf2-4hc9p): its three CLJS
+        # suites were skipped too. `implementation/shadow-cljs.edn` says the
+        # slice "additionally rides the always-on `:node-test` gate, so the
+        # slice is covered on every PR" — that was true of the BUILD's
+        # source-paths and false of CI, because the `cljs` job is gated on
+        # cljs_node_test, which nothing here set.
+        #
+        # src+test are :source-paths of the consolidated :node-test AND
+        # :browser-test builds, exactly like machines-viz above, so the same
+        # two gates own them: `config_cljs_test.cljs` +
+        # `story_host_cljs_test.cljs` under node, and
+        # `story_host_dom_cljs_test.cljs` (matching `-dom-cljs-test$`) under
+        # headless Chromium for its real React-root handoff assertions.
+        #
+        # The `.clj` half — `open_in_editor_server_test.clj`, which no CLJS
+        # build can load — still has no CI lane. tools_jvm is deliberately
+        # NOT set: none of the five jvm-tools-* jobs runs this artefact, so it
+        # would fire five unrelated probes and still skip the file. That half
+        # needs a `jvm-tools-testbed-support` job in the hot-zone test.yml and
+        # is sequenced separately.
+        cljs_node_test=true
+        cljs_browser=true
         ;;
       tools/story-mcp/*)
         # rf2-os0c1 — MCP wrappers don't run in a browser; story-xray-browser

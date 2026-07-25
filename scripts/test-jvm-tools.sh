@@ -20,6 +20,15 @@ tools=(
   # tracked separately (rf2-as6bg).
   tools/testbed-support
   tools/mcp-conformance/wire-vocab
+  # rf2-as6bg — the other direction of the same disagreement. tools/template
+  # has a CI job (`jvm-tools-template`, gated on `template_expensive`) but was
+  # on no local roster, so a template-only change had no local JVM lane at all.
+  # Its expensive slice — `emitted_test_run_test.clj`, which compiles and runs
+  # the emitted app — is already gated behind RF2_TEMPLATE_RUN_EMITTED_TESTS=1
+  # precisely so a local run without Node stays green and quick, so the suite
+  # was built to be listed here; nobody listed it. Runs last because it is the
+  # slowest of the set even with the emitted slice skipped.
+  tools/template
 )
 
 for tool in "${tools[@]}"; do
