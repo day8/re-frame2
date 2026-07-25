@@ -11,24 +11,30 @@ For the mental model, start with the [Core guide](../core/introduction.md). This
 corpus is deliberately terse: it states *what* you may call, not *why* the design
 chose it.
 
-**Not everything here is installable.** Three pages —
-[`re-frame.ui`](re-frame.ui.md), [`re-frame.ui.react`](re-frame.ui.react.md) and
-[`re-frame.ui.test`](re-frame.ui.test.md) — document the **donor** compiled-view
+**Not everything here is installable, and two different reasons say so.** Three
+pages — [`re-frame.ui`](re-frame.ui.md), [`re-frame.ui.react`](re-frame.ui.react.md)
+and [`re-frame.ui.test`](re-frame.ui.test.md) — document the **donor** compiled-view
 substrate, which has no published Maven coordinate and never will
 ([release process](../release-process.md#policy)). They are the contract record for
-code an app already carries; each opens with a banner saying so. Every other page
-on this list describes a published artefact.
+code an app already carries. The two **Freehand** pages —
+[`re-frame.freehand`](re-frame.freehand.md) and
+[`re-frame.freehand.test`](re-frame.freehand.test.md) — are unpublished for the other
+reason: `day8/re-frame2-freehand` is **pre-alpha**, ships inside the monorepo, and
+has no date at which it will be published either. Freehand is not donor code — it is
+where new view work starts — and you resolve it with `:local/root` from a checkout
+([Install](../core/freehand/install.md)). All five pages open with a banner saying
+so. Every other page on this list describes an artefact the release workflow deploys.
 
 ## How to read these pages
 
 | Audience need | Where |
 |---|---|
 | Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
-| Freehand views (`defview`, callbacks, event intent) | [`re-frame.freehand`](re-frame.freehand.md) |
+| Freehand views (`defview`, callbacks, event intent) | [`re-frame.freehand`](re-frame.freehand.md) — **pre-alpha, not published** |
 | Compiled views (`defview`, `mount`, `sub`) | [`re-frame.ui`](re-frame.ui.md) — **donor, not published** |
 | Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
 | Substrate adapters | `re-frame.adapter.{reagent,uix}` — first-class and permanent |
-| Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md), [`re-frame.freehand.test`](re-frame.freehand.test.md) (Freehand substrate), [`re-frame.ui.test`](re-frame.ui.test.md) (donor compiled-view substrate) |
+| Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md), [`re-frame.freehand.test`](re-frame.freehand.test.md) (pre-alpha, not published — Freehand substrate), [`re-frame.ui.test`](re-frame.ui.test.md) (donor compiled-view substrate) |
 | Production timing | [`re-frame.performance`](re-frame.performance.md) |
 
 **Facade vs owning namespace.** Many optional features re-export registration verbs
@@ -59,7 +65,7 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 | Page | Role |
 |---|---|
 | [re-frame.core](re-frame.core.md) | Registration, dispatch, subscribe, views (`reg-view`), frames, boot, interceptors, feature re-exports |
-| [re-frame.freehand](re-frame.freehand.md) | Freehand view substrate (EP-0036): `defview`, descriptor inspection, callback and event-intent forms |
+| [re-frame.freehand](re-frame.freehand.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** Freehand view substrate (EP-0036): `defview`, descriptor inspection, callback and event-intent forms |
 | [re-frame.ui](re-frame.ui.md) | **Donor, not published.** Compiled-view substrate: `defview`, `sub`, `mount`, `frame-root`, interop forms |
 
 ### Optional capabilities
@@ -84,7 +90,7 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 | [re-frame.adapter.uix](re-frame.adapter.uix.md) | UIx substrate |
 | [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll, sequester |
 | [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
-| [re-frame.freehand.test](re-frame.freehand.test.md) | Freehand structural test surface: headless render + with-render/find/find-all/attrs/text, both hosts |
+| [re-frame.freehand.test](re-frame.freehand.test.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** Freehand structural test surface: headless render + with-render/find/find-all/attrs/text, both hosts |
 | [re-frame.ui.test](re-frame.ui.test.md) | **Donor, not published.** Compiled-view test surface: headless render + find/attrs/text, mounted DOM |
 | [re-frame.performance](re-frame.performance.md) | Compile-time User-Timing flags |
 
