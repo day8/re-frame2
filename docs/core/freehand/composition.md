@@ -127,11 +127,11 @@ for pure markup) over overloading a single `:children` bag with positional magic
 ;; Library shape (illustrative): fixed regions as props that hold structure,
 ;; or as dedicated child components the parent knows how to place.
 
-(v/defview disclosure [{:keys [control label children]}]
-  (let [open? (v/sub [:rf.inst/get control :open?])]
+(v/defview disclosure [{:keys [id label children]}]
+  (let [open? (v/sub [:disclosure/open? id])]
     [:div.disclosure
      [:button {:aria-expanded open?
-               :on-click [:rf.inst/toggle control :open?]}
+               :on-click      [:disclosure/toggled id]}
       label]
      (when open? [:div.body children])]))
 ```
@@ -253,9 +253,12 @@ compiled-only trick.
   (dissoc props :date :on-pick))
 ```
 
-`(v/spread forwarded)` with no literal part forwards a map alone at a foreign
-head. Wholly dynamic props maps on **internal** views stay a compile problem —
-use literal keys plus `spread-safe` where you need a dynamic residue.
+`v/spread` takes one or two arguments: `(v/spread base)` forwards a map alone, and
+`(v/spread base overrides)` lets the overrides win every collision. Every key is
+judged by the rule a literal attribute key is judged by — the same refusals, read
+off the same emitted slot — so a map assembled at run time cannot smuggle in a
+spelling the grammar refuses at a visible site. `:key` is refused outright: it is
+not an attribute, and it is literal at the element that carries it.
 
 ### Merge law (`v/spread-safe`)
 
@@ -263,29 +266,32 @@ use literal keys plus `spread-safe` where you need a dynamic residue.
    for identity, control, or handlers it owns.  
 2. **Caller sits underneath** for everything else (`class`, `data-*`, approved
    ARIA/DOM attrs, extra listeners the component allows).  
-3. **`:class` composes** — caller and owned classes both apply; the merge does
-   not pick only one side.  
-4. **Deny list** (cannot be overwritten by the caller map):
+3. **`:class` composes** — owned first, then the caller's, because a caller
+   passing a utility class is adding to the element rather than replacing what the
+   component put there.  
+4. **Deny law** (these may not appear in the caller map at all):
 
 | Denied | Why |
 |---|---|
 | `:key`, `:ref` | occurrence identity and host handles are not caller toys |
-| `:value`, `:checked`, `:default-value` | controlled / uncontrolled contract |
-| owned handlers | library-wired intents stay the product contract |
-| children / structure | wrong plane — use the composition ladder |
-| required roles / a11y relations the component owns | [accessibility](accessibility.md) |
-| top-layer desired state | open/close is not a part override |
-| node / behavior ownership | host wiring is not a class tweak |
+| `:value`, `:checked` | the controlled contract |
+| the component's own `on-*` families, both bubble and capture phases | library-wired intents stay the product contract |
 
-Denied attributes and unknown `:parts` ids should become **source-located
-development findings**, not silent drops that look like success.
+That list is the whole deny law, and it runs in **every** build rather than only
+in development. An offender is a **loud refusal**, not a silent drop — and
+alternate spellings do not route around it, because a key is judged by the slot it
+is about to be written into, so a namespaced, string, symbol or already-camel
+spelling of a denied name is denied with it.
+
+Structure is not on the list because it is not an attribute: putting children into
+a spread is the wrong plane entirely — use the composition ladder.
 
 ### Why `spread-safe` exists
 
-A dynamic props map on a controlled input normally **forfeits** the
-synchronous [controlled door](events-and-handlers.md#controlled-inputs) into
-batching (with a dev diagnostic). Libraries still need to forward consumer
-attrs (`class`, analytics `data-*`, extra ARIA) onto that input.
+A dynamic props map on a controlled input normally **forfeits** the synchronous
+[controlled door](events-and-handlers.md#controlled-inputs) into batching.
+Libraries still need to forward consumer attrs — `class`, analytics `data-*`,
+extra ARIA — onto that input.
 
 **`v/spread-safe` is the one dynamic-map form that keeps the door proof:** owned
 `:value`/`:checked` and the owned handler remain literal and eligible; the
@@ -371,7 +377,7 @@ the tree for the common subset. See [Compilation — seam laws](compilation.md#c
 | Dynamic map on a controlled input without `spread-safe` | forfeits the door into batching | `v/spread-safe` for the residue |
 | `v/spread` on an internal controlled input | no door promise | `v/spread-safe` |
 | Opaque reactive closure as a slot | hides `sub` / identity | declared child view |
-| Emulating Radix `asChild` / prop cloning in neutral Hiccup | compound React protocol | UIx wrapper |
+| Emulating Radix `asChild` / prop cloning in neutral Hiccup | compound React protocol | a React component, entered as a child |
 | Caller-built `:children` inside the props map | reserved channel is trailing forms only | trailing children syntax |
 | Unkeyed list “for convenience” | identity and presence break | stable `:key` per child |
 

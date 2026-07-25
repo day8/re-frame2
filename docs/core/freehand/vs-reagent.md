@@ -17,9 +17,9 @@ This is a **habit comparison**, not a migration checklist.
 | Subscriptions | `(rf/subscribe …)` then `@` / deref | `(v/sub …)` **is** the value |
 | Event handlers in the tree | usually `#(rf/dispatch …)` closures | usually event **vectors** (data) |
 | Local UI state | ratoms, Form-2 atoms, sometimes Reagent state | **no** `local` / ratom model in ordinary views — re-frame (or a library controller) |
-| React interop | often close to the metal | explicit host boundaries (leaf, behavior, UIx wrapper) |
+| React interop | often close to the metal | explicit host boundaries: a React child, a registered behavior, or `v/->react` |
 | Testing intent | often mount or simulate | structural tree on the JVM; assert vectors with `=` |
-| Performance path | memo, careful Form-2, React tricks | same authoring model; optional `{:compiled true}` after `v/check` |
+| Performance path | memo, careful Form-2, React tricks | same authoring model; optional `{:compiled true}` on the declaration |
 
 **One sentence:** Freehand keeps re-frame’s data orientation all the way to the
 view; Reagent is a general React wrapper that re-frame *uses*, so the view layer
@@ -125,7 +125,7 @@ Freehand:
 - ordinary views stay free of hooks  
 - foreign components are **qualified** host leaves  
 - imperative DOM libraries use **registered behaviors**  
-- real hook/portal/context needs go in a **UIx wrapper**  
+- real hook/portal/context needs go in a **React component**, entered as a child  
 
 You still use React. You just do not pretend every React pattern is a Freehand
 primitive.
@@ -145,7 +145,7 @@ Reagent performance work is often memo, Form-2 discipline, and React-level
 tricks.
 
 Freehand’s growth path is: write freely interpreted → measure → optionally mark
-`{:compiled true}` on the **same** `defview` after `v/check`. Call sites and
+`{:compiled true}` on the **same** `defview`. Call sites and
 tests stay the same. That is different from both “always interpret” and from
 re-frame.ui’s compile-first day-one feel.
 

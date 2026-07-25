@@ -10,20 +10,22 @@ Freehand remains **one** view layer. Compiled mode is an option on the same
 `v/defview`. Call sites stay `[view props]`. Structural tests do not change. There
 is no second compiler and no hidden interpreter inside a compiled template.
 
-> **Measure → `v/check` → then `{:compiled true}`. Never the reverse.**
+> **Measure → fix structure → then `{:compiled true}`. Never the reverse.**
 
 ## Day-one: usually do not compile
 
 You can ship entire apps interpreted. Promote a boundary only when:
 
 1. measurement shows interpretation cost on a hot template, **or**  
-2. a library leaf needs static proof / manifests, **and**  
-3. `v/check` is clean for that declaration.
+2. a library leaf needs static proof and a manifest.
+
+There is no separate check step, and no dry run. Adding the marker **is** the
+check: if the body sits inside the grammar the marker is the whole change, and if
+it does not the build fails and names a recovery.
 
 ### Promotion recipe
 
 ```clojure
-(v/check people-list)          ; fix findings first
 (v/defview people-list
   {:compiled true}
   [props]
@@ -84,17 +86,13 @@ There is **no author-facing `:reads` declaration in v1**. Reads are inline
 `(v/sub …)` only. Tools distinguish evidence with scope / basis / completeness /
 loss, not a second read language.
 
-## Checker-first workflow
+## What a refusal looks like
 
-Before adding `{:compiled true}`, run the read-only checker against the
-**interpreted** declaration:
+There is no read-only checker to run first. You add `{:compiled true}` and the
+**build** answers: a form the grammar does not admit is a build failure carrying
+source coordinates and naming a recovery, never a silent demotion to interpreted.
 
-```clojure
-(v/check people-list)
-;; ⇒ stable EDN — never auto-edits your source
-```
-
-Illustrative finding envelope (fields may grow; shape is stable):
+A refusal reads roughly like this:
 
 ```clojure
 {:view-id           :app.people/people-list
@@ -129,7 +127,7 @@ rewrite.
 (v/defview people-list [_]
   [:ul (map (fn [p] (person-row p)) (v/sub [:people]))])
 
-;; 2) after v/check recoveries — keyed for + declared child
+;; 2) after taking the build's named recoveries — keyed for + declared child
 (v/defview person-row
   {:compiled true}
   [{:keys [person]}]
@@ -228,7 +226,7 @@ There is **no** `v/interp` and no “compiled except this unknown subtree.”
 | Wholly dynamic props map on an **internal** view | Per-slot memo / analysis need known keys | Literal props; `v/spread-safe` (internal/controlled) or `v/spread` (foreign) — [composition](composition.md#spreading-props-attribute-forwarding) |
 | Dynamic head registry — runtime choose among unknown views | Head must be finite | `case`/`cond` over known descriptors, or interpreted parent |
 | Bare fn on a **foreign** callback prop | Phase/identity unknown | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
-| Bare React component as an ordinary head | Foreign boundary must be named | `host/component` or wrapper |
+| Bare React component at a vector head | A component is not a descriptor | create the element and put it in a **child** position |
 | Inline interpreter fallback for “this bit of runtime Hiccup” | Unpredictable cost and false manifests | `[v/markup {:value hiccup}]` or keep parent interpreted |
 | View-local cells, neutral hooks, refs or effects in the view body | One state system; host work is explicit | re-frame state or [host boundaries](host-boundaries.md) |
 | Author `:reads […]` block (v1) | Not in the grammar | Inline `(v/sub …)` only |
@@ -417,10 +415,8 @@ They are **mandatory by policy** for:
 - Do not compile every view "to be safe."
 - Do not invent a second authoring API for hot views.
 - Do not hide interpretation inside compiled template space.
-- Do not treat donor `re-frame.ui` as a parallel product — its useful machinery is
-  the compiled implementation source under absorption; Freehand is the public door.
-- Do not expect full Clojure markup helpers to “just work” after `{:compiled true}` —
-  run `v/check` first.
+- Do not expect full-Clojure markup helpers to “just work” after `{:compiled true}` —
+  the build will tell you, and taking its recovery is the work.
 - Do not promote on a high “stable output” rate alone — that usually means
   **narrower subs**, which helps both modes; promote when **interpretation work**
   (`nodes` × renders / self-time) still dominates after structural fixes.
