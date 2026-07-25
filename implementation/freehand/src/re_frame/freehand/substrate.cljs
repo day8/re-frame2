@@ -1,4 +1,4 @@
-(ns re-frame.freehand.adapter
+(ns re-frame.freehand.substrate
   "Freehand's own reactive-substrate adapter — the value the door publishes as
   `v/adapter` and an application installs with `(rf/init! v/adapter)`.
 
@@ -43,8 +43,8 @@
   result in its OWN per-document registry, so those roots are invisible to the
   spine's active-root registry. Disposing the spine while they are mounted would
   pull the state containers out from under live subscriptions. So disposal
-  drains the Freehand roots first and disposes the spine second — see
-  [[dispose-adapter!]].
+  drains the Freehand roots first and disposes the spine second, and the
+  ordering decision itself is [[dispose-outcome]].
 
   **`flush-render!` settles ViewCells.** The inherited spine verb runs
   `react-dom/flushSync`, which commits work SCHEDULED inside its callback. But a
@@ -59,6 +59,16 @@
   below a Freehand root without an `:adapter/current-frame` publication of its
   own (`make-react-adapter` routes that hook anyway, for the wider
   `(rf/current-frame-id)` chain).
+
+  ## Why this namespace is not `re-frame.freehand.adapter`
+
+  Because a ClojureScript namespace and a Var cannot share a name. The ruled
+  authoring spelling is `re-frame.freehand/adapter`, and a sibling namespace
+  called `re-frame.freehand.adapter` occupies the same JS path as that Var: the
+  compiler reports `:ns-var-clash` and one of the two silently reads `nil`. So
+  the machinery is homed under `substrate` and the door publishes `adapter` —
+  which is also exactly how the donor paired `re-frame.ui.substrate` with
+  `re-frame.ui/adapter`.
 
   INTERNAL. The authoring surface is `v/adapter`; nothing else here is
   application API.
@@ -115,9 +125,9 @@
   [props]
   (let [frame-id (frame/require-frame-provider-target!
                   (.-frame props)
-                  're-frame.freehand.adapter/frame-provider)]
+                  're-frame.freehand.substrate/frame-provider)]
     (boundary/require-live-frame-for-scope!
-     frame-id 're-frame.freehand.adapter/frame-provider)
+     frame-id 're-frame.freehand.substrate/frame-provider)
     (apply adapter-context/provider-element
            frame-id
            (adapter-context/normalize-children (.-children props)))))
@@ -251,7 +261,7 @@
   ([f]
    (let [spine-flush (:flush-render! spine-adapter)]
      (spine-flush (fn [] (f) (cell/flush!)))
-     (cell/converge-flush! 're-frame.freehand.adapter/flush-render!
+     (cell/converge-flush! 're-frame.freehand.substrate/flush-render!
                            (fn [] (spine-flush cell/flush!))))
    nil))
 

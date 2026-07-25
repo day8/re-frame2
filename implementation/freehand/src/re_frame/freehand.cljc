@@ -118,7 +118,7 @@
                        ;; React roots, neither of which a JVM structural render
                        ;; has. It sits BELOW this door and takes nothing back
                        ;; from it.
-                       [re-frame.freehand.adapter :as fh-adapter]
+                       [re-frame.freehand.substrate :as fh-substrate]
                        [re-frame.freehand.root :as root]
                        ;; The OUTWARD React bridge's runtime. Browser-only for
                        ;; the same reason `root` is: it answers with a React
@@ -768,7 +768,7 @@
   [[unmount!]] before an external adapter is destroyed.
 
   Per [Spec 006 §The adapter API contract](../../../../spec/006-ReactiveSubstrate.md)."}
-     adapter fh-adapter/adapter))
+     adapter fh-substrate/adapter))
 
 ;; ---------------------------------------------------------------------------
 ;; Roots and mounting — `v/mount`
