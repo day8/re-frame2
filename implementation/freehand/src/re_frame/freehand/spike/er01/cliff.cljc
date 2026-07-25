@@ -8,7 +8,9 @@
   answers the same question: does this source compile, and does it
   render the same tree?"
   (:require [re-frame.freehand :as v]
-            [re-frame.freehand.spike.er01.dollar :refer [$]]))
+            [re-frame.freehand.node]
+            #?(:clj [re-frame.freehand.spike.er01.dollar :refer [$]]))
+  #?(:cljs (:require-macros [re-frame.freehand.spike.er01.dollar :refer [$]])))
 
 ;; ---------------------------------------------------------------------------
 ;; The helper, once per front end
@@ -60,13 +62,14 @@
 ;; Arm C — the compiled twin is a build ERROR, captured rather than thrown
 ;; ---------------------------------------------------------------------------
 
-(def compiled-refusal
-  "What `{:compiled true}` answers when the cell is a helper call.
+#?(:clj
+   (def compiled-refusal
+     "What `{:compiled true}` answers when the cell is a helper call.
 
   Held as data rather than as a commented-out declaration so the spike
   reports the analyzer's ACTUAL diagnostic id and recovery ladder instead
   of a paraphrase."
-  (try
+     (try
     (eval
       '(re-frame.freehand/defview compiled-table
          {:compiled true}
@@ -86,4 +89,31 @@
         {:compiled? false
          :message   (ex-message t)
          :data      (dissoc (ex-data t) :form :env :ast)
-         :data-keys (vec (sort (keys (ex-data t))))}))))
+         :data-keys (vec (sort (keys (ex-data t))))})))))
+
+;; ---------------------------------------------------------------------------
+;; Can the two front ends coexist on ONE declaration?
+;; ---------------------------------------------------------------------------
+
+#?(:clj
+   (def compiled-over-dollar
+     "What `{:compiled true}` answers when the body is written with `$`.
+
+  This is the fork's decisive question. If the analyzer can read a `$`
+  body then `v/$` is a syntax choice inside the compiled tier; if it
+  cannot, `v/$` and the compiler are disjoint front ends and adopting one
+  means giving up the other."
+     (try
+       (eval
+         (read-string
+           (str "(re-frame.freehand/defview compiled-dollar-table"
+                "  {:compiled true}"
+                "  [{:keys [rows cols]}]"
+                "  (re-frame.freehand.spike.er01.dollar/$ :div.vtable"
+                "     (re-frame.freehand.spike.er01.dollar/$ :div.vthead)))")))
+       {:compiled? true}
+       (catch Throwable t
+         (let [t (or (ex-cause t) t)]
+           {:compiled? false
+            :message   (ex-message t)
+            :data      (dissoc (ex-data t) :form :env :ast)})))))

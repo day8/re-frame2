@@ -7,7 +7,8 @@
   than lowering overhead."
   (:require [re-frame.freehand :as v]
             [re-frame.freehand.node :as node]
-            [re-frame.freehand.spike.er01.dollar :refer [$]]))
+            #?(:clj [re-frame.freehand.spike.er01.dollar :refer [$]]))
+  #?(:cljs (:require-macros [re-frame.freehand.spike.er01.dollar :refer [$]])))
 
 (v/defview table
   "A windowed table: a header run of `cols` cells, then `rows` keyed row

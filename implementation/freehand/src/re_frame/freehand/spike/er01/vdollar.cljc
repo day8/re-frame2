@@ -7,7 +7,12 @@
   nothing from either: `node/collect` already takes the `node?` branch on
   it. That is the finding, not a convenience."
   (:require [re-frame.freehand :as v]
-            [re-frame.freehand.spike.er01.dollar :refer [$]]))
+            ;; `node` is required for its side effect on RESOLUTION: `$`
+            ;; expands to a qualified `re-frame.freehand.node/element` call,
+            ;; and CLJS resolves that only in a namespace that required it.
+            [re-frame.freehand.node]
+            #?(:clj [re-frame.freehand.spike.er01.dollar :refer [$]]))
+  #?(:cljs (:require-macros [re-frame.freehand.spike.er01.dollar :refer [$]])))
 
 (v/defview table
   "A windowed table: a header run of `cols` cells, then `rows` keyed row

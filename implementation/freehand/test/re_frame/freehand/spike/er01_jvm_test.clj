@@ -142,3 +142,10 @@
   (is (some? (v/manifest arm-c/table)) "compiled has a manifest")
   (is (nil? (v/manifest arm-i/table)) "interpreted has none")
   (is (nil? (v/manifest arm-d/table)) "$ has none"))
+
+(deftest ^:er01 the-two-front-ends-are-disjoint
+  (println)
+  (println ";; ER-01 — {:compiled true} over a $ body:")
+  (pp/pprint cliff/compiled-over-dollar)
+  (is (false? (:compiled? cliff/compiled-over-dollar))
+      "a $ body cannot be compiled — the fork is exclusive, not a dial"))
