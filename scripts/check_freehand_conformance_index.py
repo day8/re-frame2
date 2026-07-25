@@ -1094,8 +1094,9 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
         sys.stdout.write(
             f"\n{len(table)} APPLICABLE row(s) - every `active` row, the ones "
             "whose laws bind - of which "
-            f"{sum(1 for r in table if r[3] != '-')} have an executed applicable "
-            f"arm.  {len(all_rows)} row(s) in the index in total; the remaining "
+            f"{sum(1 for r in table if r[3] != '-')} are reached by an ASSERTION "
+            "in a lane serving every mode/host cell they claim.  "
+            f"{len(all_rows)} row(s) in the index in total; the remaining "
             f"{len(all_rows) - len(table)} are addressed ids that do not bind "
             "(`retired`, `planned`) and are not applicable rows.\n"
         )
@@ -1118,9 +1119,9 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
         burnt = len(all_rows) - len(rows)
         sys.stderr.write(
             f"Freehand conformance census OK: {len(table)} APPLICABLE row(s) "
-            f"across {len(AREAS)} area(s), none empty, each read by a test in "
-            f"every lane its hosts name; {burnt} further id(s) addressed but not "
-            "binding.\n"
+            f"across {len(AREAS)} area(s), none empty, each reached by an "
+            "assertion in a lane serving every mode/host cell it claims; "
+            f"{burnt} further id(s) addressed but not binding.\n"
         )
 
     return len(defects)
