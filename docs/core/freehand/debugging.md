@@ -96,10 +96,10 @@ inspection door instead of the front one.
 
 Recent command traffic as a **bounded** window, oldest first. A row records what
 the command *named* and what the channel *decided* — `:outcome` is `:delivered` or
-`:refused` — never what the host made of it, because the operation's return value
-is the connection's private memory. A delivered row is written *before* the
-operation runs, so a command that crashes its host is in the log rather than
-missing from it.
+`:refused` — never what the host made of it, because a command's return value is
+*ignored*: it is no handle, and it does not replace the connection's private
+memory either. A delivered row is written *before* the operation runs, so a
+command that crashes its host is in the log rather than missing from it.
 
 Refusals are recorded as faithfully as deliveries. A log that only saw the
 successes would be evidence for the one case nobody debugs.

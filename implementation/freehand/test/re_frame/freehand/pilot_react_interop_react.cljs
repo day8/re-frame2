@@ -113,6 +113,16 @@
           "div"
           #js {:className "acme-widget" :data-label label :data-tick (str tick)}
           (react/createElement "span" #js {:className "acme-widget-label"} label)
+          ;; The library's OWN interactive element, invoking the callback prop
+          ;; from its own React handler. This is how a third-party component
+          ;; actually reaches back into its host — and it is what makes the
+          ;; inward callback path drivable from a real DOM click rather than
+          ;; only through the imperative handle (rf2-c1vvn).
+          (react/createElement
+            "button"
+            #js {:className "acme-widget-ping"
+                 :onClick   (fn [_] (when on-ping (on-ping (str "click:" label))))}
+            "ping")
           (.-children props))))))
 
 ;; ===========================================================================
@@ -338,17 +348,45 @@
 
 (v/defview react-child-page
   "A third-party-shaped React component AND a React context Provider, both
-  as ordinary child values in ONE Freehand tree — no nested root anywhere."
+  as ordinary child values in ONE Freehand tree — no nested root anywhere.
+
+  The `onPing` prop is the INWARD half, spelled the one way that works on
+  this path (rf2-c1vvn). A raw `createElement` prop map is the library's own
+  ABI: the child fold passes the finished element through untouched, so no
+  Freehand machinery ever looks inside `#js {…}` and a roster carrier placed
+  there would arrive at the library as a non-callable marker. So the callback
+  is an ordinary closure — over `(rf/capture-frame)`'s `:dispatch`, not over
+  ambient `rf/dispatch`, because the render scope has unwound by the time the
+  component calls back and an ambient dispatch would raise
+  `:rf.error/no-frame-context`. The captured bundle is fenced to the exact
+  frame incarnation it was taken from (Spec 002 §capture-frame; the shape
+  Spec 004D names for holding a frame past a Freehand render)."
   {:props [:map [:label {:optional true} :string]]}
   [{:keys [label]}]
-  [:section.react-child-page
-   ;; React-IN-Freehand: a raw React component as a direct child, and a
-   ;; Freehand view exported back INTO its React children — both directions.
-   (react/createElement acme-widget
-                        #js {:label (or label "beta")}
-                        (react/createElement (v/->react freehand-badge) #js {}))
-   ;; A React Provider whose value its consumer reads back as "outer", not
-   ;; the context default — which only holds inside one React tree.
-   (react/createElement (.-Provider theme-context)
-                        #js {:value "outer"}
-                        (react/createElement theme-probe nil))])
+  (let [{:keys [dispatch]} (rf/capture-frame)]
+    [:section.react-child-page
+     ;; React-IN-Freehand: a raw React component as a direct child, and a
+     ;; Freehand view exported back INTO its React children — both directions.
+     (react/createElement acme-widget
+                          #js {:label  (or label "beta")
+                               :onPing (fn [s] (dispatch [:acme/pinged s]))}
+                          (react/createElement (v/->react freehand-badge) #js {}))
+     ;; A React Provider whose value its consumer reads back as "outer", not
+     ;; the context default — which only holds inside one React tree.
+     (react/createElement (.-Provider theme-context)
+                          #js {:value "outer"}
+                          (react/createElement theme-probe nil))]))
+
+(def dead-carrier-props
+  "The spelling the guide USED to prescribe at this exact position, kept as a
+  negative control (rf2-c1vvn): a `v/event` carrier inside a foreign element's
+  raw `#js` props.
+
+  `v/event` answers a roster CARRIER — deliberately not `IFn` on either host, so
+  that a foreign API handed one fails at the call rather than silently doing the
+  wrong thing — and the only code that materialises a carrier into a callable
+  function is Freehand's own event-site machinery, which never sees these props.
+  So the carrier arrives at the library exactly as authored, and `props.onPing(…)`
+  cannot be called at all. The suites assert both halves against this value."
+  #js {:label  "dead"
+       :onPing (v/event [s] [:acme/pinged s])})

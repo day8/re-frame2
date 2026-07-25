@@ -53,28 +53,69 @@
 
 (v/defbehavior probe
   "The ordinary case: passive timing, the full lifecycle, and a small
-  command roster. Its memory is a plain counter, so a suite can prove the
-  memory survives an update and reaches a command without the memory ever
-  being visible in the tree."
+  command roster. Its memory is a plain map `:connect` establishes, so a
+  suite can prove the memory survives an update and reaches a command
+  without the memory ever being visible in the tree.
+
+  Only `:connect` returns anything meaningful: `:update`, `:disconnect` and
+  each command are called for their effect and their returns are IGNORED
+  (Spec 004 §The registration and the closed timing set)."
   {:timing     :passive
    :connect    (fn [{:keys [dispatch] :as ctx}]
                  (record! :connect ctx)
                  (reset! last-dispatch dispatch)
                  {:updates 0})
-   :update     (fn [{:keys [memory] :as ctx}]
-                 (record! :update ctx)
-                 (update memory :updates inc))
+   :update     (fn [ctx] (record! :update ctx) nil)
    :disconnect (fn [ctx] (record! :disconnect ctx) nil)
-   :commands   {:mark     (fn [{:keys [node args memory] :as ctx}]
+   :commands   {:mark     (fn [{:keys [node args] :as ctx}]
                             (record! :mark ctx)
                             #?(:cljs (when node
                                        (.setAttribute node "data-mark"
                                                       (str (:label args)))))
-                            memory)
-                :announce (fn [{:keys [dispatch args memory]}]
+                            nil)
+                :announce (fn [{:keys [dispatch args]}]
                             (swap! dispatches conj
                                    [(:event args) (dispatch (:event args))])
-                            memory)}})
+                            nil)}})
+
+;; ---------------------------------------------------------------------------
+;; The ordinary imperative-library shape — a VOID-returning host mutator
+;; ---------------------------------------------------------------------------
+;;
+;; FH-BEHAVIOR-009 (rf2-wj1ao). Every other behavior here returns its memory
+;; from `:update` and from each command, which is what a Clojure author writes
+;; without thinking about it — and it is NOT what the libraries a behavior
+;; exists for look like. `map.setOptions(…)`, `workbook.setValue(…)`,
+;; `chart.update(spec)` and `addEventListener` all mutate and answer NOTHING, so
+;; the first one of those to run through a lifecycle entry whose return replaced
+;; the memory erased the very instance `:disconnect` has to release. `mutator`
+;; is that shape, faithfully: the memory is built once by `:connect` and every
+;; later entry is a void mutator.
+
+(defn- void-mutate!
+  "An ordinary JS-shaped host mutator: it mutates the instance and answers
+  NOTHING. Records the operation into the instance's own mutable cell, so the
+  suite can prove the mutations really ran against the SAME instance rather
+  than merely that a map survived."
+  [memory op]
+  (swap! (:calls memory) conj op)
+  nil)
+
+(v/defbehavior mutator
+  "The void-returning-mutator case. `:connect` builds the instance — a map
+  carrying an id and its own mutable cell — and `:update`, the `:mutate`
+  command and `:disconnect` all just receive it."
+  {:timing     :passive
+   :connect    (fn [ctx]
+                 (record! :connect ctx)
+                 {:instance :live :calls (atom [])})
+   :update     (fn [{:keys [memory] :as ctx}]
+                 (record! :update ctx)
+                 (void-mutate! memory :update))
+   :disconnect (fn [ctx] (record! :disconnect ctx) nil)
+   :commands   {:mutate (fn [{:keys [memory] :as ctx}]
+                          (record! :mutate ctx)
+                          (void-mutate! memory :mutate))}})
 
 (v/defbehavior measure
   "The `:layout` arm — work that must finish before the browser paints."
@@ -100,6 +141,14 @@
   [{:keys [label]}]
   [:section.host
    [v/behavior {:use probe :target :probe/one :config {:label (or label "a")}}
+    [:div.node "content"]]])
+
+(v/defview mutating
+  "The ordinary imperative-library attachment: a behavior whose `:update` and
+  whose command are VOID-returning host mutators (FH-BEHAVIOR-009)."
+  [{:keys [label]}]
+  [:section.host
+   [v/behavior {:use mutator :target :probe/mutator :config {:label (or label "a")}}
     [:div.node "content"]]])
 
 (v/defview no-target

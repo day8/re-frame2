@@ -72,6 +72,19 @@
   tree, an event vector or a trace — the only way out is an event the
   behavior dispatches through its generation-fenced `:dispatch`.
 
+  **`:connect` establishes it, and NOTHING ELSE writes it.** `:update`,
+  a command and `:disconnect` RECEIVE the memory and their return values
+  are ignored, because the overwhelmingly common shape in the libraries
+  this boundary exists for is a mutator that returns nothing at all —
+  `map.setOptions(…)`, `workbook.setValue(…)`, `chart.update(spec)`,
+  `addEventListener` — and a lifecycle entry whose return replaced the
+  memory would have the FIRST such call erase the very instance
+  `:disconnect` has to release (rf2-wj1ao). So the memory is the
+  connection's, established once with it. An adapter whose host state
+  genuinely EVOLVES returns a mutable cell — an atom, a volatile, a JS
+  object — from `:connect` and mutates it in place, which is the honest
+  shape for a boundary whose whole subject is imperative host state.
+
   ## The tool plane
 
   Two read-only projections, and nothing else: [[active-connections]] —
@@ -689,7 +702,15 @@
   generation is still the installed one. Re-checking currency at the
   narrowest boundary is the same discipline the reactive cell publishes
   under: a lifecycle callback may have torn its own connection down, and a
-  write that did not look would resurrect it."
+  write that did not look would resurrect it.
+
+  ONE call site, and that is the law rather than an accident:
+  [[connect!]] publishes what `:connect` answered and nothing else ever
+  writes memory again (§Private memory). `:update`, a command and
+  `:disconnect` are handed the memory through [[context]] and their
+  returns are discarded — a void-returning host mutator is the ordinary
+  case, not the exception, and a second writer here would let one erase
+  the instance the teardown needs (rf2-wj1ao)."
   [generation memory]
   (swap! connections
          (fn [m] (if (contains? m generation)
@@ -723,7 +744,13 @@
 (defn- reconcile!
   "Run `:update` when the committed config has MOVED by `rf=`, and not
   otherwise. Equal config is not movement, so a re-render that changes
-  nothing touches no host state."
+  nothing touches no host state.
+
+  `:update` is called for its EFFECT on the host. Its return is discarded
+  and the memory is left exactly as `:connect` established it
+  (§Private memory) — the ordinary `(.setOptions map (clj->js config))`
+  answers `undefined`, and writing that back would erase the instance
+  `:disconnect` must release."
   [generation config]
   (when-let [rec (get @connections generation)]
     (when-not (eq/rf= config (:config rec))
@@ -733,9 +760,8 @@
                          (assoc-in m [generation :config] config)
                          m)))
         (when f
-          (remember! generation
-                     (f (context generation (assoc rec :config config)
-                                 {:prev-config (:config rec)})))))))
+          (f (context generation (assoc rec :config config)
+                      {:prev-config (:config rec)}))))))
   nil)
 
 (defn- disconnect!
@@ -1052,8 +1078,15 @@
                (record-command! (assoc row :outcome    :delivered
                                            :behavior   (:behavior rec)
                                            :generation generation))
-               (remember! generation
-                          (f (context generation rec {:op op :args (:args args)})))
+               ;; Run for its EFFECT on the host, and DISCARD the return.
+               ;; Spec 004 §The bounded command channel: a command returns no
+               ;; handle, and it does not return the memory either — `:connect`
+               ;; established that and nothing else writes it (§Private
+               ;; memory). An `:export` calling `workbook.save(…)` answers
+               ;; `undefined`, and a channel that wrote that back would have
+               ;; one export erase the workbook the teardown must dispose
+               ;; (rf2-wj1ao).
+               (f (context generation rec {:op op :args (:args args)}))
                nil)
            (refuse!
              (str (count claims) " live behavior connections in frame "

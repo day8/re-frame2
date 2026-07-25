@@ -1615,7 +1615,7 @@ substrate.
 ```clojure
 (v/defbehavior autosize
   {:timing     :layout
-   :connect    (fn [{:keys [node config]}] (fit! node config))
+   :connect    (fn [{:keys [node config]}] (observe! node config))
    :update     (fn [{:keys [node config]}] (fit! node config))
    :disconnect (fn [{:keys [memory]}] (.disconnect memory))
    :commands   {:refit (fn [{:keys [node config]}] (fit! node config))}})
@@ -1666,8 +1666,8 @@ something other than it says.
   Its return value becomes the connection's PRIVATE memory.
 - **`:update` runs when the committed `:config` MOVES by `rf=`**, receiving
   `:prev-config` alongside the new one. Equal config is not movement, so a
-  re-render that changes nothing touches no host state. Its return replaces the
-  memory.
+  re-render that changes nothing touches no host state. It is called for its
+  effect on the host, and its return is IGNORED.
 - **`:disconnect` runs exactly once per committed connection.** The connection is
   released BEFORE it runs, so its context is inert and a teardown that throws
   still leaves nothing behind.
@@ -1679,6 +1679,17 @@ Every entry receives ONE context map: `:node`, `:config`, `:memory`,
 `:behavior`, `:target`, `:generation`, and `:dispatch`. There is no frame query
 function and no subscription read — state a behavior needs arrives as `:config`,
 so a host can never read application state at a moment nobody chose.
+
+**`:connect` ESTABLISHES the memory and nothing else writes it.** `:update`, a
+command and `:disconnect` receive it and their returns are discarded. The reason
+is the shape of the libraries this boundary exists for: a host mutator normally
+answers nothing at all — `map.setOptions(…)`, `workbook.setValue(…)`,
+`chart.update(spec)`, `addEventListener` — so a lifecycle entry whose return
+replaced the memory would have the FIRST such call erase the very instance
+`:disconnect` has to release, silently, in the most ordinary integration there
+is. An adapter whose host state genuinely EVOLVES returns a mutable cell from
+`:connect` — an atom, a volatile, a JS object — and mutates it in place, which
+is the honest shape for a boundary whose whole subject is imperative host state.
 
 #### The use site is data
 

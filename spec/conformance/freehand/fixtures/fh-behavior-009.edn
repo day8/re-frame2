@@ -1,0 +1,43 @@
+;; FH-BEHAVIOR-009 — `:connect` ESTABLISHES the private memory, and nothing
+;; else writes it.
+;;
+;; This is the row the void-returning host mutator needs, and it is the shape
+;; almost every library a behavior exists for actually has. `map.setOptions(…)`,
+;; `workbook.setValue(…)`, `chart.update(spec)` and `addEventListener` all mutate
+;; and answer NOTHING. So a lifecycle entry whose return REPLACED the memory
+;; would have the first such call erase the very instance `:disconnect` has to
+;; release — silently, in the most ordinary integration there is, and with the
+;; leak surfacing only as a host resource nobody released.
+;;
+;; The probe below is that shape written out honestly (`bv/mutator`): `:connect`
+;; builds the instance, and both `:update` and the `:mutate` command are void
+;; mutators. The claim is read at `:disconnect`, which is the only moment that
+;; matters — the teardown must be handed the instance `:connect` built, after
+;; both void returns have come and gone.
+;;
+;; The mutations are recorded into the instance's OWN mutable cell rather than
+;; counted outside it, so `[:update :mutate]` is evidence that the entries ran
+;; against the SAME instance rather than merely that some map survived. That
+;; cell is also the sanctioned shape for host state that genuinely evolves: the
+;; memory is established once, and an adapter that needs it to move returns
+;; something mutable.
+{:fh/id "FH-BEHAVIOR-009"
+ :fh/law
+ "A behavior's private memory is ESTABLISHED by `:connect` and nothing else writes it: `:update`, a delivered command and `:disconnect` RECEIVE it and their return values are ignored, so a void-returning host mutator cannot erase the instance the teardown must release."
+
+ ;; The lifecycle transcript (`{:op …}` in order) across the whole probe:
+ ;; mount, move the config, deliver one command, unmount.
+ :lifecycle [:connect :update :mutate :disconnect]
+
+ ;; What `:connect` established, and what EVERY later entry must still see —
+ ;; asserted at each of the three, because a memory that survived the update
+ ;; and died at the command would be the same defect one step later.
+ :instance :live
+
+ ;; Read off the instance's own cell at `:disconnect`: both void mutators ran,
+ ;; in order, against the instance `:connect` built.
+ :mutations [:update :mutate]
+
+ ;; The command the probe delivers, and the config move that triggers `:update`.
+ :command {:target :probe/mutator :op :mutate}
+ :moved   {:label "moved"}}

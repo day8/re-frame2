@@ -1979,11 +1979,12 @@
                       contract rather than an implementation detail.
        `:connect`     runs once, at the COMMIT that mounts the node — never
                       from a render the host abandons. Its return value
-                      becomes the connection's PRIVATE memory.
+                      ESTABLISHES the connection's PRIVATE memory.
        `:update`      runs when the committed `:config` MOVES by `rf=`, with
                       `:prev-config` alongside. Equal config is not
                       movement, so a re-render that changes nothing touches
-                      no host state. Its return replaces the memory.
+                      no host state. Called for its effect on the host; its
+                      return is IGNORED.
        `:disconnect`  runs exactly once per committed connection, on
                       unmount. The connection is already released when it
                       runs, so its context is inert — a teardown reports
@@ -2000,6 +2001,15 @@
      connection committed under. There is no frame query function: state a
      behavior needs arrives as `:config`, so a host cannot read application
      state at a moment nobody chose.
+
+     `:connect` ESTABLISHES the memory and nothing else writes it — `:update`,
+     a command and `:disconnect` receive it and their returns are discarded.
+     The ordinary host mutator answers nothing at all (`map.setOptions(…)`,
+     `chart.update(spec)`, `addEventListener`), so a return that replaced the
+     memory would have the FIRST such call erase the instance `:disconnect`
+     has to release. An adapter whose host state genuinely EVOLVES returns a
+     mutable cell from `:connect` — an atom, a volatile, a JS object — and
+     mutates it in place.
 
      Per [Spec 004 §Registered behaviors and commands](../../../../spec/004-Views.md#registered-behaviors-and-commands)."
      [sym & more]
@@ -2168,10 +2178,11 @@
 
   A row records what the command NAMED and what the channel DECIDED —
   `:outcome` is `:delivered` or `:refused` — and never what the host made of
-  it. The operation's return value is the connection's private memory and has
-  no representation here; a delivered row is written BEFORE the operation
-  runs, so a command that crashes its host is in the log rather than missing
-  from it.
+  it. The operation's return value is IGNORED: it is no handle, and it does
+  not replace the connection's private memory either, so it has no
+  representation here. A delivered row is written BEFORE the operation runs,
+  so a command that crashes its host is in the log rather than missing from
+  it.
 
   REFUSALS ARE RECORDED AS FAITHFULLY AS DELIVERIES, because a projection
   that only saw the successes would be evidence for the one case nobody
