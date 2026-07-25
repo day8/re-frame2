@@ -1207,14 +1207,23 @@ an open flag is writable and not buffered, so it takes the key and no generation
   the contract rather than an implementation detail.
 
   `:connect` runs once, at the commit that mounts the node, and its return value
-  becomes the connection's private memory. `:update` runs only when the committed
-  `:config` moves by `rf=`, receiving `:prev-config` alongside — a re-render that
-  changes nothing touches no host state. `:disconnect` runs exactly once per
+  **establishes** the connection's private memory. `:update` runs only when the
+  committed `:config` moves by `rf=`, receiving `:prev-config` alongside — a
+  re-render that changes nothing touches no host state — and it is called for its
+  effect on the host, its return **ignored**. `:disconnect` runs exactly once per
   committed connection, after the connection is released, so its context is
   inert. `:commands` is a finite roster of named operations reached through the
   `:re-frame.freehand.host/command` effect. `:opaque` declares that the behavior
   owns the node's descendants, which makes Freehand children on that node an
   error rather than content the host would silently overwrite.
+
+  **`:connect` establishes the memory and nothing else writes it** — `:update`, a
+  command and `:disconnect` receive it and their returns are discarded. The
+  ordinary host mutator answers nothing at all (`map.setOptions(…)`,
+  `chart.update(spec)`, `addEventListener`), so a return that replaced the memory
+  would have the first such call erase the instance `:disconnect` has to release.
+  An adapter whose host state genuinely evolves returns a mutable cell from
+  `:connect` — an atom, a volatile, a JS object — and mutates it in place.
 
   Every entry takes one context map: `:node`, `:config`, `:memory`, `:behavior`,
   `:target`, `:generation`, and `:dispatch` — a generation-fenced outward
@@ -1371,10 +1380,10 @@ itself.
 - **Description**: the recent behavior-command traffic, oldest first, as a
   **bounded** window. A row records what the command *named* and what the channel
   *decided* — `:outcome` is `:delivered` or `:refused` — and never what the host
-  made of it: the operation's return value is the connection's private memory and
-  has no representation here. A delivered row is written *before* the operation
-  runs, so a command that crashes its host is in the log rather than missing from
-  it.
+  made of it: the operation's return value is **ignored** (it is no handle, and it
+  does not replace the connection's private memory either), so it has no
+  representation here. A delivered row is written *before* the operation runs, so
+  a command that crashes its host is in the log rather than missing from it.
 
   **Refusals are recorded as faithfully as deliveries**, because a projection
   that only saw the successes would be evidence for the one case nobody debugs.

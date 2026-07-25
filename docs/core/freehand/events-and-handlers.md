@@ -242,7 +242,8 @@ Stop when you can:
 | Nested `::v/value` “did nothing” | markers only at **top-level** event args |
 | Caret/IME broken while typing | controlled door: `:value`/`:checked` + `:on-input`/`:on-change` |
 | Stale “still open?” in a callback | decide in the re-frame handler at fire time |
-| Bare fn on a foreign component prop | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
+| Bare fn at a prop position Freehand WALKS | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
+| `v/event` in a raw `createElement` `#js` prop | a plain closure over `rf/capture-frame` — see [the roster's reach](#where-the-roster-reaches) |
 
 ## Each keystroke is an event
 
@@ -334,7 +335,7 @@ When a vector is not enough, pick the form that matches the job:
 | Identity-as-protocol APIs | `(v/raw-fn f)` | identity passes through unchanged |
 | React hooks / portals / context | a React component, entered through the child fold | not neutral Freehand |
 | Owning a DOM node imperatively | `v/defbehavior` + `[v/behavior …]` | [Host boundaries](host-boundaries.md) |
-| Any callback on a **foreign** component | one of the explicit forms | a bare fn is rejected |
+| A callback in a foreign element's raw `#js` props | a plain closure over `(rf/capture-frame)`'s `:dispatch` | those props are the library's ABI — see below |
 
 **Phase rule:** event handlers see **committed** values — what the user actually
 saw. Render callbacks see the **current** render. One bare function cannot honestly
@@ -343,10 +344,34 @@ promise both.
 There is no generic `v/dispatcher` helper, and no dependency-annotated `v/event`.
 Foreign argument conversion is `v/event`.
 
+### Where the roster reaches
+
+The roster forms are **site-owned**, and a site is a prop position Freehand
+itself walks: a native `:on-*` prop, a declared view's props map, a `v/slot`.
+Those are the positions where Freehand can mint a stable proxy, publish a body
+at commit, and retire the callback with its view.
+
+A React element you build yourself with `react/createElement` is **not** such a
+position. Its `#js` props are the library's own ABI and the child fold passes the
+finished element through untouched, so nothing materialises a roster carrier that
+sits inside them — the library receives the carrier object itself, which is
+deliberately **not callable** (`v/event` returns a marker, not a function) and
+fails at the call. So a callback there is an ordinary closure, and it closes over
+`(rf/capture-frame)`'s `:dispatch` rather than calling `rf/dispatch`: the render
+scope has unwound by the time the library calls back, and the captured bundle is
+fenced to the exact frame incarnation it was taken from.
+
+The trade is explicit. A closure gets no site-owned identity (it is fresh per
+render, so a library memoising on callback identity sees a changed prop) and is
+not retired with the view. When either matters, own the node with a behavior and
+mint the callback once in `:connect`, where it lives in the connection's private
+memory and the context's `:dispatch` is generation-fenced.
+
 ## Callback identity and lifetime
 
 Each runtime event or handler site is owned by a pair: the **committed node
-identity** and the **callback prop** (`:on-click`, `:onChange`, and so on). Node
+identity** and the **callback prop** (`:on-click`, `:on-change`, and so on) —
+a prop Freehand walks, per [the roster's reach](#where-the-roster-reaches). Node
 identity is key-aware among siblings.
 
 A few laws that keep foreign libraries and memoisation sane:
@@ -360,9 +385,11 @@ A few laws that keep foreign libraries and memoisation sane:
 | Disconnect, key change, HMR fence | that exact callback is **retired** — if something still calls it, it stays inert and does not dispatch into a replacement frame |
 | `v/render-fn` | not on that mutable-proxy scheme; it may run during an uncommitted foreign render |
 
-That is why bare functions are illegal at foreign callback positions: Freehand
-cannot know the phase or the identity contract. Annotate with the roster form that
-matches the protocol.
+That is the whole reason the roster exists at a position Freehand walks: without
+an annotation Freehand cannot know the phase or the identity contract the protocol
+wants. It also draws the boundary of the guarantee — a closure you hand a
+foreign element's `#js` props gets none of these laws, because Freehand never saw
+the prop.
 
 ## Decisions that depend on live state
 

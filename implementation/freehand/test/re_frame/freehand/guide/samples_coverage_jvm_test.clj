@@ -317,9 +317,9 @@
     [ 8 "67c6b1269513" events/temperature-inputs]
     [ 9 "a166f137df6a" :prose-shape]]
    "host-boundaries.md"
-   [[ 1 "1188cc22d0f4" :foreign-npm]
+   [[ 1 "0f67952b0507" :foreign-npm]
     [ 2 "1fc6ecc0cd84" host/chart-client-only]
-    [ 3 "8bf62d0dddd5" host/autosize]
+    [ 3 "3ec3907b4472" host/autosize]
     [ 4 "7fc18b64ff4c" host/register-refit-requested!]
     [ 5 "5f2b2ed14f93" host/person-cell-react]
     [ 6 "61e4193ba86b" host/top-layer-sites]
@@ -336,10 +336,10 @@
     [ 5 "ea8536be30aa" :build-config]]
    "js-libraries.md"
    [[ 1 "c27c0a28d420" host/toast-tray]
-    [ 2 "5bff52a6aa37" :foreign-npm]
-    [ 3 "d68ceeefd07a" :foreign-npm]
-    [ 4 "cd2f51ac304d" :foreign-npm]
-    [ 5 "aa248d525737" host/fade-panel]]
+    [ 2 "b9e89841da17" :foreign-npm]
+    [ 3 "e94f3380438e" :foreign-npm]
+    [ 4 "2248c34107cb" :foreign-npm]
+    [ 5 "8e3bda770349" host/fade-panel]]
    "limits-and-escapes.md"
    []
    "mental-model.md"

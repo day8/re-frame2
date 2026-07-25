@@ -92,12 +92,21 @@
   [_node _config]
   nil)
 
+(defn- observe!
+  "The page names this helper without showing it either. `:connect` builds the
+  host observer, and the object it answers IS the connection's private memory —
+  the one place the memory is ever written (rf2-wj1ao)."
+  [_node _config]
+  nil)
+
 ;; host-boundaries.md block 3 — the ONE sanctioned way to own a DOM node,
 ;; and the use site that attaches it as data.
 (v/defbehavior autosize
   "Grow the textarea to fit its content."
   {:timing     :layout
-   :connect    (fn [{:keys [node config]}] (fit! node config))
+   ;; :connect ESTABLISHES the private memory — the observer it built. Nothing
+   ;; else writes it: :update, :refit and :disconnect all just receive it.
+   :connect    (fn [{:keys [node config]}] (observe! node config))
    :update     (fn [{:keys [node config]}] (fit! node config))
    :disconnect (fn [{:keys [memory]}] (some-> memory .disconnect))
    :commands   {:refit (fn [{:keys [node config]}] (fit! node config))}})
@@ -175,20 +184,26 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- start-fade! [_node _config] {:handle :fade})
-(defn- retarget-fade! [_node _config _prev _memory] {:handle :fade})
+(defn- retarget-fade! [_node _config _prev _anim] {:handle :fade})
 (defn- cancel! [_handle] nil)
 
 ;; js-libraries.md block 5 — every lifecycle entry takes ONE context map,
-;; and `:update` runs only when `:config` moves by `rf=`.
+;; `:update` runs only when `:config` moves by `rf=`, and only `:connect`
+;; establishes the memory — so an EVOLVING player handle lives in a mutable
+;; cell the later entries swap in place (rf2-wj1ao).
 (v/defbehavior fade-panel
   {:connect    (fn [{:keys [node config]}]
-                 ;; return value becomes this connection's private memory
-                 {:anim (start-fade! node config)})
+                 ;; :connect ESTABLISHES this connection's private memory, and
+                 ;; nothing else ever writes it — so a handle that EVOLVES lives
+                 ;; in a mutable cell the later entries swap in place.
+                 (atom {:anim (start-fade! node config)}))
    :update     (fn [{:keys [node config prev-config memory]}]
-                 ;; runs only when :config moved by rf=
-                 (retarget-fade! node config prev-config memory))
+                 ;; runs only when :config moved by rf=; the return is ignored
+                 (swap! memory assoc
+                        :anim (retarget-fade! node config prev-config
+                                              (:anim @memory))))
    :disconnect (fn [{:keys [memory]}]
-                 (some-> (:anim memory) cancel!))})
+                 (some-> (:anim @memory) cancel!))})
 
 (v/defview animated-panel [{:keys [title]}]
   (let [open? (v/sub [:ui/panel-open?])]

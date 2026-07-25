@@ -33,23 +33,43 @@ third-party component enters a Freehand tree through the existing child fold:
 (ns app.booking
   (:require ["react" :as react]
             ["some-date-picker" :refer [DatePicker]]
+            [re-frame.core :as rf]
             [re-frame.freehand :as v]))
 
 (v/defview booking-date [{:keys [date]}]
-  (v/client-only
-   {:fallback [:input {:type :date :value date :read-only true}]}
-   [:div.booking-date
-    (react/createElement
-      DatePicker
-      #js {:selected date
-           :onChange (v/event [d] [:booking/date-picked (from-js-date d)])})]))
+  ;; The frame, held across the render scope. `rf/capture-frame` binds the ops
+  ;; to the frame this view rendered in, so a callback the library calls later
+  ;; dispatches into the right application.
+  (let [{:keys [dispatch]} (rf/capture-frame)]
+    (v/client-only
+     {:fallback [:input {:type :date :value date :read-only true}]}
+     [:div.booking-date
+      (react/createElement
+        DatePicker
+        #js {:selected date
+             :onChange (fn [d]
+                         (dispatch [:booking/date-picked (from-js-date d)]))})])))
 ```
 
 One shared React tree, with context propagation, `v/->react` content interleaved
 back through it, and synchronous teardown.
 
-- Foreign callbacks use the [escape roster](events-and-handlers.md#the-escape-roster)
-  — never a bare function at a foreign callback position.
+- **The `#js` props are the library's own ABI, and Freehand never walks them.**
+  A callback there is an ordinary closure — the escape roster
+  (`v/event` / `v/handler` / …) belongs at positions Freehand OWNS: a native
+  `:on-*` prop, a declared view's props, a `v/slot`. Hand a roster carrier to a
+  `createElement` prop and the library receives a non-callable marker object,
+  because nothing on this path materializes it.
+- **Close over `rf/capture-frame`, not over `rf/dispatch`.** The render scope has
+  unwound by the time the library calls back, so an ambient `rf/dispatch` raises
+  `:rf.error/no-frame-context`. The captured bundle is fenced to the exact frame
+  incarnation it was taken from, so a callback outliving its frame reports rather
+  than dispatching into a same-id successor.
+- **What you give up** relative to a roster site: Freehand promises nothing about
+  the closure's identity (it is fresh per render, so a library that memoises on
+  callback identity sees a changed prop), and the closure is not retired with the
+  view. When either matters, own the node with a behavior and mint the callback
+  once in `:connect` — see [Registered behaviors](#registered-behaviors) below.
 - The JVM structural renderer accepts **no** React elements. The child path is
   browser-only, like the mount verbs, so wrap it in `v/client-only` if the root is
   ever server-rendered.
@@ -86,7 +106,9 @@ Registration and use site are two halves:
 (v/defbehavior autosize
   "Grow the textarea to fit its content."
   {:timing     :layout
-   :connect    (fn [{:keys [node config]}] (fit! node config))
+   ;; :connect ESTABLISHES the private memory — the observer it built. Nothing
+   ;; else writes it: :update, :refit and :disconnect all just receive it.
+   :connect    (fn [{:keys [node config]}] (observe! node config))
    :update     (fn [{:keys [node config]}] (fit! node config))
    :disconnect (fn [{:keys [memory]}] (some-> memory .disconnect))
    :commands   {:refit (fn [{:keys [node config]}] (fit! node config))}})
@@ -128,11 +150,20 @@ The definition roster is closed:
 | Entry | Meaning |
 |---|---|
 | `:timing` | closed at `:layout` (before paint — the only honest home for measure-then-place) and `:passive` (the default, after paint) |
-| `:connect` | once, at the commit that mounts the node; its return becomes the connection's private memory |
-| `:update` | only when the committed `:config` moves by `rf=`, receiving `:prev-config` alongside |
+| `:connect` | once, at the commit that mounts the node; its return **establishes** the connection's private memory |
+| `:update` | only when the committed `:config` moves by `rf=`, receiving `:prev-config` alongside; return ignored |
 | `:disconnect` | exactly once per committed connection, after release, so its context is inert |
 | `:commands` | a finite roster of named operations |
 | `:opaque` | the behavior owns the node's descendants, making Freehand children on that node an error |
+
+**`:connect` establishes the memory; nothing else writes it.** `:update`, a
+command and `:disconnect` receive the memory and their return values are
+discarded — which is what makes the ordinary integration safe, because the
+ordinary host mutator answers nothing at all (`map.setOptions(…)`,
+`chart.update(spec)`, `addEventListener`) and a return that replaced the memory
+would erase the instance `:disconnect` has to release. When host state genuinely
+evolves, return a **mutable cell** from `:connect` — an atom, a volatile, a JS
+object — and mutate it in place.
 
 Every entry takes **one context map** — `:node`, `:config`, `:memory`,
 `:behavior`, `:target`, `:generation`, and `:dispatch`, a generation-fenced
@@ -172,7 +203,7 @@ the imperative call stays inside the behavior:
 | `:target` | the caller-authored semantic id from the use site — not a DOM path or “last mounted” |
 | Timing | only the **currently committed** connection; never queued for a future mount |
 | Outcome | the channel records `:delivered` or `:refused` in [`v/command-log`](debugging.md#the-behavior-tool-plane) |
-| Return | the operation's return value is the connection's private memory and escapes nowhere |
+| Return | **ignored** — a command returns no handle and does not replace the memory; a result the domain needs comes back as an event the behavior dispatches |
 | Steady state | still flows through `:config` and `:update`; commands are the narrow one-shot escape |
 
 ### Reaching for React's own protocols
@@ -385,7 +416,7 @@ general on-mount API; prefer `:auto-focus` unless you need an imperative call.
 
 | Need | Shape |
 |---|---|
-| DatePicker value + callback | a React element in a child position, with `v/event` |
+| DatePicker value + callback | a React element in a child position; the callback is a closure over `rf/capture-frame` |
 | Vega/Mapbox owns a DOM node | registered behavior |
 | Radix / hooks / portals | a React component, entered through the child fold |
 | Grid wants a React component prop | `v/->react` |

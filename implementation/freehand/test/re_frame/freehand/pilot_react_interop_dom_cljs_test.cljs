@@ -39,6 +39,10 @@
             [re-frame.frame :as frame]
             [re-frame.freehand :as v]
             [re-frame.freehand.behaviors :as behaviors]
+            ;; The event plane, for the ONE negative control that has to name
+            ;; what a roster carrier IS (rf2-c1vvn) — a `v/event` value handed
+            ;; to a foreign element's raw props, which no walk ever reaches.
+            [re-frame.freehand.events :as events]
             [re-frame.freehand.pilot-react-interop :as pilot]
             [re-frame.freehand.pilot-react-interop-compiled :as compiled]
             [re-frame.freehand.pilot-react-interop-react :as rpilot]
@@ -573,6 +577,93 @@
                            "and nothing connected — the child path opened no behavior")
                        (.remove container)
                        (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (done)))))))))
+
+;; ===========================================================================
+;; 3c — THE INWARD HALF of the child path: how a foreign component calls BACK
+;; ===========================================================================
+;;
+;; rf2-c1vvn. Section 3b proved values crossing OUTWARD into the component. The
+;; other direction is what an integration actually lives or dies by, and the
+;; pilot used to leave it unexercised while `acme-widget` advertised an `onPing`
+;; prop — so the shape nobody had run was the shape three guide pages
+;; prescribed, and it could never have worked.
+;;
+;; A raw `createElement` prop map is the LIBRARY's ABI. The child fold's
+;; `react/isValidElement` arm is total, so the finished element passes through
+;; untouched and no Freehand machinery ever looks inside `#js {…}`. The roster
+;; forms (`v/event`, `v/handler`, …) are site-owned — they are materialised only
+;; at prop positions Freehand itself walks — so a carrier placed in raw props
+;; reaches the library exactly as authored, and it is deliberately NOT callable.
+;;
+;; What DOES work is an ordinary closure over `(rf/capture-frame)`'s `:dispatch`:
+;; the render scope has unwound by the time the component calls back, so ambient
+;; `rf/dispatch` would raise `:rf.error/no-frame-context`, while the captured
+;; bundle is fenced to the exact frame incarnation it was taken from. Both halves
+;; are asserted — the live path in a real browser, and the dead one wherever this
+;; file runs, because a negative control that needs a DOM is a negative control
+;; that mostly does not run.
+
+(deftest a-roster-carrier-in-raw-js-props-can-never-be-called
+  (testing "The NEGATIVE control, and the whole of rf2-c1vvn's claim. `v/event`
+            answers a roster CARRIER, deliberately not `IFn` on either host so
+            that a foreign API handed one fails at the call rather than silently
+            doing the wrong thing. Nothing materialises a carrier found inside a
+            foreign element's raw props — the child fold hands the element
+            through IDENTICALLY, which is asserted rather than described — so
+            `props.onPing(…)` reaches a non-callable object. This is why the
+            inward path is a closure and not a roster form."
+    (let [carrier (.-onPing rpilot/dead-carrier-props)]
+      (is (events/callback? carrier)
+          "the authored value is a roster carrier")
+      (is (= :event (events/callback-role carrier)))
+      (is (not (fn? carrier))
+          "and it is NOT a JS function, so a library cannot call it")
+      (is (not (ifn? carrier))
+          "nor an IFn — the carrier is inert by construction")
+      (is (thrown? :default (carrier "click:dead"))
+          "invoking it the way a library would THROWS — the whole point of the
+           carrier not being callable")
+      (let [el (react/createElement rpilot/acme-widget rpilot/dead-carrier-props)]
+        (is (identical? el (fr/element el))
+            "the child fold passes a finished React element through IDENTICALLY")
+        (is (identical? carrier (.-onPing (.-props (fr/element el))))
+            "so the carrier is still the carrier on the other side — there is no
+             materialisation point on this path at all")))))
+
+(deftest a-foreign-component-calls-back-through-a-captured-frame
+  (testing "The LIVE inward path, mounted. A real DOM click on the third-party
+            component's own button invokes the `onPing` prop it advertises, that
+            prop is an ordinary closure over `(rf/capture-frame)`'s `:dispatch`,
+            and the event lands in THIS page's frame — through the raw-child
+            path, with no nested root and no behavior anywhere. The frame is the
+            load-bearing half: the render scope is long gone when React fires
+            the handler, so a callback closing over ambient `rf/dispatch` would
+            raise `:rf.error/no-frame-context` instead of dispatching."
+    (if-not (browser?)
+      (skip! "the browser job runs the inward-callback mount")
+      (async done
+        (setup!)
+        (let [container (host-node!)]
+          (-> (act #(mount! container [rpilot/react-child-page {:label "beta"}]))
+              (.then (fn [mounted]
+                       (is (nil? (read* [:acme/last-ping]))
+                           "nothing has pinged yet")
+                       (-> (act #(.click (q container ".acme-widget-ping")))
+                           (.then (fn [_]
+                                    (is (= "click:beta" (read* [:acme/last-ping]))
+                                        "the foreign component's own click handler called
+                                         the closure, and the dispatch landed in this
+                                         page's frame")
+                                    (is (= 0 (rpilot/live-roots))
+                                        "with no nested React root")
+                                    (is (= 0 (behaviors/connection-count))
+                                        "and no behavior connection — this is the child
+                                         path, not the nested-root one")
+                                    (teardown! container mounted)
+                                    (done))))))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
                         (done)))))))))

@@ -60,6 +60,7 @@
 (def ^:private fh-005 (conf/fixture :FH-BEHAVIOR-005))
 (def ^:private fh-006 (conf/fixture :FH-BEHAVIOR-006))
 (def ^:private fh-008 (conf/fixture :FH-BEHAVIOR-008))
+(def ^:private fh-009 (conf/fixture :FH-BEHAVIOR-009))
 
 (def ^:private frame-id :dom/behaviors)
 
@@ -609,6 +610,69 @@
     (is (= (:fx-id fh-006) behaviors/command-fx-id))
     (is (some? (rf/handler-meta :fx behaviors/command-fx-id))
         "the reserved fx id is registered")))
+
+;; ===========================================================================
+;; FH-BEHAVIOR-009 — `:connect` establishes the memory; nothing else writes it
+;; ===========================================================================
+;;
+;; The row for the ordinary integration. Every OTHER behavior in this corpus
+;; returns its memory from `:update` and from each command, which is what a
+;; Clojure author writes without thinking — and it hid the defect completely
+;; (rf2-wj1ao). The libraries a behavior exists for do not look like that:
+;; `map.setOptions(…)`, `workbook.setValue(…)`, `chart.update(spec)` and
+;; `addEventListener` mutate and answer NOTHING. `bv/mutator` is that shape, so
+;; this is the one row where a lifecycle entry's return being written back would
+;; be observable — as an empty memory at `:disconnect`, and a host instance
+;; nobody released.
+
+(deftest fh-behavior-009-only-connect-establishes-the-memory
+  (testing "Per FH-BEHAVIOR-009: `:connect` establishes the private memory and
+            nothing else writes it. `bv/mutator`'s `:update` and its `:mutate`
+            command are VOID host mutators — the ordinary JS shape — so if
+            either return replaced the memory, `:disconnect` would be handed
+            nothing and the instance it must release would be gone. The
+            assertion is made at all three moments, because a memory that
+            survived the update and died at the command is the same defect one
+            step later; and the mutations are read off the instance's OWN cell,
+            so the evidence is that the entries ran against the SAME instance
+            rather than that some map happened to survive."
+    (if-not (browser?)
+      (skip! "the browser job runs the memory-ownership assertions")
+      (async done
+        (setup!)
+        (let [[container root] (mount!)
+              {:keys [lifecycle instance mutations command moved]} fh-009
+              memory-at (fn [op] (some #(when (= op (:op %)) (:memory %))
+                                       @bv/transcript))]
+          (-> (act #(.render root (element [bv/mutating {}])))
+              (.then (fn [_]
+                       (is (= 1 (behaviors/connection-count)))
+                       ;; a MOVED config, so `:update` really runs
+                       (act #(.render root (element [bv/mutating moved])))))
+              (.then (fn [_]
+                       (is (= instance (:instance (memory-at :update)))
+                           "`:update` receives the instance `:connect` built")
+                       (act #(rf/dispatch-sync [:probe/command command]
+                                               {:frame frame-id}))))
+              (.then (fn [_]
+                       (is (= instance (:instance (memory-at :mutate)))
+                           "and so does the command, AFTER `:update` returned nothing")
+                       (act #(teardown! container root))))
+              (.then (fn [_]
+                       (is (= lifecycle (bv/ops))
+                           "the whole lifecycle ran, in order")
+                       (let [released (memory-at :disconnect)]
+                         (is (= instance (:instance released))
+                             "and `:disconnect` is handed the instance to release —
+                              the claim two void returns used to erase")
+                         (is (= mutations @(:calls released))
+                             "both void mutators ran against that SAME instance"))
+                       (is (zero? (behaviors/connection-count)))
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "mount rejected: " e))
+                        (teardown! container root)
+                        (done)))))))))
 
 ;; ===========================================================================
 ;; FH-BEHAVIOR-008 — the tool plane: two read-only projections
