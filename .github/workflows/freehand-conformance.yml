@@ -73,6 +73,11 @@ on:
       - 'scripts/check_freehand_conformance_index.py'
       - 'scripts/check_donor_inventory.py'
       - 'scripts/check_doc_slugs.py'   # supplies the shared slug index
+      # The census DERIVES its two CLJS lane selectors rather than listing
+      # them (rf2-k41ph), so the file that defines the lanes and the reader
+      # that parses it are inputs to this job exactly as the checkers are.
+      - 'implementation/shadow-cljs.edn'
+      - 'scripts/check_test_lane_bijection.py'
       - 'requirements.txt'
       - '.github/workflows/freehand-conformance.yml'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE above).
