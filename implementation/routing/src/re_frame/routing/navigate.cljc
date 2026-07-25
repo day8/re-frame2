@@ -503,6 +503,19 @@
                        :no-not-found? (boolean (and unmatched-url (nil? route-meta)))
                        :url           requested-url
                        :frame         frame}))
+                  ;; EP-0037 R0b: ONE `:rf.route/planned` trace per door commit
+                  ;; branch, so the R0 diagnostic projection is REACHABLE from an
+                  ;; executed navigation rather than only from a tool holding a
+                  ;; plan value. `resolver/plan-trace-tags` is the ONE
+                  ;; projection-to-tags mapping (the URL-driven door emits through
+                  ;; it too) and it is what keeps the trace from becoming a
+                  ;; carrier: the URL rides the existing `redact-url-tag` path and
+                  ;; `:params` / `:query` contribute KEY SETS, not values.
+                  ;; Emitted before the commit so the stream reads
+                  ;; planned -> nav-token allocated -> deactivated/activated.
+                  (trace/emit! :rf.event :rf.route/planned
+                               (cond-> (resolver/plan-trace-tags route-plan)
+                                 frame (assoc :frame frame)))
                   ;; commit-navigation: nav-token alloc, allocated/activation
                   ;; traces, slice publish, fx assembly -- the shared commit
                   ;; shape. The programmatic path is the only one that drives the
