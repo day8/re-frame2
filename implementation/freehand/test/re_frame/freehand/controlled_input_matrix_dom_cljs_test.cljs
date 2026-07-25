@@ -21,9 +21,42 @@
   the cross-mode matrix over the same declarations, plus the attribute
   cells the pilot never reached.
 
+  ## COMPOSITION / IME — where the promise is proved (rf2-drpa3.181)
+
+  F6b's outcome promises \"controlled input and IME under contention\".
+  The IME half is NOT proved in this file, and deliberately so: driving a
+  real `CompositionEvent` protocol needs the field surfaces that already
+  own it, and duplicating them here would give the gate two copies of one
+  claim instead of one proof. The promise is discharged, in a real
+  browser, by these tests — this is the map, not a redirection:
+
+  - a composition survives a CONTROLLED round trip:
+    `controlled-input-dom-cljs-test/fh-input-003-an-ime-composition-survives-the-round-trip`
+    — `compositionstart` / N × `compositionupdate` / `compositionend`,
+    each update asserting the in-flight text survived and the node being
+    composed into was never replaced.
+  - a composition survives the BUFFERED (draft-then-commit) path:
+    `buffered-controller-dom-cljs-test/fh-ctrl-011-an-ime-composition-survives-the-buffered-path`.
+  - a composition completes intact at the PILOT's own site:
+    `pilot-field-dom-cljs-test/pilot-r-a2-an-ime-composition-completes-intact`,
+    whose compiled declaration is mounted by
+    `pilot-field-dom-cljs-test/the-compiled-arm-of-every-row-above-mounts-in-a-browser`.
+  - IME UNDER CONTENTION, in BOTH execution modes — the words the F6b
+    promise actually uses:
+    `bench.b4-dom-cljs-test/editing-survives-a-dirty-sibling-interpreted`
+    and `…-compiled`, which compose `k` → `ka` → `kan` → `漢` while a
+    heavy sibling is dirtied at 20 Hz and assert the composition
+    committed intact, reached application state, and stayed on the node
+    it started on.
+
+  So the cross-mode part of the IME promise rests on the B4 pair (both
+  arms drive the composition protocol themselves), and the single-mode
+  depth rests on the three field tests above.
+
   Rides the browser lane through its `-dom-cljs-test` suffix; under node
   it has no DOM and says so."
   (:require ["react" :as react]
+            [clojure.string :as str]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as react-substrate]
             [re-frame.core :as rf]
@@ -92,6 +125,55 @@
    [:option {:value "x"} "X"]
    [:option {:value "y"} "Y"]])
 
+;; The owned-vs-caller CONFLICT on `multiple` (rf2-sf9n5, #6847's audit).
+;; `:multiple` is legal in a `v/spread-safe` caller but folds UNDER the owned
+;; props, so an owned declaration decides the whole-element verdict even when
+;; it is FALSE, and the caller is consulted only when the owned props are
+;; silent on the slot. BOTH sides are runtime-valued here on purpose: neither
+;; emitter can settle the verdict at build time, so each has to read the
+;; EFFECTIVE source at render.
+(v/defview select-conflict-interpreted
+  [{:keys [owned-multiple caller]}]
+  [:select (v/spread-safe {:value     nil
+                           :multiple  owned-multiple
+                           :on-change [:matrix/select-changed ::v/value]}
+                          caller)
+   [:option {:value "x"} "X"]
+   [:option {:value "y"} "Y"]])
+
+(v/defview select-conflict-compiled
+  {:compiled true}
+  [{:keys [owned-multiple caller]}]
+  [:select (v/spread-safe {:value     nil
+                           :multiple  owned-multiple
+                           :on-change [:matrix/select-changed ::v/value]}
+                          caller)
+   [:option {:value "x"} "X"]
+   [:option {:value "y"} "Y"]])
+
+;; The same conflict written in NORMALIZED-ALIAS spellings. A namespace on an
+;; attribute key is dropped on the way to the React slot, so `:x/multiple` is
+;; the `multiple` slot exactly as `:multiple` is — which means it must reach
+;; the same verdict, and must lose to an owned declaration the same way.
+(v/defview select-alias-conflict-interpreted
+  [{:keys [owned-multiple caller]}]
+  [:select (v/spread-safe {:x/value    nil
+                           :x/multiple owned-multiple
+                           :on-change  [:matrix/select-changed ::v/value]}
+                          caller)
+   [:option {:value "x"} "X"]
+   [:option {:value "y"} "Y"]])
+
+(v/defview select-alias-conflict-compiled
+  {:compiled true}
+  [{:keys [owned-multiple caller]}]
+  [:select (v/spread-safe {:x/value    nil
+                           :x/multiple owned-multiple
+                           :on-change  [:matrix/select-changed ::v/value]}
+                          caller)
+   [:option {:value "x"} "X"]
+   [:option {:value "y"} "Y"]])
+
 (v/defview safe-caller-interpreted
   [{:keys [caller]}]
   [:input.field (v/spread-safe {:value    "owned"
@@ -151,6 +233,39 @@
 
 (defn- app [] (frame/frame-app-db-value fid))
 (defn- line [] (get-in (app) [:invoice line-id]))
+
+;; ---------------------------------------------------------------------------
+;; The one channel a <select>'s value SHAPE is observable on
+;; ---------------------------------------------------------------------------
+
+(defn- spy-console-errors!
+  "Collect what React says on `console.error` while a mount runs, and
+  answer the restore thunk."
+  [sink]
+  (let [original (.-error js/console)]
+    (set! (.-error js/console)
+          (fn [& args]
+            (swap! sink conj (str/join " " (map str args)))
+            (.apply original js/console (to-array args))))
+    (fn [] (set! (.-error js/console) original))))
+
+(defn- value-shape-complaints
+  "The captured console lines that are React refusing a `<select>`'s
+  `value` SHAPE — an array where `multiple` is false, or a scalar where it
+  is true. React runs that check when the element is CREATED (and on
+  hydration) and at no other time, and does not latch it, so a row that
+  MOUNTS the shape it is judging reads a live channel every time it runs."
+  [lines]
+  (filterv #(re-find #"(?i)must be an array|must be a scalar" %) lines))
+
+(defn- select-facts
+  "The real host facts a `<select>`'s multiple verdict is visible in.
+  All three are PROPERTIES rather than attributes, so `ms/outline` cannot
+  see any of them and a cross-mode claim about them has to be made here."
+  [el]
+  {:multiple (.-multiple el)
+   :value    (.-value el)
+   :selected (mapv #(.-value %) (array-seq (.-selectedOptions el)))})
 
 ;; ===========================================================================
 ;; Row 1 — the two lowerings build the SAME controlled line
@@ -348,6 +463,153 @@
                            (ms/destroy-root! cc rc)
                            nil)))))
           done)))))
+
+;; ===========================================================================
+;; Cell A2 — the OWNED multiple beats the caller's, in a real DOM
+;;           (rf2-drpa3.181, discharging the rf2-drpa3.54 audit rider)
+;; ===========================================================================
+;;
+;; Cell A above mounts the caller-only shape: owned `:value nil` beside a
+;; caller `:multiple true`. That arm cannot discriminate an owned FALSE from a
+;; caller TRUE, because it never sets the two against each other — which is
+;; exactly what the #6850 audit said. This cell is the discrimination, in the
+;; browser.
+
+;; [label interpreted-view compiled-view props expect-multiple?]
+;;
+;; The last row is the NON-VACUITY control: it reuses Cell A's owned-silent
+;; views, so a precedence rule implemented by ignoring the caller ALTOGETHER
+;; would satisfy every conflict row above and fail here — the caller's true
+;; would reach the element while the verdict stayed false, handing React the
+;; scalar empty value on a multiple select.
+(def ^:private owned-vs-caller-cases
+  [["owned false beats caller true"
+    select-conflict-interpreted select-conflict-compiled
+    {:owned-multiple false :caller {:multiple true}} false]
+   ["owned false beats caller true, alias spellings"
+    select-alias-conflict-interpreted select-alias-conflict-compiled
+    {:owned-multiple false :caller {:x/multiple true}} false]
+   ["owned true beats caller false"
+    select-conflict-interpreted select-conflict-compiled
+    {:owned-multiple true :caller {:multiple false}} true]
+   ["owned true beats caller false, alias spellings"
+    select-alias-conflict-interpreted select-alias-conflict-compiled
+    {:owned-multiple true :caller {:x/multiple false}} true]
+   ["control: owned SILENT, so the caller's true still decides"
+    select-safe-interpreted select-safe-compiled
+    {:flag true} true]])
+
+(defn- run-owned-vs-caller-case!
+  "Mount one conflict shape in each mode and judge it three ways: the
+  element's final `multiple`, the two modes' agreement on every host fact
+  the verdict touches, and React's own verdict on the value's SHAPE."
+  [[label iv cv props expect-multiple?]]
+  (let [[ci ri] (ms/create-root!)
+        [cc rc] (ms/create-root!)
+        errors  (atom [])
+        restore (spy-console-errors! errors)
+        finish  (fn [] (restore) (ms/destroy-root! ci ri) (ms/destroy-root! cc rc) nil)]
+    (-> (render! ri [iv props])
+        (.then (fn [_] (render! rc [cv props])))
+        (.then
+          (fn [_]
+            (restore)
+            (let [i-el (ms/q ci "select")
+                  c-el (ms/q cc "select")]
+              (doseq [[mode el] [["interpreted" i-el] ["compiled" c-el]]]
+                (is (some? el) (str label " / " mode ": a select mounted"))
+                (when el
+                  (is (= expect-multiple? (.-multiple el))
+                      (str label " / " mode ": the EFFECTIVE multiple declaration "
+                           "decided the real element — expected multiple="
+                           expect-multiple? ", got " (.-multiple el)))
+                  (when expect-multiple?
+                    (is (= 0 (.-length (.-selectedOptions el)))
+                        (str label " / " mode ": nothing is selected under the "
+                             "empty controlled value")))))
+              (when (and i-el c-el)
+                (let [i-facts (select-facts i-el)
+                      c-facts (select-facts c-el)]
+                  (is (= i-facts c-facts)
+                      (str label ": the two lowerings agree on the select's host "
+                           "PROPERTIES — `multiple`, `value` and the selected options — "
+                           "interpreted=" (pr-str i-facts) " compiled=" (pr-str c-facts))))
+                (ms/outlines-agree? i-el c-el (str "owned-vs-caller select (" label ")")))
+              ;; The load-bearing assertion. A single select given the empty
+              ;; ARRAY and a multiple select given the empty STRING build the
+              ;; SAME DOM as the correct shapes do — React's option-selection
+              ;; branch reads `multiple`, not the value's shape — so the wrong
+              ;; empty value is invisible to every reader above. React itself is
+              ;; the only witness, and it writes to the console and nowhere else.
+              (is (= [] (value-shape-complaints @errors))
+                  (str label ": React accepted the value's SHAPE at mount in BOTH "
+                       "modes — the empty value took the shape the effective "
+                       "`multiple` calls for. This is the only place the conflict is "
+                       "observable in a real browser: " (pr-str @errors))))
+            (finish)))
+        (.catch (fn [e] (finish) (js/Promise.reject e))))))
+
+(defn- run-console-channel-control!
+  "The CONTROL for every \"React said nothing about the shape\" assertion
+  above. Mounts, through RAW React, precisely the props the defect
+  produced — an empty ARRAY value on a select whose `multiple` is false —
+  and REQUIRES the complaint. Freehand is deliberately absent: what is
+  under test here is the spy and the filter, so a quiet row above is a
+  fact about the emitters rather than about a channel that stopped
+  listening. React re-runs this check on every element creation and never
+  latches it, so spending it here disarms nothing."
+  []
+  (let [[container root] (ms/create-root!)
+        errors  (atom [])
+        restore (spy-console-errors! errors)
+        finish  (fn [] (restore) (ms/destroy-root! container root) nil)]
+    (-> (ms/act #(.render root (react/createElement
+                                 "select"
+                                 #js {:multiple false
+                                      :value    #js []
+                                      :onChange (fn [_] nil)}
+                                 (react/createElement "option" #js {:value "x"} "X"))))
+        (.then (fn [_]
+                 (restore)
+                 (is (seq (value-shape-complaints @errors))
+                     (str "the console channel is LIVE: an empty array on a single "
+                          "select — the exact shape an ORed multiple verdict wrote — "
+                          "makes React complain, so the silence asserted above is an "
+                          "assertion and not a broken spy: " (pr-str @errors)))
+                 (finish)))
+        (.catch (fn [e] (finish) (js/Promise.reject e))))))
+
+(deftest controlled-matrix-an-owned-multiple-beats-the-caller-across-modes
+  (testing "`(v/spread-safe owned caller)` where BOTH sides declare
+            `multiple` and they disagree. The caller folds UNDER the owned
+            props, so an owned declaration decides the element even when it
+            is FALSE, and the caller decides only where the owned props are
+            silent. Asserted in a real DOM, in both lowerings, in both
+            directions of the conflict, in the exact and the
+            normalized-alias spellings.
+
+            Why this needs a browser at all, when the shapes are already
+            pinned at unit level in `compiled-select-multiple-cljs-test`:
+            the empty value's SHAPE has no DOM consequence. React picks
+            which options to select from `multiple` and never from the
+            value's shape, so an empty array on a single select and an
+            empty string on a multiple one render pages indistinguishable
+            from the correct ones. The wrong shape is reported by React,
+            once, at element CREATION, on the console — so the only place
+            the defect is observable at all is a real mount with a real
+            React watching. That is this row, and it is why the row
+            carries its own console control.
+
+            Runtime-valued on both sides deliberately: a build-time
+            literal lets the compiled emitter settle the verdict without
+            ever running the runtime path that was wrong."
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the owned-vs-caller select assertions")
+      (async done
+        (fresh-frame!)
+        (ms/each-mode owned-vs-caller-cases
+                      run-owned-vs-caller-case!
+                      #(ms/run-async run-console-channel-control! done))))))
 
 ;; ===========================================================================
 ;; Cell B — v/spread-safe folds a guarded caller, both modes (rf2-drpa3.132)
