@@ -334,6 +334,31 @@ _INLINE_TOKEN_MSG_RE = re.compile(r"\[:rf\.[a-z][\w.-]*/[\w.*+!?<>=-]+\]")
 # so it is equally conformant to rule 4; statically the bracket is not
 # contiguous with the keyword, so this matches the assembled form: a `[` then
 # (across quotes/whitespace) a `:rf.<ns>/…` keyword then a `]`.
+#
+# KNOWN BLIND SPOT — a conformant message the scan cannot see (rf2-jquiy).
+# Both token regexes need the `:rf.<ns>/<id>` keyword and the human text to be
+# LITERAL at the `ex-info` call. Two conformant shapes are not:
+#
+#   (a) a let-BOUND message —  (let [msg (str "… [:rf.error/x]")] (ex-info msg …))
+#       `re-frame.story/configure!` (tools/story/src/re_frame/story.cljc:877,
+#       :914) does exactly this, under a comment citing Spec 009; the scan sees
+#       only the symbol `msg` and reports `builder-bypass-message`.
+#   (b) a COMPUTED discriminator — (ex-info (str reason " [" error-kw "]") …)
+#       where `error-kw` is derived (`(keyword "rf.error" (str (name kind)
+#       "-shape"))`) or arrives as a parameter of a shared throw helper. The
+#       runtime message carries the token; the source text cannot.
+#
+# Both are FALSE POSITIVES, and nothing here distinguishes them from a real
+# bypass — deciding it needs the message form evaluated, not matched. So the
+# rule is deliberately left as-is and the false-red is accepted where it lands:
+# a site pinned to a conformant-but-invisible shape carries a comment saying
+# so, and `rf2:builder-bypass-ok` remains the opt-out of last resort. The trees
+# where this currently bites are all outside the roster, but the same shape
+# under `implementation/` would false-red identically — so do NOT "fix" a site
+# to satisfy this scan without first checking what its message renders to at
+# runtime. Widening the regexes to chase (a)/(b) would mean tracking a local
+# binding and constant-folding a `str`, which buys a handful of sites at the
+# cost of a scan that can no longer be read at a glance.
 _ASSEMBLED_TOKEN_MSG_RE = re.compile(
     r'\[["\s]*:rf\.[a-z][\w.-]*/[\w.*+!?<>=-]+["\s]*\]'
 )
