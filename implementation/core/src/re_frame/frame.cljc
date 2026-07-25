@@ -806,6 +806,39 @@
       (apply f args))))
 
 ;; ---- lookup ---------------------------------------------------------------
+;;
+;; WHAT ONE DISPATCH COSTS THIS REGISTRY, RECORDED (rf2-l260n). A single
+;; `dispatch-sync` of a one-line `:db`-writing handler re-resolves the registry
+;; 124 times:
+;;
+;;     frame                                    124
+;;     frame-record-visible-to-current-actor?   125
+;;     frame-incarnation-token                  115
+;;     frame-incarnation-closing?               105
+;;
+;; Method: counting wrappers installed over those four vars for the duration of
+;; ONE dispatch, plain-atom substrate, JVM, default debug gate. Structural
+;; counts, not timings — identical on every run. (The visibility predicate runs
+;; once more than `frame` because one call arrives from a registry enumeration —
+;; `frame-meta` / `frame-ids` — rather than through `frame`.)
+;;
+;; The total points at the wrong file, so the ATTRIBUTION is the part worth
+;; keeping. 115 of the 124 arrive through `frame-incarnation-token` from
+;; `frame-incarnation-live?`, and 105 of those from `event-continuation-live?` —
+;; the liveness fence, consulted from TWENTY distinct sites in one pipeline run.
+;; The heaviest are `router/call-while-exact-owner` (22), `process-event!`'s
+;; inner continuation (21) and `prepare-handler-ctx` (9). The four router seams
+;; that already hold a frame record — `run-one-pass!`, `prepare-handler-ctx`,
+;; `commit-and-flow!`, `emit-pipeline-trailers!` — account for 20 between them.
+;;
+;; So the tempting remedy, record-taking arities at the seams that already hold
+;; the record, reaches about a sixth of the resolutions; collapsing the rest
+;; means threading an incarnation token through a chain whose widest hop
+;; (`emit-pipeline-trailers!`) already takes eight positional arguments. That
+;; trades clarity for microseconds and is DELIBERATELY NOT TAKEN — the fence
+;; density is the design: every hop that could outlive its incarnation asks. The
+;; one unconditionally free win here, dropping the literal-path `get-in` from
+;; these predicates, is already applied (rf2-sj5s7).
 
 (defn- frame-record-visible-to-current-actor?
   "True when raw registry record `f` is a live frame visible to this actor.
