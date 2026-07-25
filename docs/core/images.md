@@ -214,8 +214,7 @@ A *within*-image collision is still an error — an image must resolve cleanly t
 
     | What's wrong | Error id |
     |---|---|
-    | Two selected descriptors for one `(kind, id)` (different source namespaces) inside one image | `:rf.error/image-duplicate-id` |
-    | …except one app registration over the framework's own copy of a [replaceable default](#framework-standards-and-the-defaults-youre-meant-to-replace) — that resolves. *Two* app registrations of one default id still collide, and the mark is only honoured on a descriptor with no registration provenance | *not an error* |
+    | Two selected descriptors for one `(kind, id)` (different source namespaces) inside one image — one carve-out: an app registration over the framework's own copy of a [replaceable default](#framework-standards-and-the-defaults-youre-meant-to-replace) resolves instead, because that copy is not an app registration. *Two* app registrations of one default id still collide, and the mark is honoured only on a descriptor with no registration provenance | `:rf.error/image-duplicate-id` |
     | An inline entry colliding with a selected one (or two inline entries) in one image | `:rf.error/image-within-image-collision` |
     | An `:include` glob that matches no loaded source namespace | `:rf.error/image-zero-match` |
     | Two images sharing an `:id` in one composition | `:rf.error/image-duplicate-image-id` |
