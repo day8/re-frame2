@@ -355,8 +355,10 @@ A React element you build yourself with `react/createElement` is **not** such a
 position. Its `#js` props are the library's own ABI and the child fold passes the
 finished element through untouched, so nothing materialises a roster carrier that
 sits inside them — the library receives the carrier object itself, which is
-deliberately **not callable** (`v/event` returns a marker, not a function) and
-fails at the call. So a callback there is an ordinary closure, and it closes over
+deliberately **not the function it wraps** (`v/event` returns a marker) and so
+cannot answer the call. Calling one raises a Freehand error naming the form you
+wrote, this position, and the closure below, rather than the host's own
+`cb.call is not a function`. So a callback there is an ordinary closure, and it closes over
 `(rf/capture-frame)`'s `:dispatch` rather than calling `rf/dispatch`: the render
 scope has unwound by the time the library calls back, and the captured bundle is
 fenced to the exact frame incarnation it was taken from.

@@ -17,8 +17,10 @@
             [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]
             [re-frame.freehand.analyze-accept-cljs-test :refer [mk-env]]
+            [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.compiler.analyze :as ana]
             [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.events :as events]
             [re-frame.freehand.test :as t]
             [re-frame.router :as router]
@@ -643,6 +645,102 @@
              "a variadic v/handler still expands")
          (is (some? (events/expand-callback :event 'v/event '[x & xs] '(nil)))
              "and so does a variadic v/event")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-yn5nj — an invoked carrier NAMES the fix
+;; ---------------------------------------------------------------------------
+;;
+;; A roster carrier is deliberately not the function it wraps, so a foreign API
+;; handed one fails at the call rather than silently doing the wrong thing. That
+;; much was already true. What the failure SAID was the defect: the hosts answer
+;; a direct call with `cb.call is not a function` / a raw `ClassCastException`,
+;; naming neither the carrier nor what to write instead — and the one position
+;; that produces it, a carrier authored into a foreign element's raw
+;; `createElement` `#js` props, was PRESCRIBED by the guide for months precisely
+;; because the failure was mute (rf2-c1vvn).
+
+(defn- invoke-as-fn
+  "Invoke `f` as a function with `args` — the call a foreign API makes. The
+  head is bound as a local so neither compiler can fold the call site into a
+  compile-time diagnostic; the emitted call is the one a library really makes."
+  [f & args]
+  (apply f args))
+
+(deftest an-invoked-carrier-is-didactic-on-both-hosts
+  (testing "rf2-yn5nj. Every declared role answers a direct call with the
+            typed `:rf.error/view-bad-event`, and the message names the three
+            things a raw host TypeError cannot: the roster form that was
+            invoked, the position class that produces the mistake, and the
+            recovery to write instead."
+    (doseq [role events/callback-roles]
+      (let [carrier (events/callback role (fn [_] :body) 1)]
+        (is (events/callback? carrier) (str role " — the subject is a carrier"))
+        (is (not (fn? carrier))
+            (str role " — and is still NOT the bare function it wraps, on either host"))
+        (is (= :rf.error/view-bad-event
+               (conf/caught-id #(invoke-as-fn carrier :payload)))
+            (str role " — invoking it raises the typed diagnostic"))
+        (let [message (conf/caught-message #(invoke-as-fn carrier :payload))]
+          (is (str/includes? message (str "v/" (name role)))
+              (str role " — the message names the roster form that was invoked"))
+          (is (str/includes? message "createElement")
+              (str role " — and the position class Freehand does not walk"))
+          (is (str/includes? message "capture-frame")
+              (str role " — and the closure to write instead")))
+        (let [data (conf/caught-data #(invoke-as-fn carrier :payload))]
+          (is (= role (:role data))
+              (str role " — a tool reads the role off the ex-data, not the prose"))
+          (is (= :close-over-capture-frame-dispatch (:recovery data))
+              (str role " — and the recovery is a machine-readable disposition"))
+          (is (= (symbol "v" (name role)) (:where data))
+              (str role " — and `where` greps to the authoring form")))))))
+
+(deftest no-call-arity-escapes-the-carrier-diagnostic
+  (testing "rf2-yn5nj. The carrier is wired to the WHOLE host call protocol,
+            not the one arity a realistic mistake uses: a skipped arity would
+            fall through to the host's own `AbstractMethodError` /
+            `Invalid arity`, which is the mute message this removes,
+            reintroduced somewhere else. `events/call-protocol` is the roster's
+            one authority and `FH-CALL-001` pins its completeness for the
+            descriptor that shares it; what is proven here is that the carrier
+            reaches it at every kind of position in the roster — none, one, a
+            few, and the last fixed arity the protocol declares."
+    (let [carrier (events/callback :event (fn [_] nil) 1)]
+      (doseq [n [0 1 2 3 20]]
+        (is (= :rf.error/view-bad-event
+               (conf/caught-id #(apply invoke-as-fn carrier (repeat n :x))))
+            (str "arity " n " raises the didactic diagnostic")))
+      (is (not= conf/no-throw
+                (conf/caught-id #(apply invoke-as-fn carrier (repeat 40 :x))))
+          "past the host's own call-protocol ceiling the call still cannot
+           SUCCEED — only the message becomes the host's"))))
+
+(deftest a-carrier-is-ifn-and-nothing-classifies-on-that
+  (testing "rf2-yn5nj. Implementing the call protocol makes a carrier `ifn?`
+            on both hosts — exactly as it does for a declared view — and that
+            is a fact about callability, never a classification. Every reader
+            that decides what a value IS asks a nominal predicate, and the two
+            readers that did ask about callability name the carrier."
+    (let [carrier (v/handler [_] :imperative)]
+      (is (ifn? carrier)
+          "the carrier implements the call protocol, so `ifn?` is TRUE")
+      (is (= :handler (:role (events/event-plan carrier)))
+          "an event position still classifies it by ROLE — `callback?` is asked
+           before `fn?`, so the carrier never falls through to :bare-fn")
+      (is (= :rf.error/view-bad-head
+             (conf/caught-id #(descriptor/classify-head carrier)))
+          "a head is still refused")
+      (is (not (str/includes? (conf/caught-message #(descriptor/classify-head carrier))
+                              "A plain function is never an internal vector head"))
+          "and not as a plain function — that recovery is not the carrier's, so
+           the head diagnostic does not offer it")
+      (is (= :rf.error/behavior-bad-args
+             (conf/caught-id
+               #(behaviors/register! ::carrier-in-a-lifecycle-slot {:connect carrier})))
+          "and a behavior lifecycle slot still refuses it AT REGISTRATION rather
+           than deferring to the connect that would call it")
+      (is (not (contains? (behaviors/registered-ids) ::carrier-in-a-lifecycle-slot))
+          "non-vacuous: the refused registration installed nothing"))))
 
 ;; ---------------------------------------------------------------------------
 ;; FH-EVENT-004 — per-site committed slots and stable identity

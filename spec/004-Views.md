@@ -1772,9 +1772,15 @@ Finished React elements remain legal opaque browser-only children where the
 owning tree contract permits them. Their callbacks are ordinary captured-frame
 closures. Freehand claims no site retirement, no structural inspection, no SSR
 portability, and no compiled visibility for their internals. `v/event` and
-`v/handler` are non-callable carriers and are therefore NOT legal raw
-`createElement` callbacks; use an ordinary captured-frame closure there, with
-none of the declared-site identity or retirement claims.
+`v/handler` are carriers rather than the functions they wrap, so a call on one
+cannot **succeed**, and they are therefore NOT legal raw `createElement`
+callbacks; use an ordinary captured-frame closure there, with none of the
+declared-site identity or retirement claims. A carrier MUST implement its host's
+call protocol solely in order to throw, on the same terms
+[§A declared view cannot be called](#a-declared-view-cannot-be-called) sets for
+the descriptor, and the diagnostic MUST name the roster form, this position and
+that recovery — a raw host call failure names none of them, and this is the one
+position that produces it.
 
 This escape is deliberately weaker than `v/defhost`. It is not a second host
 API.

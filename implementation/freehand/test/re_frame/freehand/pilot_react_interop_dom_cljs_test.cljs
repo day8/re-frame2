@@ -35,6 +35,7 @@
   and says so rather than passing quietly."
   (:require ["react" :as react]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+            [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.freehand :as v]
@@ -599,7 +600,9 @@
 ;; untouched and no Freehand machinery ever looks inside `#js {…}`. The roster
 ;; forms (`v/event`, `v/handler`, …) are site-owned — they are materialised only
 ;; at prop positions Freehand itself walks — so a carrier placed in raw props
-;; reaches the library exactly as authored, and it is deliberately NOT callable.
+;; reaches the library exactly as authored, and a call on it deliberately cannot
+;; SUCCEED. Since rf2-yn5nj it cannot fail mutely either: the call raises the
+;; typed diagnostic that names this position and this recovery.
 ;;
 ;; What DOES work is an ordinary closure over `(rf/capture-frame)`'s `:dispatch`:
 ;; the render scope has unwound by the time the component calls back, so ambient
@@ -611,24 +614,45 @@
 
 (deftest a-roster-carrier-in-raw-js-props-can-never-be-called
   (testing "The NEGATIVE control, and the whole of rf2-c1vvn's claim. `v/event`
-            answers a roster CARRIER, deliberately not `IFn` on either host so
+            answers a roster CARRIER, deliberately not the function it wraps, so
             that a foreign API handed one fails at the call rather than silently
             doing the wrong thing. Nothing materialises a carrier found inside a
             foreign element's raw props — the child fold hands the element
             through IDENTICALLY, which is asserted rather than described — so
-            `props.onPing(…)` reaches a non-callable object. This is why the
-            inward path is a closure and not a roster form."
+            `props.onPing(…)` reaches a value that cannot answer it. This is why
+            the inward path is a closure and not a roster form.
+
+            What that failure SAYS is rf2-yn5nj's half: the carrier carries the
+            host call protocol in order to THROW, so the call raises the typed
+            `:rf.error/view-bad-event` naming the form, the position and the
+            recovery — where it used to raise the host's own `cb.call is not a
+            function`, a message that named none of them."
     (let [carrier (.-onPing rpilot/dead-carrier-props)]
       (is (events/callback? carrier)
           "the authored value is a roster carrier")
       (is (= :event (events/callback-role carrier)))
       (is (not (fn? carrier))
           "and it is NOT a JS function, so a library cannot call it")
-      (is (not (ifn? carrier))
-          "nor an IFn — the carrier is inert by construction")
-      (is (thrown? :default (carrier "click:dead"))
-          "invoking it the way a library would THROWS — the whole point of the
-           carrier not being callable")
+      (is (ifn? carrier)
+          "it DOES carry the host call protocol — in order to THROW, exactly as a
+           declared view does (rf2-yn5nj) — so `ifn?` is not a classification and
+           the `callback?` above is what answers what the value IS")
+      (is (= :rf.error/view-bad-event
+             (:rf.error/id (ex-data (try (carrier "click:dead")
+                                         nil
+                                         (catch :default e e)))))
+          "and invoking it the way a library would raises the TYPED diagnostic
+           rather than the host's own `cb.call is not a function`, which named
+           neither the carrier nor the fix")
+      (let [message (try (carrier "click:dead")
+                         nil
+                         (catch :default e (ex-message e)))]
+        (is (string/includes? message "v/event")
+            "the message names the roster form that was invoked")
+        (is (string/includes? message "createElement")
+            "and the position class that produces this mistake — these props")
+        (is (string/includes? message "capture-frame")
+            "and the closure the section below then proves live"))
       (let [el      (react/createElement rpilot/acme-widget rpilot/dead-carrier-props)
             ^js kid (fr/element el)]
         (is (identical? el kid)

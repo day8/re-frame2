@@ -66,7 +66,8 @@
   (:require [re-frame.error :as error]
             [re-frame.freehand.controlled :as controlled]
             [re-frame.interop :as interop]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace])
+  #?(:cljs (:require-macros [re-frame.freehand.events :refer [def-callback-type]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -364,14 +365,105 @@
 ;;
 ;; Spec 004 §Callback roles and identity (D008). Four declared forms, one
 ;; carrier. A `deftype` for the same reason the view descriptor is one:
-;; a roster value is not `IFn` on either host, so it can never be
-;; mistaken for the bare function it wraps, and a foreign API handed one
-;; by accident fails at the call rather than silently doing the wrong
-;; thing.
+;; a roster value is not the bare function it wraps, so it can never be
+;; mistaken for one, and a foreign API handed one by accident fails at
+;; the call rather than silently doing the wrong thing.
+;;
+;; What that failure SAYS is [[carrier-called-directly!]], reached through
+;; the same host call protocol the descriptor uses.
 
-(deftype Callback [role f arity]
-  Object
-  (toString [_] (str "#re-frame.freehand/callback " role)))
+#?(:clj
+   (defn ^:no-doc call-protocol
+     "The COMPLETE host call protocol as `deftype` members — the interface
+     the host checks a call against, then every arity it declares, each
+     routed to `body`. Splice into a generated `deftype` form.
+
+     THIS IS THE ROSTER'S ONE AUTHORITY, and the reason it is a shared
+     function rather than a shape each type repeats: what the roster must
+     contain is a fact about the HOST, not about any value, and a second
+     copy of it is a second thing to keep complete.
+
+     Completeness is the whole point. A skipped arity does not fall through
+     to nothing — it falls through to the host's own `AbstractMethodError`
+     (JVM) or `Invalid arity` (ClojureScript), which is the poor message the
+     `body` exists to remove, reintroduced at a different arity. The JVM's
+     `clojure.lang.IFn` declares fixed arities, a trailing `Object[]` arity
+     and `applyTo` — the one `apply` reaches, and how a React tree calls a
+     component. ClojureScript's `IFn` declares its fixed arities and REFUSES
+     a variadic one (`Bad method signature in protocol implementation`), so a
+     CLJS call carrying more arguments than the protocol declares answers
+     with the host's own `Invalid arity` — exactly as `cljs.core`'s own `IFn`
+     types do. The law that could have been threatened is that the call must
+     never SUCCEED, and it is not: at every arity, on both hosts, it raises.
+
+     A type built this way is `ifn?` — deliberately, and nothing may depend
+     on it being false. Callability is not a classification: ask
+     [[callback?]] or `descriptor/view?`, which are nominal and strictly more
+     precise."
+     [cljs? body]
+     (let [invoke (if cljs? '-invoke 'invoke)
+           this   '_this
+           args   (fn [n] (map #(symbol (str "_a" %)) (range n)))
+           meth   (fn [as] (list invoke (vec (cons this as)) body))]
+       (concat
+         [(if cljs? 'IFn 'clojure.lang.IFn)]
+         (map (comp meth args) (range 0 21))
+         ;; Both hosts close the roster with the twenty-fixed-plus-rest arity
+         ;; their call protocol declares last; on the JVM that trailing slot
+         ;; is an `Object[]`.
+         [(meth (concat (args 20)
+                        [(if cljs? '_rest (with-meta '_rest {:tag 'objects}))]))]
+         (when-not cljs?
+           [(list 'applyTo [this '_args] body)])))))
+
+(defn- carrier-called-directly!
+  "The one didactic throw an invoked roster carrier reaches (rf2-yn5nj).
+
+  Without it the hosts answer a direct call with `cb.call is not a
+  function` / a raw `ClassCastException` — which names neither the carrier
+  nor the position that produced it, and so tells an author that something
+  broke without telling them what to write instead.
+
+  There is ONE position where this happens in practice and the message
+  names it: a carrier authored into a foreign element's raw
+  `createElement` `#js` props. Those props are the LIBRARY's ABI — the
+  child fold hands a finished React element through untouched — so
+  Freehand never walks them and nothing materializes a carrier there
+  (rf2-c1vvn, pinned by
+  `re-frame.freehand.pilot-react-interop-dom-cljs-test`)."
+  [role]
+  (error/throw-error!
+    :rf.error/view-bad-event
+    (symbol "v" (name role))
+    (str "A v/" (name role) " carrier was invoked as a function. A roster callback is a "
+         "VALUE Freehand materializes at an event position it walks, not the function it "
+         "wraps, so the call cannot succeed. Reaching a caller at all means it was "
+         "authored where Freehand does not walk, and in practice that is one position: "
+         "the raw #js props of a foreign createElement call, which are the library's own "
+         "ABI. Write a plain closure over (rf/capture-frame)'s :dispatch instead — "
+         "captured DURING the render, because the render scope has unwound by the time "
+         "the library calls back — or reach the node through a v/defbehavior when the "
+         "listener's identity or its retirement is what matters.")
+    {:recovery :close-over-capture-frame-dispatch
+     :extra    {:role role}}))
+
+#?(:clj
+   (defmacro ^:no-doc def-callback-type
+     "Define the `Callback` carrier and route its every call arity to
+     [[carrier-called-directly!]].
+
+     A macro because a `deftype`'s members must be literal forms: the call
+     protocol cannot be spliced in from underneath one, so the whole
+     declaration is generated. [[call-protocol]] owns what the roster is."
+     []
+     (concat
+       (list 'deftype 'Callback '[role f arity]
+             'Object
+             (list 'toString ['_this] '(str "#re-frame.freehand/callback " role)))
+       (call-protocol (some? (:ns &env))
+                      '(re-frame.freehand.events/carrier-called-directly! role)))))
+
+(def-callback-type)
 
 #?(:clj
    (defmethod print-method Callback [c ^java.io.Writer w]
