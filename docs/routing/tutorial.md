@@ -1,7 +1,7 @@
 # Tutorial: build a routed app
 
 Build a three-page app — **home**, **articles list**, **article detail** — then add
-loaders, a 404, the Back button, and a shared layout. One idea the whole way: the
+per-page activation work, a 404, the Back button, and a shared layout. One idea the whole way: the
 URL is application state (read via a sub, change via dispatch).
 
 **Prerequisites.** [Core introduction](../core/introduction.md) (events, app-db, views).
@@ -135,8 +135,8 @@ Link by passing `:params`:
 
 ## Step 4 — give a page its data
 
-Most pages need data when they open. Declare it next to the route with `:on-match` —
-events the runtime dispatches whenever the route activates:
+Most pages need something to happen when they open. Declare it next to the route with
+`:on-match` — events the runtime **fires and forgets** whenever the route activates:
 
 ```clojure
 (rf/reg-route :app/article
@@ -145,10 +145,10 @@ events the runtime dispatches whenever the route activates:
   "/articles/:id")
 ```
 
-The loader is a normal event handler. It needs the article `:id`, which lives in the
-**route slice** in [runtime-db](../core/glossary.md#runtime-db) — the framework
-partition beside app-db. Handlers receive that partition under `:rf.db/runtime`, next
-to `:db`:
+The activation event is a normal event handler. It needs the article `:id`, which
+lives in the **route slice** in [runtime-db](../core/glossary.md#runtime-db) — the
+framework partition beside app-db. Handlers receive that partition under
+`:rf.db/runtime`, next to `:db`:
 
 ```clojure
 (def sample-articles                            ;; stand-in for your server
@@ -175,21 +175,31 @@ Detail page from Step 3 now reads the loaded article like any other state:
     [:h1 (or (:title article) "Loading…")]))
 ```
 
-No special "loader data" hook — the loader wrote to [app-db](../core/app-db.md) like
+No special "loader data" hook — the handler wrote to [app-db](../core/app-db.md) like
 every other event. `:on-match` re-fires when `:id` changes, not when you re-navigate
 to the same route with identical params — no accidental double-load.
 
+> **`:on-match` is activation work, not the loader.** The runtime dispatches these
+> events and moves on. It never waits for async work they start, never moves
+> `:rf.route/transition` or `:rf.route/error`, and never turns a handler's failure
+> into a route error — a throw surfaces on the ordinary event error channel. Data the
+> page cannot honestly render without is a *different* declaration: `:resources`,
+> which the runtime does await and does project onto the transition subs.
+> [The model → Activation work and page data](concepts.md#loaders-declaring-a-pages-data).
+
 **What you see:** click through to `/articles/intro` and the title appears. Navigate
-to another article and the loader fires again; re-navigate to the *same* one and it
+to another article and `:on-match` fires again; re-navigate to the *same* one and it
 doesn't. Open [Xray](../xray/index.md) and you'll see those dispatches on the wire.
 
-> **Loader as data.** `:on-match` is a vector of event vectors, not a function — you
-> can read it, test it, and draw a data-dependency graph without running it:
-> `(rf/handler-meta :route :app/article)`. The same events run on the server during
-> [SSR](../ssr/concepts.md). For cached server state, declare `:resources` instead —
-> [The model → Loaders](concepts.md#loaders-declaring-a-pages-data). Hand-rolling your
-> own async fetch means owning the click-away race: capture the navigation token and
-> gate delivery, or a slow reply overwrites the page you navigated to next —
+> **Activation work as data.** `:on-match` is a vector of event vectors, not a
+> function — you can read it, test it, and draw a data-dependency graph without
+> running it: `(rf/handler-meta :route :app/article)`. The same events run on the
+> server during [SSR](../ssr/concepts.md). For cached server state — a real page
+> load, awaited and reported — declare `:resources` instead:
+> [The model → Declaring the data a page needs](concepts.md#declaring-resources-instead).
+> Hand-rolling your own async fetch inside `:on-match` means owning the click-away
+> race yourself: capture the navigation token and gate delivery, or a slow reply
+> overwrites the page you navigated to next —
 > [hand-rolled async loader](concepts.md#a-hand-rolled-async-loader).
 
 ## Step 5 — when nothing matches: the 404
@@ -266,7 +276,7 @@ without each page repeating it. Nesting is **data**: a child route names a
 
 Point the detail page at a parent — and **carry the whole metadata map forward**.
 `reg-route` is full replacement, not a merge: re-registering `:app/article` with only
-`:parent` and `:params` would drop the `:on-match` loader from Step 4. Keep every key
+`:parent` and `:params` would drop Step 4's `:on-match` entry. Keep every key
 you still want:
 
 ```clojure
@@ -342,7 +352,8 @@ reach for the chain only when a shell wraps a *subtree*.
 | Change | `[:rf.route/navigate {…}]` or `route-link` | One request map (`:to` / `:params` / …) |
 | Read | `[:rf.route/id]` / `params` / `query` / … | Ordinary subs |
 | Browser | `:url-bound? true` on the frame | One owner of the address bar |
-| Data | `:on-match` or `:resources` | Loaders as data |
+| Activation | `:on-match` | Fire-and-forget event vectors |
+| Page data | `:resources` | Awaited reads, reported on `:rf.route/transition` |
 
 Full copy-paste table + mount: [The model → A complete table + root](concepts.md#a-complete-table--root).
 Growth: [unsaved changes](how-to/guard-unsaved-changes.md),

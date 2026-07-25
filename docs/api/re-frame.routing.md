@@ -194,7 +194,7 @@ This is the read-side surface over the route registry and the live route slice. 
   ```clojure
   (route-meta route-id) → metadata map or nil
   ```
-- **Description**: Return the metadata map registered for `route-id`, or `nil` if no route is registered under that id. The map carries the `:path` pattern, `:on-match`, `:params`, `:query`, `:scroll`, and `:can-leave`. It also carries the computed `:rf.route/rank` / `:rf.route/compiled` / coercion tables and the source coords. Mirrors the sibling accessors: `resource-meta` for resources, `machine-meta` for machines.
+- **Description**: Return the metadata map registered for `route-id`, or `nil` if no route is registered under that id. The map carries the `:path` pattern plus whatever the registration declared, so every [reserved metadata key](#reserved-metadata-keys) reads back from it — `:params`, `:query`, `:query-defaults`, `:tags`, `:parent`, `:on-match`, **`:can-enter`**, `:can-leave`, `:scroll`, `:sensitive`, `:large`, and the cross-feature `:head` / `:resources`. (`:can-enter` and `:parent` are the two an auth guard and a branch-composition read back most.) It also carries the computed `:rf.route/rank` / `:rf.route/compiled` / coercion tables and the source coords. Mirrors the sibling accessors: `resource-meta` for resources, `machine-meta` for machines.
 
 ### `route-algebra-view`
 

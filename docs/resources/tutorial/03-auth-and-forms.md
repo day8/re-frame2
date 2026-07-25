@@ -17,7 +17,7 @@ re-frame2 ships no forms library and no auth plugin on purpose — you'll see wh
 (ns conduit.auth
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.routing :as routing])
+            [re-frame.routing])
   (:require-macros [re-frame.core :refer [reg-view]]))
 ```
 
@@ -449,9 +449,8 @@ The point is that classifying the app-db path does *not* by itself redact the re
 ;; core.cljs — additions to Part 1's boot
 (rf/make-frame
   {:id :rf/default
-   :doc          "The Conduit app frame."
-   :url-bound?   true                          ;; the frame's routing tracks the browser URL
-   :interceptors [:conduit/auth-guard]})       ;; reference the guard registered in the next section
+   :doc        "The Conduit app frame."
+   :url-bound? true})                          ;; the frame's routing tracks the browser URL
                                                ;; :auth/initialise (above) classifies [:auth :token]
 
 (defn- saved-token []
@@ -466,9 +465,9 @@ The point is that classifying the app-db path does *not* by itself redact the re
                     {:rf.cofx {:auth.session/token (saved-token)}}))
 ```
 
-!!! note "`:interceptors` takes ids, not interceptor values"
+!!! note "Nothing to wire for the route guard"
 
-    The frame chain *references* `:conduit/auth-guard` — the id you registered the guard under (next section) — exactly the way an event's chain references interceptor ids. You register the named thing once; the frame names it. `dispatch-sync` runs the boot events synchronously so the token (and its classification) are committed before the first render, not a tick later. The `{:rf.cofx {…}}` map is the boundary stamping the declared fact: the same surface the Part 5 tests use to supply `:auth.session/token`, only here it carries the real localStorage read instead of a fixture.
+    The frame carries no auth interceptor, because the guard is metadata on the protected routes themselves (next section) — requiring the routing artefact is what makes the runtime consult it. What the boot *does* own is ordering: `dispatch-sync` runs the boot events synchronously, so the token and its classification are committed before the first render, not a tick later. The `{:rf.cofx {…}}` map is the boundary stamping the declared fact: the same surface the Part 5 tests use to supply `:auth.session/token`, only here it carries the real localStorage read instead of a fixture.
 
 !!! warning "Gotcha — forget the stamp and boot fails loud"
 
@@ -476,124 +475,63 @@ The point is that classifying the app-db path does *not* by itself redact the re
 
 ## The guard
 
-Settings and the editor should refuse to open while signed out. Route protection is an ordinary event [interceptor](../../core/glossary.md#interceptor), because every way of *reaching* a route is an event.
+Settings and the editor should refuse to open while signed out. Route protection is **route metadata**, not a hand-rolled gate: each protected route names a `:can-enter` guard, and the runtime consults it inside the one navigation planning pipeline that every door already goes through.
 
-First tag the routes that need a user (extending Part 1's registrations). `:tags` is a free-form set of keywords on the route, read by interceptors — the framework attaches no meaning to `:requires-auth`; *you* do, in the guard:
+Extend Part 1's registrations with the guard (and, while we're here, a tag — free-form classification the framework attaches no meaning to, useful when a nav-bar or a tool wants to ask "is this page protected?"):
 
 ```clojure
 (rf/reg-route :conduit.user/settings
-  {:tags     #{:requires-auth}
-   :on-match [[:settings/load]]}
+  {:tags      #{:requires-auth}
+   :can-enter [:conduit/signed-in?]
+   :on-match  [[:settings/load]]}
   "/settings")
+
+(rf/reg-sub :conduit/signed-in?
+  {:doc "The :can-enter auth guard: true when a user is signed in."}
+  :<- [:auth/user]
+  (fn [user _] (some? user)))                ;; true → OK to enter
 ```
 
-There's one trap here, and it's the kind that passes every casual test. Navigations enter the system **three** ways: programmatic `:rf.route/navigate`, link clicks (`:rf.route/url-requested`, fired by `route-link`), and the URL bar or back-button (`:rf.route/handle-url-change`, the popstate/initial-load handler).
+That is the whole gate. There is no normaliser to write, because there is nothing to normalise.
 
-!!! warning "Gotcha — gate all three entry points, not just one"
+!!! note "Why that matters more than it looks"
 
-    If you gate only the programmatic `:rf.route/navigate`, the guard *fails open* the moment someone types `/settings` into the address bar — the protected route loads with no user. The fix is to normalise all three navigation events to one shape, then gate once.
+    Navigations enter the system **three** ways: programmatic `:rf.route/navigate`, link clicks (`:rf.route/url-requested`, fired by `route-link`), and the URL bar or back-button (`:rf.route/handle-url-change`, the popstate/initial-load handler) — and `:rf.route/navigate` alone accepts three shapes, including a `{:url "/settings"}` escape hatch and an *in-place* query edit that names no route id at all. A guard written as an event interceptor has to resolve every one of those itself, and the shape it forgets is the shape that lets a signed-out visitor in. (The nastiest corner: a session that expires while the user is already on `/settings`, who then navigates in place with `?page=2` — a request carrying no route id to check.) `:can-enter` is evaluated once, in the planning pipeline all of them funnel through, so it fails **closed** by construction. `spec/012-Routing.md` is explicit that an interceptor attached only to `:rf.route/navigate` fails open.
 
-That normaliser is `nav-target` below. The link-click and URL-bar cases carry a raw URL string rather than a route id — and so can `:rf.route/navigate`, whose `{:url "/settings"}` *escape-hatch* target (deep links, redirects) is a URL, not a route id. All three lean on `routing/match-url` to turn that URL back into a route before the guard reads its `:tags`; skip it on the navigate branch and a logged-out `[:rf.route/navigate {:url "/settings"}]` walks in.
+    A frame interceptor is still right for a policy that genuinely is not about routes — a maintenance-mode lockout, a feature flag gating a whole section. That recipe lives in [Require sign-in on a route → Appendix](../../routing/how-to/require-sign-in-on-a-route.md#appendix--when-the-policy-is-not-about-routes).
 
-`:rf.route/navigate` has a **third** shape too: an *in-place* request — no `:to` and no `:url` — meaning *stay on the current route, change only the query* (search, pagination, tabs). It names no route id; the runtime resolves the target from the current route slice, so `nav-target` takes that slice (`current`) and resolves it the same way. This closes the trap's nastiest corner: a session that *expires while the user is already on `/settings`* would otherwise navigate in place (a filter toggle, `?page=2`) straight past a guard that only knows how to read route ids and URLs — the request carries no route id to tag-check. Resolved to `:conduit.user/settings`, the in-place nav is gated and the stale session is bounced to login:
+### What a refusal does, and the login bounce
+
+A refusal is **terminal**. Nothing commits — no route slice, no URL push, no `:on-match`, so `[:settings/load]` never fires — and unlike a `:can-leave` block, nothing is parked. There is no paused transition to resume, which is why nothing here can loop.
+
+The runtime dispatches `:rf.route/entry-denied` once, and it ships a no-op default handler: with the two declarations above, a signed-out click on *Settings* already does nothing at all. Replace the default to make it friendly instead of silent:
 
 ```clojure
-(defn- in-place-query
-  "Fold an in-place request's query edit onto the current query: :query
-   replaces wholesale ({} clears); :query-merge folds, a nil value dropping a
-   key; neither present carries the current query unchanged."
-  [{:keys [query query-merge]} current-query]
-  (cond
-    (some? query) query
-    query-merge   (into {} (remove (comp nil? val)) (merge current-query query-merge))
-    :else         current-query))
-
-(defn- matched-address
-  "match-url → a resolved address, or nil for a non-match OR a schema-invalid
-   match (:validation-failed? true) — which the runtime routes to not-found,
-   so the guard must not treat it as a real destination."
-  [url]
-  (when-let [{:keys [route-id params query fragment validation-failed?]} (routing/match-url url)]
-    (when-not validation-failed?
-      {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})))
-
-(defn- nav-target
-  "Normalise any navigation event to a resolved ADDRESS map —
-   {:to route-id :params m :query m :fragment s-or-nil}, the FULL route state,
-   so a login bounce-back returns to the exact URL (path, params, query, and
-   fragment). nil for a non-navigation event, a non-match, or a malformed
-   request the runtime's structural gate will reject
-   (:rf.error/navigate-bad-request) — the guard leaves those to the router
-   rather than reclassifying them. Address keys only; policy fields (:replace?,
-   :scroll, :bypass-leave?) are dropped. `current` is the current route slice
-   ([:rf.runtime/routing :current]) — an in-place request resolves against it,
-   as the runtime resolves it."
-  [[event-id a] current]
-  (case event-id
-    :rf.route/navigate
-    (let [{:keys [to url params]} a]                          ;; a is the request map
-      (cond
-        to  {:to to :params (or params {}) :query (or (:query a) {}) :fragment (:fragment a)}
-        url (matched-address url)
-        ;; in-place: no :to/:url/:params, at least one query/fragment edit.
-        (and (nil? params)
-             (or (contains? a :query) (contains? a :query-merge) (contains? a :fragment)))
-        {:to       (:route-id current)
-         :params   (or (:params current) {})
-         :query    (in-place-query a (:query current))
-         :fragment (if (contains? a :fragment) (:fragment a) (:fragment current))}
-        :else nil))                                           ;; malformed → router rejects
-    :rf.route/url-requested                                   ;; route-link click
-    (let [{:keys [to url]} a]
-      (cond
-        to  {:to to :params (or (:params a) {}) :query (or (:query a) {}) :fragment (:fragment a)}
-        url (matched-address url)))
-    :rf.route/handle-url-change (matched-address a)
-    nil))
-
-(rf/reg-interceptor :conduit/auth-guard
-  {:doc "Bounce signed-out users away from :requires-auth routes; stash the target."}
-  {:before
-   (fn [ctx]
-     ;; The route slice is framework runtime-db state — read it from the
-     ;; :rf.db/runtime coeffect so an in-place navigate request resolves
-     ;; to the protected route the user is already on.
-     (let [target      (nav-target (get-in ctx [:coeffects :event])
-                                    (get-in ctx [:coeffects :rf.db/runtime
-                                                 :rf.runtime/routing :current]))
-           needs-auth? (when target
-                         (contains? (:tags (rf/handler-meta :route (:to target))) :requires-auth))
-           signed-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
-       (if (and needs-auth? (not signed-in?))
-         (-> ctx
-             (assoc :rf/skip-handler? true)        ;; the protected route never commits
-             (assoc-in [:effects :db]              ;; stash the resolved address for the bounce-back
-                       (assoc-in (get-in ctx [:coeffects :db])
-                                 [:auth :return-to] target))
-             (assoc-in [:effects :fx]
-                       [[:dispatch [:rf.route/navigate {:to :conduit.auth/login}]]]))
-         ctx)))})
+(rf/reg-event :rf.route/entry-denied
+  {:doc "Steer a signed-out visitor to login, remembering where they were headed."}
+  (fn [{:keys [db]} [_ {:keys [destination]}]]
+    {:db (assoc-in db [:auth :return-to] destination)
+     :fx [[:dispatch [:rf.route/navigate {:to       :conduit.auth/login
+                                          :replace? true}]]]}))
 ```
 
-You register the guard once, under the id `:conduit/auth-guard` — exactly like registering an event or a sub — and then the frame's chain *references* that id. A few pieces are doing precise work:
+Three pieces are doing precise work:
 
-- **`routing/match-url`** is the URL codec from `re-frame.routing` (`(:require [re-frame.routing :as routing])`) — **not** the `rf/` front porch. It's a pure function, `url → {:route-id :params :query :fragment :validation-failed?}` (or `nil` for a URL that matches nothing), and it runs on both hosts. `matched-address` wraps it in the two rejections the guard needs: a `nil` (unknown route) **and** a `:validation-failed? true` map (a match whose path/query params fail the route's schema) are *both* non-matches — the runtime routes a validation-failed URL to not-found, so the guard must not tag-check a route it will never land on. `nav-target` uses it for the two cases that arrive as a raw URL string.
-- **The current route slice** (`current`, read from the `:rf.db/runtime` coeffect at `[:rf.runtime/routing :current]`) is what resolves an *in-place* navigate request — no `:to`/`:url` means "the route I'm already on," so the guard reads that route's id from the slice, exactly as the runtime does, then folds any `:query`/`:query-merge` edit onto the current query (`in-place-query`) before checking `:tags`. A request that is neither a destination nor a valid in-place edit resolves to `nil`, so the guard stands aside and lets the runtime's structural gate reject it with `:rf.error/navigate-bad-request` rather than reclassifying a malformed request as a valid guarded destination.
-- **`rf/handler-meta :route (:to target)`** reads the route's [registration](../../core/glossary.md#registration) metadata — including its `:tags` — without activating it. It's the same introspection path tools use, so the guard asks the registry the same question Xray would.
-- **`:rf/skip-handler? true`** tells the runtime to skip the event's own handler. For a navigation that means the protected route never commits and its `:on-match` loads (`[:settings/load]`) never fire — a signed-out user can't even trigger the route's data fetch.
-- **The stash** lands the *resolved address* — `{:to :params :query :fragment}`, the full route state — at `[:auth :return-to]`, the same spot `submit-success` read earlier, so the bounce-back returns to the exact URL (query string and `#fragment` included). The guard dispatches the login navigation instead.
+- **`:destination` is already the answer.** It is a [`:rf/route-destination`](../../../spec/Spec-Schemas.md#rfroute-destination) — the resolved address the target matched, carrying path params, query, and `#fragment` — and a valid `:rf.route/navigate` request in its own right. So the stash at `[:auth :return-to]` (the same spot `submit-success` read earlier) returns the user to the *exact* URL, and there is no `match-url` re-derivation to get wrong.
+- **`:replace? true` on the hop to login** keeps the refused URL off the back stack, so Back from `/login` doesn't bounce the visitor straight into the guard again.
+- **Register the handler bare.** `:rf.route/entry-denied` is a [replaceable framework default](../../../spec/012-Routing.md#replaceable-framework-defaults), and the framework's `:sensitive` classification of the payload's URL carriers rides across your replacement — so there is **no** `{:sensitive …}` map to add here, and your handler still sees the real values in-process.
 
-Attached frame-wide, the guard wraps every event and quietly stands aside (returns `ctx` untouched) for everything `nav-target` returns `nil` for — which is every event that isn't a navigation. [Interceptors](../../core/interceptors.md) is the deeper model.
+The return trip is an ordinary fresh navigation: the guard runs again and — now that a user is present — allows it. If the sign-in silently failed, it refuses again, which is exactly what you want.
 
 ??? info "Coming from Axios?"
 
-    Your redirect-on-401 *response* interceptor became this event interceptor, one layer up — it stops the navigation *before* any request exists. You don't wait for the server to say no; the guard already knows there's no user.
+    Your redirect-on-401 *response* interceptor is gone entirely, not relocated. The gate now sits on the route declaration, one layer above any request: it stops the navigation *before* a request exists, because it already knows there is no user.
 
-Watch it fire. Signed out, click *Settings*. In Xray the navigation's event row shows the guard short-circuiting the handler (`:rf/skip-handler?`), and the next row is the redirect dispatch to the login route. Sign in, and the ledger shows the bounce back to `/settings` — the stash paying off.
+Watch it fire. Signed out, click *Settings*. In Xray the navigation row is followed by the `:rf.route/entry-denied` dispatch and then your redirect to the login route — and no `[:settings/load]` row anywhere, because the route never committed. Sign in, and the ledger shows the bounce back to `/settings`: the stash paying off.
 
 ### A sibling guard: don't lose an unsaved draft
 
-The auth guard stops you *entering* a route. The mirror-image need — stop you *leaving* one with unsaved work — is the route's `:can-leave` hook, and the editor is the natural place for it. `:can-leave` names a subscription the runtime consults *before* navigating away; `true` allows, `false` blocks:
+`:can-enter` stops you *entering* a route. The mirror-image need — stop you *leaving* one with unsaved work — is `:can-leave`, and the editor is the natural place for it. It names a subscription the runtime consults *before* navigating away; `true` allows, `false` blocks:
 
 ```clojure
 (rf/reg-sub :editor/can-leave?
@@ -601,16 +539,29 @@ The auth guard stops you *entering* a route. The mirror-image need — stop you 
   (fn [dirty? _] (not dirty?)))              ;; clean draft → leave freely; dirty → block
 
 (rf/reg-route :conduit.editor/new
-  {:can-leave :editor/can-leave?
+  {:can-leave [:editor/can-leave?]
    :on-match  [[:editor/initialise]]}
   "/editor")
 ```
 
-When the guard blocks, the runtime parks the attempted destination in a pending-navigation slot and dispatches `:rf.route/navigation-blocked`, so you can subscribe to that slot, pop a "discard changes?" prompt, and on confirm dispatch `:rf.route/continue` — which re-issues the original navigation, this time bypassing the leave guard. (`:rf.route/cancel` clears the slot and leaves the URL put.)
+The two guards are deliberately **not** symmetric. "Really discard your draft?" is a question to the *user*, so a `:can-leave` block parks the attempted navigation in `[:rf/pending-navigation]` and waits. "Is this visitor signed in?" is a question to *application state*, answered the same way every time — so a `:can-enter` refusal parks nothing.
 
-!!! note "`:can-leave` must return a boolean — strictly"
+So when `:can-leave` blocks, the runtime dispatches `:rf.route/navigation-blocked` and you render the "discard changes?" prompt from the pending slot. Both replies carry the **pending navigation's id**:
 
-    `true` allows, `false` blocks, and **any other value blocks AND fails loud** with `:rf.error/can-leave-non-boolean`. A sub that returns `nil` (because the slice isn't seeded yet) or a truthy non-boolean won't quietly "kind of work" — it blocks the navigation and tells you why. Guard against an absent slice in the sub itself.
+```clojure
+(reg-view leave-guard-dialog []
+  (when-let [pending @(subscribe [:rf/pending-navigation])]
+    [:div.modal
+     [:p "You have unsaved changes. Leave anyway?"]
+     [:button {:on-click #(dispatch [:rf.route/cancel   (:id pending)])} "Stay"]
+     [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Discard & leave"]]))
+```
+
+A bare `[:rf.route/continue]` with no id is wrong — the runtime keys the pending slot by that id (a stale id is a safe no-op). `:rf.route/continue` re-issues the original navigation with a one-shot leave bypass; `:rf.route/cancel` drops the attempt and leaves the URL put. Full recipe, including "save & close": [Guard against unsaved changes](../../routing/how-to/guard-unsaved-changes.md).
+
+!!! note "Both guards must return a boolean — strictly"
+
+    `true` allows, `false` blocks, and **any other value blocks AND fails loud** — `:rf.error/can-leave-non-boolean` for a leave guard, `:rf.error/can-enter-non-boolean` for an entry guard. A sub that returns `nil` (because the slice isn't seeded yet) or a truthy non-boolean won't quietly "kind of work": it denies the navigation and tells you why. Guard against an absent slice in the sub itself.
 
 ## Sign out
 
