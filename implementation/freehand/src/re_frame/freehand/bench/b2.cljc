@@ -18,7 +18,7 @@
   be indistinguishable from a broken oracle.
 
     - the **capability-free arm** is inert leaves — no `sub`, no committed
-      event handler, no `(frame)` read, no `dispatch-fn`, and no host
+      event handler, no `dispatch-fn`, and no host
       capability. Every boundary omits its ViewCell, so the arm's omitted
       count is its whole boundary count.
     - the **three-read arm** is reactive boundaries carrying three

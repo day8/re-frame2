@@ -38,14 +38,13 @@
                             re-serialises every hook signature: a deliberate
                             one-time global remount wave when S3 lands (pre-
                             alpha, no shim).
-      config-fingerprint    \"cf1-\"  input: [frame-id config-source-map]
-                            — a root form's static frame plan (S1c,
-                            root-identity contract §6): the frame-root's
-                            literal :id plus its config SOURCE FORMS
-                            (:initial-events etc. as written, NOT their
-                            runtime values — config expressions evaluate
-                            at preflight; the fingerprint is what
-                            build-time plan-conflict detection compares)
+      config-fingerprint    \"cf1-\"  input: [frame-id config-map]
+                            — a root's frame plan (root-identity contract
+                            §6): the plan's :id plus its config
+                            (:initial-events etc. as given, NOT their
+                            evaluated effect — the fingerprint is what
+                            mount-preflight plan-conflict detection
+                            compares)
 
   ## Canonical serialization
 
@@ -289,11 +288,16 @@
                      :react   (vec react)}]))
 
 (defn config-fingerprint
-  "\"cf1-\" digest of a static frame plan (S1c root-identity contract §6):
-  `[frame-id config-source-map]` — the frame-root's literal `:id` plus its
-  config SOURCE forms (the props map minus `:id`, as written). Hashing the
-  source keeps the fingerprint computable with no evaluation (config
-  expressions are runtime values, evaluated at preflight); build-time
-  plan-conflict detection compares exactly this digest."
+  "\"cf1-\" digest of a frame plan (root-identity contract §6):
+  `[frame-id config-map]` — the plan's `:id` plus its config (the `:frame`
+  opts map minus `:id`). One frame, one plan: `re-frame.freehand.root`'s mount
+  preflight compares exactly this digest to decide the ratified idempotent
+  no-op from the `:rf.error/frame-payload-conflict` disagreement.
+
+  The COMPILE-tier caller went with the `frame-root` / `frame-provider`
+  analyzer arms (rf2-h1ae3), so the input is now the mount call's `:frame`
+  opt rather than a static top-region plan. The digest is unchanged: it was
+  always a function of the id and the config, and hashing them without
+  evaluating anything is what let a config expression stay a runtime value."
   [frame-id config]
   (digest "cf1-" [frame-id (or config {})]))

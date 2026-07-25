@@ -618,7 +618,7 @@
   coordinate, and a generated declaration stays a legal thing to write.
   `:reactive?` / `:view-cell` carry the **capability-elision** verdict: a
   view with no reactive site (no `sub`, no committed handler, no
-  `dispatch-fn`, no `(frame)`) omits the reactive ViewCell shell, which is
+  `dispatch-fn`) omits the reactive ViewCell shell, which is
   what compilation buys — and the omitted-cell count over a fixture is an
   assertion on an exact integer, never a threshold. `:crossings` is the
   roster of internal-view boundaries the body mounts, one entry per lexical
