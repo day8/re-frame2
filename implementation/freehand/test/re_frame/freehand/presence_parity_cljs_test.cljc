@@ -151,14 +151,17 @@
             agrees with the boundary's own marker: the node says :present and
             so does every child that asks."
     (let [t        (t/render [toast-stack {}])
+          stack    (t/find t #(= :div (:tag %)))
           presence (t/find t :rf.ui/presence)
-          card     (t/find t #(= :div (:tag %)))]
+          card     (t/find presence #(= :div (:tag %)))]
+      (is (= "stack" (:class (t/attrs stack)))
+          "the whole declaration rendered rather than throwing")
       (is (= {:phase :present :timeout-ms 300} (:rf.ui/presence presence))
           "the boundary node renders its children :present")
-      (is (= "present" (:data-phase (t/attrs (t/find presence #(= :div (:tag %))))))
+      (is (= "present" (:data-phase (t/attrs card)))
           "and the child's own read agrees with it")
-      (is (= :div (:tag card)) "the stack rendered")
-      (is (= "saved" (t/text presence))))))
+      (is (= "saved" (t/text presence))
+          "with its content in place"))))
 
 (deftest the-timeout-must-be-legal
   (testing "The interpreted `v/presence` enforces the same terminal-bound
