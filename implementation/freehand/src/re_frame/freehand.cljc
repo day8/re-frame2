@@ -127,8 +127,8 @@
                        ;; back from it.
                        [re-frame.freehand.to-react :as to-react]]))
   #?(:cljs (:require-macros [re-frame.freehand
-                             :refer [defbehavior defview event handler render-fn
-                                     render-static]])))
+                             :refer [custom-element defbehavior defview event
+                                     handler render-fn render-static]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -566,6 +566,52 @@
      Per [Spec 004 §The descriptor and `v/defview`](../../../../spec/004-Views.md)."
      [sym & more]
      (expand-defview &form &env (meta &form) *file* (ns-name *ns*) sym more)))
+
+#?(:clj
+   (defmacro custom-element
+     "(custom-element tag {:properties #{:help-text …}})
+
+     Declare which of a custom element's props are JS **properties** rather
+     than attributes — the one fact about a web component Freehand cannot
+     read off the element and will not guess.
+
+         (v/custom-element :ui-slider {:properties #{:scale :on-detail}})
+
+         [:ui-slider {:scale {:min 0 :max 10}   ; a PROPERTY: set verbatim
+                      :aria-label \"Volume\"}]    ; an attribute, as always
+
+     A web component's rich inputs are properties: `el.scale = {…}` is how a
+     map, a vector or a host object gets in, and nothing about the keyword
+     `:scale` says so. Undeclared, the name travels the attribute grammar —
+     which passes an unrecognized kebab spelling through verbatim, so React
+     writes the ATTRIBUTE `scale`, the element's setter never runs, and the
+     component mounts renderable but inert with nothing reported. Camelising
+     the key by hand gets the browser right and the SERVER wrong: a server
+     cannot set a property, so a declared property is OMITTED from markup and
+     applied at hydration, and only a declaration says which props those are.
+
+     ONE declaration answers every path — a compiled literal props map, an
+     interpreted body's attributes, a `v/spread` or `v/spread-safe` forwarded
+     map, the React writer, and the JVM structural tree the SSR serialiser
+     folds. A declared name keeps its authored kebab key in the structural
+     tree and its VALUE verbatim, outside the attribute-value grammar (which
+     is what makes the map above legal), and reaches the DOM under the ruled
+     camelCase property name — `:help-text` sets `helpText`.
+
+     Top-level and compile-resolvable, and it registers the way `v/defview`
+     does. The tag is an unqualified keyword containing `-`, the options map
+     is LITERAL, and `:properties` is the WHOLE v1 grammar — an unknown key,
+     a namespaced tag or a runtime map is `:rf.ui.compile/bad-custom-element`.
+     Undeclared names are attributes and an undeclared ELEMENT needs no
+     declaration at all, so declaring is only ever the exception. One tag has
+     one property manifest: two sources declaring it differently is
+     `:rf.ui.compile/custom-element-conflict` at build and
+     `:rf.error/custom-element-conflict` at registration, never a winner
+     picked by load order.
+
+     Per [Spec 004B §Custom elements](../../../../spec/004B-UI-Tree-and-Conversion.md)."
+     [tag opts]
+     (compiler/custom-element* &form &env tag opts)))
 
 ;; ---------------------------------------------------------------------------
 ;; Descriptor inspection — the public reads
