@@ -15,14 +15,23 @@ Two independent guards live here, and the difference between them matters:
       every id is well-formed, unique, filed under its own area, cites a real
       spec anchor, and names a fixture file that exists.
     * The EXECUTION CENSUS (`census`) reconciles the index against the suites
-      that RUN it — that every active row's fixture is actually read by a test,
-      and that every host the row claims is served by a lane one of those tests
-      runs in.
+      that RUN it — that every active row's fixture is reached by an ASSERTION,
+      and that the assertions reaching it run in lanes serving every
+      mode/host cell the row claims.
 
 Neither executes a fixture; running a law is the harness's job
 (`spec/conformance/freehand/README.md` §What this is not).  What the census adds
 is the missing edge between the ledger and the runs: without it a row can name a
 real fixture nobody ever reads, and the structural check will call that green.
+
+The census reads FORMS, not characters, and the distinction is the whole of its
+credibility.  A scan of raw source counts a commented-out proof, a `#_`-discarded
+one, an id written in a docstring, and a `def` no test ever reads — four ways to
+delete a law's proof while leaving its row standing.  It also has to read the
+reader: a `#?(:clj (deftest …))` in a `.cljc` suite is discovered by both runners
+and asserts in only one, so taking the lane from the filename credits the row
+with a lane it never enters.  Both readings are enforced below, and both are
+self-tested with the DEFECT KIND pinned, not just the count.
 
 An id is an address.  An address that resolves to nothing is worse than no
 address at all, so this guard fails the build when:
@@ -61,10 +70,17 @@ and, from the execution census:
                              `implementation/freehand/test/` reads.  The row
                              names a file, the file exists, and nothing asserts
                              against it: a law proven by nobody.
-    * UNEXECUTED HOST      — an `active` row claims a host no lane among its
-                             proving tests serves.  A `common jvm browser` row
-                             read only from a `.cljs` suite is a claim about the
-                             JVM that the JVM never sees.
+    * DEAD PROOF SITE      — the id IS written in a suite, and no `deftest`
+                             reaches it: commented out, `#_`-discarded, sitting
+                             in a docstring, or bound to a name nothing asserts
+                             on.  The shape a text scan calls proof.
+    * UNEXECUTED CELL      — an `active` row claims a (mode, host) cell that no
+                             lane among its ASSERTING tests serves.  A
+                             `common jvm browser` row read only from a `.cljs`
+                             suite is a claim about the JVM the JVM never sees;
+                             so is one whose only assertion sits in a
+                             `#?(:clj …)` arm, which never enters the node lane
+                             that proves the browser column's structural cell.
     * DANGLING PROOF       — a test reads a fixture for an id the index does not
                              carry as an `active` row (a deleted or retired law
                              whose suite outlived it).
@@ -181,9 +197,294 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 # manifest is DERIVED, so it cannot drift from the tests, and a second copy of
 # the mapping — which is what a hand-kept manifest is — cannot go stale because
 # it does not exist.
-_PROOF_SITE_RE = re.compile(r"\(\s*(?:[A-Za-z0-9.*+!_'?<>=-]+/)?fixture\s+(:FH-[A-Z]+-\d{3})\b")
+#
+# But a site is not a proof.  What makes a row proven is that an ASSERTION runs
+# against the fixture, and four shapes are indistinguishable from a proof to a
+# scan that reads characters:
+#
+#     ;; (conf/fixture :FH-CALL-001)              a comment
+#     #_(conf/fixture :FH-CALL-001)               a reader-discarded form
+#     (def unused (conf/fixture :FH-CALL-001))    a def no test ever reads
+#     "see (conf/fixture :FH-CALL-001)"           a docstring
+#
+# The first three are the false greens a merged-PR audit found in the previous
+# reading of this census, and the fourth is the same mistake waiting.  Each one
+# would let a law be retired by deletion — comment out the assertions, keep the
+# line — with the gate still calling the row proven.
+#
+# So the scan reads FORMS.  `_strip` blanks comments, string and character
+# literals and `#_`-discarded data; `_top_level_forms` splits what survives on
+# balanced parens; and a site counts only when it is REACHABLE FROM A `deftest`
+# — written inside one, or bound to a name a `deftest` uses, directly or through
+# a helper the test calls.  A file carrying no `deftest` proves nothing, whatever
+# its name.
+_FIXTURE_CALL_RE = re.compile(
+    r"\(\s*(?:[A-Za-z0-9.*+!_'?<>=-]+/)?fixture\s+(:FH-[A-Z]+-\d{3})\b"
+)
+# `(def x …)`, `(defn- helper …)`, `(defonce …)` — the top-level forms that BIND
+# a name, so a fixture read in one is reachable from a test that names it.  The
+# optional `^:private` / `^{:doc …}` metadata sits between the head and the name.
+_DEFINER_RE = re.compile(
+    r"^\(\s*(?:def|def-|defn|defn-|defonce|defmacro)\s+"
+    r"(?:\^:?[A-Za-z0-9*+!_'?<>=.:/-]+\s+|\^\{[^}]*\}\s+)*"
+    r"([A-Za-z0-9*+!_'?<>=.<>-]+)"
+)
+_DEFTEST_RE = re.compile(r"^\(\s*deftest\b")
+# Clojure symbol characters.  Deliberately generous: this reads a form for the
+# NAMES it mentions, and a name matched too widely costs a spurious edge in the
+# reachability graph, never a missed one.
+_SYMBOL_RE = re.compile(r"[A-Za-z*+!_'?<>=][A-Za-z0-9*+!_'?<>=.$-]*")
 
 _CLJ_SUFFIXES = (".clj", ".cljc", ".cljs")
+
+
+def _strip(text: str) -> str:
+    """Blank everything that LOOKS like code and is not.
+
+    Returns a string of the same length as `text` — offsets are preserved, so
+    the result can be scanned for forms and reported against the original — with
+    line comments, string literals, character literals, regex literals and
+    `#_`-discarded data replaced by spaces.  Newlines survive so a line number
+    still means something.
+
+    Same length, not same shape, is the contract: paren balance is preserved
+    because a `(` inside a string or after a `\\` was never a paren.
+    """
+    out = list(text)
+    n = len(text)
+    i = 0
+    while i < n:
+        c = text[i]
+        if c == ";":
+            while i < n and text[i] != "\n":
+                out[i] = " "
+                i += 1
+        elif c == "\\":
+            # A character literal: `\(`, `\"`, `\space`.  The backslash stays so
+            # the token is still one token; the payload is blanked so a `\(`
+            # cannot open a form.
+            i += 1
+            if i < n:
+                out[i] = " "
+                i += 1
+        elif c == '"':
+            # Keep both delimiters — a discarded `#_"x"` needs a findable extent
+            # — and blank the body.
+            i += 1
+            while i < n:
+                if text[i] == "\\":
+                    out[i] = " "
+                    i += 1
+                    if i < n:
+                        out[i] = " "
+                        i += 1
+                    continue
+                if text[i] == '"':
+                    i += 1
+                    break
+                out[i] = " "
+                i += 1
+        else:
+            i += 1
+
+    # `#_` discards the NEXT datum, and `#_#_` discards two.  Done after the pass
+    # above so the datum's extent is read off code, never off a comment.
+    cleaned = "".join(out)
+    while True:
+        at = cleaned.find("#_")
+        if at < 0:
+            break
+        end = _datum_end(cleaned, at + 2)
+        cleaned = (
+            cleaned[:at]
+            + _blank(cleaned[at:end])
+            + cleaned[end:]
+        )
+    return cleaned
+
+
+def _blank(chunk: str) -> str:
+    """`chunk` with everything but its newlines replaced by spaces."""
+    return "".join("\n" if c == "\n" else " " for c in chunk)
+
+
+_OPENERS = {"(": ")", "[": "]", "{": "}"}
+
+
+def _datum_end(text: str, start: int) -> int:
+    """The index one past the datum beginning at or after `start`.
+
+    Whitespace and stacked `#_`s are skipped first, so `#_ #_ a b` discards both
+    `a` and `b` the way the reader does.
+    """
+    i = start
+    n = len(text)
+    while i < n:
+        if text[i].isspace():
+            i += 1
+        elif text.startswith("#_", i):
+            i = _datum_end(text, i + 2)
+        else:
+            break
+    if i >= n:
+        return n
+    # A reader macro prefix (`#`, `'`, `` ` ``, `~`, `@`, `^meta`) belongs to the
+    # datum that follows it.
+    while i < n and text[i] in "#'`~@^":
+        i += 1
+        if i < n and text[i] == "@":
+            i += 1
+    if i < n and text[i] in _OPENERS:
+        return _form_end(text, i)
+    if i < n and text[i] == '"':
+        j = i + 1
+        while j < n and text[j] != '"':
+            j += 1
+        return min(j + 1, n)
+    while i < n and not text[i].isspace() and text[i] not in "()[]{}":
+        i += 1
+    return i
+
+
+def _form_end(text: str, start: int) -> int:
+    """The index one past the balanced form opening at `start`."""
+    depth = 0
+    i = start
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c in _OPENERS:
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return n
+
+
+def _top_level_forms(cleaned: str) -> list[str]:
+    """Every balanced top-level form in `cleaned`, in source order."""
+    forms: list[str] = []
+    i = 0
+    n = len(cleaned)
+    while i < n:
+        if cleaned[i] == "(":
+            end = _form_end(cleaned, i)
+            forms.append(cleaned[i:end])
+            i = end
+        else:
+            i += 1
+    return forms
+
+
+def _branch(body: str, platform: str) -> str:
+    """The branch of a reader conditional's `body` that `platform` reads.
+
+    Falls back to `:default`, and answers empty when the conditional names
+    neither — which is the honest reading: the form is not there at all on that
+    platform.
+    """
+    items: list[str] = []
+    i, n = 0, len(body)
+    while i < n:
+        if body[i].isspace():
+            i += 1
+            continue
+        end = _datum_end(body, i)
+        if end <= i:
+            break
+        items.append(body[i:end])
+        i = end
+    fallback = ""
+    for k in range(0, len(items) - 1, 2):
+        if items[k].strip() == ":" + platform:
+            return items[k + 1]
+        if items[k].strip() == ":default":
+            fallback = items[k + 1]
+    return fallback
+
+
+def _read_as(cleaned: str, platform: str) -> str:
+    """`cleaned` as `platform` READS it — every `#?` / `#?@` conditional reduced
+    to its branch.
+
+    This is where a `.cljc` file stops being one file.  A
+    `#?(:clj (deftest …))` runs on the JVM and NOWHERE else, so a row proven only
+    inside that branch is not proven in the node lane however the file is named —
+    and the reverse for `#?(:cljs …)`.  Deriving the lane from the filename alone
+    credits a row with a lane it never enters.
+    """
+    out: list[str] = []
+    i, n = 0, len(cleaned)
+    while i < n:
+        if cleaned.startswith("#?(", i) or cleaned.startswith("#?@(", i):
+            open_at = cleaned.index("(", i)
+            end = _form_end(cleaned, open_at)
+            out.append(_read_as(_branch(cleaned[open_at + 1:end - 1], platform),
+                                platform))
+            i = end
+        else:
+            out.append(cleaned[i])
+            i += 1
+    return "".join(out)
+
+
+# Which lanes can run a form the given platform reads.  Crossed with the lanes
+# the FILE runs in (`_lanes_for`), this is what a proof site actually reaches.
+_PLATFORM_LANES: dict[str, frozenset[str]] = {
+    "clj": frozenset({"jvm"}),
+    "cljs": frozenset({"node", "browser"}),
+}
+
+
+def _platforms(path: Path) -> tuple[str, ...]:
+    if path.suffix == ".clj":
+        return ("clj",)
+    if path.suffix == ".cljs":
+        return ("cljs",)
+    return ("clj", "cljs")
+
+
+def _proven_ids(text: str, platform: str) -> set[str]:
+    """The fixture ids a file's TESTS reach when the file is read as `platform`.
+
+    Reachability starts at the `deftest` forms and follows named bindings: a
+    `(def props-001 (conf/fixture :FH-PROPS-001))` counts when a test names
+    `props-001`, and so does a `defn-` helper the test calls that reads a fixture
+    of its own.  Nothing else counts — which is the point.  A fixture id is a
+    claim that a law is PROVEN, and a form no assertion can reach proves nothing
+    however it is spelled.
+    """
+    cleaned = _read_as(_strip(text), platform)
+    definitions: dict[str, tuple[set[str], set[str]]] = {}
+    tests: list[str] = []
+
+    for form in _top_level_forms(cleaned):
+        ids = {k[1:] for k in _FIXTURE_CALL_RE.findall(form)}
+        if _DEFTEST_RE.match(form):
+            tests.append(form)
+            continue
+        binder = _DEFINER_RE.match(form)
+        if binder:
+            definitions[binder.group(1)] = (ids, set(_SYMBOL_RE.findall(form)))
+
+    proven: set[str] = set()
+    seen: set[str] = set()
+    frontier: list[str] = []
+    for form in tests:
+        proven |= {k[1:] for k in _FIXTURE_CALL_RE.findall(form)}
+        frontier.extend(_SYMBOL_RE.findall(form))
+    while frontier:
+        name = frontier.pop()
+        if name in seen or name not in definitions:
+            continue
+        seen.add(name)
+        ids, refs = definitions[name]
+        proven |= ids
+        frontier.extend(refs)
+
+    return proven
 
 # Which lane runs a test file, derived from the three discovery rules in force —
 # not asserted here, mirrored from where they are actually configured:
@@ -199,25 +500,6 @@ _CLJ_SUFFIXES = (".clj", ".cljc", ".cljs")
 #            listeners.
 LANES: tuple[str, ...] = ("jvm", "node", "browser")
 
-# Which lanes serve a host token, from the host/mode matrix in
-# `spec/008-Testing.md` §The host/mode matrix.  Two readings there are load
-# bearing and neither is this script's invention:
-#
-#   * The `browser` column's STRUCTURAL cell "is the host-neutral tree proven in
-#     the node runtime; it needs no real DOM".  So the node lane serves
-#     `browser`, and the Chromium lane serves the mounted cell of the same
-#     column.
-#   * The `ssr` column is "structural tree -> 011": the runner proves the tree —
-#     and for Freehand the JVM render IS the server shell — while 011 owns
-#     emission and hydration.  So the JVM lane serves `ssr`.
-#   * A qualified host is opaque to the structural render and is "proven by
-#     connecting the real behaviour or wrapper in a browser", so `host:<name>`
-#     is served by the browser lane alone.
-HOST_LANES: dict[str, frozenset[str]] = {
-    "jvm": frozenset({"jvm"}),
-    "browser": frozenset({"node", "browser"}),
-    "ssr": frozenset({"jvm"}),
-}
 _QUALIFIED_HOST_LANES = frozenset({"browser"})
 
 
@@ -567,23 +849,88 @@ def _lanes_for(path: Path) -> frozenset[str]:
     return frozenset()
 
 
-def _scan_proof_sites(repo_root: Path) -> dict[str, list[Path]]:
-    """Map each `FH` id to the test files whose source reads its fixture."""
-    sites: dict[str, list[Path]] = {}
+def _scan_proof_sites(
+    repo_root: Path,
+) -> tuple[dict[str, list[tuple[Path, frozenset[str]]]], dict[str, list[Path]]]:
+    """`(proving, dead)` — for each `FH` id, the test files whose ASSERTIONS
+    reach its fixture PAIRED WITH THE LANES those assertions run in, and the
+    files that name it where no assertion can reach it.
+
+    A file's lanes and a proof's lanes are not the same set.  The file's come
+    from where the runners discover it; the proof's are those crossed with the
+    platforms whose reading of the file contains the reaching test.  A
+    `#?(:clj (deftest …))` in a `-cljs-test.cljc` file is discovered by both
+    runners and asserts in only one.
+    """
+    proving: dict[str, list[tuple[Path, frozenset[str]]]] = {}
+    dead: dict[str, list[Path]] = {}
     test_root = repo_root / TESTS_REL
     if not test_root.is_dir():
-        return sites
+        return proving, dead
     for path in sorted(test_root.rglob("*")):
-        if path.suffix not in _CLJ_SUFFIXES or not _lanes_for(path):
+        file_lanes = _lanes_for(path)
+        if path.suffix not in _CLJ_SUFFIXES or not file_lanes:
             continue
         text = path.read_text(encoding="utf-8")
-        for keyword in sorted(set(_PROOF_SITE_RE.findall(text))):
-            sites.setdefault(keyword[1:], []).append(path)
-    return sites
+        reached: dict[str, set[str]] = {}
+        for platform in _platforms(path):
+            for row_id in _proven_ids(text, platform):
+                reached.setdefault(row_id, set()).update(
+                    file_lanes & _PLATFORM_LANES[platform]
+                )
+        for row_id, lanes in sorted(reached.items()):
+            proving.setdefault(row_id, []).append((path, frozenset(lanes)))
+        # Named but unreachable — the shape a commented-out, reader-discarded or
+        # never-read fixture leaves behind.  Read off the RAW text: the whole
+        # point is to see what `_strip` threw away.
+        for keyword in sorted(set(_FIXTURE_CALL_RE.findall(text))):
+            if keyword[1:] not in reached:
+                dead.setdefault(keyword[1:], []).append(path)
+    return proving, dead
 
 
-def _host_lanes(host: str) -> frozenset[str]:
-    return HOST_LANES.get(host, _QUALIFIED_HOST_LANES)
+def _cell_lanes(mode: str, host: str) -> frozenset[str]:
+    """The lanes that execute the tier proving the `(mode, host)` cell.
+
+    An applicability cell is a pair, not two independent claims, so this is the
+    ONE authority the census asks — there is no mode-blind reading of a host
+    beside it to disagree with.  Every reading below is Spec 008 §The host/mode
+    matrix, not this script's invention:
+
+        Mode \\ Host | jvm        | browser              | ssr        | qualified
+        common      | structural | structural           | tree -> 011| mounted
+        interpreted | structural | structural · mounted | tree -> 011| mounted
+        compiled    | structural | structural · mounted | tree -> 011| mounted
+
+    * The `browser` column's STRUCTURAL cell "is the host-neutral tree proven in
+      the node runtime; it needs no real DOM", so the node lane serves it and
+      the Chromium lane serves the mounted cell of the same column.
+    * `common` is ONE cell, not two arms — "the law binds identically in both
+      modes" — so a `common` row is proven once, at the structural tier.  It has
+      no mounted cell; `interpreted` and `compiled` name both tiers on
+      `browser`, so either lane serves those.
+    * `ssr` is "structural tree -> 011": the runner proves the tree — and for
+      Freehand the JVM render IS the server shell — while 011 owns emission and
+      hydration.  So the JVM lane serves `ssr`.
+    * A qualified host is opaque to the structural render and is "proven by
+      connecting the real behaviour or wrapper in a browser", so `host:<name>`
+      is served by the browser lane alone.
+
+    What the mode axis does NOT do here is demand two executions of one law.
+    That reading is available and it is wrong: the matrix gives `common` a single
+    cell per host, and a `common` row is a claim that ONE proof binds in both
+    modes.  Nor is the mode token verifiable by asking which lowering a proof
+    drives — `FH-DIAG-001` is a `compiled` law proven through the compile
+    CHECKER, over declarations that deliberately carry no `{:compiled true}`, so
+    a "compiled rows must render a compiled view" rule would red an honest row
+    and push the next author into writing a compiled twin for the gate's benefit.
+    """
+    if host in ("jvm", "ssr"):
+        return frozenset({"jvm"})
+    if host == "browser":
+        return (frozenset({"node"}) if mode == "common"
+                else frozenset({"node", "browser"}))
+    return _QUALIFIED_HOST_LANES
 
 
 def _scan_citations(repo_root: Path) -> dict[str, list[Path]]:
@@ -608,11 +955,12 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
 
     The manifest is DERIVED — from the `(conf/fixture :FH-…)` sites in
     `implementation/freehand/test/` and the lane each file runs in — so there is
-    no second copy of the mapping to keep in step.  Five facts fall out, and each
-    is a defect shape: a row nothing reads, a row read only from lanes that do
-    not serve the hosts it claims, a fixture or a proof site left behind by a row
-    that no longer exists, a roster area holding no proven law at all, and an id
-    the corpus cites that the index does not carry.
+    no second copy of the mapping to keep in step.  Seven facts fall out, and
+    each is a defect shape: a row nothing reads, a row whose id is written where
+    no assertion can reach it, a row asserted only from lanes that do not serve
+    the (mode, host) cells it claims, a fixture or a proof site left behind by a
+    row that no longer exists, a roster area holding no proven law at all, and an
+    id the corpus cites that the index does not carry.
 
     Only `active` rows are CLAIMS, so only they are reconciled against the
     suites.  A `retired` row is a burnt id: it proves nothing and needs no
@@ -625,7 +973,7 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
 
     all_rows = _parse_rows(index)
     rows = [(n, i, a, f) for n, i, a, f, status in all_rows if status == "active"]
-    sites = _scan_proof_sites(repo_root)
+    sites, dead_sites = _scan_proof_sites(repo_root)
     defects: list[str] = []
     table: list[tuple[str, str, str, str, str]] = []
 
@@ -635,10 +983,21 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
         hosts = [t for t in tokens if t not in MODE_TOKENS]
         proving = sites.get(row_id, [])
         lanes: set[str] = set()
-        for path in proving:
-            lanes |= _lanes_for(path)
+        for _path, proof_lanes in proving:
+            lanes |= proof_lanes
 
-        if not proving:
+        if not proving and row_id in dead_sites:
+            where = ", ".join(
+                p.relative_to(repo_root).as_posix() for p in dead_sites[row_id]
+            )
+            defects.append(
+                f"  DEAD PROOF SITE: {INDEX_REL.as_posix()}:{line_no} [{row_id}] "
+                f"is named in {where}, but no `deftest` there reaches it - the "
+                "reference is commented out, reader-discarded, or bound to a "
+                "name nothing asserts on.  A law is proven by an assertion "
+                "RUNNING against its fixture, not by the id appearing in a file"
+            )
+        elif not proving:
             defects.append(
                 f"  UNPROVEN ROW: {INDEX_REL.as_posix()}:{line_no} [{row_id}] "
                 f"no test under {TESTS_REL.as_posix()}/ reads `{fixture}` - an "
@@ -647,22 +1006,24 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
             )
         else:
             for host in hosts:
-                serving = _host_lanes(host)
-                if not (lanes & serving):
-                    defects.append(
-                        f"  UNEXECUTED HOST: {INDEX_REL.as_posix()}:{line_no} "
-                        f"[{row_id}] claims host `{host}`, served by the "
-                        f"{'/'.join(sorted(serving))} lane(s), but its fixture "
-                        f"is read only from the {'/'.join(sorted(lanes))} "
-                        "lane(s) - narrow the applicability cell or prove the "
-                        "law where it claims to bind"
-                    )
+                serving = _cell_lanes(mode, host)
+                if lanes & serving:
+                    continue
+                defects.append(
+                    f"  UNEXECUTED CELL: {INDEX_REL.as_posix()}:{line_no} "
+                    f"[{row_id}] claims the `{mode}` x `{host}` cell, which "
+                    f"the {'/'.join(sorted(serving))} lane(s) prove (Spec 008 "
+                    "#the-hostmode-matrix), but the tests that ASSERT on its "
+                    f"fixture run in the {'/'.join(sorted(lanes)) or 'no'} "
+                    "lane(s) - narrow the applicability cell or prove the law "
+                    "where it claims to bind"
+                )
         table.append((
             row_id,
             mode,
             " ".join(hosts),
             ",".join(l for l in LANES if l in lanes) or "-",
-            ", ".join(p.name for p in proving) or "-",
+            ", ".join(p.name for p, _ in proving) or "-",
         ))
 
     # Acceptance: no area is empty.  Every structural rule above is satisfied by
@@ -681,7 +1042,7 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
     active_ids = {row_id for _, row_id, _, _ in rows}
     for row_id in sorted(set(sites) - active_ids):
         where = ", ".join(
-            p.relative_to(repo_root).as_posix() for p in sites[row_id]
+            p.relative_to(repo_root).as_posix() for p, _ in sites[row_id]
         )
         defects.append(
             f"  DANGLING PROOF: {where} reads a fixture for [{row_id}], which "
@@ -733,8 +1094,9 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
         sys.stdout.write(
             f"\n{len(table)} APPLICABLE row(s) - every `active` row, the ones "
             "whose laws bind - of which "
-            f"{sum(1 for r in table if r[3] != '-')} have an executed applicable "
-            f"arm.  {len(all_rows)} row(s) in the index in total; the remaining "
+            f"{sum(1 for r in table if r[3] != '-')} are reached by an ASSERTION "
+            "in a lane serving every mode/host cell they claim.  "
+            f"{len(all_rows)} row(s) in the index in total; the remaining "
             f"{len(all_rows) - len(table)} are addressed ids that do not bind "
             "(`retired`, `planned`) and are not applicable rows.\n"
         )
@@ -757,9 +1119,9 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
         burnt = len(all_rows) - len(rows)
         sys.stderr.write(
             f"Freehand conformance census OK: {len(table)} APPLICABLE row(s) "
-            f"across {len(AREAS)} area(s), none empty, each read by a test in "
-            f"every lane its hosts name; {burnt} further id(s) addressed but not "
-            "binding.\n"
+            f"across {len(AREAS)} area(s), none empty, each reached by an "
+            "assertion in a lane serving every mode/host cell it claims; "
+            f"{burnt} further id(s) addressed but not binding.\n"
         )
 
     return len(defects)
@@ -854,6 +1216,7 @@ def _write_census_fixture(
     test_dir.mkdir(parents=True, exist_ok=True)
     filler = "".join(
         f"(def fx-{area.lower()} (conf/fixture :{_filler_id(area)}))\n"
+        f"(deftest filler-{area.lower()} (is (seq fx-{area.lower()})))\n"
         for area in AREAS
         if area not in sections
     )
@@ -872,13 +1235,23 @@ def _write_census_fixture(
 
 
 def _proof(row_id: str = "FH-CALL-001") -> str:
-    return f"(ns x)\n(def fx (conf/fixture :{row_id}))\n"
+    """A real proof: a fixture bound to a name, and a `deftest` that asserts on
+    it.  The binding ALONE is not a proof, which is what several cases below
+    exist to say — so the green fixtures have to be honest about it too, or the
+    census is being self-tested against the very shape it is meant to reject."""
+    name = f"fx-{row_id.lower()}"
+    return (
+        f"(ns x)\n"
+        f"(def {name} (conf/fixture :{row_id}))\n"
+        f"(deftest proves-{row_id.lower()} (is (seq {name})))\n"
+    )
 
 
 def _build_census_fixtures(base: Path) -> None:
-    """One mini-repo per census rule.  Each pins exactly one reading of the
-    host/mode matrix, so a change to `HOST_LANES` or `_lanes_for` that is not
-    also a change to Spec 008 fails here first."""
+    """One mini-repo per census rule.  Each pins exactly one reading — of the
+    host/mode matrix, or of what counts as a proof — so a change to
+    `_cell_lanes`, `_lanes_for` or the form scan that is not also a change to
+    Spec 008 fails here first."""
     cases: dict[
         str, tuple[dict[str, str], dict[str, str], tuple[str, ...], tuple[str, ...]]
     ] = {
@@ -910,8 +1283,67 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
+        # Green: the proving `deftest` lives in a `#?(:clj …)` arm, and the row
+        # claims only cells the JVM lane proves.  The narrowing has to be a
+        # narrowing, not a refusal.
+        "census_reader_conditional_clj_arm_serves_jvm": (
+            {"CALL": _row(applicability="common jvm ssr")},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "#?(:clj (deftest t (is (seq fx))))\n"},
+            (),
+            (),
+        ),
         # Red: the row names a real fixture nobody reads.
         "census_unproven_row": ({"CALL": _row()}, {}, (), ()),
+        # Red: the id is there, the assertions are not.  A law retired by
+        # commenting out its proof, with the row left standing.
+        "census_commented_proof_site": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 ";; (def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is true))\n"},
+            (),
+            (),
+        ),
+        # Red: a reader-discarded form.  It survives every text scan and the
+        # reader never sees it.
+        "census_discarded_proof_site": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "#_(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is true))\n"},
+            (),
+            (),
+        ),
+        # Red: the fixture is read, bound, and never asserted on - the dead def.
+        # The file has real tests; none of them names `fx`.
+        "census_dead_def": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= 1 1)))\n"},
+            (),
+            (),
+        ),
+        # Red: the id appears inside a docstring.  Prose about a law is not a
+        # proof of it, and prose is where an id is MOST likely to be written.
+        "census_proof_site_in_a_docstring": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": '(ns x "see (conf/fixture :FH-CALL-001)")\n'
+                                 "(deftest t (is true))\n"},
+            (),
+            (),
+        ),
+        # Red: the missing arm.  A `common jvm browser` row whose only assertion
+        # is in a `#?(:clj …)` arm never enters the node lane, so the browser
+        # cell - structural, proven in the node runtime - is unproven, however
+        # the file is named.
+        "census_reader_conditional_hides_the_browser_arm": (
+            {"CALL": _row(applicability="common jvm browser")},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "#?(:clj (deftest t (is (seq fx))))\n"},
+            (),
+            (),
+        ),
         # Red: a `common jvm browser` row read only from a mounted `.cljs`
         # suite — node and browser, never the JVM it claims.
         "census_unexecuted_host": (
@@ -1105,45 +1537,73 @@ def _run_self_tests(verbose: bool = False) -> int:
         # A block before the first section orphans both its header and its row.
         ("orphan_row", 2),
     ]
-    census_cases: list[tuple[str, int]] = [
-        ("census_clean", 0),
-        ("census_ssr_served_by_jvm", 0),
-        ("census_qualified_host", 0),
-        ("census_planned_row_is_not_a_claim", 0),
-        ("census_unproven_row", 1),
-        ("census_unexecuted_host", 1),
-        ("census_qualified_host_needs_a_browser", 1),
-        ("census_dangling_proof", 1),
-        ("census_orphan_fixture", 1),
-        ("census_empty_area", 1),
-        ("census_dangling_citation", 1),
-        ("census_retired_row_answers_a_citation", 0),
+    # The census cases pin the defect KIND as well as the count, because this
+    # guard exists to stop a green being read off the wrong evidence and a
+    # self-test that only counts makes exactly that mistake about itself.  Six of
+    # these cases red at 1 defect for two different reasons, and only one of them
+    # is the reason the case was written for.
+    census_cases: list[tuple[str, int, str | None]] = [
+        ("census_clean", 0, None),
+        ("census_ssr_served_by_jvm", 0, None),
+        ("census_qualified_host", 0, None),
+        ("census_planned_row_is_not_a_claim", 0, None),
+        ("census_reader_conditional_clj_arm_serves_jvm", 0, None),
+        ("census_unproven_row", 1, "UNPROVEN ROW"),
+        ("census_commented_proof_site", 1, "DEAD PROOF SITE"),
+        ("census_discarded_proof_site", 1, "DEAD PROOF SITE"),
+        ("census_dead_def", 1, "DEAD PROOF SITE"),
+        ("census_proof_site_in_a_docstring", 1, "DEAD PROOF SITE"),
+        ("census_reader_conditional_hides_the_browser_arm", 1, "UNEXECUTED CELL"),
+        ("census_unexecuted_host", 1, "UNEXECUTED CELL"),
+        ("census_qualified_host_needs_a_browser", 1, "UNEXECUTED CELL"),
+        ("census_dangling_proof", 1, "DANGLING PROOF"),
+        ("census_orphan_fixture", 1, "ORPHAN FIXTURE"),
+        ("census_empty_area", 1, "EMPTY AREA"),
+        ("census_dangling_citation", 1, "DANGLING CITATION"),
+        ("census_retired_row_answers_a_citation", 0, None),
     ]
     failures = 0
     with tempfile.TemporaryDirectory(prefix="fh_index_selftest_") as tmp:
         base = Path(tmp)
         _build_self_test_fixtures(base)
         _build_census_fixtures(base)
-        for guard, guard_cases in ((check, cases), (census, census_cases)):
-            for fixture, expected in guard_cases:
+        both: tuple[tuple, ...] = (
+            (check, [(name, n, None) for name, n in cases]),
+            (census, census_cases),
+        )
+        for guard, guard_cases in both:
+            for fixture, expected, kind in guard_cases:
                 root = base / fixture
                 saved_stderr = sys.stderr
-                sys.stderr = _DevNull()
+                sys.stderr = captured = _Captured()
                 try:
                     got = guard(root, verbose=False)
                 finally:
                     sys.stderr = saved_stderr
-                if got == expected:
-                    if verbose:
-                        sys.stderr.write(
-                            f"self-test PASS: {fixture} (defects={got})\n"
-                        )
-                else:
+                if got != expected:
                     sys.stderr.write(
                         f"self-test FAIL: {fixture} expected defects={expected}, "
                         f"got {got}\n"
                     )
                     failures += 1
+                elif kind and kind not in captured.text:
+                    # The case red, but not for the reason it was written for —
+                    # which is the same mistake the guard itself exists to catch.
+                    fired = next(
+                        (l.strip() for l in captured.text.splitlines()
+                         if l.startswith("  ") and l.strip()),
+                        "(no defect line)",
+                    )
+                    sys.stderr.write(
+                        f"self-test FAIL: {fixture} red with the right COUNT and "
+                        f"the wrong defect: expected {kind}, got {fired!r}\n"
+                    )
+                    failures += 1
+                elif verbose:
+                    sys.stderr.write(
+                        f"self-test PASS: {fixture} (defects={got}"
+                        f"{', ' + kind if kind else ''})\n"
+                    )
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
@@ -1154,9 +1614,16 @@ def _run_self_tests(verbose: bool = False) -> int:
     return 0
 
 
-class _DevNull:
-    def write(self, *_args, **_kwargs) -> int:
-        return 0
+class _Captured:
+    """A stderr stand-in that keeps what was written, so a self-test can ask
+    WHICH defect fired and not merely how many."""
+
+    def __init__(self) -> None:
+        self.text = ""
+
+    def write(self, s: str, *_args, **_kwargs) -> int:
+        self.text += s
+        return len(s)
 
     def flush(self) -> None:  # pragma: no cover
         return None
