@@ -1,4 +1,4 @@
-(ns re-frame.resources-route-prefetch-test
+(ns re-frame.resources-route-prefetch-cljs-test
   "EP-0037 R3 — the Resources-side WARM-mode prefetch plan
   (`re-frame.resources.route/route-resource-warm-plan` + `on-route-prefetch-fx`,
   published as `:routing/on-route-prefetch`).
@@ -13,7 +13,9 @@
   prefetch — warm-mode.
 
   Dual-target (`.cljc`): the JVM runner picks it up via the `.*-test$` ns regex;
-  Shadow's `:node-test` via `cljs-test$` — the warm plan is host-neutral."
+  Shadow's `:node-test` via `cljs-test$` — the warm plan is host-neutral. The
+  `-cljs-test` suffix is load-bearing: a dual-target file whose ns ends in a
+  plain `-test` compiles nowhere but the JVM and reads as covered (rf2-dn6v7)."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
