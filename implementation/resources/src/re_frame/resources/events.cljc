@@ -1913,9 +1913,28 @@
                       (let [e (get-in rdb2 (state/entry-path-by-id k-id))]
                         (when (and e (empty? (:active-owners e)))
                           (:resource/key e)))))
+              (or owned #{}))
+        ;; rf2-5o52l — the trace's `:released` names the released entries by
+        ;; their SCOPED KEY, never by their `key-id`. A `key-id` is
+        ;; `identity/canonical-bytes`, a REVERSIBLE PLAINTEXT CEDN-1 encoding
+        ;; (`encode-string` emits `s:"…"`), so emitting one would carry a
+        ;; `:sensitive?` owner's resolved scope + canonical params OFF-BOX in the
+        ;; clear — inside a STRING the off-box trace-egress projector correctly
+        ;; reads as an opaque scalar, and correctly must (tokenizing strings
+        ;; wholesale would destroy `:rf.frame/id` / `:cause` attribution across
+        ;; the family). No shape rule can see a payload hidden inside an encoded
+        ;; scalar; the emit site is the only layer that can carry the right
+        ;; value. As scoped keys these ride the SAME owner classification
+        ;; `:matched` / `:blocking` / the `:aborted` work-ids' embedded keys do,
+        ;; so a sensitive owner's scope + params tokenize and a plain owner's
+        ;; ride verbatim — better attribution than a key-id, not worse.
+        released
+        (into []
+              (keep (fn [k-id]
+                      (:resource/key (get-in runtime-db (state/entry-path-by-id k-id)))))
               (or owned #{}))]
     (trace/emit! :rf.event :rf.resource/owner-released
-                 {:rf.frame/id frame-id :owner owner :released (vec (or owned #{}))
+                 {:rf.frame/id frame-id :owner owner :released released
                   :aborted (mapv first aborts)})
     {:rf.db/runtime rdb2
      ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the registered

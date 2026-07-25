@@ -978,16 +978,26 @@
              ;; (`:fetching`+data → `:loaded`, `:loading`+no-data → `:idle`)
              ;; lets the refetch planner classify it correctly rather than
              ;; leaving it dangling in a non-terminal status forever.
+             ;; rf2-5o52l — `:entries` stays keyed on the byte `key-id` (`k`),
+             ;; but the `:orphaned` / `:skews` accumulators name each entry by
+             ;; its SCOPED KEY, because they feed TRACE TAGS. A `key-id` is a
+             ;; reversible plaintext CEDN-1 encoding, so a key-id in a trace tag
+             ;; egresses the entry's scope + params in the clear inside a string
+             ;; the off-box projector reads as an opaque scalar; a scoped key
+             ;; projects through the resource owner classification instead. Same
+             ;; move the refetch-plan below already makes (`(:resource/key
+             ;; entry)`), and the reason `:entries` and these two diverge.
              reconciled (reduce-kv
                           (fn [acc k entry]
                             (let [[entry' dropped] (reconcile-entry-owners
                                                      entry hydration-route-owner-policy)
                                   entry''          (settle-entry-to-last-stable entry')
-                                  skew             (clock-skew-ms entry clock-ms)]
+                                  skew             (clock-skew-ms entry clock-ms)
+                                  sk               (:resource/key entry)]
                               (-> acc
                                   (assoc-in [:entries k] entry'')
-                                  (update :orphaned into (map (fn [o] [k o])) dropped)
-                                  (cond-> skew (update :skews assoc k skew)))))
+                                  (update :orphaned into (map (fn [o] [sk o])) dropped)
+                                  (cond-> skew (update :skews assoc sk skew)))))
                           {:entries {} :orphaned [] :skews {}}
                           entries)
              entries'  (:entries reconciled)
@@ -1000,10 +1010,10 @@
                        :installed      (count entries')
                        :orphaned-owners (vec (:orphaned reconciled))
                        :clock-skews    (:skews reconciled)})
-         (doseq [[k skew] (:skews reconciled)]
+         (doseq [[sk skew] (:skews reconciled)]
            (trace/emit! :warning :rf.resource/hydrate-clock-skew
                         {:rf.frame/id  frame-id
-                         :resource/key k
+                         :resource/key sk
                          :skew-ms      skew
                          :reason       (str "hydrated entry's absolute :stale-at is "
                                             skew "ms ahead of the live client clock "
@@ -1430,15 +1440,23 @@
              ;; projection never carried an in-flight entry, but the
              ;; unprojected snapshot can).
              route-owner-policy (restore-route-owner-policy live-nav-token)
+             ;; rf2-5o52l — as in `hydrate-runtime-db`: `:entries` stays keyed on
+             ;; the byte `key-id` (`k`), while `:orphaned` / `:skews` name each
+             ;; entry by its SCOPED KEY because they feed TRACE TAGS, and a
+             ;; key-id is a reversible plaintext CEDN-1 encoding the off-box
+             ;; projector can only read as an opaque scalar. Restore reconciles a
+             ;; LIVE (never wire-projected) snapshot, so its key-ids carry the
+             ;; raw scope + params.
              reconciled (reduce-kv
                           (fn [acc k entry]
                             (let [[entry' dropped] (reconcile-entry-owners entry route-owner-policy)
                                   entry''          (settle-entry-to-last-stable entry')
-                                  skew             (clock-skew-ms entry clock-ms)]
+                                  skew             (clock-skew-ms entry clock-ms)
+                                  sk               (:resource/key entry)]
                               (-> acc
                                   (assoc-in [:entries k] entry'')
-                                  (update :orphaned into (map (fn [o] [k o])) dropped)
-                                  (cond-> skew (update :skews assoc k skew)))))
+                                  (update :orphaned into (map (fn [o] [sk o])) dropped)
+                                  (cond-> skew (update :skews assoc sk skew)))))
                           {:entries {} :orphaned [] :skews {}}
                           entries)
              entries'  (:entries reconciled)
@@ -1503,22 +1521,22 @@
                         ;; "orphaned owners are dropped with a trace row"). SSR
                         ;; orphans ride the summary above (they belong to a
                         ;; settled server render, not a stale navigation).
-                        (for [[k owner] (:orphaned reconciled)
+                        (for [[sk owner] (:orphaned reconciled)
                               :when (route-owner? owner)]
                           {:level :rf.epoch
                            :op    :rf.resource/owner-released
                            :tags  {:rf.frame/id    frame-id
-                                   :resource/key   k
+                                   :resource/key   sk
                                    :owner          owner
                                    :nav-token      (nth owner 2 nil)
                                    :live-nav-token live-nav-token
                                    :reason         :stale-nav-orphan
                                    :recovery       :restore-reconcile}})
-                        (for [[k skew] (:skews reconciled)]
+                        (for [[sk skew] (:skews reconciled)]
                           {:level :warning
                            :op    :rf.resource/restore-clock-skew
                            :tags  {:rf.frame/id  frame-id
-                                   :resource/key k
+                                   :resource/key sk
                                    :skew-ms      skew
                                    :reason       (str "restored entry's absolute :stale-at is "
                                                       skew "ms ahead of the live clock — clock "
