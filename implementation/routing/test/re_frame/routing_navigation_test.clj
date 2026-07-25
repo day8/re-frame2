@@ -188,6 +188,25 @@
             (is (= token-after-nav (:nav-token slice'))
                 "the nav-token is unchanged — a genuine rule-3 no-op")))))))
 
+(deftest navigate-present-but-nil-query-clears-like-an-empty-map
+  ;; rf2-kqxe6.7: the strip above moved to the ResolvedTarget seam, where an
+  ;; ABSENT `:query` must stay absent rather than be conjured into `{}`. This
+  ;; door's OTHER normalisation therefore stays here: presence — not
+  ;; truthiness — discriminates (`address/edit-keys`), so a present-but-nil
+  ;; `:query` is the same "clear the query" instruction as `:query {}`, and the
+  ;; branch that reads it hands it through as nil.
+  (testing "{:to … :query nil} writes {} — the same slice :query {} writes"
+    (rf/reg-route :route/search {} "/search")
+    (let [query-of (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                                  [:rf.runtime/routing :current :query]))]
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query nil}])
+      (is (= {} (query-of)) "a nil :query is a cleared query, never a nil slice")
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query {:sort "asc"}}])
+      (is (= {:sort "asc"} (query-of)))
+      (testing "and the in-place edit branch agrees"
+        (rf/dispatch-sync [:rf.route/navigate {:query nil}])
+        (is (= {} (query-of)))))))
+
 (deftest navigate-pushes-url-with-fragment
   (testing ":rf.route/navigate with :fragment opt pushes the URL with #fragment appended"
     ;; Per Spec 012 §Fragments §Programmatic navigation with fragments:

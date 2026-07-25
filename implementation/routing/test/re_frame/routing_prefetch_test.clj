@@ -290,11 +290,23 @@
 ;; R3's original failure mode: two cache entries for one destination, the warm
 ;; one ownerless, GC-eligible and never reused.
 ;;
-;; The comparison here is against a real named-address NAVIGATION, not against
-;; `target-of-url(route-url address)`. Those are not the same standard: the URL
-;; cannot carry a path param the pattern does not capture, so the URL round-trip
-;; drops an `:extra` key that the `{:to …}` door genuinely keeps and commits.
-;; Prefetch must match the door.
+;; Two pairings are proven, because prefetch has two counterparts and they are
+;; NOT the same door. A link's hover dispatches `link/prefetch-payload` and that
+;; same link's CLICK dispatches `link-model`'s `[:rf.route/url-requested …]` —
+;; a URL door. Programmatic `[:rf.route/navigate {:to …}]` is a named-address
+;; door. The link pairing is the one R3 exists for, and it is also the honest
+;; cross-door test: its two halves resolve through DIFFERENT seams, so it cannot
+;; pass by both sides agreeing on one wrong value.
+;;
+;; Each case additionally pins the canonical expected identity as a literal, so
+;; neither arm can pass merely because its two sides match.
+;;
+;; KNOWN GAP, deliberately not asserted either way here: a path param the route
+;; PATTERN does not capture (`{:id "7" :extra "x"}` on `/probe/:id`). The
+;; programmatic door commits it, a link click drops it (the URL cannot carry
+;; it), and prefetch follows the programmatic door. That is a disagreement
+;; between the two ACTIVATION doors which prefetch merely inherits, and
+;; resolving it is a contract ruling on `:rf.route/navigate` — rf2-0iuh3.
 
 (defn- with-identity-hooks
   "Publish BOTH late-bound resource hooks — the prefetch WARM plan and the
@@ -315,9 +327,49 @@
          (finally (late-bind/set-fn! :routing/on-route-prefetch nil)
                   (late-bind/set-fn! :routing/on-route-entry nil)))))
 
-(deftest prefetch-warms-the-identity-the-activation-commits
+(defn- register-probe-routes! []
   (routing/reg-route :route/elsewhere {} "/elsewhere")
-  (routing/reg-route :route/probe {:query-defaults {:tab :overview}} "/probe/:id")
+  (routing/reg-route :route/probe {:query-defaults {:tab :overview}} "/probe/:id"))
+
+(deftest prefetch-warms-the-identity-a-link-click-activates
+  ;; The pairing R3 exists for, driven through the REAL link callers on both
+  ;; sides: `link/prefetch-payload` is what the three intent handlers dispatch
+  ;; on hover / focus / touch, and `link-model`'s `:payload` is what the click
+  ;; handler dispatches. They resolve through different seams (named-address vs
+  ;; URL), which is what makes this a genuine cross-door proof.
+  (register-probe-routes!)
+  (let [props    {:to    :route/probe :params {:id "7"}
+                  :query {:drop nil} :prefetch :intent :class "nav-link"}
+        expected {:route-id :route/probe :params {:id "7"}
+                  :query    {:tab :overview} :fragment nil}]
+    (with-identity-hooks
+      (fn [warm entry]
+        (is (= [:rf.route/prefetch {:to :route/probe :params {:id "7"}
+                                    :query {:drop nil}}]
+               (link/prefetch-payload props))
+            "the hover payload carries the caller's nil-valued query key — the
+             normalisation under test is the SEAM's, not the payload's")
+        ;; HOVER.
+        (rf/dispatch-sync (link/prefetch-payload props))
+        ;; Park elsewhere so the click below is never a stage-3 exact no-op.
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/elsewhere}])
+        ;; CLICK — the same link, through the URL door.
+        (rf/dispatch-sync (:payload (link/link-model props :rf/default)))
+        (let [activated (filterv #(= :route/probe (:route-id %)) @entry)]
+          (is (= [expected] @warm)
+              "the warm plan is handed the canonical resolved identity")
+          (is (= [expected] activated)
+              "and the click's activation is handed the same one")
+          (is (= @warm activated)
+              "so hovering then clicking ONE link warms ONE cache entry — the
+               warm entry is reused, not orphaned"))))))
+
+(deftest prefetch-warms-the-identity-a-programmatic-navigation-commits
+  ;; The named-address pairing, which additionally reaches the empty-fragment
+  ;; case: `prefetch-payload` deliberately omits `:fragment` (a `#fragment` is
+  ;; never a resource input), so the link surface cannot express it and only the
+  ;; event-level pair can prove it.
+  (register-probe-routes!)
   (doseq [[label address expected]
           [["a nil-valued query key — route-url ELIDES it from the URL, so a
              target that keeps it describes a place its own URL cannot spell"
@@ -329,27 +381,14 @@
              is truthy, so an un-normalised one is a slice/URL divergence"
             {:to :route/probe :params {:id "7"} :fragment ""}
             {:route-id :route/probe :params {:id "7"}
-             :query    {:tab :overview} :fragment nil}]
-
-           ["an EXTRA path param the pattern does not capture — the {:to …} door
-             KEEPS it, so prefetch must keep it too (this is where the URL
-             round-trip is the wrong standard), alongside the two above"
-            {:to :route/probe :params {:id "7" :extra "x"} :query {:drop nil}
-             :fragment ""}
-            {:route-id :route/probe :params {:id "7" :extra "x"}
              :query    {:tab :overview} :fragment nil}]]]
     (testing label
       (with-identity-hooks
         (fn [warm entry]
           (rf/dispatch-sync [:rf.route/prefetch address])
-          ;; Park elsewhere first so the activation below is never a stage-3
-          ;; exact no-op (which would commit nothing to compare against).
           (rf/dispatch-sync [:rf.route/navigate {:to :route/elsewhere}])
           (rf/dispatch-sync [:rf.route/navigate address])
           (let [activated (filterv #(= :route/probe (:route-id %)) @entry)]
-            (is (= [expected] @warm)
-                "the warm plan is handed the canonical resolved identity")
-            (is (= [expected] activated)
-                "and so is the activation")
-            (is (= @warm activated)
-                "so hovering then clicking one link warms ONE cache entry")))))))
+            (is (= [expected] @warm))
+            (is (= [expected] activated))
+            (is (= @warm activated))))))))
