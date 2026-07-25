@@ -61,7 +61,11 @@ re-frame2 makes the wire a declared boundary. [`:payload`](concepts.md#payload--
 
 Next.js's `generateMetadata` is a function that *returns* a metadata object, and `cookies().set()` / `redirect()` are imperative calls you make. They work fine, but they sit slightly outside the data flow — side-effecting functions you invoke at the right moment.
 
-re-frame2 folds both into the same data discipline everything else obeys. The [head model](head.md) is *derived from app-db*, a pure `(db, route) → head-model` with the exact shape of a [sub](../core/glossary.md#subscription) — which is why an SPA route change after load keeps `<title>` and `<meta>` current with zero extra wiring, and why the head rides the *same* mismatch detector as the body. Response control is the same idea: status, headers, cookies, redirects are server-only [effects](../core/glossary.md#effect) (`:rf.server/*`) — full recipe in [Control the response](response.md). Cookies are structured maps; header injection [fails loud](../core/glossary.md#fail-loud-not-silent).
+re-frame2 folds both into the same data discipline everything else obeys. The [head model](head.md) is *derived from app-db*, a pure `(db, route) → head-model` with the exact shape of a [sub](../core/glossary.md#subscription) — the first byte's `<title>`, `<meta>`, and JSON-LD are *computed from state*, not assembled by a call you have to remember to make at the right moment.
+
+That much is the deliberate divergence. Two limits are not, and you want them before you ship rather than after. Next.js re-runs `generateMetadata` on an App Router navigation and updates the live document head for you; re-frame2 v1 ships **no DOM-head reconciler**, so refreshing `<title>` / `<meta>` after an SPA route change is the app's job — an app- or host-level head manager reading the same model. And the head rides its own, *separate* `:rf/head-hash` channel, which the runtime emits but does **not** compare: only the body's `:rf/render-hash` is checked automatically, and a host that wants the head checked recomputes `(rf/active-head frame-id)` against the hydrated state itself. [Head metadata](head.md) carries both, with the recipe for each.
+
+Response control is the same idea: status, headers, cookies, redirects are server-only [effects](../core/glossary.md#effect) (`:rf.server/*`) — full recipe in [Control the response](response.md). Cookies are structured maps; header injection [fails loud](../core/glossary.md#fail-loud-not-silent).
 
 ### Streaming is one marker, not a component contract
 
