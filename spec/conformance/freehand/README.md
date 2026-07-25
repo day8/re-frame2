@@ -170,7 +170,7 @@ reaches it — written in one, or bound to a name such a statement uses, directl
 or through a helper it calls. A statement that asserts nothing contributes
 nothing, and a `deftest` whose statements never assert proves nothing at all.
 
-Nine shapes name a law and prove nothing:
+Ten shapes name a law and prove nothing:
 
 ```clojure
 ;; (def props-003 (conf/fixture :FH-PROPS-003))   a comment
@@ -187,6 +187,8 @@ Nine shapes name a law and prove nothing:
 (deftest t (check props-003))                     platform, credited on both
 (def props-003 (conf/fixture :FH-PROPS-003))      a KEYWORD spelled like the
 (deftest t (is (= :props-003 1)))                 binding, read as the Var
+(def props-003 (conf/fixture :FH-PROPS-003))      the binding QUOTED — data the
+(deftest t (is (= `props-003 1)))                 assertion compares against
 ```
 
 The first four are invisible to a scan that reads characters. The next two are
@@ -194,13 +196,14 @@ invisible to a scan that reads forms but seeds from the whole `deftest`: the id
 is mentioned where a test can see it and where nothing evaluates it, so the suite
 stays green with the fixture broken — which is the one thing the row's green is
 supposed to rule out. The next two are invisible to a scan that reads assertions
-but not the *names* carrying them. The last is invisible to one that reads names
+but not the *names* carrying them. The ninth is invisible to one that reads names
 but not their *boundaries*: a keyword is a run of symbol characters behind a `:`,
 so a scan starting wherever such a character appears reads `props-003` out of
-`:props-003` and resolves the datum to the Var. Each is a way to delete a law's
-proof and leave its row standing, so each is a `DEAD PROOF SITE` — or, where the
-lost assertion is one platform's, an `UNEXECUTED CELL` on the lane that platform
-serves.
+`:props-003` and resolves the datum to the Var. The tenth is invisible to a
+boundary as well, because `` `props-003 `` genuinely *is* the token — what it is
+not is a reference to the Var. Each is a way to delete a law's proof and leave
+its row standing, so each is a `DEAD PROOF SITE` — or, where the lost assertion
+is one platform's, an `UNEXECUTED CELL` on the lane that platform serves.
 
 What this establishes is bounded, and the bound is worth stating: the assertion
 is *co-located* with the fixture read, in one statement. It is not a proof that
@@ -224,6 +227,31 @@ reading the tails of tokens, not tokens: `(is (= :panel (first fx)))` yields
 resolves to the Var and witnesses a compiled tier the assertion never enters. A
 keyword is data; a Var reference is a symbol; the character *before* the token is
 what separates them.
+
+And a name is read only where it is **evaluated**, which a boundary cannot tell
+you. `(quote fx)` and `` `fx `` really do contain the token `fx`; what neither
+contains is a reference to the Var, because quoted data is data. So the census
+performs three reductions before it reads anything, and each answers one question:
+
+| Reduction | The question it answers | What it removes |
+|---|---|---|
+| `_strip` | what is not code | comments, strings, character literals, `#_` discards, `(comment …)` at any depth |
+| `_read_as` | what *this platform* reads | every `#?` / `#?@` conditional but one branch |
+| `_evaluated` | what **evaluates** | every quoted datum — `'x`, `` `x ``, `(quote x)` |
+
+One reduction per question, applied once per file, so names, fixture calls,
+assertion heads and the mode marker are all read off the same text and none can
+drift from another: a quoted `(conf/fixture :FH-…)` is not a fixture read, and a
+helper returning `'(is (seq fx))` returns a list rather than asserting.
+
+It is a narrowing, not a refusal. Inside a syntax quote `~x` and `~@x` *are*
+evaluated, so those islands are read as code and a genuine reference stays one
+however deep in a template it is written. Two residues remain, and both are
+*missed* edges rather than invented ones, so both cost a noisy defect on an honest
+row instead of a silent green: a nested syntax quote raises the level, so the
+double unquote that would climb back out of it (`` `(a `(b ~~c)) ``) is not
+modelled; and `#'x` is a var quote — a real reference — that resolves to nothing,
+as it did before the reduction existed.
 
 The census also reads the **reader**. A `.cljc` suite is discovered by the JVM
 runner *and* the node runner, but a `#?(:clj (deftest …))` inside it asserts in
@@ -258,12 +286,17 @@ neither, so keeping the require and asserting on the raw fixture instead kept th
 row's `compiled` claim standing while nothing compiled ran. Presence is not
 proof, in the same way and for the same reason that a fixture named in a file is
 not a fixture a test reads. Reachability is only as sound as name resolution, so
-the witness is reached by a symbol read from a token boundary: `:panel` is a datum,
-not the declaration it is spelled like, and neither is `:check/findings` the alias.
-What stays textual, and is claimed as nothing more, is the marker itself — a
-statement mentioning `{:compiled true}` or a spelled-out
-`re-frame.freehand.compiler.…` as data still witnesses. Reachability is enforced;
-telling a marker used as data from one used as code is not.
+the witness is reached by a symbol read from a token boundary and from an
+*evaluated* position: `:panel` is a datum, not the declaration it is spelled like;
+neither is `:check/findings` the alias; and neither are `` `panel `` or
+`(quote panel)`, which name the declaration without evaluating it. Both halves of
+the witness are read off the same reduced text as the names, so a quoted
+`{:compiled true}` and a quoted `re-frame.freehand.compiler.…` witness nothing
+either. What stays textual, and is claimed as nothing more, is the marker within
+what does evaluate — a statement mentioning `{:compiled true}` as a live map
+literal still witnesses, whatever it does with it. Reachability is enforced;
+telling a marker used as data from one used as code, inside evaluated code, is
+not.
 
 And the witness is only evidence where it *runs*. A compile-tier reference inside
 a `#?(:cljs …)` branch vouches for the node lane and says nothing about the JVM,
