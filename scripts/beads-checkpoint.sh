@@ -30,6 +30,9 @@
 #       Re-export the tracker from the database, sanity-check the result, and
 #       commit `.beads/issues.jsonl` if it changed. This is the checkpoint —
 #       run it BEFORE `git checkout HEAD -- .beads` and the pull, never after.
+#       The commit carries the rows that changed and nothing else: `bd export`
+#       does not fix the order of the memory rows, so the file is written in
+#       minimal-diff order first (rf2-51uz1.1, `minimal_diff_rewrite` below).
 #
 #   sh scripts/beads-checkpoint.sh --pre-pull
 #       Ask whether clearing `.beads` would discard tracker state that HEAD
@@ -102,9 +105,12 @@ fi
 
 TMP_EXPORT=""
 TMP_HEAD=""
+TMP_ORDERED=""
 TMP_A=""
 TMP_B=""
-cleanup() { rm -f "$TMP_EXPORT" "$TMP_HEAD" "$TMP_A" "$TMP_B" 2>/dev/null || true; }
+cleanup() {
+  rm -f "$TMP_EXPORT" "$TMP_HEAD" "$TMP_ORDERED" "$TMP_A" "$TMP_B" 2>/dev/null || true
+}
 trap cleanup EXIT INT TERM HUP
 
 rows() {
@@ -117,6 +123,41 @@ rows() {
 # path does not exist at HEAD (a first-ever checkpoint).
 head_copy() {
   git show "HEAD:$TRACKER" > "$1" 2>/dev/null || : > "$1"
+}
+
+# minimal_diff_rewrite EXPORT HEAD_COPY OUT — write EXPORT's rows to OUT, but
+# emit every row HEAD already carries in HEAD's order first, and only then the
+# rows that are genuinely new, in export order.
+#
+# WHY (rf2-51uz1.1). `same_content` below already stops a reorder-ONLY export
+# from becoming a commit. It does nothing for the normal case: one real row
+# changed, so the checkpoint commits — and the raw export carries every
+# unrelated memory reorder along with it. Measured on the first real checkpoint
+# after this helper landed: 211 additions / 208 deletions staged, of which 200
+# added rows were byte-identical to 200 removed rows. Pure relocation. Eleven
+# added and eight removed lines were the actual tracker change, buried.
+#
+# The output is the export's row MULTISET exactly — no row is invented, dropped
+# or edited, so `bd import` sees the same database either way. Only the line
+# ORDER differs, and JSONL row order carries no meaning to the importer. What it
+# buys is a diff that is exactly (rows HEAD had and the export does not) plus
+# (rows the export has and HEAD does not): no relocation lines at all, from the
+# first checkpoint onward.
+#
+# CRLF is stripped so a Windows checkout's `git checkout HEAD -- .beads` copy
+# still matches the LF rows `bd export` emits — the same reason `same_content`
+# strips it. Output is LF, byte-for-byte the export's own rows.
+minimal_diff_rewrite() {
+  awk '
+    FNR == NR { sub(/\r$/, ""); cnt[$0]++; order[++n] = $0; next }
+    { sub(/\r$/, ""); if (cnt[$0] > 0) { cnt[$0]--; print } }
+    END {
+      for (i = 1; i <= n; i++) {
+        line = order[i]
+        if (cnt[line] > 0) { cnt[line]--; print line }
+      }
+    }
+  ' "$1" "$2" > "$3"
 }
 
 # same_content FILE_A FILE_B — 0 when the two files carry the SAME SET of rows,
@@ -202,7 +243,22 @@ fi
 
 # The export is trustworthy — it is now the working tracker. From here on the
 # working file cannot be a stale revert, whatever it was a moment ago.
-cp -f "$TMP_EXPORT" "$TRACKER"
+#
+# It is written in MINIMAL-DIFF order (rf2-51uz1.1) rather than raw export
+# order, so the staged ledger shows the rows that changed and nothing else. The
+# row-count check is the safety net: the rewrite must reproduce the export's
+# rows exactly, and if it ever does not, the raw export wins. Losing a row to a
+# cosmetic reordering would be a far worse bug than the churn it removes.
+TMP_ORDERED=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-ordered-XXXXXX")
+minimal_diff_rewrite "$TMP_EXPORT" "$TMP_HEAD" "$TMP_ORDERED"
+if [ "$(rows "$TMP_ORDERED")" = "$export_rows" ]; then
+  cp -f "$TMP_ORDERED" "$TRACKER"
+else
+  printf 'beads-checkpoint: minimal-diff rewrite produced %s rows for a %s-row export;\n' \
+    "$(rows "$TMP_ORDERED")" "$export_rows" >&2
+  printf '  committing the raw export instead (order churn, but no lost rows).\n' >&2
+  cp -f "$TMP_EXPORT" "$TRACKER"
+fi
 
 if same_content "$TRACKER" "$TMP_HEAD"; then
   printf 'beads-checkpoint: nothing to checkpoint (%s rows, unchanged).\n' "$export_rows"
