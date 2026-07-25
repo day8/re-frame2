@@ -531,7 +531,7 @@ else
         bundle_isolation=true
         ui_smoke=true
         ;;
-      implementation/freehand/src/re_frame/freehand/evidence.cljc|implementation/freehand/src/re_frame/freehand/cell.cljc|implementation/freehand/src/re_frame/freehand/shell.cljs|implementation/freehand/test/re_frame/freehand/release_app.cljs)
+      implementation/freehand/src/re_frame/freehand/evidence.cljc|implementation/freehand/src/re_frame/freehand/cell.cljc|implementation/freehand/src/re_frame/freehand/occurrences.cljc|implementation/freehand/src/re_frame/freehand/shell.cljs|implementation/freehand/test/re_frame/freehand/release_app.cljs)
         # rf2-xwa4n — the F4g evidence-elision gate's Freehand PRODUCER
         # surfaces. `npm run test:freehand-evidence-elision` (rf2-drpa3.166)
         # builds `:freehand-release` and its goog.DEBUG=true control twin
@@ -551,6 +551,14 @@ else
         #     catches — but only if the gate RUNS).
         #   - cell.cljc      — `emit-commit-evidence!`, the sole dev gate. Move
         #     it out from behind `interop/debug-enabled?` and the schema ships.
+        #     It also carries the third sentinel (the containment console line)
+        #     and both call sites into the occurrence index.
+        #   - occurrences.cljc — the dev-only CURRENT-OCCURRENCE index
+        #     (rf2-xftdv): a `defonce` atom holding one row per connected
+        #     occurrence. It carries no runtime string literal, so it can root
+        #     no sentinel of its own; its production absence follows from
+        #     cell.cljc's gate, which is exactly why a change to the index is
+        #     worth re-running the proof that the gate really does fold away.
         #   - shell.cljs     — the SOLE mounted commit edge: `cell/commit!` in
         #     the useLayoutEffect reconcile (shell.cljs:165). That call is what
         #     ROOTS `emit-commit-evidence!`, and through it BOTH positive-control

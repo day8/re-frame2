@@ -2464,6 +2464,13 @@ test('the standalone freehand-artefact workflow is gone (one owner, not two) (rf
 const FREEHAND_EVIDENCE_PRODUCERS = [
   'implementation/freehand/src/re_frame/freehand/evidence.cljc',
   'implementation/freehand/src/re_frame/freehand/cell.cljc',
+  // rf2-xftdv — the dev-only CURRENT-OCCURRENCE index the commit seam writes
+  // and `disconnect!` drops from. It is a `defonce` atom on the render path,
+  // which is exactly the kind of state that must not ship, and it carries no
+  // runtime string literal so it can root no sentinel of its own: its absence
+  // follows from cell.cljc's gate. A change here is therefore a change to what
+  // the gate is holding back, and worth re-running the proof.
+  'implementation/freehand/src/re_frame/freehand/occurrences.cljc',
   // rf2-xwa4n, merged-PR audit of #6888 — the SOLE mounted commit edge
   // (`cell/commit!` in the useLayoutEffect reconcile) is what ROOTS
   // `emit-commit-evidence!` and both positive-control door strings. It was
