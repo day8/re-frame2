@@ -616,6 +616,10 @@ Teardown is just setup reversed, in one event. Wire `(dispatch [:auth/logout])` 
 
 Nothing else to unhook, which is the nice part. The bearer interceptor reads app-db per request, so the header stops the instant the token is `nil`. The guard starts intercepting again for the same reason. State went away, and behaviour followed. That's the whole dividend of keeping the session *in* app-db rather than in scattered closures: there's exactly one place to clear, and everything that read it goes quiet on its own.
 
+!!! note "What about the previous user's cached server data?"
+
+    Logout clears `:auth`, but Part 2's [resource](../glossary.md#resource) caches (the feed, the profile) still hold the departed user's data until they're re-fetched or evicted. If a fresh sign-in could show a flash of the old user's content, clear those caches in the same logout event — one more named, traced step, not a scattered checklist. The how-to [Add authentication](../../core/how-to/add-auth.md) covers the cache-teardown shape in full.
+
 ### The second trigger: the server signs you out
 
 The navbar is not the only thing that ends a session. A JWT that was valid at boot expires while the reader sits on `/settings`, and the route guard cannot notice — it reads cached auth state, and that state still says *signed in*. Entry was already allowed; the next authenticated request is where the truth turns up. So catch it on the response side of the interceptor chain you registered for `bearer-auth` — same chain, other leg:
@@ -634,10 +638,6 @@ The navbar is not the only thing that ends a session. A JWT that was valid at bo
 Two details earn their keep. Mind the **two `:status` levels**: the reply envelope's `:status` is `:error`, and the HTTP code lives *inside* the failure map at `[:error :status]`, under a framework-owned `:kind` — branch on those, never on a stringified message. And carry the frame from `ctx`: the reply arrives in a transport callback, where a bare `rf/dispatch` can hit `:rf.error/no-frame-context`.
 
 There is nothing new to clear, and that is the point. `:auth/logout` already drops `:auth`, wipes the persisted JWT, and moves the reader off the page they can no longer see — so logout gained a second trigger, not a second code path. (Send them to `:conduit.auth/login` instead of `:conduit/home` if you'd rather; it's the one keyword.) Note the *shape* of this response: the expired token is discarded, not refreshed. Trading it for a fresh one and replaying the original request is semantic retry — a bigger job, and [a machine's](#when-a-machine-is-the-better-tool). [Add authentication](../../core/how-to/add-auth.md) carries the full response-hook treatment, including the chain's failure semantics.
-
-!!! note "What about the previous user's cached server data?"
-
-    Logout clears `:auth`, but Part 2's [resource](../glossary.md#resource) caches (the feed, the profile) still hold the departed user's data until they're re-fetched or evicted. If a fresh sign-in could show a flash of the old user's content, clear those caches in the same logout event — one more named, traced step, not a scattered checklist. The how-to [Add authentication](../../core/how-to/add-auth.md) covers the cache-teardown shape in full.
 
 ## When a machine is the better tool
 
