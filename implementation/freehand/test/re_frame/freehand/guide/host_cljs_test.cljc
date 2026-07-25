@@ -215,6 +215,60 @@
       (when open? [:div.body "…"])]]))
 
 ;; ---------------------------------------------------------------------------
+;; js-libraries.md — Pattern E, the handle that arrives later
+;; ---------------------------------------------------------------------------
+;;
+;; Stubs standing in for the library's async door, exactly as `start-fade!`
+;; above stands in for a player. This fixture pins the SPELLING the page
+;; teaches — the cell, the fence, the terminal `:closed`, the two-argument
+;; `.then`. What the recipe DOES is proved by a real mount against a
+;; deterministic surrogate in `re-frame.freehand.behavior-async-dom-cljs-test`,
+;; including the ordering that matters: unmount before the Promise resolves.
+
+(defn- acquire! [_node _spec] #?(:cljs (js/Promise.resolve {:handle :chart})
+                                 :clj  ::browser-only))
+(defn- set-spec! [_handle _spec] nil)
+(defn- dispose! [_handle] nil)
+
+;; js-libraries.md block 6 — `:connect` establishes the memory ONCE, so when
+;; the handle is not ready yet what it establishes is a mutable CELL, and the
+;; deferred continuation moves that one cell in place (rf2-wj1ao). No task
+;; system, no scheduler: re-frame's event pass stays one synchronous pass and
+;; the continuation merely dispatches an ordinary event.
+(v/defbehavior async-chart
+  {:connect
+   (fn [{:keys [node config dispatch]}]
+     ;; The handle is not ready. The MEMORY is — so :connect returns a cell,
+     ;; synchronously, and the continuation closes over that local (NOT over
+     ;; (:memory ctx), which is still nil while :connect is running).
+     (let [cell (atom {:phase :pending :spec config})]
+       (.then (acquire! node config)
+              (fn [handle]
+                (if (= :closed (:phase @cell))
+                  (dispose! handle)                     ; late success: finalise, never install
+                  (do (swap! cell assoc :phase :ready :handle handle)
+                      (set-spec! handle (:spec @cell))  ; the LATEST spec, not :connect's
+                      (dispatch [:chart/ready]))))      ; an ordinary event, fenced to this connection
+              (fn [_err]
+                ;; :closed is TERMINAL — a late failure is evidence only
+                (swap! cell #(cond-> % (not= :closed (:phase %)) (assoc :phase :failed)))))
+       cell))
+
+   :update
+   (fn [{:keys [config memory]}]
+     (swap! memory assoc :spec config)                  ; desired state, always
+     (when (= :ready (:phase @memory))                  ; a host call only if there is a host
+       (set-spec! (:handle @memory) config)))
+
+   :disconnect
+   (fn [{:keys [memory]}]
+     ;; FENCE FIRST, then release: an acquisition still in flight must find a
+     ;; closed cell and finalise itself.
+     (let [{:keys [phase handle]} @memory]
+       (swap! memory assoc :phase :closed)
+       (when (= :ready phase) (dispose! handle))))})
+
+;; ---------------------------------------------------------------------------
 ;; ssr.md
 ;; ---------------------------------------------------------------------------
 
@@ -359,6 +413,18 @@
           "the decorated element renders as itself")
       (is (some? (t/find tree #(= ::autosize (:use (:props %)))))
           "and the boundary records the behavior id in the tree"))))
+
+(deftest the-deferred-handle-recipe-is-an-ordinary-registered-behavior
+  (testing "js-libraries.md block 6 — Pattern E adds NOTHING to the door. The
+            Promise-acquired recipe is a `v/defbehavior` like any other: the
+            var holds the registered id, the definition is accepted by the
+            same closed roster, and the whole async part is a cell the
+            continuation moves. If this ever needed a new verb, it would be
+            visible right here as a spelling this suite could not write."
+    (is (= ::async-chart async-chart)
+        "the var holds the REGISTERED ID, exactly like every other behavior")
+    (is (keyword? fade-panel)
+        "and its synchronous sibling is registered the same way — one door")))
 
 (deftest client-only-renders-its-mandatory-fallback-on-the-structural-host
   (testing "host-boundaries.md block 2 and ssr.md block 1 — the structural
