@@ -56,10 +56,21 @@ Last-write-wins on multiple redirects, with a `:rf.warning/multiple-redirects` t
     (`:rf.error/safe-redirect-host-disallowed`). An attacker-controlled `?next=…` cannot
     bounce a freshly-authed user off-origin.
 
-## One status the framework writes for you: the entry-denial `403`
+## A status the framework writes for you: the entry-denial `403`
 
-Everything above is a status *your* handler writes. There is exactly one the
-**framework** writes on your behalf.
+Everything above is a status *your* handler writes. The framework writes on your
+behalf in two situations, and they differ in kind:
+
+- Something **throws** mid-drain. The [error projector](concepts.md#when-the-server-throws)
+  maps the internal trace to a public error and stamps that error's `:status` —
+  `404` for a routing miss, `400` for bad client input, `500` otherwise by default,
+  or whatever your own projector decides.
+- A route **refuses entry**. The runtime stamps `403`.
+
+Only the first is an error. A refusal throws nothing, projects nothing, and
+classifies as nothing — it is the app working correctly. So the `403` below is the
+framework's **route-refusal floor**, not a projected status, and it is what the
+rest of this section is about.
 
 When a route's [`:can-enter`](../routing/concepts.md#guarding-entry--can-enter) guard rejects on a
 server frame, the runtime writes `:status 403` to the accumulator **before**
@@ -114,7 +125,7 @@ Fail-fast over strip-and-warn — silent normalisation masks the bug.
 | Symptom | Error / behaviour | Fix |
 |---|---|---|
 | Status set twice in one drain | Last write wins; `:rf.warning/multiple-status-set` | One intentional status, or accept last-write |
-| A protected page renders the shell under `403` and you didn't set it | The framework's [entry-denial floor](#one-status-the-framework-writes-for-you-the-entry-denial-403) | Intended. Emit `:rf.server/redirect` or an explicit `:rf.server/set-status` from `:rf.route/entry-denied` |
+| A protected page renders the shell under `403` and you didn't set it | The framework's [entry-denial floor](#a-status-the-framework-writes-for-you-the-entry-denial-403) | Intended. Emit `:rf.server/redirect` or an explicit `:rf.server/set-status` from `:rf.route/entry-denied` |
 | Multiple redirects | Last write wins; `:rf.warning/multiple-redirects` | One intentional redirect |
 | CR/LF in a header value | `:rf.error/header-invalid-value` | Sanitize before `:set-header` / `:append-header` |
 | CR/LF/NUL in redirect location | `:rf.error/redirect-invalid-location` | Don't pass raw user input to `:redirect` |
@@ -126,7 +137,7 @@ Fail-fast over strip-and-warn — silent normalisation masks the bug.
 - Form POST success → `[:rf.server/redirect {:status 303 :location …}]` — see
   [The model → two patterns](concepts.md#two-patterns-in-brief)
 - Server throws / 4xx / 5xx → [When the server throws](concepts.md#when-the-server-throws)
-- Route refuses entry → the [`403` floor](#one-status-the-framework-writes-for-you-the-entry-denial-403),
+- Route refuses entry → the [`403` floor](#a-status-the-framework-writes-for-you-the-entry-denial-403),
   and [Require sign-in on a route](../routing/how-to/require-sign-in-on-a-route.md)
   for the guard itself
 - Full arg schemas → [re-frame.ssr](../api/re-frame.ssr.md) / [re-frame.ssr.ring](../api/re-frame.ssr.ring.md)
