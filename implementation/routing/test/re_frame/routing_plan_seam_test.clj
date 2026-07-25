@@ -46,10 +46,82 @@
               :query    {:tab "comments"}
               :fragment "reply-42"
               :url      "/articles/routing-as-data?tab=comments#reply-42"}))))
-  (testing "the seam reflects rather than re-normalises — for a route declaring
-            no :query-defaults an empty :query stays {} exactly as the door
-            resolved it"
+  (testing ":route-id / :params / :url are reflected verbatim — for a route
+            declaring no :query-defaults an empty :query stays {} exactly as the
+            door resolved it, and a non-empty fragment passes through"
     (is (= {} (:query (resolver/resolved-target {:route-id :route/home :params {} :query {}}))))))
+
+;; ---- the normalisations only ONE door used to apply (rf2-kqxe6.7) ----------
+;;
+;; `:query` and `:fragment` are the two fields the seam RESOLVES rather than
+;; reflects, and all three of their rules serve one law: a resolved target must
+;; describe a place its own canonical URL can spell. `route-url` elides a
+;; nil-valued query key and emits no trailing `#` for an empty fragment, so a
+;; target that keeps either one commits a slice the address bar contradicts.
+;;
+;; Both rules were already written down — the nil strip inline in the
+;; programmatic handler (rf2-gxq7z1), the fragment collapse in
+;; `plan/normalize-fragment`, whose docstring says it exists "to keep the
+;; programmatic and URL-driven paths in agreement" — and both were applied at
+;; that ONE door. `[:rf.route/prefetch …]` reaches this seam directly and got
+;; neither.
+
+(deftest resolved-target-drops-nil-valued-query-keys
+  (routing/reg-route :route/page
+    {:query-defaults {:tab :overview}} "/p/:slug")
+  (routing/reg-route :route/plain {} "/plain/:slug")
+  (testing "a nil value is the caller spelling ABSENCE — the target carries the
+            absence, because route-url elides the key from the URL"
+    (is (= {} (:query (resolver/resolved-target {:route-id :route/plain
+                                                 :params   {:slug "x"}
+                                                 :query    {:drop nil}}))))
+    (is (= {:keep "y"}
+           (:query (resolver/resolved-target {:route-id :route/plain
+                                              :params   {:slug "x"}
+                                              :query    {:keep "y" :drop nil}})))))
+  (testing "the strip runs BEFORE the defaults fill, so a declared default still
+            lands on a key the caller nilled out"
+    (is (= {:tab :overview}
+           (:query (resolver/resolved-target {:route-id :route/page
+                                              :params   {:slug "x"}
+                                              :query    {:tab nil}})))))
+  (testing "a query holding no nil is returned IDENTICALLY — the URL doors'
+            query arrives in canonical key order and rebuilding it would throw
+            that order away"
+    (let [q (array-map :b 2 :a 1)]
+      (is (identical? q (:query (resolver/resolved-target {:route-id :route/plain
+                                                           :params   {:slug "x"}
+                                                           :query    q}))))))
+  (testing "and when a nil IS present the survivors keep their order"
+    (is (= [:b :a]
+           (keys (:query (resolver/resolved-target
+                           {:route-id :route/plain
+                            :params   {:slug "x"}
+                            :query    (array-map :b 2 :drop nil :a 1)}))))))
+  (testing "nil / empty queries are untouched"
+    (is (nil? (:query (resolver/resolved-target {:route-id :route/plain :params {}}))))
+    (is (= {} (:query (resolver/resolved-target {:route-id :route/plain
+                                                 :params   {} :query {}}))))))
+
+(deftest resolved-target-collapses-an-empty-fragment-to-nil
+  (routing/reg-route :route/page {} "/p/:slug")
+  (testing "\"\" is truthy, so an un-normalised empty fragment made the slice say
+            :fragment \"\" while route-url emitted /p/x with no trailing #"
+    (is (nil? (:fragment (resolver/resolved-target {:route-id :route/page
+                                                    :params   {:slug "x"}
+                                                    :fragment ""})))))
+  (testing "a real fragment and an absent one are untouched"
+    (is (= "reply-42" (:fragment (resolver/resolved-target {:route-id :route/page
+                                                            :params   {:slug "x"}
+                                                            :fragment "reply-42"}))))
+    (is (nil? (:fragment (resolver/resolved-target {:route-id :route/page
+                                                    :params   {:slug "x"}})))))
+  (testing "the collapse is IDEMPOTENT, so the programmatic door's own earlier
+            normalisation lowers through unchanged"
+    (let [once  (resolver/resolved-target {:route-id :route/page :params {:slug "x"}
+                                           :fragment ""})
+          twice (resolver/resolved-target once)]
+      (is (= (:fragment once) (:fragment twice))))))
 
 ;; ---- the ONE place `:query-defaults` are filled (rf2-kqxe6.23) -------------
 ;;
