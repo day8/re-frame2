@@ -183,7 +183,7 @@
       (is (true? (:explained? row)) "the run the commit named is still retained")
       (is (nil? (:loss row)) "…so there is nothing to report as lost")
       (is (= did (:dispatch-id row)))
-      (is (= ::app/bump (:cause-event-id (:cause row)))
+      (is (= ::bump (:cause-event-id (:cause row)))
           "the event that started the run — an id, never the event vector")
       (is (contains? (:sub-ids (:cause row)) ::count)
           "…and the subscription it recomputed that this commit reads"))))
@@ -212,11 +212,22 @@
             that named no run at all."
     (register!)
     (seed! {:count 1})
+    ;; The commit runs WITH a cascade in scope, so it records a correlation —
+    ;; and its own emissions land in the ring under that id, which is why the
+    ;; window has to be cleared AFTER the commit rather than before. What is
+    ;; left is the provable arm: the row names a run and the ring does not
+    ;; have it.
+    (connect! ::capped 7777)
     (trace-tooling/clear-trace-rings!)
-    (connect! ::capped 7777)                      ; correlated, but nothing retained
     (let [row (first (rows-for ::capped))]
+      (is (= 7777 (:dispatch-id row))
+          "the commit still names the run it ran under")
       (is (false? (:explained? row)))
-      (is (= :cap (:reason (:loss row)))))))
+      (is (nil? (:cause row))
+          "and no other run is promoted into its place")
+      (is (= :cap (:reason (:loss row))))
+      (is (= 0 (:retained-runs (:window row)))
+          "…and the window states that it holds nothing"))))
 
 ;; ===========================================================================
 ;; The deliberate losses, pinned as ABSENCE
