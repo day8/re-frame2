@@ -56,6 +56,45 @@ Last-write-wins on multiple redirects, with a `:rf.warning/multiple-redirects` t
     (`:rf.error/safe-redirect-host-disallowed`). An attacker-controlled `?next=…` cannot
     bounce a freshly-authed user off-origin.
 
+## One status the framework writes for you: the entry-denial `403`
+
+Everything above is a status *your* handler writes. There is exactly one the
+**framework** writes on your behalf.
+
+When a route's [`:can-enter`](../routing/concepts.md#guarding-entry--can-enter) guard rejects on a
+server frame, the runtime writes `:status 403` to the accumulator **before**
+`:rf.route/entry-denied` is dispatched. It is an ordinary `:rf.server/set-status`
+write, so it plays by the rules on this page — including last-write-wins and the
+`:rf.warning/multiple-status-set` trace. Think of it as a floor, not a decision:
+denial has an HTTP meaning even when your app says nothing, and the framework
+ships that meaning rather than leaving each adapter to guess.
+
+The denial handler drains *before* the render step, so you have two ways to
+supersede it:
+
+- **`[:rf.server/redirect {:location "/login"}]`** — the login bounce. Redirect
+  precedence (above) truncates the HTML *and* replaces the status.
+- **`[:rf.server/set-status 404]`** — or any other status, winning by last-write.
+  Use `404` when you would rather hide that the route exists at all.
+
+Rendering the login route inside the same server frame is *not* one of them: the
+response stays `403` unless the handler also writes one of the two.
+
+!!! info "An unreplaced denial produces no data for the denied target"
+
+    With the framework's no-op default handler — or any handler that establishes
+    neither a redirect nor another status — the protected route stays
+    **uncommitted**. The host renders your ordinary application shell under `403`.
+    No `:on-match` runs, no route resource plan is built or awaited, and **no
+    resource or hydration data for the denied target is produced**. There is
+    nothing to leak because nothing was activated.
+
+The floor is server-only — a client frame has no response to stamp. The routing
+contract itself (what makes a guard reject, what the denial value carries, the
+client-side recipe) is [`:can-enter`](../routing/how-to/require-sign-in-on-a-route.md)'s;
+`403` is what this page adds to it. Normative:
+[spec/011-SSR.md §Route entry denial — the default 403](../../spec/011-SSR.md#route-entry-denial--the-default-403).
+
 ## Header injection fails loud
 
 A `\r` or `\n` smuggled into a header value is a response-splitting attack. The
@@ -74,6 +113,7 @@ Fail-fast over strip-and-warn — silent normalisation masks the bug.
 | Symptom | Error / behaviour | Fix |
 |---|---|---|
 | Status set twice in one drain | Last write wins; `:rf.warning/multiple-status-set` | One intentional status, or accept last-write |
+| A protected page renders the shell under `403` and you didn't set it | The framework's [entry-denial floor](#one-status-the-framework-writes-for-you-the-entry-denial-403) | Intended. Emit `:rf.server/redirect` or an explicit `:rf.server/set-status` from `:rf.route/entry-denied` |
 | Multiple redirects | Last write wins; `:rf.warning/multiple-redirects` | One intentional redirect |
 | CR/LF in a header value | `:rf.error/header-invalid-value` | Sanitize before `:set-header` / `:append-header` |
 | CR/LF/NUL in redirect location | `:rf.error/redirect-invalid-location` | Don't pass raw user input to `:redirect` |
@@ -85,4 +125,7 @@ Fail-fast over strip-and-warn — silent normalisation masks the bug.
 - Form POST success → `[:rf.server/redirect {:status 303 :location …}]` — see
   [The model → two patterns](concepts.md#two-patterns-in-brief)
 - Server throws / 4xx / 5xx → [When the server throws](concepts.md#when-the-server-throws)
+- Route refuses entry → the [`403` floor](#one-status-the-framework-writes-for-you-the-entry-denial-403),
+  and [Require sign-in on a route](../routing/how-to/require-sign-in-on-a-route.md)
+  for the guard itself
 - Full arg schemas → [re-frame.ssr](../api/re-frame.ssr.md) / [re-frame.ssr.ring](../api/re-frame.ssr.ring.md)

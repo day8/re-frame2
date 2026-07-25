@@ -307,7 +307,7 @@ A server-side exception must never reach the wire as a stack trace — crawlers 
 {:status 500 :code :internal-error :message "Something went wrong" :retryable? false}
 ```
 
-The framework ships a default projector that maps the obvious cases — a routing miss to `404 :not-found`, a *client-surface* schema-validation failure to `400 :bad-request`, anything else to `500 :internal-error`. You register your own to add app conventions (`401`/`403` for auth):
+The framework ships a default projector that maps the obvious cases — a routing miss to `404 :not-found`, a *client-surface* schema-validation failure to `400 :bad-request`, anything else to `500 :internal-error`. You register your own to add app conventions — mapping *thrown* auth failures to `401`/`403`, say:
 
 ```clojure
 (rf/reg-error-projector :myapp/public-error
@@ -317,6 +317,14 @@ The framework ships a default projector that maps the obvious cases — a routin
       :auth/unauthorised {:status 401 :code :unauthorised :message "Sign in"  :retryable? false}
       {:status 500 :code :internal-error :message "Something went wrong" :retryable? false})))
 ```
+
+!!! note "Route-level refusal is not a projector concern"
+
+    A projector maps a **thrown** error. A route whose `:can-enter` guard simply
+    *refuses* throws nothing — it is the app working correctly — so the runtime
+    stamps `403` on the response directly, before your `:rf.route/entry-denied`
+    handler drains. Nothing for you to project; see
+    [the entry-denial `403` floor](response.md#one-status-the-framework-writes-for-you-the-entry-denial-403).
 
 The wiring facts, one at a time:
 
