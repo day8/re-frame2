@@ -2763,11 +2763,11 @@
   destroy-adapter!     adapter/dispose-adapter!)
 
 (def ^{:doc "Return the discriminator keyword identifying the installed
-  adapter, or `nil` if none. One of `:rf.adapter/reagent`,
-  `:rf.adapter/reagent-slim`, `:rf.adapter/ui`, `:rf.adapter/uix`,
-  `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or `:custom` for
-  user-supplied adapters that didn't pick a canonical kind. Per Spec 006
-  §Adapter introspection."}
+  adapter, or `nil` if none. One of `:rf.adapter/freehand`,
+  `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/uix`,
+  `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, `:rf.adapter/ui` (donor
+  in-tree code only), or `:custom` for user-supplied adapters that didn't
+  pick a canonical kind. Per Spec 006 §Adapter introspection."}
   current-adapter      adapter/current-adapter)
 
 (def ^{:doc "Return the installed adapter spec map, or `nil` if none.

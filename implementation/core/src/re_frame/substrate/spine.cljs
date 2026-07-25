@@ -564,10 +564,11 @@
   + `re-frame.subs`, `source-containers` is a vector) so the recompute
   closure pays no per-tick `count`.
 
-  Single source of truth: the first-party re-frame.ui, Reagent,
-  reagent-slim, and UIx adapters all build their recompute
-  closure through this fn — one implementation, four adapters, zero
-  drift. The arity-spec lifted
+  Single source of truth: the Freehand, Reagent, reagent-slim, and UIx
+  adapters all build their recompute closure through this fn — one
+  implementation, four adapters, zero drift (the donor re-frame.ui substrate
+  rides the same path in-tree, making five closures in this repo). The
+  arity-spec lifted
   into the spine matches the `make-dispose-adapter!` shape
   (rf2-jcjul); sourced from the rf2-fzrav perf-sweep findings."
   [source-containers compute-fn]
@@ -2609,9 +2610,9 @@
 ;;     elided via `interop/debug-enabled?` per Spec 009 §Production builds.
 
 (defn make-react-adapter
-  "Assemble a React-hook adapter (the first-party re-frame.ui substrate
-  or UIx) from a `make-react-spine` result map plus the
-  substrate's config:
+  "Assemble a React-hook adapter (Freehand's observation adapter or UIx —
+  and, in-tree, the donor re-frame.ui substrate) from a
+  `make-react-spine` result map plus the substrate's config:
 
       :kind           — the adapter's `:kind` discriminator keyword
       :frame-provider — the substrate's NATIVE frame-provider component
@@ -2637,8 +2638,8 @@
   evaluates `(make-react-adapter spine-fns {:kind :rf.adapter/uix
   :frame-provider …})` at load), exactly as the hand-written wiring did.
 
-  Single source of truth (rf2-ee38b.1): the first-party re-frame.ui
-  substrate and UIx both call this with the same shape — the
+  Single source of truth (rf2-ee38b.1): Freehand and UIx both call this with
+  the same shape (as does the donor re-frame.ui substrate in-tree) — the
   only inputs are their already-substrate-specific
   `spine-fns` map, `:kind`, and native `:frame-provider`. The former
   hand-copied route-hook block + chained installs (byte-identical across
