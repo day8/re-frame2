@@ -205,7 +205,25 @@
      ([form-meta file ns-sym sym more]
       (expand-defview nil nil form-meta file ns-sym sym more))
      ([&form &env form-meta file ns-sym sym more]
-     (let [{:keys [docstring opts params body]} (or (parse-defview-args more)
+     (let [;; The declaration's `:source` QUOTES this symbol into emitted code,
+           ;; and a quoted symbol carries its METADATA into the bundle
+           ;; (`cljs.analyzer/analyze-wrap-meta` elides only reader/analyzer
+           ;; keys). shadow-cljs hangs the whole namespace DOCSTRING off the
+           ;; ns-name symbol (`shadow.build.ns-form/parse` merges `:doc` into
+           ;; it), so a namespace declaring N views shipped its docstring N
+           ;; times into `:advanced` — and this substrate's own door shipped
+           ;; ITS docstring into every consumer bundle. Measured on
+           ;; `:freehand-release` (rf2-9y9uv): 3 x 1,643 bytes for the release
+           ;; entry, 2 x 1,960 for `re-frame.freehand` itself, 9,136 bytes of
+           ;; 739,938 once Closure's `with-meta` scaffolding went with them.
+           ;; `re-frame.core-reg-macros` states the same caller contract for
+           ;; every `reg-*` macro (rf2-xnym): pass the METADATA-FREE ns symbol.
+           ;; Normalised HERE rather than at the `defview` macro so every
+           ;; expansion path — the macro, and the programmatic arity a wrapper
+           ;; macro reaches for — honours it. Pinned by
+           ;; `re-frame.freehand.ns-docstring-absence-jvm-test`.
+           ns-sym    (symbol (str ns-sym))
+           {:keys [docstring opts params body]} (or (parse-defview-args more)
                                                     (error/throw-error!
                                                       :rf.error/defview-bad-args
                                                       'v/defview

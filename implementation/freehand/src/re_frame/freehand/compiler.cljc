@@ -575,7 +575,13 @@
   anchored with the declaration form's source coordinates (S1e)."
   [form menv tag opts]
   (let [coords (source-coords form (some? (:ns menv)))
-        ns-sym (if (:ns menv) (-> menv :ns :name) (ns-name *ns*))]
+        ;; METADATA-FREE, for the reason `re-frame.freehand/expand-defview`
+        ;; spells out (rf2-9y9uv, rf2-xnym): [[custom-element**]] QUOTES this
+        ;; symbol into the emitted `register-custom-element!` call, and
+        ;; shadow-cljs hangs the declaring namespace's whole DOCSTRING off its
+        ;; ns-name symbol — which a quoted symbol then carries into the
+        ;; `:advanced` bundle.
+        ns-sym (symbol (str (if (:ns menv) (-> menv :ns :name) (ns-name *ns*))))]
     (anchored coords
               #(custom-element** coords ns-sym tag opts))))
 
