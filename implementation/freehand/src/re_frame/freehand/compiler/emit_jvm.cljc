@@ -66,20 +66,30 @@
   The normalization is [[re-frame.freehand.conversion/attr-value]], the
   rule the interpreted walk applies to the same value at render. A
   literal outside the value grammar is refused HERE, at build time,
-  rather than surviving to the first render that reaches it."
+  rather than surviving to the first render that reaches it.
+
+  A prop the analyzer classified as a declared custom-element PROPERTY is
+  exempt, and deliberately: what a property means belongs to the element's
+  own setter, so it is recorded verbatim. Running it through the attribute
+  grammar would refuse exactly the map / vector / object values
+  `v/custom-element` exists to admit — and refuse them on the JVM only,
+  while the React emitter (which already exempts the same `:property`
+  kind) compiled the identical declaration."
   [e attrs]
   (into {}
-        (keep (fn [{:keys [k value] :as attr}]
+        (keep (fn [{:keys [k value kind] :as attr}]
                 (when (build-time-attr? attr)
-                  (let [v (conv/attr-value value)]
-                    (when (= ::conv/reject v)
-                      (env/fail! e :rf.ui.compile/collection-attr-value
-                                 (str "the " k " attribute carries " (pr-str value)
-                                      ", which has no attribute spelling — an attribute "
-                                      "value is a string, keyword, symbol, number or "
-                                      "boolean; :class and :style have their own grammars")
-                                 {:attr k}))
-                    [k v]))))
+                  (if (= :property kind)
+                    [k value]
+                    (let [v (conv/attr-value value)]
+                      (when (= ::conv/reject v)
+                        (env/fail! e :rf.ui.compile/collection-attr-value
+                                   (str "the " k " attribute carries " (pr-str value)
+                                        ", which has no attribute spelling — an attribute "
+                                        "value is a string, keyword, symbol, number or "
+                                        "boolean; :class and :style have their own grammars")
+                                   {:attr k}))
+                      [k v])))))
         attrs))
 
 (defn- dyn-attr-entries
@@ -173,6 +183,15 @@
          (contains? cls :class)  (assoc :class (:class cls) :sugar (:sugar cls))
          (contains? sty :style)  (assoc :style (:style sty))
          (seq events)     (assoc :events events)
+         ;; The custom-element property names this element's LITERAL props
+         ;; were classified under at BUILD time, handed to the canonicaliser
+         ;; as a constant. The declaration's runtime arm answers for the
+         ;; forwarded and per-render values beside them (`node/element`
+         ;; unions the two), but a literal verdict settled under this build's
+         ;; own declaration slice does not need to be re-derived from
+         ;; whatever happens to be loaded when the render runs.
+         (seq (:property-props props))
+         (assoc :properties (:property-props props))
          ;; `v/spread-safe`: the OWNED props compiled above, the guarded caller
          ;; folded under them by `node/element` — the same slot the interpreted
          ;; walk reaches through the reserved carrier key.
