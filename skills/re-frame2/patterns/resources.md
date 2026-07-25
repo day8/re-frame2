@@ -188,7 +188,11 @@ Routes are not required, but when a load is route-scoped, declare it on the rout
   "/articles/:slug")
 ```
 
-`:blocking?` keeps the route transition pending and gives SSR a wait point; `:when` gates conditional resources (use it, not sentinel `nil` params); `:keep-previous?` keeps the prior page visible while a new page/filter first-loads. `:after #{local-id}` orders **ensure-dispatch only** — it is **not** a data waterfall (a later entry's params come from the *route*, not an earlier entry's loaded data). `:on-match` remains canonical for arbitrary route-entry work — `:resources` is declarative server-state beside it, not a second router.
+`:blocking?` keeps the route transition pending and gives SSR a wait point; `:when` gates conditional resources (use it, not sentinel `nil` params); `:keep-previous?` keeps the prior page visible while a new page/filter first-loads. `:after #{local-id}` orders **ensure-dispatch only** — it is **not** a data waterfall (a later entry's params come from the *route*, not an earlier entry's loaded data).
+
+**Do not restate a parent's reads in every child.** Declaring `:parent` composes the ancestors' `:resources` into the child's plan: activation runs the effective parent-to-leaf branch, identical requirements dedupe to one fetch, and a child that restates a requirement its parent already contributes earns an advisory rather than a second fetch. So a shared shell read (the profile banner behind three profile tabs) is declared **once** on the parent, and the tabs cannot drift its `:blocking?`. Gate a leaf-only entry with `:when` on the route id rather than moving it down. `:parent` is itself the opt-in — nothing else about it is inherited.
+
+**`:resources` drives route readiness; `:on-match` does not.** `:rf.route/transition` / `:rf.route/error` are a projection over the *blocking* requirements in the effective plan, so they mean "this page's data isn't here yet" and nothing else. `:on-match` is fire-and-forget activation work beside them — arbitrary route-entry events the runtime dispatches and never awaits, correlates, or turns into route error state. There is no route `:on-error`.
 
 ## When to use vs plain managed HTTP
 
