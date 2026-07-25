@@ -1545,11 +1545,12 @@
 
   ;; =========================================================================
   ;; re-frame.freehand.tool — the Freehand TOOL-TIER READER DOOR (rf2-hytu5,
-  ;; extended by rf2-lvvl2; EP-0036). The third and last sanctioned
-  ;; `re-frame.freehand.*` namespace. FOUR names: the value-taking
-  ;; `view-manifest`, and the three ID-taking reads a wire-attached inspector
-  ;; needs — `read-view-manifest`, `read-view-dependencies`,
-  ;; `read-view-event-sites`.
+  ;; extended by rf2-lvvl2 / rf2-xftdv / rf2-cpfbg; EP-0036). The third and
+  ;; last sanctioned `re-frame.freehand.*` namespace. SIX names: the
+  ;; value-taking `view-manifest`; the three ID-taking DECLARATION reads a
+  ;; wire-attached inspector needs — `read-view-manifest`,
+  ;; `read-view-dependencies`, `read-view-event-sites`; and the two
+  ;; CURRENT-OCCURRENCE reads — `read-mounted-views` and `explain-render`.
   ;;
   ;; Why the split is two doors and not one function's arities: `view-manifest`
   ;; is TOTAL over every value, because a sweep over a namespace's publics
@@ -1606,10 +1607,36 @@
   ;; `re-frame.freehand.*` siblings are a closed set), which a registry-shaped
   ;; internal does not earn.
   ;;
-  ;; Live reads over MOUNTED occurrences remain a separate slice — `mounted-
-  ;; views` (rf2-xftdv) and the bounded `explain-render` (rf2-cpfbg) — each
-  ;; with its own owner, its own state and its own release seam. Nothing below
-  ;; can say what is mounted, and none of it pretends to.
+  ;; THE TWO LIVE READS (rf2-xftdv, rf2-cpfbg) classify identically, and that
+  ;; is a decision rather than an inheritance. `read-mounted-views` answers
+  ;; which occurrences are connected now; `explain-render` answers why they
+  ;; rendered, folded from Spec 009's retained ring AT READ TIME. Both are
+  ;; inspection DATA, neither dispatches, both answer inside the same four-axis
+  ;; projection, so `:tooling` / owner "004" / EP-0036 is the same reading the
+  ;; four rows above already carry — not an escalation.
+  ;;
+  ;; They are the first reads here that need live state, and the justification
+  ;; is one requirement: an inspector ATTACHES LATE. The commit seam is
+  ;; fire-and-forget, so a consumer that starts listening at attach time can
+  ;; never answer "what is mounted right now". The substrate therefore keeps
+  ;; one row per CONNECTED occurrence, written at the selected commit and
+  ;; dropped at disconnect. It is CURRENT STATE, not history: no lifetime
+  ;; counts, no interval ledger, no accumulated target union, no root
+  ;; attribution (`:root` is reported `:unknown` explicitly), and no second
+  ;; retention knob — the ruling that removed the donor accumulator did not
+  ;; leave a smaller one behind.
+  ;;
+  ;; That index is `re-frame.freehand.occurrences`, and it takes EXACTLY the
+  ;; standing `re-frame.freehand.registry` and `re-frame.freehand.descriptor`
+  ;; have: INTERNAL, `^:no-doc`, and absent from this projection BY
+  ;; CONSTRUCTION rather than by carve-out. Nothing authors against it — its
+  ;; only writers are the commit seam and `disconnect!`, its only reader is
+  ;; this namespace — so a row would advertise an authoring surface that does
+  ;; not exist; and it is dev-gated at every call site and elides from release
+  ;; builds, so a public row would name something a shipped bundle does not
+  ;; contain. Promoting it would be a D001 change, the sanctioned
+  ;; `re-frame.freehand.*` siblings being a closed set, which a storage-shaped
+  ;; internal does not earn.
   ;;
   ;; `.cljc` and host-neutral like the door and the test sibling, so the JVM
   ;; generator owns tier/kind via `ns-publics` and the CLJS probe reconciles
@@ -1619,6 +1646,8 @@
   ["re-frame.freehand.tool" "read-view-manifest"]     {:tier :tooling :owner "004" :status "EP-0036"}
   ["re-frame.freehand.tool" "read-view-dependencies"] {:tier :tooling :owner "004" :status "EP-0036"}
   ["re-frame.freehand.tool" "read-view-event-sites"]  {:tier :tooling :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.tool" "read-mounted-views"]     {:tier :tooling :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.tool" "explain-render"]         {:tier :tooling :owner "004" :status "EP-0036"}
 
   ["re-frame.ui.test" "render"]    {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "text"]      {:tier :testing :owner "008" :status "Spec-004 S1"}

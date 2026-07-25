@@ -328,19 +328,20 @@
             function with no gate anywhere reds."
     (let [cell-src (io/file (source-root) "re_frame" "freehand" "cell.cljc")
           forms    (top-level-forms cell-src)
-          calling  (filter (fn [form]
-                             (some #(str/starts-with? (str %) "occurrences/")
-                                   (symbols-in form)))
-                           forms)]
+          ;; Matched on the SEGMENT rather than on one spelling, so renaming the
+          ;; require alias cannot quietly retire either half of this assertion.
+          index?   (fn [sym] (some-> (namespace sym) (str/ends-with? "occurrences")))
+          gate?    (fn [sym] (= "debug-enabled?" (name sym)))
+          calling  (filter #(some index? (symbols-in %)) forms)]
       (is (.isFile cell-src) "the commit seam's source file was located")
       (is (<= 2 (count calling))
           (str "at least two top-level forms should call the index — the commit seam writes a "
                "row and `disconnect!` drops one. Found " (count calling)
                ", so either the release seam is gone or this walk stopped seeing the calls."))
       (doseq [form calling]
-        (is (contains? (set (symbols-in form)) 're-frame.interop/debug-enabled?)
+        (is (some gate? (symbols-in form))
             (str "a top-level form in cell.cljc calls re-frame.freehand.occurrences/… without "
-                 "naming re-frame.interop/debug-enabled? anywhere in it, so the current-"
-                 "occurrence index has an UNGATED path onto the shipping render path and will "
-                 "not dead-code-eliminate. The offending form starts: "
+                 "naming interop/debug-enabled? anywhere in it, so the current-occurrence "
+                 "index has an UNGATED path onto the shipping render path and will not "
+                 "dead-code-eliminate. The offending form starts: "
                  (subs (pr-str form) 0 (min 120 (count (pr-str form))))))))))

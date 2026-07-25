@@ -118,24 +118,31 @@
     ;; by carve-out. Its CLJS surface is reconciled by the probe.
     re-frame.freehand.test
     ;; The Freehand substrate's TOOL-TIER READER DOOR (rf2-hytu5, extended by
-    ;; rf2-lvvl2; contract in Spec 004, the instrumentation it serves in Spec
-    ;; 009). The third and last sanctioned `re-frame.freehand.*` namespace,
-    ;; publishing FOUR names: `view-manifest`, a TOTAL projection of the
-    ;; compile-time analysis a value already carries, plus the three ID-taking
-    ;; reads a wire-attached inspector needs — `read-view-manifest`,
-    ;; `read-view-dependencies`, `read-view-event-sites`. `.cljc` and
-    ;; host-neutral like the door and the test sibling, so `ns-publics` is
-    ;; authoritative here and the CLJS half is reconciled by the probe.
+    ;; rf2-lvvl2 / rf2-xftdv / rf2-cpfbg; contract in Spec 004, the
+    ;; instrumentation it serves in Spec 009). The third and last sanctioned
+    ;; `re-frame.freehand.*` namespace, publishing SIX names: `view-manifest`,
+    ;; a TOTAL projection of the compile-time analysis a value already carries;
+    ;; the three ID-taking DECLARATION reads a wire-attached inspector needs —
+    ;; `read-view-manifest`, `read-view-dependencies`, `read-view-event-sites`;
+    ;; and the two CURRENT-OCCURRENCE reads — `read-mounted-views` and
+    ;; `explain-render`. `.cljc` and host-neutral like the door and the test
+    ;; sibling, so `ns-publics` is authoritative here and the CLJS half is
+    ;; reconciled by the probe.
     ;;
     ;; It is a READER, not a tool framework: no accumulator, no interval log
-    ;; and no history store. The id-taking reads resolve an id through the
-    ;; INTERNAL dev-only declared-view index `re-frame.freehand.registry`,
-    ;; which is `^:no-doc`, holds one row per declaration and is absent from
-    ;; this list BY CONSTRUCTION — the same standing `re-frame.freehand.
-    ;; descriptor` has above, and for the same reason: its only caller is the
-    ;; `v/defview` expansion and nothing authors against it. So the supported
-    ;; four are the whole namespace by construction rather than by carve-out
-    ;; (the private helpers beneath them are `defn-`).
+    ;; and no history store. `explain-render` folds Spec 009's per-frame
+    ;; retained ring AT READ TIME, under Spec 009's one knob, and keeps none of
+    ;; the fold. The reads resolve through two INTERNAL dev-only indexes — the
+    ;; declared-view index `re-frame.freehand.registry` (one row per
+    ;; declaration) and the current-occurrence index
+    ;; `re-frame.freehand.occurrences` (one row per CONNECTED occurrence,
+    ;; dropped at disconnect) — both `^:no-doc` and absent from this list BY
+    ;; CONSTRUCTION, the same standing `re-frame.freehand.descriptor` has
+    ;; above, and for the same reason: nothing authors against either. Their
+    ;; only writers are the `v/defview` expansion and the commit seam, and
+    ;; their only reader is this namespace. So the supported six are the whole
+    ;; namespace by construction rather than by carve-out (the private helpers
+    ;; beneath them are `defn-` / `def ^:private`).
     re-frame.freehand.tool
     ;; Optional feature artefacts (public home namespaces).
     re-frame.schemas
