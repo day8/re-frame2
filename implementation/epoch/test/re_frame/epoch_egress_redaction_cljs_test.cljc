@@ -108,9 +108,15 @@
 
 (defn- big-string [n] (apply str (repeat n "X")))
 
-(def ^:private frame-id :epoch-egress-redaction/frame)
+(def ^:private frame-id         :epoch-egress-redaction/frame)
+;; A second, never-classified frame — the control arms make a FRESH frame
+;; rather than re-`make-frame`ing `frame-id`, whose app-db would still carry
+;; the secret in `:db-before` and roll the badge up true.
+(def ^:private control-frame-id :epoch-egress-redaction/control-frame)
 
-(defn- last-record [] (last (rf/epoch-history frame-id)))
+(defn- last-record
+  ([] (last-record frame-id))
+  ([fid] (last (rf/epoch-history fid))))
 
 (defn- classify!
   "Declare `[:auth :password]` sensitive and `[:blob :payload]` large against
@@ -128,14 +134,11 @@
   nil)
 
 (defn- fresh-frame!
-  "Make the suite's frame. `classify?` false is the NEGATIVE-CONTROL arm: the
-  identical cascade with NO classification registered, so the same bytes must
-  survive projection RAW."
-  ([] (fresh-frame! true))
-  ([classify?]
-   (rf/make-frame {:id frame-id})
-   (when classify? (classify!))
-   nil))
+  "Make the suite's frame with the classification registered."
+  []
+  (rf/make-frame {:id frame-id})
+  (classify!)
+  nil)
 
 (defn- contains-secret?
   "True when `secret` appears ANYWHERE in a nested EDN value — the recursive
@@ -525,13 +528,38 @@
       (let [proj (epoch/projected-record raw {:include-sensitive? true})]
         (is (= secret (get-in proj [:db-after :auth :password])))
         (is (elision/marker? (get-in proj [:db-after :blob :payload]))
-            "large stays elided under the sensitive opt-in"))
+            "large stays elided under the sensitive opt-in")
+        (is (zero? (count-leaves-at-least payload-size proj))
+            "and no raw payload bytes egress anywhere in the record"))
       (let [proj (epoch/projected-record raw {:include-large? true})]
         (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
             "sensitive stays redacted under the large opt-in")
-        (is (= payload-size (count (get-in proj [:db-after :blob :payload])))
-            "NEGATIVE CONTROL — `:include-large? true` DOES reveal the full
-             payload, so the elision assertions are not vacuous")))))
+        (is (not (elision/marker? (get-in proj [:db-after :blob :payload])))
+            "NEGATIVE CONTROL — `:include-large? true` DOES lift the slot")
+        (is (pos? (count-leaves-at-least payload-size proj))
+            "and the raw payload bytes ARE present, so the elision
+             assertions above are not vacuous")))))
+
+(deftest include-sensitive-still-applies-the-redact-fn-override
+  (testing "the app-installed `:redact-fn` is the SECOND stage of the
+            projection. A raw-record bypass on `:include-sensitive?` (the
+            original rf2-m9duxl bug) skipped it entirely, so an app relying
+            on the override to scrub material the classification registry
+            cannot prove would have leaked. The override must still run."
+    (fresh-frame!)
+    (reg-login!)
+    (rf/configure! {:epoch-history
+                    {:redact-fn (fn [r] (assoc r :rf.test/redact-fn-ran true))}})
+    (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
+    (let [raw  (last-record)
+          proj (epoch/projected-record raw {:include-sensitive? true})]
+      (is (= secret (get-in proj [:db-after :auth :password]))
+          "the sensitive opt-in is in force")
+      (is (true? (:rf.test/redact-fn-ran proj))
+          "the override still ran — the post-projection stage is never skipped")
+      (is (not (contains? raw :rf.test/redact-fn-ran))
+          "NEGATIVE CONTROL — the RAW ring record is untouched, so the
+           override is projection-side only"))))
 
 ;; ============================================================================
 ;;  5. `:trigger-event` event-args fail-closed (rf2-nm611o)
@@ -621,10 +649,10 @@
             the projection silently blanket-redacted, this arm reds. It also
             documents the actual contract — the projection redacts what the
             app CLASSIFIED, nothing more."
-    (fresh-frame! false)
+    (rf/make-frame {:id control-frame-id})
     (reg-login!)
-    (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
-    (let [proj (epoch/projected-record (last-record))]
+    (rf/dispatch-sync [:egress/login secret] {:frame control-frame-id})
+    (let [proj (epoch/projected-record (last-record control-frame-id))]
       (is (= secret (get-in proj [:db-after :auth :password]))
           "with no classification declared the value rides through RAW")
       (is (contains-secret? proj)
@@ -639,18 +667,23 @@
             record would collapse to a constant."
     (fresh-frame!)
     (reg-login!)
-    (rf/reg-event :egress/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
-    (let [proj (epoch/projected-record (last-record))]
-      (is (true? (:rf.epoch/sensitive? proj))
-          "a cascade whose classified path holds a non-nil leaf rolls up true
-           and the flag survives projection"))
-    (fresh-frame! false)
-    (rf/reg-event :egress/plain (fn [_ _] {:db {:n 0}}))
-    (rf/dispatch-sync [:egress/plain] {:frame frame-id})
-    (is (false? (:rf.epoch/sensitive? (epoch/projected-record (last-record))))
-        "NEGATIVE CONTROL — a non-sensitive cascade reads strict false, so
-         the flag is not hardcoded true")))
+    (is (true? (:rf.epoch/sensitive? (epoch/projected-record (last-record))))
+        "a cascade whose classified path holds a non-nil leaf rolls up true
+         and the flag survives projection")))
+
+(deftest sensitive-rollup-badge-reads-strict-false-without-classification
+  (testing "NEGATIVE CONTROL for the badge — the identical projection call on
+            a frame with NO classification declared reads strict `false`, so
+            the sibling assertion is not passing against a hardcoded true.
+            (A separate frame id: `make-frame` on an id whose app-db already
+            holds the secret would roll up true from `:db-before` alone.)"
+    (rf/make-frame {:id control-frame-id})
+    (rf/reg-event :egress/plain (fn [_ _] {:db {:n 0 :audit {:note benign}}}))
+    (rf/dispatch-sync [:egress/plain] {:frame control-frame-id})
+    (is (false? (:rf.epoch/sensitive? (epoch/projected-record
+                                        (last-record control-frame-id))))
+        "strict false, not nil and not true")))
 
 (deftest trace-events-retention-cap-bounds-what-egresses
   (testing "`:trace-events-keep` is a retention bound on the most
