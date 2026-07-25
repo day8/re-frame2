@@ -126,7 +126,9 @@
   [v]
   (if (vector? v) (into-array v) v))
 
-(defn- put-plain-attr!
+(defn- put-attribute!
+  "Write one author prop as an ATTRIBUTE — the attribute-value grammar and
+  React's canonical attribute spelling."
   [o tag k raw]
   (let [select-value? (controlled/select-value-slot? tag k)
         semantic      (if select-value? (conv/select-value raw) (conv/attr-value raw))]
@@ -142,6 +144,31 @@
                               "agree on.")))
                   {:attr k :value (shape raw)}))
     (gobj/set o (conv/react-prop-name k) (react-control-value semantic))))
+
+(defn- put-plain-attr!
+  "Write ONE non-slot author prop onto the props object: a DECLARED
+  custom-element PROPERTY under its camelCase JS property name, anything
+  else as the attribute [[put-attribute!]] spells.
+
+  The property branch lives HERE because this is the single place every
+  browser path arrives at — the interpreted walk's own fold, the compiled
+  tier's emitted `attr!`, a `v/spread`'s forwarded entry and a
+  `v/spread-safe` caller's — so one declaration means one thing on all four
+  rather than four times once. A compiled element's LITERAL property is
+  resolved to its camelCase name at BUILD time and never reaches here.
+
+  The value is written VERBATIM: what a property means belongs to the
+  element's own setter, which is why a map, a vector or a host object is
+  legal there and refused as an attribute. The registry read is asked per
+  prop rather than threaded in, because the tag test in
+  [[re-frame.freehand.conversion/element-properties]] answers `nil` for
+  every plain DOM element without touching the registry at all, and
+  widening `put-attr!`'s arity would change the emitted compiled ABI for a
+  lookup only web components ever perform."
+  [o tag k raw]
+  (if (contains? (conv/element-properties tag) k)
+    (gobj/set o (conv/custom-element-property-name k) raw)
+    (put-attribute! o tag k raw)))
 
 (defn ^:no-doc put-class!
   "Compose `sugar` (the tag's `.class` shorthand names) with the AUTHORED

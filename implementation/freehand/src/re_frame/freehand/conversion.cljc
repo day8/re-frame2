@@ -454,6 +454,54 @@
   (remembered prop-name-cache k react-prop-name*))
 
 ;; ---------------------------------------------------------------------------
+;; Custom elements — the declared property classification, at RENDER
+;; ---------------------------------------------------------------------------
+
+(defn- custom-element-property-name* [k]
+  (rules/custom-element-property-name (name k)))
+
+(def ^:private property-name-cache (atom {}))
+
+(defn custom-element-property-name
+  "A DECLARED custom-element property keyword as the client SETS it — the
+  RULED kebab -> camelCase JS property name (`:help-text` -> `helpText`),
+  delegated to [[re-frame.freehand.rules/custom-element-property-name]].
+
+  Deliberately NOT [[react-prop-name]], and the difference is the whole
+  reason `v/custom-element` exists. That table answers what react-dom
+  spells an ATTRIBUTE, and its rule for an unrecognized kebab name is to
+  pass it through verbatim — so a property read through it reaches React
+  as `help-text`, React writes an attribute, the element's property setter
+  never runs, and the component is renderable but inert with nothing
+  reported. A declared name is not an attribute spelled differently; it is
+  a different kind of thing, so it has its own projection.
+
+  Remembered per keyword — see §Remembered projections above."
+  [k]
+  (remembered property-name-cache k custom-element-property-name*))
+
+(defn element-properties
+  "The `:properties` set `(v/custom-element tag {:properties #{…}})`
+  declared for `tag`, read at RENDER from the live registry — or `nil`
+  where the tag can carry none.
+
+  The TAG test comes first, and it is why this is one function rather than
+  a registry read at each call site: a custom element's name must contain
+  `-`, so every plain DOM element — every element in an ordinary page —
+  answers without touching the registry at all. `nil` rather than `#{}`
+  for an undeclared element, so a caller skips the classification branch
+  outright instead of consulting an empty set once per attribute.
+
+  This is the RUNTIME arm of ONE declaration. Its compile-time twin is
+  `re-frame.freehand.compiler.build/element-properties`, read per build
+  under `cljs.env/*compiler*`. Both answer the same declaration, and a
+  value the compiler never saw — an interpreted body's attribute, a
+  `v/spread`'s forwarded map — has only this one to ask."
+  [tag]
+  (when (str/includes? (name tag) "-")
+    (not-empty (rules/custom-element-properties tag))))
+
+;; ---------------------------------------------------------------------------
 ;; Attribute keys the grammar refuses
 ;; ---------------------------------------------------------------------------
 

@@ -608,9 +608,19 @@
   map at build time, so a promoted declaration answers the same tree
   (rf2-drpa3.93).
 
+  `properties` is the element's DECLARED custom-element property set (nil
+  for a plain DOM tag, and for an undeclared custom element). A declared
+  name is folded as a PROPERTY: it lands in `:attrs` under its authored
+  kebab key like everything else — one author-space map, per §Custom
+  elements — but it never enters the attribute-value grammar, because what
+  a property MEANS is settled by the element's own setter rather than by
+  anything the DOM can spell. That is why a map, a vector or an object is
+  legal there and refused as an attribute. The nil-is-absent law still
+  holds: a conditional property is the same law a conditional attribute is.
+
   An ordinary key passes through untouched, namespace and all: the
   structural tree carries authored names."
-  [tag multi? [attrs events class style] k v]
+  [tag properties multi? [attrs events class style] k v]
   (let [k (conv/attr-key k)]
     (cond
       (= :key k)            [attrs events class style]
@@ -634,6 +644,14 @@
                                      (assoc events k c)
                                      events)
                              class style]
+      ;; ABOVE the attribute fold rather than inside it, because a declared
+      ;; property is not an attribute with a wider value grammar — it is a
+      ;; different kind of prop, and routing it through `attr-entry` would
+      ;; make the attribute rules carry an exception they have no business
+      ;; knowing about (the controlled-slot reading of a nil among them).
+      (contains? properties k)
+      [(cond-> attrs (some? v) (assoc k v)) events class style]
+
       :else                 [(if-let [e (attr-entry tag multi? k v)]
                                (conj attrs e)
                                attrs)
@@ -901,9 +919,9 @@
   attribute — with `:class` the ONE exception: the two class values COMPOSE,
   owned classes first, because a caller passing `.mt-4` is adding a class and
   not replacing the component's own."
-  [tag multi? attrs es caller]
+  [tag properties multi? attrs es caller]
   (let [[c-attrs c-es c-class c-style]
-        (reduce-kv #(dyn-attr-entry tag multi? %1 %2 %3) [{} {} nil nil] caller)
+        (reduce-kv #(dyn-attr-entry tag properties multi? %1 %2 %3) [{} {} nil nil] caller)
         c-attrs (if-let [c (class-string tag nil c-class)]
                   (assoc c-attrs :class c)
                   c-attrs)
@@ -932,14 +950,36 @@
     `:caller`     an already-guarded `v/spread-safe` caller attr map,
                   folded UNDER everything above (owned wins; `:class`
                   composes owned-first)
+    `:properties` the custom-element property names the COMPILER already
+                  classified from this element's literal props
     `:children`   a thunk building the children, evaluated under this
                   element's namespace context
 
   Absent-when-empty throughout: an element with no attributes carries no
   `:attrs` key at all, so one semantic element has exactly one
   representation."
-  [{:keys [tag attrs dyn class sugar style events key? key-val children caller]}]
+  [{:keys [tag attrs dyn class sugar style events key? key-val children caller
+           properties]}]
   (let [ctx        (conv/enter-ns *ns-context* tag)
+        ;; The `(v/custom-element tag {:properties #{…}})` declaration, as
+        ;; this element can know it — TWO ARMS OF ONE FACT, unioned, because
+        ;; one declaration cannot mean property here and attribute there.
+        ;;
+        ;; `:properties` is the COMPILE-TIME arm: a compiled element's
+        ;; literal props were classified under the build's own declaration
+        ;; slice, so that verdict is settled and independent of what has been
+        ;; loaded by the time this render runs. The RUNTIME registry is the
+        ;; only arm that can answer for a value the compiler never saw — an
+        ;; interpreted body's attributes, a `v/spread`'s forwarded map, a
+        ;; `v/spread-safe` caller — and those all arrive through `:dyn` /
+        ;; `:caller`, which is why the read is asked only where one of them
+        ;; is present. A wholly-literal compiled element pays nothing.
+        declared   (let [runtime (when (or (pos? (count dyn)) (some? caller))
+                                   (conv/element-properties tag))]
+                     (cond
+                       (and runtime (seq properties)) (into runtime properties)
+                       runtime                        runtime
+                       :else                          (not-empty properties)))
         ;; The COLLECTION-shaped `value` verdict is a property of the whole
         ;; element, exactly as the controlled-input door's element half is,
         ;; so it is settled once — over both attribute sources, because a
@@ -965,7 +1005,8 @@
         ;; discriminates on the exact keyword — and has to reach the one
         ;; place each is composed rather than land beside it.
         [attrs es class style]
-        (reduce-kv #(dyn-attr-entry tag multi? %1 %2 %3) [(or attrs {}) {} class style] dyn)
+        (reduce-kv #(dyn-attr-entry tag declared multi? %1 %2 %3)
+                   [(or attrs {}) {} class style] dyn)
         attrs      (if-let [c (class-string tag sugar class)]
                      (assoc attrs :class c)
                      attrs)
@@ -981,13 +1022,25 @@
         ;; component owns, which is why it happens once the owned class and
         ;; style have already resolved. The deny law ran at the call, so what
         ;; arrives here cannot carry a structural or owned key.
-        [attrs es] (if (some? caller) (fold-caller tag multi? attrs es caller) [attrs es])
+        [attrs es] (if (some? caller)
+                     (fold-caller tag declared multi? attrs es caller)
+                     [attrs es])
         ;; The DOM top layer's desired-state pair is Freehand vocabulary, not
         ;; attributes: it leaves `:attrs` here and becomes the reserved
         ;; structural fact below. Extracting it at the ONE canonicaliser both
         ;; modes reach is what makes the validity rules and the recorded fact
         ;; the same in an interpreted and a compiled declaration.
         [attrs top] (top-layer/extract tag attrs)
+        ;; The property classification as a FACT on the node, derived from the
+        ;; attribute map that actually survived rather than from the
+        ;; declaration: a declared name the element does not carry is not a
+        ;; property of THIS element, and a nil-valued one was dropped by the
+        ;; nil-is-absent law before it got here. Read at conversion — the SSR
+        ;; serialiser and normalization omit exactly these props from markup,
+        ;; because a server cannot set a property and the client applies them
+        ;; at hydration (§004B §Custom elements; the `:rf.ui/property-props`
+        ;; reserved key is SEMANTIC conversion input, not a diagnostic).
+        prop-props (when declared (into #{} (filter declared) (keys attrs)))
         el-ns      (conv/element-ns ctx)
         kids       (when children
                      ;; Pushing a thread binding costs a frame and a map
@@ -1017,6 +1070,7 @@
       el-ns                (assoc :ns el-ns)
       (pos? (count attrs)) (assoc :attrs attrs)
       (pos? (count es))    (assoc :events es)
+      (pos? (count prop-props)) (assoc :rf.ui/property-props prop-props)
       key?                 (assoc :key key-val)
       ;; The desired state as a FACT, never as a claim: a structural host has
       ;; no top layer to promote anything into, so the tree says what was
