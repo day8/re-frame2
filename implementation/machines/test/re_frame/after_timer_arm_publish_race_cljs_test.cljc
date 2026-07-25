@@ -1,4 +1,4 @@
-(ns re-frame.after-timer-arm-publish-race-test
+(ns re-frame.after-timer-arm-publish-race-cljs-test
   "Adversarial ordering regressions for the machine `:after` timer two-phase
   arm (rf2-j538f7.7). Two races the serial suite never exercised:
 
@@ -20,7 +20,12 @@
   here are driven with `with-redefs` — running the cleanup INSIDE the host-arm
   stub (between reserve and publish), or firing the captured thunk synchronously
   — so BOTH runtimes execute the identical reserve / publish / claim code and
-  the invariants hold on each. Per Spec 005 §Delayed `:after` transitions."
+  the invariants hold on each. Per Spec 005 §Delayed `:after` transitions.
+
+  Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
+  `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
+  load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
+  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]

@@ -7,7 +7,7 @@
 
   The pure-engine matrix (action-data / fx / cascade / spawn / birth / destroy
   / root-multi-target / rejection / ≤8 convenience) lives in
-  region_order_cljc_test.cljc; this file pins the same core invariant through
+  region_order_cljs_test.cljc; this file pins the same core invariant through
   the registrar + router so the registration-time normalisation is exercised."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]

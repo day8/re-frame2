@@ -1,11 +1,11 @@
-(ns re-frame.machine-front-of-queue-test
+(ns re-frame.machine-front-of-queue-cljs-test
   "Per Spec 005 §Level 4 — end-to-end coverage that a REAL
   machine's continuation dispatch (`:fx [[:dispatch …]]` emitted from an
   action) leap-frogs to the FRONT of the router queue, while an event
   that merely TARGETS a machine but originates externally stays FIFO.
 
   The router-level queue-insertion mechanism is pinned in
-  `re-frame.router-front-of-queue-test` (core). Here we exercise the
+  `re-frame.router-front-of-queue-cljs-test` (core). Here we exercise the
   marking SEAM: `re-frame.router/run-handler-pipeline!` tags the in-flight
   envelope `:rf.machine/internal? true` when the handler's registration
   meta carries `:rf/machine? true` (stamped by `reg-machine*`); that flag
@@ -16,7 +16,12 @@
 
   Deterministic harness: one `dispatch-sync` drain. The seed handler
   enqueues its events in its body; they ride the in-progress sync drain,
-  which pops them in queue order. Run-order is recorded into an atom."
+  which pops them in queue order. Run-order is recorded into an atom.
+
+  Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
+  `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
+  load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
+  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.router :as router]

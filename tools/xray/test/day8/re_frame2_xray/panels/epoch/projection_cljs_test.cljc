@@ -1604,7 +1604,7 @@
 ;; it through the transition row + groups it per-region for the view.
 ;;
 ;; The HVAC `[:hvac/power-cycle]` cascade below is the contract shape the
-;; instrumentation test (`re-frame.machine-cascade-instrumentation-test`)
+;; instrumentation test (`re-frame.machine-cascade-instrumentation-cljs-test`)
 ;; pins: a parallel machine, climate region (deep compound, exits :idle →
 ;; action @ LCA → 3-level entry descent) + fan region (exit :off → action →
 ;; single entry).
