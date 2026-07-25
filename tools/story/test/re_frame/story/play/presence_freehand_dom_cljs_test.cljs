@@ -97,13 +97,24 @@
   way every Freehand DOM suite does. The presence advance under test is
   deliberately NOT act-driven: it settles through the substrate's own
   synchronous commit, and wrapping it here would prove the harness rather
-  than the bridge."
+  than the bridge.
+
+  The act-environment flag is RESTORED once React settles. Leaving it armed
+  would make every subsequent update outside an act boundary — which is every
+  update this file cares about — emit React's `not wrapped in act(...)`
+  warning, so the lane's console would fill with noise about the exact thing
+  the design says not to do here."
   [thunk]
-  (try
-    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-    (js/Promise.resolve (react/act (fn [] (js/Promise.resolve (thunk)))))
-    (catch :default e
-      (js/Promise.reject e))))
+  (let [prior (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
+        restore! (fn [] (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior))]
+    (try
+      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+      (-> (js/Promise.resolve (react/act (fn [] (js/Promise.resolve (thunk)))))
+          (.then (fn [v] (restore!) v)
+                 (fn [e] (restore!) (throw e))))
+      (catch :default e
+        (restore!)
+        (js/Promise.reject e)))))
 
 (defn- setup! []
   (story/clear-all!)
