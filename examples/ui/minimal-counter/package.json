@@ -2,7 +2,7 @@
   "name": "minimal-counter",
   "version": "0.0.1",
   "private": true,
-  "description": "The smallest runnable re-frame.ui project.",
+  "description": "The smallest runnable Freehand project.",
   "devDependencies": {
     "shadow-cljs": "3.4.10"
   },

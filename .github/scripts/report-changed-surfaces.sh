@@ -155,8 +155,17 @@ else
     # to the nightly safety net for core-only changes. Story/Xray and
     # machines-viz remain here because example builds load the Xray preload
     # and Story hosts, whose compiled closure includes machines-viz.
+    #
+    # rf2-nutll — implementation/freehand/* joined this list when
+    # examples/ui/minimal-counter cut over to Freehand. That scaffold is the
+    # subject of the `ui-scaffold-smoke` job, which is gated on this same
+    # output, and it now resolves day8/re-frame2-freehand by :local/root — so a
+    # Freehand change that breaks the standalone scaffold's compile would
+    # otherwise SKIP the only job that builds it. The widening the
+    # `implementation/freehand/*` case further down anticipated, arrived at from
+    # the consumer side.
     case "$file" in
-      examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/ui/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
+      examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/ui/*|implementation/freehand/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
         examples_compile=true
         ;;
       tools/story/src/*|tools/story/testbeds/*|tools/story/deps.edn|tools/xray/src/*|tools/xray/testbeds/*|tools/xray/deps.edn|tools/machines-viz/src/*|tools/machines-viz/deps.edn)
@@ -733,6 +742,11 @@ else
         # holds. Those builds are covered by the dedicated
         # freehand_evidence_elision output, armed narrowly on the probe's
         # primary inputs in the case above — not by these four.
+        #
+        # rf2-nutll — examples_compile is armed too, but from the FIRST case
+        # block (where the examples_compile roster lives) rather than here:
+        # examples/ui/minimal-counter is a standalone Freehand project now, so
+        # Freehand is a framework artefact a standalone example build resolves.
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true

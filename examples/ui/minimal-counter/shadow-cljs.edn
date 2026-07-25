@@ -12,18 +12,18 @@
  :dev-http {8280 "resources/public"}
 
  ;; ---------------------------------------------------------------------
- ;; The one load-bearing re-frame.ui setting (spec/004C-Roots-and-Mount.md
- ;; §2.1.1). Set it ONCE here, not once per build.
+ ;; NO Freehand build configuration, and that is the point: interpreted
+ ;; views need none at all (docs/core/freehand/install.md §Shadow build
+ ;; settings). The whole framework contribution to this file is nothing.
  ;;
- ;; :build-defaults  — the build hook harvests re-frame.ui's whole-build
- ;;                    registries (view digests, root/plan indexes, Root
- ;;                    Descriptors, custom-element declarations) from
- ;;                    cache-durable per-namespace analyzer data at build
- ;;                    time. Because the registries no longer depend on
- ;;                    macro-expansion side effects, a warm daemon start
- ;;                    REUSES Shadow's disk cache — no cache blocker needed.
+ ;; The COMPILED tier is what needs one — its analyzer and registries run
+ ;; at build time, behind a single hook set once in :build-defaults:
+ ;;
+ ;;   :build-defaults {:build-hooks [(re-frame.freehand.compiler.build-hook/hook)]}
+ ;;
+ ;; This scaffold declares no `{:compiled true}` view, so it wires no hook.
+ ;; Opt a view into the compiled tier and the hook comes with it.
  ;; ---------------------------------------------------------------------
- :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
 
  :builds
  {:app

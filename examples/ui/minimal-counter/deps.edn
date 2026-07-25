@@ -1,16 +1,21 @@
-;; minimal-counter — the smallest runnable re-frame.ui project.
+;; minimal-counter — the smallest runnable Freehand project.
 ;;
-;; CHECKOUT-RELATIVE BY DESIGN, not pending a publish. day8/re-frame2-ui is
-;; donor-only: the release contract rules out a Clojars coordinate for it,
-;; now and permanently (see docs/release-process.md). Resolving it from an
-;; enclosing monorepo checkout is therefore the only supported shape, and it
-;; does not become an :mvn/version coord later. day8/re-frame2 does ship to
+;; CHECKOUT-RELATIVE BY DESIGN. day8/re-frame2-freehand is not published and
+;; carries no date at which it will be (docs/core/freehand/install.md), so
+;; resolving it from an enclosing monorepo checkout is the only supported
+;; shape today — treat the coord as the SHAPE of the dependency, not as
+;; something you can paste into a fresh project. day8/re-frame2 does ship to
 ;; Clojars with every release, but this scaffold resolves it from the same
 ;; checkout so both artefacts come from one source and cannot drift apart.
 ;;
 ;; Both artefacts are named because the app :requires namespaces from
-;; both -- re-frame.core and re-frame.ui -- and a direct :require deserves
-;; a direct dependency. (re-frame2-ui does depend on re-frame2 itself.)
+;; both -- re-frame.core and re-frame.freehand -- and a direct :require
+;; deserves a direct dependency. (re-frame2-freehand does depend on
+;; re-frame2 itself.)
+;;
+;; TWO artefacts is the whole floor: Freehand ships its own
+;; reactive-substrate adapter (v/adapter), so nothing here names a wrapper
+;; library.
 ;;
 ;; React is NOT a Clojure dependency: it arrives through npm
 ;; (package.json) and shadow-cljs resolves it from node_modules at compile
@@ -21,7 +26,7 @@
          org.clojure/clojurescript {:mvn/version "1.12.145"}
 
          day8/re-frame2            {:local/root "../../../implementation/core"}
-         day8/re-frame2-ui         {:local/root "../../../implementation/ui"}}
+         day8/re-frame2-freehand   {:local/root "../../../implementation/freehand"}}
 
  :aliases
  {;; shadow-cljs's JVM side. shadow-cljs.edn's `{:deps {:aliases [:shadow]}}`

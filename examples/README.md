@@ -59,7 +59,7 @@ examples/
       dashboard/
     reagent_slim/
       counter/
-  ui/                          <-- standalone re-frame.ui scaffold (its own build; not on the monorepo classpath)
+  ui/                          <-- standalone Freehand scaffold (its own build; not on the monorepo classpath)
     minimal-counter/
 ```
 
