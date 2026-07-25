@@ -306,36 +306,31 @@
       (is (= "Open cart"
              (:aria-label (t/attrs (t/find good #(= :button (:tag %))))))))))
 
-;; The next two are JVM-only ASSERTIONS, and the declarations above are not:
-;; `toast-card`, `toast-card-case` and `toast-tray` compile on both hosts, so a
-;; rename of `v/presence` or `v/presence-phase` reds in ClojureScript exactly as
-;; it does here. What does not cross is the structural RENDER of a view that
-;; reads the phase: `presence-phase` is `react/useContext` on ClojureScript, and
-;; `t/render` opens no React render, so the read throws "Invalid hook call"
-;; outside a mounted tree. The JVM arm answers `:present` unconditionally, which
-;; is the behaviour `presence.md` describes. Filed as rf2-erqin.
-#?(:clj
-   (deftest presence-phase-reads-present-outside-a-boundary
-     (testing "presence.md's reusability claim — a presence-aware child renders
-               anywhere, and the JVM structural render always yields :present,
-               so the exit class and `inert` are absent here."
-       (let [tree (t/render [toast-card {:toast {:id 1 :message "saved"}}])
-             div  (t/find tree #(= :div (:tag %)))]
-         (is (= "saved" (t/text div)))
-         (is (nil? (:inert (t/attrs div))) "not exiting — no inert")
-         (is (nil? (:aria-hidden (t/attrs div)))))
-       (is (= "saved" (t/text (t/render [toast-card-case {:toast {:message "saved"}}])))
-           "the `case` spelling reads the same phase"))))
+;; The next two run on BOTH hosts. `v/presence-phase` discriminates on the
+;; RENDERER rather than on the host — `node/*structural-render?*`, bound for the
+;; extent of `t/render` — so a structural render answers `:present` in
+;; ClojureScript exactly as it does on the JVM, and these read the phase through
+;; the same public surface `presence.md` documents (rf2-erqin).
+(deftest presence-phase-reads-present-outside-a-boundary
+  (testing "presence.md's reusability claim — a presence-aware child renders
+            anywhere, and a structural render always yields :present, so the
+            exit class and `inert` are absent here."
+    (let [tree (t/render [toast-card {:toast {:id 1 :message "saved"}}])
+          div  (t/find tree #(= :div (:tag %)))]
+      (is (= "saved" (t/text div)))
+      (is (nil? (:inert (t/attrs div))) "not exiting — no inert")
+      (is (nil? (:aria-hidden (t/attrs div)))))
+    (is (= "saved" (t/text (t/render [toast-card-case {:toast {:message "saved"}}])))
+        "the `case` spelling reads the same phase")))
 
-#?(:clj
-   (deftest a-presence-boundary-inserts-no-wrapper-node
-     (testing "presence.md — the boundary is DOM-agnostic: keyed children, no
-               wrapper element, no stamped attributes."
-       (seed! {:toasts [{:id 1 :message "one"} {:id 2 :message "two"}]})
-       (let [tree (t/with-render (t/render [toast-tray {}]))]
-         (is (= ["one" "two"]
-                (mapv t/text (t/find-all tree #(= :div (:tag %)))))
-             "both children render, in first-appearance order")))))
+(deftest a-presence-boundary-inserts-no-wrapper-node
+  (testing "presence.md — the boundary is DOM-agnostic: keyed children, no
+            wrapper element, no stamped attributes."
+    (seed! {:toasts [{:id 1 :message "one"} {:id 2 :message "two"}]})
+    (let [tree (t/with-render (t/render [toast-tray {}]))]
+      (is (= ["one" "two"]
+             (mapv t/text (t/find-all tree #(= :div (:tag %)))))
+          "both children render, in first-appearance order"))))
 
 (deftest a-behavior-is-an-inert-marker-on-the-jvm
   (testing "host-boundaries.md block 3 — the use site records the behavior
