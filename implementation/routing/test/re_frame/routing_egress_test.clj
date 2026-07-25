@@ -29,10 +29,14 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.classification :as classification]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.elision :as elision]
+            [re-frame.live-frame :as live-frame]
             [re-frame.privacy :as privacy]
+            [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.routing.egress :as egress]
             [re-frame.routing.nav-fx :as nav-fx]
             [re-frame.routing.scroll :as scroll]
@@ -499,6 +503,110 @@
                        [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
       (is (= privacy/redacted-sentinel (:requested-url payload))
           "still redacted after the re-registration"))))
+
+;; ===========================================================================
+;; rf2-kqxe6.20 (reopened by the merged-PR audit of #6949) — the retention is
+;; ORDER-INDEPENDENT.
+;;
+;; Every case above loads `re-frame.routing` FIRST, which is only one of the two
+;; legal orders. `re-frame.core` does not pull the routing artefact in, so an
+;; application namespace that registers `:rf.route/entry-denied` — the canonical
+;; auth recipe — and never requires the facade itself is loaded FIRST whenever
+;; something else requires `re-frame.routing` later.
+;;
+;; Registration-time retention alone cannot cover that order: when the app
+;; registration is recorded there is no framework descriptor in the source store
+;; to read, so the app descriptor was stored carrier-less and the framework's
+;; later seeding did not reconcile it. The app handler still won the frame, so
+;; the ONLY observable difference was at egress — the framework's URL carriers
+;; shipped RAW to every trace / off-box projection, purely because of require
+;; order. The seam therefore reconciles both ways.
+;; ===========================================================================
+
+(defn- restage-app-registered-before-routing!
+  "Re-stage the process in the INVERSE namespace-load order, leaving a live
+  URL-owning `:rf/default`: wipe the registry (so the facade's replaceable
+  defaults are gone), run `register-app!`, and only THEN reload
+  `re-frame.routing` so it seeds its defaults over an ALREADY-PRESENT
+  application registration.
+
+  This is the suite fixture's own clear-and-reload recovery sequence
+  (`re-frame.routing-test-support/reset-runtime`) with the application
+  registration moved AHEAD of the facade reload — the one difference under test."
+  [register-app!]
+  (registrar/clear-all!)
+  (reset! frame/frames {})
+  (rf/init! plain-atom/adapter)
+  (register-app!)
+  (require 're-frame.routing :reload)
+  (require 're-frame.routing.test-support :reload)
+  (routing/reset-counters!)
+  (routing/reset-scroll-cache!)
+  (routing/reset-nav-counters!)
+  (routing/reset-url-claims!)
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "Inverse-load-order default app frame (explicit URL owner)."}))
+
+(defn- frame-targeted-sensitive
+  "The `:sensitive` declaration `:rf/default` ITSELF resolves for `(kind, id)`.
+  Read inside `call-with-frame-resolution` — the single seam every dispatch,
+  subscription and trace projection resolves registrations through — so this is
+  the EFFECTIVE classification, as distinct from a bare `rf/handler-meta`, which
+  reads the process resolver map."
+  [kind id]
+  (live-frame/call-with-frame-resolution :rf/default
+    (fn [] (:sensitive (rf/handler-meta kind id)))))
+
+(deftest app-registered-before-routing-still-redacts-framework-carriers
+  (testing "rf2-kqxe6.20: the application namespace registers
+            :rf.route/entry-denied BEFORE re-frame.routing seeds its replaceable
+            defaults. The app handler is still the frame's winner, and the
+            classification the frame EFFECTIVELY resolves is the same union the
+            default-first order produces — so the framework's URL carriers
+            redact at the trace chokepoint even though there was no framework
+            descriptor to retain from when the app registered"
+    (let [seen (atom [])]
+      (restage-app-registered-before-routing!
+        (fn []
+          ;; The canonical recipe, plus an app-owned declaration so ONE pass
+          ;; pins both directions of the union.
+          (rf/reg-event :rf.route/entry-denied
+                        {:sensitive [[:guard]]}
+                        (fn [{:keys [db]} [_ {:keys [destination] :as denial}]]
+                          (swap! seen conj denial)
+                          {:db (assoc-in db [:auth :return-to] destination)}))))
+      (entry-fixture!)
+      ;; (1) FRAME-TARGETED metadata — what every dispatch / projection reads.
+      (is (= [[:requested-url] [:destination] [:target] [:guard]]
+             (frame-targeted-sensitive :event :rf.route/entry-denied))
+          "the frame resolves the SAME union as the default-first order:
+           framework carriers first, then the app's own declaration")
+      ;; (2) TRACE PROJECTION — the egress the classification exists for.
+      (let [payload (traced-event-payload
+                      :rf.route/entry-denied
+                      #(rf/dispatch-sync
+                         [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
+        (is (some? payload) "the entry-denied event vector was traced")
+        (is (= privacy/redacted-sentinel (:requested-url payload))
+            ":requested-url redacted at egress under the inverse load order")
+        (is (= privacy/redacted-sentinel (:destination payload))
+            ":destination redacted at egress under the inverse load order")
+        (is (= privacy/redacted-sentinel (:target payload))
+            ":target redacted at egress under the inverse load order")
+        (is (= privacy/redacted-sentinel (:guard payload))
+            "the app's OWN declared path still redacts — the union is not a
+             replacement in either direction")
+        (is (not (re-find #"SECRET100" (pr-str payload)))
+            "GUARD: the query secret appears NOWHERE on the egress copy"))
+      ;; (3) APP BEHAVIOUR — unchanged: the app handler is the frame's winner,
+      ;;     runs exactly once, and receives the RAW payload in-process.
+      (is (= 1 (count @seen))
+          "the APP handler ran exactly once (it is the frame's winner)")
+      (let [denial (first @seen)]
+        (is (= "/account?invite=SECRET100" (:requested-url denial))
+            "the in-process handler saw the RAW requested URL")
+        (is (= {"invite" "SECRET100"} (:query (:destination denial)))
+            "the in-process handler saw the RAW replayable destination")))))
 
 ;; ===========================================================================
 ;; rf2-mtzv5m — route classification applied at :rf/route SUB-EGRESS surfaces.
