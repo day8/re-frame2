@@ -11,16 +11,24 @@ For the mental model, start with the [Core guide](../core/introduction.md). This
 corpus is deliberately terse: it states *what* you may call, not *why* the design
 chose it.
 
+**Not everything here is installable.** Three pages —
+[`re-frame.ui`](re-frame.ui.md), [`re-frame.ui.react`](re-frame.ui.react.md) and
+[`re-frame.ui.test`](re-frame.ui.test.md) — document the **donor** compiled-view
+substrate, which has no published Maven coordinate and never will
+([release process](../release-process.md#policy)). They are the contract record for
+code an app already carries; each opens with a banner saying so. Every other page
+on this list describes a published artefact.
+
 ## How to read these pages
 
 | Audience need | Where |
 |---|---|
 | Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
-| Compiled views (`defview`, `mount`, `sub`) | [`re-frame.ui`](re-frame.ui.md) |
 | Freehand views (`defview`, callbacks, event intent) | [`re-frame.freehand`](re-frame.freehand.md) |
+| Compiled views (`defview`, `mount`, `sub`) | [`re-frame.ui`](re-frame.ui.md) — **donor, not published** |
 | Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
-| Substrate adapters | `re-frame.adapter.{reagent,uix}` — or `re-frame.ui/adapter` |
-| Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md), [`re-frame.freehand.test`](re-frame.freehand.test.md) (Freehand substrate), [`re-frame.ui.test`](re-frame.ui.test.md) (compiled-view substrate) |
+| Substrate adapters | `re-frame.adapter.{reagent,uix}` — first-class and permanent |
+| Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md), [`re-frame.freehand.test`](re-frame.freehand.test.md) (Freehand substrate), [`re-frame.ui.test`](re-frame.ui.test.md) (donor compiled-view substrate) |
 | Production timing | [`re-frame.performance`](re-frame.performance.md) |
 
 **Facade vs owning namespace.** Many optional features re-export registration verbs
@@ -51,8 +59,8 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 | Page | Role |
 |---|---|
 | [re-frame.core](re-frame.core.md) | Registration, dispatch, subscribe, views (`reg-view`), frames, boot, interceptors, feature re-exports |
-| [re-frame.ui](re-frame.ui.md) | Compiled-view substrate: `defview`, `sub`, `mount`, `frame-root`, interop forms |
 | [re-frame.freehand](re-frame.freehand.md) | Freehand view substrate (EP-0036): `defview`, descriptor inspection, callback and event-intent forms |
+| [re-frame.ui](re-frame.ui.md) | **Donor, not published.** Compiled-view substrate: `defview`, `sub`, `mount`, `frame-root`, interop forms |
 
 ### Optional capabilities
 
@@ -77,20 +85,23 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 | [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll, sequester |
 | [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
 | [re-frame.freehand.test](re-frame.freehand.test.md) | Freehand structural test surface: headless render + with-render/find/find-all/attrs/text, both hosts |
-| [re-frame.ui.test](re-frame.ui.test.md) | Compiled-view test surface: headless render + find/attrs/text, mounted DOM |
+| [re-frame.ui.test](re-frame.ui.test.md) | **Donor, not published.** Compiled-view test surface: headless render + find/attrs/text, mounted DOM |
 | [re-frame.performance](re-frame.performance.md) | Compile-time User-Timing flags |
 
 ## Require patterns
 
 ```clojure
-;; Typical app (Reagent or ui substrate)
+;; Typical app — Freehand views
 (:require [re-frame.core :as rf]
-          [re-frame.adapter.reagent :as reagent-adapter]
-          ;; or: [re-frame.ui :as ui :refer [defview sub]]
-          )
+          [re-frame.freehand :as v])
+
+(rf/init! v/adapter)
+
+;; Or on a Reagent / UIx substrate (both first-class and permanent)
+(:require [re-frame.core :as rf]
+          [re-frame.adapter.reagent :as reagent-adapter])
 
 (rf/init! reagent-adapter/adapter)
-;; (rf/init! ui/adapter)
 
 ;; Tests
 (:require [re-frame.core :as rf]
