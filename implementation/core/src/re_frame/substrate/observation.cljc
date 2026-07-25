@@ -5,9 +5,10 @@
 
   ADAPTER-INTERNAL. This namespace is NOT public API, NOT part of the closed
   ten-fn adapter contract, and NOT consumable by apps or adapters — its
-  consumers are compiled-view runtimes (the ViewCell/commit reconciler), built
-  from the same commit as core rather than resolved against a published
-  version. The [[port-abi-version]] guard makes a stale build a boot error.
+  consumers are compiled-view runtimes, each a ViewCell/commit reconciler, and
+  none of them is ever resolved independently of core: an in-tree consumer is
+  built from the same commit, a published one ships on core's lockstep release
+  train. The [[port-abi-version]] guard makes a stale build a boot error.
 
   The six operations:
 
