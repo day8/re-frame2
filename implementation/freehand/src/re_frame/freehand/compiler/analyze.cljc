@@ -2003,16 +2003,29 @@
         ;; last-writer-wins mirror that a sibling build could clobber between
         ;; this tag's declaration and this classification read.
         ;;
-        ;; On the plain-JVM / SSR path there is no `:compile-prepare` hook to
-        ;; pre-seed the slice, and macros expand top-to-bottom, so a view
-        ;; expanded before a declaration below it would read an empty slice and
-        ;; lower a declared property to an attribute. Harvest this namespace's
-        ;; OWN literal declarations once, here, before classifying — making the
-        ;; verdict order-independent (rf2-vxgfnd.141, dimension 2). Under a real
-        ;; Shadow compile the build hook already seeded the slice, so this is a
-        ;; no-op there (`shadow-compile?`).
+        ;; Without a `:compile-prepare` harvest to pre-seed the slice, macros
+        ;; expand top-to-bottom, so a view expanded before a declaration below
+        ;; it reads a slice that declaration has not reached yet and lowers a
+        ;; declared property to an ATTRIBUTE — renderable, silent, and wrong.
+        ;; Harvest this namespace's OWN literal declarations once, here, before
+        ;; classifying, which is what makes the verdict order-independent
+        ;; (rf2-vxgfnd.141, dimension 2).
+        ;;
+        ;; The guard is `shadow-build-pass?` and NOT `shadow-compile?`
+        ;; (rf2-sv2oq): the question is whether a prepare-time manifest EXISTS,
+        ;; never whether a compiler env is bound, and those are different
+        ;; questions in three real configurations — a Shadow REPL overlay, and
+        ;; any build that does not install Freehand's own build hook. The slice
+        ;; fallback [[re-frame.freehand.compiler.build/element-properties]]
+        ;; takes in exactly those cases is the order-dependent one, so keying
+        ;; the harvest on a WIDER condition than the fallback left the defect
+        ;; live wherever the two disagreed: a compiled view above its
+        ;; declaration baked the attribute lowering on every Shadow build in
+        ;; this repository, because the `:build-defaults` hook is the donor's
+        ;; and Freehand's opens no scratch of its own. One condition, read off
+        ;; the same fact the read itself keys on.
         properties (when custom?
-                     #?(:clj (when-not (build/shadow-compile?)
+                     #?(:clj (when-not (build/shadow-build-pass?)
                                (harvest/ensure-namespace-harvested! (:ns e))))
                      (build/element-properties tag))
         spread?    (spread-form? e props-form)
