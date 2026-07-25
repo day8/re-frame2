@@ -105,7 +105,7 @@ Before tagging:
 - [ ] All checks green on `main` (the `tests` workflow + any required reviews).
 - [ ] [`VERSION`](../VERSION) file updated to the target version. Single line, no trailing whitespace.
 - [ ] [`migration/from-re-frame-v1/README.md`](../migration/from-re-frame-v1/README.md) carries a fresh `M-NN` entry if the release contains a breaking change. (The migration corpus stays flat through 1.0; numbering is monotonic.)
-- [ ] [`CHANGELOG.md`](../CHANGELOG.md) updated for the release. The GitHub Release body links to it, so it is the canonical narrative.
+- [ ] [`CHANGELOG.md`](../CHANGELOG.md) updated for the release, **including its artefact roster**. The GitHub Release body links to it, so it is the canonical narrative — and that link is pinned to the tag, not to `main`, so the CHANGELOG has to be right at the moment of tagging. A later correction on `main` will not reach a release body that has already been cut.
 - [ ] The tag's commit is the same commit that updates VERSION + the migration corpus + CHANGELOG (one release commit).
 - [ ] Locally green: `./.github/scripts/verify-version-lockstep.sh` passes. (The CI gate runs the same script; running locally first surfaces drift in seconds.)
 
