@@ -160,6 +160,25 @@
 ;; classifying their `:rf.db/runtime` effects as application writes.
 (def ^:private framework-authority-meta {:rf/framework-authority? true})
 
+;; The two REPLACEABLE-DEFAULT routing handlers (`:rf.route/navigation-blocked`,
+;; `:rf.route/entry-denied`) carry the reserved `:rf/framework-default? true`
+;; marker in addition to framework authority. Spec 012 §Navigation blocking:
+;; the framework ships a no-op default so a `:can-leave` block / `:can-enter`
+;; denial always resolves with no application handler, and an application
+;; registering its OWN handler under the same id is the documented recipe (stash
+;; the denied destination, replace-navigate to login, fresh-navigate back).
+;;
+;; The marker is what makes that recipe work. The framework seeds these through
+;; the internal `events/reg-event` path, so the source store records them with
+;; NO `:rf.provenance/ns`; without the marker the default image selected BOTH
+;; the framework copy and the app's provenanced registration and image assembly
+;; refused to let selection order decide (`:rf.error/image-duplicate-id`,
+;; rf2-0r6q4). Image assembly reads the marker and stops projecting the
+;; framework's own copy into the app layer exactly when the app has registered
+;; one — see `re-frame.image-assembly/superseded-framework-default-keys`.
+(def ^:private framework-default-meta
+  (assoc framework-authority-meta :rf/framework-default? true))
+
 ;; EP-0037 R1: `:on-match` is fire-and-forget and route readiness is the
 ;; resource-derived projection, so there is NO `:rf.route.internal/
 ;; settle-transition` event, NO `:rf.route.internal/on-match-error` event, and
@@ -226,16 +245,19 @@
 ;; query values and path params). Mark those argument paths sensitive so
 ;; dispatched-event trace copies redact their carrier values; handlers and
 ;; the `:rf/pending-navigation` sub still receive the original in-process map.
+;; An application handler REPLACING one of these defaults replaces its
+;; registration meta too, so it re-declares `:sensitive` if it wants the same
+;; trace redaction — the classification rides the registration, not the id.
 (def ^:private nav-carrier-sensitive
   [[:requested-url] [:destination] [:target]])
 (events/reg-event :rf.route/navigation-blocked
-                     (assoc framework-authority-meta
+                     (assoc framework-default-meta
                             :sensitive nav-carrier-sensitive)
                      decisions/navigation-blocked-handler)
 ;; A terminal entry denial carries the same carriers and therefore uses the
 ;; same trace classification.
 (events/reg-event :rf.route/entry-denied
-                     (assoc framework-authority-meta
+                     (assoc framework-default-meta
                             :sensitive nav-carrier-sensitive)
                      decisions/entry-denied-handler)
 (events/reg-event :rf.route/continue

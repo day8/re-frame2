@@ -40,12 +40,18 @@
 (defn- capture-denials!
   "Re-register `:rf.route/entry-denied` with a recorder, returning the atom
   the denial payloads land in. This REPLACES the framework default handler,
-  so a test that wants to prove default-handler safety must not call it."
+  so a test that wants to prove default-handler safety must not call it.
+
+  Registers through the PUBLIC `rf/reg-event` — the spelling every doc, example
+  and skill teaches — so the suite exercises the documented recipe rather than a
+  framework-internal back door. Before rf2-0r6q4 this had to use the internal
+  `events/reg-event`: the public macro stamps the calling namespace as
+  `:rf.provenance/ns`, and the default image then selected BOTH this
+  registration and the framework's own no-provenance default, so the next
+  `rf/make-frame` failed with `:rf.error/image-duplicate-id`."
   []
   (let [seen (atom [])]
-    ;; `events/reg-event` (not `rf/reg-event`): overriding a framework id from
-    ;; a test namespace collides in image assembly under the reload fixture.
-    (events/reg-event :rf.route/entry-denied (fn [_ [_ d]] (swap! seen conj d) {}))
+    (rf/reg-event :rf.route/entry-denied (fn [_ [_ d]] (swap! seen conj d) {}))
     seen))
 
 ;; ===========================================================================
@@ -129,6 +135,41 @@
           "no :rf.error/no-such-handler — the default handler resolved the dispatch")
       (is (= :home (current-id)) "with the default handler, denial is a HARD deny")
       (is (nil? (pending))))))
+
+(deftest application-handler-registers-cleanly-and-fires-exactly-once
+  (testing "rf2-0r6q4 — the DOCUMENTED recipe, and the complement of the test
+            above. An application registers its OWN :rf.route/entry-denied
+            through the PUBLIC rf/reg-event, exactly as the routing docs, the
+            auth how-to, the API table and the skill all teach. BOTH properties
+            must hold at once: the app registration coexists with the framework's
+            shipped no-op default (the next rf/make-frame assembles — before the
+            fix it threw :rf.error/image-duplicate-id with colliding coordinates
+            [{:ns nil} {:ns \"<app ns>\"}]), and the app handler receives the
+            denial EXACTLY once. Invocations are COUNTED, so a double-fire and a
+            zero-fire (the framework no-op still shadowing the app's handler)
+            both fail."
+    (register-common!)
+    (let [calls (atom 0)]
+      (rf/reg-event :rf.route/entry-denied (fn [_ _] (swap! calls inc) {}))
+      (is (= 1 (count (filter #(= :rf.route/entry-denied %)
+                              (keys (registrar/registrations :event)))))
+          "one :event registration for the id — the app's replaced the default")
+      ;; The reported failure order IS the ordinary one: an app's namespaces
+      ;; load and register, and THEN frames are built.
+      (let [probe (rf/make-frame {:id :rf2-0r6q4/probe})]
+        (is (some? probe)
+            "rf/make-frame assembles cleanly after the app registration")
+        (is (zero? @calls) "registration alone fires nothing")
+        (rf/dispatch-sync [:rf.route/navigate {:to :home}] {:frame probe})
+        (is (zero? @calls)
+            "an ALLOWED navigation fires no denial — rules out a spurious count")
+        (rf/dispatch-sync [:rf.route/navigate {:to :account}] {:frame probe})
+        (is (= 1 @calls)
+            "the APPLICATION handler ran exactly once on a freshly sealed frame
+             — not twice, and not zero times")
+        (rf/dispatch-sync [:rf.route/navigate {:to :account}] {:frame probe})
+        (is (= 2 @calls)
+            "a second denied attempt is a second denial — one per attempt")))))
 
 ;; ---- denial payload shape ------------------------------------------------
 
@@ -220,7 +261,7 @@
             navigate with the stored destination — the guard re-evaluates
             because that is an ordinary new attempt"
     (register-common!)
-    (events/reg-event :rf.route/entry-denied
+    (rf/reg-event :rf.route/entry-denied
       (fn [{:keys [db]} [_ {:keys [destination]}]]
         {:db (assoc-in db [:auth :return-to] destination)
          :fx [[:dispatch [:rf.route/navigate {:to :login :replace? true}]]]}))
@@ -345,7 +386,7 @@
   (testing "the application handler may supersede the default 403 with the
             canonical :rf.server/redirect under Spec 011 redirect precedence"
     (register-common!)
-    (events/reg-event :rf.route/entry-denied
+    (rf/reg-event :rf.route/entry-denied
       (fn [_ _] {:fx [[:rf.server/redirect {:location "/login"}]]}))
     (let [f (server-frame!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"] {:frame f})
@@ -359,7 +400,7 @@
   (testing "an application handler may explicitly set another status under
             Spec 011's last-write-wins multiple-status policy"
     (register-common!)
-    (events/reg-event :rf.route/entry-denied
+    (rf/reg-event :rf.route/entry-denied
       (fn [_ _] {:fx [[:rf.server/set-status 404]]}))
     (let [f (server-frame!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"] {:frame f})

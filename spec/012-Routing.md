@@ -37,8 +37,8 @@ Audience column: **user** = an event apps dispatch or handle directly. Every v1 
 | `:rf.route/handle-url-change` | user | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). Co-equal with `:rf.route/transitioned`. | [§URL changes are events](#url-changes-are-events) |
 | `:rf.route/transitioned` | user | URL-change handler for forward navigation (link click / programmatic push; default scroll `:top`). Co-equal with `:rf.route/handle-url-change`. | [§Standard runtime events](#standard-runtime-events) |
 | `:rf.route/url-requested` | user | Fired by `route-link` and equivalent. Decides internal vs external navigation. | [§Standard runtime events](#standard-runtime-events) |
-| `:rf.route/navigation-blocked` | user | Dispatched by the runtime when a `:can-leave` guard rejects — the resumable half. A framework no-op default handler ships. | [§Navigation blocking](#navigation-blocking--the-leave-only-pending-protocol) |
-| `:rf.route/entry-denied` | user | Dispatched by the runtime when a `:can-enter` guard rejects — the TERMINAL half. Exactly once per navigation attempt; a framework no-op default handler ships, so denial is safe with no application handler. | [§Entry is terminal](#entry-is-terminal) |
+| `:rf.route/navigation-blocked` | user | Dispatched by the runtime when a `:can-leave` guard rejects — the resumable half. A framework no-op default handler ships, and it is a [replaceable framework default](#replaceable-framework-defaults) — an application registers its own under the same id. | [§Navigation blocking](#navigation-blocking--the-leave-only-pending-protocol) |
+| `:rf.route/entry-denied` | user | Dispatched by the runtime when a `:can-enter` guard rejects — the TERMINAL half. Exactly once per navigation attempt; a framework no-op default handler ships, so denial is safe with no application handler, and it is a [replaceable framework default](#replaceable-framework-defaults) — an application registers its own under the same id through the ordinary `rf/reg-event`. | [§Entry is terminal](#entry-is-terminal) |
 | `:rf.route/continue` | user | User-dispatched: confirm the pending LEAVE. Replays the stored destination + policy with a one-shot leave bypass. | [§Navigation blocking](#navigation-blocking--the-leave-only-pending-protocol) |
 | `:rf.route/cancel` | user | User-dispatched: abandon the pending LEAVE. | [§Navigation blocking](#navigation-blocking--the-leave-only-pending-protocol) |
 | `:rf.route/prefetch` | user | Warm-mode resource-only intent preload — runs a named destination's effective resource plan ownerlessly WITHOUT navigating (no route state, guards, `:on-match`, or readiness change). | [§Route-plan prefetch — warm-mode intent preload](#route-plan-prefetch--warm-mode-intent-preload) |
@@ -1631,6 +1631,24 @@ There is no `:id`: there is nothing to continue or cancel.
 
 **The framework registers a no-op default handler for `:rf.route/entry-denied`.** An application is never *required* to register one merely to make denial safe: with the default, client denial is a hard deny — the current route and URL stay in place (or are restored), no protected activation work runs, and the dispatch resolves without `:rf.error/no-such-handler`. Applications replace it with their own policy.
 
+<a id="replaceable-framework-defaults"></a>
+##### Replaceable framework defaults
+
+`:rf.route/entry-denied` and its leave-half sibling `:rf.route/navigation-blocked` are **replaceable framework defaults**: the framework seeds a handler so the feature is safe with no application handler, and an application registering its own handler under the same id through the ordinary public `rf/reg-event` is the **documented, intended override**. No image composition, no opt-in key, no special spelling — the app just registers the id.
+
+This is the exact opposite of a **framework standard** (`:rf/set-db`, `:rf.interceptor/path`), which encodes an execution invariant and is *protected*: an app registration colliding with a standard fails loud (`:rf.error/image-standard-replacement-forbidden`, per [Conventions §`:rf.standard/*`](Conventions.md#the-single-root-reserved-set)), and `:rf/set-db` is refused at the registration site outright (`:rf.error/reserved-event-id`).
+
+The two registrations carry the reserved registration-meta marker **`:rf/framework-default? true`** ([Conventions §Reserved registration metadata](Conventions.md#reserved-registration-metadata-framework-owned)). The framework seeds them through its internal registration path, which captures no source provenance, so image assembly reads the marker together with the absent `:rf.provenance/ns` to recognise the framework's *own* copy — and stops projecting it into the application layer exactly when an application registration for the same id is present. Two consequences follow, and both matter:
+
+- **Order still decides nothing.** Two *application* namespaces registering the same framework-default id remain an ambiguous collision (`:rf.error/image-duplicate-id`), just like any other duplicate id. The seam removes the framework's own seeding from the app layer; it does not introduce a winner rule.
+- **The replacement replaces the whole registration.** An application handler supplies its own registration metadata, so the framework's `:sensitive` declaration on the denial payload's URL carriers (`:requested-url` / `:destination` / `:target`, see [§Navigation blocking](#navigation-blocking--the-leave-only-pending-protocol)) does **not** carry over. An application whose denial payloads are trace-visible re-declares it:
+
+    ```clojure
+    (rf/reg-event :rf.route/entry-denied
+      {:sensitive [[:requested-url] [:destination] [:target]]}
+      (fn [{:keys [db]} [_ {:keys [destination]}]] …))
+    ```
+
 <a id="the-fresh-return-recipe"></a>
 #### The fresh-return recipe (auth)
 
@@ -1707,7 +1725,7 @@ Fixture [`route-entry-denied.edn`](conformance/fixtures/route-entry-denied.edn) 
      :fx [[:dispatch [:rf.route/navigate {:to :route/login :replace? true}]]]}))
 ```
 
-Registering a handler is optional: the framework ships a no-op default, so a denial with no application handler is a safe hard deny (and, on a server frame, a [`403`](011-SSR.md#route-entry-denial--the-default-403)).
+Registering a handler is optional: the framework ships a no-op default, so a denial with no application handler is a safe hard deny (and, on a server frame, a [`403`](011-SSR.md#route-entry-denial--the-default-403)). Registering one is an ordinary `rf/reg-event` under the same id — see [§Replaceable framework defaults](#replaceable-framework-defaults).
 
 **Interceptors remain the tool for cross-cutting policy** — a rule that spans *many* routes uniformly (a feature flag gating a whole section, a maintenance-mode lockout, an analytics-driven redirect). Per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) an interceptor is a **registered program member**: author its behaviour once with `reg-interceptor` (an app-owned id), then attach it to the frame's `:interceptors` chain (so it runs on *every* navigation entry event) by **reference**. Inline interceptor maps/Vars in a chain are rejected at registration with `:rf.error/inline-interceptor-removed`.
 

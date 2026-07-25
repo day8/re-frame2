@@ -351,11 +351,13 @@
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
-      ;; App registers its OWN handler over the framework default no-op.
-      (events/reg-event :rf.route/navigation-blocked
-                       (fn [_ [_ pending-nav]]
-                         (reset! seen pending-nav)
-                         {}))
+      ;; App registers its OWN handler over the framework default no-op,
+      ;; through the PUBLIC `rf/reg-event` — the documented spelling
+      ;; (rf2-0r6q4).
+      (rf/reg-event :rf.route/navigation-blocked
+                    (fn [_ [_ pending-nav]]
+                      (reset! seen pending-nav)
+                      {}))
       (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
       (rf/dispatch-sync [:editor/dirty true])
       (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
