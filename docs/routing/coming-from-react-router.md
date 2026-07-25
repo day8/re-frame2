@@ -26,17 +26,21 @@ you'd rather start from what you know.
 | Route object (`path`, `loader`, `errorElement`…) | The [route](glossary.md#route)'s metadata map | Same idea — behaviour declared as data — but a plain Clojure map, queryable from anywhere. |
 | `:slug` path param, `useParams()` | `:id` in the path + `@(subscribe [:rf.route/params])` | [Route params](glossary.md#route-params) are a [subscription](../core/glossary.md#subscription), validated *and coerced* by a schema. |
 | `useSearchParams()` | `@(subscribe [:rf.route/query])` | Separate map from path params — never merged. `?page=2` arrives as integer `2`. |
-| `loader` function | [`:on-match`](concepts.md#loaders-declaring-a-pages-data) (events) / `:resources` (data) | The [loader](glossary.md#loader) as *data* (vector of event vectors, or resource decls), not a function you call. |
-| `useLoaderData()` | An ordinary [subscription](../core/glossary.md#subscription) | The loader writes to [app-db](../core/glossary.md#app-db); the [view](../core/glossary.md#view) reads it like any other state. No special hook. |
+| `loader` function | [`:resources`](concepts.md#declaring-resources-instead) (data a page needs) / [`:on-match`](concepts.md#loaders-declaring-a-pages-data) (activation work) | The [loader](glossary.md#loader) as *data* — resource declarations, or a vector of event vectors — not a function you call. The two jobs are separate keys here; see [below](#one-loader-splits-into-two-honest-keys). |
+| `useLoaderData()` | An ordinary [subscription](../core/glossary.md#subscription) | The loaded data lands in the resource cache or [app-db](../core/glossary.md#app-db); the [view](../core/glossary.md#view) reads it like any other state. No special hook. |
 | `useNavigate()` → `navigate("/x")` | `(dispatch [:rf.route/navigate {:to :route :params params}])` | [Navigation is an event](concepts.md#move-2-navigation-is-an-event) — traceable, interceptable, rewound by time-travel. |
-| `<Link to>` / `<NavLink>` | `[route-link {:to :route}]` | Real `<a href>`, intercepts plain clicks, *defers* cmd/shift/middle-click to the browser. |
-| `useNavigation().state` (`"loading"`) | `@(subscribe [:rf.route/transition])` | Global `:idle`/`:loading`/`:error` you read anywhere — never threaded through a component. |
-| `errorElement` / `useRouteError()` | `:on-error` + `@(subscribe [:rf.route/error])` | Structured [error record](../core/glossary.md#error-record) in state, plus an optional event to respond. |
-| `useBlocker()` / `usePrompt()` | `:can-leave` guard + `@(rf/subscribe [:rf/pending-navigation])` | [Route guard](glossary.md#route-guard) sub (boolean) and a *pending navigation you render from* — confirm dialog is an ordinary view. |
-| Splat route `path="*"`, no-match route | Reserved [`:rf.route/not-found`](glossary.md#not-found) route | Ordinary route you register and design; carries loaders, scroll, and a `:reason` discriminator. |
-| `<Outlet/>` + nested route config | `:parent` + `@(subscribe [:rf.route/chain])` | Nesting is data; you walk the chain and compose layout shells yourself (no render-slot machinery — see [below](#theres-no---layouts-are-data-you-compose), and [The model → Nested layouts](concepts.md#nested-layouts)). |
+| `<Link to>` | `[route-link {:to :route}]` | Real `<a href>`, intercepts plain clicks, *defers* cmd/shift/middle-click to the browser. |
+| `<NavLink>`'s `isActive` | Compare `:to` against `@(subscribe [:rf.route/id])` in your own view | `route-link` computes **no** active state. "Am I on this page?" is a comparison against a route sub, and it becomes a four-line wrapper that sets `:aria-current` and a class — [the idiom](concepts.md#highlighting-the-active-link). |
+| `<Link prefetch="intent">` (Remix / framework mode) | `[route-link {:to :route :prefetch :intent}]` | Hover / focus / touch warms the destination's resource plan without navigating — [intent prefetch](concepts.md#warming-a-destination-before-the-click). `:intent` is the only mode; there is no render or viewport preloading. |
+| `useNavigation().state` (`"loading"`) | `@(subscribe [:rf.route/transition])` | Global `:idle`/`:loading`/`:error` you read anywhere — never threaded through a component. It reports the route's *blocking data*, not whether a router state machine is mid-flight. |
+| `errorElement` / `useRouteError()` | A blocking `:resources` entry + `@(subscribe [:rf.route/error])` | Declare the read the page can't do without as `:blocking? true` and its failure projects onto `:rf.route/transition :error` with a structured [error record](../core/glossary.md#error-record) on `:rf.route/error`. There is no route-level error *callback*: a route never manufactures an error out of activation work it merely started. |
+| `useBlocker()` / `usePrompt()` | `:can-leave` guard + `@(rf/subscribe [:rf/pending-navigation])` | [Route guard](glossary.md#route-guard) sub (boolean) and a *pending navigation you render from* — confirm dialog is an ordinary view. Leave-only; the entry guard is terminal ([below](#leaving-asks-the-user-entering-asks-the-app)). |
+| Route-level auth in a `loader` (`throw redirect(...)`) | `:can-enter` guard + a `:rf.route/entry-denied` handler | The guard runs in the one planning pipeline, so it covers programmatic navigation, link clicks, the URL bar, Back/Forward, initial load, and SSR without per-door plumbing. Denial is terminal — [Require sign-in](how-to/require-sign-in-on-a-route.md). |
+| Splat route `path="*"`, no-match route | Reserved [`:rf.route/not-found`](glossary.md#not-found) route | Ordinary route you register and design; carries activation events, scroll, and a `:reason` discriminator. |
+| `<Outlet/>` + nested route config | `:parent` + `@(subscribe [:rf.route/chain])` | Nesting is data; you walk the chain and compose layout shells yourself (no render-slot machinery — see [below](#theres-no---layouts-are-data-you-compose), and [The model → Nested layouts](concepts.md#nested-layouts)). A parent's `:resources` *do* compose into the child's plan, so a shared shell read is declared once. |
+| `state={{backgroundLocation}}` modal routing | An ordinary app-db flag beside the route | The URL names the thing being shown; whether it is shown *over* the list is a rendering decision your root view makes. Nothing masks the route, so Back, refresh, and deep-link all agree — [below](#modals-over-a-page-are-a-state-model-not-a-masked-route). |
 | `<RouterProvider router>` / router context | nothing | The route lives in [runtime-db](../core/glossary.md#runtime-db); any [view](../core/glossary.md#view) reads it via subscription. No provider, no context. |
-| Framework-mode (v7 / Remix) server loaders | The *same* `:on-match` / `:resources` | One loader runs on client **and** server. No second "server loader" to keep in sync. |
+| Framework-mode (v7 / Remix) server loaders | The *same* `:resources` / `:on-match` | One declaration runs on client **and** server. No second "server loader" to keep in sync. |
 
 If a row reads as "the same idea, minus the apparatus," you're reading it right.
 
@@ -81,10 +85,11 @@ a reaction; re-frame2 treats your state as truth and the URL as a print-out. Hen
 ### The loader is data, not a function
 
 React Router's `loader` is a function — to know what a route fetches, you read its
-body or run it. re-frame2's [loader](glossary.md#loader) is `:on-match` (a vector of
-[event](../core/glossary.md#event) vectors) or `:resources` (a list of declarations).
-Being *data* means you can read it, test it, and draw a route's data-dependency graph
-**without executing it** — `(rf/handler-meta :route :app/cart)` hands you the list.
+body or run it. re-frame2's [loader](glossary.md#loader) is `:resources` (a list of
+declarations) or `:on-match` (a vector of [event](../core/glossary.md#event)
+vectors). Being *data* means you can read it, test it, and draw a route's
+data-dependency graph **without executing it** —
+`(rf/handler-meta :route :app/cart)` hands you the list.
 
 And `:resources` closes the click-away race: on route entry each resource is owned by
 *this* navigation's nav-token; when a newer navigation supersedes it, a late reply is
@@ -94,7 +99,29 @@ Router's loaders are abortable, which helps, but abort isn't guaranteed to win t
 race; suppression is the correctness boundary, abort is the bandwidth optimisation on
 top.
 
-### The leave-guard is a subscription and the prompt is a view
+### One loader splits into two honest keys
+
+A React Router `loader` carries two jobs that pull in opposite directions: fetching
+the data the page cannot render without, and starting work that merely *begins* when
+you arrive — analytics, a host notification, a background sync. Because both live in
+one function, the router's `"loading"` state and its error surface answer for both,
+and a failed analytics beacon can redden a page whose content arrived fine.
+
+re-frame2 keeps them apart. `:resources` declares what the page needs, and it alone
+drives `:rf.route/transition` / `:rf.route/error`. `:on-match` is fire-and-forget
+activation: the runtime dispatches its events and never waits on them, correlates
+them, or rewrites their failures into route state — an `:on-match` handler that
+throws surfaces on the ordinary event error channel, attributed to the event that
+threw. So the progress bar means "this page's data isn't here yet" and nothing else,
+and work that owns its own status keeps it.
+
+The nesting story follows the same split. Declaring `:parent` composes the
+ancestors' `:resources` into the child's plan — a shell read is written once, and
+identical requirements across the branch dedupe to one fetch. Nothing else is
+inherited, because `:on-match`, `:scroll`, `:tags`, and the guards would each want
+a different merge rule.
+
+### Leaving asks the user, entering asks the app
 
 React Router's `useBlocker` hands you an imperative `blocker` object with a state
 machine you drive by hand; historically the "unsaved changes?" prompt bottomed out
@@ -105,6 +132,40 @@ you render from*. Confirm dialog is an ordinary view that reads
 `@(rf/subscribe [:rf/pending-navigation])`, with two buttons that `dispatch`
 `:rf.route/continue` or `:rf.route/cancel`. No imperative blocker, no native dialog,
 no modal-automation flakiness in tests — the whole flow asserts with zero DOM.
+
+The entry guard is deliberately *not* symmetric. "Really discard your draft?" is a
+question to the user, so it parks and waits. "Is this visitor signed in?" is a
+question to application state, answered the same way every time it's asked — so a
+`:can-enter` refusal is **terminal**: it commits nothing, parks nothing, and
+dispatches `:rf.route/entry-denied` once. The post-login return is an ordinary fresh
+navigation whose guard re-evaluates naturally, which is why nothing can loop and why
+there is no "enter anyway" flag to punch a hole through the gate.
+
+### Modals over a page are a state model, not a masked route
+
+React Router's idiom for "open the photo in a dialog over the feed" is to navigate
+to the photo route while stashing a `backgroundLocation` in history state, so the
+router renders the *old* match underneath the new one. It works, but the URL and the
+match now disagree, and the disagreement lives in history state — invisible to
+anything that reads the route.
+
+Here the URL still names the thing being shown, and whether it is shown *over* the
+list is an ordinary rendering decision:
+
+```clojure
+(rf/reg-view root-view []
+  (let [id @(subscribe [:rf.route/id])]
+    [:div
+     [page-for (if (= id :app/photo) :app/feed id)]   ;; the feed stays mounted
+     (when (= id :app/photo)
+       [photo-dialog])]))
+```
+
+The route is never masked, so Back, refresh, and a pasted deep link all agree on
+what the URL means — a deep link to the photo can render the dialog over the feed,
+or the full page, and that is your call rather than a consequence of how the visitor
+got there. If "came from the feed" genuinely matters, it is app state you write down
+on purpose, not a hidden field on a history entry.
 
 ### One loader runs on both client and server
 

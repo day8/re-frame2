@@ -33,9 +33,9 @@ grammar of the whole route table unit-tests as plain function calls:
 
 ```clojure
 (deftest article-urls-round-trip
-  ;; route → URL
+  ;; route → URL — query keys print in canonical order, not the order you wrote them
   (is (= "/articles/intro" (rf.routing/route-url {:to :app/article :params {:id "intro"}})))
-  (is (= "/search?q=clojure&page=2#results"
+  (is (= "/search?page=2&q=clojure#results"
          (rf.routing/route-url {:to :app/search :query {:q "clojure" :page 2} :fragment "results"})))
   ;; URL → route — schemas validate AND coerce, so :page comes back an int
   (let [m (rf.routing/match-url "/search?q=clojure&page=2")]
@@ -69,12 +69,19 @@ frame:
     (is (= {:id "intro"} @(rf/subscribe [:rf.route/params])))))
 ```
 
-If the route declares `:on-match` loaders, they dispatch inside the same drain — a
-loader that fires [managed HTTP](../async/http.md) wants the same canned-reply stubs
-a pipeline-run test uses. `@(rf/subscribe [:rf.route/transition])` is the
-`:idle` / `:loading` / `:error` fact; loader failure lands a structured error in
-`@(rf/subscribe [:rf.route/error])` — assert on its category,
-[never its prose](../core/errors.md#test-the-structure-not-the-string).
+If the route declares `:on-match` events, they dispatch inside the same drain — one
+that fires [managed HTTP](../async/http.md) wants the same canned-reply stubs a
+pipeline-run test uses. Assert on what those events *did*: they never move
+`@(rf/subscribe [:rf.route/transition])`, so a test that watches the transition to
+prove an `:on-match` handler ran is watching the wrong thing.
+
+`:rf.route/transition` and `:rf.route/error` report the route's **blocking
+`:resources`**. Drive them by stubbing the resource read — a blocking read still on
+its first load holds `:loading`, and a failed one lands a structured error in
+`@(rf/subscribe [:rf.route/error])`. Assert on its category,
+[never its prose](../core/errors.md#test-the-structure-not-the-string). Route
+resources ensure, stub, and read exactly as they do anywhere else:
+[Testing resources](../resources/testing.md).
 
 ## 3. Deep links, and the 404
 
@@ -99,10 +106,10 @@ Pasted link, reload, back/forward, and the SSR request all funnel through
 percent-encoding (`:malformed-url`) — one assertion each if the not-found view
 branches on it.
 
-## 4. The leave guard, with zero DOM
+## 4. The guards, with zero DOM
 
-`:can-leave` is a subscription; blocked navigation is *state*; the user's choice is a
-dispatch. Whole flow, four asserts:
+`:can-leave` is a subscription; the blocked navigation is *state*; the user's choice
+is a dispatch. Whole flow, four asserts:
 
 ```clojure
 (deftest leave-guard-parks-and-continues
@@ -125,10 +132,31 @@ dispatch. Whole flow, four asserts:
 ```
 
 Dispatch `[:rf.route/cancel <id>]` instead and the pending slot clears with the slice
-unmoved. `{:bypass-leave? true}` skips the park. The `:can-enter` counterpart tests
-the same way — guarded target, signed-out sub, assert pending fills with
-`:direction :enter`, then flip the sub and `[:rf.route/continue <id>]` (re-runs
-`:can-enter`).
+unmoved. `{:bypass-leave? true}` skips the park entirely.
+
+The **entry** guard asserts differently, because a refusal is terminal — it parks
+nothing, so there is no pending value to look for. Register a spy handler for
+`:rf.route/entry-denied`, attempt the navigation signed out, and check that the
+slice did not move and the denial fired exactly once:
+
+```clojure
+(deftest entry-denied-commits-nothing
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (let [denials (atom [])]
+      (rf/reg-event :rf.route/entry-denied
+        (fn [_ [_ denial]] (swap! denials conj denial) {}))
+      (rf/dispatch-sync [:rf.route/navigate {:to :app/settings}])
+      (is (not= :app/settings @(rf/subscribe [:rf.route/id])))
+      (is (nil? @(rf/subscribe [:rf/pending-navigation])))   ;; terminal: nothing parked
+      (is (= 1 (count @denials)))
+      (is (= {:to :app/settings} (:destination (first @denials)))))))
+```
+
+`:destination` is the replayable address, so the return-after-sign-in path is
+another `dispatch-sync` of `[:rf.route/navigate destination]` with the guard's sub
+flipped — an ordinary fresh attempt, not a resume. Note the shape: the destination
+omits an empty `:params` / `:query` and a `nil` `:fragment`, so compare it against
+`{:to :app/settings}`, not a fully-spelled address map.
 
 ## What lives elsewhere
 

@@ -30,10 +30,27 @@ and defaulted) drive handlers and views; `?page=2` survives Back for free.
 
 ### **loader**
 
-What a [route](#route) declares it needs on entry — `:on-match` [events](../core/glossary.md#event)
-dispatched by the runtime, and/or `:resources` ensured loaded — so a page's data
-requirement sits next to its URL. Loaders also run on the server; no separate SSR
-data-fetch to keep in sync.
+What a [route](#route) declares it needs on entry — `:resources` ensured loaded — so
+a page's data requirement sits next to its URL. Loaders also run on the server; no
+separate SSR data-fetch to keep in sync. A route's `:on-match` events are its
+*activation work*, not its loader: the runtime fires and forgets them, and they never
+touch route readiness. See [Activation work and page data](concepts.md#loaders-declaring-a-pages-data).
+
+### **effective route plan**
+
+The resource requirements a navigation actually runs: every `:resources` entry
+contributed by the route's [chain](#route-chain), parent-most to leaf, with identical
+requirements deduped to one fetch. Naming a `:parent` is what opts a child in, so a
+shared shell read is declared once instead of restated per tab. Only `:resources`
+compose this way.
+
+### **intent prefetch**
+
+Warming a destination's [effective route plan](#effective-route-plan) before the user
+commits, via `[route-link {… :prefetch :intent}]` or a direct
+`[:rf.route/prefetch <address>]` dispatch. Hover, focus, or touch runs the same plan
+a navigation would — ownerless, non-blocking, and with no route state, guards, or
+`:on-match`. Click through and the ordinary resource dedupe reuses the warmed work.
 
 ### **route chain**
 
@@ -44,9 +61,13 @@ page; each ancestor wraps a shell. See [Nested layouts](concepts.md#nested-layou
 
 ### **transition**
 
-Route-slice loading state — `:idle`, `:loading` (a [loader](#loader) still running),
-or `:error` (one failed) — via `:rf.route/transition`. One global fact for a progress
-bar or error banner, not per-page loading flags.
+Route readiness — `:idle`, `:loading`, or `:error` — via `:rf.route/transition`, with
+the structured failure on `:rf.route/error`. It is a projection over the blocking
+`:resources` in the [effective route plan](#effective-route-plan): pending on a first
+load, `:error` on a blocking first-load failure or a plan that could not be built,
+`:idle` otherwise. A background refresh, a non-blocking read, an
+[intent prefetch](#intent-prefetch), and `:on-match` never move it. One global fact
+for a progress bar or error banner, not per-page loading flags.
 
 ### **nav-token**
 
@@ -58,12 +79,24 @@ overwriting the page you are on. Hand-rolled loaders opt in via the
 ### **route guard**
 
 A boolean subscription on a [route](#route): **`:can-leave`** (`true` = leave is fine)
-or **`:can-enter`** (`true` = enter is fine). `false` parks the attempt in
-`[:rf/pending-navigation]`; your [view](../core/glossary.md#view) resolves it with
-`[:rf.route/continue <id>]` or `[:rf.route/cancel <id>]` (the pending-nav id).
-Unsaved changes → leave guard ([recipe](how-to/guard-unsaved-changes.md)); per-route
-auth → enter guard; multi-route policy → optional interceptor
-([recipe](how-to/require-sign-in-on-a-route.md)).
+or **`:can-enter`** (`true` = enter is fine). The two refusals are deliberately
+asymmetric. A `:can-leave` `false` **parks** the attempt in
+`[:rf/pending-navigation]` — a question to the user — and your
+[view](../core/glossary.md#view) resolves it with `[:rf.route/continue <id>]` or
+`[:rf.route/cancel <id>]` (the pending-nav id). A `:can-enter` `false` is
+[terminal](#terminal-entry): a question to application state, answered the same way
+every time, so nothing commits and nothing parks. Unsaved changes → leave guard
+([recipe](how-to/guard-unsaved-changes.md)); per-route auth → enter guard
+([recipe](how-to/require-sign-in-on-a-route.md)); multi-route policy → optional
+interceptor.
+
+### **terminal entry**
+
+What a refused `:can-enter` does: commit no route slice, URL, scroll, resource, or
+`:on-match`; park no pending value; and dispatch `:rf.route/entry-denied` exactly
+once with the replayable `:destination`. There is nothing to resume and no entry
+bypass — the return after signing in is a fresh navigation whose guard re-evaluates
+naturally. Under SSR the same refusal renders the shell under a `403`.
 
 ### **not-found**
 
