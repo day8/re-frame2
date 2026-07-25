@@ -619,6 +619,20 @@
 ;; inheritance: nothing else on the framework's registration carries over (not
 ;; `:rf/framework-default?`, not `:rf/framework-authority?`, not `:doc`, not the
 ;; handler), and it applies to nothing but a framework REPLACEABLE DEFAULT.
+;;
+;; ORDER-INDEPENDENCE. Namespace load order does not decide which of the two
+;; registrations lands first. `re-frame.core` does not pull the routing artefact
+;; in, so an application namespace registering `:rf.route/entry-denied` — and
+;; never requiring `re-frame.routing` itself — is loaded FIRST whenever
+;; something else requires the facade later. That order is legal and
+;; unremarkable, and the retention read below cannot cover it on its own: when
+;; the app registration is recorded there is no framework descriptor in the
+;; source store to read. So the seam reconciles in BOTH directions — whichever
+;; registration arrives second brings the pair to ONE effective classification
+;; (`retain-framework-default-classification` when the app arrives second,
+;; `reconcile-framework-default-classification!` when the framework does).
+;; Convergence is the point: before it, the identical program leaked its URL
+;; carriers to every trace / off-box projection purely because of require order.
 
 (def ^:private carrier-classification-keys
   "The EP-0025 path-declaration keys a framework REPLACEABLE DEFAULT owns on
@@ -642,6 +656,25 @@
     (when (framework-default-descriptor? own)
       (not-empty (select-keys own carrier-classification-keys)))))
 
+(defn- union-carrier-classification
+  "Return `metadata` with each carrier key of the framework classification `fw`
+  unioned in — the FRAMEWORK's declared paths first, then any `metadata` itself
+  declares, de-duplicated. Identity-preserving: when a key's union is exactly
+  what `metadata` already carries the map is returned untouched, so a caller can
+  test `identical?` to learn nothing changed. Pure.
+
+  The ONE union rule, shared by both halves of the seam
+  ([[retain-framework-default-classification]] on the app-arrives-second path,
+  [[reconcile-framework-default-classification!]] on the framework-arrives-second
+  path) so the two orders cannot drift into different effective values."
+  [metadata fw]
+  (reduce-kv (fn [m k fw-paths]
+               (let [own     (get m k)
+                     unioned (into [] (distinct) (concat fw-paths own))]
+                 (if (= unioned own) m (assoc m k unioned))))
+             metadata
+             fw))
+
 (defn retain-framework-default-classification
   "Return `metadata` with the carrier classification of the framework's OWN
   REPLACEABLE DEFAULT for `(kind, id)` unioned in — the framework's declared
@@ -658,11 +691,52 @@
   `:sensitive` must fail loud on its own terms, not inside this union)."
   [kind id metadata]
   (if-let [fw (framework-default-classification kind id)]
-    (reduce-kv (fn [m k fw-paths]
-                 (assoc m k (into [] (distinct) (concat fw-paths (get m k)))))
-               metadata
-               fw)
+    (union-carrier-classification metadata fw)
     metadata))
+
+(defn reconcile-framework-default-classification!
+  "Union the framework REPLACEABLE DEFAULT's carrier classification for
+  `(kind, id)` into every APPLICATION descriptor ALREADY recorded for the same
+  `(kind, id)` in the source store — the INVERSE-LOAD-ORDER half of
+  [[retain-framework-default-classification]] (rf2-kqxe6.20).
+
+  [[retain-framework-default-classification]] can only enrich an override that
+  arrives AFTER the framework seeded its default: it READS the framework's own
+  source slot. In the inverse namespace-load order (an application namespace
+  registering `:rf.route/entry-denied` before anything requires
+  `re-frame.routing`) that slot does not exist yet, so the app descriptor was
+  stored carrier-less and the framework's later seeding left it that way. The
+  application handler still won the frame, so the only observable difference was
+  at EGRESS — the framework's URL carriers shipped RAW to every trace / off-box
+  projection, purely because of require order. Called from the SAME registration
+  path, unconditionally, this closes that order dependence.
+
+  A NO-OP — one source-store read — for every `(kind, id)` that is not a
+  framework replaceable default (every registration in an ordinary program), and
+  for one whose application descriptors already carry the union (the
+  default-first path, where the retention above already did the work). Only the
+  carrier keys move, and only onto descriptors sharing a framework replaceable
+  default's `[kind id]`: this is NOT metadata inheritance and NOT a precedence
+  rule. The application registration remains the frame's winner
+  ([[superseded-framework-default-keys]]), and two application registrations of
+  one framework-default id still collide.
+
+  Writes through `source-store/record-descriptor!`, which lands each reconciled
+  descriptor back in its OWN provenance slot (so sibling namespaces stay
+  distinct, and an app-vs-app collision still reaches assembly) and BUMPS the
+  store generation — invalidating any sealed generation assembled from the
+  pre-reconcile pool. Returns nil."
+  [kind id]
+  (when-let [fw (framework-default-classification kind id)]
+    ;; `descriptors-for` derefs once, so the mutation below cannot disturb the
+    ;; iteration. A nil provenance key is the FRAMEWORK's own copy (the read
+    ;; above already established that), never an app descriptor — skip it.
+    (doseq [[provenance descriptor] (source-store/descriptors-for kind id)
+            :when                   (some? provenance)]
+      (let [reconciled (union-carrier-classification descriptor fw)]
+        (when-not (identical? reconciled descriptor)
+          (source-store/record-descriptor! kind id reconciled)))))
+  nil)
 
 ;; ---- the collision validator — THE central \"order never decides\" guarantee
 ;;      (EP-0023 §Image Composition / §Image Validation) ----------------------

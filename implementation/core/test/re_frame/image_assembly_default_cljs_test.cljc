@@ -500,6 +500,46 @@
         "a provenanced descriptor stamping the reserved marker is not the
          framework's own copy — the same unforgeability the supersession seam has")))
 
+(deftest the-reconcile-half-covers-the-inverse-registration-order
+  (testing "rf2-kqxe6.20 (audit of #6949): when the APPLICATION descriptor is
+            recorded FIRST the retention read has no framework slot to carry
+            from. The reconcile half runs when the framework's default lands and
+            brings the already-stored app descriptor to the SAME union, so
+            require order no longer decides the effective classification"
+    ;; The inverse order — the app registration is in the store, no framework
+    ;; default yet.
+    (ss/record-descriptor! :event ::denied {:ns         "shop.auth"
+                                            :sensitive  [[:guard]]
+                                            :handler-fn ::app})
+    (is (nil? (asm/framework-default-classification :event ::denied))
+        "no framework default yet — the retention read has nothing to carry")
+    (asm/reconcile-framework-default-classification! :event ::denied)
+    (is (= [[:guard]] (:sensitive (ss/descriptor-for :event ::denied "shop.auth")))
+        "and the reconcile is itself a no-op while there is no framework default")
+    ;; The framework's default lands SECOND (something requires the facade later).
+    (ss/record-descriptor! :event ::denied
+                           {:rf/framework-default? true
+                            :sensitive             [[:requested-url] [:target]]
+                            :handler-fn            ::fw-noop})
+    (asm/reconcile-framework-default-classification! :event ::denied)
+    (let [app (ss/descriptor-for :event ::denied "shop.auth")]
+      (is (= [[:requested-url] [:target] [:guard]] (:sensitive app))
+          "the already-stored app descriptor now carries the SAME union the
+           default-first order produces — framework carriers first, then its own")
+      (is (= ::app (:handler-fn app))
+          "ONLY the carrier keys moved — the app's own handler is untouched")
+      (is (nil? (:rf/framework-default? app))
+          "the reserved marker did NOT ride across: this is a carrier union, not
+           metadata inheritance"))
+    (testing "the framework's own copy is left alone — it is not an app descriptor"
+      (is (= [[:requested-url] [:target]]
+             (:sensitive (ss/descriptor-for :event ::denied nil)))))
+    (testing "and the reconcile is idempotent — a second pass re-records nothing"
+      (let [before (ss/descriptor-for :event ::denied "shop.auth")]
+        (asm/reconcile-framework-default-classification! :event ::denied)
+        (is (identical? before (ss/descriptor-for :event ::denied "shop.auth"))
+            "identical descriptor ⇒ no write ⇒ no gratuitous generation bump")))))
+
 (deftest an-explicit-image-is-unaffected-by-the-default-seam
   (testing "an explicit :select-ns image selects by provenance namespace, so the
             framework's own no-provenance default was never selectable there.

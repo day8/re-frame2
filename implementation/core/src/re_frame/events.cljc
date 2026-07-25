@@ -1047,7 +1047,18 @@
                        :handler-fn   handler-fn
                        :interceptors (-> [] (into interceptors) (conj wrapped)))
           (seq requires-parsed)
-          (assoc :rf.cofx/requires-parsed requires-parsed))))
+          (assoc :rf.cofx/requires-parsed requires-parsed)))
+      ;; rf2-kqxe6.20, the INVERSE half of the retention above: namespace load
+      ;; order must not decide the effective classification. When THIS
+      ;; registration is the framework seeding its replaceable default, an
+      ;; application override for the same id may ALREADY be in the source store
+      ;; (an app namespace that registers `:rf.route/entry-denied` and never
+      ;; requires `re-frame.routing` loads first whenever something else requires
+      ;; the facade later) — and that descriptor, recorded before the framework's
+      ;; own existed, carries none of the framework's carriers. Reconcile it here
+      ;; so BOTH orders converge; a no-op (one source-store read) for every id
+      ;; that is not a framework replaceable default.
+      (image-assembly/reconcile-framework-default-classification! :event id))
     id))
 
 (defn reg-event
