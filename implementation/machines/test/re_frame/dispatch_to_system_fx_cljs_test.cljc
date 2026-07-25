@@ -18,7 +18,7 @@
   arity-≥3 entries), matching `:rf.machine/spawn`'s single-map args and
   `:dispatch`'s single-event-vector args.
 
-  Deterministic harness (mirrors `machine_front_of_queue_test`): one
+  Deterministic harness (mirrors `machine_front_of_queue_cljs_test`): one
   `dispatch-sync` drain. The action's fx queues the child dispatch, which
   rides the in-progress sync drain and pops in queue order — so the assert
   reads post-drain state without async timing.

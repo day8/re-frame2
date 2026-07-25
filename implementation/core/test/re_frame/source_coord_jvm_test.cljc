@@ -221,5 +221,5 @@
       (is (integer? (:line cs)))
       (is (pos? (:line cs)))
       (is (string? (:file cs)))
-      (is (re-find #"source_coord_test" (:file cs))
+      (is (re-find #"source_coord_jvm_test" (:file cs))
           (str ":file should point at this test file — got " (:file cs))))))

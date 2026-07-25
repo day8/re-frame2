@@ -285,7 +285,7 @@
 ;;
 ;; The canonical HARD machine: deep compound nesting, parallel/orthogonal
 ;; regions, observable LCA ordering, internal vs external self-transitions.
-;; Mirrors the `machine_cascade_instrumentation_test` fixture exactly.
+;; Mirrors the `machine_cascade_instrumentation_cljs_test` fixture exactly.
 
 (defmachine hvac-controller-machine
   {:type :parallel

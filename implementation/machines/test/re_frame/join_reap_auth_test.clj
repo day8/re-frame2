@@ -33,7 +33,7 @@
   DELIBERATE and stays. This fixture is not about the exact-attempt coordinate:
   the reap is verified against LIVE join state the caller cannot supply, so
   membership in `:done ∪ :failed` is genuinely authenticated. Contrast the join
-  coordinate (`join_attempt_effect_path_test`,
+  coordinate (`join_attempt_effect_path_cljs_test`,
   `join_parallel_attempt_select_test`, the recordable transport/control
   fixtures), which is caller-suppliable exact-current correlation evidence — a
   fold FENCE, not authentication — and therefore carries attempt/coordinate

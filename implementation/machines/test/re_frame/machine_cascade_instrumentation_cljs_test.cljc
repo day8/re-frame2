@@ -29,7 +29,15 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom])
+  ;; `mtest/with-trace-capture` is a `#?(:clj (defmacro …))` in a `.cljc`
+  ;; support ns, so the CLJS analyzer needs it required as a MACRO ns under
+  ;; the same alias; a plain `:require` leaves the call compiling to a
+  ;; function call on an undefined var. This is the JVM-only assumption the
+  ;; rf2-lgozq rename exposed — all seven tests here errored on the CLJS lane
+  ;; with `No protocol method IDeref.-deref defined for type undefined` until
+  ;; this line existed. Same shape as `observation_port_cljs_test.cljc`.
+  #?(:cljs (:require-macros [re-frame.machines.test-support :as mtest])))
 
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
