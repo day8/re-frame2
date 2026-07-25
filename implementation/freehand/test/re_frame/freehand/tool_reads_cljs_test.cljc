@@ -180,7 +180,7 @@
   (testing "A fully-literal query IS the authored runtime shape, so it is safe
             to show verbatim."
     (let [sites   (:subscriptions (tool/read-view-dependencies basket-id))
-          literal (first (filter (complement :dynamic?) sites))]
+          literal (first (remove :dynamic? sites))]
       (is (some? literal) "the body carries a literal-query site")
       (is (= [:basket/total] (:query literal))
           "shown as data, because that is what it is"))))

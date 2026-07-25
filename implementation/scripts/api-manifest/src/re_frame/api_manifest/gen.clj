@@ -117,15 +117,25 @@
     ;; the supported six are the whole namespace by construction rather than
     ;; by carve-out. Its CLJS surface is reconciled by the probe.
     re-frame.freehand.test
-    ;; The Freehand substrate's TOOL-TIER READER DOOR (rf2-hytu5; contract in
-    ;; Spec 004, the instrumentation it serves in Spec 009). The third and last
-    ;; sanctioned `re-frame.freehand.*` namespace, publishing ONE name —
-    ;; `view-manifest`, a total projection of the compile-time analysis a value
-    ;; already carries. `.cljc` and host-neutral like the door and the test
-    ;; sibling, so `ns-publics` is authoritative here and the CLJS half is
-    ;; reconciled by the probe. It is a READER, not a tool framework: there is
-    ;; no accumulator, no registry and no history store, so the one name is the
-    ;; whole namespace by construction rather than by carve-out.
+    ;; The Freehand substrate's TOOL-TIER READER DOOR (rf2-hytu5, extended by
+    ;; rf2-lvvl2; contract in Spec 004, the instrumentation it serves in Spec
+    ;; 009). The third and last sanctioned `re-frame.freehand.*` namespace,
+    ;; publishing FOUR names: `view-manifest`, a TOTAL projection of the
+    ;; compile-time analysis a value already carries, plus the three ID-taking
+    ;; reads a wire-attached inspector needs — `read-view-manifest`,
+    ;; `read-view-dependencies`, `read-view-event-sites`. `.cljc` and
+    ;; host-neutral like the door and the test sibling, so `ns-publics` is
+    ;; authoritative here and the CLJS half is reconciled by the probe.
+    ;;
+    ;; It is a READER, not a tool framework: no accumulator, no interval log
+    ;; and no history store. The id-taking reads resolve an id through the
+    ;; INTERNAL dev-only declared-view index `re-frame.freehand.registry`,
+    ;; which is `^:no-doc`, holds one row per declaration and is absent from
+    ;; this list BY CONSTRUCTION — the same standing `re-frame.freehand.
+    ;; descriptor` has above, and for the same reason: its only caller is the
+    ;; `v/defview` expansion and nothing authors against it. So the supported
+    ;; four are the whole namespace by construction rather than by carve-out
+    ;; (the private helpers beneath them are `defn-`).
     re-frame.freehand.tool
     ;; Optional feature artefacts (public home namespaces).
     re-frame.schemas

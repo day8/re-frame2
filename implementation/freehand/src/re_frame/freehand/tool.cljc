@@ -209,8 +209,9 @@
   (cond
     (or (nil? x) (boolean? x) (number? x) (char? x) (string? x) (keyword? x)) true
     (symbol? x) false
-    (vector? x) (every? literal-form? x)
-    (set? x)    (every? literal-form? x)
+    ;; Vectors and sets are one case, not two: both are literal exactly when
+    ;; every element is, and the element walk does not care which it is.
+    (or (vector? x) (set? x)) (every? literal-form? x)
     (map? x)    (every? (fn [[k v]] (and (literal-form? k) (literal-form? v))) x)
     (seq? x)    (= 'quote (first x))
     :else       false))
