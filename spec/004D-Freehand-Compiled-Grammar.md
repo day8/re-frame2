@@ -346,8 +346,10 @@ site it could not have seen.
 
 **An `:events` entry states WHAT it dispatches, not only where from.** A roster that
 can name an intent site but not its intent is a count of handlers, and being read
-instead of the body is the whole reason the manifest exists. So beside the `:sid`,
-`:source-coord` and `:path` every roster entry carries, an `:events` entry names the
+instead of the body is the whole reason the manifest exists. So beside the `:sid` and
+`:path` every roster entry carries — and the `:source-coord` it carries whenever a
+reader location survived to the declaration, which is the total-or-absent law stated
+below — an `:events` entry names the
 authored handler `:prop`, its `:classification` (`:vector` / `:options`, or one of the
 dynamic kinds), whether the handler is `:serializable?`, whether the site sits inside
 the controlled-input synchronous door (`:sync?`), and the `:handler` itself. `:sync?`

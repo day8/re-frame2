@@ -16,9 +16,21 @@
 ;; only half the promise: a roster of three entries that cannot say which three
 ;; lines is a fact nothing can act on, so every entry of every roster carries
 ;; the keys named here — including the `:source-coord` that traces it back to
-;; the form that produced it. `:source-coord-keys` pins that coordinate's own
-;; shape, which is total: absent reader metadata makes a site inherit its
-;; declaration's position, never omit the field and never invent a line.
+;; the form that produced it. Every census declaration is written at top level,
+;; so the reader anchored it and the coordinate is present on every entry: what
+;; this fixture pins is the TOTAL arm of the coordinate law. `:source-coord-keys`
+;; pins the shape a present coordinate has — whole, and never invented, because
+;; a site the reader anchored nowhere inherits its DECLARATION's position rather
+;; than a fabricated line.
+;;
+;; The other arm is ABSENCE, and it is deliberately not proven here. A
+;; `v/defview` a wrapper macro generated without copying `(meta &form)` leaves
+;; no reader location on the declaration for a site to inherit, and then every
+;; entry OMITS the key rather than carrying a partial map — the law is
+;; total-or-absent with no third shape (004D §The finite manifest). That arm
+;; needs a declaration a top-level census cannot contain, so
+;; `re-frame.freehand.manifest-total-or-absent-coord-jvm-test` synthesizes one
+;; and quantifies over its rosters.
 ;;
 ;; `:roster-coverage` is what stops that shape row being VACUOUS. A key contract
 ;; asserted over zero entries passes loudest of all, and one of the five
