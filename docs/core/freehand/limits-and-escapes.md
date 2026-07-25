@@ -19,7 +19,7 @@ This page is a map of walls and recoveries.
 | Use `v/sub` outside a declared render | render-only observation | `rf/subscribe-once` |
 | Call `v/sub` off the render thread | capture is same-thread only | realize on the render thread or extract a child view |
 | Put multi-intent vectors in handlers | one event per user action | one semantic event + effects |
-| Use `local` / neutral hooks in views | one reactive system | re-frame facts, controllers, or host wrappers |
+| Reach for view-local state or a neutral hook | one reactive system | re-frame facts, controllers, or a registered behavior |
 | Derive writable state from React keys / `v/self` | occurrence ≠ controller identity | explicit `:control` addresses |
 | Bare fn on a foreign callback prop | unknown phase/identity | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
 | Bare React component as an ordinary head | foreign boundary must be named | `host/component` or UIx wrapper |
@@ -75,12 +75,12 @@ the named recovery column.
 | Second compiler, `v/interp`, or hidden interpreted fallback inside compiled markup | stay interpreted, extract child, or `[v/markup {:value …}]` |
 | Permanent `re-frame.ui` sibling product | absorb donor; delete at gate |
 | Preserve every donor API because code was useful | Freehand owns the public contract |
-| Third “unprofiled” mode for local state / hooks / refs / effects | host boundary or UIx wrapper |
+| A third “unprofiled” mode for local state, hooks, refs or effects | a registered behavior, or a React component in a child position |
 | Automatic promotion or a “hot 5%” rule | measure → `v/check` → `{:compiled true}` |
 | Callable declared views or a region DSL | `[view props]` / trailing children / compound views |
 | `:reads` query-template language in v1 | inline `(v/sub …)` only |
 | `v/self` or renderer-derived writable addresses | explicit `:control` / domain ids |
-| Generic component-local storage verbs or widget event namespaces | library events; no `:rf.field/*` in core v1 |
+| Generic component-local storage verbs, or a reserved app-db root for controllers | library events; Freehand fixes the identity model and no storage path |
 | Controller / reducer DSL in Freehand | ordinary `reg-event` / `reg-sub` |
 | Render/unmount ownership of domain resources | routes, resources, machines |
 | Neutral portals or arbitrary lifecycle callbacks | top-layer, behavior, or React wrapper |

@@ -212,7 +212,7 @@ The contracts to remember:
 ```
 
 That is a complete Freehand view: a subscription as a value, an event as data, a
-controlled field on the sync door, mounted under a frame. No component-local
+controlled field on the sync door, mounted under a frame. No view-local
 reactive state, and no dispatch closures on the paved path.
 
 ## Day-one checklist

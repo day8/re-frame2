@@ -171,7 +171,7 @@ You can write ordinary Freehand screens when you can:
 | `v/sub` outside a view | `rf/subscribe-once` for probes; `v/sub` is render-only |
 | Closure on every button | prefer an event vector; escape forms only when needed |
 | Draft lives in a ratom / hook | move to re-frame (or a library controller later) |
-| “I need Form-2 for local UI” | open/closed facts in app-db, or props-only controlled |
+| “I need Form-2 for a bit of local UI” | open/closed facts in app-db, or a prop the parent owns |
 
 ---
 

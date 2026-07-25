@@ -209,7 +209,7 @@ visible. You are not forced into one linear template.
 | Parameterized rows | ordinary pure fn OK | lexically visible `v/render-fn` / `v/slot` |
 | Presence / top-layer | runtime plans | statically recognized forms |
 | Host leaves / behaviors | qualified descriptors | **statically named** descriptors |
-| `local` / neutral hooks | rejected | rejected (host boundary instead) |
+| View-local cells / neutral hooks | rejected | rejected (host boundary instead) |
 | Dynamic markup in template | natural | **no inline valve** — see `v/markup` below |
 
 There is **no** `v/interp` and no “compiled except this unknown subtree.”
@@ -230,7 +230,7 @@ There is **no** `v/interp` and no “compiled except this unknown subtree.”
 | Bare fn on a **foreign** callback prop | Phase/identity unknown | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
 | Bare React component as an ordinary head | Foreign boundary must be named | `host/component` or wrapper |
 | Inline interpreter fallback for “this bit of runtime Hiccup” | Unpredictable cost and false manifests | `[v/markup {:value hiccup}]` or keep parent interpreted |
-| `local` / neutral hooks / refs / effects in the view body | One state system; host is explicit | re-frame state or [host boundaries](host-boundaries.md) |
+| View-local cells, neutral hooks, refs or effects in the view body | One state system; host work is explicit | re-frame state or [host boundaries](host-boundaries.md) |
 | Author `:reads […]` block (v1) | Not in the grammar | Inline `(v/sub …)` only |
 
 **Also named by the checker (donor-class structural rules):** keywords in child

@@ -1,174 +1,191 @@
 # Debugging and performance
 
 A view looks stale, something feels slow, or you cannot tell which control owns a
-draft. Freehand answers those questions **as data** — and you climb a performance
-ladder **before** you compile.
+draft. Most of the answers are already values you can print — and you climb a
+performance ladder **before** you reach for the compiler.
 
-> **High `:stable-renders` means fix subs (or props), not compile.**
-
-!!! note "Design-target APIs"
-
-    Names such as `v/inspect-boundary` and `v/hot-views` match the design. Shapes
-    may refine as implementation lands; the **questions** are the contract.
+> **Interpretation cost is rarely the problem. Fix subscriptions and boundaries first.**
 
 ## Questions and where to look
 
 | Question | Where to look |
 |---|---|
-| Why didn’t this view re-render? | Boundary inspector: deps, last cause, props `rf=` |
-| Why re-render “for nothing”? | High `:stable-renders` / parent churn → fix subs or props |
-| What will this button dispatch? | Structural tree / Xray; handlers carry site identity |
-| What dispatched this event? | Trace tags (view source + attr) when present |
-| Where is this field’s draft? | Controller join — address, not mount path |
-| Orphan controller records? | `v/orphans` |
-| Live host behaviors? | `v/behaviors` |
-| Should I compile? | Only after the ladder below |
+| What will this button dispatch? | The structural tree — `(t/attrs node)` carries the event vector |
+| What is this view, exactly? | `(v/describe view)` — id, source, lowering, children policy, props schema |
+| What can the compiler prove about it? | `(v/manifest view)` — `nil` for an interpreted declaration |
+| Is this value even a view? | `(v/view? x)` — `ifn?` is not a proxy for it |
+| Which host behaviors are connected? | `(v/active-connections)` |
+| Did that command reach its target? | `(v/command-log)` |
+| What dispatched this event? | the ordinary re-frame trace stream, and Xray over it |
+| Why did this view re-render? | Xray's reactive panel; then narrow the subscription |
+| Should I compile? | only after the ladder below |
 
-Evidence records state how complete they are: **scope**, **basis**,
-**completeness**, and **loss**. “Proven / observed / opaque” are labels on that
-grid — not separate product modes.
+## Inspecting a declaration
+
+`v/describe` is the descriptor's public projection — a plain map, and inspection
+data rather than a dispatch surface:
+
+```clojure
+(v/describe todo-row)
+;; => {:re-frame.freehand/view true
+;;     :view-id                :app.todo/todo-row
+;;     :source                 {:ns … :file … :line …}
+;;     :lowering               :interpreted        ; or :compiled
+;;     :children-policy        :optional
+;;     :props-schema           <schema>}           ; absent when none declared
+```
+
+`:props-schema` is **absent** when no schema was declared, never `:any` — an
+undeclared contract and a deliberately permissive one are different facts, and the
+projection refuses to blur them.
+
+`v/manifest` answers what a **compiled** declaration's analysis makes statically
+knowable, and `nil` for an interpreted one — which is the honest answer, not an
+omission:
+
+```clojure
+(v/manifest people-list)
+;; => {:view-id   :app.people/people-list
+;;     :grammar   :re-frame.freehand/v1
+;;     :crossings [{:view-id :re-frame.freehand/markup
+;;                  :lowering :interpreted :path [1]}]}
+```
+
+`:crossings` is the roster of view boundaries the body mounts, one entry per
+lexical site, each marked with the mode it crosses into. A compiled view mounting
+an interpreted child is the ordinary case — promotion is per declaration and never
+transitive — so the manifest says where the compiled tier *stops* rather than
+leaving you to assume it does not.
+
+## The behavior tool plane
+
+A [registered behavior](host-boundaries.md#registered-behaviors) is the one place
+in the substrate where opaque host state lives, so it is the one place you most
+need to see into. Two read-only projections sit on the public door, so a tool never
+has to depend on an implementation namespace.
+
+```clojure
+(v/active-connections)
+;; => [{:generation 1
+;;      :behavior   :my.ns/autosize
+;;      :frame      :rf/default
+;;      :target     :composer/body
+;;      :config     {:max-rows 8}}]
+```
+
+Every live connection, oldest first: which behaviors are connected, under which
+frame, claiming which semantic ids, on which public config. `:generation` and
+`:behavior` are always present; `:frame`, `:target` and `:config` appear only where
+the connection has one — so a behavior nothing commands projects **no** `:target`,
+absent rather than `nil`.
+
+The private memory and the host node are **absent by construction**, not filtered
+out. A projection that answered with a live host instance would be exactly the
+instance registry the behavior contract exists to refuse, reached through the
+inspection door instead of the front one.
+
+```clojure
+(v/command-log)
+;; => [{:frame      :rf/default
+;;      :target     :composer/body
+;;      :op         :refit
+;;      :behavior   :my.ns/autosize
+;;      :generation 1
+;;      :outcome    :delivered}]
+```
+
+Recent command traffic as a **bounded** window, oldest first. A row records what
+the command *named* and what the channel *decided* — `:outcome` is `:delivered` or
+`:refused` — never what the host made of it, because the operation's return value
+is the connection's private memory. A delivered row is written *before* the
+operation runs, so a command that crashes its host is in the log rather than
+missing from it.
+
+Refusals are recorded as faithfully as deliveries. A log that only saw the
+successes would be evidence for the one case nobody debugs.
+
+Both are **browser-only**, absent on the JVM exactly like the mount verbs: a
+structural render connects nothing, and an eternal `[]` there would be
+present-and-lying where absence is honest. Neither is an event stream — you ask,
+and nothing calls you back.
+
+The obvious summaries are deliberately *not* published, because you can compute
+them: `(count (v/active-connections))` and
+`(into #{} (keep :target) (v/active-connections))` are the same answers.
+
+### There is no occurrence accumulator
+
+Freehand publishes **no** per-render history: no list of which occurrences rendered
+recently, why, or how often. The two projections above are the whole tool plane,
+and they cover host connections rather than view renders.
+
+That is a stated omission rather than an oversight. For per-render questions —
+which occurrence re-rendered, and what caused it — use **Xray**, which reads the
+development-only evidence surface directly.
 
 ## Performance ladder (before compilation)
 
 Work in this order:
 
-1. **Inspect the cause** — which query or parent churn drove the render?  
-2. **Narrow the subscription** — classic bug: every cell reads a global
-   “editing id”; fix with per-id predicates so one click dirties two cells, not
-   two thousand.  
-3. **Choose the boundary** — keyed rows for independent change; helpers for pure
-   structure you are happy to re-run with the parent.  
-4. **Window large lists** — do not mount what the user cannot see.  
-5. **Measure again** with `v/hot-views` (below).  
-6. **Only then** compile a remaining hot boundary, or a library leaf that needs
-   static proof.  
+1. **Find the cause.** Which query moved, or did the parent simply re-render?
+2. **Narrow the subscription.** The classic bug: every cell reads one global
+   “editing id”, so a single click dirties two thousand cells instead of two. Fix
+   it with per-id queries.
+3. **Choose the boundary.** Keyed child views for rows that change independently;
+   plain `defn` helpers for pure structure you are happy to re-run with the parent.
+4. **Window large lists.** Do not mount what the user cannot see — see
+   [Reactivity](reactivity-and-ownership.md#window-large-lists-before-you-compile).
+5. **Measure again.**
+6. **Only then** promote a remaining hot boundary with `{:compiled true}`, or a
+   library leaf that needs static proof.
 
+Subscription results are stabilised with `rf=`, and each boundary is memoised on
+its one props map, so churn with identical output almost always means over-broad
+subscriptions or props rebuilt on every parent render — not interpretation cost.
 If a host library or React reconciliation dominates the budget, another Hiccup
-compiler will not save you — fix the host boundary or the data size.
+compiler will not save you: fix the host boundary or the data size.
 
-## `v/hot-views` — anti-folklore measurement
+## Traces
 
-Dev-only counters on work the interpreter (and compiled cells) already do:
+Freehand dispatches ordinary re-frame events, so the ordinary trace stream is the
+record of what happened. Nothing about a Freehand view invents a second channel:
+an event fired from a view is the same event fired from anywhere else, with the
+same epoch, the same interceptors and the same observability sink.
 
-```clojure
-(v/hot-views frame)
-;; ⇒ [{:view app/person-list
-;;     :renders 214
-;;     :self-ms-p95 6.2
-;;     :nodes 12040
-;;     :rows-max 1200
-;;     :top-causes [[[:crud/filtered-people] 180]
-;;                  [[:rf.view/parent] 30] …]
-;;     :stable-renders 0.31
-;;     :interp-slots 0}]
-```
+Two things worth knowing while reading a trace of a typing session:
 
-How to read it:
+- **Each keystroke on a controlled field is its own event.** Typing `hello` is
+  about five dispatches. The stream looking busy is expected, not a defect — see
+  [Events](events-and-handlers.md#each-keystroke-is-an-event).
+- **A render-failure summary is bounded on purpose.** `v/error-boundary`'s
+  `:on-error` carries a stable diagnostic id, the failing view id, phase,
+  fingerprint and evidence — never the exception, props, app-db or event payloads.
+  The exception itself rides a separate private channel to the always-on error
+  axis.
 
-| Signal | Meaning |
+## Xray
+
+[Xray](../../xray/index.md) is the panel over all of this: the trace stream,
+time-travel scrubbing, the derivation graph, and — in development builds — the
+per-occurrence view evidence the door does not publish.
+
+That evidence is **development-only** and stripped from production bundles, which
+is the trade: a production build carries no render history, and a development
+build can tell you which occurrence rendered, under which frame and descriptor
+generation, and which reads and event sites were selected in it.
+
+Evidence always states how complete it is. Freehand does not claim omniscience
+over a full-Clojure interpreted body: a compiled view's read sites are proven
+statically, an interpreted view's are the reads a committed render actually made,
+and a host interior is opaque. Those are labels on one grid, not separate modes.
+
+## If something feels wrong
+
+| Symptom | Fix |
 |---|---|
-| High `self-ms × renders` and high `nodes` | Interpretation cost may matter — candidate for compile **after** structural fixes |
-| High `:stable-renders` | Output often equal — **narrow subs** or stop rebuilding props |
-| `:top-causes` with `[:rf.view/parent …]` | Parent re-rendered without a moved sub — unstable props (inline maps, per-render fns) |
-| `:interp-slots` | Count of `v/markup` (or similar) interpreted holes under a compiled path |
-
-Promote on interpretation work, not on a percentage of “hot.” After promotion, the
-**same** counters should still flow so you can see whether the win was real
-(evidence continuity).
-
-## `v/inspect-boundary` — “why is this view wrong?”
-
-The first move in most debug sessions is: show me what this boundary actually
-depends on.
-
-```clojure
-(v/inspect-boundary occurrence)
-;; ⇒ {:occurrence …
-;;    :view app/todo-row
-;;    :committed [{:query [:todo/by-id 7] :value … :owned? true} …]
-;;    :last-render {:epoch 812 :cause [:todo/by-id 7]}
-;;    :props {:current … :rf=-prev? true}
-;;    :door-sites [{:attr :on-input :door? true :reason :literal-controlled}]
-;;    :controller {:kind :fh/buffered-field :address [:invoice 42 :amount]}}
-```
-
-Typical uses:
-
-- **Stale view** — compare committed queries to the query you thought you mutated.
-  Mismatch is often the bug (wrong id, wrong frame, conditional branch not taken).  
-- **Props churn** — `:rf=-prev? false` with no meaningful data change → parent is
-  rebuilding maps or functions.  
-- **Controlled door** — which sites are synchronous and why.  
-- **Controller join** — which semantic address is joined to this occurrence (tool
-  plane). Storage is still under the library’s app-db path keyed by that address.  
-
-How you obtain `occurrence` is tooling-dependent (Xray click, mounted-views table,
-error summary). The design requires the read; the UI that picks the occurrence may
-be Xray or a REPL helper.
-
-## Companions: orphans and behaviors
-
-```clojure
-(v/orphans frame {:epochs n})
-;; controller records with no mounted occurrence join for n epochs
-
-(v/behaviors frame)
-;; active behavior connections per occurrence
-```
-
-Orphans matter because controller state is **not** cleared on unmount. After a form
-route leave, orphans should go to zero if your owner clear is correct. Behaviors
-answer “is this Vega/Mapbox connection still live, and under which occurrence?”
-
-## Traces: “what dispatched this?”
-
-UI handlers stamp development tags (view site + attr such as `:on-click`) so a
-dispatch ties back to the tree:
-
-- forward: tree → intent (structural test / Xray)  
-- backward: trace → site  
-
-Production keeps evidence bounded; completeness fields say what was lost.
-
-## Evidence surface roster (design target)
-
-Tools **read** one host-neutral schema — they are not a second Freehand. Names may
-polish; jobs stay stable:
-
-| Projection (illustrative) | Answers |
-|---|---|
-| `v/inspect-boundary` | one occurrence: deps, cause, props, door, controller |
-| `v/hot-views` | expensive / high-churn views |
-| `v/orphans` | controller records without a mounted join |
-| `v/behaviors` | live host connections |
-| manifests / mounted-views / explain-render | static sites, live occurrences, causes |
-
-Every projection should state **scope**, **basis**, **completeness**, and **loss**.
-Detailed evidence is compiled out of production.
-
-## Warnings vs errors
-
-| Kind | When | Author experience |
-|---|---|---|
-| **Hard error** | illegal tree, bad compiled form, render-phase `sub`, invalid event outcome, … | fails loudly with recovery |
-| **Default-on warning** | contract misfire that would surface far away | once per source site + kind |
-| **Opt-in quality lint** | predictive / style / “maybe promote” | `v/check` categories you enable |
-
-Freehand does not nag you into compiling. Fix a site once and the warning should
-stay quiet until the source changes.
-
-## Demote-to-debug (compiled views)
-
-1. Remove `{:compiled true}`.  
-2. Reproduce with ordinary Clojure stacks.  
-3. Fix; run `v/check`.  
-4. Restore `{:compiled true}` if still needed.  
-
-Call sites, structural tests, and identity stay the same. Demotion **is** the
-debug mode — not a second product.
-
-## Xray and related tools
-
-Xray (Story, pair MCP) read the same evidence vocabulary. Use epoch history for
-“what ran,” filters when typing is noisy, and controller badges when join data is
-available. Per-keystroke events are not hidden by default — filter them.
+| `(v/manifest view)` is `nil` | the declaration is interpreted — that is the honest answer, not a failure |
+| `(v/active-connections)` is empty in a JVM test | it is browser-only; a structural render connects nothing |
+| A command did nothing | check `(v/command-log)` for a `:refused` row and the `:target` it named |
+| Whole list re-renders on one edit | per-id subscriptions and keyed row boundaries |
+| High churn, identical output | props rebuilt inline every parent render, or an over-broad subscription |
+| Reaching for a render-history verb | there is none on the door — use Xray |

@@ -143,7 +143,7 @@ frame, SSR, and trace semantics (D017). Do not invent `v/debounce`.
 ## Where the data lives
 
 Controller state is **ordinary frame-scoped re-frame data** (usually that frame’s
-**app-db**). It is not React state, not `local`, and not a Freehand-private side
+**app-db**). It is not React state, not a view-local cell, and not a Freehand-private side
 channel.
 
 **There is no single Freehand-mandated path** like “always under
@@ -379,4 +379,4 @@ build these protocols in v1.
 | Single domain fact, simple event | props-only controlled control |
 | Keystroke = domain write | controlled input + domain event |
 | Commit / cancel / reject / shared field UX | semantic controller + library control |
-| High-rate or opaque editor | qualified [host boundary](host-boundaries.md), not fake “local” |
+| High-rate or opaque editor | a [registered behavior](host-boundaries.md), not a pretend local cell |
