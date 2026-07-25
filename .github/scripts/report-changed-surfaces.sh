@@ -542,7 +542,7 @@ else
         # found no workflow invocation, so the next change to the schema, the
         # seam, or the release entry could merge without running the proof.
         #
-        # These four files are the proof's bounded PRIMARY INPUTS — not every
+        # These five files are the proof's bounded PRIMARY INPUTS — not every
         # file that could affect Closure reachability, but the ones that
         # directly constitute the probe:
         #   - evidence.cljc  — the doors carrying the two DEV_ONLY_SENTINELS; a
