@@ -190,8 +190,18 @@
   (when interop/debug-enabled?
     (let [op       (:operation event)
           tags     (:tags event)
-          frame-id (or (:frame tags)
-                       (:frame event))]
+          ;; The canonical raw trace-event frame path, and the ONLY one
+          ;; (Spec 009 §Frame identity on the raw event — there is no
+          ;; top-level `:frame` on a raw event, and the dual
+          ;; `(or (:frame tags) (:frame event))` read this replaces is
+          ;; named there as the thing not to write). `build-event`
+          ;; supplies the tag from the ambient frame for emit sites that
+          ;; don't stamp it themselves (rf2-hbmeb), so this single read
+          ;; now resolves every frame-bound emit — including the whole
+          ;; `:rf.resource/*` / `:rf.mutation/*` family, which spells its
+          ;; frame as the EVIDENCE key `:rf.frame/id` and so was
+          ;; frame-less here, and dropped, on every real cascade.
+          frame-id (:frame tags)]
       ;; Any path below that can mutate epoch state first claims the id-keyed
       ;; stores for the exact live frame incarnation. This serialises a fresh
       ;; same-id B publication against stale A's final destroy hook.
