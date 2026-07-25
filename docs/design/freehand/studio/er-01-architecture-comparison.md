@@ -57,8 +57,8 @@ allocation is common to all of them and the difference between arms *is* the
 front end's overhead — which is the thing being compared.
 
 Determinism came first. Every arm's structural output is compared for equality
-before any number is read, at four fixture sizes, on both the JVM and
-ClojureScript, and the arms are rendered interleaved (A, B, C, D, A, B, C, D…)
+before any number is read — at four fixture sizes on the JVM and three on
+ClojureScript — and the arms are rendered interleaved (A, B, C, D, A, B, C, D…)
 with `System/gc` immediately before each timed window.
 
 ## The four arms
@@ -236,9 +236,11 @@ DC-05 requires that opaque child results "report one stable id, source,
 expression summary, and executable recoveries." This one reports a stable id and
 a source, and then names the wrong defect with a non-executable first recovery.
 That is a DC-05 gap in shipped diagnostics rather than a contradiction between
-the setpoint and the code — DC-05 is accepted work not yet done, and
-`rf2-drpa3.182.6` is its plausible owner. Filed here so it is not lost with the
-scaffolding.
+the setpoint and the code — DC-05 is accepted work not yet done. It lands
+squarely on `rf2-drpa3.182.6`, whose first acceptance criterion is already
+"helper-produced markup through bindings/branches/collections is refused before
+render", and the reproduction and exact `ex-data` are recorded as a note on that
+bead so they do not disappear with the scaffolding.
 
 ## What it would cost to change, if the answer were different
 
@@ -247,11 +249,15 @@ show the bill it is declining to pay.
 
 - **Implementation complexity.** `implementation/freehand/compiler/` is 10,276
   lines across 14 namespaces. The `$` prototype is 50. That ratio is the whole
-  seduction of the fork, and it is honest as far as it goes — but most of those
-  10,276 lines implement analysis products (manifest, elision, `v/check`, a11y,
-  build-time refusal, React/JVM parity) that `v/$` does not replace and cannot
-  provide. The comparable subset — recovering element structure from a Hiccup
-  literal — is a minority of it.
+  seduction of the fork and it is a real number, but it is not a like-for-like
+  one: much of those 10,276 lines produces the analysis products — manifest,
+  cell elision, `v/check`, a11y diagnostics, build-time refusal, React/JVM
+  parity — that `v/$` does not replace and cannot provide. Splitting the
+  compiler into "structure recovery" and "analysis products" would be needed to
+  make the comparison fair, and I did not attempt it: the split is a judgement
+  call per namespace, and no plausible answer changes the recommendation, since
+  the lines `v/$` would delete are the ones producing the evidence ER-01
+  requires preserved.
 - **Bundle.** `v/$` adds zero runtime bytes; the expansion above names only
   already-shipped functions. Any bundle *saving* would have to come from
   deleting the compiler, which is a consequence of the architecture decision
