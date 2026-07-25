@@ -553,10 +553,11 @@
   axis) when `expected` ≠ [[port-abi-version]]. Returns nil on a match."
   [expected]
   (when (not= expected port-abi-version)
-    (let [reason (str "re-frame2-ui was compiled against observation-port ABI "
-                      "version " (pr-str expected) " but this core exports "
-                      port-abi-version "; core and re-frame2-ui release on a "
-                      "lockstep train — align the two artifact versions.")]
+    (let [reason (str "an observation-port consumer was compiled against "
+                      "observation-port ABI version " (pr-str expected)
+                      " but this core exports " port-abi-version
+                      "; core and its port consumers release on a lockstep "
+                      "train — align the two artifact versions.")]
       (error-emit/emit-error-both!
         :rf.error/observation-port-version-mismatch
         nil nil nil nil 0 (interop/now-ms)
@@ -1356,8 +1357,9 @@
                                  "production observability. The escape is "
                                  "contained (siblings still notified) and rides "
                                  "as this record's :exception cause — the "
-                                 "underlying on-change consumer bug is a "
-                                 "re-frame.ui defect to fix.")
+                                 "underlying bug is a defect in the "
+                                 "observation-port consumer that registered the "
+                                 "callback.")
          :recovery          :no-recovery}))))
 
 (defn ^:no-doc drain-pending-disposals!
