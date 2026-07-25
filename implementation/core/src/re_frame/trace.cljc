@@ -409,21 +409,36 @@
   — `frame` requires `trace`). nil outside any frame-bound scope
   (registry-time, boot-time, a bare REPL emit).
 
-  ONE resolution point. Both the pre-build frame-policy gate
-  (`tagged-frame-trace-disabled?`) and the envelope's own `:frame`
-  stamp (`stamp-frame`) read the ambient frame here, so the gate and
-  the envelope can never disagree about which frame an emit belongs to."
+  ONE reader, TWO callers with deliberately different reach — the
+  asymmetry is documented rather than papered over:
+
+    - `tagged-frame-trace-disabled?` (the pre-build frame-policy gate)
+      consults it for EVERY emit, correlated or not. That breadth is
+      rf2-yl4c0s: an un-tagged emit under a disabled inspector frame
+      escaped suppression, and the inspector's own reactivity leaked
+      into the ring it inspects. Suppression is about where an emit
+      came FROM, which is a question the ambient scope answers even
+      outside a run.
+    - `stamp-frame` (the envelope's own tag) consults it only for
+      emits INSIDE a run. Identity is about which frame's ring, epoch
+      and history an event belongs TO, and Spec 009 says an emit
+      outside any frame-qualified run belongs to none.
+
+  Sharing the reader is what keeps the two from drifting on HOW the
+  ambient frame is resolved; they differ only on WHEN it applies."
   []
   (when-let [current-frame (late-bind/get-fn-cached :frame/current-frame-id)]
     (current-frame)))
 
 (defn- tagged-frame-trace-disabled?
-  "True when the frame this (not-yet-built) trace envelope targets is
-  registered trace-disabled. Resolves the frame exactly as
-  `build-event`'s `stamp-frame` will a moment later — the explicit
-  `:frame` tag when the emit site supplied one, else `ambient-frame-id`
-  — so the suppression gate and the envelope it gates can never
-  disagree about which frame an emit belongs to.
+  "True when the frame this (not-yet-built) trace envelope came FROM is
+  registered trace-disabled: the explicit `:frame` tag when the emit
+  site supplied one, else `ambient-frame-id`.
+
+  Note the deliberate breadth relative to `build-event`'s `stamp-frame`,
+  which shares this ns's one `ambient-frame-id` reader but applies it
+  only to emits inside a run — see that fn and `ambient-frame-id` for
+  why suppression and identity answer different questions.
 
   The ambient tier is load-bearing (rf2-yl4c0s): without it an
   un-tagged emit under a disabled tool frame ESCAPED suppression, and
@@ -549,46 +564,64 @@
     base-tags))
 
 (defn- stamp-frame
-  "Merge the emit's frame into `base-tags` under the canonical raw
-  trace-event key `:frame`, so EVERY event emitted inside a
-  frame-bound run carries frame identity at the one path Spec 009
-  §Frame identity on the raw event designates — the path
-  `trace-event-frame` reads.
+  "Merge the emit's frame into `tags` under the canonical raw
+  trace-event key `:frame`, so every event emitted INSIDE A RUN carries
+  frame identity at the one path Spec 009 §Frame identity on the raw
+  event designates — the path `trace-event-frame` reads.
 
-  Spec 009 says a raw trace event carries frame identity ONLY under
-  `[:tags :frame]`, and that every emit site that knows the frame
-  includes it there. Emit sites that pass an explicit `:frame` tag
-  (the router, cofx, error and frame-lifecycle sites) still win —
-  a `:rf.frame/created` for a dynamically constructed frame B is
-  tagged `{:frame B}` while the ambient frame is still A, and that
-  explicit tag is authoritative. The stamp only supplies the tag for
-  emit sites that DIDN'T, which the runtime otherwise leaves with no
-  frame identity at all.
+  TWO conditions, and Spec 009 states both. The stamp is skipped unless
+  each holds.
 
-  rf2-hbmeb is what that costs. The whole `:rf.resource/*` /
-  `:rf.mutation/*` family stamps its frame as the family EVIDENCE key
-  `:rf.frame/id` (the qualified carried-frame spelling of Spec 016 /
-  EP-0002, alongside `:resource/key` and `:generation`) and never
-  stamped the routing tag, so `trace-event-frame` returned nil for
-  every row in the family. `re-frame.epoch.capture/capture-event!`
-  buffers only frame-resolvable events, so a real `ensure` /
-  `release-owner` cascade put 7 family rows on the bus and 0 into the
-  3 epoch records it settled — the resource lifecycle was absent from
-  every epoch record a tool could read, and the epoch-side resource
-  egress projector had never run over a real record.
+  1. THE EMIT SITE DIDN'T ALREADY SUPPLY ONE. `:frame` under `tags` is
+     authoritative wherever the site stamps it: a `:rf.frame/created`
+     for a dynamically constructed frame B is tagged `{:frame B}` while
+     the ambient frame is still A (rf2-7eel71), and the `:rf.ui`
+     cross-frame carried-op warning deliberately names its two frames
+     `:origin-frame` / `:ambient-frame` and carries no bare `:frame` at
+     all. This fn only supplies the tag; it never overrides one.
+
+  2. THE EMIT IS CORRELATED TO A RUN — its tags carry a
+     `:rf.trace/dispatch-id`. Spec 009 is explicit that
+     `trace-event-frame` returns \"nil for an event emitted outside any
+     frame-qualified run (registry-time / boot-time)\", and the
+     dispatch-id is the runtime's own signal for which of those an emit
+     is. A `reg-machine` cofx lint warning, a direct 4-arity
+     `validate-fx!` call, an Xray preload's synthetic boot emit: all
+     fire with no run in scope and MUST stay frameless — they belong to
+     no frame's ring, no frame's epoch, and no frame's history. An
+     earlier revision of this fix omitted this condition and stamped
+     the ambient frame on them, which reddened four suites (machines
+     x3, schemas x1, ui x1, the Xray frameless-secondary-ring CLJS
+     arms) — every one of them asserting exactly this clause.
+
+  rf2-hbmeb is what the missing stamp cost inside a run. The whole
+  `:rf.resource/*` / `:rf.mutation/*` family stamps its frame as the
+  family EVIDENCE key `:rf.frame/id` (the qualified carried-frame
+  spelling of Spec 016 / EP-0002, alongside `:resource/key` and
+  `:generation`) and never stamped the routing tag, so
+  `trace-event-frame` returned nil for every row in the family.
+  `re-frame.epoch.capture/capture-event!` buffers only
+  frame-resolvable events, so a real `ensure` / `release-owner`
+  cascade put 7 family rows on the bus and 0 into the 3 epoch records
+  it settled — the resource lifecycle was absent from every epoch
+  record a tool could read, and the epoch-side resource egress
+  projector had never run over a real record. Every one of those 7
+  rows carries a dispatch-id, so condition 2 admits them.
 
   Stamping HERE rather than at ~100 family emit sites is the point:
-  the fact is supplied once, in the producer every reader already
-  goes through, so no future emit site can forget it. It also lets the
-  duplicated ambient-frame fallback chains downstream
-  (`trace.tooling/push-to-ring!`, `epoch.capture/capture-event!`)
-  collapse onto the single canonical `[:tags :frame]` read."
-  [base-tags]
-  (if (contains? base-tags :frame)
-    base-tags
+  the fact is supplied once, in the producer every reader already goes
+  through, so no future emit site inside a run can forget it. It also
+  lets `trace.tooling/push-to-ring!`'s duplicated ambient-frame
+  fallback collapse onto the single canonical `[:tags :frame]` read —
+  behaviour-preserving under condition 2, because that fn discards any
+  event with no dispatch-id before it ever consults a frame."
+  [tags]
+  (if (or (contains? tags :frame)
+          (nil? (:rf.trace/dispatch-id tags)))
+    tags
     (if-let [frame-id (ambient-frame-id)]
-      (assoc base-tags :frame frame-id)
-      base-tags)))
+      (assoc tags :frame frame-id)
+      tags)))
 
 (def ^:private uncorrelated-op-types
   "Op-type classes whose emits are STRUCTURAL — not part of any cascade's
@@ -652,12 +685,14 @@
         ;; seam's orphan-drop arm keeps a cross-frame `:rf.frame/created` /
         ;; `:rf.frame/re-registered` marker out of a SIBLING frame's harvested
         ;; record (rf2-7eel71). See `uncorrelated-op-types`.
-        ;; `stamp-frame` supplies the canonical `[:tags :frame]` routing
-        ;; tag for emit sites that didn't (rf2-hbmeb); it runs for EVERY
-        ;; op-type, including the uncorrelated structural ones — those are
-        ;; exempt from inheriting the cascade's DISPATCH-ID, not from
-        ;; carrying their own frame (they already tag it explicitly, so the
-        ;; stamp is a no-op there).
+        ;; ORDER IS LOAD-BEARING: `stamp-frame` reads the dispatch-id off
+        ;; the tags `stamp-dispatch-id` just produced, because "is this
+        ;; emit inside a run?" is exactly the condition on which it
+        ;; supplies the canonical `[:tags :frame]` routing tag (rf2-hbmeb).
+        ;; A structural `:rf.frame` emit is therefore never ambient-stamped
+        ;; — it is exempt from the dispatch-id, so it reads as uncorrelated
+        ;; here — which is right: those sites tag their own frame
+        ;; explicitly, and it is deliberately NOT the ambient one.
         tags+       (stamp-frame
                       (if (contains? uncorrelated-op-types op-type)
                         base-tags
