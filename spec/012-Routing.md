@@ -807,8 +807,10 @@ Every door extracts and validates the address through **one** shared law over cl
 address keys       #{:to :params :query :fragment}
 policy keys        #{:replace? :scroll :bypass-leave?}
 edit keys          #{:query :query-merge :fragment}
-link behavior keys #{:prefetch}
+link behavior keys #{:on-click :prefetch}
 ```
+
+`:on-click` is a **behaviour** key, not a passthrough DOM attribute: it is the imperative pre-navigation seam, replaced by the framework's own click closure on the interactive host and **dropped** on the SSR path — a serialized document has no click to intercept and must not carry a host closure ([§The Freehand route-link descriptor](#the-freehand-route-link-descriptor)). Leaving it on the props map would let a caller's closure reach the server-rendered `<a>`.
 
 Key **presence** selects the request branch *before* any validation:
 
