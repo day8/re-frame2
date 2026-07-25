@@ -700,6 +700,10 @@ test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', 
     'implementation/deps.edn',
     'implementation/adapters/uix/src/re_frame/adapter/uix.cljs',
     'implementation/ui/src/re_frame/ui/rules.cljc',
+    // rf2-nutll — examples/ui/minimal-counter is a standalone FREEHAND project
+    // now, resolved by :local/root, so a Freehand change can break the
+    // ui-scaffold-smoke build that examples_compile gates.
+    'implementation/freehand/src/re_frame/freehand.cljc',
     'implementation/epoch/src/re_frame/epoch.cljc',
     'implementation/schemas/src/re_frame/schemas.cljc',
     'implementation/machines/src/re_frame/machines.cljc',

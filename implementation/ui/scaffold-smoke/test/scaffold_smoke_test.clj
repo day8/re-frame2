@@ -1,14 +1,15 @@
 (ns scaffold-smoke-test
-  "CI teeth for examples/ui/minimal-counter — the minimal runnable re-frame.ui
-   scaffold (rf2-vxgfnd.281).
+  "CI teeth for examples/ui/minimal-counter — the minimal runnable Freehand
+   scaffold (rf2-vxgfnd.281; cut over from the donor substrate by rf2-nutll).
 
    Two tiers:
 
      STRUCTURAL (always) — read the file manifest straight out of the
      scaffold's README, and assert it matches what is on disk: every listed
      file present, no un-listed source/config file hiding alongside them, the
-     two load-bearing shadow-cljs settings present, the host page wired, and
-     deps.edn's :local/root coords resolving. Pure file reads; no Node.
+     shadow config wiring no build hook (the interpreted tier needs none), the
+     host page wired, and deps.edn's :local/root coords resolving. Pure file
+     reads; no Node.
 
      COMPILE (env RF2_UI_SCAFFOLD_COMPILE=1) — the real proof. Materialize
      ONLY the manifest files into a temp dir, `npm install`, and
@@ -108,40 +109,49 @@
                "  unexpected (on disk, not documented): " (sort (remove allowed on-disk)) "\n"
                "  missing   (documented, not on disk):  " (sort (remove on-disk allowed)))))))
 
-(def ^:private contract-keys [:build-defaults])
-
 (defn- read-config
   "Read a shadow-cljs.edn as data. `:default` absorbs the build-tool reader tags
   (`#shadow/env`) that appear in the monorepo's own config."
   [file]
   (edn/read-string {:default (fn [_tag v] v)} (slurp file)))
 
-(deftest shadow-config-carries-the-one-load-bearing-setting
-  ;; spec/004C-Roots-and-Mount.md §2.1.1: the build hook is load-bearing on
-  ;; Shadow. The old top-level :cache-blockers tax was removed at the S6 cut-over
-  ;; (rf2-u53yy.1) — the registries are harvested from cache-durable analyzer
-  ;; data, so a warm daemon reuses the disk cache and no blocker is needed.
+(defn- build-hooks
+  "Every :build-hooks vector a shadow config wires — the top-level
+  :build-defaults and each build alike, so the claim below cannot be dodged by
+  moving a hook one level down."
+  [config]
+  (concat (get-in config [:build-defaults :build-hooks])
+          (mapcat :build-hooks (vals (:builds config)))))
+
+(deftest shadow-config-wires-no-build-hook
+  ;; docs/core/freehand/install.md §Shadow build settings: interpreted views
+  ;; need no build configuration at all. The COMPILED tier is what needs one —
+  ;; its analyzer and whole-build registries run at build time behind
+  ;; `(re-frame.freehand.compiler.build-hook/hook)` — and this scaffold declares
+  ;; no `{:compiled true}` view, so the framework's contribution to its build
+  ;; config is nothing. "The smallest runnable project" has to mean it.
   ;;
-  ;; rf2-vxgfnd.196 — DERIVED, not restated. This test used to spell the setting
-  ;; as a string literal, which made it a copy of the rule checking itself: edit
-  ;; the real configuration and this stayed green. The expected value is now the
-  ;; monorepo's own shadow-cljs.edn, read at run time, so the scaffold is pinned
-  ;; to what the framework actually configures.
-  (let [real (select-keys (read-config (io/file @root "implementation/shadow-cljs.edn"))
-                          contract-keys)]
-    ;; Shape guard first: if the framework config lost the setting, both sides
-    ;; would be {} and the comparison would pass vacuously.
-    (is (= (set contract-keys) (set (keys real)))
-        (str "implementation/shadow-cljs.edn no longer carries the build-hook "
-             "setting; found " (sort (keys real))))
-    (is (not (contains? (read-config (io/file @root "implementation/shadow-cljs.edn"))
-                        :cache-blockers))
-        "implementation/shadow-cljs.edn must NOT carry the removed :cache-blockers tax")
-    (is (= real (select-keys (read-config (scaffold-file "shadow-cljs.edn"))
-                             contract-keys))
-        (str "the scaffold's shadow-cljs.edn diverged from the framework's own "
-             "re-frame.ui configuration — a consumer copying this scaffold would "
-             "not configure re-frame.ui the way this repo actually does"))))
+  ;; Until rf2-nutll this compared the scaffold's `:build-defaults` against the
+  ;; monorepo's own, because the scaffold was a donor consumer and the donor's
+  ;; hook was load-bearing for every view. It is a Freehand consumer now, on the
+  ;; interpreted tier, so there is no longer a setting to agree about — what is
+  ;; worth pinning is the absence, and the REASON for the absence with it.
+  (let [config (read-config (scaffold-file "shadow-cljs.edn"))]
+    ;; Shape guard first: an emptied or unparseable config would read as
+    ;; "no hooks" and pass the assertion below vacuously.
+    (is (contains? (:builds config) :app)
+        "the scaffold's shadow-cljs.edn no longer declares the :app build")
+    (is (empty? (build-hooks config))
+        (str "the scaffold's shadow-cljs.edn wires a build hook: "
+             (pr-str (vec (build-hooks config)))
+             ". Interpreted Freehand needs none — either the scaffold gained a "
+             "compiled-tier view (then say so here and in the README), or the "
+             "hook is cargo."))
+    ;; The reason, read from the source rather than assumed.
+    (is (not (str/includes? (slurp (scaffold-file "src/my/app.cljs")) ":compiled"))
+        (str "the scaffold's app declares a compiled-tier view, so it DOES need "
+             "the Freehand build hook — wire it in shadow-cljs.edn and retarget "
+             "this test"))))
 
 (deftest host-page-wires-the-mount-target-and-bundle
   (let [html (slurp (scaffold-file "resources/public/index.html"))]

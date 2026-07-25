@@ -20,15 +20,27 @@
   its own copy of it (the rf2-5e3ic failure mode: gates that answered `true` for
   a 404 and for a path outside the repo).
 
-  Three holders, compared as DATA:
+  Two holders, compared as DATA:
 
     1. this repo's own build    implementation/shadow-cljs.edn        (top level)
-    2. the consumer scaffold    examples/ui/minimal-counter/shadow-cljs.edn
-    3. the setup skill          skills/re-frame2-setup/references/shadow-cljs.md
+    2. the setup skill          skills/re-frame2-setup/references/shadow-cljs.md
 
   The setup skill carries only the settings themselves, behind the
   `rf2:shadow-ui-contract` anchor — so it is pinned to the real build config
   rather than being a copy free to drift.
+
+  THERE WAS A THIRD (rf2-nutll). `examples/ui/minimal-counter/shadow-cljs.edn`
+  held the same one setting, and this suite compared the two real configs
+  directly. That scaffold has CUT OVER to Freehand: it is not a donor consumer
+  any more, and on the interpreted tier it configures no build hook at all — the
+  compiled tier's hook is Freehand's own
+  (`re-frame.freehand.compiler.build-hook`) and belongs to its own contract, as
+  the note below already said of the published page. So the scaffold stopped
+  being a holder of THIS rule rather than drifting from it, and comparing it
+  here would assert a setting it is correct not to carry; its own gate
+  (`implementation/ui/scaffold-smoke`) pins the absence and the reason for it.
+  The scaffold's `deps.edn` is still read below, for the one comparison that
+  survives the cut-over: it remains a REAL shadow-cljs pin.
 
   THERE WAS A FOURTH (rf2-ote5u). `docs/core/how-to/install-re-frame-ui.md`
   published the same contract and a supported shadow-cljs version, and this
@@ -69,7 +81,6 @@
 ;; `slice-memo-lifetime-census-jvm-test` in this directory.
 (def ^:private root-marker-rel "AGENTS.md")
 (def ^:private impl-config-rel "implementation/shadow-cljs.edn")
-(def ^:private example-config-rel "examples/ui/minimal-counter/shadow-cljs.edn")
 (def ^:private example-deps-rel "examples/ui/minimal-counter/deps.edn")
 (def ^:private impl-package-rel "implementation/package.json")
 (def ^:private skill-rel "skills/re-frame2-setup/references/shadow-cljs.md")
@@ -195,9 +206,8 @@
     ;; The whole point of S6: the tax line must not creep back into any real
     ;; shadow-cljs.edn holder. (The skill's anchored contract block is pinned
     ;; one-setting by the comparison below.)
-    (doseq [rel [impl-config-rel example-config-rel]]
-      (is (not (contains? (read-config rel) :cache-blockers))
-          (str rel " still carries the removed :cache-blockers install tax")))
+    (is (not (contains? (read-config impl-config-rel) :cache-blockers))
+        (str impl-config-rel " still carries the removed :cache-blockers install tax"))
     ;; And the anchored contract block itself must be exactly one setting.
     (is (not (contains? (skill-contract) :cache-blockers))
         (str skill-rel " anchored contract block still carries :cache-blockers"))))
@@ -223,15 +233,6 @@
              impl-config-rel ". An author following the setup skill would not "
              "configure re-frame.ui the way this repo actually does — "
              "reconcile the skill against the real build config."))))
-
-(deftest the-two-real-configs-agree
-  (testing "this repo and the scaffold configure re-frame.ui identically"
-    ;; A consumer copying the runnable scaffold must get what this repo itself
-    ;; builds with. Asserted directly so a failure names the two configs.
-    (is (= (top-level-contract impl-config-rel)
-           (top-level-contract example-config-rel))
-        (str impl-config-rel " and " example-config-rel
-             " no longer configure re-frame.ui the same way."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Version posture — a concrete pin within the supported, tested range

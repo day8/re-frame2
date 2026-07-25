@@ -2280,16 +2280,21 @@ jobs:
   ui-scaffold-smoke:
     name: UI scaffold smoke (materialize + install + compile minimal-counter)
     # rf2-vxgfnd.281 — the CI teeth for examples/ui/minimal-counter, the
-    # minimal RUNNABLE re-frame.ui scaffold. Unlike cljs-examples-compile
-    # (which sweeps the monorepo :examples/* shadow builds), this scaffold is
-    # a STANDALONE project with its own deps.edn / package.json /
-    # shadow-cljs.edn. The smoke materializes ONLY the files the README's
-    # manifest documents into a temp dir, runs a real `npm install` +
-    # `npx shadow-cljs compile app`, and then an omission matrix that proves
-    # every documented file is genuinely load-bearing. RF2_UI_SCAFFOLD_COMPILE
-    # arms the install+compile tier (the structural tier runs unconditionally).
+    # minimal RUNNABLE Freehand scaffold (cut over from the donor substrate by
+    # rf2-nutll). Unlike cljs-examples-compile (which sweeps the monorepo
+    # :examples/* shadow builds), this scaffold is a STANDALONE project with its
+    # own deps.edn / package.json / shadow-cljs.edn. The smoke materializes ONLY
+    # the files the README's manifest documents into a temp dir, runs a real
+    # `npm install` + `npx shadow-cljs compile app`, and then an omission matrix
+    # that proves every documented file is genuinely load-bearing.
+    # RF2_UI_SCAFFOLD_COMPILE arms the install+compile tier (the structural tier
+    # runs unconditionally).
     # Same examples_compile surface as the sibling gate: fires for the scaffold
-    # itself, the framework core/ui it compiles against, and the build config.
+    # itself, the framework core/freehand it compiles against, and the build
+    # config. (The job id and the env-var name still read "ui" — renaming them
+    # is a required-check rename plus a `needs:` edge, so they are deliberately
+    # left alone; the lane's home under implementation/ui/scaffold-smoke moves
+    # with donor-inventory row 284, not here.)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.examples_compile == 'true'
     runs-on: ubuntu-latest
@@ -2321,7 +2326,7 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-ui-scaffold-smoke-${{ hashFiles('examples/ui/minimal-counter/deps.edn', 'implementation/ui/deps.edn', 'implementation/core/deps.edn') }}
+          key: ${{ runner.os }}-ui-scaffold-smoke-${{ hashFiles('examples/ui/minimal-counter/deps.edn', 'implementation/freehand/deps.edn', 'implementation/core/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-ui-scaffold-smoke-
             ${{ runner.os }}-cljs-

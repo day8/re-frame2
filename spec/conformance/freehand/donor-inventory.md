@@ -406,7 +406,7 @@ disposed when the consumer moves to Freehand names.
 
 | Donor row | What it is | Disposition | Slice | Status |
 |---|---|---|---|---|
-| `examples/ui/minimal-counter/*` | the minimal runnable donor scaffold example | MOVE | F6 | pending |
+| `examples/ui/minimal-counter/*` | the minimal runnable donor scaffold example | MOVE | F6 | done |
 | `examples/real-apps/realworld_resources/ui_*` | the donor-authored views of the realworld example, including its compiled editor and counter | MOVE | F6 | pending |
 | `tools/xray/testbeds/feature_matrix/scenarios.cjs` | the xray feature-matrix scenarios that mount donor views | MOVE | F6 | pending |
 
