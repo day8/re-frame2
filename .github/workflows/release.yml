@@ -5,6 +5,8 @@
 #
 #   verify-version-lockstep ──► test ──► deploy-core
 #                                         │
+#                                         │   ── deploy-leaf: ONE matrix job,
+#                                         │      11 values, all in parallel ──
 #                                         ├── deploy-schemas
 #                                         ├── deploy-reagent
 #                                         ├── deploy-reagent-slim
@@ -14,19 +16,25 @@
 #                                         ├── deploy-flows
 #                                         ├── deploy-http
 #                                         ├── deploy-ssr
-#                                         ├── deploy-ssr-ring (also deps ssr)
 #                                         ├── deploy-resources
 #                                         └── deploy-epoch
+#                                                  │
+#                                                  ▼
+#                                          deploy-ssr-ring
 #                                                  │
 #                                                  ▼
 #                                          github-release
 #
 # Every per-feature artefact's *published* :deps depends only on core
-# (`day8/re-frame2`); cross-feature references at runtime are wired
-# through `re-frame.late-bind` per Spec 006 §Adapter shipping
-# convention and the Conventions §Packaging conventions §Independence
-# rule. The DAG above reflects that: once core has shipped, every leaf
-# artefact is publishable independently and they fan out in parallel.
+# (`day8/re-frame2`) — with ONE exception, `day8/re-frame2-ssr-ring`,
+# which also publishes a dependency on `day8/re-frame2-ssr` (see §The
+# one inter-leaf edge below). Cross-feature references at runtime are
+# otherwise wired through `re-frame.late-bind` per Spec 006 §Adapter
+# shipping convention and the Conventions §Packaging conventions
+# §Independence rule. The DAG above reflects that: once core has
+# shipped, every INDEPENDENT leaf artefact is publishable on its own and
+# they fan out in parallel, and the one DEPENDENT leaf ships in a stage
+# of its own after them.
 # Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
 # Strategy B) deploy-epoch slots in as a leaf alongside the existing
 # six per-feature leaves (schemas, machines, routing, flows, http, ssr)
@@ -34,6 +42,47 @@
 # the helix leaf was removed at S7/W13, rf2-d6epb). The per-feature
 # split set is now closed; further
 # additions require a new Spec-ulation increment.
+#
+# # The one inter-leaf edge: ssr-ring depends on ssr (rf2-p4a93)
+#
+# implementation/ssr-ring/deps.edn declares TWO in-repo coordinates in
+# its published :deps — day8/re-frame2 (../core) AND day8/re-frame2-ssr
+# (../ssr) — and the Rewrite step turns BOTH into :mvn/version. So the
+# pom this workflow publishes for day8/re-frame2-ssr-ring carries a hard
+# dependency on a day8/re-frame2-ssr version that has to EXIST on
+# Clojars. It is the only leaf that does.
+#
+# That edge is load-bearing on the DAG because Clojars has no yank. If
+# ssr-ring published while the ssr leaf had failed, day8/re-frame2-ssr-ring
+# <VERSION> would sit on Clojars permanently declaring a dependency that
+# resolves to nothing; bump-and-supersede (§Failure recovery below) adds
+# a good version but cannot remove the broken one, so a consumer pinning
+# the original gets an unresolvable tree forever. And ssr-ring cannot
+# notice from inside its own job: it installs ssr into the runner's
+# ~/.m2, so it never asks Clojars whether ssr is there.
+#
+# The ordering is therefore STRUCTURAL, not conventional.
+# `deploy-ssr-ring` is its own job with `needs: [deploy-core,
+# deploy-leaf]`, and a `needs` edge onto a matrix job waits for EVERY
+# value to SUCCEED. That buys exactly the invariant:
+#
+#   if the ssr leaf does not publish successfully, ssr-ring does not
+#   publish at all.
+#
+# `needs: deploy-leaf` is deliberately STRONGER than the pom edge — it
+# also blocks ssr-ring behind leaves it does not depend on (flows,
+# epoch, …). That costs nothing. GitHub Actions cannot express an edge
+# between two values of one matrix, so the choice was between depending
+# on the whole matrix or hoisting a second job out of it; and under
+# §Failure recovery ANY leaf failure is resolved by bumping VERSION and
+# re-shipping every artefact, so a leaf skipped because a sibling failed
+# was going to be superseded regardless. Erring toward "do not publish"
+# is free here, and the failure it prevents is irreversible.
+#
+# Guarded mechanically by implementation/scripts/_release-dag-policy.test.cjs
+# (`npm run test:script-policy`), which parses this file's job graph and
+# fails if a leaf carrying a second in-repo coordinate is ever placed in
+# the fail-fast:false matrix, or if ssr-ring loses its ordering edge.
 #
 # # re-frame.ui is NOT published (rf2-a32r7)
 #
@@ -329,14 +378,27 @@ jobs:
   #    other (per Conventions §Packaging conventions §Independence
   #    rule). Matrix values run in parallel and `fail-fast: false`
   #    preserves the original behaviour: a single leaf failure does
-  #    NOT halt sibling leaves — by design, since the published-pom
-  #    DAG has no edges between leaves and a partial-leaf-success is
-  #    coherent (a consumer that pins schemas + core only is unaffected
-  #    by a flows-deploy failure). The github-release job depends on
-  #    `deploy-leaf` (which waits for ALL matrix values to succeed), so
-  #    a partial deploy means no GitHub Release is cut and the next
-  #    step is the recovery procedure documented at the top of this
-  #    file.
+  #    NOT halt sibling leaves — by design, since no value in THIS
+  #    matrix appears in another value's published pom, so a
+  #    partial-leaf-success is coherent (a consumer that pins schemas +
+  #    core only is unaffected by a flows-deploy failure).
+  #
+  #    That premise is what makes `fail-fast: false` safe, so it has to
+  #    stay true. The one leaf that DOES carry a published-pom edge to a
+  #    sibling — ssr-ring → ssr — is deliberately NOT a value here; it
+  #    is the `deploy-ssr-ring` job below, gated on this whole matrix
+  #    succeeding (rf2-p4a93; see §The one inter-leaf edge at the top of
+  #    this file). Do not move it back in, and do not add a value whose
+  #    published :deps reference an in-repo artefact besides core: under
+  #    `fail-fast: false` such a value can publish a coordinate that
+  #    resolves to nothing while its sibling's deploy is red, and
+  #    Clojars cannot undo that. _release-dag-policy.test.cjs enforces
+  #    the split.
+  #
+  #    The github-release job depends on `deploy-leaf` (which waits for
+  #    ALL matrix values to succeed) and on `deploy-ssr-ring`, so a
+  #    partial deploy means no GitHub Release is cut and the next step
+  #    is the recovery procedure documented at the top of this file.
   #
   #    Each matrix value:
   #      - re-installs core into the runner's local ~/.m2/repository so
@@ -393,20 +455,13 @@ jobs:
             artefact: day8/re-frame2-ssr
             directory: implementation/ssr
             local-root: ../core
-          # rf2-qmhysc — ssr-ring is the one leaf whose published :deps
-          # reference a SECOND in-repo framework artefact besides core: it
-          # depends on both day8/re-frame2 (../core) AND day8/re-frame2-ssr
-          # (../ssr). The Rewrite step below handles the extra-local-root
-          # axis so BOTH :local/root coords become :mvn/version at deploy
-          # time. (Its sibling day8/re-frame2-ssr is published by the `ssr`
-          # leaf above; deploy-leaf values do not depend on each other —
-          # the published pom resolves ssr from Clojars at the lockstep
-          # version, same as every leaf's core dep.)
-          - leaf: ssr-ring
-            artefact: day8/re-frame2-ssr-ring
-            directory: implementation/ssr-ring
-            local-root: ../core
-            extra-local-root: ../ssr
+          # NOTE — ssr-ring is NOT a value here. It is the one leaf whose
+          # published :deps reference a SECOND in-repo artefact besides
+          # core (day8/re-frame2-ssr, ../ssr, added by rf2-qmhysc), which
+          # under `fail-fast: false` would let it publish an unresolvable
+          # pom while the `ssr` value above is red. It lives in the
+          # `deploy-ssr-ring` job below, ordered after this whole matrix
+          # (rf2-p4a93).
           - leaf: resources
             artefact: day8/re-frame2-resources
             directory: implementation/resources
@@ -451,19 +506,6 @@ jobs:
         working-directory: implementation/core
         run: clojure -M:clein install
 
-      # rf2-qmhysc — ssr-ring's published pom additionally depends on
-      # day8/re-frame2-ssr ${{ version }}. The sibling `ssr` leaf publishes
-      # it in parallel, so we install ssr into the runner's local
-      # ~/.m2/repository here (same rationale as the core install above):
-      # the runner resolves ssr-ring's ssr dep locally without racing the
-      # `ssr` leaf's deploy or waiting on Clojars' index. Installing ssr
-      # transitively re-resolves core, which the step above already placed
-      # in ~/.m2. Scoped to the ssr-ring leaf via `if:`.
-      - name: Install ssr to runner ~/.m2 (ssr-ring only)
-        if: matrix.leaf == 'ssr-ring'
-        working-directory: implementation/ssr
-        run: clojure -M:clein install
-
       # rf2-ldkuk — the rewrite (and its fail-loud invariants) lives in
       # .github/scripts/rewrite-local-root-coord.sh, unit-tested via
       # implementation `npm run test:script-policy`
@@ -476,21 +518,19 @@ jobs:
       # comment quotes `:local/root "../../core"`, so the count was 2 and
       # the step aborted). Counting only code keeps the invariant honest
       # instead of dependent on how the comments happen to be worded.
+      #
+      # ONE call per value: every leaf in this matrix has exactly one
+      # in-repo coordinate (core). The leaf with a second one, ssr-ring,
+      # is not in this matrix — see `deploy-ssr-ring` below, whose rewrite
+      # step calls the script twice (rf2-p4a93).
       - name: Rewrite ${{ matrix.leaf }} :local/root → :mvn/version
         working-directory: ${{ matrix.directory }}
         env:
           VERSION: ${{ needs.deploy-core.outputs.version }}
           LOCAL_ROOT: ${{ matrix.local-root }}
-          EXTRA_LOCAL_ROOT: ${{ matrix.extra-local-root }}
         run: |
           set -euo pipefail
           "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" "${LOCAL_ROOT}" "${VERSION}"
-          # rf2-qmhysc — ssr-ring carries a second in-repo dep (../ssr);
-          # the matrix sets EXTRA_LOCAL_ROOT for it (empty for every other
-          # leaf, so the conditional is a no-op there).
-          if [ -n "${EXTRA_LOCAL_ROOT:-}" ]; then
-            "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" "${EXTRA_LOCAL_ROOT}" "${VERSION}"
-          fi
           grep "day8/re-frame2" deps.edn
 
       # ─────────────────────────────────────────────────────────────
@@ -566,18 +606,137 @@ jobs:
         run: clojure -M:clein deploy
 
   # ─────────────────────────────────────────────────────────────────
-  # 5. GitHub Release. Cuts only after every leaf has shipped — a
-  #    partial deploy means no Release is created and the next step is
-  #    the recovery procedure documented at the top of this file.
+  # 4b. Deploy ssr-ring — the ONE leaf with a published-pom edge to a
+  #     sibling leaf, so it ships in a stage of its own AFTER the matrix
+  #     (rf2-p4a93; the edge itself dates to rf2-qmhysc).
+  #
+  #     implementation/ssr-ring/deps.edn publishes a dependency on
+  #     day8/re-frame2-ssr as well as day8/re-frame2, so this artefact's
+  #     pom only resolves if the `ssr` matrix value above actually reached
+  #     Clojars. `needs: deploy-leaf` waits for EVERY matrix value to
+  #     SUCCEED, which is exactly what makes that true:
+  #
+  #       if the ssr leaf does not publish successfully, ssr-ring does
+  #       not publish at all.
+  #
+  #     Keep this job OUT of the matrix. GitHub Actions cannot express an
+  #     edge between two values of one matrix, and `fail-fast: false` up
+  #     there means a red `ssr` value does not stop its siblings — so from
+  #     inside the matrix this artefact could publish a coordinate that
+  #     resolves to nothing, permanently, because Clojars has no yank. See
+  #     §The one inter-leaf edge at the top of this file for the argument
+  #     in full.
+  #
+  #     The single-value `matrix:` is not decoration. It keeps this leaf's
+  #     identity (leaf / artefact / directory / local-root /
+  #     extra-local-root) in the same declarative shape as the matrix
+  #     above, which is what implementation/scripts/
+  #     _rewrite-local-root-coord.test.cjs parses to prove every leaf's
+  #     real deps.edn rewrites cleanly against the script. Flatten it and
+  #     ssr-ring silently drops out of that fleet gate.
+  # ─────────────────────────────────────────────────────────────────
+  deploy-ssr-ring:
+    name: Deploy ${{ matrix.artefact }}
+    needs:
+      - deploy-core
+      - deploy-leaf
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - leaf: ssr-ring
+            artefact: day8/re-frame2-ssr-ring
+            directory: implementation/ssr-ring
+            local-root: ../core
+            extra-local-root: ../ssr
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-
+            ${{ runner.os }}-clj-
+
+      - name: Install core to runner ~/.m2
+        # Same rationale as the matrix job's core install: skip the wait
+        # on Clojars' index refresh for the coordinate deploy-core just
+        # published.
+        working-directory: implementation/core
+        run: clojure -M:clein install
+
+      # ssr-ring's published pom also depends on day8/re-frame2-ssr
+      # ${{ needs.deploy-core.outputs.version }}. Because this job runs
+      # only after `deploy-leaf` succeeded IN FULL, the `ssr` leaf has
+      # already published that coordinate to Clojars by now, so this local
+      # install is purely the index-latency shortcut the core install
+      # above is — it is NOT what makes the dependency exist.
+      #
+      # Note what it does not do: resolving ssr from ~/.m2 means this job
+      # never asks Clojars whether ssr is there, so the job cannot itself
+      # detect a missing sibling. That detection is the `needs:` edge's
+      # job. Keep the two together — drop the edge and this step turns
+      # back into a mask, which is the rf2-p4a93 defect.
+      - name: Install ssr to runner ~/.m2
+        working-directory: implementation/ssr
+        run: clojure -M:clein install
+
+      # Two rewrites, one per in-repo coordinate — see the matrix job's
+      # Rewrite step for what the script guarantees. ssr-ring is the only
+      # leaf that needs the second call (rf2-qmhysc).
+      - name: Rewrite ${{ matrix.leaf }} :local/root → :mvn/version
+        working-directory: ${{ matrix.directory }}
+        env:
+          VERSION: ${{ needs.deploy-core.outputs.version }}
+          LOCAL_ROOT: ${{ matrix.local-root }}
+          EXTRA_LOCAL_ROOT: ${{ matrix.extra-local-root }}
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" "${LOCAL_ROOT}" "${VERSION}"
+          "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" "${EXTRA_LOCAL_ROOT}" "${VERSION}"
+          grep "day8/re-frame2" deps.edn
+
+      - name: Deploy ${{ matrix.leaf }} (${{ matrix.artefact }})
+        working-directory: ${{ matrix.directory }}
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -M:clein deploy
+
+  # ─────────────────────────────────────────────────────────────────
+  # 5. GitHub Release. Cuts only after every leaf has shipped —
+  #    including the ssr-ring stage — so a partial deploy means no
+  #    Release is created and the next step is the recovery procedure
+  #    documented at the top of this file.
   # ─────────────────────────────────────────────────────────────────
   github-release:
     name: Create GitHub Release
     # A `needs` entry referencing a matrix job waits for ALL of its
-    # matrix values to succeed, so this single edge replaces the
-    # explicit per-leaf list the previous shape carried.
+    # matrix values to succeed, so `deploy-leaf` alone covers the eleven
+    # independent leaves. `deploy-ssr-ring` is listed separately because
+    # it is its own job (rf2-p4a93); without it here, a SKIPPED ssr-ring
+    # stage would still cut a Release announcing the artefact.
     needs:
       - deploy-core
       - deploy-leaf
+      - deploy-ssr-ring
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
