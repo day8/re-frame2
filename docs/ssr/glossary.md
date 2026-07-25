@@ -40,7 +40,7 @@ The data that becomes `<title>`, `<meta>`, OpenGraph, and JSON-LD on the server-
 
 ### **error projector**
 
-The pure function that maps a rich internal trace to a sanitized, client-safe `:rf/public-error` shape (`:status`, `:code`, `:message`) when a server render throws. The error page only ever receives the projected shape, so internals physically cannot leak to the wire.
+The pure function that maps a rich internal trace to a sanitized, client-safe `:rf/public-error` shape when a server render throws. The error page only ever receives the projected shape, so internals physically cannot leak to the wire. That shape is **closed**: exactly `:status`, `:code`, `:message`, `:retryable?` — none missing, none extra. Return anything else and your projector is discarded in favour of the locked generic-500 ([`reg-error-projector`](../api/re-frame.ssr.md#reg-error-projector)).
 
 ### **suspense boundary**
 
