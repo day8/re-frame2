@@ -754,11 +754,15 @@
 
   Two things it does that the shared spine does not. `(rf/destroy-adapter!)`
   unmounts every live Freehand root FIRST — releasing their subscriptions,
-  disconnecting their ViewCells and releasing their frames — and disposes the
-  spine second, because the drain needs the containers the spine is about to
-  tear down. And its synchronous `flush-render!` returns with the Freehand DOM
-  SETTLED: the pending ViewCell window is closed inside React's commit boundary
-  and then converged, rather than left to the microtask a mark arms.
+  disconnecting their ViewCells and releasing their frame references — and
+  disposes the spine second, because the drain needs the containers the spine is
+  about to tear down. That drain is a SAFETY NET, not a substitute for orderly
+  teardown: unmount your roots with [[unmount!]] before destroying an adapter,
+  since only the orderly verb runs on a live adapter and can therefore destroy a
+  frame a root owned. And its synchronous `flush-render!` returns with the
+  Freehand DOM SETTLED: the pending ViewCell window is closed inside React's
+  commit boundary and then converged, rather than left to the microtask a mark
+  arms.
 
   The wrapper adapters remain first-class: Reagent, UIx and reagent-slim are
   independently supported RENDERER adapters, and this one competes with none of
