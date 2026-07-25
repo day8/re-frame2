@@ -36,7 +36,7 @@ When you then create a frame *without* naming an image, that frame resolves ever
 
 !!! note "Heads-up — the default image is a real sealed generation"
 
-    "The whole registrar sealed into one set" is not just the concept — mechanically it is exactly what you get. `make-frame` with no `:images` key resolves a sealed **default generation** over the whole active store (framework standards included): the implicit selector over everything. It runs the same assembly gate as an explicit selection, so even the default path fails loud on a cross-namespace `[kind id]` collision (`:rf.error/image-duplicate-id`) rather than letting load order silently pick a survivor. Every frame therefore carries a generation and resolves through it.
+    "The whole registrar sealed into one set" is not just the concept — mechanically it is exactly what you get. `make-frame` with no `:images` key resolves a sealed **default generation** over the whole active store (framework standards included): the implicit selector over everything. It runs the same assembly gate as an explicit selection, so even the default path fails loud on a cross-namespace `[kind id]` collision (`:rf.error/image-duplicate-id`) rather than letting load order silently pick a survivor. One kind of framework registration is carved out — a [replaceable framework default](#framework-standards-and-the-defaults-youre-meant-to-replace) such as `:rf.route/entry-denied`, whose own copy stops being projected once your app registers the same id, because it was never an app registration. Every frame therefore carries a generation and resolves through it.
 
 The common case stays boring, on purpose. You never name an image. New registrations show up the moment you write them. Hot reload keeps working. You meet the image concept *explicitly* only when "everything that's loaded, ids assumed globally unique" stops being the boundary you want.
 
@@ -215,6 +215,7 @@ A *within*-image collision is still an error — an image must resolve cleanly t
     | What's wrong | Error id |
     |---|---|
     | Two selected descriptors for one `(kind, id)` (different source namespaces) inside one image | `:rf.error/image-duplicate-id` |
+    | …except one app registration over the framework's own copy of a [replaceable default](#framework-standards-and-the-defaults-youre-meant-to-replace) — that resolves. *Two* app registrations of one default id still collide, and the mark is only honoured on a descriptor with no registration provenance | *not an error* |
     | An inline entry colliding with a selected one (or two inline entries) in one image | `:rf.error/image-within-image-collision` |
     | An `:include` glob that matches no loaded source namespace | `:rf.error/image-zero-match` |
     | Two images sharing an `:id` in one composition | `:rf.error/image-duplicate-image-id` |
@@ -301,6 +302,18 @@ To override an existing `(kind, id)`, define the winning registration in a *late
 The stub is an understudy: same part — `:checkout.http/post` — different actor, and the shadow report says exactly who went on. An override is always a *separate* image, never a second key in the same one. A cross-image shadow resolves (later wins) and is reported; you read the report and apply whatever policy you want.
 
 One boundary is absolute: **you cannot override a framework standard.** The one cross-image collision that still fails assembly is an app registration colliding with a framework standard. If it's application-owned, define the winner in a later image and read the shadow report. But if it's *how the frame executes registered entries* — queue ordering, the interceptor algorithm, app-db commit semantics — that's a protected standard (`:rf.error/image-standard-replacement-forbidden`), and no app image may shadow it. A standard encodes an execution invariant, not an app policy choice.
+
+### Framework standards, and the defaults you're meant to replace
+
+Not everything the framework registers is a standard, and the difference decides whether your registration of the same id is a violation or the documented recipe.
+
+- A **framework standard** encodes an execution invariant — `:rf/set-db`, the interceptor algorithm, queue ordering. Protected: an app registration of the same id fails assembly with `:rf.error/image-standard-replacement-forbidden`. There is no opt-in.
+- A **replaceable framework default** is the opposite kind of registration: the framework's stand-in for a decision *your application* makes, seeded so the feature is safe when you register nothing. Today's two are `:rf.route/entry-denied` and `:rf.route/navigation-blocked` — both ship as no-ops, so a `:can-enter` denial or a `:can-leave` block always resolves, and the [auth recipe](../routing/how-to/require-sign-in-on-a-route.md) is you registering your own. Marked with the reserved `:rf/framework-default?` key ([spec/Conventions.md §Reserved registration metadata](../../spec/Conventions.md#reserved-registration-metadata-framework-owned)).
+
+So `(rf/reg-event :rf.route/entry-denied …)` in your own namespace is *not* a duplicate-id collision, even though your namespace and the framework's are different source namespaces. Once your registration is in the pool, assembly simply stops projecting the framework's own copy into the app layer — it was never an app registration in the first place. This is not a winner rule and not a precedence tier; two things follow from that, and both matter:
+
+- **Order still decides nothing.** *Two* app registrations of one framework-default id are still `:rf.error/image-duplicate-id`, exactly like any other duplicate.
+- **The mark is unforgeable.** It is honoured only together with an absent registration provenance, which is what identifies the framework's own internally-seeded copy. Your `reg-*` always captures the namespace it was written in, so stamping the reserved key on your own descriptor does nothing — it stays an ordinary app registration.
 
 ## Hot reload swaps the image, keeps the memory
 
