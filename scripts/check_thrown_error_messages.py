@@ -85,7 +85,10 @@ A CONFORMANT message (does not fire) is one of:
     literal `"… [:rf.<ns>/…]"` OR the token ASSEMBLED across a `(str …)`
     concatenation `(str "… [" :rf.<ns>/<id> "]")` — the SANCTIONED
     bundle-isolated reagent-slim shape (it cannot `:require re-frame.error`,
-    so it hand-rolls the human sentence + token inline).
+    so it hand-rolls the human sentence + token inline); or
+  - a bare LOCAL SYMBOL whose binding in the innermost enclosing `let` is
+    itself conformant by the two rules above (rf2-u3otj) — the token lives on
+    the bound form, one hop from the `ex-info`.
 
 A DELIBERATE exemption — a message pinned to bare prose downstream (the
 conformance-DSL `:throw` / `:count` ops re-emit it as `:exception-message`,
@@ -335,33 +338,35 @@ _INLINE_TOKEN_MSG_RE = re.compile(r"\[:rf\.[a-z][\w.-]*/[\w.*+!?<>=-]+\]")
 # contiguous with the keyword, so this matches the assembled form: a `[` then
 # (across quotes/whitespace) a `:rf.<ns>/…` keyword then a `]`.
 #
-# KNOWN BLIND SPOT — a conformant message the scan cannot see (rf2-jquiy).
 # Both token regexes need the `:rf.<ns>/<id>` keyword and the human text to be
-# LITERAL at the `ex-info` call. Two conformant shapes are not:
+# LITERAL in the form they are handed. Two conformant shapes are not (rf2-jquiy
+# documented them; rf2-u3otj resolves the first):
 #
 #   (a) a let-BOUND message —  (let [msg (str "… [:rf.error/x]")] (ex-info msg …))
 #       `re-frame.story/configure!` (tools/story/src/re_frame/story.cljc:877,
-#       :914) does exactly this, under a comment citing Spec 009; the scan sees
-#       only the symbol `msg` and reports `builder-bypass-message`.
+#       :914) does exactly this, under a comment citing Spec 009. RESOLVED —
+#       `_resolve_let_binding` below hands the BOUND form to these same
+#       regexes, so the token is found one hop from the call.
 #   (b) a COMPUTED discriminator — (ex-info (str reason " [" error-kw "]") …)
 #       where `error-kw` is derived (`(keyword "rf.error" (str (name kind)
 #       "-shape"))`) or arrives as a parameter of a shared throw helper. The
-#       runtime message carries the token; the source text cannot.
-#
-# Both are FALSE POSITIVES, and nothing here distinguishes them from a real
-# bypass — deciding it needs the message form evaluated, not matched. So the
-# rule is deliberately left as-is and the false-red is accepted where it lands:
-# a site pinned to a conformant-but-invisible shape carries a comment saying
-# so, and `rf2:builder-bypass-ok` remains the opt-out of last resort. The trees
-# where this currently bites are all outside the roster, but the same shape
-# under `implementation/` would false-red identically — so do NOT "fix" a site
-# to satisfy this scan without first checking what its message renders to at
-# runtime. Widening the regexes to chase (a)/(b) would mean tracking a local
-# binding and constant-folding a `str`, which buys a handful of sites at the
-# cost of a scan that can no longer be read at a glance.
+#       runtime message carries the token; the source text cannot. NOT
+#       resolved, deliberately — see `_resolve_let_binding`'s note.
 _ASSEMBLED_TOKEN_MSG_RE = re.compile(
     r'\[["\s]*:rf\.[a-z][\w.-]*/[\w.*+!?<>=-]+["\s]*\]'
 )
+
+
+def _message_is_conformant(form: str) -> bool:
+    """Does this message FORM satisfy the thrown-error shape on its own text —
+    a central `human-message` derivation, or a message already embedding the
+    `[:rf.<ns>/…]` greppability token (contiguous, or assembled across a
+    `(str …)`)?"""
+    return bool(
+        _HUMAN_MESSAGE_MSG_RE.match(form)
+        or _INLINE_TOKEN_MSG_RE.search(form)
+        or _ASSEMBLED_TOKEN_MSG_RE.search(form)
+    )
 
 
 def _split_first_arg(body: str) -> tuple[str, str]:
@@ -465,6 +470,123 @@ def _extract_ex_info_form(text: str, open_paren_idx: int) -> str | None:
 
 _EX_INFO_OPEN_RE = re.compile(r"\(\s*ex-info\b")
 
+# --------------------------------------------------------------------------
+# Local-binding resolution (rf2-u3otj) — the message one hop from the call
+# --------------------------------------------------------------------------
+#
+# A conformant message is sometimes bound before it is thrown:
+#
+#   (let [msg (str "configure! got unknown key(s): " … " [:rf.error/x]")]
+#     (throw (ex-info msg {:rf.error/id :rf.error/x …})))
+#
+# The runtime message DOES carry the token, but the first `ex-info` argument is
+# the bare symbol `msg`, so both token regexes saw nothing and the site was
+# reported as a builder bypass. That false red is not free: it costs a round
+# trip under the standing rule that a failing gate on a touched surface is
+# never a flake, and the tempting "fix" is to DE-conformise working code to
+# satisfy a blind scan. The trees where it currently bites sit outside
+# `DEFAULT_SCAN_DIRS`, but the same shape under `implementation/` reds CI.
+#
+# So: when the message is a bare local symbol, resolve it through the innermost
+# enclosing `let` and re-test the BOUND FORM with `_message_is_conformant` —
+# the same predicates, no new ones. This is pure precision. A let-bound message
+# WITHOUT a token still fires, because the bound form must clear the rule on
+# its own text.
+#
+# DELIBERATELY NOT RESOLVED — the computed discriminator:
+#
+#   (ex-info (str reason " [" error-kw "]") {:rf.error/id error-kw …})
+#
+# where `error-kw` is derived, or arrives as a parameter of a shared throw
+# helper (`story.plan/fail!`, `mcp-base.diff_encode/validate-against!`). The
+# runtime message carries the token; the source cannot, and no static rule
+# separates it from a genuine bypass. Treating a lone symbol between the
+# brackets as a token would let ANY symbol pass — turning this false RED into a
+# false GREEN, the more expensive defect. Those sites stay reported, and
+# `rf2:builder-bypass-ok` exists for exactly that: a deliberate, documented
+# exemption whose conformance a human has checked at runtime.
+#
+# `let` only. `loop` rebinds through `recur`, and `if-let`'s else branch does
+# not see the binding — resolving either could green a site the reader cannot
+# verify, which is the direction this gate must never move.
+_LET_OPEN_RE = re.compile(r"\(\s*let\b")
+
+# A bare local symbol as the WHOLE message argument: no parens, no quotes, no
+# `/` (a namespaced var is not a local binding), not a keyword, not a number.
+_BARE_LOCAL_SYM_RE = re.compile(r"^[a-zA-Z*+!?<>=_-][\w*+!?<>=.-]*$")
+
+
+def _balanced_extent(text: str, open_idx: int) -> int | None:
+    """The index just past the delimiter matching the opener at `open_idx`, or
+    None if the form is unterminated. String-aware (the caller passes
+    comment-masked text, so a `(` inside a sentence cannot open a form)."""
+    n = len(text)
+    i = open_idx
+    depth = 0
+    in_string = False
+    while i < n:
+        c = text[i]
+        if in_string:
+            if c == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if c == '"':
+                in_string = False
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
+
+
+def _split_forms(body: str) -> list[str]:
+    """Every top-level form in `body`, in order — `_split_first_arg` applied
+    until the body is consumed."""
+    forms: list[str] = []
+    rest = body.strip()
+    while rest:
+        first, rest = _split_first_arg(rest)
+        if not first:
+            break
+        forms.append(first)
+    return forms
+
+
+def _resolve_let_binding(masked: str, offset: int, sym: str) -> str | None:
+    """The form `sym` is bound to by the innermost `let` whose form ENCLOSES
+    `offset`, or None if no enclosing `let` binds it.
+
+    Shadowing resolves the way Clojure resolves it: among enclosing `let`s the
+    innermost wins (they nest, so the latest start offset is the innermost),
+    and within one binding vector the LAST binding of the symbol wins. A
+    symbol bound only inside a destructuring form resolves nothing — the
+    binding NAME must be exactly `sym`."""
+    bound: str | None = None
+    for m in _LET_OPEN_RE.finditer(masked, 0, offset):
+        end = _balanced_extent(masked, m.start())
+        if end is None or end <= offset:
+            continue  # a sibling `let`, not an enclosing one
+        vec_start = masked.find("[", m.end())
+        # The binding vector must follow `let` immediately — only whitespace
+        # between, or this is not the vector we think it is.
+        if vec_start == -1 or masked[m.end():vec_start].strip():
+            continue
+        vec_end = _balanced_extent(masked, vec_start)
+        if vec_end is None:
+            continue
+        forms = _split_forms(masked[vec_start + 1:vec_end - 1])
+        for name, value in zip(forms[0::2], forms[1::2]):
+            if name == sym:
+                bound = value
+    return bound
+
 # The inline opt-out marker for a DELIBERATE, sanctioned builder-bypass — a
 # message that intentionally stays bare human prose WITHOUT the `[:rf.<ns>/…]`
 # token. A handful of sites need this: the conformance-DSL `:throw` / `:count`
@@ -502,12 +624,15 @@ def _scan_builder_bypass(path: Path, masked: str, raw_lines: list[str]) -> list[
         # Conformant messages do not fire: a central `human-message` derivation,
         # or a message already embedding the `[:rf.<ns>/…]` greppability token
         # (the reagent-slim inline shape).
-        if _HUMAN_MESSAGE_MSG_RE.match(first_arg):
+        if _message_is_conformant(first_arg):
             continue
-        if _INLINE_TOKEN_MSG_RE.search(first_arg):
-            continue
-        if _ASSEMBLED_TOKEN_MSG_RE.search(first_arg):
-            continue
+        # …or a bare local symbol whose `let` binding is conformant — the token
+        # lives one hop away (rf2-u3otj). Same predicates on the bound form, so
+        # a let-bound message WITHOUT a token still fires.
+        if _BARE_LOCAL_SYM_RE.match(first_arg):
+            bound = _resolve_let_binding(masked, m.start(), first_arg)
+            if bound is not None and _message_is_conformant(bound):
+                continue
         line_no = _line_of_offset(masked, m.start())
         # A deliberate, documented exemption opts out via the marker comment on
         # the `ex-info` line or within the small comment block directly above it
@@ -846,6 +971,12 @@ def _run_self_tests(verbose: bool = False) -> int:
         # --- positives for the WIDENED builder-bypass rule (rf2-krrv87) ---
         ("positive/bypass_str_concat_no_token.cljc",     1),
         ("positive/bypass_plain_string_no_token.cljc",   1),
+        # --- positives for the let-binding resolution (rf2-u3otj): resolving a
+        #     local must not become a way to PASS. A bound form with no token,
+        #     an unresolvable parameter, the computed discriminator, a sibling
+        #     (non-enclosing) scope, an inner binding that shadows a
+        #     token-bearing outer one, and a destructured name all still fire.
+        ("positive/bypass_let_bound_no_token.cljc",      6),
         # --- negatives: every conformant counterpart must stay GREEN ---
         ("negative/human_message_builder.cljc",      0),
         ("negative/throw_error_bang.cljc",           0),
@@ -860,6 +991,9 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("negative/bypass_human_message_with_id.cljc",   0),
         ("negative/bypass_marker_exempt.cljc",           0),
         ("negative/bypass_no_error_id.cljc",             0),
+        # --- negative for the let-binding resolution (rf2-u3otj): a conformant
+        #     message bound one hop from the `ex-info` must stay GREEN.
+        ("negative/bypass_let_bound_token.cljc",         0),
     ]
 
     failures = 0
