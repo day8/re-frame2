@@ -256,7 +256,7 @@ The public `re-frame.ui` authoring API is **32 vars** (`spec/api-manifest.edn`).
 
 **Taught here:** `ui/->react`, `ui/adapter`, `ui/client-only`, `ui/custom-element`, `ui/defview`, `ui/dispatch-fn`, `ui/effect`, `ui/event`, `ui/frame`, `ui/frame-provider`, `ui/frame-root`, `ui/handler`, `ui/html`, `ui/hydrate-root`, `ui/local`, `ui/mount`, `ui/raw`, `ui/raw-fn`, `ui/ref`, `ui/render-fn`, `ui/render-static`, `ui/slot`, `ui/spread`, `ui/spread-safe`, `ui/sub`.
 
-**Out of scope** (use the API reference): `ui/create-root` — low-level root primitive; author mounts with ui/mount; `ui/error-boundary` — error-boundary form; see interop-and-limits.md + the bad-error-boundary diagnostic; `ui/presence` — enter/exit presence choreography; see presence.md + the presence-* diagnostics; `ui/presence-phase` — presence phase accessor; see presence.md; `ui/render!` — imperative render under ui/mount; author uses ui/mount; `ui/route-link` — router integration; see the routing docs + the route-link roster entry; `ui/unmount!` — teardown primitive paired with ui/mount.
+**Out of scope** (use the API reference): `ui/create-root` — low-level root primitive; author mounts with ui/mount; `ui/error-boundary` — error-boundary form; see docs/core/freehand/host-boundaries.md + the bad-error-boundary diagnostic; `ui/presence` — enter/exit presence choreography; see docs/core/freehand/presence.md + the presence-* diagnostics; `ui/presence-phase` — presence phase accessor; see docs/core/freehand/presence.md; `ui/render!` — imperative render under ui/mount; author uses ui/mount; `ui/route-link` — router integration; see the routing docs + the route-link roster entry; `ui/unmount!` — teardown primitive paired with ui/mount.
 
 ## Compile-rejection roster (GENERATED)
 
