@@ -719,9 +719,10 @@ sections that read top-to-bottom as the developer scans.
      dispatch-envelope view-site TAG the S3 producer (.95.6) does not emit —
      attribution is emitted at the cause site, never reconstructed, so Xray
      does NOT walk DOM/Fiber to synthesise it. Until that framework emit lands,
-     the STATIC event-site provenance (a compiled view's declared `:on-*`
-     handler sites, classified literal / normalized / opaque) surfaces in the
-     Views tab's Compiled View Sites section
+     the STATIC event-site provenance (a declared view's `:on-*` handler
+     sites, with their `:classification` and either the literal event vector
+     or the `:event-id` behind an opaque handler) surfaces in the
+     Views tab's Declared View Sites section
      ([spec/021 §3.4.2](./021-Dynamic-Panel-Designs.md)) from the manifest
      projections, and this DISPATCH SITE line is unchanged.
 1a. **RECORDABLE COEFFECTS** (rf2-9fyn40 · EP-0010 · EP-0017 §9) — the
