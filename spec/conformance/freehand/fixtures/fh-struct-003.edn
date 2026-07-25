@@ -12,6 +12,16 @@
 ;; produce two different trees for one declaration and every equality
 ;; assertion downstream would be measuring the host rather than the
 ;; contract.
+;;
+;; The last `:rejected` row is not an attribute-value row at all: it is the
+;; tripwire on the one seam where an attribute walk could grow a second
+;; opinion. A handler value is the EVENT grammar's to judge, so the
+;; structural walk asks `events/event-plan` and raises what it raises —
+;; `:rf.error/view-bad-event`, the id FH-EVENT-002 pins for the same input
+;; on the mounted tier. It used to answer `:rf.error/ui-tree-malformed`
+;; here, so one authored mistake had two names depending on which tier read
+;; it (rf2-uvcm3). The row stays to keep the delegation asserted rather than
+;; merely intended.
 {:fh/id "FH-STRUCT-003"
  :fh/law
  "Attribute values are normalized into semantic space: one canonical class string, a canonical style map, `name` for keywords and symbols, JavaScript ToString for numbers, booleans intact, nil entries dropped."
@@ -89,5 +99,5 @@
    :form [:div {:style "color:red"}] :error-id :rf.error/ui-tree-malformed}
   {:note "a class element is a string or a keyword"
    :form [:div {:class [42]}] :error-id :rf.error/ui-tree-malformed}
-  {:note "and a handler needs a vector, an options map, or a function"
-   :form [:div {:on-click "go"}] :error-id :rf.error/ui-tree-malformed}]}
+  {:note "a handler outside the event grammar takes the EVENT grammar's verdict — the structural walk delegates rather than classifying a second time"
+   :form [:div {:on-click "go"}] :error-id :rf.error/view-bad-event}]}
