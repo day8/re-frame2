@@ -69,10 +69,11 @@
   "Record `view` as the declaration of `view-id`, answering `view`.
 
   Called from the `v/defview` expansion under the dev gate — see the
-  namespace docstring for why the gate is there and not here. Answering
-  `view` rather than the index keeps the call a pass-through, so the
-  expansion can register a declaration on its way into its own Var without
-  naming the value twice.
+  namespace docstring for why the gate is there and not here. It answers
+  `view` rather than the index so the call reads as a pass-through: what a
+  declaration does here is record itself and carry on being itself, and a
+  registrar that answered its own internal map would invite a caller to hold
+  one.
 
   Re-registration REPLACES: a reloaded declaration is the same view, and an
   index that appended would be a history store wearing an index's name."
