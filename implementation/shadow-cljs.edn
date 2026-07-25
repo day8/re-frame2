@@ -1008,6 +1008,20 @@
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.freehand.studio.probe/-main}}}
 
+  ;; The THIRD bundle for the reachability claim — a strict SUPERSET of
+  ;; :freehand-release-compiled that additionally REACHES the analyzer, so the
+  ;; "the compiler is macro-time and does not ship" sentinel has a positive
+  ;; control and its absence next door is a DCE result rather than a broken
+  ;; grep.
+  :studio-compiler-reach-control
+  {:target     :browser
+   :output-dir "out/studio-compiler-reach-control"
+   :asset-path "."
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto
+                      :closure-defines {goog.DEBUG false}}
+   :modules {:main {:init-fn re-frame.freehand.studio.compiler-reach-control/-main}}}
+
   :studio-probe-dev
   {:target     :browser
    :output-dir "out/studio-probe-dev"
