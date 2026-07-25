@@ -535,7 +535,7 @@
             files that are not there."
     (let [present (into {} (filter (comp b5/bundle-present? val)) b5/matched-bundle-paths)]
       (if-not (= 3 (count present))
-        (is true (str "not all three matched bundles are on disk — build "
+        (is true (str "not all three release bundles are on disk — build "
                       "freehand-release-interpreted, freehand-release and "
                       "freehand-release-compiled first; skipping the matched "
                       "build-lane measurement (present: " (keys present) ")"))
