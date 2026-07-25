@@ -817,8 +817,8 @@
   may expose a half-constructed id by filtering raw `@frames` independently."
   [id f]
   (and (not (-> f :lifecycle :destroyed?))
-       (or (not= :provisional (get-in f [:construction :state]))
-           (let [owner (get-in f [:construction :owner])]
+       (or (not= :provisional (-> f :construction :state))
+           (let [owner (-> f :construction :owner)]
              (and (identical? owner *frame-transaction-owner*)
                   (owner-holds-frame-id? owner id))))))
 
@@ -904,7 +904,7 @@
   [id]
   (if-let [f (get @frames id)]
     (or (true? (-> f :lifecycle :destroyed?))
-        (let [token (get-in @destroying-frames [id :token])]
+        (let [token (:token (get @destroying-frames id))]
           (and (some? token)
                (identical? token (:drain-lock f)))))
     ;; Absent from the atom — destroy-frame!'s step 10 ran, OR the id
@@ -969,7 +969,7 @@
 
   Keyed by the bare frame-id; the incarnation is disambiguated by the token value."
   [id token]
-  (let [closing-token (get-in @destroying-frames [id :token])]
+  (let [closing-token (:token (get @destroying-frames id))]
     (and (some? closing-token) (identical? token closing-token))))
 
 (defn frame-address
@@ -2784,7 +2784,7 @@
         ;; this exact-token check fails construction before any side effect. A
         ;; stale marker from an already-dissoc'd incarnation does not match.
         (let [raw           (get @frames id)
-              closing-token (get-in @destroying-frames [id :token])]
+              closing-token (:token (get @destroying-frames id))]
           (when (and raw
                      (some? closing-token)
                      (identical? closing-token (:drain-lock raw)))
@@ -2885,10 +2885,10 @@
 
           ;; A provisional row without its matching reservation is internal
           ;; corruption, not a refreshable live frame. Fail closed.
-          (= :provisional (get-in existing [:construction :state]))
+          (= :provisional (-> existing :construction :state))
           (throw-frame-construction-in-progress!
             id :orphaned-provisional
-            (get-in existing [:construction :owner :kind]))
+            (-> existing :construction :owner :kind))
 
           ;; ---- must-create met a LIVE final frame → COLLISION ----------------
           ;; Exclusive mode never adopts or surgically refreshes; a present id is
@@ -3407,7 +3407,7 @@
     ;; EP-0001: machine snapshots are durable runtime-db state.
     (let [container  (runtime-db-container id)
           rt         (when container (adapter/read-container container))
-          machines   (get-in rt [:rf.runtime/machines :snapshots])
+          machines   (-> rt :rf.runtime/machines :snapshots)
           abort-http (late-bind/get-fn :http/abort-on-actor-destroy)]
       (doseq [[machine-id snapshot] machines]
         (when abort-http
@@ -3481,7 +3481,7 @@
                   id
                   (fn []
                     (when-let [current (frame id)]
-                      (let [marker-token (get-in @destroying-frames [id :token])]
+                      (let [marker-token (:token (get @destroying-frames id))]
                         (cond
                           (not (identical? candidate-token (:drain-lock current)))
                           ::retry-destroy-claim
@@ -3539,7 +3539,7 @@
   [id expected-token]
   (swap! destroying-frames
          (fn [claims]
-           (if (identical? expected-token (get-in claims [id :token]))
+           (if (identical? expected-token (:token (get claims id)))
              (dissoc claims id)
              claims))))
 

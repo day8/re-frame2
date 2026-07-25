@@ -1316,7 +1316,7 @@
             (doseq [input-q input-signals]
               (release-input-ref! frame-id input-q :on-dispose))
             (swap! cache (fn [m]
-                           (if (identical? reaction (get-in m [k :reaction]))
+                           (if (identical? reaction (:reaction (get m k)))
                              (dissoc m k)
                              m)))))
         (let [installed (swap! cache (fn [m]
@@ -1342,10 +1342,10 @@
                     (swap-vals! cache
                                 (fn [m]
                                   (if (identical? winner-reaction
-                                                  (get-in m [k :reaction]))
+                                                  (:reaction (get m k)))
                                     (update-in m [k :ref-count] (fnil inc 0))
                                     m)))]
-                (if (identical? winner-reaction (get-in post [k :reaction]))
+                (if (identical? winner-reaction (:reaction (get post k)))
                   winner-reaction
                   ;; rf2-7w1im: the collision-retry rebuild stays fenced to the
                   ;; SAME captured incarnation.
@@ -1654,10 +1654,10 @@
                    (swap-vals! cache
                                (fn [m]
                                  (if (identical? reaction
-                                                 (get-in m [k :reaction]))
+                                                 (:reaction (get m k)))
                                    (update-in m [k :ref-count] (fnil inc 0))
                                    m)))]
-               (if (identical? reaction (get-in new [k :reaction]))
+               (if (identical? reaction (:reaction (get new k)))
                  reaction
                  ;; rf2-7w1im: the hit's concurrent-eviction rebuild carries the
                  ;; captured token so the rebuild is fenced to the SAME
@@ -2302,10 +2302,10 @@
                   (swap-vals! cache
                               (fn [m]
                                 (if (identical? reaction
-                                                (get-in m [k :reaction]))
+                                                (:reaction (get m k)))
                                   (update-in m [k :ref-count] (fnil inc 0))
                                   m)))]
-              (if (identical? reaction (get-in new [k :reaction]))
+              (if (identical? reaction (:reaction (get new k)))
                 {:reaction reaction}
                 (build-and-classify! frame-id query-v k)))
             (build-and-classify! frame-id query-v k)))
