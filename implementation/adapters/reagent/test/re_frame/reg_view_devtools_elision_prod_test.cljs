@@ -26,6 +26,7 @@
   props it finds. (`reg-view-wrapped-fn-has-no-display-name-under-prod`
   reads `.-displayName` off the wrapped fn rather than the output, so it
   needs no attrs map and deliberately has none.)
+
   Measured: with the earlier attr-less `[:span \"hi\"]` fixture, a
   wrapper mutated to re-grow the pre-rf2-rohdn `_jsx*` props on an
   existing root attrs map left every assertion here GREEN. With the
