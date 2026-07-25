@@ -74,6 +74,15 @@
     SCOPE is not privacy: this is a published authoring surface and the gate
     treats it like one.
 
+  - `re-frame.freehand.tool` (rf2-hytu5) — the Freehand substrate's TOOL-TIER
+    reader door, enrolled on the same terms as the door and the test sibling:
+    `.cljc`, JVM-introspected for its manifest row, its live CLJS surface
+    reconciled here. FULLY-ROWED, both directions — `view-manifest` is the
+    WHOLE namespace, because this is a reader and not a tool framework (no
+    accumulator, no registry, no history store), so a second public var
+    appearing on either host fails direction-2 completeness rather than
+    accumulating quietly.
+
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
   artefact's OWN shadow-cljs build (`tools/re-frame2-pair-mcp`,
@@ -135,7 +144,11 @@
             [re-frame.freehand]
             ;; rf2-drpa3.79 — the Freehand structural TEST surface, enrolled on
             ;; the same terms as the door above and as re-frame.ui.test.
-            [re-frame.freehand.test]))
+            [re-frame.freehand.test]
+            ;; rf2-hytu5 — the Freehand TOOL-TIER reader door, enrolled on the
+            ;; same terms again. One name, and the require forces its analysis
+            ;; so `emit-ns-publics` reads the live surface.
+            [re-frame.freehand.tool]))
 
 ;; ---------------------------------------------------------------------------
 ;; The live CLJS public surface, captured at compile time.
@@ -181,7 +194,10 @@
    "re-frame.freehand"                               (emit-ns-publics re-frame.freehand)
    ;; rf2-drpa3.79 — the Freehand structural test surface. Same terms: JVM
    ;; -introspected rows, live CLJS surface reconciled here, fully-rowed.
-   "re-frame.freehand.test"                          (emit-ns-publics re-frame.freehand.test)})
+   "re-frame.freehand.test"                          (emit-ns-publics re-frame.freehand.test)
+   ;; rf2-hytu5 — the Freehand tool-tier reader door. Same terms: JVM-
+   ;; introspected row, live CLJS surface reconciled here, fully-rowed.
+   "re-frame.freehand.tool"                          (emit-ns-publics re-frame.freehand.tool)})
 
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
@@ -208,7 +224,13 @@
     ;; test surface: the rowed names ARE the surface, so one more public var
     ;; added on either host without a manifest row → RED. Its rows likewise
     ;; come from :classification, fed in via `freehand-test-rows` below.
-    "re-frame.freehand.test"})
+    "re-frame.freehand.test"
+    ;; rf2-hytu5 — direction-2 completeness for the Freehand tool-tier reader
+    ;; door. `view-manifest` is the whole namespace by construction (a reader,
+    ;; not a tool framework), so a SECOND public var appearing on either host
+    ;; without a manifest row → RED. Its row likewise comes from
+    ;; :classification, fed in via `freehand-tool-rows` below.
+    "re-frame.freehand.tool"})
 
 (def cljs-only-rows
   "The `:cljs-only` rows from spec/api-manifest-metadata.edn, embedded at
@@ -241,14 +263,24 @@
    public — a test-authoring surface is a published surface."
   (emit-classification-rows "re-frame.freehand.test"))
 
+(def freehand-tool-rows
+  "The `re-frame.freehand.tool` `:classification` rows (rf2-hytu5), projected
+   exactly as `freehand-test-rows` is. The tool-tier reader door is
+   JVM-introspected for its manifest row, but its CLJS surface must still be
+   reconciled here so neither host can silently expose an extra public — the
+   donor's accumulator / registry / history surfaces were ruled out
+   permanently, and direction-2 completeness is what keeps them out."
+  (emit-classification-rows "re-frame.freehand.tool"))
+
 (def reconcile-rows
   "Every row the probe reconciles: the `:cljs-only` surfaces plus the
-   JVM-owned `re-frame.ui.test`, `re-frame.freehand` and
-   `re-frame.freehand.test` rows."
+   JVM-owned `re-frame.ui.test`, `re-frame.freehand`, `re-frame.freehand.test`
+   and `re-frame.freehand.tool` rows."
   (-> cljs-only-rows
       (into ui-test-rows)
       (into freehand-rows)
-      (into freehand-test-rows)))
+      (into freehand-test-rows)
+      (into freehand-tool-rows)))
 
 ;; ---------------------------------------------------------------------------
 ;; The probe.
