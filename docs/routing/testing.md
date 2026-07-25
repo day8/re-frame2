@@ -160,9 +160,22 @@ omits an empty `:params` / `:query` and a `nil` `:fragment`, so compare it again
 
 ## What lives elsewhere
 
-- **Auth-guard interceptors** over navigation events are ordinary
-  [interceptors — tested like any other](../core/interceptors.md#testing-an-interceptor);
-  [Require sign-in on a route](how-to/require-sign-in-on-a-route.md) is the recipe.
+- **Route auth** is the `:can-enter` guard plus a `:rf.route/entry-denied` handler,
+  both of which you have just tested above — a guard sub is an ordinary sub and the
+  handler an ordinary event. [Require sign-in on a route](how-to/require-sign-in-on-a-route.md)
+  is the recipe. An interceptor over the navigation events is a *different* thing,
+  reserved for a policy that genuinely is not about routes (a maintenance-mode
+  lockout, a feature flag over a whole section); those are ordinary
+  [interceptors, tested like any other](../core/interceptors.md#testing-an-interceptor).
+- **A cold boot whose identity arrives asynchronously** deserves its own test, and it
+  is the one people skip. If your boot fetches the signed-in user rather than reading
+  a cached one, the first URL resolution runs *before* that reply lands, so a
+  protected deep link is judged with no user. Drive the real thing — a `:url-bound?`
+  frame whose `:url-strategy` `:decode` reports the protected URL, the app's real
+  `:initial-events`, and a managed-HTTP stub that **captures the request and answers
+  nothing** until you choose to. A canned stub that replies synchronously, or a test
+  that navigates somewhere public first, cannot see the bug. The worked example is
+  `realworld-cold-boot-deep-link-race` in `realworld_cljs_test.cljs`.
 - **Route-declared `:resources`** — [Testing resources](../resources/testing.md)
   covers ensuring, stubbing, and reading; the route is just the cause.
 - **Server side** needs no separate route tests: the same `handle-url-change` event

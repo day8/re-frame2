@@ -70,15 +70,16 @@ Start with the smallest test there is. An [event handler](../../core/glossary.md
 
 No frame, no dispatch, no runtime. A coeffects map went in — `:db` holds the current state. You assert on the effect map that came out — its `:db` is the next state. That's a unit test in the truest sense — a function, an input, an output — and you built zero scaffolding to write it.
 
-Now the interesting case: a handler that needs something from the world. Recall the boot handler from [Part 3](03-auth-and-forms.md). The saved JWT (a token from a previous login, kept in `localStorage`) is a fact from outside the event — so it's a [coeffect](../../core/glossary.md#coeffect) too, just one that doesn't arrive for free the way `:db` does. It's registered as a **provided recordable** coeffect: *provided* means the app supplies it explicitly at the boundary; *recordable* means it's durable causal data that survives into the trace and the release build (the [recordable-vs-ambient](../../core/glossary.md#recordable-vs-ambient-coeffects) split). The boot site reads `localStorage` once and stamps the value onto the dispatch; the handler simply *declares* that it needs it:
+Now the interesting case: a handler that needs something from the world. Recall the boot handler from [Part 3](03-auth-and-forms.md). The saved JWT (a token from a previous login, kept in `localStorage`) is a fact from outside the event — so it's a [coeffect](../../core/glossary.md#coeffect) too, just one that doesn't arrive for free the way `:db` does. It's registered as a **recordable** coeffect with a supplier: *recordable* means it's durable causal data that survives into the trace and the release build (the [recordable-vs-ambient](../../core/glossary.md#recordable-vs-ambient-coeffects) split), and the supplier is the registration's own `localStorage` read, fired once at the start of the boot dispatch. The handler simply *declares* that it needs it:
 
 ```clojure
 ;; src/conduit/auth.cljc — from Part 3 (abridged)
 (rf/reg-cofx :auth.session/token
   {:recordable? true
-   :provided?   true
-   :doc "The saved JWT (or nil). Read once at the boot boundary and stamped
-         onto the boot dispatch — never read ambiently by a handler."})
+   :doc "The saved JWT (or nil), read from localStorage by this supplier once, at
+         the start of the boot dispatch — never read ambiently by a handler."}
+  (fn []
+    (some-> (.-localStorage js/globalThis) (.getItem "jwtToken"))))
 
 (rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
@@ -143,7 +144,7 @@ So you'll drive a real dispatch through a real [frame](../../core/glossary.md#fr
 Four things do the work — those four edges. Each redirects a *value at a boundary*, never a mechanism the test swaps out:
 
 - **`with-new-frame`** gives the test its own isolated frame — created for the body, destroyed on the way out, success or exception. `{:preset :test}` declares intent and bundles two deterministic defaults: it redirects the `:rf.http/managed` fx to its canned-success stub, so a request you forgot to stub can never escape to the wire; and it sets a **strict mint policy**, so a handler that declares a generated [coeffect](../../core/glossary.md#coeffect) (a fresh id, say) but isn't *supplied* one fails loud with `:rf.error/missing-required-cofx` rather than quietly minting a value that won't match production. (`:rf/time-ms` is always stamped, so it never trips this — the strict failure is reserved for *declared-but-absent, generator-backed* facts. A test that genuinely wants a fresh value per run opts back in with `{:rf.cofx/mint-policy :explicit-live}`.)
-- **`{:rf.cofx {…}}` on the dispatch** supplies the declared fact. This is the *same* surface the boot site uses in production — the test isn't faking the coeffect machinery, it's *being* the boundary that stamps the value.
+- **`{:rf.cofx {…}}` on the dispatch** supplies the declared fact, overriding the registered supplier for this one dispatch. That is not a hole in the machinery, it is the machinery: the fact is *declared*, so a value supplied as data is indistinguishable from one the supplier produced, and the test never re-registers anything or reaches for `localStorage`. Under `{:preset :test}`'s strict mint policy, forgetting the key doesn't silently fall through to a live read either — it fails loud with `:rf.error/missing-required-cofx`.
 - **`with-managed-request-stubs`** routes `:rf.http/managed` by method + URL for the body's extent and synthesizes a real reply envelope. The exact request data your machine's action produced arrives at the stub, and the reply re-enters through the same `:on-success` path a live response would.
 - **`dispatch-sync` drains to fixed point.** The whole pipeline run settles before the call returns — the machine transition, the stubbed request, the reply event, the session write. The assertions on the next lines read fully-committed state. No `act()`, no awaiting, no sleeps, no flake.
 
