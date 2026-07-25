@@ -568,12 +568,11 @@ diff chrome in cascade context, so the Reactive tab's value-listing is duplicate
   sub-id + `no readers remaining` tag; a small `unchanged`/`dim`-tinted swatch). Caption below:
   "Subscriptions cleaned up when their last reader unmounted."
 
-Below the teardown lists sits the **VIEWCELL INVALIDATION EVIDENCE** section (§3.4.1 —
-rf2-vxgfnd.146): the CUMULATIVE per-cell view over the `re-frame.ui` scheduler's bounded
-invalidation-evidence projection. Deliberately NOT epoch-scoped (the one exception on this
-panel): the accumulators span each ViewCell's whole observed life, so the section renders with
-or without a focused event-bundle, and renders its empty placeholder on hosts not running the
-re-frame.ui substrate.
+Below the teardown lists sits the **MOUNTED VIEWS** section (§3.4.1 — rf2-7gth0): one row per
+Freehand occurrence CONNECTED RIGHT NOW, read from the tool-tier door. Deliberately NOT
+epoch-scoped (the one exception on this panel): it answers *what is mounted*, which is a
+question about now rather than about the focused epoch, so the section renders with or without
+a focused event-bundle, and renders its empty placeholder on hosts not running Freehand.
 
 A legend closes the panel ("Views (right) are the focus — each: re-rendered + why (reactive vs
 parent re-render)") with three swatches: `changed (propagates downstream)` · `no change
@@ -741,220 +740,194 @@ data`) is the OR of the panel-local quick-toggle
 `:rf.xray/reactive-toggle-unchanged`) and the `:show-unchanged-subs?`
 Settings pin.
 
-### §3.4.1 Mounted view evidence (re-frame.ui substrate · S3 · rf2-vxgfnd.146/.95.7)
+### §3.4.1 Mounted views (Freehand substrate · rf2-7gth0)
 
-Xray is the OWNING consumer of the re-frame.ui view-evidence plane. It owns
-the projection (install / span receipt / ownership — below), but it reads the
-DEV-ONLY VERSIONED PUBLIC tier `re-frame.ui.tool` (rf2-vxgfnd.95.6), NOT the
-raw `re-frame.ui.tool.evidence/projection` interim shape it consumed pre-S3.
-The Views panel renders it as the **MOUNTED VIEW EVIDENCE** section below the
-teardown lists, plus a **COMPILED VIEW SITES** section (§3.4.2) for the static
-per-view manifest sites.
+Xray reads a Freehand host's live views through the DEV-ONLY tool-tier reader
+door `re-frame.freehand.tool`. The Views panel renders it as the **MOUNTED
+VIEWS** section below the teardown lists, plus a **DECLARED VIEW SITES**
+section (§3.4.2) for the per-view manifest sites.
 
-**What it consumes (rf2-vxgfnd.95.7).** The five frozen read-only projections
-a debugging consumer reads WITHOUT touching private React state, observation
-handles, or the scheduler — each stamped `:rf.ui.tool/version`:
+**Xray owns nothing here, and that is the design.** The predecessor surface
+consumed the donor's tool-tier evidence plane, which had a single-owner
+install registry, so Xray claimed the projection under a stable owner id and
+layered an opaque per-span RECEIPT over it to fence a same-key ABA reclaim —
+plus an ownership-REVISION reactive input, because ownership was not app-db
+state and a release had to invalidate a held subscription. `re-frame.freehand.tool`
+has NO registry and NO ownership plane, deliberately and permanently
+(rf2-drpa3.167 ruled the donor's per-occurrence accumulator out rather than
+deferring it). Nothing is claimed, nothing can be held against Xray, and no
+read can surface a superseded span's data because there are no spans. The
+acquire, the receipt, the `globalThis` install sentinel that mirrored it,
+the ownership event/sub/listener and the owner-checked reset-tier release are
+all DELETED rather than ported: a fence against a hazard that cannot occur is
+not a protection.
 
-- `explain-render` → the per-INCARNATION render evidence: OCCURRENCE IDENTITY
-  (`:occurrence`), the live `:connection` state, the honest hide-vs-unmount
-  `:lifecycle` labels, the cause set, first/latest movement epoch, the moving
-  `:observations` (with `:identity-exact?` observation-identity fidelity), and
-  EXPLICIT `:loss` accounting. This is the row substrate of the MOUNTED VIEW
-  EVIDENCE section.
-- `view-manifest` / `view-dependencies` / `view-event-sites` → the static
-  registrar-manifest sites (source, capability bits, site counts, dependency
-  sites with literal-vs-`:dynamic` honesty, event-handler sites classified
-  `:literal` / `:normalized` / `:dynamic` with `:serializable?`) — the COMPILED
-  VIEW SITES section (§3.4.2), available BEFORE mount.
+**What it consumes.** Five reads, each stamped `:schema` and each answering
+`nil` in a production build:
 
-Under S6 (rf2-vxgfnd.98.1) the substrate now mints a per-commit `:rf.view/causes`
-vector on the committed-instance record (`re-frame.ui.reactive/commit-record`) with
-six shipped causes — `:mount` / `:subscription` / `:story-override` / `:local-state`
-/ `:hmr` / `:disposed` — plus the `:foreign-or-react` fallback. `:epoch-restore` and
-`:hmr-remount` remain DEFERRED-with-triggers (EP-0033 §S6 view-evidence delta): the
-producer emits neither, so Xray does NOT fabricate one — absent evidence is tolerated
-explicitly (each renders only when its named trigger lands a framework emit). The
-MOUNTED VIEW EVIDENCE section above reads the CUMULATIVE `explain-render` window,
-whose cause union is `#{:subscription :hmr :disposed}` — unified port-wide with the
-observation port and the per-commit record vocabulary (rf2-ao46i, RULING 2). The
-per-commit `:rf.view/causes` vector is a separate raw reader Xray does not yet
-consume. Likewise a legacy `reg-view` adapter host (no compiled
-manifests / no ViewCell substrate) renders exactly today's zero-row state.
+- `read-mounted-views` → the roster of occurrences CONNECTED RIGHT NOW. One
+  row per occurrence, keyed by the runtime occurrence, so two simultaneous
+  occurrences of one view are two addressable rows. `:complete? true` is exact
+  about under-reporting: the index holds every connected occurrence that has
+  published a selected commit.
+- `explain-render` → why each of them rendered, folded at READ time from
+  Spec 009's retained window under Spec 009's one knob
+  (`:rf.trace/events-retained`). Nothing is retained to answer it and there is
+  no second history store.
+- `read-view-manifest` / `read-view-dependencies` / `read-view-event-sites` →
+  what each view DECLARES, from the compiler manifest, answerable BEFORE
+  anything mounts — the DECLARED VIEW SITES section (§3.4.2).
 
-**Ownership + span receipt (rf2-vxgfnd.286).** The stable id
-`:rf.xray/viewcell-evidence` is the tier registration KEY, but it is a
-REUSABLE key — after one ownership span closes and another reclaims the
-same id, id equality alone cannot tell the two incarnations apart. So
-`day8.re-frame2-xray.viewcell-evidence` layers an opaque, per-span RECEIPT
-over the tier's identity+generation lifecycle (rf2-vxgfnd.147):
+**Query path.** `:rf.xray/mounted-views` (registered by
+`reactive-panel-subs/install!`) → `mounted-views/rows`, which joins the first
+two reads on `:occurrence`. Both project the same current-occurrence index in
+one synchronous turn, so on a single-threaded host every roster row has an
+explanation. ONE reactive input — `:rf.xray/epoch-history`, the standing
+epoch-pump axis — because there is no ownership axis left to carry. The input
+is a pure cache-invalidation trigger; the compute reads the substrate, never
+the input's value. A host not running Freehand projects zero rows through the
+same door, with nothing special-cased.
 
-- Two supported paths ACQUIRE the projection under the stable id — the
-  preload boot block and the manual `core/init!` path (the alternative to
-  `:devtools/preloads`). Both wire the identical `viewcell-evidence/acquire!`
-  (rf2-vxgfnd.238), so a host that requires `core` and calls `init!` is
-  never left with Xray enabled but evidence-blind. `acquire!` returns the
-  span's opaque receipt (nil when rejected / in production).
-- A shadow-cljs `:after-load` (or a second `init!`) re-runs the same call
-  as the evidence tier's idempotent same-span RE-ARM — accumulated evidence
-  survives and the receipt is PRESERVED (the HMR path is one continuous
-  span).
-- A foreign owner already holding the projection is NEVER clobbered:
-  `acquire!` is rejected (returns nil) and Xray projects zero rows.
-- `viewcell-evidence/release!` frees EXACTLY the span named by a receipt;
-  `release-current!` frees whatever span Xray currently owns (the
-  owner-checked teardown the reset tier drives, below). A stale receipt
-  from a superseded span can neither read a successor's data nor clear a
-  successor's registration (the same-key ABA fence), on top of the tier's
-  downstream generation fence (rf2-vxgfnd.147). A successful acquire mirrors
-  onto the `__day8_re_frame2_xray_viewcell_evidence` global sentinel (the
-  browser feature-gate's wiring probe; withdrawn on release).
+One row per connected occurrence, in the substrate's own deterministic order
+(view id, then occurrence key):
 
-`installed-owner` (the tier read) is DIAGNOSTIC-only: ownership is
-authorized by the receipt, not by owner-id equality.
+    {:view-id vid :occurrence {:parent p :key k}
+     :lowering :compiled|:interpreted
+     :generation n :connection :connected
+     :root :unknown :at t :dispatch-id id|nil :frame fid
+     :reads [{:site-key _ :query q :frame-id fid :owned? bool} …]
+     :cause {:dispatch-id id :cause-event-id eid :sub-ids #{…}}|nil
+     :candidates [{…}] :explained? bool
+     :loss {:reason :cap|:uncorrelated :dropped :unknown}|nil
+     :window {:retained-runs n :spans-commit? bool :window-starts-at t}}
 
-**Query path — receipt-fenced + reactive (rf2-vxgfnd.238/.286).**
-`:rf.xray/viewcell-evidence` (registered by `reactive-panel-subs/install!`)
-→ `viewcell-evidence/rows`. Every read is gated on BOTH the exact span
-receipt AND that Xray is still the installed tier owner: rows — and
-therefore the sub, the panel section, and any derived Xray query — observe
-evidence ONLY for Xray's current span. The public tier's read
-(`explain-render` → `evidence/instance-records`) exposes the shared slot's
-entries REGARDLESS of owner, so an ownership rejection (a foreign tool
-installed first) or a superseded span must — and does — mean zero observation
-through Xray, never another span's rows.
-Because ownership is not app-db state, the query carries an
-ownership-REVISION reactive input alongside `:rf.xray/epoch-history`:
-`viewcell-evidence` bumps a monotonic revision on every acquire/release and
-the sub-layer listener mirrors it into Xray's `:rf/xray` app-db (the
-`:rf.xray/viewcell-evidence-ownership` sub), so a live subscription +
-rendered panel recomputes to empty the instant Xray releases (or a foreign
-owner takes the slot) — WITHOUT waiting for an unrelated epoch pump. The
-revision only TRIGGERS the recompute; the recompute's `rows` call still
-checks the exact receipt, so reactivity can never authorize a stale reader.
-When Xray owns the span, one row per live incarnation in stable `:occurrence`
-order, projected from `re-frame.ui.tool/explain-render` (rf2-vxgfnd.95.7) —
+Everything from `:view-id` through `:reads` is CURRENT STATE the occurrence
+index holds; everything from `:cause` down is the bounded read-time fold, whose
+completeness is its own claim. `:generation` is the LATEST committed
+generation — a fact about now, not a tally. `:reads` is the SELECTED COMMIT's
+dependency set, carrying the queries WITHOUT the values they returned (a value
+is application data, and an evidence read is not a second egress path for it).
+`:root` is ALWAYS the explicit `:unknown`: cells do not know their owning root
+and the commit seam carries no root identity, so a row that named one would be
+inventing it.
 
-    {:occurrence ord :view-id vid :root-id rid|nil
-     :connection :connected|:disconnected
-     :lifecycle {:intervals [{:state _ :reason _ :proof _} …] :dropped n :exact? b}
-     :first-epoch e0 :latest-epoch eN :count n :batches b
-     :causes #{:subscription :hmr :disposed}
-     :targets [tk …] :targets-exact? bool
-     :dropped-count d :dropped-exact? bool}
+**The explanation is a JOIN, and its failure to join is REPORTED.** The row
+recorded the cascade in scope when the commit ran, so the fold looks that exact
+run up in the window. Three ways it cannot, each an explicit `:loss` with
+`:dropped :unknown` rather than an empty-but-confident answer: the window holds
+nothing for the frame (`:cap`); the commit named a run the window no longer
+holds (`:cap`, and provably so); the commit named NO run at all
+(`:uncorrelated` — a Freehand commit usually lands in a post-settle React batch
+with no cascade on the stack). `:candidates` is offered in every case and is
+deliberately NOT the answer — runs that COULD have driven this render, rendered
+as `N leads`. A nil `:cause` presented as complete evidence would be asserting
+that nothing caused the render.
 
-`:occurrence` is the S3 occurrence identity — the stable per-incarnation
-ordinal, so two instances of one view are distinguishable. `:connection` is the
-LIVE runtime lifecycle keyword; `:lifecycle` carries the bounded serializable
-interval log with the qualified retroactive hide-vs-unmount labels (03 §4 —
-`:activity-hidden` / `:unmounted` render only with their proof token; an
-unproven disconnect stays `disconnected · unknown`, NEVER fabricated).
+**Deliberate loss, named so a reader can stop looking.** A reader migrating
+from the donor panel will look for a lifetime render count, a batch count, a
+first/latest epoch span, a hide-versus-unmount lifecycle interval log, an
+accumulated union of every target the occurrence observed with its
+`identity-exact?` fidelity bit and its saturating dropped-count floor, and a
+claimed owning root id. None of those is here and none is coming: the substrate
+keeps no accumulator to derive them from. A disconnect REMOVES the row rather
+than labelling it, which is why the section has no unmounted arm and no
+teardown tag. `mounted_views_cljs_test` pins their absence as an EQUALITY so a
+later change cannot reintroduce one under its old name.
 
-**Version honesty (rf2-vxgfnd.95.7).** Every `re-frame.ui.tool` projection
-stamps `:rf.ui.tool/version`. `version-status` (receipt-fenced) reads it; when
-the producer's version is not this Xray build's, `rows` degrades to `[]`
-(rather than mis-parse an evolved shape) and the
-`:rf.xray/viewcell-evidence-version` sub drives the honest
-`rf-xray-reactive-viewcell-evidence-version-banner` so a stale-version
-deployment reads truthfully instead of looking substrate-free.
+**Schema honesty.** Every projection stamps `:schema`.
+`mounted-views/consumed-evidence-schema` is a CONSUMER-OWNED literal
+(`:re-frame.freehand.evidence/v1`), deliberately not the producer's own var:
+deriving support from the producer makes ANY bump silently "supported", so an
+evolved shape would be mis-parsed as exact and the boundary would be nominal.
+An unrecognised schema suppresses rows (`rows` → `[]`) and the
+`:rf.xray/mounted-views-schema` sub drives the honest
+`rf-xray-reactive-mounted-views-schema-banner`, so a mismatched deployment
+reads truthfully instead of looking like a host with nothing mounted.
 
-`:targets` is the bounded shown sample. Before a target crosses the evidence
-boundary, the tier copies bounded plain EDN and replaces a ViewCell, host
-identity, record, over-deep or oversized value with an explicit
-`:rf.ui.evidence/opaque` marker; the tier's cumulative
-`:targets-exact?` bit stays false once that happens. `:dropped-count` /
-`:dropped-exact?` is the HONEST omission account (`false` ⇒ the count is a
-floor, rendered `≥N dropped`); opaque target collisions also make it false
-because distinct cumulative omissions are no longer provably countable. The
-projection index is NON-OWNING
-(rf2-vxgfnd.148): JVM uses weak cell keys; CLJS uses WeakRef holders whose
-bounded copied values cannot point back to the cell. React therefore keeps the
-same row/ordinal/loss evidence while an Activity-hidden cell remains retained,
-whereas an ordinary reconciliation unmount becomes collectible and cannot
-grow the projection forever. Explicitly dead cells and GC-cleared refs are
-compacted on projection reads (including unregistering the exact cleared
-holder from host finalization) with finalization as an additional husk reaper,
-not by a polling scan. The weak store is structurally tagged across HMR, so a
-constructor reload reuses its host registrations, ordinal mint and accumulated
-Activity evidence; owner-checked uninstall drops the whole registry
-immediately. Delivery freshness rides the `:rf.xray/epoch-history` input (the
-standing epoch-pump axis): the ViewCell flush runs a microtask after
-drain-settle, so a same-epoch read may trail by one pump — the cumulative
-accumulators catch up, never lose. OWNERSHIP freshness rides the separate
-`:rf.xray/viewcell-evidence-ownership` revision input (above), so a release
-/ foreign-takeover empties the query immediately, independent of epoch
-pumps.
+**Render.** One `list-row` per connected occurrence under
+`rf-xray-reactive-mounted-views-section` (rows `…-row-<index>`, empty state
+`…-empty`, caption `…-caption`, schema banner `…-schema-banner`): primary =
+view id · `occ <key>`; trailing tag = lowering · `gen N` · frame · `N reads` ·
+either the cause (`<event-id> → <sub-ids>`) or the honest reason there is none.
+`:root` renders as nothing at all rather than printing the `:unknown` marker at
+a developer.
 
-**Reset lifecycle (rf2-vxgfnd.286).** The canonical clean-slate reset tier
-(`test-support/reset-all!` → `reset-runtime!`) runs the owner-checked
-`viewcell-evidence/release-current!`, so a `core/init!` (or preload) that
-acquired the projection leaves NO tier owner, sink, retained entries or
-globalThis sentinel behind — process-global state the sentinel/ring resets
-do not otherwise touch. The release is owner-checked (never
-`force-release!`): a FOREIGN owner survives the reset intact.
+### §3.4.2 Declared view sites (static manifest projection · rf2-7gth0)
 
-**Render.** One `list-row` per incarnation under
-`rf-xray-reactive-viewcell-evidence-section` (rows `…-row-<occurrence>`, empty
-state `…-empty`, caption `…-caption`, version banner `…-version-banner`):
-primary = view name · `occ #<occurrence>` · root-id (when under a live client
-root) · the honest hide-vs-unmount lifecycle label (only for a `:disconnected`
-incarnation); trailing tag = renders · batches · epoch span `e0→eN` · cause
-union · shown-target count (`~N` when observation identity went opaque) ·
-`[≥]N dropped`.
-
-### §3.4.2 Compiled view sites (static manifest projection · rf2-vxgfnd.95.7)
-
-Below the MOUNTED VIEW EVIDENCE section, a **COMPILED VIEW SITES** section
+Below the MOUNTED VIEWS section, a **DECLARED VIEW SITES** section
 (`rf-xray-reactive-view-sites-section`, rows
-`rf-xray-reactive-view-site-row-<slug>`) surfaces the STATIC per-view manifest
-sites — the event-site provenance + dependency sites a debugging consumer reads
-BEFORE mount — for the compiled views present in the evidence (evidence-keyed:
-the `:rf.xray/view-evidence-sites` sub keys off the receipt-fenced evidence
-rows' distinct view-ids, so a substrate-free host renders no section at all,
-the silent-when-zero grammar). Each row is shaped from `view-manifest`,
-`view-dependencies`, and `view-event-sites`:
+`rf-xray-reactive-view-site-row-<slug>`) surfaces the per-view manifest sites —
+the event-site provenance + dependency sites a debugging consumer reads BEFORE
+mount — for the views present in the roster (evidence-keyed: the
+`:rf.xray/mounted-view-sites` sub keys off the roster's distinct view-ids, so a
+host with nothing connected renders no section at all, the silent-when-zero
+grammar). Each row is shaped from `read-view-manifest`,
+`read-view-dependencies` and `read-view-event-sites`:
 
-- **Source** — the manifest `:source` `[code]` chip (`…-view-site-code-<slug>`),
-  jumping to the view's registration.
-- **Dependencies** — subscription counts with a `:dynamic` tally; a fully-literal
-  query is projected verbatim, a query carrying a captured local is honestly
-  `:dynamic?` (never fabricated as a literal value).
-- **Event sites** (`…-view-site-events-<slug>`) — each `:on-*` handler classified
-  `:literal` / `:normalized` (its inspectable event vector shown) or `:dynamic`
-  (shown `(opaque)` — the tier never claims a raw callback's internals are
-  inspectable, 04 §3).
-- **Capabilities** — the manifest capability bits (`:raw`/`:html`/`:foreign`/…),
-  the "why does this view carry a client runtime?" absence story.
-- **Compile-tier a11y diagnostics** (`…-view-site-diagnostics-<slug>`, rendered in
-  the `:warning` token colour) — the compiler's `:rf.ui.compile/a11y-*` findings
-  for the view, each shown as `<finding-id> · <tag>`. This is a READ, not a
-  check: the compiler minted the stable site id and made the
-  suppressed-vs-printed call at `defview` expansion, and Xray never re-derives
-  either. A finding the author silenced with
-  `^{:rf.ui/suppress {<id> "reason"}}` still appears, trailing
-  `· suppressed: <reason>` — a suppression is an inspectable fact carrying its
-  justification, not an erasure, so a reviewer can see what was waived and why
-  without reading the source. A view with no findings renders no line at all
-  (the same silent-when-zero grammar as the section itself). Spec 004
-  §Compile-tier warnings owns the roster and the high-confidence charter;
-  rf2-74vlo (S4-C) is the delivering bead.
+- **Lowering** — `:compiled` or `:interpreted`, NAMED rather than inferred from
+  how much the row could claim.
+- **Un-analysed declarations** (`…-view-site-opaque-<slug>`) — an INTERPRETED
+  declaration has no analysis step, so its rosters are `:basis :opaque`,
+  `:complete? false`, `:loss {:reason :no-static-analysis :dropped :unknown}`.
+  The row says the sites are *unknown, not absent*, and renders no roster
+  summary over rosters nobody built. This is the axis the donor tier could not
+  state at all — its consumer skipped interpreted views entirely, so an
+  unanalysed declaration and an analysed one with no sites were
+  indistinguishable.
+- **Dependencies** (`…-view-site-subs-<slug>`) — subscription counts with a
+  dynamic tally; a fully-literal query is projected verbatim, a query carrying
+  a captured local shows the `:query-id` the compiler really does know and
+  leaves the runtime argument unsaid rather than inventing it.
+- **Event sites** (`…-view-site-events-<slug>`) — each `:on-*` handler with its
+  `:classification` and either its literal event vector or, for an `:opaque`
+  handler, the `:event-id` where the authored form has one. `:classification`
+  is what keeps the two apart: an opaque handler on a `:vector` or `:options`
+  site is an event vector with a runtime argument; on any other classification
+  it is a callback body, rendered `(opaque)`.
+- **Per-SITE source chips** (`…-view-site-sub-code-<slug>-<i>`,
+  `…-view-site-event-code-<slug>-<i>`) — the `[code]` affordance opens the
+  site's own `:source-coord`. Per SITE, not per view: the tool door publishes a
+  coordinate on each roster entry and NONE on the declaration itself, so a
+  view-level chip would have to pick one site's coordinate and present it as
+  the view's. The per-site chip is the coordinate the substrate actually states
+  and it lands the reader on the exact `v/sub` or handler. A site carrying no
+  coordinate renders no chip — absent, not dead (`:source-coord` is total or
+  absent, never partial).
+- **Facts line** (`…-view-site-facts-<slug>`) — capabilities, the compiler's
+  ViewCell verdict (`:present` / `:elided`) and the non-reactive marker.
+- **Compile-tier a11y diagnostics** (`…-view-site-diagnostics-<slug>`, rendered
+  in the `:warning` token colour) — the compiler's a11y findings for the view,
+  each shown as `<finding-id> · <tag>`. This is a READ, not a check: the
+  compiler minted the stable site id and made the suppressed-vs-printed call at
+  `defview` expansion, and Xray never re-derives either. A finding the author
+  silenced still appears, trailing `· suppressed: <reason>` — a suppression is
+  an inspectable fact carrying its justification, not an erasure. A view with
+  no findings renders no line at all (the same silent-when-zero grammar as the
+  section itself). Spec 004 §Compile-tier warnings owns the roster.
 
-This is the S3 event-site provenance surface: EP-0033's static interaction
-surface ("the inspector shows any element's event vector before it is clicked")
-lands here as manifest data, NOT as a dispatch-envelope join (the S3 producer
-emits no per-dispatch view-site tag, so the Epoch DISPATCH SITE join in the S3
-IA §2A awaits a later framework emit and is not fabricated).
+**Facts with no counterpart, and what happened to them.** The donor site row
+carried a declaration-level `:source` (the view-level `[code]` chip), a
+`:display-name` and a `:template-fingerprint`. The Freehand tool door publishes
+none of the three for a view ID: `describe` carries the declaration's source
+but takes a VALUE, and an inspector holding only an id cannot reach it. Rather
+than pick a site coordinate and present it as the view's, the view-level chip
+is REMOVED and per-site chips take its place; the display name is the view id,
+which is the name the declaration actually has; the fingerprint is simply gone.
 
-**Boundary.** tools/xray depends on the ui artefact's tool tier
-(`day8/re-frame2-ui` in deps.edn); `re-frame.ui` never depends on Xray;
-production applications pull neither (the tools/README bundle-isolation
-contract + the debug evidence plane's production elision). Under an advanced
-`goog.DEBUG=false` build the evidence namespace's private state var is nil:
-no atom, weak registry, transition lock or reset path is allocated. The
-production gate roots that private var in the compiled artefact and executes
-the assertion. A second compiled control flips a private define that creates
-and mutates an unrelatedly named `cacheline*` atom; the gate must reject that
-exact minified mutant at runtime. This is a scoped evidence-state oracle, not a
-general JavaScript heap claim (rf2-vxgfnd.149). Tool absence stays zero-cost.
+**Boundary.** tools/xray depends on the freehand artefact's tool tier
+(`day8/re-frame2-freehand` in deps.edn); `re-frame.freehand` never depends on
+Xray; production applications pull neither (the tools/README bundle-isolation
+contract + the tool door's `interop/debug-enabled?` nil-gate). Tool absence
+stays zero-cost.
+
+Xray's hiccup shell does not mount through a Freehand host's adapter:
+`re-frame.freehand.substrate` builds its adapter from
+`re-frame.substrate.spine/make-react-adapter`, so its `:render` is the spine's
+ELEMENT-shaped one and `:rf.adapter/freehand` sits in `mount`'s
+`react-element-render-kinds` refusal set beside `:rf.adapter/uix`. Reading a
+Freehand host's views and mounting Xray's own chrome into it are separate
+questions, and the refusal is what makes the second one an
+`:unsupported-substrate` diagnostic instead of an uncaught React child error.
 
 ### §3.5 Queries
 
@@ -963,7 +936,7 @@ general JavaScript heap claim (rf2-vxgfnd.149). Tool absence stays zero-cost.
 | Focused epoch record | `:rf.sub/run`, `:rf.sub/skip` (memo hit → `:subs-skipped`, §3.4), `:rf.view/render` / `:rf.view/rendered` — read from the focused epoch record's `:trace-events` (rf2-rly4a — same `focus.epoch-id` scope as Trace, so Reactive + Trace stay correlated) |
 | Registries | Sub metadata (input-paths, signal-fn), view metadata (file:line) |
 | App-db | Seed-path resolution from the epoch's diff (§4) |
-| re-frame.ui view-evidence projections | `:rf.xray/viewcell-evidence` → `viewcell-evidence/rows` — the CUMULATIVE per-incarnation render evidence Xray owns, sourced from the versioned public `re-frame.ui.tool/explain-render` (§3.4.1; NOT epoch-scoped). `:rf.xray/view-evidence-sites` → `viewcell-evidence/view-sites` — the static per-view manifest sites from `view-manifest`/`view-dependencies`/`view-event-sites`, including the manifest's compile-tier `:diagnostics` findings (§3.4.2). `:rf.xray/viewcell-evidence-version` → `version-status` — the evidence-schema version honesty read |
+| Freehand tool-door reads | `:rf.xray/mounted-views` → `mounted-views/rows` — the occurrences CONNECTED NOW (`read-mounted-views`) joined with the bounded read-time render explanation (`explain-render`); §3.4.1, NOT epoch-scoped. `:rf.xray/mounted-view-sites` → `mounted-views/view-sites` — the declared per-view sites from `read-view-manifest`/`read-view-dependencies`/`read-view-event-sites`, including the manifest's compile-tier `:diagnostics` findings (§3.4.2). `:rf.xray/mounted-views-schema` → `schema-status` — the evidence-schema honesty read |
 
 Recompute edges resolve from `:rf.sub/run`: **`:rf.sub/cause-sub`** is the sub→sub edge
 (nil ⇒ Level-1, non-nil ⇒ Level-2) and **`:rf.sub/reader-render-key`** is the sub→view edge;

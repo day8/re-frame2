@@ -97,13 +97,13 @@ code and is now running NEW code that adds a handler the old install
 never ran"*. On `:after-load` the umbrella gate no-ops the whole leaf
 install, so a handler introduced by newer code — kept inside a per-panel
 `install!` — never reaches the already-registered process; it stays
-behind until a full page reload. The ViewCell evidence reactivity bridge
+behind until a full page reload. The Views panel's view-evidence bridge
 stranded exactly this way in a pre-#5915 → current live upgrade: the
 umbrella was set, so the reloaded preload's `register-xray-handlers!`
-no-op'd, leaving the old epoch-only `:rf.xray/viewcell-evidence` sub
-cached and the ownership event/sub/listener + two-input evidence sub
-uninstalled — an evidence acquire/release could not invalidate a held
-Views subscription until an unrelated epoch pump.
+no-op'd, leaving the process's cached evidence sub at its old topology and
+the bridge's newer registrations uninstalled — so a change the bridge was
+supposed to make reactive could not invalidate a held Views subscription
+until an unrelated epoch pump.
 
 The fix is a SECOND axis alongside the boolean gate — a
 `schema-version` integer plus an `installed-schema` `defonce` stamp:
@@ -121,8 +121,7 @@ The fix is a SECOND axis alongside the boolean gate — a
   and only for a process that is behind.
 - Once at `schema-version` (a fresh boot, or a completed upgrade) the
   seam no-ops, so a current process re-loading itself emits no
-  handler-replaced flood and installs exactly one of each singleton sink
-  (e.g. the evidence ownership listener).
+  handler-replaced flood and installs exactly one of each singleton sink.
 
 Bump `schema-version` and pair it with a `migrate-schema!` clause
 whenever a gated registration change would otherwise strand an
@@ -133,20 +132,24 @@ no-ops it because the id is unchanged, and the name-set snapshots don't see
 it because the id is unchanged — rf2-sa8j3). A migration clause is idempotent
 because re-frame's registrar replaces each handler in place, and replacing a
 sub also **evicts its stale cache** via the registrar replacement-hook, so a
-held subscription rebuilds against the new body without a reload. Version `1`
-is the ViewCell evidence reactivity bridge; version `2` (rf2-vxgfnd.95.7) adds
-the S3 view-evidence consumption subs `:rf.xray/viewcell-evidence-version` +
-`:rf.xray/view-evidence-sites` to that same bridge (see
-[spec/021 §3.4.1–§3.4.2](./021-Dynamic-Panel-Designs.md)), both installed via
-`reactive-panel/install-viewcell-evidence-bridge!` so the bridge stays
-panel-owned; version `3` (rf2-sa8j3) is the first REPLACEMENT delta — the
+held subscription rebuilds against the new body without a reload. Versions `1`
+and `2` were the donor view-evidence bridge and its later consumption subs;
+rf2-7gth0 deleted both along with the donor ownership plane they published, so
+neither carries a migration clause any more — their history entries stay so the
+numbering remains a record rather than a sequence that renumbers itself.
+Version `3` (rf2-sa8j3) is the first REPLACEMENT delta — the
 `:rf.xray/reactive-data` sub grew from two inputs to four (the panel-local
 `:rf.xray/reactive-show-unchanged?` quick-toggle + the Settings
 show-unchanged pin), so the clause re-runs the owning `reactive-panel`
 facade's `install!` to re-register it (evicting the stale two-input
-reaction). `migrate-schema!` reaches each delta through the `reactive-panel`
-facade the orchestrator already requires (the idempotent re-install applies
-only the missing/changed delta).
+reaction). Version `4` (rf2-7gth0) is the Freehand tool-door cutover — three
+NEW sub ids (`:rf.xray/mounted-views`, `:rf.xray/mounted-views-schema`,
+`:rf.xray/mounted-view-sites`) replacing the donor evidence subs and their
+ownership event/sub pair, installed via
+`reactive-panel/install-mounted-views-subs!` so the reads stay panel-owned.
+`migrate-schema!` reaches each delta through the `reactive-panel` facade the
+orchestrator already requires (the idempotent re-install applies only the
+missing/changed delta).
 
 Tests drive the upgrade via `registry/simulate-legacy-registration!`
 (test-only: poses the umbrella-set / no-schema-stamp sentinels of a pre-#5915
