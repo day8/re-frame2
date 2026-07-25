@@ -67,22 +67,64 @@ splat (`*rest`), root (`/`).
 `:params` and `:query` take [schemas](../core/how-to/validate-with-schemas.md) that
 **validate and coerce** — `?page=2` arrives as integer `2`.
 
-<a id="carrying-global-state-through-the-url"></a>
-
 ```clojure
 (rf/reg-route :app/search
   {:query          [:map [:q :string] [:page {:optional true} :int]]
-   :query-defaults {:page 1}
-   :query-retain   #{:theme :locale}}   ;; ride along on later navigations
+   :query-defaults {:page 1}}          ;; fills :page in when the URL omits it
   "/search")
 ```
 
 Path params and query params stay **separate maps** end to end.
 
-!!! warning "Retained query keys aren't re-coerced"
+`:query-defaults` is **destination-local** — it describes this route's own query.
+No metadata key reaches into another route's query.
 
-    `:query-retain` merges keys **verbatim** into the next URL. Keep types consistent
-    across routes that retain them.
+### Carrying global state through the URL
+
+A destination address is taken **literally**. `[:rf.route/navigate {:to :app/cart}]`
+goes to exactly `/cart`; it never picks up query keys from whichever route happened
+to be current.
+
+Apps really do carry a theme, a locale, a tenant across routes. That is *your*
+policy, so write it as an ordinary function:
+
+```clojure
+(defn with-shell-query
+  "Carry the shell's global URL state onto a destination address.
+   The explicit destination query wins."
+  [current-query address]
+  (update address :query
+          (fn [destination-query]
+            (merge (select-keys current-query [:theme :locale])
+                   (or destination-query {})))))
+
+(rf/dispatch [:rf.route/navigate
+              (with-shell-query @(rf/subscribe [:rf.route/query]) {:to :app/cart})])
+```
+
+Read the dispatch and you know the URL — the carried keys are right there in the
+address. It is a plain pure function, so `(with-shell-query {:theme "dark"} {:to :app/cart})`
+is a one-line unit test with no frame and no router. Opting out is not calling it.
+
+If the policy is genuinely app-wide, apply the helper inside your own navigation
+event or an interceptor instead of at every call site. Either way it stays one
+function you own.
+
+!!! tip "Two things to get right"
+
+    **Tolerate a missing `:query`.** `{:to :app/cart}` is the normal spelling, and a
+    destination replayed out of a pending-leave value omits an empty `:query`
+    entirely — hence the `(or destination-query {})`.
+
+    **Keep a carried key's type consistent.** A value pulled from the current query
+    slice has already been coerced by *that* route's schema — an `[:enum :light :dark]`
+    key is the keyword `:dark`, not `"dark"`. The helper merges; it does not re-parse.
+    A mismatch is caught, not silent: the destination route's `:query` schema validates
+    at the call site and rejects the navigation.
+
+To edit the **current** route's query instead of building a new address, use the
+in-place `:query` / `:query-merge` request — that is the causal primitive for
+"same page, different query".
 
 ### Routes are queryable data
 
@@ -111,8 +153,8 @@ doors are covered).
 
 | Group | Keys | Controls |
 |---|---|---|
-| **Shape** | `:params`, `:query`, `:query-defaults`, `:query-retain` | URL ↔ maps |
-| **Lifecycle** | `:on-match`, `:on-error`, `:can-leave`, `:can-enter` | Activate / error / guards |
+| **Shape** | `:params`, `:query`, `:query-defaults` | URL ↔ maps |
+| **Lifecycle** | `:on-match`, `:can-leave`, `:can-enter` | Activate / guards |
 | **Layout** | `:doc`, `:parent`, `:tags`, `:scroll` | Nesting, grouping, scroll |
 | **Classification** | `:sensitive`, `:large` | Egress redaction of the route slice |
 | **Borrowed** | `:resources` (resources artefact), `:head` ([SSR head](../ssr/head.md)) | Server state / head model |

@@ -19,7 +19,8 @@
   publish (the same `:rf.db/runtime` commit), it is read ONLY at egress (the
   handler / subs always see real values), and it never leaks across a route
   change (the singleton drop)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.privacy :as privacy]
@@ -523,7 +524,7 @@
 ;; ===========================================================================
 ;; (rf2-x1x5am) reg-route-time query-key promotion ADVISORY. A :sensitive /
 ;; :large [:query k] path on a route that does NOT promote `k` to a keyword
-;; (via :query / :query-defaults / :query-retain) silently fails open; the
+;; (via :query / :query-defaults) silently fails open; the
 ;; advisory is a WARN (never a throw — fail-open is intended). These pin the
 ;; advisory fires for the footgun and stays quiet for the correct pairing.
 ;; ===========================================================================
@@ -563,19 +564,42 @@
                                     "/advok"))]
       (is (empty? warnings) "no advisory when the query key is promoted"))))
 
-(deftest advisory-honours-defaults-and-retain-promotion
-  (testing "rf2-x1x5am: :query-defaults and :query-retain also count as
-            promotion — a key declared in either does NOT trigger the advisory"
+(deftest advisory-honours-defaults-promotion
+  (testing "rf2-x1x5am: :query-defaults also counts as promotion — a key
+            declared there does NOT trigger the advisory"
     (is (empty? (capture-warnings
                   #(rf/reg-route :route/advdef
                                  {:sensitive [[:query :page]] :query-defaults {:page 1}}
                                  "/advdef")))
-        ":query-defaults promotes :page → no advisory")
+        ":query-defaults promotes :page → no advisory")))
+
+(deftest advisory-vocabulary-is-two-sources-not-three
+  (testing "EP-0037 R5: the promotion vocabulary shrank from THREE sources to
+            TWO. `:query-retain` is retired, so it neither widens the promoted
+            set nor appears in the advice text. A key that used to be promoted
+            solely because `:query-retain` named it now WARNS until the route
+            declares it in :query or :query-defaults."
+    (let [warnings (capture-warnings
+                     #(rf/reg-route :route/advret
+                                    {:sensitive [[:query :ref]]}
+                                    "/advret"))]
+      (is (= 1 (count warnings))
+          "a classified query key with no :query / :query-defaults declaration warns")
+      (let [{:keys [query-keys promoted-keys advice]} (first warnings)]
+        (is (= [:ref] query-keys) "the unpromoted key is named")
+        (is (empty? promoted-keys) "nothing promotes it — the retain slot is gone")
+        (is (str/includes? advice ":query / :query-defaults")
+            "the advice names exactly the two surviving promotion sources")
+        (is (not (str/includes? advice ":query-retain"))
+            "the retired key is absent from the advice vocabulary")))
+    ;; The migration the EP requires: DECLARE the key, and the advisory falls
+    ;; silent — the same key is now keyword-promoted for real.
     (is (empty? (capture-warnings
-                  #(rf/reg-route :route/advret
-                                 {:sensitive [[:query :ref]] :query-retain [:ref]}
-                                 "/advret")))
-        ":query-retain promotes :ref → no advisory")))
+                  #(rf/reg-route :route/advret-migrated
+                                 {:sensitive [[:query :ref]]
+                                  :query     [:map [:ref {:optional true} :string]]}
+                                 "/advret-migrated")))
+        "declaring :ref in the :query schema is the explicit migration")))
 
 (deftest advisory-fires-for-string-segment-and-large-axis
   (testing "rf2-x1x5am: a STRING [:query \"token\"] segment (can never be a

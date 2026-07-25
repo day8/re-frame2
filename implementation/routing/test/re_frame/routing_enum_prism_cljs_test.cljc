@@ -67,19 +67,19 @@
           "match-url recovers the canonical enum keyword on the path side")
       (is (false? (:validation-failed? m))))))
 
-(deftest keyword-enum-query-retain-round-trips-cross-host
-  (testing "a `:query-retain` enum value carried as a KEYWORD into a target
-            route-url round-trips (match-url interned it; route-url re-emits
-            its token name) on BOTH hosts"
+(deftest keyword-enum-carried-query-value-round-trips-cross-host
+  (testing "an enum query value carried as a KEYWORD into a target route-url
+            round-trips (match-url interned it; route-url re-emits its token
+            name) on BOTH hosts. EP-0037 R5: the carry is the application's
+            explicit fold over the destination address."
     (rf/reg-route :route/list
-                  {:query        [:map [:sort [:enum :asc :desc]]]
-                   :query-retain [:sort]} "/list")
-    (let [retained (get-in (routing/match-url "/list?sort=asc") [:query :sort])]
-      (is (= :asc retained)
-          "the retained value is the coerced KEYWORD, not a string")
-      (let [u (routing/route-url {:to :route/list :params {} :query {:sort retained}})]
+                  {:query [:map [:sort [:enum :asc :desc]]]} "/list")
+    (let [carried (get-in (routing/match-url "/list?sort=asc") [:query :sort])]
+      (is (= :asc carried)
+          "the carried value is the coerced KEYWORD, not a string")
+      (let [u (routing/route-url {:to :route/list :params {} :query {:sort carried}})]
         (is (= "/list?sort=asc" u)
-            "the retained keyword re-emits as its token name")
+            "the carried keyword re-emits as its token name")
         (is (= :asc (get-in (routing/match-url u) [:query :sort])))))))
 
 (deftest invalid-keyword-enum-fails-validation-cross-host

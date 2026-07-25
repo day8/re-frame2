@@ -8,7 +8,9 @@
   `:query-merge`. A destination request (`:to` / `:url`) builds a FRESH
   address; an in-place request (neither) PATCHES the current location.
   Honours :can-leave and :can-enter, :params/:query validation, scroll
-  resolution, :query-retain merge, and the rule-3 no-op short-circuit.
+  resolution, the in-place :query-merge fold, and the rule-3 no-op
+  short-circuit. A destination address is taken LITERALLY: no ambient
+  current-route query is folded into it (EP-0037 R5).
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `events/reg-event :rf.route/navigate` call so a
@@ -218,8 +220,8 @@
                   {:where 'rf.route/navigate-handler})
           rdb  (or rdb-raw {})
           ;; The current route slice (durable framework runtime-db fact). Read
-          ;; once so the in-place patch, `:query-retain`, and `:query-merge`
-          ;; all resolve against it.
+          ;; once so the in-place patch and `:query-merge` both resolve
+          ;; against it.
           current (get-in rdb [:rf.runtime/routing :current])
           ;; Guarded on `map?` so a non-map payload never reaches the request
           ;; gate (a raw host throw) -- the event-shape gate rejects it first
@@ -340,16 +342,17 @@
                               (assoc path-params :url unmatched-url)
                               path-params)
               route-meta (registrar/lookup :route route-id)
-              ;; `:query-retain` on the resolved route carries retain keys from
-              ;; the current query into a FRESH DESTINATION address (rf2-u8t3s);
-              ;; caller values win. It does NOT apply to an in-place request --
-              ;; the current query is already the base there, and a wholesale
-              ;; `:query {}` must be able to clear it.
-              retain-keys (:query-retain route-meta)
-              retained    (when (and destination? (seq retain-keys))
-                            (select-keys (get-in rdb [:rf.runtime/routing :current :query])
-                                         retain-keys))
-              query-params (if (seq retained) (merge retained query-params) query-params)
+              ;; EP-0037 R5: a DESTINATION address is taken literally. The
+              ;; router no longer folds ambient current-route query state into
+              ;; a fresh destination -- the retired `:query-retain` metadata
+              ;; did exactly that, so an authored `{:to :route/cart}` silently
+              ;; grew keys from whichever route happened to be current. An
+              ;; application that deliberately carries global URL state spells
+              ;; it as an ordinary pure function over the address before
+              ;; dispatch (Spec 012 §Carrying query state across routes). The
+              ;; in-place `:query` / `:query-merge` edits below are the causal
+              ;; primitive for editing the CURRENT query and are unchanged.
+              ;;
               ;; `:query-merge` (in-place only, gated above) folds the caller's
               ;; deltas over the current query; a nil value removes a key. Strip
               ;; nil-valued query keys on EVERY branch so the written slice

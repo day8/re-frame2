@@ -130,7 +130,7 @@ Here's the mental shift, and it's the whole numbered-pages trick: **changing pag
 
 Notice the event has *no fetch in it* — no HTTP, no resource call. It just navigates. The route declaration from step 2 turns that navigation into the right `ensure`. That's the split doing its job, and it's why the [event handler](../../core/glossary.md#event-handler) stays a pure function returning a tiny [effect map](../../core/glossary.md#effect-map).
 
-A filter — a tag, a search term — is just one more params key and one more query param. Carry it across page changes with the route's `:query-retain` (a set of query keys the router threads through subsequent navigations even when the caller didn't supply them). But reset to page 1 when the *filter* changes, because a new filter is a fresh list, and "page 2 of the old filter" means nothing. That reset is just a navigation that drops `:page` while setting the new filter:
+A filter — a tag, a search term — is just one more params key and one more query param. To carry it across page changes, put it in the address you dispatch — either an in-place `:query-merge` (same route, edit one key) or a small pure helper that folds the current filter onto the destination ([Carrying global state through the URL](../../routing/concepts.md#carrying-global-state-through-the-url)). But reset to page 1 when the *filter* changes, because a new filter is a fresh list, and "page 2 of the old filter" means nothing. That reset is just a navigation that drops `:page` while setting the new filter:
 
 ```clojure
 (rf/reg-event :home/set-tag

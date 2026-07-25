@@ -1397,21 +1397,23 @@
             "match-url recovers the canonical enum keyword on the path side")
         (is (false? (:validation-failed? m)))))))
 
-(deftest rf2-dcmkke-keyword-enum-query-retain-round-trips
-  (testing "a `:query-retain` enum value (carried as a KEYWORD from a prior
-            match-url into a target route-url) round-trips. match-url coerces
-            `sort=asc` to `:asc`; route-url must then re-emit `:asc` as `asc`."
+(deftest rf2-dcmkke-keyword-enum-carried-query-value-round-trips
+  (testing "an enum query value CARRIED as a KEYWORD from a prior match-url into
+            a target route-url round-trips. match-url coerces `sort=asc` to
+            `:asc`; route-url must then re-emit `:asc` as `asc`. EP-0037 R5: the
+            carry is the application's explicit fold over the destination
+            address, not the retired `:query-retain` metadata — the prism law
+            being pinned is identical either way."
     (rf/reg-route :route/list
-                  {:query         [:map [:sort [:enum :asc :desc]]]
-                   :query-retain  [:sort]} "/list")
-    ;; Simulate the retain flow: the retained value arrives as a KEYWORD
-    ;; (match-url already interned it from the source URL's `sort=asc`).
-    (let [retained (get-in (routing/match-url "/list?sort=asc") [:query :sort])]
-      (is (= :asc retained)
-          "the retained value is the coerced KEYWORD, not a string")
-      (let [u (routing/route-url {:to :route/list :params {} :query {:sort retained}})]
+                  {:query [:map [:sort [:enum :asc :desc]]]} "/list")
+    ;; The carried value arrives as a KEYWORD (match-url already interned it
+    ;; from the source URL's `sort=asc`).
+    (let [carried (get-in (routing/match-url "/list?sort=asc") [:query :sort])]
+      (is (= :asc carried)
+          "the carried value is the coerced KEYWORD, not a string")
+      (let [u (routing/route-url {:to :route/list :params {} :query {:sort carried}})]
         (is (= "/list?sort=asc" u)
-            "the retained keyword re-emits as its token name (round-trips)")
+            "the carried keyword re-emits as its token name (round-trips)")
         (is (= :asc (get-in (routing/match-url u) [:query :sort])))))))
 
 (deftest rf2-dcmkke-invalid-keyword-enum-still-fails-validation
@@ -1456,14 +1458,14 @@
 ;; N-unique query keys burning N permanent slots on a long-running SSR
 ;; JVM) is closed at the source by SELECTIVE KEYWORDING — `coerce-query`
 ;; promotes ONLY keys declared by the route's `:query` schema /
-;; `:query-defaults` / `:query-retain` to keyword keys; every undeclared
+;; `:query-defaults` to keyword keys; every undeclared
 ;; URL key passes through as a **string**, so a hostile URL of N-unique
 ;; undeclared keys interns ZERO keywords. No raw-query-size cap is needed
 ;; (rf2-x0ngkv removed the redundant `default-max-decoded-keys` ceiling).
 ;; The remaining defences:
 ;;
 ;; 1. Selective keywording — only keys declared by the route's `:query`
-;;    schema / `:query-defaults` / `:query-retain` are promoted to keyword
+;;    schema / `:query-defaults` are promoted to keyword
 ;;    keys. Unknown keys stay as **string** keys. (This IS the closure.)
 ;; 2. `:keyword`-typed value gate — `[:enum :a :b ...]` is the bounded
 ;;    keyword-allowlist path (values matching a declared choice intern,
@@ -1545,9 +1547,9 @@
 ;;
 ;; Per Spec 012 §Query strings and fragments and the rf2-tfgdv security
 ;; review: a route declaring NO query vocabulary at all (no `:query` /
-;; `:query-defaults` / `:query-retain`) keeps every URL key as a string.
+;; `:query-defaults`) keeps every URL key as a string.
 ;; Authors who want keyword keys declare them via `:query` /
-;; `:query-defaults` / `:query-retain` — author-named intent is the
+;; `:query-defaults` — author-named intent is the
 ;; trust boundary. Symmetrical to the rf2-3k3o7 value-side fix: hostile
 ;; URLs composed of N-unique keys would otherwise burn N permanent JVM
 ;; keyword slots, and a bare `(reg-route :route/x {} "/x")` is the
@@ -2465,6 +2467,29 @@
       (is (= [:on-error] (:keys (ex-data ex)))
           ":keys names exactly the retired key"))))
 
+(deftest reg-route-rejects-retired-query-retain-key
+  (testing "EP-0037 R5: route metadata :query-retain is RETIRED with no alias —
+            a route declaring it is rejected at registration as an unknown bare
+            key (:rf.error/route-bad-metadata), not silently accepted. Carrying
+            query state across routes is an APPLICATION policy spelled as a pure
+            function over the destination address (Spec 012 §Carrying query
+            state across routes); a stale route cannot keep the donor semantics."
+    (let [ex (try
+               (rf/reg-route :route/legacy-query-retain
+                             {:query-retain #{:theme :locale}} "/legacy")
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "reg-route THROWS on the retired :query-retain key")
+      (is (= :rf.error/route-bad-metadata (:rf.error/id (ex-data ex)))
+          "the canonical thrown-error id discriminates the failure")
+      (is (= [:query-retain] (:keys (ex-data ex)))
+          ":keys names exactly the retired key")
+      (is (not (contains? (set (:reserved (ex-data ex))) :query-retain))
+          "the reserved vocabulary the error prints no longer offers :query-retain")
+      (is (contains? (set (:reserved (ex-data ex))) :query-defaults)
+          ":query-defaults survives the cut — only the retain slot is retired"))))
+
 (deftest reg-route-accepts-valid-and-namespaced-metadata
   (testing "rf2-45b95: a route using only reserved keys + namespaced
             host/app keys registers fine (no false positives)"
@@ -2474,7 +2499,6 @@
                           :params         [:map [:id :string]]
                           :query          [:map [:q {:optional true} :string]]
                           :query-defaults {:q "x"}
-                          :query-retain   #{:theme}
                           :tags           #{:public}
                           :on-match       [[:load]]
                           :scroll         :top

@@ -81,8 +81,8 @@
   A route declares classification paths PROJECTION-RELATIVE to its
   `{:query … :params …}` shape, so a `:sensitive [[:query :token]]` names the
   KEYWORD key `:token`. But the runtime query slice keys a query key as a
-  KEYWORD only when the route PROMOTES it via its `:query` schema /
-  `:query-defaults` / `:query-retain` (`re-frame.routing.registry/coerce-query`);
+  KEYWORD only when the route PROMOTES it via its `:query` schema or
+  `:query-defaults` (`re-frame.routing.registry/coerce-query`);
   an undeclared key stays a string. So a `:sensitive [[:query
   :token]]` path on a route that does NOT name `:token` in its query vocabulary
   SILENTLY FAILS OPEN — the re-rooted keyword decl never matches the runtime
@@ -330,9 +330,12 @@
 ;;
 ;; A reg-route-time WARNING (never a throw) that closes the EP-0025 query-key
 ;; footgun: a `:sensitive` / `:large` `[:query k]` path on a route that does NOT
-;; promote `k` to a keyword (via `:query` / `:query-defaults` / `:query-retain`)
+;; promote `k` to a keyword (via `:query` / `:query-defaults`)
 ;; silently fails open at egress — the keyword decl never matches the runtime
 ;; STRING key. PARAMS are immune (always keyword-keyed), so this is query-only.
+;; EP-0037 R5 shrank the promotion vocabulary from three sources to two: the
+;; retired `:query-retain` no longer promotes anything, so a key that was only
+;; keyword-promoted through it now WARNS until the route declares it.
 
 (defn unpromoted-query-keys
   "Return the set of query keys a route's `classification` (the
@@ -361,7 +364,7 @@
   "Emit a `:rf.warning/route-classification-query-key-unpromoted` advisory
   when `route-meta`'s `:sensitive` / `:large` classification names
   a `[:query k]` path whose query key `k` the route does NOT promote to a
-  keyword via `:query` / `:query-defaults` / `:query-retain` (`promoted-keys`).
+  keyword via `:query` / `:query-defaults` (`promoted-keys`).
   Such a path silently FAILS OPEN at egress — the keyword decl never matches the
   runtime string key, shipping the value raw with no signal. This is an
   authoring footgun, not a contract break (EP-0025 blesses fail-open as the
@@ -370,7 +373,7 @@
   A no-op when the route declares no classification, names no `[:query k]` path,
   or promotes every classified query key. `route-id` names the route on the
   trace; `promoted-keys` is the route's declared query vocabulary (the keyword
-  keys of `:query` / `:query-defaults` / `:query-retain`). Returns nil."
+  keys of `:query` / `:query-defaults`). Returns nil."
   [route-id route-meta promoted-keys]
   (when-some [classification (validate+extract route-id route-meta)]
     (let [missing (unpromoted-query-keys classification promoted-keys)]
@@ -381,7 +384,7 @@
                       :promoted-keys (vec (sort-by str promoted-keys))
                       :advice        (str "route " route-id " declares a :sensitive / :large "
                                           "[:query k] path for query key(s) it does not promote "
-                                          "to a keyword via :query / :query-defaults / :query-retain. "
+                                          "to a keyword via :query / :query-defaults. "
                                           "An unpromoted query key stays a STRING in the route slice, "
                                           "so the keyword classification path never matches it and the "
                                           "value SILENTLY ships raw at egress (EP-0025 fail-open). Add "
