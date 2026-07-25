@@ -1013,12 +1013,16 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; registration whose arg shape is not one of the three accepted forms
   ;; (app-db reader / static `:<-` / parametric two-function). Registration-
   ;; time / dev-only — does NOT ride the production error-emit listener.
+  ;;
+  ;; No `:frame`: `reg-sub` stamps none, and registration runs outside any
+  ;; drain, so `build-event`'s ambient `stamp-frame` supplies none either. The
+  ;; envelope's own optional `[:tags :frame]` covers the degenerate case of a
+  ;; registration performed inside a run; it is not a slot this category carries.
   [:map
    [:category   [:= :rf.error/reg-sub-bad-args]]
    [:rf.sub/id  :keyword]
    [:received   :any]                       ;; the offending arg shape
-   [:reason     :string]
-   [:frame      {:optional true} :keyword]])
+   [:reason     :string]])
 
 (def SubInputFnExceptionTags
   ;; Per Spec 009 §Error catalogue (`:rf.error/sub-input-fn-exception`): a
@@ -1444,11 +1448,15 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:offending-value :any]])
 
 (def MachineGrammarNotInV1Tags
+  ;; No `:substitute` slot: [005 §Capability matrix](005-StateMachines.md#capability-matrix)
+  ;; states this category's tag map exactly, and the substitute PATTERN for an
+  ;; unclaimed feature is prose in CP-5-MachineGuide, not a payload key. The v1
+  ;; CLJS reference claims every capability, so it never emits this row — a
+  ;; PORT that declines one does, and it has no substitute string to supply.
   [:map
    [:category   :keyword]
    [:machine-id :keyword]
-   [:feature    :keyword]
-   [:substitute {:optional true} :string]])
+   [:feature    :keyword]])
 
 ;; The benign unhandled-event no-op (xstate-v5 parity). Op-type
 ;; `:rf.machine`, operation `:rf.machine.event/unhandled-no-op`; NOT an error.
@@ -1585,11 +1593,22 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:rank        :any]])     ;; the tied rules-1-5 structural tuple (:rf/route-rank)
 
 (def StaleSuppressedTags
+  ;; The NAV-TOKEN category (`:rf.route.nav-token/stale-suppressed`) and no
+  ;; other. `:rf.http/stale-suppressed` shares the name part but not the
+  ;; payload — it is an `:info` reply-family trace carrying the
+  ;; `:rf.reply/*` vocabulary, and has no schema here. A name-derived
+  ;; catalogue↔schema pairing must therefore key off the whole `:operation`,
+  ;; not its name half.
+  ;;
+  ;; `re-frame.routing.nav-token` stamps the correlation slot as
+  ;; `:rf.trace/event-id` — the cross-cutting correlation spelling, per
+  ;; [Conventions §`:rf.trace/*`](Conventions.md#the-single-root-reserved-set)
+  ;; — never the bare `:event-id`.
   [:map
-   [:category      :keyword]
-   [:carried-token :any]
-   [:current-token :any]
-   [:event-id      {:optional true} :keyword]])
+   [:category          :keyword]
+   [:carried-token     :any]
+   [:current-token     :any]
+   [:rf.trace/event-id {:optional true} :keyword]])
 
 ;; --- runtime: resource errors (per [016](016-Resources.md)) ---
 ;; The optional Resources artefact's fail-closed error vocabulary. Scope
