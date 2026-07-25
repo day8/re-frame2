@@ -28,10 +28,14 @@
 #   the dispatched worker still owe their own pre-merge verification;
 #   this catches the silent-cron-only class of failure that the
 #   pre-merge check cannot surface.
-# - It does not run release workflows. `release.yml`,
-#   `release-xray.yml`, and `template-release.yml` are tag-triggered
-#   and would publish artefacts if dispatched against a non-release
-#   ref. Skipped via the EXCLUDE list below.
+# - It does not run release workflows. `release.yml`, `release-xray.yml`,
+#   `release-story.yml`, `release-machines-viz.yml` and
+#   `template-release.yml` are tag-triggered and would publish artefacts
+#   if dispatched against a non-release ref. Skipped via the EXCLUDE list
+#   below. (None of them declares `workflow_dispatch:`, so the dispatch
+#   guard further down would skip them anyway — the EXCLUDE entries are
+#   the belt to that braces, and the publish is irreversible, so the list
+#   is kept complete rather than relying on the second check alone.)
 # - It does not run `test.yml` or `docs.yml` re-dispatched against
 #   the merge commit — both already run on the same push event
 #   (assuming their `paths` filters allow it). Re-dispatching would
@@ -115,6 +119,8 @@ jobs:
             "post-merge-workflow-sanity.yml"  # self
             "release.yml"                     # tag-triggered → publishes
             "release-xray.yml"                # tag-triggered → publishes
+            "release-story.yml"               # tag-triggered → publishes
+            "release-machines-viz.yml"        # tag-triggered → publishes
             "template-release.yml"            # tag-triggered → publishes
             "test.yml"                        # already runs on push
             "docs.yml"                        # already runs on push (paths-filtered)

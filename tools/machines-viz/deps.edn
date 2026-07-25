@@ -81,8 +81,23 @@
                         :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
           :main-opts  ["-m" "noahtheduke.clein"]}
 
+  ;; rf2-4u3t1 — `:main` is REQUIRED by the day8 clein fork's
+  ;; `:noahtheduke.clein.specs/build-opts` spec. Without it every clein
+  ;; invocation in this directory aborts before doing any work:
+  ;;
+  ;;   Error in the :clein/build map: {…} - failed: (contains? % :main)
+  ;;
+  ;; So `day8/re-frame2-machines-viz` was not merely un-deployed (no
+  ;; workflow published it, which release-machines-viz.yml now fixes) —
+  ;; it was un-BUILDABLE. The lockstep gate could not see that: it reads
+  ;; `:version` and the `:local/root` coordinates, never whether clein
+  ;; would accept the map. `chart` is the artefact's primary public
+  ;; surface (`spec/API.md` §MachineChart), which is the same
+  ;; convention tools/story/deps.edn follows with `:main re-frame.story`
+  ;; — for a library jar this only populates the manifest's Main-Class.
   :clein/build
   {:lib      day8/re-frame2-machines-viz
+   :main     day8.re-frame2-machines-viz.chart
    :url      "https://github.com/day8/re-frame2"
    :version  "../../VERSION"
    :license  {:name "MIT"
