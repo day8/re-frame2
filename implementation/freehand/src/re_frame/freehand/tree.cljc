@@ -285,6 +285,34 @@
    :children (vec (apply node/children xs))})
 
 ;; ---------------------------------------------------------------------------
+;; The host crossing — the structural half of `v/defhost`
+;; ---------------------------------------------------------------------------
+
+(defn- host-node
+  "The structural node for a `v/defhost` crossing (D022 §Structure and SSR).
+
+  Freehand never runs the registered React component on the JVM, so this
+  walk does exactly two things: it splits the call into its three planes
+  through the ONE common normalizer both emitters use, and it walks the
+  DECLARED SSR fallback — never the component, never the caller's children,
+  never a host value. `:client-only` walks nothing at all, which is the
+  honest projection of a declaration that said there is no server content."
+  [head form]
+  (let [entry    (descriptor/host-entry head)
+        call     (descriptor/normalize-host-call head (rest form))
+        ssr      (:ssr entry)
+        spelling (descriptor/host-ssr-spelling ssr)]
+    (node/host (:host-id entry)
+               spelling
+               (:props call)
+               (contains? entry :map-props)
+               (:keyed? call)
+               (:key call)
+               (count (:children call))
+               (when (= :fallback spelling)
+                 (children [(:fallback ssr)])))))
+
+;; ---------------------------------------------------------------------------
 ;; The walk
 ;; ---------------------------------------------------------------------------
 
@@ -336,12 +364,7 @@
                      ;; walk itself, not around an already-built subtree.
                      (mount-error-boundary head args)
                      (node/mount head (cons (first args) (children (rest args))))))
-        :host    (malformed!
-                   (str "A declared host descriptor is a legal vector head, but the v1 node set "
-                        "carries no host variant — a foreign boundary's structural and SSR "
-                        "policy is declared at the host boundary, and that declaration lands "
-                        "with the host-lifecycle slice.")
-                   {:value (shape head)})))))
+        :host    (host-node head form)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The mount seam — one call, either mode
@@ -518,6 +541,18 @@
                       {:capability :behavior
                        :view-id    view-id
                        :behavior   (:use (:props n))})
+                    ;; A `v/defhost` crossing (D022). The registered React
+                    ;; component runs in the BROWSER and nowhere else, so a
+                    ;; static page folds it to its declared SSR projection —
+                    ;; a fallback, or nothing — and no client ever replaces
+                    ;; that with the component. Refused on the same law as a
+                    ;; behavior, and for the same reason: shipping the
+                    ;; stand-in as the final answer is a silent elision of
+                    ;; the thing the author actually mounted.
+                    (when-let [host-id (:rf.ui/host n)]
+                      {:capability :host
+                       :view-id    view-id
+                       :host       host-id})
                     (when (seq (:events n))
                       {:capability :handler
                        :view-id    view-id
@@ -545,7 +580,7 @@
      marker on a non-hydrating page ships a node whose behavior never connects
      (rf2-drpa3.116)."
      [tree]
-     (if-let [{:keys [capability view-id tag handlers behavior]}
+     (if-let [{:keys [capability view-id tag handlers behavior host]}
               (live-capability-site tree)]
        (error/throw-error!
         :rf.error/static-render-requires-runtime
@@ -556,7 +591,9 @@
                               (str/join ", " (map str handlers))
                               (when tag (str " on " tag)))
                :behavior (str "v/behavior attachment it cannot honour"
-                              (when behavior (str " (" behavior ")"))))
+                              (when behavior (str " (" behavior ")")))
+               :host     (str "v/defhost crossing it cannot honour"
+                              (when host (str " (" host ")"))))
              (when view-id (str " in view " view-id))
              ". render-static is the pure :server static-HTML path — it emits no "
              "hydration payload, so "
@@ -565,7 +602,11 @@
                               "it away would ship a control that does nothing. ")
                :behavior (str "no client ever connects the behavior and folding it "
                               "to an inert marker would ship a node whose host "
-                              "lifecycle never runs. "))
+                              "lifecycle never runs. ")
+               :host     (str "Freehand never executes the registered React "
+                              "component on the JVM, so no client ever replaces "
+                              "the host's declared SSR projection and the page "
+                              "would ship the stand-in as its final answer. "))
              "Mount this tree in the browser with v/mount / v/hydrate-root, or "
              "move the live subtree behind a v/client-only with a capability-free "
              "fallback.")
@@ -574,7 +615,8 @@
                      view-id  (assoc :view-id view-id)
                      tag      (assoc :tag tag)
                      handlers (assoc :handlers handlers)
-                     behavior (assoc :behavior behavior))})
+                     behavior (assoc :behavior behavior)
+                     host     (assoc :host host))})
        tree)))
 
 #?(:clj

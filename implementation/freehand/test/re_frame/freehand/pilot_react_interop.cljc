@@ -19,12 +19,13 @@
   | registered behavior          | opaque, mutable host state over a node  |
   | the outward bridge           | a library that wants a COMPONENT value  |
 
-  Of those four, the registered behavior and the outward bridge `v/->react`
-  are reachable from the door in this tree (the bridge has since landed —
-  see `the-outward-bridge-is-the-one-shape-that-landed`). The qualified host
-  leaf and the explicit React wrapper are named by the substrate's own
-  diagnostics as landing later, and this pilot asserts those diagnostics
-  verbatim rather than routing around them.
+  All four are reachable from the door in this tree. The outward bridge
+  `v/->react` landed first; `v/defhost` (D022) then landed the inward one —
+  and it landed the qualified host leaf and the explicit React wrapper as
+  ONE declaration kind, because hook ownership is internal to the React
+  component and two kinds would add authoring choice without adding an
+  enforceable law. What this pilot asserted as a verbatim refusal, it now
+  asserts as a working crossing.
 
   ## What that leaves an adopter with
 
@@ -51,11 +52,12 @@
                         a reconciled config, a bounded command roster, an
                         outward intent, and a total release. THE behavior
                         shape, used for exactly what it was designed for.
-    2. `acme.chart`     a React-Vega-class chart component. The shape that
-                        SHOULD be a qualified leaf; reached instead through
-                        a nested React root inside an opaque behavior. The
-                        CLJS half lives in `pilot-react-interop-react`,
-                        because a `.cljc` cannot `:require` an npm module.
+    2. `acme.chart`     a React-Vega-class chart component. THE qualified
+                        leaf, declared with `v/defhost` — value props in,
+                        one declared `:event` position out, an explicit
+                        children policy and an explicit SSR policy. The
+                        nested-root measurement beside it stays, because
+                        what it costs is still worth knowing.
     3. `acme.table`     a TanStack-Table-class HEADLESS core. The finding
                         here is that it needs no host shape at all — the
                         React adapter's whole job (hold state, re-render on
@@ -405,23 +407,28 @@
 ;; measured against a real declaration, and so the day a shape lands the
 ;; declaration is already written and the assertion around it fails loudly.
 
-(def foreign-leaf
-  "A hand-built value shaped like the third legal vector head.
+(v/defhost chart-host
+  "A React-Vega-class chart: value props in, one event callback out. The
+  shape the pilot originally recorded as UNREACHABLE — it used to be a
+  hand-written map carrying the reserved `:re-frame.freehand/host` marker,
+  the pilot reaching PAST a door that had nothing behind it. `v/defhost`
+  (D022) is that door, and the declaration here is the whole integration.
 
-  There is no public verb that mints one — `re-frame.freehand.descriptor`
-  reserves the `:re-frame.freehand/host` marker and says the authoring
-  surface `lands with its own slice`. This map is the pilot reaching PAST the
-  door on purpose, so the refusal it meets is the substrate's own and not a
-  spelling mistake."
-  {:re-frame.freehand/host true
-   :component              "AcmeChart"})
+  The component is a plain value/callback function component. It is
+  written as one rather than pulled from npm for the pilot's usual reason —
+  a dependency is a decision — and the claim being made is about the
+  BOUNDARY, which is identical either way."
+  (fn [_props] nil)
+  {:callbacks {:onSelect :event}
+   :children  :none
+   :ssr       :client-only})
 
 (v/defview chart-as-a-leaf
   "The obvious spelling for a React chart component with value props, and
-  the one an adopter reaches for first."
+  the one an adopter reaches for first. It works."
   [_]
   [:figure.chart
-   [foreign-leaf {:spec "bar" :data [1 2 3]}]])
+   [chart-host {:spec "bar" :data [1 2 3]}]])
 
 (v/defview opaque-host-with-children
   "The refusal that keeps an opaque behavior honest: children under a node

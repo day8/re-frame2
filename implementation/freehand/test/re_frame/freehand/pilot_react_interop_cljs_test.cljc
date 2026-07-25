@@ -94,53 +94,69 @@
 ;; Freehand tree at the third legal vector head — the declared host
 ;; descriptor. There is no fourth door.
 ;;
-;; The classifier already KNOWS about that head. What is missing is
-;; everything behind it: no public verb mints a host descriptor, and both
-;; emitters refuse to cross one. So an adopter's very first integration
-;; attempt does not fail with "you spelled it wrong" — it fails with "this
-;; lands later", which is the right diagnostic and a hard stop.
+;; This shape has since LANDED, and the pilot's assertions were rewritten
+;; rather than left green — exactly as the file's preamble promised. What
+;; used to be here was the finding that the classifier KNEW about the head
+;; while nothing behind it existed: no public verb minted a host descriptor,
+;; and both emitters refused to cross one. `v/defhost` (D022) is the door,
+;; and it is deliberately the SOLE one — a second spelling beside it would
+;; give the same crossing two sets of laws.
 
-(deftest the-foreign-component-head-classifies-but-cannot-be-crossed
-  (testing "the third legal vector head is REAL — `classify-head` answers
-            `:host` for a host descriptor, so a foreign component is a
-            first-class citizen of the grammar and not an unclassified
-            value. Everything that would make it USEFUL is what is absent."
-    (is (= :host (descriptor/classify-head pilot/foreign-leaf))
-        "a host descriptor classifies, totally, today")
-    (is (true? (descriptor/host-descriptor? pilot/foreign-leaf)))))
+(deftest the-foreign-component-head-is-real-and-now-mintable
+  (testing "the third legal vector head is REAL and REACHABLE: `v/defhost`
+            mints it, and `classify-head` answers `:host`. The pilot's old
+            hand-written marker map — its way of reaching past a door that
+            had nothing behind it — is now an ordinary map and an ERROR
+            head, which is the strongest statement that there is exactly
+            one way in."
+    (is (= :host (descriptor/classify-head pilot/chart-host)))
+    (is (true? (descriptor/host-descriptor? pilot/chart-host)))
+    (is (= :rf.error/view-bad-head
+           (:rf.error/id (caught #(descriptor/classify-head
+                                    {:re-frame.freehand/host true :component "AcmeChart"}))))
+        "the pre-door spelling is refused, so there is no second door")))
 
-(deftest a-react-component-cannot-enter-a-freehand-tree-today
+(deftest a-react-component-enters-a-freehand-tree-as-a-declared-host
   (testing "The obvious first integration — a chart component with value
-            props at a vector head — is REFUSED on the structural host, and
-            the refusal names the slice that will lift it rather than
-            pretending the spelling was wrong. This is the pilot's headline
-            finding: two of the four host shapes are unreachable, and they
-            are the two an adopter reaches for first."
-    (let [d (caught #(t/render [pilot/chart-as-a-leaf {}]))
-          m (message #(t/render [pilot/chart-as-a-leaf {}]))]
-      (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
-          "the structural emitter refuses a host descriptor")
-      (is (has? m "host descriptor")
-          "and says what it refused")
-      (is (has? m "host-lifecycle slice")
-          "and names the slice that lands it — a hard stop, not a typo"))))
+            props at a vector head — now WORKS, and the structural render
+            says exactly what crossed and exactly what it could not carry.
+            This was the pilot's headline finding, and it is the one this
+            slice closes."
+    (let [tree (t/render [pilot/chart-as-a-leaf {}])
+          host (t/find tree #(contains? % :rf.ui/host))]
+      (is (some? host) "the host crossed and left a node")
+      (is (= :re-frame.freehand.pilot-react-interop/chart-host (:rf.ui/host host)))
+      (is (= {:spec "bar" :data [1 2 3]} (:props host))
+          "the authored ordinary props are recorded verbatim — shallow and exact")
+      (is (= :client-only (:rf.ui/host-ssr host))
+          "and the declared SSR policy is stated, not inferred")
+      (is (= [] (:children host))
+          "a client-only host emits no server content — the loss is declared"))))
 
-(deftest no-public-verb-mints-a-foreign-component-boundary
-  (testing "There is no way to build the value the classifier recognises.
-            `pilot/foreign-leaf` is a hand-written map carrying the reserved
-            `:re-frame.freehand/host` marker — the pilot reaching PAST the
-            door on purpose. The door itself publishes nothing that mints
-            one, so an adopter cannot even construct the thing that would
-            then be refused."
+(deftest defhost-is-the-sole-public-verb-that-mints-a-host-boundary
+  (testing "ONE door, and the roster proves it. D022 rejects a runtime
+            `v/host` constructor, a `:kind` split and `v/react-el` by name:
+            each would be the same crossing under a second spelling, with a
+            second set of laws to keep in step. So the supported surface
+            carries `defhost` and nothing else that mints or names a host
+            boundary — a second verb appearing here is the regression this
+            assertion exists to catch."
     #?(:clj
-       (let [publics (set (map name (keys (ns-publics (find-ns 're-frame.freehand)))))]
+       (let [publics (set (map name (keys (ns-publics (find-ns 're-frame.freehand)))))
+             ;; `^:no-doc` expansion targets are the macro's own machinery,
+             ;; not authoring surface — the same carve-out `expand-defview`
+             ;; and `parse-defview-args` already sit in.
+             doored  (into #{}
+                           (comp (remove #{"expand-defhost" "parse-defhost-args"})
+                                 (filter #(has? % "host")))
+                           publics)]
+         (is (seq publics) "non-vacuous: the door publishes vars to examine")
+         (is (= #{"defhost"} doored)
+             (str "defhost is the sole host verb on the door; got " (pr-str (sort doored))))
          (is (not (contains? publics "host"))
-             "no v/host")
-         (is (not (contains? publics "react"))
-             "no v/react")
-         (is (empty? (filter #(has? % "host") publics))
-             (str "nothing on the door mints or names a host boundary; got "
-                  (pr-str (sort publics)))))
+             "no runtime v/host constructor — D022 rejects one by name")
+         (is (not (contains? publics "react-el"))
+             "no v/react-el — D022 rejects it as the host door under a second spelling"))
        :cljs
        (is true "the door's public roster is enumerated on the JVM arm"))))
 

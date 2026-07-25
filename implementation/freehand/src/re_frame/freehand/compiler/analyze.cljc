@@ -2585,9 +2585,41 @@
                :ref ref-a}
         spread-node (assoc :spread spread-node))))))))
 
+(defn- refuse-host-crossing!
+  "Refuse a `v/defhost` crossing inside a `{:compiled true}` body (D022
+  §Compiled mode).
+
+  The checker and the compiler RECOGNIZE the declared descriptor — that is
+  what `env/classify-head`'s `:host` arm is — and this build cannot yet
+  lower the crossing while carrying the same callback-identity, children
+  and SSR laws the interpreted walk carries. D022 fixes what must happen
+  until it can: \"the exact build refuses the crossing with a stable id,
+  source location, explanation, and recovery. It must not accept the view
+  and fail only at runtime or secretly invoke the interpreted walker.\"
+
+  Both wrong answers are worse than this one. Accepting the head and
+  emitting a foreign component call produces a view that compiles clean and
+  hands React a Freehand descriptor as an element type. Silently walking
+  the subtree interpreted produces a compiled view whose manifest and
+  diagnostics describe markup that is not what runs."
+  [e head info]
+  (env/fail! e :rf.ui.compile/host-crossing-unsupported
+             (str "compiled view mounts the declared host " (:host-id info)
+                  " — the compiled tier cannot yet lower a v/defhost crossing "
+                  "while carrying the same committed callback identity, children "
+                  "and SSR laws the interpreted walk carries, and it will not "
+                  "accept the view and fail at render instead. Two recoveries: "
+                  "drop {:compiled true} from THIS declaration, which changes "
+                  "nothing at any call site; or extract the region that mounts "
+                  (str head) " into its own interpreted view and mount that — a "
+                  "compiled view may mount interpreted children, so the rest of "
+                  "this declaration stays compiled")
+             {:head head :host-id (:host-id info)}))
+
 (defn- analyze-component [e form]
   (let [head      (nth form 0)
         info      (env/classify-head e head)
+        _         (when (= :host (:kind info)) (refuse-host-crossing! e head info))
         second*   (nth form 1 nil)
         ;; a `(v/spread …)` second form is PROPS at a component head, not a
         ;; child — admitted at a FOREIGN head (rf2-u53yy.5), rejected at an
