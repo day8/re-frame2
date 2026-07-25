@@ -277,3 +277,79 @@
                   (is (not (contains? tags :error)))
                   (is (not (re-find #"SECRET-100" (pr-str tags))))))))))
       (finally (restore)))))
+
+;; ===========================================================================
+;; The warmed identity IS the activated identity
+;; ===========================================================================
+;;
+;; MERGED-PR AUDIT #6976 (rf2-kqxe6.7): resolving the destination is not the
+;; same as resolving the TARGET. The destination gate above proves prefetch
+;; refuses what `route-url` refuses; it says nothing about whether the facts it
+;; hands the warm plan are the facts the activation will commit — and a warm-up
+;; keyed on a different `:params` / `:query` / `:fragment` than the click is
+;; R3's original failure mode: two cache entries for one destination, the warm
+;; one ownerless, GC-eligible and never reused.
+;;
+;; The comparison here is against a real named-address NAVIGATION, not against
+;; `target-of-url(route-url address)`. Those are not the same standard: the URL
+;; cannot carry a path param the pattern does not capture, so the URL round-trip
+;; drops an `:extra` key that the `{:to …}` door genuinely keeps and commits.
+;; Prefetch must match the door.
+
+(defn- with-identity-hooks
+  "Publish BOTH late-bound resource hooks — the prefetch WARM plan and the
+  navigation ENTRY plan — each recording only the identity facts it is handed,
+  and call `(f warm entry)`. Those two maps are what a cache entry is keyed on,
+  so comparing them compares the thing that actually matters."
+  [f]
+  (let [identity-of #(select-keys % [:route-id :params :query :fragment])
+        warm        (atom [])
+        entry       (atom [])]
+    (late-bind/set-fn! :routing/on-route-prefetch
+                       (fn [plan]
+                         (swap! warm conj (identity-of plan))
+                         {:warmed 1 :fx []}))
+    (late-bind/set-fn! :routing/on-route-entry
+                       (fn [plan] (swap! entry conj (identity-of plan)) nil))
+    (try (f warm entry)
+         (finally (late-bind/set-fn! :routing/on-route-prefetch nil)
+                  (late-bind/set-fn! :routing/on-route-entry nil)))))
+
+(deftest prefetch-warms-the-identity-the-activation-commits
+  (routing/reg-route :route/elsewhere {} "/elsewhere")
+  (routing/reg-route :route/probe {:query-defaults {:tab :overview}} "/probe/:id")
+  (doseq [[label address expected]
+          [["a nil-valued query key — route-url ELIDES it from the URL, so a
+             target that keeps it describes a place its own URL cannot spell"
+            {:to :route/probe :params {:id "7"} :query {:drop nil}}
+            {:route-id :route/probe :params {:id "7"}
+             :query    {:tab :overview} :fragment nil}]
+
+           ["an empty-string fragment — route-url emits no trailing #, and \"\"
+             is truthy, so an un-normalised one is a slice/URL divergence"
+            {:to :route/probe :params {:id "7"} :fragment ""}
+            {:route-id :route/probe :params {:id "7"}
+             :query    {:tab :overview} :fragment nil}]
+
+           ["an EXTRA path param the pattern does not capture — the {:to …} door
+             KEEPS it, so prefetch must keep it too (this is where the URL
+             round-trip is the wrong standard), alongside the two above"
+            {:to :route/probe :params {:id "7" :extra "x"} :query {:drop nil}
+             :fragment ""}
+            {:route-id :route/probe :params {:id "7" :extra "x"}
+             :query    {:tab :overview} :fragment nil}]]]
+    (testing label
+      (with-identity-hooks
+        (fn [warm entry]
+          (rf/dispatch-sync [:rf.route/prefetch address])
+          ;; Park elsewhere first so the activation below is never a stage-3
+          ;; exact no-op (which would commit nothing to compare against).
+          (rf/dispatch-sync [:rf.route/navigate {:to :route/elsewhere}])
+          (rf/dispatch-sync [:rf.route/navigate address])
+          (let [activated (filterv #(= :route/probe (:route-id %)) @entry)]
+            (is (= [expected] @warm)
+                "the warm plan is handed the canonical resolved identity")
+            (is (= [expected] activated)
+                "and so is the activation")
+            (is (= @warm activated)
+                "so hovering then clicking one link warms ONE cache entry")))))))
