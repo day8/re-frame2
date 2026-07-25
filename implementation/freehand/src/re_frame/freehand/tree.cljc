@@ -405,7 +405,8 @@
   metadata-carried contract — so it prints and reads back losslessly, and
   `(tree-seq map? :children tree)` is the whole traversal API."
   [form]
-  (binding [node/*ns-context* nil]
+  (binding [node/*ns-context*         nil
+            node/*structural-render?* true]
     (let [kids (children [form])
           root (if (and (= 1 (count kids)) (map? (first kids)))
                  (first kids)
@@ -447,7 +448,8 @@
   — the reactive half of no-silent-elision (Spec 004C §3, EP-0034 §2). The
   capability half is [[emit-static-html]]'s."
   [thunk]
-  (binding [node/*ns-context* nil]
+  (binding [node/*ns-context*         nil
+            node/*structural-render?* true]
     (assoc (thunk) :rf.ui/tree-version tree-version)))
 
 ;; ---------------------------------------------------------------------------
