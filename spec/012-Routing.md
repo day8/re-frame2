@@ -249,7 +249,7 @@ The cascade is **structural** — the score is computable from each pattern's pa
 
 #### Reserved route-metadata keys
 
-The pattern reserves thirteen keys on `reg-route`'s metadata map, plus the URL `:path` pattern in the third VALUE slot (`:path` is not a metadata key; it is the canonical 3-slot value). All metadata keys are optional. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event` reserves only the cross-kind registration metadata. The scale reflects the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour, data classification); the keys do not cluster naturally as one flat list. The four axes below name the clusters (the **Shape** axis additionally carries the value-slot `:path`) so generators reading "what does `reg-route` accept?" can branch on intent rather than scan the docstrings.
+The pattern reserves twelve keys on `reg-route`'s metadata map, plus the URL `:path` pattern in the third VALUE slot (`:path` is not a metadata key; it is the canonical 3-slot value). All metadata keys are optional. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event` reserves only the cross-kind registration metadata. The scale reflects the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour, data classification); the keys do not cluster naturally as one flat list. The four axes below name the clusters (the **Shape** axis additionally carries the value-slot `:path`) so generators reading "what does `reg-route` accept?" can branch on intent rather than scan the docstrings.
 
 ##### The four axes
 
@@ -273,6 +273,8 @@ Because `reg-route` carries the largest shape in the surface, a typo'd key (`:on
 **Cross-feature reserved keys.** A small number of bare keys are reserved by *other* framework features that extend route metadata — `:head`, owned by SSR ([011 §Head/meta contract](011-SSR.md#headmeta-contract): "routes name which head to use via `:head` route metadata"), and `:resources`, owned by the [Resources artefact](016-Resources.md#route-integration) (Spec 016 §Route integration: declarative server-state metadata layered beside `:on-match`). These pass the guard because the framework owns them, even though they are not among the routing-owned metadata keys above. The accepted-key set is therefore the routing-owned metadata keys plus the enumerated cross-feature keys; a new framework feature that adds a bare route-metadata key adds it to that set. The two keys ride two mechanisms: `:head` is statically enumerated in routing's reserved-key set (SSR is consulted at render, not at registration), while `:resources` is **late-bound** — routing's accepted-key set is the routing-owned + static cross-feature keys UNIONed with whatever an artefact publishes under the `:routing/extra-route-keys` hook (the Resources artefact publishes `#{:resources}`), so a route declaring `:resources` in an app that omits the Resources artefact is correctly rejected. The same late-bound seam carries the resources route-entry plan (`:routing/on-route-entry`) and the warm-mode prefetch plan (`:routing/on-route-prefetch`); routing never statically requires the Resources artefact. There is no blocking-transition *predicate* on the seam — under [§Route readiness is a resource projection](#route-readiness-is-a-resource-projection) routing runs no settle step, so it never asks the Resources artefact whether the route is still blocked.
 
 ##### Per-key table
+
+Thirteen rows for twelve metadata keys: the `:path` row is the third positional VALUE slot, listed here so the whole `reg-route` shape reads in one table.
 
 | Key | Axis | Type | Purpose |
 |---|---|---|---|
@@ -1133,9 +1135,9 @@ does with a URL or a click is the routing law already stated above.
  title]
 ```
 
-The view's control keys are `:to` / `:params` / `:query` / `:fragment` and
-`:on-click`. **`:to` is required**; `:params` / `:query` / `:fragment` feed both
-the href and the dispatch payload. Every other key is an HTML attribute and
+The view's control keys are `:to` / `:params` / `:query` / `:fragment`,
+`:on-click` and `:prefetch`. **`:to` is required**; `:params` / `:query` /
+`:fragment` feed both the href and the dispatch payload. Every other key is an HTML attribute and
 reaches the `<a>` untouched, so `:class`, `:title`, `:aria-label`, `:target` and
 `:download` work without the view enumerating the attribute space. The
 framework-owned `:href` wins over a caller-supplied one; no route key ever leaks
@@ -1184,6 +1186,20 @@ function it carries before routing sees it: a roster callback is deliberately
 not `IFn`, so fencing without translating would have left the declared
 imperative form as the one thing that did not work here. The check runs on both
 hosts, so a form the browser would misuse is refused by the server render too.
+
+**`:prefetch :intent` makes the three intent positions framework-owned, and the
+same closed grammar governs them.** An opted-in link installs its own
+`:on-mouse-enter` / `:on-focus` / `:on-touch-start` handlers and runs the
+caller's first — and composing that way means the framework has to be able to
+CALL what it found, so those three positions accept exactly what `:on-click`
+accepts (a plain function, a `v/handler`, or nothing), anything else rejected at
+render on both hosts with the same `:rf.error/view-bad-event` and
+`:use-a-plain-fn-or-v-handler`. The narrowing is **conditional on the opt-in**:
+every other link leaves all three as ordinary open Freehand event positions, so
+hover intent spelled as event data (`:on-mouse-enter [:app/hovered]`) keeps
+working everywhere else. An author who wants an application event on hover *and*
+a warm-up keeps the position as it is and dispatches `:rf.route/prefetch`
+themselves — the link opt is sugar over that event.
 
 **The server shell is the same anchor without the handler.** The JVM render
 emits the path-form href and no click handler — a serialized document has no
