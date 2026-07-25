@@ -94,6 +94,14 @@ Why each piece:
   you want. Nothing can loop, because nothing was left pending.
 - **Read *and* clear `:return-to` in one step**, so a later ordinary login can't be
   hijacked by a stale crumb.
+- **You inherit the payload's privacy, so don't restate it.** `:requested-url`,
+  `:destination` and `:target` can carry query values and path params, and the
+  framework classifies them `:sensitive` so they redact on the trace bus and every
+  off-box projection. `:rf.route/entry-denied` is a [replaceable framework
+  default](../../../spec/012-Routing.md#replaceable-framework-defaults): your handler
+  replaces the *behaviour*, and that classification rides across it. Declare
+  `:sensitive` only for paths of your own — the framework's carriers are already
+  covered, and your handler still receives the real values in-process.
 
 Store `:return-to` wherever suits you — it is plain data, so it survives in
 `app-db`, in `localStorage`, or through a page reload.
