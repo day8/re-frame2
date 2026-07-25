@@ -213,7 +213,19 @@
         ;; the sibling React walk reads the carrier through this same splitter.
         [authored
          caller]  (if attrs? (node/split-caller (first args)) [nil nil])
-        kid-forms (if attrs? (rest args) args)]
+        kid-forms (if attrs? (rest args) args)
+        ;; `(v/html s)` is the element's CONTENT, not one of its children, so
+        ;; it is read off the sole-child position and handed to the
+        ;; canonicaliser's `:html` slot — where the string check, the
+        ;; `<textarea>` refusal and the void-element refusal live, shared with
+        ;; the compiled emitter that fills the same slot. The position law is
+        ;; the compiled analyzer's, spelled the same way: the SOLE child, and
+        ;; the sole child directly. Anything else — a sibling, a nested run, a
+        ;; root-level call — reaches `node/collect` and is refused there by
+        ;; name, so one authored mistake has one answer in both modes.
+        markup    (when (and (= 1 (count kid-forms))
+                             (node/trusted-markup? (first kid-forms)))
+                    (node/trusted-markup-string (first kid-forms)))]
     (node/element
       (with-attrs (cond-> {:tag      tag
                            :sugar    classes
@@ -221,7 +233,9 @@
                            :dyn      {}
                            :key?     (contains? authored :key)
                            :key-val  (:key authored)
-                           :children (when (seq kid-forms) #(children kid-forms))}
+                           :children (when (and (nil? markup) (seq kid-forms))
+                                       #(children kid-forms))}
+                    (some? markup)  (assoc :html markup)
                     (some? caller) (assoc :caller caller))
                   tag id authored))))
 

@@ -19,12 +19,19 @@
   emission, so escaping is structural rather than defensive, and there is
   nowhere for an interpreted fallback to hide.
 
-  The arms below for node kinds v1 does not yet admit — trusted HTML,
-  render slots, presence, client-only subtrees, error boundaries, frame
-  scoping, host effects, foreign heads — are the donor's, unreached, and
-  waiting for the slices that widen the grammar and land their runtime.
-  They are kept rather than deleted because each one is the work that
-  slice starts from.
+  The arms below for node kinds v1 does not yet admit — client-only
+  subtrees, error boundaries, foreign heads — are the donor's, unreached,
+  and waiting for the slices that widen the grammar and land their
+  runtime. They are kept rather than deleted because each one is the work
+  that slice starts from.
+
+  TRUSTED MARKUP is not one of them, and it is not an arm at all: `:html`
+  is admitted, and it is the element's CONTENT rather than a node in child
+  position, so [[emit-element]] fills the canonicaliser's `:html` slot and
+  `emit-node` never sees one. The dead `:html nil` arm that used to sit
+  below v1 was the shape of the bug: the node was recognised, the arm
+  produced nothing, and both emitters rendered an element with the
+  author's markup silently gone (rf2-rrosy).
 
   Event vectors are retained AS DATA (placeholders stay keywords) and
   fn-carried sites classify to the opaque marker at build time, by the
@@ -167,6 +174,13 @@
                       (:static-style sty) (assoc :style (:static-style sty)))
         dyn         (dyn-attr-entries (:attrs props))
         events      (event-slots (:events props))
+        ;; Trusted markup rides the element's own `:html` slot rather than its
+        ;; children, and the canonicaliser builds the leaf — so the string
+        ;; check, the `<textarea>` refusal and the void-element refusal are the
+        ;; ONE implementation the interpreted structural walk also reaches
+        ;; through that slot. The analyzer sets `:children []` on an html-kid
+        ;; element, so there is no positional child to conflict with it.
+        markup      (:html node)
         child-forms (mapv #(emit-node e %) (:children node))]
     `(node/element
       ~(cond-> {:tag tag}
@@ -199,6 +213,7 @@
                                            ~(:base safe)
                                            ~(:owned-handler-keys safe)))
          (:present? key-info) (assoc :key? true :key-val (:expr key-info))
+         markup           (assoc :html (:form markup))
          (seq child-forms) (assoc :children
                                   `(fn [] (node/children ~@child-forms)))))))
 
@@ -354,6 +369,12 @@
 (defn emit-node
   "AST node -> the form that builds it (nil for a statically-absent child).
 
+  There is deliberately no `:html` arm. Trusted markup is an ELEMENT's
+  content, carried on the element node's own `:html` slot and lowered by
+  [[emit-element]] — a `case` arm here would be a node in child position,
+  which is exactly the shape whose `nil` answer dropped the author's
+  markup in silence (rf2-rrosy).
+
   The `:re-frame.freehand/v1` arms emit `node/*` calls. The arms below
   them are the donor's, for node kinds the grammar does not yet admit:
   `grammar/check!` refuses those bodies before emission, so they are
@@ -388,7 +409,6 @@
                      [(emit-node e (:default node))]))
 
     ;; ---- below :re-frame.freehand/v1 --------------------------------------
-    :html     nil ; sole-child form carried by the parent element
     :foreign  (emit-foreign e node)
     :slot     (emit-slot e node)
     ;; error-boundary is a CLIENT recovery mechanism (Spec 004 §The JVM

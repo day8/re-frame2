@@ -89,13 +89,17 @@
 ;; the `:foreign` component OP, which classifies a foreign React HEAD, is a
 ;; different thing and is untouched.
 ;;
-;; ONE unpublished head REMAINS recognised below — `html` — likewise
-;; unreachable through the production door, and entangled with a surface a
-;; conformance row already pins (`:html-sites` is a manifest roster in
-;; `FH-STRUCT-010`). It ships with rf2-rrosy, which has no other spelling to
-;; fall back on. `re-frame.freehand.unpublished-head-absence-jvm-test` pins the
-;; state — the vars unpublished on both hosts, production resolution nil for
-;; each — so it is asserted rather than rediscovered.
+;; `html` was the sixth, and it went the OTHER way (rf2-rrosy): the door
+;; publishes `re-frame.freehand/html`, so the recognition below is reachable
+;; through production resolution, `:html` is admitted by
+;; `grammar/admitted-ops`, and BOTH emitters lower it — the React one to
+;; `dangerouslySetInnerHTML`, the JVM one to the canonicaliser's `:html` slot.
+;; It shipped rather than retiring because it had no other spelling to fall
+;; back on: the attribute grammar refuses every `dangerouslySetInnerHTML`
+;; prop spelling and named `(v/html …)` as the recovery, so retiring the verb
+;; would have left a substrate that refuses raw markup on three tiers and
+;; offers no supervised alternative. `:html-sites` — the manifest roster
+;; `FH-STRUCT-010` pins — is populated through the public door now.
 
 (def markup-map-fqns
   "The map family — heads whose (f render-fn coll) idiom generates markup

@@ -198,6 +198,37 @@
   (gobj/set o "style" (react-style tag raw))
   o)
 
+(defn ^:no-doc put-html!
+  "Write an element's TRUSTED MARKUP as React's `dangerouslySetInnerHTML`.
+
+  Named and shared for the reason [[put-class!]] is: the compiled tier
+  reaches trusted markup through THIS function, so `(v/html s)` produces
+  the same props object whether the structure was resolved at build time
+  or a moment ago — and the string check is
+  [[re-frame.freehand.node/html-string!]]'s, the one both hosts make.
+
+  `<textarea>` is refused here rather than left to React. React 19 throws
+  on `dangerouslySetInnerHTML` for a textarea and the SSR serialiser
+  refuses the same node, so the substrate says so itself instead of
+  answering a host crash on one path and divergent markup on the other
+  (rf2-ib4fd); a void element cannot carry content at all."
+  [o tag raw]
+  (when (= :textarea tag)
+    (malformed! (str "A <textarea> cannot carry trusted markup — React sets a "
+                     "textarea's content through :value (or an ordinary text child), "
+                     "never dangerouslySetInnerHTML, which React 19 rejects on a "
+                     "<textarea>. Use :value \"…\" or an ordinary text child.")
+                {:tag tag}))
+  (when (contains? conv/children-rejected-tags tag)
+    (malformed! (str "The element " tag " cannot carry trusted markup — it is a void "
+                     "element, and React throws rather than render content inside "
+                     "one. Put the content in an attribute, or use an element that "
+                     "takes children.")
+                {:tag tag}))
+  (gobj/set o "dangerouslySetInnerHTML"
+            #js {:__html (node/html-string! 're-frame.freehand/render raw)})
+  o)
+
 (defn ^:no-doc put-attr!
   "Write ONE runtime-valued attribute onto a props object, under every
   rule this emitter applies to the same value: the canonical author
@@ -797,7 +828,17 @@
                                (let [controlled? (controlled/controlled-props? (keys attrs))]
                                  (fn [slot raw] (handler-proxy cand tag controlled? slot raw)))
                                caller)
-        kids      (children cand kid-forms)]
+        ;; `(v/html s)` is the element's CONTENT and reaches React as
+        ;; `dangerouslySetInnerHTML`, so there are no positional children beside
+        ;; it and React's children-vs-innerHTML conflict cannot arise. The
+        ;; position law is the structural walk's and the compiled analyzer's,
+        ;; spelled identically: the SOLE child, directly. Anything else reaches
+        ;; `children` below and is refused by the ONE shared sentence.
+        markup    (when (and (= 1 (count kid-forms))
+                             (node/trusted-markup? (first kid-forms)))
+                    (node/trusted-markup-string (first kid-forms)))
+        props     (cond-> props markup (put-html! tag markup))
+        kids      (if markup [] (children cand kid-forms))]
     (when (and (seq kids) (contains? conv/children-rejected-tags tag))
       (malformed! (str "The element " tag " cannot have children — it is a void element, and "
                        "React throws rather than render one. Put the content in an attribute, "
@@ -903,6 +944,14 @@
      (string? form)  (conj acc form)
      (number? form)  (conj acc (conv/js-number-str form))
      (conv/child-run? form) (reduce (fn [a f] (collect cand walk? a f)) acc form)
+     ;; Trusted markup that reached the CHILD fold is trusted markup with no
+     ;; element to own it — `element-node` reads the legal position off
+     ;; `kid-forms` and never routes it here. Refused by the SHARED sentence
+     ;; the structural walk raises, so a `(v/html …)` beside a sibling, inside
+     ;; a run, or at a view's root answers one diagnostic in every mode on
+     ;; every host.
+     (node/trusted-markup? form)
+     (node/refuse-orphan-trusted-markup! 're-frame.freehand.react/element form)
      (vector? form)
      (if walk?
        ;; `^{:key …}` metadata is refused by the SHARED sentence the structural

@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 551,
+ :var-count 552,
  :tier-vocab
  [:front-porch
   :advanced
@@ -208,6 +208,7 @@
   {:namespace "re-frame.freehand", :var "error-boundary", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "event", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "handler", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "html", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "hydrate-root", :tier :front-porch, :kind :fn, :owner "011", :status "EP-0036", :facade? true, :runtime-verified? false}
   {:namespace "re-frame.freehand", :var "manifest", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "markup", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
