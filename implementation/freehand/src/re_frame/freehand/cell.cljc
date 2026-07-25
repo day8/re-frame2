@@ -82,7 +82,8 @@
             [re-frame.freehand.occurrences :as occurrences]
             [re-frame.interop :as interop]
             [re-frame.router :as router]
-            [re-frame.substrate.observation :as obs]))
+            [re-frame.substrate.observation :as obs]
+            [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -993,12 +994,24 @@
   when the commit began is the one delivered to, even if a listener the publish
   fires swaps the sink mid-flush.
 
-  `:at` on the row is the commit's monotonic clock reading, on the same
-  `interop/now-ms` axis every trace event's `:time` carries. It is one number
-  about NOW, not an interval and not a ledger, and it is here because it is what
-  lets a later read PROVE eviction: a retained window whose oldest event is
-  younger than the commit cannot contain that commit's cause, and saying so is
-  the difference between reporting loss and inventing an explanation.
+  Two facts on the row are there to make a LATER read honest rather than to
+  describe the render, and both are single current values:
+
+    - `:dispatch-id` is the cascade in scope at the commit, read from
+      `re-frame.trace/*handler-scope*` — or nil. This is the join Spec 009
+      needs and the reason it is often absent: the ring retains a run only when
+      an event carries both a frame and a `:rf.trace/dispatch-id`, and a
+      Freehand commit usually lands in a post-settle React batch with no
+      cascade on the stack. Recording the id when there IS one, and nil when
+      there is not, is what lets `explain-render` tell *the run that caused this
+      is no longer retained* (eviction) from *this commit was never correlated
+      to a run* (nothing to key on). Nothing is minted here: a synthetic
+      dispatch-id would key a ring slot and a phantom epoch buffer entry on a
+      run that never happened.
+    - `:at` is the commit's monotonic clock reading, on the same
+      `interop/now-ms` axis every trace event's `:time` carries. One number
+      about NOW, not an interval and not a ledger, so a read can state whether
+      the retained window even reaches back to the commit.
 
   The `interop/debug-enabled?` gate stands alone as the body's outermost form,
   so under `:advanced` with `goog.DEBUG=false` Closure folds it to `false`, the
@@ -1024,9 +1037,10 @@
                             ;; to refuse, and cell-to-root attribution is
                             ;; precisely what rf2-drpa3.167 ruled would not be
                             ;; built.
-                            :root       evidence/unknown
-                            :at         (interop/now-ms)
-                            :commit     (evidence/commit-projection facts)}}
+                            :root        evidence/unknown
+                            :dispatch-id (:dispatch-id trace/*handler-scope*)
+                            :at          (interop/now-ms)
+                            :commit      (evidence/commit-projection facts)}}
         sink (assoc :sink   sink
                     :record (evidence/commit-record (view-id cell) lowering
                                                     occurrence facts))))))

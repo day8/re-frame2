@@ -74,6 +74,29 @@ const DEV_ONLY_SENTINELS = [
   // not just one string — is gone.
   { source: 're-frame.freehand.evidence/defects-message (refusal head)',
     sentinel: 'This evidence projection cannot be emitted' },
+  // `re-frame.freehand.cell/report-sink-escape!` — the CONTAINMENT plane's host
+  // console line. A second, INDEPENDENT dev-gated branch in `cell`: the two
+  // sentinels above ride the record-construction branch, and this one rides the
+  // after-publication delivery guard. It is also the one dev string a user
+  // would SEE if it shipped, which makes its absence in release a
+  // user-observable contract and not merely a size argument. Rooted the same
+  // way — the guard is inside `(when interop/debug-enabled? …)` in
+  // `emit-commit-evidence!` — so it is ABSENT in release and PRESENT in the
+  // control alongside the other two.
+  //
+  // NOT a sentinel for the current-occurrence index (rf2-xftdv) or the
+  // declared-view index, and neither can have one: `re-frame.freehand.occurrences`
+  // and `re-frame.freehand.registry` carry no runtime string literal at all,
+  // and inventing a throw to root a grep on would be writing dead code to
+  // satisfy a probe. Their elision is proven CAUSALLY instead, over source
+  // rather than bytes, by `evidence-boundary-jvm-test`: every call site into the
+  // index sits inside the same `interop/debug-enabled?` gate these three
+  // sentinels prove folds away, and the registration is emitted into the
+  // `v/defview` expansion under that gate (pinned by `tool-reads-cljs-test`).
+  // A string-grep witness for a namespace of pure data is the one thing this
+  // technique cannot supply.
+  { source: 're-frame.freehand.cell/report-sink-escape! (containment console line)',
+    sentinel: 're-frame.freehand: the evidence sink (a DEBUG tool ' },
 ];
 
 // PROD-SURVIVING sentinels: strings the release-app SHIPS regardless of

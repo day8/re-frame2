@@ -35,6 +35,7 @@
             [re-frame.freehand.cell :as cell]
             [re-frame.freehand.evidence :as evidence]
             [re-frame.freehand.test :as t]
+            [re-frame.freehand.tool :as tool]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -108,7 +109,16 @@
           (is (true? (:complete? proj)) "complete for the generation it names")
           (is (nil? (:loss proj)) "and lossless")
           (is (= {:committed-generation (:generation rec)} (:scope proj))
-              "scoped to exactly the committed generation"))
+              "scoped to exactly the committed generation")
+          (is (= fid (:frame proj)) "naming the frame the commit bound to")
+          (is (= [[::count]] (mapv :query (:reads proj)))
+              "and the subscription sites THIS commit staged — its own dependency
+               set, not a union over the occurrence's life")
+          (is (every? #(= #{:site-key :query :frame-id :owned?} (set (keys %)))
+                      (:reads proj))
+              "each read stating where it came from and who owns it, and NOT the
+               value it returned: a value is application data, and an evidence
+               read is not a second egress path for it"))
         ;; The record the seam emitted is one `evidence/record` would accept —
         ;; the seam validated it, and re-validating is idempotent.
         (is (= rec (evidence/record rec))
@@ -242,12 +252,21 @@
 
 (deftest with-no-sink-the-commit-is-untouched
   (testing "The default sink is nil, so a commit with none installed publishes
-            normally and the seam builds nothing — no throw, and the commit's
-            own contract (`:published`, an owned dependency) is unchanged."
+            normally and the seam builds no RECORD — no throw, and the commit's
+            own contract (`:published`, an owned dependency) is unchanged.
+
+            It does still ROW the occurrence in the current-occurrence index
+            (rf2-xftdv). That is not the sink's work and does not wait for a
+            consumer: an inspector attaches LATE, and an index that only began
+            recording when a tool installed a sink would have exactly the blind
+            spot it exists to remove."
     (register!)
     (seed! {:count 5})
     ;; Ensure no sink survives from a prior test.
     (cell/set-evidence-sink! nil)
     (let [c (commit-under! ::seam-nosink :interpreted)]
       (is (= [[::count]] (cell/dependency-queries c))
-          "the commit published its dependency exactly as it would with no seam"))))
+          "the commit published its dependency exactly as it would with no seam")
+      (is (some #(= ::seam-nosink (:view-id %))
+                (:occurrences (tool/read-mounted-views)))
+          "and the occurrence is current, with no sink ever installed"))))
