@@ -378,6 +378,12 @@
            ;; so the nav-token is PUBLISHED from `:token` (recorded +
            ;; replay-stable) + the `:counter` bump rides an fx.
            :nav-allocation nav-allocation
+           ;; rf2-cqyq2: the plan's already-resolved fail-loud `:parent` walk —
+           ;; the SAME value its `:branch` diagnostic projects, so the trace and
+           ;; the resource composition cannot disagree, and the commit hop walks
+           ;; the chain no second time.
+           :branch-contributors (:branch-contributors route-plan)
+           :branch-error        (:branch-error route-plan)
            ;; rf2-dbmj6x: the carried frame stamp (validated at the handler
            ;; top, threaded into `url-change-fx`). `commit-navigation` stamps
            ;; it on the nav-token-allocated + activated/deactivated lifecycle

@@ -593,4 +593,11 @@
                      :push-fx        push-fx
                      :nav-allocation nav-allocation
                      :frame          frame
-                     :app-db         app-db})))))))))
+                     :app-db         app-db
+                     ;; rf2-cqyq2: the plan's already-resolved fail-loud
+                     ;; `:parent` walk — the SAME value its `:branch` diagnostic
+                     ;; projects, so the trace and the resource composition
+                     ;; cannot disagree, and the commit hop walks the chain no
+                     ;; second time.
+                     :branch-contributors (:branch-contributors route-plan)
+                     :branch-error        (:branch-error route-plan)})))))))))

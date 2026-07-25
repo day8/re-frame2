@@ -45,9 +45,9 @@
   (:require [re-frame.identity :as identity]
             [re-frame.registrar :as registrar]
             [re-frame.routing.egress :as egress]
+            [re-frame.routing.events :as routing-events]
             [re-frame.routing.plan :as plan]
-            [re-frame.routing.registry :as registry]
-            [re-frame.routing.subs :as routing-subs]))
+            [re-frame.routing.registry :as registry]))
 
 ;; ---- the R0 causes --------------------------------------------------------
 
@@ -199,16 +199,33 @@
 
 ;; ---- the parent-to-leaf branch + the leaf resource plan -------------------
 
-(defn branch-of
-  "The parent-to-leaf branch for a resolved target's `route-id` — the vector
-  `[parent-most ... leaf]` derived from the routes' `:parent` chain (Spec 012
-  §Nested layouts). The plan's branch field. Shares the ONE `:parent`-chain
-  walk the `:rf.route/chain` sub reduces over (`routing-subs/chain-from-meta`),
-  so the plan branch and the public chain sub can never disagree. The full
-  parent-to-leaf branch PLAN (per-segment resource requirements) graduates in
-  EP-0037 R2; R0 exposes the branch itself."
-  [route-id]
-  (routing-subs/chain-from-meta route-id))
+;; rf2-cqyq2 — the plan's branch is the FAIL-LOUD walk, resolved ONCE.
+;;
+;; Two `:parent` walks exist deliberately. The DISPLAY walk behind the
+;; `:rf.route/chain` sub (`re-frame.routing.subs/chain-from-meta`) is defensive:
+;; it swallows cycles and INCLUDES an unregistered parent id in the chain it
+;; returns. `routing-events/resolve-branch` is the PLANNING walk: fail-loud, reporting
+;; `{:branch-error {:kind :unknown-parent | :parent-cycle …}}` rather than a
+;; silently-truncated branch — and `events.cljc` says so in as many words, that
+;; the display sub "is not a substitute here".
+;;
+;; The plan's `:branch` used to delegate to the display walk (its docstring
+;; correctly claimed it "can never disagree" with the chain sub) while
+;; `commit-navigation` independently called `resolve-branch` for the resource
+;; composition. So the plan REPORTED one branch and EXECUTED another, and they
+;; disagreed exactly on the malformed-registration cases where a diagnostic
+;; earns its keep: `:rf.route/planned` named `:route/nowhere` as a branch
+;; segment — no such route — while the very same activation aborted with
+;; `:branch-error :unknown-parent` and landed `:transition :error`. R0 exposed
+;; the branch as a reflection of the chain sub; R2 then needed a fail-loud walk
+;; and ADDED a second one rather than promoting the first.
+;;
+;; Resolving it here, once, is both the fix and a walk removed per navigation:
+;; the plan carries the ids (the R0 diagnostic `:branch`), the error, and the
+;; per-segment contributors `commit-navigation` hands the resource plan, so the
+;; commit hop reads the branch off the plan the door already built instead of
+;; re-walking it. `chain-from-meta` stays exactly as it is — it is correct for
+;; what it does; it is just not the plan branch.
 
 (defn leaf-plan-of
   "The behaviour-preserving LEAF resource plan for a resolved target's
@@ -236,14 +253,32 @@
 
   Plain data — this contract adds no public `RoutePlan` constructor or
   promise-returning router object; its diagnostic projection is
-  `plan-projection`."
+  `plan-projection`.
+
+  The parent-to-leaf `:branch` is the FAIL-LOUD walk
+  (`routing-events/resolve-branch`), resolved ONCE per navigation here:
+
+    - `:branch` — `[parent-most … leaf]` route ids, the R0 diagnostic field.
+      EMPTY when the chain does not resolve, so the plan can never name a route
+      the registry does not carry;
+    - `:branch-error` — `{:kind :unknown-parent|:parent-cycle :route-id* …}`
+      when a `:parent` names an unregistered route or the chain cycles, else
+      absent. The plan's honest failure signal;
+    - `:branch-contributors` — the walk's `[{:route-id :route-meta} …]`
+      segments, the value `commit-navigation` hands the late-bound
+      `:routing/on-route-entry` resource plan. Carried on the plan so the commit
+      hop READS the branch the door already resolved rather than walking the
+      `:parent` chain a second time."
   [{:keys [source cause target]}]
-  (let [route-id (:route-id target)]
-    {:source    source
-     :cause     cause
-     :target    target
-     :branch    (branch-of route-id)
-     :leaf-plan (leaf-plan-of route-id)}))
+  (let [route-id (:route-id target)
+        {:keys [branch branch-error]} (routing-events/resolve-branch route-id)]
+    (cond-> {:source              source
+             :cause               cause
+             :target              target
+             :branch              (mapv :route-id branch)
+             :branch-contributors (vec branch)
+             :leaf-plan           (leaf-plan-of route-id)}
+      branch-error (assoc :branch-error branch-error))))
 
 ;; ---- the diagnostic projection --------------------------------------------
 
@@ -307,11 +342,22 @@
   vector of route ids and `:leaf-plan-ids` the leaf plan's event ids, both
   registration-time identifiers rather than runtime values, so both ride whole.
 
+  rf2-cqyq2 — `:branch-error` rides only when the `:parent` chain FAILED to
+  resolve, and only as its `:kind` + offending `:route-id*`. Both are
+  registration-time identifiers, so neither is a carrier; a `:parent-cycle`'s
+  `:chain` is deliberately left off the bus because `resolve-branch` builds it
+  out of route-META maps, and route metadata on a trace tag is bulk no consumer
+  branches on. The tag is a FAILURE SIGNAL, absent on every healthy navigation —
+  which is what makes `:branch` honest: before this, `:branch` came from the
+  display `:parent` walk while the activation composed over the fail-loud one, so
+  a malformed registration produced a plausible branch naming an unregistered
+  route with no indication that planning had failed on that very chain.
+
   Callers add the `:frame` stamp (the in-flight drain's frame), which is
   load-bearing rather than cosmetic: epoch capture admits only frame-tagged
   traces and the frame-level trace-disable gate keys suppression off it (Spec 012
   §Trace events — Frame attribution)."
-  [{:keys [cause target branch leaf-plan]}]
+  [{:keys [cause target branch branch-error leaf-plan]}]
   (-> {:cause         cause
        :route-id      (:route-id target)
        :url           (:url target)
@@ -323,4 +369,6 @@
        ;; surface; the id is the diagnostic half. Total over a non-sequential
        ;; entry so a malformed `:on-match` cannot throw on the trace path.
        :leaf-plan-ids (mapv #(if (sequential? %) (first %) %) leaf-plan)}
+      (cond-> branch-error
+        (assoc :branch-error (select-keys branch-error [:kind :route-id*])))
       egress/redact-url-tag))

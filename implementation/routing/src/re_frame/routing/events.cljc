@@ -234,9 +234,20 @@
   `emit-activation-traces!` so the lifecycle pair carries `:frame` too.
   Without it those frame-known traces miss epoch capture (which buffers
   only frame-tagged events) and bypass the frame-level trace-disable gate.
+
+  rf2-cqyq2 — `branch-contributors` / `branch-error` are the route plan's
+  already-resolved `:parent` walk (`resolve-branch`, called ONCE per navigation
+  in `re-frame.routing.resolve/route-plan`), threaded in by the door. Both doors
+  build the plan immediately before calling this, so the value is in hand; this
+  hop used to re-walk the chain itself, which is how the plan came to REPORT one
+  branch (the display walk) and EXECUTE another (this one). Reading it off the
+  plan makes the reported branch and the composed branch the same value by
+  construction, and costs one walk fewer per navigation.
+
   Returns the effects map `{:rf.db/runtime :fx}`."
   [rdb {:keys [route-id params query fragment transition]} on-match-vec
-   {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-allocation app-db frame]}]
+   {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-allocation app-db frame
+           branch-contributors branch-error]}]
   (let [;; rf2-vcop6y: the nav-token rides the RECORDABLE `:rf.route/nav-allocation`
         ;; cofx — `:token` is published into the slice (recorded + replay-stable),
         ;; `:counter` advances the host high-water via the bump fx below.
@@ -259,12 +270,12 @@
         ;; `:error`, visible to the `:rf/route` sub + Xray. No-op when no
         ;; Resources artefact / no `:resources` route metadata.
         route-meta (registrar/lookup :route route-id)
-        ;; EP-0037 R2: resolve the effective parent-to-leaf branch (fail-loud)
-        ;; and read the SUPERSEDED nav-token's owned identity set — the plan
-        ;; diff's previous set (`[:rf.runtime/routing :resource-plan <token>]`,
-        ;; a resources-written sibling of `:resource-blocking`). Routing owns
-        ;; the `:parent` walk; the Resources plan composes + diffs.
-        {:keys [branch branch-error]} (resolve-branch route-id)
+        ;; EP-0037 R2: read the SUPERSEDED nav-token's owned identity set — the
+        ;; plan diff's previous set (`[:rf.runtime/routing :resource-plan
+        ;; <token>]`, a resources-written sibling of `:resource-blocking`).
+        ;; Routing owns the `:parent` walk (`resolve-branch`, run once in
+        ;; `route-plan` and threaded in as `branch-contributors` /
+        ;; `branch-error`); the Resources plan composes + diffs.
         prev-identities (get-in rdb [:rf.runtime/routing :resource-plan prev-nav-token])
         plan       (when-let [on-entry (late-bind/get-fn :routing/on-route-entry)]
                      (on-entry {:route-meta      route-meta
@@ -277,7 +288,9 @@
                                 :prev-nav-token  prev-nav-token
                                 :ctx             {}
                                 ;; EP-0037 R2 branch composition + plan diff.
-                                :branch          branch
+                                ;; The hook's documented key names; the values
+                                ;; are the route plan's already-resolved walk.
+                                :branch          branch-contributors
                                 :branch-error    branch-error
                                 :prev-identities prev-identities
                                 ;; Preserve the handler's causal app-db input for
