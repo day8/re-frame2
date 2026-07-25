@@ -15,6 +15,57 @@
             [re-frame.routing.registry :as registry]
             [re-frame.routing.strategy :as strategy]))
 
+(def prefetch-intent-value
+  "The ONE accepted `:prefetch` behaviour value on a route-link (Spec 012
+  §Route-plan prefetch). `:intent` warms on credible user intent (hover / focus
+  / touch). There is no render mode, viewport mode, global default, or hover-
+  delay knob — a passive render dispatches nothing (Governing Law 1)."
+  :intent)
+
+(defn validate-prefetch!
+  "Validate the `:prefetch` link-behaviour value, the ONE definition every link
+  surface reaches (Spec 012 §`:prefetch :intent` — the opt-in warm-mode
+  trigger: \"`:prefetch` is a routing control key on every link surface: it is
+  validated and stripped before DOM emission\").
+
+  Three outcomes, and only three:
+
+    - `:prefetch` ABSENT   → passive. The link warms nothing; returns nil.
+    - `:prefetch :intent`  → the one accepted value; returns nil.
+    - any other PRESENT value → a caller bug. Throws
+      `:rf.error/route-link-bad-prefetch`.
+
+  The third case used to be silent: an equality-or-nil test treated `:prefetch
+  true` and `:prefetch :render` exactly like an absent key, so a typo or an
+  unsupported mode borrowed from another router downgraded the link to a passive
+  one with nothing on screen or in the log to say so — the failure mode a
+  prefetch typo can least afford, because a passive link looks identical to a
+  working one until you measure. `:prefetch nil` and `:prefetch false` are
+  PRESENT values and rejected too: the way to not prefetch is to omit the key,
+  not to pass a falsey mode. (A conditional call site writes
+  `(cond-> props warm? (assoc :prefetch :intent))`.)
+
+  Called from every link calculation that runs on BOTH hosts — `href-attrs` for
+  `rf/route-link` (CLJS render + SSR shell), `link-model` for the compiled
+  `ui/route-link` (likewise), and `prefetch-payload` itself — so the surfaces
+  Spec 012 declares behaviourally identical agree, server-side included, and no
+  surface can reach DOM emission having stripped an invalid value unexamined."
+  [props]
+  (when (contains? props :prefetch)
+    (let [v (:prefetch props)]
+      (when-not (= prefetch-intent-value v)
+        (throw (registry/route-error
+                 :rf.error/route-link-bad-prefetch
+                 'rf/route-link
+                 (str "route-link :prefetch accepts only " prefetch-intent-value
+                      " but got " (pr-str v)
+                      ". :intent warms the destination's resources on credible user"
+                      " intent (hover / focus / touch); there is no render mode,"
+                      " viewport mode, global default, or hover-delay knob. To make"
+                      " the link passive, OMIT :prefetch rather than passing a"
+                      " falsey or unsupported value")
+                 {:slot :prefetch :value v :accepted prefetch-intent-value}))))))
+
 (defn- href-attrs
   "Synthesise the `<a>` href from the link control keys (`:to` /
   `:params` / `:query` / `:fragment`), strip those control keys (plus
@@ -44,17 +95,16 @@
   ;; drift from what an address IS, and a policy / DOM attr can never leak into
   ;; the synthesised href. The remaining props are the open DOM-attribute map
   ;; (route-link's deliberate exception — Spec 012 §The extraction law).
+  ;;
+  ;; EP-0037 R3: validate the `:prefetch` behaviour value HERE, in the one
+  ;; calculation both halves of the render contract run, so `rf/route-link`
+  ;; rejects an unsupported mode on the client AND in the SSR shell rather than
+  ;; stripping it silently on the way to the `<a>`.
+  (validate-prefetch! props)
   (let [{:keys [to params query fragment]} (address/extract-address props)
         path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
     [path-url (-> (apply dissoc props (concat address/address-keys address/link-behavior-keys))
                   (assoc :href (encode path-url)))]))
-
-(def prefetch-intent-value
-  "The ONE accepted `:prefetch` behaviour value on a route-link (Spec 012
-  §Route-plan prefetch). `:intent` warms on credible user intent (hover / focus
-  / touch). There is no render mode, viewport mode, global default, or hover-
-  delay knob — a passive render dispatches nothing (Governing Law 1)."
-  :intent)
 
 (defn prefetch-payload
   "The `[:rf.route/prefetch {address}]` dispatch vector for a link whose props
@@ -64,8 +114,13 @@
   reimplements none of the prefetch law. The address is selected through the ONE
   shared extractor (`address/extract-address`), so it is byte-identical to the
   link's own destination (path `:params` + `:query`); `:fragment` is omitted — a
-  prefetch is resource-only and a `#fragment` is never a resource input."
+  prefetch is resource-only and a `#fragment` is never a resource input.
+
+  A PRESENT-but-invalid `:prefetch` throws
+  (`validate-prefetch!`) rather than returning nil: nil means \"this link is
+  passive\", and only an ABSENT key may mean that."
   [props]
+  (validate-prefetch! props)
   (when (= prefetch-intent-value (:prefetch props))
     (let [{:keys [to params query]} (address/extract-address props)]
       [:rf.route/prefetch
@@ -334,6 +389,13 @@
   ;; `route-url`, and `:rf.route/navigate` resolve through. `native-anchor?`
   ;; still reads the FULL `target` (the `:target` / `:download` DOM attrs live
   ;; outside the address class).
+  ;;
+  ;; EP-0037 R3: `link-model` is the one link calculation the compiled
+  ;; `ui/route-link` runs on BOTH hosts, so the `:prefetch` value is validated
+  ;; here too. Its `prefetch-payload` call is CLJS-only (the JVM/SSR shell
+  ;; installs no intent handlers), which left the server render accepting an
+  ;; unsupported mode the client rejected.
+  (validate-prefetch! target)
   (let [{:keys [to params query fragment]} (address/extract-address target)
         path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
         encode   #?(:cljs (:encode (strategy/url-strategy-for-frame-id render-frame))
