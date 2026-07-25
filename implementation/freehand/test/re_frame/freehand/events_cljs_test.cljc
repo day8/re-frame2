@@ -16,6 +16,8 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]
+            [re-frame.freehand.analyze-accept-cljs-test :refer [mk-env]]
+            [re-frame.freehand.compiler.analyze :as ana]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.events :as events]
             [re-frame.freehand.test :as t]
@@ -234,8 +236,12 @@
   {:event-vector            [:cart/add 7]
    :options-plain           {:event [:article/save 3]}
    :options-prevent-default {:event [:article/save 3] :prevent-default true}
-   :options-every-option    {:event [:picker/move 1] :prevent-default true
-                             :stop-propagation true :once true :passive true :capture true}
+   :options-every-blocking-option {:event [:picker/move 1] :prevent-default true
+                                   :stop-propagation true :once true :capture true}
+   :options-every-passive-option  {:event [:picker/move 1] :stop-propagation true
+                                   :once true :passive true :capture true}
+   :options-passive-prevent-default {:event [:picker/move 1] :passive true
+                                     :prevent-default true}
    :options-false-options   {:event [:article/save 3] :prevent-default false
                              :stop-propagation false :once false :passive false :capture false}
    :nil                     nil
@@ -347,6 +353,63 @@
       (is (= (:unknown-keys (conf/caught-data mounted))
              (:unknown-keys (conf/caught-data structural)))
           "and one report of what was wrong"))))
+
+(defn- compiled-reject-id
+  "The COMPILED tier's verdict on an authored body — the
+  `:rf.ui.compile/error` id, or nil when it compiles. The analyzer is pure
+  and its resolution injected, so this reads the same on both hosts."
+  [form]
+  (try
+    (ana/analyze (mk-env) form)
+    nil
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) ex
+      (:rf.ui.compile/error (ex-data ex)))))
+
+(deftest fh-event-002-all-three-tiers-refuse-one-contradictory-options-map
+  (testing "Per FH-EVENT-002: `:passive` and `:prevent-default` are BOTH
+            roster members and contradict each other — a passive listener
+            promises the browser it will never call `preventDefault`, so one
+            of the two options would silently do nothing. Membership is not
+            the whole law, and the roster alone cannot see this.
+
+            The compiled tier always refused it, saying the combination is a
+            contradiction `in any stage`. The other two accepted it, so a
+            structural test and a development mount certified a declaration
+            a release build could not compile — the mirror image of
+            rf2-5xjxj, and the same class (rf2-uvcm3). The verdict now lives
+            in `events/options-plan`, the ONE classifier the mounted and
+            structural tiers both ask, so no third opinion was added to fix
+            a disagreement between two.
+
+            Asserted across all three tiers in one test, because the claim
+            IS the agreement: a later change that moved one verdict without
+            the others fails here even if each is individually defensible."
+    (let [value      {:event [:picker/move 1] :passive true :prevent-default true}
+          plan       #(events/event-plan value)
+          mounted    #(events/site (events/candidate (events/owner :app/picker))
+                                   :on-wheel value events/payload-map
+                                   {:tag :div :controlled? false :slot "onWheel"})
+          structural #(t/render [:div {:on-wheel value}])]
+      (is (= :rf.error/view-bad-event (conf/caught-id plan))
+          "the canonical plan refuses it")
+      (is (= :drop-passive-or-prevent-default (:recovery (conf/caught-data plan)))
+          "naming the one fix — drop one of the two")
+      (is (= (conf/caught-id plan) (conf/caught-id mounted))
+          "one error id at a committed site")
+      (is (= (conf/caught-id plan) (conf/caught-id structural))
+          "and the same id through the structural render a consumer tests on")
+      (is (= :rf.ui.compile/contradictory-handler-options
+             (compiled-reject-id '[:div {:on-wheel {:event [:picker/move 1]
+                                                    :passive true
+                                                    :prevent-default true}}]))
+          "the compiled tier refuses it at BUILD, under its own build-time id")
+      (is (nil? (compiled-reject-id '[:div {:on-wheel {:event [:picker/move 1]
+                                                       :passive true}}]))
+          "NON-VACUITY: passive alone still compiles")
+      (is (= conf/no-throw
+             (conf/caught-id #(t/render [:div {:on-wheel {:event [:picker/move 1]
+                                                          :passive true}}])))
+          "and passive alone still renders"))))
 
 (deftest fh-event-002-the-structural-render-still-records-a-roster-options-map
   (testing "NON-VACUITY for the two rows above: the structural render

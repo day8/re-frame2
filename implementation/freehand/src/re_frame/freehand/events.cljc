@@ -588,7 +588,12 @@
   typo that silently does nothing is the failure mode this rejects.
 
   A MAP at an event position is this form and no other, so the roster is
-  the whole grammar of a map there."
+  the whole grammar of a map there.
+
+  Membership is not the whole law: `:passive` and `:prevent-default` are
+  both members and CONTRADICT each other, which [[options-plan]] refuses.
+  A roster says which keys exist; it cannot say which combinations mean
+  something."
   #{:event :prevent-default :stop-propagation :once :passive :capture})
 
 (defn- options-plan
@@ -604,6 +609,30 @@
         :use-the-closed-listener-options
         {:unknown-keys (vec (sort unknown))
          :legal-keys   (vec (sort event-options))}))
+    ;; A key can be IN the roster and still contradict another one that is.
+    ;; `:passive true` is a promise to the browser that this listener will
+    ;; never call `preventDefault`, so pairing it with `:prevent-default
+    ;; true` asks for a mechanic the platform is entitled to ignore — one of
+    ;; the two options silently does nothing, which is the failure the closed
+    ;; roster exists to remove and the roster alone cannot see.
+    ;;
+    ;; The compiled tier has always refused it
+    ;; (`:rf.ui.compile/contradictory-handler-options`) and says so "in any
+    ;; stage". The canonical plan is what the mounted and structural tiers
+    ;; ask, so the check lives HERE rather than beside them: a declaration a
+    ;; compiled build cannot compile must not be one a structural test or a
+    ;; development mount accepts (rf2-uvcm3). Checked after the roster and
+    ;; before the `:event` shape, which is the compiled tier's order too, so
+    ;; the three tiers agree on the VERDICT and on which verdict comes first.
+    (when (and (:passive m) (:prevent-default m))
+      (bad-event!
+        'v/event-site
+        (str "An event options map carries :passive true with :prevent-default true. A "
+             "passive listener promises the browser it will NEVER call preventDefault, so "
+             "the combination is a contradiction (in any stage) and one of the two options "
+             "would silently do nothing. Drop one of them.")
+        :drop-passive-or-prevent-default
+        {:contradiction [:passive :prevent-default]}))
     (when-not (vector? event)
       (bad-event!
         'v/event-site

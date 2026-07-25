@@ -11,9 +11,22 @@
 ;; (D007, discharged DELETE). So a string-keyed map is an unknown-option
 ;; reject like any other typo, and an empty map is an options map with no
 ;; `:event` — neither is quietly re-read as some second grammar.
+;;
+;; MEMBERSHIP IS NOT THE WHOLE LAW. `:passive` and `:prevent-default` are
+;; both roster members and they contradict each other: a passive listener
+;; promises the browser it will never call `preventDefault`, so authoring
+;; both asks for a mechanic the platform is entitled to ignore and one of
+;; the two options silently does nothing — the exact failure the closed
+;; roster exists to remove, in the one shape a roster cannot see. The
+;; compiled tier always refused it and said "in any stage"; the plan is what
+;; the mounted and structural tiers ask, so it refuses it too (rf2-uvcm3).
+;; The two accepted `:options-every-…` rows are therefore a PAIR — one per
+;; side of the native-attachment lane — and between them they carry all six
+;; roster keys, so nothing is lost by there being no single legal map that
+;; carries every one at once.
 {:fh/id "FH-EVENT-002"
  :fh/law
- "An event-producing site yields exactly one event vector or nil after the closed listener options are interpreted; a map at an event position is the listener-options map and nothing else, so an unknown option key (a string key included) or a multi-intent vector is rejected."
+ "An event-producing site yields exactly one event vector or nil after the closed listener options are interpreted; a map at an event position is the listener-options map and nothing else, so an unknown option key (a string key included), a mutually contradictory pair of roster options, or a multi-intent vector is rejected."
 
  ;; `:form` names a value the suite constructs; `:plan` is the normalized
  ;; site plan both emitters and the structural host read.
@@ -24,10 +37,15 @@
    :plan {:role :event-options :event [:article/save 3]}}
   {:form :options-prevent-default
    :plan {:role :event-options :event [:article/save 3] :prevent-default true}}
-  {:form :options-every-option
+  {:note "every option that can co-exist, on the preventDefault side of the lane"
+   :form :options-every-blocking-option
    :plan {:role :event-options :event [:picker/move 1]
           :prevent-default true :stop-propagation true
-          :once true :passive true :capture true}}
+          :once true :capture true}}
+  {:note "and on the passive side — between them the two rows carry all six roster keys"
+   :form :options-every-passive-option
+   :plan {:role :event-options :event [:picker/move 1]
+          :stop-propagation true :once true :passive true :capture true}}
   {:form :options-false-options
    :plan {:role :event-options :event [:article/save 3]}}
   {:form :nil
@@ -41,6 +59,9 @@
    :form :options-string-key    :error-id :rf.error/view-bad-event}
   {:note "an empty map is an options map missing its :event"
    :form :options-empty         :error-id :rf.error/view-bad-event}
+  {:note "both keys are IN the roster and contradict each other — a passive listener promises never to preventDefault, so one of the two would silently do nothing"
+   :form :options-passive-prevent-default
+   :error-id :rf.error/view-bad-event}
   {:form :string                :error-id :rf.error/view-bad-event}
   {:form :number                :error-id :rf.error/view-bad-event}
   {:form :keyword               :error-id :rf.error/view-bad-event}]

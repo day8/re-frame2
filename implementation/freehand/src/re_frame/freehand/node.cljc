@@ -521,18 +521,6 @@
       {:attr k :path path :value (shape bad)}))
   v)
 
-(defn- fn-carried?
-  "Is `x` a value whose SPELLING is testable and whose BEHAVIOUR is not — a
-  bare function, or one of the declared roster callbacks (`v/event`,
-  `v/handler`, `v/raw-fn`)?
-
-  A roster callback carries a function rather than being one, so `fn?`
-  alone answers false for it. Asking both questions in one place is what
-  keeps every event position answering the same thing about the same
-  value."
-  [x]
-  (or (fn? x) (events/callback? x)))
-
 (defn classify-event
   "One `:events` entry value, classified BY THE VALUE PRESENT AT RENDER
   (Spec 004B §Element fields): a vector is a literal event intent, a map is
@@ -541,31 +529,34 @@
 
   A fn-carried site is a bare function OR one of the declared roster
   callbacks — `v/event`, `v/handler`, `v/raw-fn` — exactly as 004B
-  §Element fields enumerates them. A roster callback is a record rather
-  than an `IFn`, so `fn?` alone answers false for it and the site would
-  fall to the malformed arm: `[:div {:on-scroll (v/event [e] …)}]` would
-  render in React and be REFUSED by the structural tree, which is a
-  cross-host divergence over one declaration. It records under the
-  mode-neutral `:fn` member, which is the member 004B says the
-  interpreted walk produces and the one the compiled emitters already
-  emit at a DOM site — so promotion moves nothing.
+  §Element fields enumerates them. It records under the mode-neutral `:fn`
+  member, which is the member 004B says the interpreted walk produces and
+  the one the compiled emitters already emit at a DOM site — so promotion
+  moves nothing.
 
   An intent and an options map are recorded VERBATIM, so they must already
   be data ([[reject-non-data!]]) — a function riding as an event argument
   would record an intent that cannot be compared, printed, or dispatched as
   the site's own (§Data).
 
-  A MAP is additionally held to the CLOSED listener-options roster, and the
-  verdict is not taken here: [[re-frame.freehand.events/event-plan]] owns
-  the event grammar and is total over it, so this canonicaliser CONSULTS
-  that one classification rather than running a second one beside it
-  (rf2-5xjxj). Without it a map was recorded verbatim whatever its keys,
-  and the tier a consumer TESTS on silently accepted what the tier they
-  ship on rejects — the mounted walk raises `:rf.error/view-bad-event` from
-  the same roster and the compiled build raises
-  `:rf.ui.compile/bad-handler-options` at the same map. `.cljc` structural
-  tests are a cross-host claim (FH-EVENT-002, whose modes are `common jvm
-  browser`), so one authored mistake must get one verdict on every host.
+  THE CLASSIFICATION IS NOT TAKEN HERE. There is exactly one classifier of
+  a value at an event position —
+  [[re-frame.freehand.events/event-plan]] — and it is TOTAL over the
+  roster, so this canonicaliser asks it and reads the answer's `:role`
+  rather than running a second cond beside it (rf2-5xjxj, rf2-uvcm3). What
+  is left here is the tree's own law: which roles are recorded verbatim
+  (and so must be data), and which record as the opaque marker.
+
+  Delegating WHOLESALE is what makes one authored mistake get one verdict
+  on every tier. A second cond agreed with the plan about the cases it
+  happened to enumerate and disagreed about the rest: a string at an event
+  position was `:rf.error/ui-tree-malformed` structurally and
+  `:rf.error/view-bad-event` mounted (FH-EVENT-002 pins the latter, at
+  `common jvm browser`), and a roster callback fell to a malformed arm
+  `fn?` could not see, so `[:div {:on-scroll (v/event [e] …)}]` rendered in
+  React and was REFUSED by the structural tree. Both are gone by
+  construction here: every value the plan refuses raises the plan's
+  diagnostic, and every value it admits reaches exactly one arm below.
 
   The PLAN is discarded, deliberately. What this seam takes from
   `event-plan` is its VERDICT, never its normalization: the plan drops a
@@ -574,22 +565,11 @@
   would change the tree that every promoted declaration is compared
   against."
   [tag k v]
-  (cond
-    (nil? v)    nil
-    (vector? v) (reject-non-data! tag k v "event intent")
-    (map? v)    (do (reject-non-data! tag k v "options map")
-                    (events/event-plan v)
-                    v)
-
-    (fn-carried? v)
-    {:rf.ui/opaque :fn}
-
-    :else
-    (malformed!
-      're-frame.freehand/render
-      (str "The " k " handler site on " tag " carries a " (type-name v)
-           ". A handler is an event vector, an options map carrying one, or a function.")
-      {:attr k :value (shape v)})))
+  (case (:role (events/event-plan v))
+    nil            nil
+    :event-vector  (reject-non-data! tag k v "event intent")
+    :event-options (reject-non-data! tag k v "options map")
+    {:rf.ui/opaque :fn}))
 
 
 (defn- dyn-attr-entry
