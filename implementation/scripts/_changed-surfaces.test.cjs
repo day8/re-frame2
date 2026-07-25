@@ -309,18 +309,113 @@ test('testbed-support CLJS test-tree change runs cljs + cljs-browser (rf2-as6bg)
   assert.equal(result.cljs_browser, 'true');
 });
 
-// The `.clj` half — open_in_editor_server_test.clj, which no CLJS build can
-// load — still has no CI lane. tools_jvm is deliberately NOT set: none of the
-// five jvm-tools-* jobs runs this artefact, so setting it would fire five
-// unrelated probes and still skip the file. This pins the current, honest
-// state; a `jvm-tools-testbed-support` job in the hot-zone test.yml is
-// sequenced separately, and lands with this assertion flipped.
-test('testbed-support does NOT fan out to tools_jvm (no job runs it) (rf2-as6bg)', () => {
+// rf2-wq17m — the `.clj` half (open_in_editor_server_test.clj, which no CLJS
+// build can load) now HAS a lane: `jvm-tools-testbed-support`, gated on the
+// artefact's own output. This assertion previously pinned `tools_jvm == 'false'`
+// as the honest description of a file no job ran, and said in as many words that
+// it lands flipped when the job exists — a tripwire rather than a claim of
+// correctness. It is now flipped, and it still pins `tools_jvm` false, which is
+// the durable half of the original point: that output gates five jvm-tools-*
+// jobs, none of which runs this artefact.
+test('testbed-support .clj fans out to its OWN jvm output, not tools_jvm (rf2-wq17m)', () => {
   const result = classify(
     'tools/testbed-support/test/re_frame/testbed/open_in_editor_server_test.clj',
   );
+  assert.equal(result.tools_jvm_testbed_support, 'true');
   assert.equal(result.tools_jvm, 'false');
   assert.equal(result.cljs_node_test, 'true');
+});
+
+// rf2-wq17m — the same three-part shape the Freehand probe rows use: the
+// classifier must ARM the surface, the job must be gated on that output and run
+// the artefact's suite, and the aggregator must depend on the job. Break any one
+// and the lane is decorative — which is exactly the state these two artefacts
+// were in, with a wired `:test` alias and a slot on test-jvm-tools.sh's roster
+// but no PR-time job at all.
+const NEW_TOOLS_JVM_LANES = [
+  {
+    job: 'jvm-tools-machines-viz',
+    output: 'tools_jvm_machines_viz',
+    dir: 'tools/machines-viz',
+    armed: 'tools/machines-viz/src/day8/re_frame2_machines_viz/scxml.cljc',
+  },
+  {
+    job: 'jvm-tools-testbed-support',
+    output: 'tools_jvm_testbed_support',
+    dir: 'tools/testbed-support',
+    armed: 'tools/testbed-support/test/re_frame/testbed/open_in_editor_server_test.clj',
+  },
+];
+
+test('the new tools JVM jobs are gated on their own output and run their artefact (rf2-wq17m)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  for (const lane of NEW_TOOLS_JVM_LANES) {
+    const block = jobBlock(workflow, lane.job);
+    assert.match(block, /needs: detect_changed_surfaces/);
+    assert.match(
+      block,
+      new RegExp(`if: needs\\.detect_changed_surfaces\\.outputs\\.${lane.output} == 'true'`),
+      `${lane.job} must be gated on ${lane.output}`,
+    );
+    assert.match(
+      block,
+      new RegExp(`working-directory: ${lane.dir}`),
+      `${lane.job} must run in ${lane.dir}`,
+    );
+    assert.match(
+      block,
+      /run: clojure -M:test/,
+      `${lane.job} must invoke the artefact's own :test alias`,
+    );
+    // The output must also be plumbed out of detect_changed_surfaces, or the
+    // `if:` reads an empty string and the job never runs.
+    assert.match(
+      workflow,
+      new RegExp(`${lane.output}: \\$\\{\\{ steps\\.detect\\.outputs\\.${lane.output} \\}\\}`),
+      `${lane.output} must be declared as a detect_changed_surfaces output`,
+    );
+  }
+});
+
+test('all-required-passed aggregator needs the new tools JVM jobs (rf2-wq17m)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  for (const lane of NEW_TOOLS_JVM_LANES) {
+    assert.ok(
+      block.includes(`- ${lane.job}`),
+      `aggregator must list ${lane.job} in needs: — a job absent from it is advisory`,
+    );
+  }
+});
+
+test('the new tools JVM lanes arm on their artefact and nowhere else (rf2-wq17m)', () => {
+  for (const lane of NEW_TOOLS_JVM_LANES) {
+    assert.equal(
+      classify(lane.armed)[lane.output],
+      'true',
+      `${lane.armed} must arm ${lane.output}`,
+    );
+    for (const other of NEW_TOOLS_JVM_LANES) {
+      if (other === lane) continue;
+      assert.equal(
+        classify(lane.armed)[other.output],
+        'false',
+        `${lane.armed} must NOT arm ${other.output}`,
+      );
+    }
+    // A core-only change is the control: these outputs are per-artefact, not a
+    // fan-out of the framework.
+    assert.equal(
+      classify('implementation/core/src/re_frame/core.cljc')[lane.output],
+      'false',
+      `a core change must not fire ${lane.output}`,
+    );
+  }
+});
+
+test('machines-viz spec-only .md does NOT fire its JVM lane (rf2-wq17m)', () => {
+  // The spec-md guard above the artefact's catch-all must keep holding: prose
+  // cannot change what the parity ratchet compares.
+  assert.equal(classify('tools/machines-viz/spec/API.md').tools_jvm_machines_viz, 'false');
 });
 
 // The CLJS-only

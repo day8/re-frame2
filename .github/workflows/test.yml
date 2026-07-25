@@ -76,6 +76,8 @@ jobs:
       adapter_testbed_smokes: ${{ steps.detect.outputs.adapter_testbed_smokes }}
       ui_smoke: ${{ steps.detect.outputs.ui_smoke }}
       tools_jvm: ${{ steps.detect.outputs.tools_jvm }}
+      tools_jvm_machines_viz: ${{ steps.detect.outputs.tools_jvm_machines_viz }}
+      tools_jvm_testbed_support: ${{ steps.detect.outputs.tools_jvm_testbed_support }}
       template_expensive: ${{ steps.detect.outputs.template_expensive }}
       mcp_conformance: ${{ steps.detect.outputs.mcp_conformance }}
       mcp_live: ${{ steps.detect.outputs.mcp_live }}
@@ -3438,6 +3440,101 @@ jobs:
       - name: Run CLJS tests (tools/mcp-base artefact)
         run: npm run test:cljs
 
+  # rf2-wq17m — the two artefacts whose JVM lane existed everywhere EXCEPT here.
+  # Both carry a wired `:test` alias and a slot on scripts/test-jvm-tools.sh's
+  # roster, so they ran locally and in the nightly sweep, and never at PR time.
+  #
+  # Both are gated on their OWN classifier output, not on `tools_jvm`. That
+  # output gates the five jvm-tools-* jobs above, none of which runs either
+  # artefact — arming it would have fired five unrelated probes and STILL skipped
+  # the files. Appending steps to one of those jobs was rejected for the same
+  # reason plus a second: it would hang a `tools/machines-viz` step off a job
+  # named "JVM tools/xray".
+  jvm-tools-machines-viz:
+    name: JVM tools/machines-viz (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.tools_jvm_machines_viz == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/machines-viz
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-tools-machines-viz-${{ hashFiles('tools/machines-viz/deps.edn', 'implementation/core/deps.edn', 'implementation/machines/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-tools-machines-viz-
+            ${{ runner.os }}-clj-
+
+      # 632 tests / 2537 assertions. Most of the suite double-runs in the CLJS
+      # lanes — 29 of its 31 suites are `*_cljs_test.*` and ride the
+      # consolidated `:node-test` + `:browser-test` builds. Two do not:
+      # `engine_grammar_parity_test.cljc` (the engine<->viz grammar drift
+      # ratchet, which is why the `:test` alias carries a TEST-ONLY dep on
+      # implementation/machines) and `mermaid_public_smoke_test.cljc`. Their
+      # namespaces match neither `cljs-test$` nor `-dom-cljs-test$`, so this job
+      # is their only PR-time lane. No `|| echo` fallback — the runner's
+      # non-zero exit must surface, same as jvm-machines / jvm-schemas.
+      - name: Run JVM tests (tools/machines-viz artefact)
+        run: clojure -M:test
+
+  jvm-tools-testbed-support:
+    name: JVM tools/testbed-support (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.tools_jvm_testbed_support == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/testbed-support
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-tools-testbed-support-${{ hashFiles('tools/testbed-support/deps.edn', 'implementation/core/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-tools-testbed-support-
+            ${{ runner.os }}-clj-
+
+      # `open_in_editor_server_test.clj`, 32 tests / 153 assertions, covering the
+      # dev-only open-in-editor server the browser testbeds consume. It is `.clj`,
+      # so the `:node-test` build that carries this tree on its source paths
+      # cannot load it: this job is the artefact's only PR-time JVM lane. Found by
+      # the test-lane bijection gate as an ORPHAN (rf2-4hc9p) — a fully wired
+      # `:test` alias no lane ran.
+      - name: Run JVM tests (tools/testbed-support artefact)
+        run: clojure -M:test
+
   jvm-tools-template:
     name: JVM tools/template (clojure -M:test)
     needs: detect_changed_surfaces
@@ -4383,6 +4480,11 @@ jobs:
       - jvm-tools-story
       - jvm-tools-story-mcp
       - jvm-tools-mcp-base
+      # rf2-wq17m — required, so the machines-viz grammar-parity ratchet and the
+      # testbed-support server suite cannot be broken by a merge that never ran
+      # them. A job absent from this list is advisory, whatever its own gate says.
+      - jvm-tools-machines-viz
+      - jvm-tools-testbed-support
       - jvm-tools-template
       - node-test-tools-re-frame2-pair-mcp
       - node-test-tools-story-mcp

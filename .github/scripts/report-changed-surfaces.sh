@@ -51,6 +51,13 @@ freehand_reachability=false
 adapter_testbed_smokes=false
 ui_smoke=false
 tools_jvm=false
+# rf2-wq17m — two artefacts with a wired `:test` alias and a slot on
+# scripts/test-jvm-tools.sh's roster, but no PR-time CI lane until now. They get
+# their OWN outputs rather than joining `tools_jvm`: that output gates five
+# jvm-tools-* jobs, none of which runs either artefact, so setting it would fire
+# five unrelated probes and STILL skip the files these outputs exist to reach.
+tools_jvm_machines_viz=false
+tools_jvm_testbed_support=false
 template_expensive=false
 mcp_conformance=false
 mcp_live=false
@@ -74,6 +81,8 @@ mark_all() {
   adapter_testbed_smokes=true
   ui_smoke=true
   tools_jvm=true
+  tools_jvm_machines_viz=true
+  tools_jvm_testbed_support=true
   template_expensive=true
   mcp_conformance=true
   mcp_live=true
@@ -1305,16 +1314,18 @@ else
         #
         # rf2-as6bg — this arm used to claim machines-viz "has no JVM suite".
         # It does: a wired `:test` alias, on `scripts/test-jvm-tools.sh`'s
-        # roster. 29 of its 31 suites are `*_cljs_test.*` and ride the two
-        # CLJS gates above, but `engine_grammar_parity_test.cljc` and
-        # `mermaid_public_smoke_test.cljc` match neither `cljs-test$`
-        # (`:node-test`) nor `-dom-cljs-test$` (`:browser-test`), so they run
-        # in the JVM lane ONLY — and no CI job runs that lane. Setting
-        # tools_jvm here would NOT close it: none of the five jvm-tools-*
-        # jobs runs machines-viz, so it would fire five unrelated probes and
-        # still skip these two files. Closing it needs a
-        # `jvm-tools-machines-viz` job; test.yml is hot-zone, so that half of
-        # rf2-as6bg is sequenced separately.
+        # roster, 632 tests / 2537 assertions. 29 of its 31 suites are
+        # `*_cljs_test.*` and ride the two CLJS gates above, but
+        # `engine_grammar_parity_test.cljc` (the engine<->viz grammar drift
+        # ratchet) and `mermaid_public_smoke_test.cljc` match neither
+        # `cljs-test$` (`:node-test`) nor `-dom-cljs-test$` (`:browser-test`),
+        # so they run in the JVM lane ONLY.
+        #
+        # rf2-wq17m — that lane now has a CI job, `jvm-tools-machines-viz`,
+        # gated on the dedicated output below. `tools_jvm` is still deliberately
+        # NOT set: it gates five jvm-tools-* jobs, none of which runs this
+        # artefact, so it would fire five unrelated probes and still skip these
+        # two files.
         #
         # spec-md guard (mirrors story/xray above): a pure documentation
         # change under tools/machines-viz/spec/**.md cannot affect any
@@ -1329,9 +1340,14 @@ else
             # public/viewer.html, README, EDN) conservatively fires the
             # node-test + browser gates. The node-test build picks up the
             # *_cljs_test suites; the browser build picks up the
-            # *-dom-cljs-test export/chart-DOM suites.
+            # *-dom-cljs-test export/chart-DOM suites. The JVM lane joins them
+            # on the same conservative footing (rf2-wq17m): `deps.edn` moves the
+            # test classpath and the parity suite mirrors engine grammar, so
+            # narrowing to `src/**` would skip the very inputs it watches. The
+            # whole suite is seconds.
             cljs_node_test=true
             cljs_browser=true
+            tools_jvm_machines_viz=true
             ;;
         esac
         ;;
@@ -1352,14 +1368,16 @@ else
         # `story_host_dom_cljs_test.cljs` (matching `-dom-cljs-test$`) under
         # headless Chromium for its real React-root handoff assertions.
         #
-        # The `.clj` half — `open_in_editor_server_test.clj`, which no CLJS
-        # build can load — still has no CI lane. tools_jvm is deliberately
-        # NOT set: none of the five jvm-tools-* jobs runs this artefact, so it
-        # would fire five unrelated probes and still skip the file. That half
-        # needs a `jvm-tools-testbed-support` job in the hot-zone test.yml and
-        # is sequenced separately.
+        # The `.clj` half — `open_in_editor_server_test.clj`, 32 tests / 153
+        # assertions, which no CLJS build can load — now has a lane too
+        # (rf2-wq17m): `jvm-tools-testbed-support`, gated on the dedicated
+        # output below. `tools_jvm` stays deliberately unset for the same reason
+        # as machines-viz above: none of the five jvm-tools-* jobs runs this
+        # artefact, so it would fire five unrelated probes and still skip the
+        # file.
         cljs_node_test=true
         cljs_browser=true
+        tools_jvm_testbed_support=true
         ;;
       tools/story-mcp/*)
         # rf2-os0c1 — MCP wrappers don't run in a browser; story-xray-browser
@@ -1495,6 +1513,8 @@ emit freehand_reachability "$freehand_reachability"
 emit adapter_testbed_smokes "$adapter_testbed_smokes"
 emit ui_smoke "$ui_smoke"
 emit tools_jvm "$tools_jvm"
+emit tools_jvm_machines_viz "$tools_jvm_machines_viz"
+emit tools_jvm_testbed_support "$tools_jvm_testbed_support"
 emit template_expensive "$template_expensive"
 emit mcp_conformance "$mcp_conformance"
 emit mcp_live "$mcp_live"
