@@ -71,6 +71,15 @@
    [:button {:on-click [:basket/remove row-id]} "Remove"]
    [basket-row {:label "Line" :on-remove (v/event [_] [:basket/removed row-id])}]])
 
+(v/defview print-button
+  "A COMPILED declaration whose one event site is spelled as the listener
+  OPTIONS map. That is the SECOND of the two spellings carrying an event vector,
+  so it is the second arm of the handler projection — held apart from [[basket]]
+  so the cardinality and split rows there stay about the classes they name."
+  {:compiled true}
+  [{:keys [label]}]
+  [:button {:on-click {:event [:basket/print] :prevent-default true}} label])
+
 (v/defview plain-list
   "The paved path: interpreted, so there is no analysis to report and no roster
   that could be honestly claimed complete."
@@ -79,6 +88,9 @@
 
 (def ^:private basket-id
   ::basket)
+
+(def ^:private options-id
+  ::print-button)
 
 (def ^:private plain-id
   ::plain-list)
@@ -289,6 +301,25 @@
       (is (= :vector (:classification site))
           "and the classification keeps it apart from a callback body: this IS
            an event vector, with one argument that is not known yet"))))
+
+(deftest an-options-map-handler-carries-the-vector-it-wraps
+  (testing "The listener OPTIONS map is the other spelling that carries an event
+            vector. A fully-literal one is projected verbatim — options included,
+            because `:prevent-default` is part of what the site DOES — and the
+            `:event-id` is read from the vector the map wraps rather than from
+            the map's own keys, which have no head to name."
+    (let [r     (tool/read-view-event-sites options-id)
+          sites (:event-sites r)
+          site  (first sites)]
+      (is (= 1 (count sites)) "one event site, hand-countable from the body")
+      (is (= :options (:classification site)))
+      (is (= {:event [:basket/print] :prevent-default true} (:handler site))
+          "the authored options map, verbatim")
+      (is (= :basket/print (:event-id site))
+          "read from the wrapped vector, not from the map")
+      (is (true? (:serializable? site)))
+      (is (= (:site-facts r) (set (keys site)))
+          "and the closed key set holds over this classification too"))))
 
 (deftest an-opaque-callback-claims-nothing-about-its-body
   (testing "A `v/event` body is CODE. It carries no event vector, so there is no
