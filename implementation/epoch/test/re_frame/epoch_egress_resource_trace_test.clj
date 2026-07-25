@@ -93,7 +93,15 @@
                 (rf/reg-resource :plain/article
                   {:scope         :rf.scope/global
                    :params-schema [:map [:slug :string]]}
-                  (fn [_ _] {:request {:method :get :url "/a"}})))}))
+                  (fn [_ _] {:request {:method :get :url "/a"}}))
+                ;; a PLAIN resource under a CONCRETE (non-global) scope — the
+                ;; over-redaction control for the FREE `:scope` tag (rf2-1zc33).
+                ;; Its scoped KEY must keep scope AND params verbatim, which is
+                ;; what proves the `:scope` repair touched only the free tag.
+                (rf/reg-resource :plain/profile
+                  {:scope         {:from-db :rt/session}
+                   :params-schema [:map [:slug :string]]}
+                  (fn [_ _] {:request {:method :get :url "/b"}})))}))
 
 (defn- contains-secret? [v]
   (boolean
@@ -873,4 +881,399 @@
       (is (empty? frameless)
           (str "every correlated row must carry [:tags :frame]; frameless ops: "
                (pr-str (frequencies (map :operation frameless))))))))
+
+;; ===========================================================================
+;; (rf2-1zc33) the FREE `:scope` tag on the FIVE rows the sibling
+;; `:rf.resource/scope-resolved` projector never touches.
+;; ===========================================================================
+;;
+;; `trace-egress/sibling-owned-slot` passed `:scope` through VERBATIM, justified
+;; by a docstring claiming the sibling
+;; `scope-registry/project-scope-resolved-egress` had already classified it
+;; upstream. The epoch tool-pair applies that sibling under
+;; `(= :rf.resource/scope-resolved (:operation ev))` — ONE operation — while the
+;; family projector that consults `sibling-owned-slot` runs on EVERY
+;; `:rf.resource/*` / `:rf.mutation/*` / `:rf.warning/resource-*` row
+;; (`resource-family-op?` is operation-agnostic). So on five OTHER row types the
+;; resolved concrete scope — `[:rf.scope/session {:username …}]`, tier keyword
+;; plus IDENTITY MAP — was classified by NOBODY and egressed raw:
+;;
+;;   :rf.resource/invalidated                       (events.cljc:1811)
+;;   :rf.resource/refetch-decision                  (events.cljc:1828)
+;;   :rf.resource/removed                           (events.cljc:2069)
+;;   :rf.warning/resource-clear-scope-unresolved    (events.cljc:2138)
+;;   :rf.mutation/started + …/optimistic-applied    (mutation_events.cljc:1390, 1403)
+;;
+;; `:rf.resource/refetch-decision` is the sharpest case: it carries the SAME
+;; scope TWICE — correctly redacted inside `:resource/key`, raw under `:scope`.
+;; The row redacted and leaked one value side by side.
+;;
+;; The repair drops `:scope` from `sibling-owned-slot` and lets the SHAPE-driven
+;; fail-closed default own it (rf2-wd9im). Per shape:
+;;
+;;   `:rf.scope/global`                  scalar  → verbatim (no over-redaction)
+;;   `[:rf.scope/session {:username …}]` 2-vec   → walked: TIER keyword verbatim
+;;                                                 (attribution), identity MAP
+;;                                                 tokenized (distinct scopes →
+;;                                                 distinct digests)
+;;   on `:rf.resource/scope-resolved`            → the sibling has already
+;;                                                 substituted; unchanged.
+
+(def ^:private session-scope
+  "A resolved CONCRETE scope as the five rows below carry it — the tier keyword
+  plus the resolver's IDENTITY MAP. The map is what EP-0025 made unconditionally
+  fail-closed on the scope-resolved row, and what leaked on these five."
+  [:rf.scope/session {:username secret}])
+
+(def ^:private other-session-scope
+  "A SECOND distinct concrete scope — the per-scope-join control (distinct scopes
+  must keep distinct digests)."
+  [:rf.scope/session {:username (str secret "-2")}])
+
+(def ^:private plain-session-scope
+  "A concrete scope carrying NO secret, used with the PLAIN `:plain/profile`
+  owner as the over-redaction control."
+  [:rf.scope/session {:username "alice"}])
+
+(defn- free-scope
+  "The `:scope` tag as it egresses from a projected single-row record."
+  [record]
+  (:scope (:tags (first (:trace-events (epoch/projected-record record))))))
+
+;; ---------------------------------------------------------------------------
+;; (1) :rf.resource/invalidated — events.cljc:1811
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-redacts-invalidated-free-scope-tag
+  (testing "rf2-1zc33 — the invalidation summary row's FREE :scope tag carries
+            the resolved concrete scope. The sibling projector runs on
+            :rf.resource/scope-resolved ONLY, so nobody classified this one and
+            the identity map egressed raw. It must now tokenize while the TIER
+            keyword rides (a tool still shows \"session scope\")."
+    (let [k1     (sk session-scope :derived/profile {:slug "me"})
+          record (record-with
+                   [(event :rf.resource/invalidated
+                           {:rf.frame/id  :test/rt
+                            :scope        session-scope
+                            :tags         #{:tag/profile}
+                            :cause        [:mutation :m/save 1]
+                            :cross-scope? false
+                            :matched      [k1]
+                            :refetched    1
+                            :left-stale   0
+                            :exempt       []})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))
+          [tier identity-map] (:scope tags)]
+      (is (= :rf.scope/session tier)
+          "the scope TIER keyword rides verbatim — attribution preserved")
+      (is (redacted-component? identity-map)
+          "the resolver's IDENTITY MAP is tokenized")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the structural attribution rides verbatim"
+        (is (= #{:tag/profile} (:tags tags)))
+        (is (false? (:cross-scope? tags)))
+        (is (= 1 (:refetched tags)))
+        (is (= 0 (:left-stale tags))))
+      (testing "NO raw identity survives anywhere in the projected record"
+        (is (not (contains-secret? projected)))))))
+
+;; ---------------------------------------------------------------------------
+;; (2) :rf.resource/refetch-decision — events.cljc:1828. THE SAME SCOPE TWICE.
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-refetch-decision-scope-carriers-agree
+  (testing "rf2-1zc33 — the per-key refetch decision row emits
+            `:scope (first resource-key)`, so ONE value rides TWO carriers on
+            ONE row: inside `:resource/key` (owner-classified, correctly
+            redacted) and under the free `:scope` tag (classified by nobody,
+            raw). The two carriers must AGREE — neither may leak the identity."
+    (let [k1        (sk session-scope :derived/profile {:slug "me"})
+          record    (record-with
+                      [(event :rf.resource/refetch-decision
+                              {:rf.frame/id  :test/rt
+                               :resource/key k1
+                               :scope        (first k1)
+                               :active?      true
+                               :decision     :refetch
+                               :tags         #{:tag/profile}
+                               :cause        [:mutation :m/save 1]})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (testing "carrier 1 — the owner-classified scoped key (already correct)"
+        (is (redacted-component? (first (:resource/key tags)))
+            "the key's scope component is tokenized whole by owner classification")
+        (is (= :derived/profile (second (:resource/key tags)))
+            "the resource-id survives"))
+      (testing "carrier 2 — the free :scope tag (the leak)"
+        (is (= :rf.scope/session (first (:scope tags)))
+            "the tier keyword rides verbatim")
+        (is (redacted-component? (second (:scope tags)))
+            "the identity map is tokenized"))
+      (testing "THE AGREEMENT — the row can no longer redact and leak the same
+                value side by side"
+        (is (not (contains-secret? (:resource/key tags)))
+            "carrier 1 does not leak")
+        (is (not (contains-secret? (:scope tags)))
+            "carrier 2 does not leak either"))
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the decision attribution rides verbatim"
+        (is (true? (:active? tags)))
+        (is (= :refetch (:decision tags))))
+      (is (not (contains-secret? projected))
+          "NO raw identity survives anywhere in the projected record"))))
+
+;; ---------------------------------------------------------------------------
+;; (3) :rf.resource/removed — events.cljc:2069
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-redacts-removed-free-scope-tag
+  (testing "rf2-1zc33 — the clear-scope teardown row's FREE :scope tag is the
+            very scope that was torn down; its identity map must tokenize"
+    (let [k1        (sk session-scope :derived/profile {:slug "me"})
+          record    (record-with
+                      [(event :rf.resource/removed
+                              {:rf.frame/id  :test/rt
+                               :scope        session-scope
+                               :cause        [:logout]
+                               :removed      [k1]
+                               :reason       :clear-scope
+                               :aborted      []
+                               :completed-at 1234})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))
+          [tier identity-map] (:scope tags)]
+      (is (= :rf.scope/session tier) "the tier keyword rides verbatim")
+      (is (redacted-component? identity-map) "the identity map is tokenized")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the teardown attribution rides verbatim"
+        (is (= :clear-scope (:reason tags)))
+        (is (= 1234 (:completed-at tags))))
+      (is (not (contains-secret? projected))
+          "NO raw identity survives anywhere in the projected record"))))
+
+;; ---------------------------------------------------------------------------
+;; (4) :rf.warning/resource-clear-scope-unresolved — events.cljc:2138
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-redacts-clear-scope-unresolved-warning-scope
+  (testing "rf2-1zc33 — the clear-scope fail-closed diagnostic rides the
+            `:rf.warning/resource-*` namespace, so `resource-family-op?` routes
+            it to the family projector while the sibling never sees it. Its
+            `:scope` is the UNRESOLVED `{:from-db …}` reference (the emit is
+            guarded on `from-db?`), so the shape default's MAP arm tokenizes it
+            whole — and the resolver-id attribution survives verbatim on the
+            row's sibling `:from-db` scalar tag."
+    (let [record    (record-with
+                      [(event :rf.warning/resource-clear-scope-unresolved
+                              {:rf.frame/id :test/rt
+                               :scope       {:from-db :rt/session}
+                               :from-db     :rt/session
+                               :cause       [:logout]
+                               :recovery    :fix-scope})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (redacted-component? (:scope tags))
+          "the reference map is tokenized by the shape default's map arm")
+      (is (= :rt/session (:from-db tags))
+          "the RESOLVER ID survives verbatim on the sibling tag — full
+           attribution, nothing a reader needs is lost")
+      (is (= :fix-scope (:recovery tags)) "the recovery hint rides verbatim")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?"))))
+
+;; ---------------------------------------------------------------------------
+;; (5) :rf.mutation/started + :rf.mutation/optimistic-applied
+;;     — mutation_events.cljc:1390, 1403
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-redacts-mutation-started-free-scope-tag
+  (testing "rf2-1zc33 — the mutation lifecycle rows stamp the mutation's
+            resolved default scope under a FREE :scope tag; the identity map
+            must tokenize on BOTH of them"
+    (let [k1        (sk session-scope :derived/profile {:slug "me"})
+          record    (record-with
+                      [(event :rf.mutation/started
+                              {:rf.frame/id       :test/rt
+                               :mutation          :m/save
+                               :instance          7
+                               :work/id           [:rf.work/mutation :m/save 7]
+                               :generation        1
+                               :scope             session-scope
+                               :cause             [:ui :save]
+                               :invalidate-timing :after-request})
+                       (event :rf.mutation/optimistic-applied
+                              {:rf.frame/id       :test/rt
+                               :mutation          :m/save
+                               :instance          7
+                               :work/id           [:rf.work/mutation :m/save 7]
+                               :generation        1
+                               :scope             session-scope
+                               :snapshot-id       3
+                               :affected-keys     [k1]
+                               :tag-matched-keys  []
+                               :target-unresolved []
+                               :cause             [:mutation :m/save 7]})])
+          projected      (epoch/projected-record record)
+          [started opt]  (:trace-events projected)]
+      (testing ":rf.mutation/started"
+        (let [tags (:tags started)
+              [tier identity-map] (:scope tags)]
+          (is (= :rf.scope/session tier) "the tier keyword rides verbatim")
+          (is (redacted-component? identity-map) "the identity map is tokenized")
+          (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+          (testing "the mutation attribution rides verbatim"
+            (is (= :m/save (:mutation tags)))
+            (is (= 7 (:instance tags)))
+            (is (= [:rf.work/mutation :m/save 7] (:work/id tags)))
+            (is (= :after-request (:invalidate-timing tags))))))
+      (testing ":rf.mutation/optimistic-applied"
+        (let [tags (:tags opt)
+              [tier identity-map] (:scope tags)]
+          (is (= :rf.scope/session tier) "the tier keyword rides verbatim")
+          (is (redacted-component? identity-map) "the identity map is tokenized")
+          (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+          (is (= 3 (:snapshot-id tags)) "the snapshot id rides verbatim")))
+      (is (not (contains-secret? projected))
+          "NO raw identity survives anywhere in the projected record"))))
+
+;; ---------------------------------------------------------------------------
+;; (6) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-keeps-global-scope-and-plain-owner-key-verbatim
+  (testing "rf2-1zc33 guard — `:rf.scope/global` is a SCALAR, so the shape
+            default rides it verbatim and does NOT stamp the row sensitive; and
+            a PLAIN owner's `:resource/key` beside it keeps scope AND params.
+            This is the side that proves the repair costs no attribution on the
+            ordinary global-scoped row."
+    (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
+          record    (record-with
+                      [(event :rf.resource/refetch-decision
+                              {:rf.frame/id  :test/rt
+                               :resource/key k1
+                               :scope        (first k1)
+                               :active?      true
+                               :decision     :refetch
+                               :tags         #{:tag/articles}})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= :rf.scope/global (:scope tags))
+          "a global scope rides VERBATIM — no over-redaction")
+      (is (= k1 (:resource/key tags))
+          "the plain owner's scoped key rides verbatim, scope and params intact")
+      (is (not (:sensitive? tags))
+          "a plain global-scoped row is NOT stamped sensitive"))))
+
+(deftest off-box-plain-owner-free-scope-map-fails-closed-key-rides-verbatim
+  (testing "rf2-1zc33 — the deliberate, documented asymmetry. A free `:scope`
+            tag on `:rf.resource/invalidated` / `removed` names NO single owner
+            (an invalidation sweep spans owners, and a clear-scope teardown
+            outlives them), so there is nothing to read a `:sensitive?` claim
+            from and the shape default's MAP arm fails closed unconditionally.
+            The TIER survives, and — the point of this test — the PLAIN owner's
+            own `:resource/key` on the same row still rides fully verbatim, so
+            the repair is confined to the free tag and does not spill into
+            owner classification."
+    (let [k1        (sk plain-session-scope :plain/profile {:slug "me"})
+          record    (record-with
+                      [(event :rf.resource/invalidated
+                              {:rf.frame/id  :test/rt
+                               :scope        plain-session-scope
+                               :resource/key k1
+                               :tags         #{:tag/profile}
+                               :matched      [k1]
+                               :refetched    1})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= :rf.scope/session (first (:scope tags)))
+          "the tier keyword rides verbatim")
+      (is (redacted-component? (second (:scope tags)))
+          "the free tag's identity map fails closed even for a plain owner")
+      (is (= k1 (:resource/key tags))
+          "the PLAIN owner's scoped key still rides verbatim — scope AND params")
+      (is (= [k1] (:matched tags))
+          "and so does the plain owner's :matched key vector"))))
+
+(deftest free-scope-tokens-stay-distinct-per-scope
+  (testing "rf2-1zc33 — distinct scopes must keep DISTINCT digests, so an Xray
+            invalidation graph can still group and join by scope after the
+            identity map tokenizes"
+    (let [r1 (record-with [(event :rf.resource/invalidated
+                                  {:rf.frame/id :test/rt :scope session-scope})])
+          r2 (record-with [(event :rf.resource/invalidated
+                                  {:rf.frame/id :test/rt :scope other-session-scope})])
+          s1 (free-scope r1)
+          s2 (free-scope r2)]
+      (is (= :rf.scope/session (first s1) (first s2))
+          "both keep the tier keyword")
+      (is (redacted-component? (second s1)))
+      (is (redacted-component? (second s2)))
+      (is (not= (second s1) (second s2))
+          "two distinct scopes keep two distinct digests"))))
+
+;; ---------------------------------------------------------------------------
+;; (7) the SIBLING still owns its own row — nothing changes on scope-resolved
+;; ---------------------------------------------------------------------------
+
+(deftest scope-resolved-row-scope-still-owned-by-the-sibling
+  (testing "rf2-1zc33 — on `:rf.resource/scope-resolved` the sibling projector
+            has ALREADY substituted the `:rf/redacted` sentinel (a bare KEYWORD,
+            not a `{:rf/redacted <digest>}` map) before the family projector
+            runs. The sentinel is a scalar, so the shape default rides it
+            verbatim: the row is byte-identical to what it was before `:scope`
+            left `sibling-owned-slot`, and the sibling's `:sensitive?` stamp
+            survives. `:input-values` stays sibling-owned — this ruling covers
+            `:scope` only."
+    (let [record    (record-with
+                      [(event :rf.resource/scope-resolved
+                              {:rf.frame/id   :test/rt
+                               :resource-id   :rt/session
+                               :kind          :resolver
+                               :inputs        [:username]
+                               :input-values  {:username secret}
+                               :scope         session-scope
+                               :resolved-nil? false})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= :rf/redacted (:scope tags))
+          "the sibling's sentinel rides through the family projector unchanged")
+      (is (= :rf/redacted (:input-values tags))
+          ":input-values is still sibling-owned and unchanged")
+      (is (true? (:sensitive? tags)) "the sibling's :sensitive? stamp survives")
+      (testing "the structural resolver attribution rides verbatim"
+        (is (= :rt/session (:resource-id tags)))
+        (is (= :resolver (:kind tags)))
+        (is (= [:username] (:inputs tags)))
+        (is (false? (:resolved-nil? tags))))
+      (is (not (contains-secret? projected))
+          "NO raw identity survives anywhere in the projected record"))))
+
+;; ---------------------------------------------------------------------------
+;; (8) the trusted-local boundary — the redaction is the off-box DEFAULT
+;; ---------------------------------------------------------------------------
+
+(deftest trusted-local-include-sensitive-keeps-raw-free-scope
+  (testing "rf2-1zc33 — the trusted-local `:include-sensitive?` opt-in keeps the
+            raw free `:scope` tag across all five row types (the local-raw
+            boundary — the tokenization is the off-box default, not a strip)"
+    (let [record    (record-with
+                      [(event :rf.resource/invalidated
+                              {:rf.frame/id :test/rt :scope session-scope})
+                       (event :rf.resource/refetch-decision
+                              {:rf.frame/id :test/rt :scope session-scope})
+                       (event :rf.resource/removed
+                              {:rf.frame/id :test/rt :scope session-scope})
+                       (event :rf.warning/resource-clear-scope-unresolved
+                              {:rf.frame/id :test/rt :scope {:from-db :rt/session}})
+                       (event :rf.mutation/started
+                              {:rf.frame/id :test/rt :scope session-scope})
+                       (event :rf.mutation/optimistic-applied
+                              {:rf.frame/id :test/rt :scope session-scope})])
+          projected (epoch/projected-record record {:include-sensitive? true})
+          scopes    (mapv #(:scope (:tags %)) (:trace-events projected))]
+      (is (= [session-scope session-scope session-scope
+              {:from-db :rt/session}
+              session-scope session-scope]
+             scopes)
+          "every row's raw :scope rides with :include-sensitive?"))))
 

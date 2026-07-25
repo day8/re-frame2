@@ -191,14 +191,39 @@
   (`re-frame.resources.scope-registry/project-scope-resolved-egress`), which the
   epoch tool-pair runs BEFORE this family projector on the SAME row
   (`omit-off-box-resource-scope-values` → `omit-off-box-resource-trace-keys`).
-  That projector already classifies these resolver-owned slots — EP-0025
+  That projector already classifies the resolver-owned slot — EP-0025
   (rf2-71dr8t) made resolved-scope egress UNCONDITIONALLY fail-closed (the
   `:rf.egress/public` declassification escape hatch was the removed propagation
-  enum), so the sibling always redacts `:input-values` / `:scope` to
-  `:rf/redacted`. They must therefore PASS THROUGH this projector's fail-closed
-  map default unchanged — they were already classified upstream (an already-
-  redacted token re-redacts to itself)."
-  #{:input-values :scope})
+  enum), so the sibling always substitutes the `:rf/redacted` sentinel. It must
+  therefore PASS THROUGH this projector unchanged — it was already classified
+  upstream.
+
+  `:scope` USED TO BE IN THIS SET AND IS NOT (rf2-1zc33). The upstream premise
+  holds on exactly ONE row: the epoch tool-pair applies the sibling under
+  `(= :rf.resource/scope-resolved (:operation ev))`, while THIS projector runs on
+  every `:rf.resource/*` / `:rf.mutation/*` / `:rf.warning/resource-*` row
+  (`resource-family-op?` is operation-agnostic). Five other row types carry a
+  resolved CONCRETE scope under a free `:scope` tag — `:rf.resource/invalidated`
+  / `refetch-decision` / `removed`, `:rf.warning/resource-clear-scope-unresolved`
+  and `:rf.mutation/started` + `optimistic-applied` — and on those the sibling
+  never ran, so a pass-through here meant `:scope` was classified by NOBODY and
+  the resolver's IDENTITY MAP (`[:rf.scope/session {:username …}]`) egressed
+  off-box raw. `:rf.resource/refetch-decision` carried the same scope TWICE:
+  redacted inside `:resource/key`, raw under `:scope`.
+
+  `:scope` now falls to the SHAPE-driven default below, which is right per shape
+  without a row predicate: `:rf.scope/global` is a scalar and rides verbatim (no
+  over-redaction); a `[tier {identity}]` 2-vector is not scoped-key-shaped, so
+  the walk descends — the TIER KEYWORD rides verbatim (a tool still shows
+  \"session scope\") and the identity MAP tokenizes, distinct scopes keeping
+  distinct digests so per-scope joins survive; and on `:rf.resource/scope-resolved`
+  itself the sibling has already substituted its `:rf/redacted` SENTINEL — a bare
+  keyword, hence a scalar — which the default rides verbatim, leaving that row
+  byte-identical (the sibling stamps `:sensitive?` on the row itself, so the
+  stamp is not carried by the slot). Do NOT re-add `:scope` here, and do NOT add
+  a row predicate to keep the two projectors in step: a maintained roster of rows
+  is exactly what rots."
+  #{:input-values})
 
 (def ^:private cursor-slot
   "Tag slots that carry the load-more PAGINATION CURSOR as a FREE scalar tag
@@ -481,16 +506,20 @@
 
                 ;; An already-projected token rides as-is and still marks the row
                 ;; sensitive — guarded BEFORE `sibling-owned-slot` so a
-                ;; pre-redacted `:scope` / `:input-values` does not lose the
-                ;; row's `:sensitive?` stamp.
+                ;; pre-redacted `:input-values` does not lose the row's
+                ;; `:sensitive?` stamp.
                 (redacted-token? v)
                 (do (note! true) (assoc m k v))
 
                 ;; SIBLING-OWNED slots ride verbatim: the scope-resolved sibling
-                ;; projector already classified `:input-values` / `:scope`
-                ;; upstream on the row it owns (EP-0025 made resolved-scope
-                ;; egress unconditionally fail-closed), so re-tokenizing here is
-                ;; a no-op at best and double-work at worst.
+                ;; projector already classified `:input-values` upstream on the
+                ;; row it owns (EP-0025 made resolved-scope egress
+                ;; unconditionally fail-closed), so re-tokenizing here is a no-op
+                ;; at best and double-work at worst. `:scope` is deliberately NOT
+                ;; here (rf2-1zc33) — the sibling runs on ONE operation and this
+                ;; projector runs on the whole family, so a pass-through left
+                ;; five row types' resolved scopes classified by nobody. See the
+                ;; `sibling-owned-slot` docstring.
                 (sibling-owned-slot k)
                 (assoc m k v)
 
@@ -566,6 +595,19 @@
   <digest>}` when that owner is non-`:serialize` (sensitive / large /
   unregistered fail-closed), riding verbatim for a plain feed (no
   over-redaction).
+
+  The free `:scope` tag — the RESOLVED CONCRETE scope the family stamps on
+  `:rf.resource/invalidated` / `refetch-decision` / `removed`,
+  `:rf.warning/resource-clear-scope-unresolved` and `:rf.mutation/started` +
+  `optimistic-applied` — also takes the shape default (rf2-1zc33). It is NOT
+  sibling-owned: the `:rf.resource/scope-resolved` projector the epoch tool-pair
+  runs first is applied on that ONE operation, so on these five rows a
+  pass-through left the resolver's identity map classified by nobody. Under the
+  shape default `:rf.scope/global` rides verbatim, and a
+  `[:rf.scope/session {…}]` tuple keeps its TIER keyword while the identity map
+  tokenizes — so `:rf.resource/refetch-decision`, which carries one scope under
+  BOTH `:resource/key` and `:scope`, can no longer redact and leak the same
+  value side by side.
 
   Nested-map slots (`:patch-summary` / `:invalidation`) are projected
   RECURSIVELY through the same vocabulary so a row's nested scoped keys never
