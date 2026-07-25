@@ -249,9 +249,15 @@ positions of literal vectors only**. Richer payloads (form data, files,
 | bare `#(…)` | legal shorthand **only** on known native event props (`:on-*` on DOM/custom elements) — never refs, never foreign/view props |
 | `(ui/raw-fn f)` | identity-as-protocol callbacks; **the callback-ref form** |
 
-- **Handler-map options** for DOM listeners are explicit, never implied:
-  `{:event [:ev …] :prevent-default true :stop-propagation true :capture
-  true :passive true :once true}` (closed set).
+- **Handler-map options** for DOM listeners are explicit, never implied — a
+  closed set of six keys, of which **no one legal map carries all six**:
+  `:passive` and `:prevent-default` are mutually exclusive (a passive listener
+  promises the browser it will never call `preventDefault`), so a map carrying
+  both is refused as `:rf.ui.compile/contradictory-handler-options`. The two
+  sides of the lane carry the set between them — blocking
+  `{:event [:ev …] :prevent-default true :stop-propagation true :capture true
+  :once true}`, passive `{:event [:ev …] :passive true :stop-propagation true
+  :capture true :once true}`.
 - **Loops:** a vector capturing the loop binding is a compile error —
   extract a keyed child view and pass the captured value as a prop. A bare
   fn in a loop works but dev-warns (per-row closures defeat the data idiom).
