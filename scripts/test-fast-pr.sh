@@ -48,8 +48,8 @@ set -euo pipefail
 # WHOLESALE to the very classifier CI uses,
 # `.github/scripts/report-changed-surfaces.sh`, invoked with the changed-file
 # list as explicit paths (it prints `key=value` to stdout when GITHUB_OUTPUT
-# is unset).  `implementation_jvm` gates the core JVM suite exactly as it
-# gates test.yml's jvm-core job; `cljs_node_test` gates the npm/CLJS/JS-harness/
+# is unset).  `implementation_jvm` gates the JVM artefact suites exactly as it
+# gates test.yml's per-artefact JVM jobs; `cljs_node_test` gates the npm/CLJS/JS-harness/
 # isolation suites exactly as it gates test.yml's cljs job.  Reusing that one
 # script — rather than re-deriving a divergent surface map here — is what keeps
 # local selection aligned with test.yml by construction.  The documentation
@@ -334,9 +334,9 @@ esac
 # implementation JVM artefacts, and the spine's header already points workers at
 # it.  Parsing that array is therefore not a second surface map: it is the same
 # roster, from the file that owns it, so an artefact added there is armed here
-# without a second edit.  The alternative the bead sketched — eighteen new
-# per-artefact classifier keys — would have to be kept in step with test.yml by
-# hand, which is the staleness class this whole pair of beads is about.
+# without a second edit.  The alternative the bead sketched — one new classifier
+# key per artefact — would have to be kept in step with test.yml's per-artefact
+# jobs by hand, which is the staleness class this whole pair of beads is about.
 #
 # `implementation/core` runs whenever the tier runs even if the diff never
 # touched it: it is the substrate every other artefact sits on, and its suite
