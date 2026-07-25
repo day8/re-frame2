@@ -1,10 +1,10 @@
 (ns re-frame.story.play.presence-cljs-test
   "S4-H (rf2-qwzmt) — Story's presence rung: the `[:flush-presence]` script
-  step consumes the framework's own `re-frame.ui.test/flush-presence!` so a
+  step consumes the framework's own presence clock so a
   presence-bearing variant settles DETERMINISTICALLY during playback.
 
   The problem the rung solves: a variant whose view renders a
-  `(ui/presence {:timeout-ms n} …)` boundary RETAINS a removed keyed child
+  `(v/presence {:timeout-ms n} …)` boundary RETAINS a removed keyed child
   in `:unmounting` until the timeout fires. That retention is a CLOCK, not a
   queue, so no rung of the `settled-boundary` ladder settles it — playback
   races the timeout, and the only wall-clock answer (`[:wait ms]`) is the
@@ -22,17 +22,18 @@
     script WITH it passes. This is the red-before/green-after, proven
     host-agnostically through the real `run!` playback loop.
   - The REAL framework verb — the same script driven against the ACTUAL
-    `re-frame.ui.test/flush-presence!` and the ACTUAL presence exit
-    scheduler. That arm is ASYNC (the verb is Promise-backed on CLJS) and
-    lives in the pure-`.cljs` companion
+    `re-frame.freehand.presence-runtime/advance-clock!` and the ACTUAL
+    presence exit scheduler. That arm lives in the pure-`.cljs` companion
     `presence_real_clock_cljs_test.cljs`, which reuses this ns's harness.
-    The JVM arm of `flush-presence!` is a documented no-op (there is no
-    lifecycle to advance on the structural host), so the real-clock arm is
-    CLJS-only — exactly the host split the framework verb declares.
+    The JVM arm of the bridge is a documented no-op (the structural host
+    has no lifecycle to advance, and the clock is a CLJS-only surface), so
+    the real-clock arm is CLJS-only — exactly the host split the framework
+    runtime declares.
 
   Mounted three-phase behaviour (`:mounting` → `:present` → `:unmounting`
   against real DOM) belongs to the framework and is pinned there
-  (`re-frame.ui.presence-dom-cljs-test`); Story does not re-prove it. What
+  (`re-frame.freehand.presence-dom-cljs-test`); Story does not re-prove
+  it. What
   Story owns — and what these tests pin — is that its PLAYBACK LOOP can
   reach the verb at the right point.
 
@@ -52,7 +53,7 @@
             [re-frame.story.play.presence         :as story-presence]
             ;; The OPTIONAL bridge under test (rf2-36biz) — the one canonical
             ;; installation path. Requiring it is what an app does; it holds
-            ;; the `re-frame.ui` dependency on the app's side of the seam, so
+            ;; the Freehand dependency on the app's side of the seam, so
             ;; Story's own namespaces never require it (and its jar stays
             ;; free of the pre-publication artefact).
             [re-frame.story.play.presence-host    :as presence-host]
@@ -62,11 +63,12 @@
             ;; The framework's presence exit scheduler — reached ONLY to reset
             ;; it between tests (the CLOCK is a CLJS-only surface: the JVM
             ;; structural host has no lifecycle, so the call is reader-gated).
-            ;; `day8/re-frame2-ui` is pinned on the `:test` alias only — Story's
+            ;; `day8/re-frame2-freehand` is pinned on the `:test` alias only —
+            ;; Story's
             ;; shipped jar must not depend on the pre-publication artefact,
             ;; which is precisely why the rung takes the verb through a
             ;; late-bind hook instead of a `:require`.
-            [re-frame.ui.presence-runtime         :as presence-rt]))
+            [re-frame.freehand.presence-runtime   :as presence-rt]))
 
 ;; ===========================================================================
 ;; PURE: the step grammar (both hosts, no runtime)
@@ -292,7 +294,7 @@
   (testing "rf2-36biz — with NO presence host installed the advance did not
             happen, so the step REFUSES (`:cannot-run`) rather than skipping
             silently. `no hook installed` does not prove `no presence runtime
-            exists`: an app can load re-frame.ui and simply omit the bridge
+            exists`: an app can load Freehand and simply omit the bridge
             call, and its presence-bearing playback would then report a clean
             verdict over a clock that never moved"
     (let [res (exec-step! presence-frame 0 [:flush-presence])]
