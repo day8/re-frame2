@@ -640,28 +640,26 @@
     (is (= 2 (count (:sites (ex-data ex)))) "both current sites named with coords")))
 
 ;; ---------------------------------------------------------------------------
-;; Intra-form frame-plan conflict — the surviving compile-time frame-payload
-;; authority. The cross-FILE plan registry retired with the compiled mount door
-;; (no Freehand writer registers plan sites); `check-plan-set!` — reached by
-;; `v/render-static` through `analyze-root` — still rejects two plans for ONE
-;; frame-id carrying DIFFERING config fingerprints inside one root form. The
-;; runtime tier proves the same law at mount preflight
+;; The compile-time frame-plan surface is GONE (rf2-h1ae3). The cross-FILE plan
+;; registry retired with the compiled mount door, and the intra-form
+;; `check-plan-set!` went with the `frame-root` / `frame-provider` analyzer arms
+;; that were its only producer: neither authoring var is published on either
+;; host, so no root form could carry a plan, and both lowered to a
+;; `re-frame.freehand.frames/*` namespace that exists nowhere. The
+;; one-frame-one-plan law lives where the plan does — `re-frame.freehand.root`'s
+;; mount preflight, which reads the mount call's `:frame` opt
 ;; (root_preflight_dom_cljs_test FH-ROOT-004).
 ;; ---------------------------------------------------------------------------
 
-(deftest intra-form-frame-plan-conflict-fails-in-check-plan-set
-  (is (= 1 (count (root/check-plan-set!
-                   'v/render-static
-                   [{:frame-id :shop :config {:a 1} :config-fingerprint "cf-a"}
-                    {:frame-id :shop :config {:a 1} :config-fingerprint "cf-a"}])))
-      "identical [frame-id fingerprint] pairs dedupe to one plan (idempotent no-op)")
-  (let [ex (try (root/check-plan-set!
-                 'v/render-static
-                 [{:frame-id :shop :config {:a 1} :config-fingerprint "cf-a"}
-                  {:frame-id :shop :config {:a 2} :config-fingerprint "cf-b"}])
-                nil (catch clojure.lang.ExceptionInfo e e))]
-    (is (some? ex) "two DIFFERING plans for one frame-id in one root form fail")
-    (is (= :rf.error/frame-payload-conflict (:rf.error/id (ex-data ex))))))
+(deftest a-root-form-carries-no-static-frame-plan
+  (testing "the top-region scan answers views alone: there is no analyzer arm
+            left that could mint a plan, so the compile tier has no plan set to
+            check and cannot disagree with the runtime tier that does."
+    (let [scan (root/scan-root-ast {:op :element :children []})]
+      (is (= [:views] (keys scan))
+          "the scan's whole answer is the top-region mounted-view roster")
+      (is (nil? (resolve 're-frame.freehand.compiler.root/check-plan-set!))
+          "and the intra-form plan check went with its only producer"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Custom-element declaration removal clears stale property classification

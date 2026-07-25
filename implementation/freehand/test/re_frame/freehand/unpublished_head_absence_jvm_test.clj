@@ -4,26 +4,33 @@
 
   Six analyzer fqn sets named vars that are interned nowhere:
 
-      re-frame.freehand/frame            (frame-fqns)          — still recognised
-      re-frame.freehand/raw              (ui-raw-fqns)         — still recognised
+      re-frame.freehand/frame            (frame-fqns)          — arm RETIRED
+      re-frame.freehand/raw              (ui-raw-fqns)         — arm RETIRED
       re-frame.freehand/html             (ui-html-fqns)        — still recognised
-      re-frame.freehand/frame-root       (frame-root-fqns)     — still recognised
-      re-frame.freehand/frame-provider   (frame-provider-fqns) — still recognised
+      re-frame.freehand/frame-root       (frame-root-fqns)     — arm RETIRED
+      re-frame.freehand/frame-provider   (frame-provider-fqns) — arm RETIRED
       re-frame.freehand.react/lazy       — arm REMOVED with this suite
 
-  Recognition for each runs off `env/resolves-to?`, and production
+  Recognition for each ran off `env/resolves-to?`, and production
   `env/resolve-sym` answers nil for a var that does not exist, so no compiled
-  declaration can reach any of those arms through the door. Nothing here
+  declaration could reach any of those arms through the door. Nothing here
   injects a `:resolver`: a test resolver MANUFACTURES the missing definitions
   and can make an unreachable arm look reachable, which is the synthetic proof
   the rf2-1a9au audit rejected and the whole reason this suite exists.
 
-  The `react/lazy` arm went, being self-contained — one rejection, no site
-  bucket, no manifest roster, no emitter arm. The other five are entangled with
-  surfaces a conformance row already pins, so their removal is a change to the
-  conformance contract and is sequenced separately; every one of them is
-  asserted unreachable HERE meanwhile, which is what stops the state being
-  rediscovered a third time. All six stay in the roster below: the tripwire is
+  All five arms that could go have gone. `react/lazy` went first, being
+  self-contained. The FRAME FAMILY — `frame`, `frame-root`, `frame-provider` —
+  went with rf2-h1ae3, taking the `:frame-ops` site bucket, its `FH-STRUCT-010`
+  manifest roster, the `:frame` capability bit and the compile-tier static
+  frame-plan scan; the elision verdict did not move, because the bucket was
+  provably always empty. `raw` went with rf2-4gnrs, along with the `:foreign`
+  crossing-prop marker it alone minted — and there the capability was never
+  lost, since a runtime React ELEMENT crosses into a Freehand tree unwrapped on
+  its own account.
+
+  `html` alone is still recognised: it has no other spelling to fall back on and
+  a live `:html-sites` manifest roster, so it ships with rf2-rrosy — recognition
+  and lowering together. All six vars stay in the roster below: the tripwire is
   about the VARS, and it must red whether an arm is standing or not.
 
   ## Why the JVM probe alone is not the proof
@@ -41,13 +48,16 @@
   is published on NEITHER host. The two probes together are the fact this Bead
   rests on.
 
-  ## Doubly dead: the lowerings name a phantom namespace
+  ## Doubly dead: the frame lowerings named a phantom namespace
 
-  Three of the arms lower to `re-frame.freehand.frames/*`, a namespace that
-  exists nowhere in the tree — the same defect class as the
+  Three of the retired arms lowered to `re-frame.freehand.frames/*`, a namespace
+  that exists nowhere in the tree — the same defect class as the
   `re-frame.freehand.hooks/*` lowerings rf2-1a9au removed. So even a published
-  authoring var would not make those arms lowerable; recognition and lowering
-  have to land together, with the slice that owns them.
+  authoring var would not have made those arms lowerable, which is why they were
+  retired rather than shipped: recognition and lowering have to land together,
+  with the slice that owns them. The absence is still pinned below, and the
+  production door is driven through a body spelling each retired head so the
+  removal is proved rather than asserted.
 
   ## Tripwire
 
@@ -59,14 +69,16 @@
   the state these Beads exist to remove."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
             [re-frame.build.spec-resource :as spec-resource]
             [re-frame.freehand]
+            [re-frame.freehand.compiler :as compiler]
             [re-frame.freehand.compiler.env :as env]))
 
 (def ^:private unpublished-heads
-  "The six authoring heads the analyzer recognises and the door does not
+  "The six authoring heads the analyzer recognised and the door does not
   publish, as the fully-qualified symbols an author's `(frame)` / `(v/html s)`
-  would have to resolve to."
+  would have to resolve to. Five arms are retired; `html` is still recognised."
   '[re-frame.freehand/frame
     re-frame.freehand/raw
     re-frame.freehand/html
@@ -75,9 +87,9 @@
     re-frame.freehand.react/lazy])
 
 (def ^:private phantom-runtime-targets
-  "The runtime vars the `frame` / `frame-root` / `frame-provider` arms lower
-  to. Their NAMESPACE does not exist, so the lowering could not evaluate even
-  if the authoring var were published."
+  "The runtime vars the retired `frame` / `frame-root` / `frame-provider` arms
+  lowered to. Their NAMESPACE does not exist, so no lowering could have
+  evaluated even if the authoring var were published."
   '[re-frame.freehand.frames/frame-ops
     re-frame.freehand.frames/jvm-root-scope
     re-frame.freehand.frames/jvm-provider-scope])
@@ -177,13 +189,14 @@
 ;; The lowerings name a namespace that does not exist
 ;; ---------------------------------------------------------------------------
 
-(deftest the-frame-arm-lowerings-name-a-phantom-namespace
-  (testing "`(frame)`, `[frame-root …]` and `[frame-provider …]` lower to
+(deftest the-retired-frame-arm-lowerings-named-a-phantom-namespace
+  (testing "`(frame)`, `[frame-root …]` and `[frame-provider …]` lowered to
             `re-frame.freehand.frames/*`. That namespace is defined nowhere, so
-            those three arms are dead at BOTH ends — the authoring var they
-            recognise and the runtime var they emit. Publishing the authoring
-            half alone would turn an unresolvable symbol into a compiled view
-            that cannot load, which is strictly worse."
+            those three arms were dead at BOTH ends — the authoring var they
+            recognised and the runtime var they emitted. Publishing the authoring
+            half alone would have turned an unresolvable symbol into a compiled
+            view that cannot load, which is strictly worse; that is why rf2-h1ae3
+            retired them rather than shipping half a slice."
     (is (nil? (find-ns 're-frame.freehand.frames))
         "re-frame.freehand.frames is not a loaded namespace")
     (is (nil? (try (require 're-frame.freehand.frames) :loaded
@@ -191,3 +204,61 @@
         "and there is no such namespace on the classpath to load")
     (doseq [sym phantom-runtime-targets]
       (is (not (interned? sym)) (str sym " names no var")))))
+
+;; ---------------------------------------------------------------------------
+;; The door itself — what a retired-head body compiles to now
+;; ---------------------------------------------------------------------------
+
+(defn- compile-body
+  "Lower `body` through the PRODUCTION compiled door — `compile-structural-view`
+  with a nil `menv` (the JVM structural host) and no resolver, which is exactly
+  what `v/defview {:compiled true}` calls. The emitted `:body` is a FORM and is
+  never evaluated here."
+  [body]
+  (compiler/compile-structural-view
+   {:form            nil
+    :menv            nil
+    :ns-sym          're-frame.freehand.unpublished-head-absence-jvm-test
+    :vname           'probe
+    :view-id         :re-frame.freehand.unpublished-head-absence-jvm-test/probe
+    :params          '[_]
+    :body            body
+    :children-policy :none}))
+
+(defn- syms-in [form]
+  (let [hits (atom #{})]
+    (walk/postwalk (fn [x] (when (symbol? x) (swap! hits conj x)) x) form)
+    @hits))
+
+(deftest a-frame-body-compiles-to-no-phantom-frames-symbol
+  (testing "The regression rf2-h1ae3 names. A body spelling `(v/frame)` once
+            lowered to re-frame.freehand.frames/frame-ops — a var in a namespace
+            defined nowhere — so any compiled view reaching the arm carried an
+            unresolvable symbol. Through the production door the head is now just
+            an opaque call the analyzer passes through, and NOTHING in the emitted
+            form names the phantom namespace."
+    (let [{:keys [body]} (compile-body '[[:div (re-frame.freehand/frame)]])
+          syms           (syms-in body)]
+      (is (not-any? #(= "re-frame.freehand.frames" (namespace %)) syms)
+          "no emitted symbol lives in the phantom frames namespace")
+      (is (contains? syms 're-frame.freehand/frame)
+          "the authored head survives verbatim — an ordinary unresolved symbol
+           the host compiler reports, not a compiler-invented one"))))
+
+(deftest a-retired-head-body-claims-no-retired-capability
+  (testing "The manifest half. With the site bucket gone there is no way for a
+            compiled declaration to claim `:frame`, and with the `:raw`
+            recognition gone none can claim `:raw` — so a manifest cannot
+            advertise a capability the substrate has no runtime for, and the
+            ViewCell verdict reads only the inputs it really has."
+    (let [{:keys [manifest]} (compile-body '[[:div (re-frame.freehand/frame)
+                                              (re-frame.freehand/raw el)]])]
+      (is (empty? (filter #{:frame :raw} (:capabilities manifest)))
+          "the manifest claims neither retired capability")
+      (is (empty? (filter #{:frame :raw} (:caps (:static-facts manifest))))
+          "and neither do its render-static facts")
+      (is (not (contains? manifest :frame-ops))
+          "the retired roster is absent from the manifest, not present-and-empty")
+      (is (= :elided (:view-cell manifest))
+          "a body whose only 'reads' are opaque calls still proves the ViewCell
+           elidable — subs and committed handlers are what the verdict turns on"))))

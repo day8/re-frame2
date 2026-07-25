@@ -87,8 +87,6 @@
             (str k " — subscription site count"))
         (is (= (:slots expected) (count (:slots m)))
             (str k " — slot site count"))
-        (is (= (:frame-ops expected) (count (:frame-ops m)))
-            (str k " — frame-op site count"))
         (is (= (:crossings expected) (count (:crossings m)))
             (str k " — crossing site count"))
         (is (= (:capabilities expected) (:capabilities m))

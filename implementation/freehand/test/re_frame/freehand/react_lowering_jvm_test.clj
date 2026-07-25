@@ -170,8 +170,6 @@
     :reaches ":event"}
    {:marker :handler     :body '[:div [leaf {:on-done (v/handler [x] (prn x))}]]
     :reaches ":handler"}
-   {:marker :foreign     :body '[:div [leaf {:node (v/raw (host-element))}]]
-    :reaches "(host-element)"}
    {:marker :v/raw-fn    :body '[:div [leaf {:cb (v/raw-fn (:f props))}]]
     :reaches "re-frame.freehand.events/raw-fn"}])
 
@@ -185,6 +183,25 @@
                                :when (and (contains? grammar/element-props-carriers k)
                                           (if (= :key k) (:present? v) (seq v)))]
                          (vswap! found conj k)))
+                     x)
+                   ast)
+    @found))
+
+(defn- markers-of
+  "Every CROSSING prop marker the analyzed AST actually minted — the missing
+  axis of `carriers-of` (rf2-4gnrs). A crossing row used to assert only its
+  own LABEL against the roster and its emission against `:reaches`, never that
+  the analysis really produced the marker it names. The `:foreign` row was
+  false-green on exactly that gap: it analysed to marker `nil`, and a
+  nil-marker prop emits its value verbatim, so its `:reaches` assertion passed
+  vacuously. `nil` is a legal marker, so this collects markers rather than
+  filtering them."
+  [ast]
+  (let [found (volatile! #{})]
+    (walk/postwalk (fn [x]
+                     (when (contains? #{:view :foreign} (:op x))
+                       (doseq [entry (get-in x [:props :entries])]
+                         (vswap! found conj (:marker entry))))
                      x)
                    ast)
     @found))
@@ -224,14 +241,20 @@
   (testing "A marked crossing prop carries ANALYSED CONTENT under its own
             key rather than a plain `:value`, which is exactly the shape an
             emitter reading only `:value` turns into `nil` — a prop that
-            reaches the boundary ABSENT and renders nothing. Each row
+            reaches the boundary ABSENT and renders nothing. Each row proves
+            its marker is really in the analysed AST — the axis
+            `element-rows` has and this table lacked (rf2-4gnrs) — then
             asserts what the emitted props map must carry, and that it
             carries no nil under the prop's own key."
     (doseq [{:keys [marker body reaches]} crossing-rows]
+      (let [[_ ast] (analyzed body)]
+        (is (contains? (markers-of ast) marker)
+            (str marker " — the row's ANALYSED props really carry the marker "
+                 "it names")))
       (let [text (emitted body)]
         (is (.contains ^String text ^String reaches)
             (str marker " — the emitted props map reaches " reaches))
-        (is (not (re-find #":(label|row|on-pick|on-done|node|cb) nil" text))
+        (is (not (re-find #":(label|row|on-pick|on-done|cb) nil" text))
             (str marker " — and the boundary is not handed an absent prop"))))))
 
 (deftest the-props-tables-cover-the-whole-admitted-rosters

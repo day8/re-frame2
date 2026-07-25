@@ -10,10 +10,11 @@
       double-mount), the deterministic root-id SLUG and the
       `identifierPrefix` default `\"rf2-\" + slug + \"-\"`;
     - the STATIC TOP-REGION scan over the analyzed root-form AST: the
-      mounted view (exactly one for derivation) and the static frame plans
-      (`frame-root` `:id` + `config-fingerprint`), with the intra-form
-      frame-plan conflict rejected at analysis
-      (`:rf.error/frame-payload-conflict`);
+      mounted view (exactly one for derivation). The static frame-plan half
+      went with the `frame-root` / `frame-provider` analyzer arms
+      (rf2-h1ae3); the one-frame-one-plan law
+      (`:rf.error/frame-payload-conflict`) lives where the plan does, at
+      `re-frame.freehand.root`'s mount preflight;
     - LAYER-1 root-id indexing (build tier): the per-build root-site index
       (`:rf.error/duplicate-root-id`). On the Freehand door the client mount
       verbs are runtime fns (`v/mount` / `v/hydrate-root` / `v/unmount!`,
@@ -47,7 +48,6 @@
             [re-frame.freehand.compiler.analyze :as ana]
             [re-frame.freehand.compiler.build :as build]
             [re-frame.freehand.compiler.env :as env]
-            [re-frame.freehand.fingerprint :as fingerprint]
             [re-frame.freehand.root-id :as root-id]
             #?@(:clj [[re-frame.freehand.descriptor :as descriptor]
                       [re-frame.freehand.compiler :as compiler]
@@ -106,78 +106,45 @@
 
 (defn scan-root-ast
   "Walk an analyzed root-form AST through the top-region wrappers only
-  (element / fragment / frame-root / frame-provider children — the analyzer
-  already guarantees `:frame-root` nodes exist nowhere else) collecting, in
-  document order: `:views` (top-region internal-view nodes) and `:plans`
-  (`{:frame-id :config :config-fingerprint}` per `frame-root`). A
-  `frame-provider` contributes NO plan (its frame is a runtime reference,
-  not statically extractable — root-identity contract §6) but the walk
-  descends THROUGH it, so a `frame-root` nested under a top-region
-  `frame-provider` is still extracted."
+  (element / fragment children) collecting, in document order, `:views` —
+  the top-region internal-view nodes root-id derivation counts.
+
+  The static FRAME-PLAN half went with the `frame-root` / `frame-provider`
+  analyzer arms (rf2-h1ae3): neither authoring var is published on either
+  host, so no compiled root form could carry one, and both lowered to a
+  `re-frame.freehand.frames/*` namespace that exists nowhere. The
+  one-frame-one-plan law is unaffected — the Freehand mount door takes its
+  frame from the mount call's `:frame` opt, and `re-frame.freehand.root`
+  proves the law there, at preflight, where the plan actually exists."
   [ast]
-  (let [acc (volatile! {:views [] :plans []})]
+  (let [acc (volatile! {:views []})]
     (letfn [(walk [n]
               (case (:op n)
-                :view       (vswap! acc update :views conj n)
-                :frame-root (do (vswap! acc update :plans conj
-                                        {:frame-id (:frame-id n)
-                                         :config   (:config n)
-                                         :config-fingerprint
-                                         (fingerprint/config-fingerprint
-                                          (:frame-id n) (:config n))})
-                                (run! walk (:children n)))
-                (:element :fragment :frame-provider) (run! walk (:children n))
+                :view (vswap! acc update :views conj n)
+                (:element :fragment) (run! walk (:children n))
                 nil))]
       (walk ast))
     @acc))
 
-(defn check-plan-set!
-  "Reject two plans for ONE frame-id with differing config fingerprints
-  inside one root form (the intra-form arm of the Layer-1 rule; contract
-  §7); dedupe identical `[frame-id fingerprint]` pairs (the ratified
-  idempotent no-op), keeping document order of first sighting."
-  [where plans]
-  (doseq [[fid group] (group-by :frame-id plans)]
-    (let [fps (distinct (map :config-fingerprint group))]
-      (when (< 1 (count fps))
-        (error/throw-error!
-         :rf.error/frame-payload-conflict where
-         (str "one root form carries two static frame plans for frame "
-              (pr-str fid) " with DIFFERING config fingerprints — one "
-              "frame, one plan: frame config belongs in ONE boot/root "
-              "site (align the configs, or drop the duplicate frame-root)")
-         {:recovery :align-frame-plan-config
-          :extra {:frame-id fid :fingerprints (vec fps)}}))))
-  ;; dedupe on the [frame-id fingerprint] identity pair, KEEPING :config
-  ;; (the preflight thunk needs the source forms) and document order
-  (let [seen (volatile! #{})]
-    (filterv (fn [{:keys [frame-id config-fingerprint]}]
-               (let [k [frame-id config-fingerprint]]
-                 (if (contains? @seen k)
-                   false
-                   (do (vswap! seen conj k) true))))
-             plans)))
-
 (defn analyze-root
   "Analyze a LITERAL root form (`:top-region? true`):
-  -> `{:ast .. :views .. :plans ..}` (plans deduped, conflict-checked,
-  document order). Non-vector root forms are a compile error — the
-  compiler must see the root to keep the AST closed and extract frame
-  plans."
+  -> `{:ast .. :views ..}` (top-region internal views, document order).
+  Non-vector root forms are a compile error — the compiler must see the
+  root to keep the AST closed."
   [e where form]
   (when-not (vector? form)
     (fail :rf.ui.compile/runtime-root-form
           (str where ": the root form must be a LITERAL vector at the call "
                "site — the compiler must see the root to keep the AST "
-               "closed and extract frame plans. A runtime-assembled tree "
-               "is not v1 grammar (runtime-chosen components are v/view / "
-               "v/element [WAVE-2]; v/raw covers a runtime React "
-               "element); a control form at root position wraps in a view "
-               "(conservative S1 pin)")
+               "closed. A runtime-assembled tree is not v1 grammar "
+               "(runtime-chosen components are v/view / v/element "
+               "[WAVE-2]; a React ELEMENT built at runtime already crosses "
+               "into an INTERPRETED tree unwrapped, so keep such a subtree "
+               "interpreted); a control form at root position wraps in a "
+               "view (conservative S1 pin)")
           {:form form}))
-  (let [ast (ana/analyze (assoc e :top-region? true) form)
-        {:keys [views plans]} (scan-root-ast ast)]
-    {:ast ast :views views :plans (check-plan-set! where plans)}))
+  (let [ast (ana/analyze (assoc e :top-region? true) form)]
+    {:ast ast :views (:views (scan-root-ast ast))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Identity resolution (contract §1)

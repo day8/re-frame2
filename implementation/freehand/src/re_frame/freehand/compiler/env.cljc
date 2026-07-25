@@ -61,7 +61,7 @@
    ;; internal-view boundary in the body, in source order, each carrying the
    ;; lowering the child declaration reports. It is what makes a compiled
    ;; manifest able to say where this body stops being compiled (D010).
-   :sites     (atom {:events [] :subs [] :htmls [] :frame-ops []
+   :sites     (atom {:events [] :subs [] :htmls []
                      :slots [] :views [] :diagnostics []})})
 
 (defn warn! [env w]
@@ -224,8 +224,9 @@
            (str "component head " sym " is a local binding — heads must be "
                 "literal: a keyword (DOM/custom element), a defview var, or "
                 "a foreign component var. Runtime-chosen components are "
-                "v/view / v/element [WAVE-2]; v/raw covers a runtime "
-                "React element meanwhile")
+                "v/view / v/element [WAVE-2]; meanwhile keep a "
+                "runtime-assembled subtree interpreted, where heads resolve "
+                "at render")
            {:head sym})
 
     ;; The declaration being compiled: a self-recursive head mounts THIS

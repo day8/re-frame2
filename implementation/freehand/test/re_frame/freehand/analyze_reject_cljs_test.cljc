@@ -303,7 +303,7 @@
         "the same rejection holds in expression position")))
 
 (deftest computed-callee-value-escape
-  ;; rf2-vxgfnd.252 — a reactive authoring var (sub/frame) is sound ONLY
+  ;; rf2-vxgfnd.252 — the reactive authoring var `sub` is sound ONLY
   ;; as a compiler-owned DIRECT CALL HEAD, which the rewriter lowers to an
   ;; indexed runtime site. A BARE reactive var that instead flows as a VALUE —
   ;; into a computed callee, a let alias, an argument, or a collection — leaves
@@ -325,8 +325,8 @@
          (reject-id '[:div {:title (str sub)}]))
       "a bare sub passed as an argument is value flow, not a render site")
   (is (= :rf.ui.compile/unsupported-form
-         (reject-id '[:div {:title (let [g frame] (g))}]))
-      "bare frame escapes through a let alias identically")
+         (reject-id '[:div {:title [sub]}]))
+      "a bare sub inside a collection is value flow too")
   ;; The soundness rule does not touch the legal forms:
   (is (nil? (reject-id '[:div {:title ((if (sub [:op]) inc dec) 1)}]))
       "a DIRECT (sub …) in the computed callee is still one indexed site (.217)")
@@ -335,9 +335,9 @@
   (is (nil? (reject-id '[:div {:title '((if p sub inc) [:q])}]))
       "quoted data is inert — never an invocation target"))
 
-(deftest indirect-frame-diagnostic-recommends-the-zero-arity-form
+(deftest indirect-sub-diagnostic-recommends-the-direct-call-form
   (let [ex (try
-             (ana/analyze (mk-env) '[:div {:title (-> x frame)}])
+             (ana/analyze (mk-env) '[:div {:title (-> [:q] sub)}])
              nil
              (catch #?(:clj clojure.lang.ExceptionInfo
                        :cljs cljs.core/ExceptionInfo) ex
@@ -345,14 +345,12 @@
         message (some-> ex ex-message)]
     (is (= :rf.ui.compile/unsupported-form
            (:rf.ui.compile/error (ex-data ex))))
-    (is (str/includes? message "(frame)")
-        "the didactic repair is the frozen zero-arity frame form")
-    (is (not (str/includes? message "frame query"))
-        "the diagnostic never recommends the invalid argument-taking form")))
+    (is (str/includes? message "(sub query)")
+        "the didactic repair is the frozen direct sub form")))
 
 (deftest or-default-value-escape
   ;; rf2-dzyqis — the sibling gap PR #5874 (.252) left open. reject-reactive-
-  ;; binding! catches an executable (sub …)/(frame) embedded in a
+  ;; binding! catches an executable (sub …) embedded in a
   ;; binding pattern, but a BARE reactive authoring var used as a destructuring
   ;; :or DEFAULT is a value, not a call. Binding patterns never pass through
   ;; expression rewriting, so that bare var flows as a VALUE into the host's
@@ -365,9 +363,6 @@
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (let [{:keys [x] :or {x sub}} m] x)}]))
       "bare sub as an :or default — the rf2-dzyqis counterexample")
-  (is (= :rf.ui.compile/unsupported-form
-         (reject-id '[:div {:title (let [{:keys [x] :or {x frame}} m] x)}]))
-      "bare frame as an :or default escapes identically")
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (fn [{:keys [x] :or {x sub}}] x)}]))
       "a bare sub :or default in an fn destructuring arg escapes identically")
@@ -389,7 +384,7 @@
   ;; destructuring binds SEQUENTIALLY, so a bare reactive var in a default is
   ;; shadowed ONLY by a same-pattern local bound EARLIER in evaluation order.
   ;; The dzyqis guard put every symbol the pattern binds into one flat scope
-  ;; BEFORE scanning, so a LATER-bound local named sub/frame (and a SELF
+  ;; BEFORE scanning, so a LATER-bound local named sub (and a SELF
   ;; default) falsely shadowed the escape and the pre-fix head compiled these
   ;; with an EMPTY manifest, leaving the public authoring var to survive to
   ;; runtime unindexed. Each row below reads the outer public var; reverting the
@@ -399,19 +394,13 @@
     ;; is the outer re-frame.freehand/sub, not the later local.
     (is (= :rf.ui.compile/unsupported-form
            (reject-id '[:div {:title (let [{:keys [f sub] :or {f sub}} m] f)}]))
-        "bare sub default shadowed only by a LATER binding escapes")
-    (is (= :rf.ui.compile/unsupported-form
-           (reject-id '[:div {:title (let [{:keys [f frame] :or {f frame}} m] f)}]))
-        "bare frame escapes identically under a later shadow"))
+        "bare sub default shadowed only by a LATER binding escapes"))
   (testing "a SELF default is not its own shadow (over-accept)"
     ;; `sub`'s :or default `sub` evaluates while local `sub` is still being
     ;; bound — the default is the outer public var.
     (is (= :rf.ui.compile/unsupported-form
            (reject-id '[:div {:title (let [{:keys [sub] :or {sub sub}} m] sub)}]))
-        "a self-referential sub default is the outer var, not the local")
-    (is (= :rf.ui.compile/unsupported-form
-           (reject-id '[:div {:title (let [{:keys [frame] :or {frame frame}} m] frame)}]))
-        "a self-referential frame default escapes identically"))
+        "a self-referential sub default is the outer var, not the local"))
   (testing "an explicit map lookup-key expression is an evaluated slot too"
     ;; `{x sub}` binds x to (get m sub) — the lookup key `sub` is evaluated, so
     ;; the bare reactive var escapes there just like a default.
@@ -488,27 +477,25 @@
         "a nested destructuring explicit local")))
 
 (deftest reactive-verb-head-reserved-before-foreign-classification
-  ;; rf2-vxgfnd.266 — the next escape in the .252/dzyqis family. sub/frame
-  ;; are reactive authoring verbs, sound ONLY as their compiler-owned DIRECT
-  ;; forms. A distinct analyzer route reaches a Hiccup component HEAD directly:
+  ;; rf2-vxgfnd.266 — the next escape in the .252/dzyqis family. `sub`
+  ;; is a reactive authoring verb, sound ONLY as its compiler-owned DIRECT
+  ;; form. A distinct analyzer route reaches a Hiccup component HEAD directly:
   ;; env/classify-head resolves any non-:rf.ui/view var to a plain :foreign
-  ;; React component, so [sub {…}]/[frame] would compile as a foreign
+  ;; React component, so [sub {…}] would compile as a foreign
   ;; component with an EMPTY reactive manifest — the public authoring var
   ;; survives to runtime unindexed, bypassing reactive-site indexing entirely.
-  ;; The verbs are RESERVED before generic classification. Removing the
+  ;; The verb is RESERVED before generic classification. Removing the
   ;; reserved-head check re-accepts every reject row below as :foreign, so this
   ;; deftest is the mutation fixture too.
   (is (= :rf.ui.compile/unsupported-form (reject-id '[sub {}]))
       "bare sub in component-head position — the rf2-vxgfnd.266 counterexample")
-  (is (= :rf.ui.compile/unsupported-form (reject-id '[frame]))
-      "bare frame in component-head position (no props) escapes identically")
   (is (= :rf.ui.compile/unsupported-form (reject-id '[sub {} [:p "child"]]))
       "children do not change the reserved-head classification")
-  ;; qualified + aliased spellings resolve to the exact vars — reserved too
+  ;; qualified + aliased spellings resolve to the exact var — reserved too
   (is (= :rf.ui.compile/unsupported-form (reject-id '[v/sub {}]))
       "an aliased spelling resolving to re-frame.freehand/sub is reserved")
-  (is (= :rf.ui.compile/unsupported-form (reject-id '[re-frame.freehand/frame]))
-      "a fully-qualified frame head is reserved")
+  (is (= :rf.ui.compile/unsupported-form (reject-id '[re-frame.freehand/sub {}]))
+      "a fully-qualified sub head is reserved")
   ;; a lexical shadow is NOT the reactive var: it falls through to the ordinary
   ;; local-head rule (a local binding can never be a literal head → dynamic-head)
   (is (= :rf.ui.compile/dynamic-head
@@ -701,35 +688,35 @@
         (str "host-portable verdict table, evaluated here on "
              #?(:clj "the JVM analyzer host" :cljs "the ClojureScript analyzer host")))))
 
-(deftest frame-finite-sites
-  (is (= :rf.ui.compile/frame-in-loop
-         (reject-id '(for [x xs] [:li {:key x} (:frame (frame))])))
-      "(frame) is a finite render-time site — never per-row")
-  (is (= :rf.ui.compile/frame-in-loop
-         (reject-id '(for [x xs :let [h (frame)]] [:li {:key x} (str h)])))
+(deftest sub-finite-sites
+  ;; The `(frame)` half of this table went with the arm (rf2-h1ae3), taking
+  ;; `:rf.ui.compile/frame-in-loop` with it. The finite-site law itself is
+  ;; unchanged and proved here on the verb that has a published var.
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '(for [x xs] [:li {:key x} (sub [:row x])])))
+      "(sub …) is a finite render-time site — never per-row")
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '(for [x xs :let [h (sub [:q])]] [:li {:key x} (str h)])))
       "loop :let modifiers are row-scoped")
-  (is (= :rf.ui.compile/frame-in-loop
-         (reject-id '[:button {:on-click (fn [_] (do-send! (:dispatch (frame))))} "x"]))
-      "deferred callbacks cannot capture the frame at event time — hoist the read")
-  (is (= :rf.ui.compile/frame-in-loop
-         (reject-id '[:button {:on-click [::open (:frame (frame))]} "x"]))
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:button {:on-click (fn [_] (do-send! (sub [:q])))} "x"]))
+      "deferred callbacks cannot read at event time — hoist the read")
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:button {:on-click [::open (sub [:q])]} "x"]))
       "event-vector args evaluate at event time — deferred scope")
-  (is (= :rf.ui.compile/frame-in-loop
-         (reject-id '[:div {:ref (raw-fn (fn [_] (frame)))}]))
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:div {:ref (raw-fn (fn [_] (sub [:q])))}]))
       "raw-fn bodies are host-deferred")
-  (is (= :rf.ui.compile/frame-in-loop
-         (reject-id '[:div {:title (loop [x 0] (frame))}])))
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:div {:title (loop [x 0] (sub [:q]))}])))
   (is (= :rf.ui.compile/unsupported-form
-         (reject-id '[:div {:title (frame :app)}]))
-      "(frame) takes no arguments — explicit targeting is frame-provider's job")
-  (is (= :rf.ui.compile/unsupported-form
-         (reject-id '(let [{:keys [x] :or {x (frame)}} value] [:div x])))
+         (reject-id '(let [{:keys [x] :or {x (sub [:q])}} value] [:div x])))
       "binding patterns/defaults cannot own a lexical render site")
-  (is (nil? (reject-id '[:div {:title (-> (frame) :dispatch)}]))
+  (is (nil? (reject-id '[:div {:title (-> (sub [:q]) :dispatch)}]))
       "a DIRECT call below a transparent macro is indexed normally")
   (is (= :rf.ui.compile/unsupported-form
-         (reject-id '[:div {:title (-> x frame)}]))
-      "a bare frame reference below a macro would become an unindexed
+         (reject-id '[:div {:title (-> x sub)}]))
+      "a bare sub reference below a macro would become an unindexed
        call after expansion — rejected before expansion can hide it"))
 
 (deftest loop-captured-handlers
@@ -1013,8 +1000,6 @@
   (is (= :rf.ui.compile/raw-fn-child (reject-id '(raw-fn f))))
   (is (= :rf.ui.compile/bad-spread (reject-id '(spread base)))
       "(v/spread ...) belongs in an element's props position")
-  (is (= :rf.ui.compile/bad-raw (reject-id '(raw)))
-      "(v/raw react-element) takes one argument")
   (is (= :rf.ui.compile/void-children (reject-id '[:br (html "<b>x</b>")]))
       "void elements cannot own trusted markup either"))
 

@@ -77,7 +77,7 @@
   rather than a plain `:value`, which is precisely the shape an emitter
   reading only `:value` turns into `nil` — a prop that reaches the
   boundary ABSENT, gating cleanly and rendering nothing."
-  #{nil :render-fn :ui-event :handler :foreign :v/raw-fn})
+  #{nil :render-fn :ui-event :handler :v/raw-fn})
 
 (def ^:private op-rejections
   "Analyzed node kinds outside v1, each with the sentence that names what
@@ -86,18 +86,12 @@
   slice; refusing it now is honest, and silently mis-lowering it is not."
   {:foreign        {:what "a foreign component boundary"
                     :recovery [:extract-declared-child :keep-interpreted]}
-   :raw            {:what "an embedded host React element"
-                    :recovery [:extract-declared-child :keep-interpreted]}
    :html           {:what "the trusted-HTML escaping bypass"
                     :recovery [:keep-interpreted]}
    :client-only    {:what "a browser-only subtree"
                     :recovery [:extract-declared-child :keep-interpreted]}
    :error-boundary {:what "an error boundary"
-                    :recovery [:extract-declared-child :keep-interpreted]}
-   :frame-root     {:what "a frame root"
-                    :recovery [:scope-the-frame-above-the-view :keep-interpreted]}
-   :frame-provider {:what "a frame provider"
-                    :recovery [:scope-the-frame-above-the-view :keep-interpreted]}})
+                    :recovery [:extract-declared-child :keep-interpreted]}})
 
 (def ^:private id-recoveries
   "The ladder for the analyzer's own rejections. Ordered most specific
@@ -113,7 +107,6 @@
    :rf.ui.compile/constant-list-key   [:key-each-row]
    :rf.ui.compile/nested-for-body     [:make-template-visible]
    :rf.ui.compile/sub-in-loop         [:extract-declared-child]
-   :rf.ui.compile/frame-in-loop       [:extract-declared-child]
    :rf.ui.compile/unsupported-form    [:make-template-visible :pass-computed-value
                                        :extract-declared-child]
    ;; A render slot is admitted, so its rejections are about the CONTENT: a
@@ -150,8 +143,6 @@
    "bind the row's values with for's own :let modifier — (for [x xs :let [y (f x)]] …) — so the body stays the keyed row"
    :key-in-the-props-map
    "move the key out of ^{:key …} metadata and into the props map — [:li {:key k} …]"
-   :scope-the-frame-above-the-view
-   "scope the frame above this view rather than inside it"
    :keep-interpreted
    "drop {:compiled true} and keep this view interpreted"})
 

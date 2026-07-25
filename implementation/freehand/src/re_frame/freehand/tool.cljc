@@ -44,7 +44,7 @@
       ;; => {:view-id       :app.people/people-list
       ;;     :grammar       :re-frame.freehand/v1
       ;;     :subscriptions [{:sid … :query [:person 7] :source-coord {…} :path [0]}]
-      ;;     :events [] :slots [] :html-sites [] :frame-ops []
+      ;;     :events [] :slots [] :html-sites []
       ;;     :diagnostics   [{:sid … :id :rf.ui.compile/a11y-click-non-interactive
       ;;                      :tag :div :path [0] :suppressed? false}]
       ;;     :capabilities  #{:sub}

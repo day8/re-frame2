@@ -529,9 +529,9 @@
   [[re-frame.freehand.compiler.grammar/crossing-prop-markers]] member.
 
   The ordinary arm (marker `nil`) is the walked value handed to the
-  boundary verbatim, exactly as the interpreted walk hands it, and
-  `:foreign` — a `(v/raw …)` host element — is that same value: React
-  takes the element it was given.
+  boundary verbatim, exactly as the interpreted walk hands it — including a
+  runtime React ELEMENT, which crosses unwrapped and needs no marker of its
+  own: React takes the element it was given.
 
   The other three carry ANALYSED CONTENT rather than a plain value, and
   each is the shape that reaches an emitter reading only `:value` as

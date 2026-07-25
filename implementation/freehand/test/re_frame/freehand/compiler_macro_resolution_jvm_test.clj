@@ -150,29 +150,25 @@
 ;; spellings only. Neither exercised production `cljs.analyzer.api/resolve` with
 ;; REFERRED / ALIASED spellings, nor the separate CLJS root-entry compiler. This
 ;; harness stands up a REAL CLJS analyzer namespace state where cljs.user refers
-;; re-frame.freehand/{sub,frame} (and aliases the ns `v`), so every spelling
+;; re-frame.freehand/{sub,slot} (and aliases the ns `v`), so every spelling
 ;; resolves through the production resolver — NOT an injected stub — and drives
 ;; both the defview route (analyze) and the root-entry route (root/analyze-root).
 
 (defn- with-referred-cljs-env
-  "Populate a real CLJS compiler state where cljs.user REFERS re-frame.freehand/sub,
-  frame (+ frame-root/frame-provider) and aliases the ns as `v`, then
+  "Populate a real CLJS compiler state where cljs.user REFERS
+  re-frame.freehand/sub and /slot and aliases the ns as `v`, then
   call `(f aenv)` with a live analyzer env over that ns. Resolution runs through
   production `cljs.analyzer.api/resolve` — there is no injected `:resolver`."
   [f]
   (binding [cljs-env/*compiler* (cljs-env/default-compiler-env)]
     (swap! cljs-env/*compiler* update :cljs.analyzer/namespaces merge
            {'re-frame.freehand  {:name 're-frame.freehand
-                           :defs {'sub            {:name 're-frame.freehand/sub}
-                                  'frame          {:name 're-frame.freehand/frame}
-                                  'frame-root     {:name 're-frame.freehand/frame-root}
-                                  'frame-provider {:name 're-frame.freehand/frame-provider}}}
+                           :defs {'sub  {:name 're-frame.freehand/sub}
+                                  'slot {:name 're-frame.freehand/slot}}}
             'cljs.user    {:name 'cljs.user
-                           ;; `(:require [re-frame.freehand :as v :refer [...]])`
+                           ;; `(:require [re-frame.freehand :as v :refer [sub slot]])`
                            :requires {'v 're-frame.freehand 're-frame.freehand 're-frame.freehand}
-                           :uses     {'sub 're-frame.freehand
-                                      'frame 're-frame.freehand 'frame-root 're-frame.freehand
-                                      'frame-provider 're-frame.freehand}
+                           :uses     {'sub 're-frame.freehand 'slot 're-frame.freehand}
                            :defs {}}})
     (f (assoc (cljs-api/empty-env)
               :ns (get-in @cljs-env/*compiler*
@@ -196,9 +192,7 @@
       (let [base (referred-env aenv nil)]
         (doseq [[sym fqn] '{sub               re-frame.freehand/sub
                             v/sub            re-frame.freehand/sub
-                            re-frame.freehand/sub   re-frame.freehand/sub
-                            frame             re-frame.freehand/frame
-                            re-frame.freehand/frame re-frame.freehand/frame}]
+                            re-frame.freehand/sub   re-frame.freehand/sub}]
           (is (= fqn (:fqn (env/resolve-sym base sym))) (str sym)))
         (is (nil? (env/resolve-sym base 'not-a-thing))
             "an unresolvable spelling is genuinely unresolved (no stub)")))))
@@ -212,15 +206,14 @@
   (with-referred-cljs-env
     (fn [aenv]
       (testing "a referred self head classifies as an internal view"
-        (doseq [verb '[sub frame]]
+        (doseq [verb '[sub]]
           (let [e   (referred-env aenv verb)
                 ast (analyze/analyze e [verb {}])]
             (is (= :view (:op ast)) (str verb))
             (is (= (keyword "cljs.user" (name verb)) (:view-id ast)) (str verb)))))
       (testing "aliased / fully-qualified / referred verbs in an unrelated view stay reserved"
         (let [e (referred-env aenv nil)]
-          (doseq [form '[[v/sub {}] [frame]
-                         [v/frame {}] [re-frame.freehand/sub {}]]]
+          (doseq [form '[[v/sub {}] [re-frame.freehand/sub {}]]]
             (is (= :rf.ui.compile/unsupported-form
                    (compile-error-id #(analyze/analyze e form)))
                 (pr-str form)))))
@@ -244,7 +237,7 @@
   ;; self-precedence tier never applies here — only the reservation does.)
   (with-referred-cljs-env
     (fn [aenv]
-      (doseq [form '[[sub {}] [re-frame.freehand/frame] [frame]]]
+      (doseq [form '[[sub {}] [re-frame.freehand/sub {}]]]
         (is (= :rf.ui.compile/unsupported-form
                (compile-error-id #(root/analyze-root (referred-env aenv nil) 'v/mount form)))
             (pr-str form)))
@@ -342,7 +335,7 @@
   ;; emitted JavaScript; dropping the declaration's `:uses` shadow completion leaves
   ;; the `(def …)` clobbering the authoring Var and the qualified head undefined
   ;; (the split identity). Every row below fails then.
-  (doseq [verb '[sub frame]]
+  (doseq [verb '[sub slot]]
     (let [self-fqn  (symbol "cljs.user" (name verb))
           author-re (re-pattern (str "re_frame\\.freehand\\." (name verb) "\\b"))
           def-re    (re-pattern (str "cljs\\.user\\." (name verb) "\\s*="))
@@ -382,7 +375,7 @@
   ;; is legible, not silent.
   (with-referred-cljs-env
     (fn [aenv]
-      (doseq [verb '[sub frame]]
+      (doseq [verb '[sub slot]]
         (is (= (str "re_frame.freehand." (name verb)) (compile-js aenv verb))
             "a bare head resolves through the refer to the authoring Var")
         (is (= (str "cljs.user." (name verb))
@@ -414,7 +407,7 @@
   ;; the same split identity and no emitter-hosted repair could ever have
   ;; reached it. This is the row that says the shadow belongs at the
   ;; declaration.
-  (doseq [verb '[sub frame]]
+  (doseq [verb '[sub slot]]
     (with-referred-cljs-env
       (fn [aenv]
         (let [js (compile-js aenv (interpreted-declaration-form aenv verb [:div "x"]))]
@@ -432,8 +425,8 @@
       (let [form (declaration-form aenv 'panel [:div "x"])]
         (is (= "re_frame.freehand.sub" (compile-js aenv 'sub))
             "declaring `panel` does not drop the unrelated referred `sub`")
-        (is (= "re_frame.freehand.frame" (compile-js aenv 'frame))
-            "nor the unrelated referred `frame`")
+        (is (= "re_frame.freehand.slot" (compile-js aenv 'slot))
+            "nor the unrelated referred `slot`")
         (is (some? form) "the declaration still expands"))))
   (with-referred-cljs-env
     (fn [aenv]

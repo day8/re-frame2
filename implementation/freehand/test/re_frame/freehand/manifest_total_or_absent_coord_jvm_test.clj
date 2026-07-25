@@ -28,7 +28,7 @@
             [re-frame.freehand :as v]))
 
 (def ^:private roster-keys
-  [:subscriptions :events :slots :html-sites :frame-ops :crossings])
+  [:subscriptions :events :slots :html-sites :crossings])
 
 (defn- expand
   "Macroexpand `form` in this namespace, answering the expansion or throwing.

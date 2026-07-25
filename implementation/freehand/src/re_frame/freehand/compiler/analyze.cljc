@@ -5,7 +5,7 @@
   conversion table; both emitters consume ONLY these nodes:
 
     :text :nothing :expr :element :fragment :view :foreign
-    :if :let :letfn :case :for :raw :html
+    :if :let :letfn :case :for :html
 
   Control forms (let/letfn/if/if-not/when/when-not/cond/case/pure-do/for)
   normalize INTO the AST; every analyzer and both emitters see through
@@ -24,20 +24,14 @@
             #?@(:clj [[re-frame.freehand.compiler.harvest :as harvest]])))
 
 (def node-ops
-  "The CLOSED op set — the AST-shape gate's vocabulary. `:frame-root` (S1c,
-  rf2-vxgfnd.3) appears only inside the static top region of a ROOT form
-  (`v/mount` / `v/render!` / `v/hydrate-root`) — the analyzer rejects it
-  everywhere else, so defview-template ASTs never carry it.
-  `:frame-provider` (S2c, rf2-vxgfnd.9) is the SCOPE form — legal anywhere,
-  scoping a subtree to an already-live frame."
+  "The CLOSED op set — the AST-shape gate's vocabulary."
   #{:text :nothing :expr :element :fragment :view :foreign
-    :if :let :letfn :case :for :raw :html :frame-root :frame-provider :slot
+    :if :let :letfn :case :for :html :slot
     :error-boundary :client-only :presence})
 
 (defn literal-scalar? [x]
   (or (string? x) (number? x) (keyword? x) (boolean? x) (nil? x)))
 
-(def ^:private ui-raw-fqns    #{'re-frame.freehand/raw})
 (def ^:private ui-html-fqns   #{'re-frame.freehand/html})
 (def ^:private ui-raw-fn-fqns #{'re-frame.freehand/raw-fn})
 (def ^:private ui-spread-fqns #{'re-frame.freehand/spread})
@@ -51,7 +45,6 @@
 (def ^:private presence-fqns #{'re-frame.freehand/presence})
 (def ^:private behavior-fqns #{'re-frame.freehand/behavior})
 (def ^:private sub-fqns       #{'re-frame.freehand/sub})
-(def ^:private frame-fqns     #{'re-frame.freehand/frame})
 
 ;; The HOST-HOOK grammar — `local` / `effect` / `dispatch-fn`, the substrate
 ;; `v/ref`, and the re-frame.freehand.react interop hooks — is NOT part of this
@@ -74,20 +67,35 @@
 ;; metadata and on the marked runtime value, not on an unpublished authoring
 ;; var, so it is reachable on its own terms.
 ;;
-;; FIVE unpublished heads REMAIN recognised below — `frame`, `raw`, `html`,
-;; `frame-root`, `frame-provider` — and every one is likewise unreachable
-;; through the production door. They are deliberately still standing: each is
-;; entangled with a surface a conformance row already pins (`:frame-ops` and
-;; `:html-sites` are manifest rosters in `FH-STRUCT-010`; `raw` mints the
-;; `:foreign` crossing-prop marker; `frame-root` drives the root-identity static
-;; frame-plan scan), so removing one is a change to the conformance contract and
-;; not merely to this file. `re-frame.freehand.unpublished-head-absence-jvm-test`
-;; pins the fact — the six vars unpublished on both hosts, production resolution
-;; nil for each, and the `re-frame.freehand.frames/*` lowerings naming a
-;; namespace that does not exist — so the state is asserted rather than
-;; rediscovered.
-(def ^:private frame-root-fqns #{'re-frame.freehand/frame-root})
-(def ^:private frame-provider-fqns #{'re-frame.freehand/frame-provider})
+;; The FRAME family — `frame`, `frame-root`, `frame-provider` — went for the
+;; same two reasons at once (rf2-h1ae3). Unreachable at the front: none of the
+;; three vars is interned on either host, so production `env/resolve-sym`
+;; answered nil and no compiled declaration could reach an arm through the door.
+;; Dead at the back too: all three lowered to `re-frame.freehand.frames/*` —
+;; `frame-ops`, `jvm-root-scope`, `jvm-provider-scope` — and that namespace
+;; exists nowhere in the tree, the same phantom-lowering class as the
+;; `re-frame.freehand.hooks/*` vars above. The `:frame-ops` site bucket, its
+;; `FH-STRUCT-010` manifest roster, the `:frame` capability bit and the
+;; compile-tier static frame-plan scan went with them. The elision verdict did
+;; not move: `:frame-ops` was provably always empty, so `view-cell-elided?`
+;; reads the two inputs it actually has.
+;;
+;; `raw` went too (rf2-4gnrs), and for a reason the frame family did not have:
+;; the CAPABILITY was never lost. A runtime React ELEMENT already crosses into
+;; a Freehand tree unwrapped, in both interpreted and compiled child positions
+;; (`re-frame.freehand.react/collect`, outside the `walk?` gate), so `v/raw`
+;; named an escape authors already have. Its `:foreign` crossing-prop marker —
+;; minted at one site, behind the same unreachable recognition — went with it;
+;; the `:foreign` component OP, which classifies a foreign React HEAD, is a
+;; different thing and is untouched.
+;;
+;; ONE unpublished head REMAINS recognised below — `html` — likewise
+;; unreachable through the production door, and entangled with a surface a
+;; conformance row already pins (`:html-sites` is a manifest roster in
+;; `FH-STRUCT-010`). It ships with rf2-rrosy, which has no other spelling to
+;; fall back on. `re-frame.freehand.unpublished-head-absence-jvm-test` pins the
+;; state — the vars unpublished on both hosts, production resolution nil for
+;; each — so it is asserted rather than rediscovered.
 
 (def markup-map-fqns
   "The map family — heads whose (f render-fn coll) idiom generates markup
@@ -340,7 +348,6 @@
                           (every? host-portable-argv? argvs)
                           (host-arities-compatible? argvs)))))))))
 
-(defn- raw-form? [e f]  (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-raw-fqns)))
 (defn- html-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-html-fqns)))
 (defn- raw-fn-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-raw-fn-fqns)))
 (defn- spread-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-spread-fqns)))
@@ -358,12 +365,11 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private runtime-sub-fqn 're-frame.freehand.reactive/sub-read)
-(def ^:private runtime-frame-ops-fqn 're-frame.freehand.frames/frame-ops)
 (def ^:private deferred-scope ::deferred-scope)
 (def ^:private transparent-macro-fqns
   "Closed macro set whose arguments are host-independent expression slots,
   with no user-authored binders. Preserve their spelling while recursively
-  lowering explicit sub/frame calls."
+  lowering explicit sub calls."
   (into #{}
         (mapcat (fn [s] [(symbol "clojure.core" (name s))
                          (symbol "cljs.core" (name s))]))
@@ -371,7 +377,7 @@
 
 (defn- deferred-expr-root?
   "Expression roots whose value is evaluated by a later host callback, not by
-  the view's render capture. `sub`/`frame` below these roots would be
+  the view's render capture. A `sub` below these roots would be
   phase-divergent between the JVM data host and React."
   [expr-root]
   (or (and (= :handler (first expr-root))
@@ -488,10 +494,10 @@
 (declare reactive-macro-reference-kind)
 
 (defn- reactive-call-kind
-  "Return :sub/:frame when `x` contains an unshadowed resolved
-  reactive CALL. Quoted data is never executable. This scanner is
-  deliberately about calls, not bare symbols, so a binding pattern may
-  still introduce a local named `sub` or `frame`."
+  "Return :sub when `x` contains an unshadowed resolved reactive CALL.
+  Quoted data is never executable. This scanner is deliberately about calls,
+  not bare symbols, so a binding pattern may still introduce a local named
+  `sub`."
   [e x locals]
   (let [e* (update e :locals into locals)]
     (cond
@@ -502,7 +508,6 @@
               (let [info (env/resolve-sym e* h)]
                 (cond
                   (contains? sub-fqns (:fqn info)) :sub
-                  (contains? frame-fqns (:fqn info)) :frame
                   ;; Binding/default forms never pass through rewriting later.
                   ;; An unaudited macro can inject a reactive call even when its
                   ;; invocation carries no visible sub token, so reject it.
@@ -520,38 +525,34 @@
 (defn- reactive-macro-reference-kind
   "Like `reactive-call-kind`, plus unquoted bare references. Opaque macros may
   turn a bare `sub` argument into a call (`->` is the canonical example), so
-  only macro expansion could prove such a reference harmless."
+  only macro expansion could prove such a reference harmless. Kept kind-shaped
+  (`:sub` rather than `true`) so every diagnostic below names the verb."
   [e x locals]
   (let [e* (update e :locals into locals)]
     (cond
       (and (seq? x) (= 'quote (first x))) nil
       (and (symbol? x) (not (contains? locals x)))
-      (cond
-        (env/resolves-to? e* x sub-fqns) :sub
-        (env/resolves-to? e* x frame-fqns) :frame)
+      (when (env/resolves-to? e* x sub-fqns) :sub)
       (map? x) (or (some #(reactive-macro-reference-kind e % locals) (keys x))
                    (some #(reactive-macro-reference-kind e % locals) (vals x)))
       (coll? x) (some #(reactive-macro-reference-kind e % locals) x)
       :else nil)))
 
 (defn- bare-reactive-reference-kind
-  "Return :sub/:frame for an unquoted BARE reactive var reference. A
-  direct `(sub ...)`/`(frame)` head is not bare—the rewriter
-  owns it—but a threading step such as `(-> query sub)` would become an
-  unindexed call only after macro expansion and must fail loudly."
+  "Return :sub for an unquoted BARE reactive var reference. A direct
+  `(sub ...)` head is not bare—the rewriter owns it—but a threading step such
+  as `(-> query sub)` would become an unindexed call only after macro expansion
+  and must fail loudly."
   [e x locals]
   (let [e* (update e :locals into locals)]
     (cond
       (and (seq? x) (= 'quote (first x))) nil
       (and (symbol? x) (not (contains? locals x)))
-      (cond
-        (env/resolves-to? e* x sub-fqns) :sub
-        (env/resolves-to? e* x frame-fqns) :frame)
+      (when (env/resolves-to? e* x sub-fqns) :sub)
       (seq? x)
       (let [h (first x)
             direct? (and (symbol? h) (not (contains? locals h))
-                         (or (env/resolves-to? e* h sub-fqns)
-                             (env/resolves-to? e* h frame-fqns)))]
+                         (env/resolves-to? e* h sub-fqns))]
         (some #(bare-reactive-reference-kind e % locals)
               (if direct? (rest x) x)))
       (map? x) (or (some #(bare-reactive-reference-kind e % locals) (keys x))
@@ -562,26 +563,21 @@
 (defn- reactive-direct-form
   "The kind-correct compiler-owned direct form a reactive authoring verb must
   take in evaluated code — the ONLY shape in which the public var is legal, and
-  what every escape diagnostic must recommend. `sub` reads a query, `frame`
-  takes no argument. Kept as one function so no diagnostic can drift into
-  recommending an invalid form."
+  what every escape diagnostic must recommend. Kept as one function so no
+  diagnostic can drift into recommending an invalid form."
   [kind]
   (case kind
-    :sub   "(sub query)"
-    :frame "(frame)"))
+    :sub "(sub query)"))
 
 (defn- reactive-authoring-var-kind
-  "Return :sub/:frame when `sym` is an unquoted, unshadowed reference to
-  a public reactive authoring var. Such a var is sound ONLY as a compiler-owned
+  "Return :sub when `sym` is an unquoted, unshadowed reference to a public
+  reactive authoring var. Such a var is sound ONLY as a compiler-owned
   DIRECT CALL HEAD — the rewriter consumes those heads (and lowers them to an
   indexed runtime site) before this leaf check runs — so a bare reference that
   reaches any other, value-flow, position has escaped the manifest. `env` must
   already carry the ambient lexical locals so a local shadow resolves to nil."
   [env sym]
-  (let [{:keys [fqn]} (env/resolve-sym env sym)]
-    (cond
-      (contains? sub-fqns fqn)   :sub
-      (contains? frame-fqns fqn) :frame)))
+  (when (contains? sub-fqns (:fqn (env/resolve-sym env sym))) :sub))
 
 (defn- check-portable-map-shape!
   "Reject the nonportable associative-destructuring shapes the host tolerates
@@ -708,7 +704,7 @@
 
 (defn reject-reactive-binding!
   "Reject a reactive authoring escape reaching an EVALUATED destructuring
-  expression — an executable `(sub …)`/`(frame)` call OR a bare
+  expression — an executable `(sub …)` call OR a bare
   reactive authoring var — anywhere in a binding pattern. Binding patterns are
   consumed by the host compiler, not expression rewriting, so such a position
   can never own a lexical render site: the manifest would under-declare and the
@@ -746,7 +742,7 @@
   [e verb form]
   (env/fail! e :rf.ui.compile/impure-slot-body
              (str "(" verb " …) inside a v/render-fn slot body — a slot body is "
-                  "a PURE render fragment; sub / frame (and dispatch / "
+                  "a PURE render fragment; sub (and dispatch / "
                   "hooks) are not permitted. Read the value in the OWNING view and "
                   "pass its committed value into the slot's arguments; a stateful "
                   "part MOUNTS a defview that owns its own state")
@@ -995,37 +991,6 @@
                                          :path (:path e) :expr-path (vec p)}))
                        (with-same-meta f (list runtime-sub-fqn sid query))))
 
-                    (and (symbol? head) (not (contains? locals head))
-                         (env/resolves-to? e* head frame-fqns))
-                    (do
-                      (when-not (= 1 (count f))
-                        (env/fail! e :rf.ui.compile/unsupported-form
-                                   (str "(frame) takes no arguments — it returns the "
-                                        "operation bundle locked to the committed frame; "
-                                        "to target a different frame, scope the subtree "
-                                        "with [frame-provider {:frame f} ...]")
-                                   {:form f}))
-                      (when (or (nil? (:self-id e))
-                                (:in-loop? e)
-                                (contains? locals deferred-scope))
-                        (if (:in-render-fn? e)
-                          (impure-slot-fail! e "frame" f)
-                          (env/fail! e :rf.ui.compile/frame-in-loop
-                                     (str "(frame) must be a finite render-time site in a "
-                                          "defview — it cannot run in a loop, deferred "
-                                          "callback, raw-fn/ref body, or root expression. "
-                                          "Hoist the read into the view body and let the "
-                                          "callback capture its committed ops bundle")
-                                     {:form f})))
-                      (let [sid (lexical-site-id e :frame f p)]
-                        (env/add-site! e :frame-ops
-                                       (with-source-coord
-                                         e f
-                                         {:sid sid
-                                          :path (:path e)
-                                          :expr-path (vec p)}))
-                        (with-same-meta f (list runtime-frame-ops-fqn))))
-
                    (fn-form? f) (rw-fn f locals p)
                    (contains? #{'let 'let* 'loop 'loop*} head) (rw-let f locals p)
                    (= 'letfn head)  (rw-letfn f locals p)
@@ -1063,7 +1028,7 @@
                                            (rest f)))))
 
                    ;; A DEFERRED callback body (fn / v/event / raw-fn / event-arg)
-                   ;; hosts no render-time reactive site — sub/frame are
+                   ;; hosts no render-time reactive site — a `sub` is
                    ;; already illegal here (rejected above) — so there is nothing
                    ;; for lexical site analysis to protect. Opaque host macros
                    ;; (`..`, `doto`, `case` in expression position, …) are
@@ -1124,9 +1089,9 @@
 
                ;; A BARE reactive authoring var reaching this leaf is a
                ;; value-flow escape. Every SOUND reactive site is consumed above
-               ;; as a direct call head (`(sub q)`/`(frame)` → an
+               ;; as a direct call head (`(sub q)` → an
                ;; indexed runtime site) or rejected pre-expansion under a macro.
-               ;; A bare `sub`/`frame` symbol here instead flows as a
+               ;; A bare `sub` symbol here instead flows as a
                ;; VALUE — into a computed callee `((if p sub inc) q)`, a let
                ;; alias `(let [f sub] (f q))`, an argument, or a collection —
                ;; where the analyzer cannot own a lexical render site, so the
@@ -1154,7 +1119,7 @@
                  f)))]
      ;; A `v/render-fn` slot body is a DEFERRED render: it executes inside a
      ;; DIFFERENT view (the library seam that invokes the slot), so every
-     ;; expression it walks is deferred — sub/frame there would be
+     ;; expression it walks is deferred — a `sub` there would be
      ;; phase-divergent and owner-wrong, exactly as in a fn/ui-event callback.
      (rw form (cond-> #{}
                 (or (deferred-expr-root? expr-root) (:in-render-fn? e))
@@ -1350,7 +1315,7 @@
     ;; A v/event handler is a SITE, like a literal vector: capturing a loop
     ;; binding needs per-row committed slots (its own bindings shadow, so they
     ;; are excluded from the capture check). Its body is a deferred callback,
-    ;; so render-time sub/frame inside it are rejected by the fn walk.
+    ;; so a render-time sub inside it is rejected by the fn walk.
     (let [binders (set (env/binding-syms bindings))
           form*   (walk-expr e [:handler k :ui-event]
                              (with-meta (apply list 'fn bindings body)
@@ -2288,8 +2253,8 @@
 ;; consumer call site (a component prop value, or an inline v/slot argument),
 ;; so its body is COMPILED — the closed template grammar, no runtime hiccup.
 ;; The body is a DEFERRED render (the library seam invokes it later, in a
-;; different view), so `:in-render-fn?` seeds the deferred scope: sub/frame
-;; reads and the dispatch/hook surface (event handlers, refs) inside are
+;; different view), so `:in-render-fn?` seeds the deferred scope: a `sub`
+;; read and the dispatch/hook surface (event handlers, refs) inside are
 ;; didactic `impure-slot-body` errors. Statically-referenced internal view
 ;; heads REMAIN legal — a stateful part is a pure slot body mounting a static
 ;; defview that owns its own state (the wave-2 registered-`v/view` coverage
@@ -2376,7 +2341,7 @@
     (let [identity (event-site-identity e k form)
           binders  (set (env/binding-syms bindings))
           ;; The body is a DEFERRED callback (the invoker calls it later), so the
-          ;; fn walk rejects render-time sub/frame inside it. Its own
+          ;; fn walk rejects a render-time sub inside it. Its own
           ;; bindings shadow, so they are excluded from the loop-capture check.
           form*    (walk-expr e [:component-prop k kind]
                               (with-meta (apply list 'fn bindings body) (meta form)))]
@@ -2560,11 +2525,8 @@
                              ;; passing row data into a keyed child view is exactly
                              ;; the extract-a-keyed-child-view fix; only HANDLER
                              ;; sites are capture-checked.
-                             (let [raw?    (raw-form? e v)
-                                   raw-fn? (raw-fn-form? e v)
+                             (let [raw-fn? (raw-fn-form? e v)
                                    v*      (cond
-                                             raw? (walk-expr e [:component-prop k :raw]
-                                                             (second v))
                                              raw-fn? (walk-expr e [:component-prop k :raw-fn]
                                                                 (second v))
                                              (literal-scalar? v) v
@@ -2572,7 +2534,7 @@
                                {:k k
                                 :slot (prop-slot-name k)
                                 :value v*
-                                :marker (cond raw? :foreign raw-fn? :v/raw-fn :else nil)
+                                :marker (when raw-fn? :v/raw-fn)
                                 :literal? (literal-scalar? v)})))
                           m*)]
       (let [key-form* (if (and (contains? m :key) (not (literal-scalar? key-form)))
@@ -2594,8 +2556,8 @@
         has-props (or (map? second*) (spread-form? e second*))
         props     (analyze-component-props e info (when has-props second*))
         child-fs  (vec (if has-props (drop 2 form) (drop 1 form)))
-        ;; a view/foreign boundary ENDS the static top region (S1c):
-        ;; frame-root below it is a compile error
+        ;; a view/foreign boundary ENDS the static top region (S1c), so a
+        ;; nested internal view below it is not a top-region mounted view
         children  (analyze-children (dissoc e :top-region?) child-fs)]
     (when (and (= :view (:kind info)) (seq children))
       (let [meta*      (:meta (env/resolve-sym e head))
@@ -2814,7 +2776,7 @@
                               (fn [i x] (walk-expr e [:error-boundary :on-error i] x)))
                              (rest on-error))
                        (meta on-error)))
-         ;; The child is CONDITIONALLY rendered (child vs fallback); frame-plan
+         ;; The child is CONDITIONALLY rendered (child vs fallback); top-region
          ;; extraction DESCENDS through the boundary (004C §6), so :top-region?
          ;; is preserved.
          :child (analyze e (first rest*))
@@ -2824,13 +2786,13 @@
 (defn- analyze-capability-free
   "Analyze `form` as a CAPABILITY-FREE template (a client-only :fallback):
   deterministic structural markup only — the JVM/SSR and first-hydration render
-  must match, so reactive reads (sub/frame) and committed event handlers are
+  must match, so a reactive read (sub) and committed event handlers are
   compile errors. Returns the fallback AST. `context` names the position for the
   diagnostic."
   [e context form]
-  (let [sub-sites (atom {:events [] :subs [] :htmls [] :frame-ops [] :slots []})
+  (let [sub-sites (atom {:events [] :subs [] :htmls [] :slots []})
         ast       (analyze (assoc e :sites sub-sites) form)
-        found     (->> [:events :subs :frame-ops]
+        found     (->> [:events :subs]
                        (filter #(seq (get @sub-sites %)))
                        (map name))]
     (when (seq found)
@@ -3089,15 +3051,15 @@
 ;; Reactive authoring verbs in head position (rf2-vxgfnd.266)
 ;; ---------------------------------------------------------------------------
 ;;
-;; sub/frame are reactive authoring verbs, sound in evaluated code ONLY as
-;; their compiler-owned DIRECT forms — (sub query), (frame) — which the
+;; `sub` is a reactive authoring verb, sound in evaluated code ONLY as its
+;; compiler-owned DIRECT form — (sub query) — which the
 ;; expression rewriter lowers to
-;; indexed runtime sites. A Hiccup component HEAD is not such a form:
+;; an indexed runtime site. A Hiccup component HEAD is not such a form:
 ;; env/classify-head resolves any resolved non-:rf.ui/view var to a plain
-;; :foreign React component, so [sub {…}] / [frame] would
+;; :foreign React component, so [sub {…}] would
 ;; otherwise compile as a foreign component with an EMPTY reactive manifest,
 ;; leaving the public authoring var to survive to runtime unindexed and
-;; bypassing reactive-site indexing entirely. These verbs are therefore
+;; bypassing reactive-site indexing entirely. The verb is therefore
 ;; RESERVED BEFORE generic component classification — `analyze`'s dispatch
 ;; checks this head predicate ahead of `analyze-component`/`env/classify-head`
 ;; — so a reactive verb can never be reclassified as foreign. A lexical shadow
@@ -3106,9 +3068,8 @@
 ;; classifies as :foreign.
 
 (defn- reactive-authoring-head-kind
-  "Return :sub/:frame when `head` is an unshadowed symbol resolving to a
-  public reactive authoring var — the reserved-head discriminator, mirroring
-  frame-root-head?/frame-provider-head?."
+  "Return :sub when `head` is an unshadowed symbol resolving to a
+  public reactive authoring var — the reserved-head discriminator."
   [e head]
   (when (and (symbol? head) (not (contains? (:locals e) head)))
     (reactive-authoring-var-kind e head)))
@@ -3126,134 +3087,6 @@
                     "public authoring var to survive to runtime unindexed. Keep "
                     "the read at a visible " (reactive-direct-form kind) " site")
                {:form form :reactive-kind kind})))
-
-;; ---------------------------------------------------------------------------
-;; frame-root (S1c, rf2-vxgfnd.3) — the static ENSURE-plan position
-;; ---------------------------------------------------------------------------
-;;
-;; The STATIC TOP REGION of a root form (root-identity contract §6) is every
-;; node reachable from the root without crossing a control form, a dynamic
-;; expression, an internal-view boundary, or a foreign component. The walk
-;; carries `:top-region? true` (set only by the root-form entry points —
-;; `v/mount` / `v/render!` / `v/hydrate-root`); DOM elements, fragments
-;; and frame-root itself PRESERVE the flag for their children, and every
-;; other position clears it. `frame-root` is legal exactly while the flag
-;; holds — plans are static identity, extracted at compile time.
-
-(defn- frame-root-head? [e head]
-  (and (symbol? head)
-       (not (contains? (:locals e) head))
-       (env/resolves-to? e head frame-root-fqns)))
-
-(defn- analyze-frame-root [e form]
-  (when-not (:top-region? e)
-    (env/fail! e :rf.ui.compile/frame-root-misplaced
-               (str "frame-root sits outside the static top region of a root "
-                    "form — ENSURE plans are static identity, extracted at "
-                    "compile time. Legal positions: the root form handed to "
-                    "v/mount / v/render! / v/hydrate-root, nested only "
-                    "under unconditional wrappers (DOM elements, fragments, "
-                    "frame-root) — never under a control form, inside a "
-                    "view, or in a defview template (frames are ambient "
-                    "inside views)")
-               {:form form}))
-  (let [props (nth form 1 nil)]
-    (when-not (map? props)
-      (env/fail! e :rf.ui.compile/bad-frame-root
-                 (str "frame-root takes a literal props map: "
-                      "[frame-root {:id :frame-id ...} children...]")
-                 {:form form}))
-    (when (contains? props :frame)
-      (env/fail! e :rf.ui.compile/bad-frame-root
-                 (str "frame-root ENSURES a frame by :id — :frame is "
-                      "frame-provider's scope key (providers scope, roots "
-                      "ensure; the rf2-nyea0r split)")
-                 {:form form}))
-    (let [id (:id props)]
-      (when-not (keyword? id)
-        (env/fail! e :rf.ui.compile/bad-frame-root
-                   (str "frame-root :id must be a compile-time literal "
-                        "keyword — plans are static identity; got "
-                        (pr-str id))
-                   {:form form :id id}))
-      (let [config (not-empty (dissoc props :id))
-            config* (when config
-                      (with-meta
-                        (into (empty config)
-                              (map (fn [[k v]]
-                                     [k (walk-expr e [:frame-root :config k] v)]))
-                              config)
-                        (meta config)))]
-        ;; config values are opaque runtime expressions (evaluated at
-        ;; preflight) — walk them for sub site indexing only
-        {:op :frame-root
-         :frame-id id
-         :config config*
-         :children (analyze-children e (vec (drop 2 form)))
-         :static? false
-         :path (:path e)}))))
-
-;; ---------------------------------------------------------------------------
-;; frame-provider (S2c, rf2-vxgfnd.9) — the SCOPE form
-;; ---------------------------------------------------------------------------
-;;
-;; frame-provider scopes a subtree to an ALREADY-LIVE frame through the
-;; shared React context — it is legal ANYWHERE a template form is (defview
-;; templates and root forms), unlike the static-top-region-only `frame-root`.
-;; Its `:frame` is a RUNTIME frame TARGET (a frame-id keyword OR a live frame
-;; value), so provider-scoped frames are not statically extractable and
-;; contribute NO plan to the Root Descriptor (root-identity contract §6). In
-;; a root form's top region the walk descends THROUGH a frame-provider (it
-;; preserves `:top-region?` for its children), so a nested `frame-root` plan
-;; is still extracted; the provider itself just scopes.
-
-(defn- frame-provider-head? [e head]
-  (and (symbol? head)
-       (not (contains? (:locals e) head))
-       (env/resolves-to? e head frame-provider-fqns)))
-
-(defn- analyze-frame-provider [e form]
-  (let [props (nth form 1 nil)]
-    (when-not (map? props)
-      (env/fail! e :rf.ui.compile/bad-frame-provider
-                 (str "frame-provider takes a literal props map: "
-                      "[frame-provider {:frame f} children...]")
-                 {:form form}))
-    (when (contains? props :id)
-      (env/fail! e :rf.ui.compile/bad-frame-provider
-                 (str "frame-provider SCOPES an already-live frame by :frame — "
-                      ":id is frame-root's ENSURE key (roots ensure, providers "
-                      "scope; the rf2-nyea0r split). Use frame-root {:id ...} to "
-                      "create-if-absent")
-                 {:form form}))
-    (when-not (contains? props :frame)
-      (env/fail! e :rf.ui.compile/bad-frame-provider
-                 (str "frame-provider requires :frame — the already-live frame "
-                      "target (a frame-id keyword or a live frame value) to "
-                      "scope the subtree to")
-                 {:form form}))
-    (let [extra (dissoc props :frame)]
-      (when (seq extra)
-        (env/fail! e :rf.ui.compile/bad-frame-provider
-                   (str "frame-provider takes only {:frame f}; got extra key"
-                        (when (next extra) "s") " "
-                        (str/join ", " (map pr-str (keys extra)))
-                        " — providers only scope (roots ensure)")
-                   {:form form})))
-    (let [target (:frame props)
-          target* (if (literal-scalar? target)
-                    target
-                    (walk-expr e [:frame-provider :frame] target))]
-      ;; the :frame target is a runtime expression — walk it for sub
-      ;; site indexing (a sub in the target expression is still a site)
-      {:op :frame-provider
-       :frame target*
-       ;; children keep whatever region flag `e` carries: preserved in a
-       ;; root form's top region (nested frame-root plans still extract),
-       ;; absent in a defview template
-       :children (analyze-children e (vec (drop 2 form)))
-       :static? false
-       :path (:path e)})))
 
 (defn- analyze-fragment [e form]
   (let [second*   (nth form 1 nil)
@@ -3597,14 +3430,6 @@
 
       :else
       (cond
-        (raw-form? e form)
-        (let [[_ x & extra] form]
-          (when (or (nil? x) (seq extra))
-            (env/fail! e :rf.ui.compile/bad-raw "(v/raw react-element) takes one argument"
-                       {:form form}))
-          {:op :raw :form (walk-expr e [:raw] x)
-           :static? false :path (:path e)})
-
         (html-form? e form)
         (env/fail! e :rf.ui.compile/html-not-sole-child
                    (str "(v/html ...) must be the sole child of a DOM element "
@@ -3674,9 +3499,9 @@
 ;;
 ;; A symbol head classifies by RESOLUTION at expansion time (the Q5 rule,
 ;; env/classify-head), but two reservations run in `analyze`'s dispatch
-;; AHEAD of `env/classify-head`: the frame-boundary heads (frame-root /
-;; frame-provider) and the reactive-authoring verbs (sub / frame,
-;; rf2-vxgfnd.266). Both key on Var resolution — so a head equal to the view
+;; AHEAD of `env/classify-head`: `v/behavior` and the reactive-authoring verb
+;; `sub` (rf2-vxgfnd.266). The reactive one keys on Var resolution — so a head
+;; equal to the view
 ;; being `defview`d right now (`:self`) that ALSO resolves to a referred
 ;; public authoring Var (`(defview sub [] [sub …])` in a namespace that
 ;; refers `re-frame.freehand/sub`) was reserved-then-rejected BEFORE the Q5
@@ -3687,7 +3512,7 @@
 ;;   1. a local/dynamic binding of the spelling (checked inside every head
 ;;      predicate and env/classify-head) — a lexical shadow outranks self;
 ;;   2. the exact, unshadowed `:self` — an internal-view head, resolution-free;
-;;   3. the reserved frame-boundary / reactive-authoring heads (Var-resolved);
+;;   3. the reserved behavior / reactive-authoring heads (Var-resolved);
 ;;   4. ordinary internal/foreign classification (env/classify-head).
 ;;
 ;; `self-head?` is tier 2 — it fires before every reserved-head predicate so a
@@ -3746,16 +3571,14 @@
         ;; The exact unshadowed self outranks every reserved-head reservation
         ;; below (rf2-vxgfnd.274): the view Var may not exist yet, so a
         ;; self-recursive head classifies as an internal view up front —
-        ;; resolution-free — before any Var-resolved reservation (frame
-        ;; boundary / reactive authoring) can reclassify it.
+        ;; resolution-free — before any Var-resolved reservation (reactive
+        ;; authoring) can reclassify it.
         (self-head? e head) (analyze-component e form)
-        (frame-root-head? e head) (analyze-frame-root e form)
-        (frame-provider-head? e head) (analyze-frame-provider e form)
         ;; v/behavior is a framework host attachment, NOT a foreign component —
         ;; reserve it ahead of generic classification so it lowers to :behavior
         ;; rather than being misnamed :foreign and refused (rf2-drpa3.153).
         (behavior-head? e head) (analyze-behavior e form)
-        ;; Reserve sub/frame BEFORE generic component classification
+        ;; Reserve sub BEFORE generic component classification
         ;; (rf2-vxgfnd.266): a reactive authoring verb can never be
         ;; reclassified as a :foreign component with an empty manifest.
         (reactive-authoring-head-kind e head)
@@ -3765,8 +3588,9 @@
         (env/fail! e :rf.ui.compile/dynamic-head
                    (str "dynamic element head " (pr-str head) " — heads must be "
                         "literal (a keyword or a component var). Runtime-chosen "
-                        "components are v/view / v/element [WAVE-2]; v/raw "
-                        "covers a runtime React element meanwhile")
+                        "components are v/view / v/element [WAVE-2]; "
+                        "meanwhile keep a runtime-assembled subtree "
+                        "interpreted, where heads resolve at render")
                    {:form form})))
     ;; a control form / opaque expression ends the static top region (S1c)
     (seq? form)     (analyze-list (dissoc e :top-region?) form)

@@ -151,7 +151,6 @@
    :rf.ui.compile/indirect-list-body   :iteration-is-not-lexically-flat
    :rf.ui.compile/metadata-key         :key-is-in-metadata
    :rf.ui.compile/sub-in-loop          :reactive-site-is-not-finite
-   :rf.ui.compile/frame-in-loop        :reactive-site-is-not-finite
    :rf.ui.compile/void-children        :void-element-carries-children
    :rf.ui.compile/duplicate-id-sugar   :element-id-declared-twice
    :rf.ui.compile/id-sugar-conflict    :element-id-declared-twice
