@@ -38,6 +38,16 @@
   [_]
   nil)
 
+(v/defview marked
+  "A marker-bearing node with a text leaf in FRONT of it — the shape a
+  membership predicate meets. `tree-seq` yields the string too, so this is
+  the tree that proves `find` never hands one to `pred` (rf2-per51)."
+  [_]
+  [:div.marked
+   "before"
+   (v/presence {:timeout-ms 250}
+     [:span {:key "x"} "inside"])])
+
 ;; ---------------------------------------------------------------------------
 ;; The surface — render / find / find-all / text / attrs
 ;; ---------------------------------------------------------------------------
@@ -68,6 +78,24 @@
           "find returns the first match")
       (is (nil? (t/find tree #(= :never (:tag %)))) "no match is nil")
       (is (= [] (t/find-all tree #(= :never (:tag %)))) "no match is the empty vector"))))
+
+(deftest the-predicate-sees-node-maps-only
+  (testing "find / find-all apply `pred` to MAP NODES ONLY — the text leaves
+            `tree-seq` yields never reach it. So a MEMBERSHIP predicate, the
+            shape a marker-node query takes, answers the same on the JVM and
+            in ClojureScript instead of throwing on one host and answering on
+            the other (rf2-per51: contains? on a String is an
+            IllegalArgumentException on the JVM and total in ClojureScript)."
+    (let [tree (t/render [marked {}])]
+      (is (= "beforeinside" (t/text tree))
+          "the tree really does carry text leaves — the case is not vacuous")
+      (is (= {:phase :present :timeout-ms 250}
+             (:rf.ui/presence (t/find tree #(contains? % :rf.ui/presence))))
+          "a membership predicate finds the marker node on either host")
+      (is (= 1 (count (t/find-all tree #(contains? % :rf.ui/presence))))
+          "and find-all answers the one marker node, never a string leaf")
+      (is (nil? (t/find tree #(contains? % :absent)))
+          "a membership predicate matching nothing is a miss, not a throw"))))
 
 (deftest attrs-projects-every-node-variant
   (testing "attrs is total over the node schema: element merges :attrs and

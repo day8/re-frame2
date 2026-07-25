@@ -697,7 +697,12 @@ state-reading view needs; none simulates behaviour.
 
 `find` / `find-all` are conveniences over the whole traversal API, which is ordinary
 Clojure — `(tree-seq map? :children tree)` and a predicate over `(:tag %)` (element
-tag) or `(:view-id %)` (view boundary). **Node reading is the ruled projection**:
+tag) or `(:view-id %)` (view boundary). **The predicate's domain is node maps only**
+(rf2-per51): text content is a host string rather than a node, and a raw `tree-seq`
+walk yields those strings as leaves, so `find` / `find-all` drop them before the
+predicate runs and a membership test — `#(contains? % :rf.ui/presence)` — answers
+identically on both hosts instead of throwing on one. A caller who wants the raw
+leaves walks with `tree-seq` directly. **Node reading is the ruled projection**:
 `(:on-click node)` is a *field* miss — event intent lives under `:events`, read
 through `attrs`, so "what does this button do" is an equality check on data
 (`(is (= [:cart/add 42] (:on-click (t/attrs node))))`) with no browser, no click

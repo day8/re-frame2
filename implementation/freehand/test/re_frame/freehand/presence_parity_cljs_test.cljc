@@ -81,7 +81,15 @@
             it round-trips as EDN. A consumer (SSR, a tool) reads
             `:rf.ui/presence` off the tree the same way on either host."
     (let [t        (tree/render [views/rooted {}])
+          ;; The `map?` filter is load-bearing, not decoration: a raw
+          ;; `tree-seq` yields text content as host strings too, and
+          ;; `contains?` on a String throws on the JVM. Without it this walk
+          ;; passes only by the ACCIDENT of laziness reaching the marker
+          ;; before the first string (rf2-per51) — `t/find` applies its
+          ;; predicate to node maps only, and a hand-rolled walk asserting
+          ;; the same reachability has to say so itself.
           presence (->> (tree-seq map? :children t)
+                        (filter map?)
                         (filter #(contains? % :rf.ui/presence))
                         first)]
       (is (some? presence) "the presence node is reachable by an ordinary tree walk")

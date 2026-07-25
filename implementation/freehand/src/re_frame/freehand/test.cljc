@@ -40,7 +40,10 @@
 
   `find` / `find-all` are conveniences over the whole traversal API, which
   is ordinary Clojure — `(tree-seq map? :children tree)` and a predicate
-  over `(:tag %)` (element tag) or `(:view-id %)` (view boundary).
+  over `(:tag %)` (element tag) or `(:view-id %)` (view boundary). They hand
+  the predicate NODE MAPS ONLY. Text content is a host string rather than a
+  node, and a raw walk yields those strings as leaves, so a caller who wants
+  the leaves themselves walks with `tree-seq` directly.
 
   ## Frame scope, and what runs headlessly
 
@@ -191,15 +194,24 @@
 (defn find-all
   "Every node under `tree` (the root included) for which `pred` is truthy,
   in document order. Empty vector when nothing matches. `pred` reads node
-  fields — `(:tag %)` for an element, `(:view-id %)` for a view boundary."
+  fields — `(:tag %)` for an element, `(:view-id %)` for a view boundary.
+
+  `pred`'s domain is NODE MAPS ONLY. A raw `(tree-seq map? :children tree)`
+  walk yields text content — host strings — as leaves, and those are dropped
+  before the predicate runs, so a MEMBERSHIP test reads the same on both
+  hosts: `#(contains? % :rf.ui/presence)` answers the marker node rather
+  than throwing on the JVM and answering in ClojureScript (rf2-per51). Text
+  is read with [[text]] on the owning node, or reached through its
+  `:children`; a caller who genuinely wants the raw leaves walks with
+  `tree-seq` directly."
   [tree pred]
-  (filterv pred (tree-seq map? :children tree)))
+  (filterv pred (filter map? (tree-seq map? :children tree))))
 
 (defn find
   "The FIRST node under `tree` (the root included, document order) for which
   `pred` is truthy, or nil. `nil` threads through a missed match, so
   `(t/attrs (t/find tree p))` nil-puns rather than throwing when nothing
-  matched."
+  matched. `pred`'s domain is [[find-all]]'s — node maps only, never text."
   [tree pred]
   (first (find-all tree pred)))
 

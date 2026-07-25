@@ -48,7 +48,10 @@ language.
 | `(tree-seq map? :children tree)` when you want the raw walk | |
 
 `nil` threads through a missed match, so `(t/attrs (t/find tree p))` nil-puns
-rather than throwing.
+rather than throwing. Your predicate is handed **node maps only** — text content is
+a host string, not a node, so a membership test like `#(contains? % :rf.ui/presence)`
+reads the same on both hosts. Reach for the raw walk when you want the leaves
+themselves.
 
 ```clojure
 (t/find tree #(= :button (:tag %)))                ; by element tag
