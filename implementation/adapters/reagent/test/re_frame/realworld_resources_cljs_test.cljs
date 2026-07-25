@@ -41,7 +41,8 @@
 
    Per rf2-am9d this ns uses snapshot/restore via re-frame.test-support so the
    contract is uniform across CLJS fixtures."
-  (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
+  (:require [clojure.string :as str]
+            [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
             [re-frame.frame :as frame]
@@ -92,6 +93,14 @@
 ;; ============================================================================
 
 (def ^:private last-managed-args (atom nil))
+
+;; Every managed-HTTP request lowered during a test, in order. `last-managed-args`
+;; is enough while one read is in flight at a time, which is every test that
+;; ensures by hand — but a ROUTE ACTIVATION lowers a whole resource plan in one
+;; dispatch (a parent-chain route lowers the ancestor's shell read AND the leaf's
+;; own), so the profile-branch tests below need to address ONE of them by its
+;; endpoint. See `managed-request-for`.
+(def ^:private managed-args-log (atom []))
 
 ;; The shared `make-reset-runtime-fixture`'s post-dispose
 ;; `:resources/reset-resources!` hook CLEARS the `:resource`, `:mutation`, and
@@ -161,6 +170,7 @@
   (test-support/sequester-app-namespaces! "realworld-http.")
   (test-support/reinstate-app-registration! not-found-route-row)
   (reset! last-managed-args nil)
+  (reset! managed-args-log [])
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "realworld-resources default app frame."})
   ;; Re-install the example's ns-load resource/mutation/scope registrations.
@@ -175,7 +185,10 @@
     (registrar/register! kind id meta))
   (routing/reset-counters!)
   (resources-route/install-routing-integration!)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args]
+                                (reset! last-managed-args args)
+                                (swap! managed-args-log conj args)
+                                nil))
   (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
 
 (defn- isolate-trace-bus-fixture
@@ -265,6 +278,22 @@
   ([slug] (comments-key "alice" slug))
   ([viewer slug] (state/scoped-resource-key (viewer-scope viewer) :realworld/comments {:slug slug})))
 
+;; The two profile tabs' own paginated lists. Both are viewer-scoped like the
+;; banner, and both take the route's `{:username :page}` params — `:page` defaults
+;; to 1 on the bare tab URL (the route's `(or (:page q) 1)`), so page 1 is the key
+;; a plain tab activation owns.
+(defn- author-articles-key
+  ([subject page] (author-articles-key "alice" subject page))
+  ([viewer subject page]
+   (state/scoped-resource-key (viewer-scope viewer) :realworld/author-articles
+                              {:username subject :page page})))
+
+(defn- favorited-articles-key
+  ([subject page] (favorited-articles-key "alice" subject page))
+  ([viewer subject page]
+   (state/scoped-resource-key (viewer-scope viewer) :realworld/favorited-articles
+                              {:username subject :page page})))
+
 (defn- tags-key
   "The truly-invariant global-scope :realworld/tags key (the one read still global)."
   []
@@ -308,17 +337,35 @@
   (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key scoped-key}]
                     {:frame frame}))
 
+(defn- route-owner?
+  "True iff `entry` carries an active `[:route route-id* _]` owner. The runtime
+   mints ONE owner per activation, keyed by the ACTIVE route's id — for a
+   parent-chain route that one owner covers the ancestor-contributed entries too
+   — and releases it on route leave. The nav-token is opaque, so match on the
+   route id, not the token."
+  [entry route-id*]
+  (boolean (some (fn [o] (and (vector? o)
+                              (= :route (first o))
+                              (= route-id* (second o))))
+                 (:active-owners entry))))
+
 (defn- editor-route-owner?
   "True iff `entry` carries an active `[:route :realworld.editor/edit _]` owner —
    the route-owned owner the editor's article read holds while the edit route is
    live (rf2-y4mgw: the read is a route `:resource`, owned under
-   `[:route route-id nav-token]` and released by the runtime on route leave). The
-   nav-token is opaque, so match on the route id, not the token."
+   `[:route route-id nav-token]` and released by the runtime on route leave)."
   [entry]
-  (boolean (some (fn [o] (and (vector? o)
-                              (= :route (first o))
-                              (= :realworld.editor/edit (second o))))
-                 (:active-owners entry))))
+  (route-owner? entry :realworld.editor/edit))
+
+(defn- managed-request-for
+  "The logged managed-HTTP request whose URL contains `url-fragment`, or nil.
+   `last-managed-args` remembers only the LAST request, which is ambiguous after
+   a route activation lowered a whole plan at once; this addresses one read of
+   that plan by the endpoint it was supposed to hit — so a mis-declared resource
+   fails on the lookup rather than quietly settling the wrong entry."
+  [url-fragment]
+  (first (filter (fn [args] (str/includes? (str (get-in args [:request :url])) url-fragment))
+                 @managed-args-log)))
 
 ;; ============================================================================
 ;; 1. SESSION-SCOPE RESOLVER — :realworld/session (EP-0016 D3)
@@ -1348,6 +1395,93 @@
             "an unmatched URL is not gated — the guard leaves it alone")
         (is (= crumb (return-to f))
             "an unmatched URL leaves the existing crumb untouched — no spurious re-stash")))))
+
+;; ============================================================================
+;; 12. THE PROFILE TABS' :parent BRANCH — this table's own EP-0037 R2 wiring
+;; ============================================================================
+;;
+;; `:realworld.profile/favorites` is the one route in the shipped table that
+;; declares a `:parent` (`:realworld.profile/show`) AND its own `:resources`, so
+;; activating it has to compose the parent's banner read with the leaf's favorited
+;; list — Spec 016 §Effective parent-chain resource plans. The framework claim is
+;; pinned generically by the resources artefact's own r2-* suite
+;; (`resources_route_cljs_test`) against a purpose-built exercise app. What these
+;; two pin is THIS route table, which is the thing users copy.
+;;
+;; Nothing navigated to the favorites tab before (rf2-8vccg): the ~30 tests above
+;; reach the profile only through `{:to :realworld.profile/show}`, so the branch
+;; was live in the shipped example and unexercised. A broken `:parent` link, a leaf
+;; that restated the banner, or a `:when` gate that let the authored list follow
+;; the visitor onto the favorites tab would all have shipped silently.
+
+(deftest profile-favorites-tab-composes-the-parent-banner-with-its-own-list
+  (testing "examples/real-apps/realworld_resources — activating
+            :realworld.profile/favorites ensures BOTH the banner read its
+            `:parent :realworld.profile/show` contributes and the leaf's own
+            :realworld/favorited-articles, under the one active-route owner, while
+            the parent's authored list stays gated off by its `:when` (rf2-8vccg)"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to     :realworld.profile/favorites
+                                             :params {:username "eve"}}] {:frame f})
+      (is (= :realworld.profile/favorites (route-id f)) "landed on the favorites tab")
+      (testing "the parent's banner is composed into the leaf's plan"
+        (let [banner (entry f (profile-key "eve"))]
+          (is (some? banner)
+              "the `:parent`'s :realworld/profile banner is ensured on child activation")
+          (is (route-owner? banner :realworld.profile/favorites)
+              "…owned by the ACTIVE leaf route's owner, so leaving the tab releases it")))
+      (testing "the leaf's own list is ensured, and only the leaf's"
+        (is (some? (entry f (favorited-articles-key "eve" 1)))
+            "the leaf's :realworld/favorited-articles is ensured at page 1")
+        (is (route-owner? (entry f (favorited-articles-key "eve" 1))
+                          :realworld.profile/favorites)
+            "…under the same one route owner as the inherited banner")
+        (is (nil? (entry f (author-articles-key "eve" 1)))
+            "the parent's authored list stays gated off — its `:when` names the show leaf"))
+      (testing "each composed read reached its own Conduit endpoint"
+        (is (some? (managed-request-for "/profiles/eve"))
+            "the inherited banner fetched GET /profiles/:username")
+        (is (some? (managed-request-for "favorited=eve"))
+            "the leaf fetched GET /articles?favorited=:username — not the authored list")))))
+
+(deftest profile-tab-move-keeps-the-inherited-banner-and-swaps-the-lists
+  (testing "examples/real-apps/realworld_resources — moving between the two profile
+            tabs KEEPS the banner the `:parent` contributes: it is adopted, not
+            refetched (generation unchanged, data intact), while the departed tab's
+            own list loses the route owner and the arriving tab's list is ensured —
+            EP-0037 R2 partial revalidation, on the shipped table (rf2-8vccg)"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to     :realworld.profile/favorites
+                                             :params {:username "eve"}}] {:frame f})
+      ;; Settle the BANNER specifically. The activation lowered the whole plan in
+      ;; one dispatch, so `last-managed-args` now holds the leaf's list request —
+      ;; address the banner by its own endpoint instead.
+      (reply-success! (managed-request-for "/profiles/eve")
+                      {:profile {:username "eve" :bio "" :image "" :following false}} f)
+      (is (= :loaded (:status (entry f (profile-key "eve"))))
+          "the inherited banner is loaded before the tab move — the genuinely reusable case")
+      (let [gen-before (:generation (entry f (profile-key "eve")))]
+        ;; THE SIBLING MOVE: favorites → show. Same parent, different leaf.
+        (rf/dispatch-sync [:rf.route/navigate {:to     :realworld.profile/show
+                                               :params {:username "eve"}}] {:frame f})
+        (is (= :realworld.profile/show (route-id f)) "moved to the authored-articles tab")
+        (testing "the shared banner is kept across the tab move, not refetched"
+          (is (= gen-before (:generation (entry f (profile-key "eve"))))
+              "generation unchanged — the banner is adopted, not revalidated")
+          (is (= "eve" (-> (entry f (profile-key "eve")) :data :profile :username))
+              "…and keeps its loaded data, so the banner never blanks between tabs")
+          (is (route-owner? (entry f (profile-key "eve")) :realworld.profile/show)
+              "the arriving tab's owner is attached to the kept banner (owner handoff)"))
+        (testing "the tab-specific lists swap with the leaf"
+          (is (some? (entry f (author-articles-key "eve" 1)))
+              "the show leaf's `:when` gate now opens — the authored list is ensured")
+          (let [fav (entry f (favorited-articles-key "eve" 1))]
+            (is (or (nil? fav) (not (route-owner? fav :realworld.profile/favorites)))
+                "the departed favorites tab's list is no longer route-owned")))))))
 
 ;; ============================================================================
 ;; UI-ARM URL STRATEGY — entry-specific deployment base (rf2-nn5s8 audit rider)
