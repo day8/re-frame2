@@ -30,9 +30,10 @@
 
   Normative owner: [`spec/004-Views.md`](../../../../../spec/004-Views.md)."
   (:require [re-frame.error :as error]
+            [re-frame.freehand.events :as events]
             [re-frame.freehand.props-schema :as props-schema]
             [re-frame.interop :as interop])
-  #?(:cljs (:require-macros [re-frame.freehand.descriptor :refer [def-view-descriptor]])))
+  #?(:cljs (:require-macros [re-frame.freehand.descriptor :refer [def-descriptor-type]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -78,9 +79,15 @@
        :extra    {:view-id view-id}})))
 
 #?(:clj
-   (defmacro ^:no-doc def-view-descriptor
-     "Define `ViewDescriptor` and its COMPLETE host call protocol, every
-     arity routed to [[direct-call!]].
+   (defmacro ^:no-doc def-descriptor-type
+     "Define one descriptor `deftype` — `tname`, one `entry` field — and its
+     COMPLETE host call protocol, every arity routed to `call-fn`.
+
+     Parameterized over the two descriptor kinds because the argument
+     below is about DESCRIPTORS, not about views: a declared view and a
+     declared host are both mounted-never-invoked boundary values, and
+     both owe the same answer to a direct call. `print-tag` is the reader
+     tag the value prints under and `id-key` the entry slot naming it.
 
      RULED (Mike, 2026-07-22, rf2-llxsw — Option B). The descriptor
      implements the call protocol for exactly one reason: so that calling
@@ -111,18 +118,18 @@
      exactly as `cljs.core`'s own `IFn` types do. The law that could have
      been threatened is that a call must never SUCCEED, and it is not: at
      every arity, on both hosts, the call raises."
-     []
+     [tname call-fn print-tag id-key]
      (let [cljs?  (some? (:ns &env))
            invoke (if cljs? '-invoke 'invoke)
            this   '_this
-           body   (list `direct-call! 'entry)
+           body   (list call-fn 'entry)
            args   (fn [n] (map #(symbol (str "_a" %)) (range n)))
            meth   (fn [as] (list invoke (vec (cons this as)) body))]
        (concat
-         (list 'deftype 'ViewDescriptor '[entry]
+         (list 'deftype tname '[entry]
                'Object
                (list 'toString [this]
-                     (list 'str "#re-frame.freehand/view " (list :view-id 'entry)))
+                     (list 'str print-tag (list id-key 'entry)))
                (if cljs? 'IFn 'clojure.lang.IFn))
          (map (comp meth args) (range 0 21))
          ;; Both hosts close the roster with the twenty-fixed-plus-rest
@@ -135,7 +142,8 @@
          (when-not cljs?
            [(list 'applyTo [this '_args] body)])))))
 
-(def-view-descriptor)
+(def-descriptor-type ViewDescriptor re-frame.freehand.descriptor/direct-call!
+  "#re-frame.freehand/view " :view-id)
 
 #?(:clj
    (defmethod print-method ViewDescriptor [d ^java.io.Writer w]
@@ -155,18 +163,117 @@
   [x]
   (instance? ViewDescriptor x))
 
+;; ---------------------------------------------------------------------------
+;; The host descriptor — the third and last legal vector head
+;; ---------------------------------------------------------------------------
+;;
+;; D022. `v/defhost` is the SOLE public inward React host declaration, and
+;; this is the one value it mints. It is a `deftype` for exactly the reason
+;; the view descriptor is: the marker used to be a reserved key on a plain
+;; MAP, and a map answers `(date-picker {:selected d})` as a LOOKUP —
+;; returning nil, rendering nothing, saying nothing. That is the same silent
+;; failure `direct-call!` exists to remove, at the boundary an adopter
+;; arriving from React is MOST likely to call by habit.
+;;
+;; One field, `entry`, holding the private declaration map:
+;;
+;;   {:host-id   :app.booking/date-picker
+;;    :component <the React component, or nil on a JVM expansion>
+;;    :callbacks {:onChange :event}       ; finite, name -> D008 role
+;;    :children  :optional                ; the closed children policy
+;;    :ssr       :client-only             ; or {:fallback <markup>}
+;;    :map-props <fn>                     ; optional, whole-ordinary-props
+;;    :props     <inert schema>           ; optional evidence
+;;    :source    {:ns … :file … :line …}}
+
+(defn- direct-host-call!
+  "The didactic throw a direct call on a host descriptor reaches. Same law
+  and same error id as [[direct-call!]] — a declared boundary is mounted,
+  never invoked — with the recoveries a HOST boundary actually has."
+  [entry]
+  (let [host-id (:host-id entry)
+        sym     (if host-id (name host-id) "the-host")]
+    (error/throw-error!
+      :rf.error/view-called-directly
+      'v/defhost
+      (str "Declared host " host-id " was called as a function. A declared host is "
+           "mounted, never invoked, so the call cannot succeed. MOUNT it — write ["
+           sym " {…}], because square brackets mount a declared boundary. If what "
+           "you want is the React component itself, call the component you "
+           "registered rather than the Freehand descriptor that declares it.")
+      {:recovery :mount-it
+       :extra    {:view-id host-id}})))
+
+(def-descriptor-type HostDescriptor re-frame.freehand.descriptor/direct-host-call!
+  "#re-frame.freehand/host " :host-id)
+
+#?(:clj
+   (defmethod print-method HostDescriptor [d ^java.io.Writer w]
+     (.write w (str d)))
+   :cljs
+   (extend-protocol IPrintWithWriter
+     HostDescriptor
+     (-pr-writer [d writer _opts]
+       (-write writer (str d)))))
+
 (defn host-descriptor?
   "True when `x` is a **declared host descriptor** — the third and last
-  legal vector head, naming a foreign component behind a qualified host
-  boundary.
+  legal vector head, naming a foreign React component behind a qualified
+  host boundary.
 
-  The marker is the reserved `:re-frame.freehand/host` key. The authoring
-  surface that mints host descriptors (value-in / callback-out, the
-  structural and SSR policy) is owned by the host-boundary sections of
-  Spec 004 and lands with its own slice; what is fixed here is the tag
-  [[classify-head]] recognises, so the classification is total today."
+  Nominal, exactly like [[view?]]: the answer is the TYPE, so no map an
+  application can write is a host boundary and the classification stays
+  total rather than duck-typed. `v/defhost` is the only way to get one."
   [x]
-  (and (map? x) (true? (:re-frame.freehand/host x))))
+  (instance? HostDescriptor x))
+
+(defn declare-host
+  "Build a [[HostDescriptor]] from a declaration `entry` map. The expansion
+  target of `v/defhost` — not an authoring form, and deliberately not on
+  the public surface: a raw constructor would mint a head that classifies
+  as `:host` while carrying no host-id, no source, no declared callback
+  positions and no SSR policy, which is the one-declaration rule with a
+  hole in it."
+  [entry]
+  (->HostDescriptor entry))
+
+(defn host-entry
+  "A host descriptor's PRIVATE declaration map. An emitter's vocabulary:
+  the structural walk reads the id, the children policy and the SSR
+  policy; the React walk additionally reads the component, the declared
+  callback positions and the ordinary-props adapter. Nothing public
+  projects it — the descriptor's public evidence is what the structural
+  tree records."
+  [host]
+  (.-entry ^HostDescriptor host))
+
+(def host-callback-roles
+  "The closed roster of D008 roles a `:callbacks` position may declare.
+
+  `:event` and `:handler` ONLY. `:render-fn` and `:raw-fn` are real roster
+  members ([[re-frame.freehand.events/callback-roles]]) and are
+  deliberately outside a declared host position: a render-fn may run
+  during an uncommitted foreign render and a raw-fn's identity is the
+  caller's, so neither can carry the committed-site laws a declared
+  position promises."
+  #{:event :handler})
+
+(def host-ssr-policies
+  "The closed roster of SSR policy SPELLINGS a declaration may choose.
+
+  `:client-only` is explicit no-server content; `{:fallback <markup>}` is a
+  portable stand-in the JVM renders in its place. There is no third
+  answer and no default — Freehand never executes the registered React
+  component on the JVM, so a declaration that did not say would be a
+  declaration whose server behaviour nobody chose."
+  #{:client-only :fallback})
+
+(defn host-ssr-spelling
+  "Which of [[host-ssr-policies]] `ssr` is, or nil when it is neither."
+  [ssr]
+  (cond
+    (= :client-only ssr)                        :client-only
+    (and (map? ssr) (= #{:fallback} (set (keys ssr)))) :fallback))
 
 (defn declare-view
   "Build a [[ViewDescriptor]] from a declaration `entry` map. The
@@ -538,4 +645,166 @@
        :keyed? (contains? props :key)
        :props  (cond-> (dissoc props :key)
                  children (assoc :children children))})))
+
+;; ---------------------------------------------------------------------------
+;; The host call — three disjoint planes
+;; ---------------------------------------------------------------------------
+;;
+;; D022 §Ordinary props: "Ordinary props, declared callbacks, and children
+;; are disjoint planes." That is enforced HERE, once, so the structural walk
+;; and the React walk split one call the same way — the same parity
+;; [[normalize-call]] gives an internal boundary.
+
+(defn- bad-host-props-error!
+  [host-id reason recovery extra]
+  (error/throw-error!
+    :rf.error/view-bad-props
+    'v/defhost
+    reason
+    {:recovery recovery
+     :extra    (assoc extra :view-id host-id)}))
+
+(defn- host-callback-value
+  "Validate one declared callback position's supplied `value` against its
+  declared `role`, and answer it. `nil` is a legal empty position — a
+  declaration names the positions a host HAS, not the ones a call must
+  fill."
+  [host-id k role value]
+  (cond
+    (nil? value) nil
+
+    (not (events/callback? value))
+    (bad-host-props-error!
+      host-id
+      (str k " is a declared " role " position on " host-id ", so it takes a (v/"
+           (name role) " [args …] …) carrier"
+           (if (vector? value)
+             (str " — not a bare event vector. Freehand does not silently convert one at "
+                  "a foreign position: the host may itself want a vector there, and "
+                  "guessing would confuse a host value with re-frame intent. Write "
+                  "(v/event [& args] " (pr-str value) ").")
+             (str "; the call supplied a " (name (:type (error/diag-value-summary value)))
+                  ".")))
+      :supply-the-declared-callback-carrier
+      {:prop k :role role :value (error/diag-value-summary value)})
+
+    (not= role (events/callback-role value))
+    (bad-host-props-error!
+      host-id
+      (str k " is declared " role " on " host-id " and the call supplied a v/"
+           (name (events/callback-role value)) ". The two roles are different "
+           "contracts — a v/event names ONE event vector or nil, a v/handler is "
+           "imperative work whose return is ignored — so the position and the "
+           "carrier have to agree.")
+      :supply-the-declared-callback-carrier
+      {:prop k :role role :supplied (events/callback-role value)})
+
+    :else value))
+
+(defn normalize-host-call
+  "Normalize a HOST boundary call into its `:key` and its three disjoint
+  planes. `host` is the descriptor at the head; `args` is the rest of the
+  call vector — the props map followed by any trailing children.
+
+      [date-picker {:selected d :onChange (v/event [x] [:picked x])} child]
+      ;; => {:key nil :keyed? false
+      ;;     :props     {:selected d}
+      ;;     :callbacks {:onChange <Callback :event>}
+      ;;     :children  [child]}
+
+  The laws, identically on both hosts:
+
+  - **one map, no positional args**, and a caller-authored `:children`
+    inside it is rejected — the same two laws [[normalize-call]] enforces
+    for an internal boundary, because they are the boundary CALL ABI and
+    not a per-kind rule;
+  - **`:key` is stripped** and returned separately, with `:keyed?`
+    reporting presence;
+  - **declared positions leave the ordinary plane.** A key the declaration
+    named in `:callbacks` is removed from `:props` and validated against
+    its role. A `v/event` carrier at a `:handler` position, or a bare event
+    vector anywhere, is refused rather than coerced;
+  - **an ordinary slot is DATA.** A function or an undeclared roster
+    carrier in an ordinary prop is refused, naming the recovery — declare
+    the position. Silently forwarding it would hand a foreign API a
+    callback with none of D008's identity, retirement or committed-body
+    claims, indistinguishable at the call site from one that has them;
+  - **the declared children policy holds**, reported exactly as it is for
+    an internal boundary."
+  [host args]
+  (let [entry     (host-entry host)
+        host-id   (:host-id entry)
+        declared  (:callbacks entry)
+        [props & children] args]
+    (when-not (map? props)
+      (bad-host-props-error!
+        host-id
+        (str "A Freehand boundary call takes exactly one props map: write "
+             "[the-host {...} & children]. " host-id " was called with a "
+             (value-tag props) " in the props slot; pass {} when the host "
+             "needs no props.")
+        :supply-one-props-map
+        {:props (error/diag-value-summary props)}))
+    (when (contains? props :children)
+      (bad-host-props-error!
+        host-id
+        (str ":children is reserved — it is how trailing children arrive, so a props "
+             "map may not carry it. Pass the children as trailing forms of the call "
+             "instead: [the-host {…} child-1 child-2].")
+        :pass-children-as-trailing-forms
+        {}))
+    (let [policy   (:children entry)
+          children (when (seq children) (vec children))]
+      (when (or (and (= :none policy) children)
+                (and (= :required policy) (nil? children)))
+        (error/throw-error!
+          :rf.error/view-children-policy
+          'v/defhost
+          (if children
+            (str host-id " declares :children :none and accepts no children; the call "
+                 "supplied " (count children) ". A host's children cross into the "
+                 "registered React component's tree, so a host that does not accept "
+                 "them has nowhere to put them. Pass the content as a prop, or relax "
+                 "the declared policy.")
+            (str host-id " declares :children :required and the call supplied none. "
+                 "Supply them as trailing forms of the call, or relax the declared "
+                 "policy."))
+          {:recovery :match-the-declared-children-policy
+           :extra    {:view-id         host-id
+                      :children-policy policy
+                      :children-count  (count children)}}))
+      (let [ordinary  (apply dissoc props :key (keys declared))
+            callbacks (reduce-kv
+                        (fn [m k role]
+                          (if-let [v (host-callback-value host-id k role (get props k))]
+                            (assoc m k v)
+                            m))
+                        {} declared)]
+        (reduce-kv
+          (fn [_ k v]
+            ;; `fn?`, deliberately NOT `ifn?`: a keyword, a map, a set and a
+            ;; vector are all `ifn?` and are all ordinary prop DATA, so `ifn?`
+            ;; would refuse `{:variant :compact}`. `fn?` answers for the value
+            ;; that really is a function — the same predicate the structural
+            ;; tree's opaque-marker arm asks.
+            (when (or (events/callback? v) (fn? v))
+              (bad-host-props-error!
+                host-id
+                (str "The ordinary prop " k " on " host-id " carries a "
+                     (if (events/callback? v)
+                       (str "v/" (name (events/callback-role v)) " carrier")
+                       "function")
+                     ", and an ordinary prop is DATA. A callback reaches a host only "
+                     "at a position the declaration named: add " k " to the host's "
+                     ":callbacks map with the role it plays, so the site is finite, "
+                     "checkable, and carries D008's committed identity.")
+                :declare-the-callback-position
+                {:prop k :value (error/diag-value-summary v)}))
+            nil)
+          nil ordinary)
+        {:key       (:key props)
+         :keyed?    (contains? props :key)
+         :props     ordinary
+         :callbacks callbacks
+         :children  children}))))
 
