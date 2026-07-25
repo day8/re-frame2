@@ -73,9 +73,9 @@
       (seq fx) (assoc :fx fx))))
 
 (defn- url-change-fx
-  "Pure helper: given runtime-db + url + default scroll strategy (+ the
-  `frame` to carry on the no-such-handler trace + the RECORDABLE
-  `nav-allocation`), return the effects map `{:rf.db/runtime :fx}` for
+  "Pure helper: given ONE argument map — runtime-db + url + default scroll
+  strategy (+ the `frame` to carry on the no-such-handler trace + the
+  RECORDABLE `nav-allocation`), return the effects map `{:rf.db/runtime :fx}` for
   a URL-driven full slice rewrite. Performs the `match-url` lookup and
   publishes the nav-token from the recordable, replay-stable
   `nav-allocation`; the `:counter` high-water bump rides a
@@ -120,8 +120,26 @@
    map: `:bypass-leave?` is the public one-shot leave escape and
    `:rf.route/decided?` is the runtime-internal rider the link door sets on
    the `:rf.route/transitioned` event it synthesises after deciding, so the
-   same target is not decided twice."
-  [rdb url default-scroll frame nav-allocation pending-nav-allocation app-db cause opts]
+   same target is not decided twice.
+
+   rf2-szp11 — ONE argument map, keys named exactly as the destructuring
+   names them, which is the shape every other function in this seam already
+   takes (`decisions/decide`, `plan/scroll-plan`, `resolve/route-plan`,
+   `plan/fallback-telemetry-intents`, `commit-navigation`'s opts,
+   `navigate/fragment-only-nav-fx`). This was the seam's one positional
+   outlier, and it had grown to NINE positions — the last two (`cause` at
+   R0b, `opts` at R4) one slice at a time, each addition individually
+   harmless. Two of those positions were `nav-allocation`
+   (`{:token :counter}`) and `pending-nav-allocation` (`{:id :counter}`):
+   ADJACENT, SAME-SHAPED two-key maps, so transposing them at a call site
+   compiled and ran with no arity or type complaint, minted a nil id into
+   either the committed slice's nav-token or the pending-navigation value,
+   and surfaced hundreds of lines away in nav-token cofx behaviour with
+   nothing pointing back at the call site. What kept it safe was that both
+   call sites live 75 lines apart in this namespace, not the design. Named
+   keys make each call site say what it passes."
+  [{:keys [rdb url default-scroll frame nav-allocation pending-nav-allocation
+           app-db cause opts]}]
   (let [rdb (or rdb {})
         ;; EP-0037 R0b: the URL -> ResolvedTarget extraction — including the
         ;; `:rf.route/not-found` fallback normalisation and its `:reason`
@@ -215,11 +233,19 @@
                      (decisions/decide
                        {:rdb                    rdb
                         :frame                  frame
-                        :target                 {:route-id route-id
-                                                 :params   params
-                                                 :query    query
-                                                 :fragment fragment
-                                                 :url      url}
+                        ;; rf2-2gna9: the guards decide against the ResolvedTarget
+                        ;; the seam produced above — NOT a hand-rebuilt copy of it.
+                        ;; Re-assembling the five fields here is what let the two
+                        ;; branches of this one door disagree about what the target
+                        ;; is: the commit branch below publishes
+                        ;; `(:target route-plan)`, which IS `resolved-target`, so a
+                        ;; field the seam later adds would reach the guards and the
+                        ;; committed slice DIFFERENTLY — the precise class of bug
+                        ;; R0b closed between the link door and the commit hop
+                        ;; (`resolve.cljc`: "no door reinvents the ResolvedTarget
+                        ;; shape"), reappearing three lines from where the door
+                        ;; received the value.
+                        :target                 resolved-target
                         :requested-url          url
                         :cause                  cause
                         :policy                 {}
@@ -399,8 +425,15 @@
     ;; EP-0037 R0b: the forward `:rf.route/transitioned` door's plan cause
     ;; is `:link`. EP-0037 R4: the guard decisions run INSIDE
     ;; `url-change-fx`, after the transition kind is classified.
-    (url-change-fx rdb url :top frame nav-allocation pending-nav-allocation
-                   app-db :link opts)))
+    (url-change-fx {:rdb                    rdb
+                    :url                    url
+                    :default-scroll         :top
+                    :frame                  frame
+                    :nav-allocation         nav-allocation
+                    :pending-nav-allocation pending-nav-allocation
+                    :app-db                 app-db
+                    :cause                  :link
+                    :opts                   opts})))
 
 (defn url-change-cause
   "The true R0 navigation cause for one `:rf.route/handle-url-change`
@@ -474,5 +507,12 @@
     ;; EP-0037 R0b: the URL-driven `:rf.route/handle-url-change` door stands for
     ;; THREE sub-doors, so it carries the cause `url-change-cause` resolves for
     ;; THIS dispatch — `:popstate`, `:initial`, or `:ssr`.
-    (url-change-fx rdb url :restore frame nav-allocation pending-nav-allocation
-                   app-db (url-change-cause frame opts) opts)))
+    (url-change-fx {:rdb                    rdb
+                    :url                    url
+                    :default-scroll         :restore
+                    :frame                  frame
+                    :nav-allocation         nav-allocation
+                    :pending-nav-allocation pending-nav-allocation
+                    :app-db                 app-db
+                    :cause                  (url-change-cause frame opts)
+                    :opts                   opts})))
