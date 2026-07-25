@@ -822,7 +822,8 @@ declared** — see §The declaration outranks handler position below. Never forc
 registers like `defview`. The `:properties` set is the **entire v1 grammar** (options
 map closed, per the `defview` options-map discipline); future keys (`:events`, per-prop
 types, attribute reflection) are new rulings, not silent growth. Declared names →
-JS properties, kebab keyword mapped to the camelCase property (`:help-text` →
+JS properties (bar the two refused below), kebab keyword mapped to the camelCase
+property (`:help-text` →
 `helpText`, mirroring the pinned DOM-spelling philosophy); undeclared names →
 attributes; undeclared *elements* need no declaration (all-attributes default). SSR/JVM
 emitter emits attributes only; property-props are applied at hydration. Rejected:
@@ -830,6 +831,25 @@ Lit-style rich schema (no consumer — demand bar), React-19-style runtime `in` 
 (breaks compile-time totality + gives SSR no static answer), attribute-only-v1 deferral
 (makes property-accepting web components unusable, hollowing "never through
 `v/raw`").
+
+**Two names are REFUSED in `:properties`.** `:class` and `:style` are ATTRIBUTES with
+grammars of their own — `:class` composes with the `.class#id` tag sugar, `:style`
+carries the CSS map, and on a custom element both follow DOM rules exactly as they do
+on a `<div>`. Since a property-classified name is omitted from markup and applied at
+hydration, accepting the declaration renders the element with those values DROPPED
+from the HTML while the structural fold still carries them — wrong output, no
+diagnostic. So the refusal is at the DECLARATION:
+`(v/custom-element :x {:properties #{:class :style}})` is
+`:rf.ui.compile/bad-custom-element`, and its message names the
+attribute-versus-property distinction. Coercion is the other REFUSED outcome —
+silently rewriting a declared `:class` into an attribute does what the author
+probably meant, quietly, which is the same fault as dropping it — and removing the
+name is the whole fix, because an undeclared name already travels the attribute
+grammar. The roster is **exactly those two**: this is not a general
+attribute-versus-property taxonomy, the declaration stays the sole classifier for
+every other name including one that is also a standard HTML attribute spelling
+(`:tab-index` is the JS property on a tag that declares it), and extending the roster
+is a RULING like the grammar it guards (rf2-oazgv).
 
 **ONE declaration, every lowering path.** The classification belongs to the
 DECLARATION, not to the tier that happened to see the prop, so it binds wherever a prop
