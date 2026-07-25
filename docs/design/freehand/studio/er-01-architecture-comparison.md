@@ -295,8 +295,14 @@ requires preserved.
 - Determinism gates: structural equality across all four arms at 1×1, 3×4, 40×8
   and 200×8 on the JVM, and at 1×1, 3×4 and 40×8 on ClojureScript. Green before
   any timing was read.
-- Suites at the measured revision: freehand JVM 1,104 tests / 7,433 assertions,
-  0 failures; freehand CLJS 1,169 tests / 6,449 assertions, 0 failures.
+- Suites, on the final scaffolding-free tree: freehand JVM 1,102 tests / 7,420
+  assertions and freehand CLJS 1,168 tests / 6,440 assertions, both 0 failures /
+  0 errors. The spike's own namespace ran 5 tests / 19 assertions on the JVM
+  (observed in each of the three canonical runs) and added 1 test / 9 assertions
+  on ClojureScript, where the full suite was observed at 1,169 / 6,449 — the
+  exact deltas, which is the check that the deletion took the scaffolding and
+  nothing else. The full JVM suite was not re-run at the scaffolded revision, so
+  no combined count is quoted for it.
 - Instrumentation: `re-frame.freehand.bench.measure/allocated-bytes` and
   `now-ms`, the D021 harness's own readings.
 - Scaffolding: commits `c5ef899f7c` and `ec8b94557a` on `worker/er01-vdollar`,
