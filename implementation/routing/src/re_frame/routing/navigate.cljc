@@ -340,6 +340,11 @@
               ;; URL-embedded fragment (nil for a route-id -> fresh), and an
               ;; IN-PLACE request carries the current fragment. Normalised so an
               ;; empty-string fragment collapses to nil (slice/URL agreement).
+              ;; The ResolvedTarget seam applies the SAME rule for every door
+              ;; (rf2-kqxe6.7); this door still normalises here because the
+              ;; unmatched raw-URL rebuild immediately below consumes the
+              ;; fragment before the seam runs, and `normalize-fragment` is
+              ;; idempotent so lowering through it twice changes nothing.
               fragment (plan/normalize-fragment
                          (cond
                            (contains? request :fragment) (:fragment request)
@@ -387,20 +392,22 @@
               ;; primitive for editing the CURRENT query and are unchanged.
               ;;
               ;; `:query-merge` (in-place only, gated above) folds the caller's
-              ;; deltas over the current query; a nil value removes a key. Strip
-              ;; nil-valued query keys on EVERY branch so the written slice
-              ;; matches the pushed URL (route-url elides nils, rf2-gxq7z1).
-              query-params (let [merged (if-let [merge-in (:query-merge request)]
-                                          (merge (:query current) query-params merge-in)
-                                          query-params)]
-                             (into {} (remove (comp nil? val)) merged))
+              ;; deltas over the current query; a nil value removes a key. The
+              ;; nil-valued keys the fold leaves behind are dropped by the
+              ;; ResolvedTarget seam below (rf2-gxq7z1's rule, now applied for
+              ;; EVERY door rather than only this one — rf2-kqxe6.7), so the
+              ;; written slice matches the pushed URL.
+              query-params (if-let [merge-in (:query-merge request)]
+                             (merge (:query current) query-params merge-in)
+                             query-params)
               ;; EP-0037 R0b: shape the ResolvedTarget ONCE, HERE — before the
               ;; URL, before stage 3's no-op classification, before the guards
               ;; and before the commit — so every one of them sees the same
               ;; facts. `resolver/resolved-target` is the seam that fills the
-              ;; route's declared `:query-defaults` (rf2-kqxe6.23), which
-              ;; `match-url` has always done for the URL-bearing doors and this
-              ;; door never did: without it `{:to :d/page :params {:slug "x"}}`
+              ;; route's declared `:query-defaults` (rf2-kqxe6.23) and drops
+              ;; nil-valued query keys, which `match-url` / `route-url` have
+              ;; always done for the URL-bearing doors and this door did only
+              ;; for itself: without the fill `{:to :d/page :params {:slug "x"}}`
               ;; committed `:query {}` where `/p/x` committed
               ;; `{:tab :overview}` — a different slice, a different derived
               ;; URL and a different resource identity for one destination. It
