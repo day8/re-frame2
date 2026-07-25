@@ -381,7 +381,8 @@
    [[ 1 "7d7c6d77a52d" host/chart-client-only-sub]
     [ 2 "b0412ac0fb48" :host-boot]
     [ 3 "dc23499554e7" host/mount-two-roots!]
-    [ 4 "2ae2d5c8a43a" host/article-route-link]]
+    [ 4 "05f8d7b50eb1" :host-boot]
+    [ 5 "2ae2d5c8a43a" host/article-route-link]]
    "state.md"
    [[ 1 "d904aba9124a" composition/order-summary]
     [ 2 "fc9c3bd71d12" composition/app-root]
