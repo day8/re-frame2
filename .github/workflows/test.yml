@@ -3445,11 +3445,12 @@ jobs:
   # roster, so they ran locally and in the nightly sweep, and never at PR time.
   #
   # Both are gated on their OWN classifier output, not on `tools_jvm`. That
-  # output gates the five jvm-tools-* jobs above, none of which runs either
-  # artefact — arming it would have fired five unrelated probes and STILL skipped
-  # the files. Appending steps to one of those jobs was rejected for the same
-  # reason plus a second: it would hang a `tools/machines-viz` step off a job
-  # named "JVM tools/xray".
+  # output gates FOUR of the jvm-tools-* jobs above (xray / story / story-mcp /
+  # mcp-base; `jvm-tools-template` is gated on `template_expensive` instead), and
+  # none of them runs either artefact — arming it would have fired four unrelated
+  # probes and STILL skipped the files. Appending steps to one of those jobs was
+  # rejected for the same reason plus a second: it would hang a
+  # `tools/machines-viz` step off a job named "JVM tools/xray".
   jvm-tools-machines-viz:
     name: JVM tools/machines-viz (clojure -M:test)
     needs: detect_changed_surfaces
