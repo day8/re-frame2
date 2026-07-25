@@ -137,12 +137,16 @@
    "every site the grammar can see in one declaration, active or not"
 
    :private-host-work
-   "work behind a host boundary — named so its absence is a fact rather than a gap"})
+   "work behind a host boundary — named so its absence is a fact rather than a gap"
+
+   :connected-occurrences
+   "every occurrence connected NOW that has published a selected commit — current state, never a history of what once was"})
 
 (def loss-reasons
   "Why a projection dropped something. Closed, and each reason is a
   different remedy for the reader: a cap is a knob, a missing analysis is
-  a lowering choice, an opaque host is neither."
+  a lowering choice, an opaque host is neither, and an uncorrelated fact
+  is a join that was never available to make."
   {:cap
    "an emission cap was reached and entries beyond it were not carried"
 
@@ -150,7 +154,10 @@
    "the declaration is interpreted, so there is no analysis to report"
 
    :host-opaque
-   "the host would not say, and no amount of asking would change that"})
+   "the host would not say, and no amount of asking would change that"
+
+   :uncorrelated
+   "the fact is real but joins to nothing in Spec 009's retained window, so the window cannot supply its basis"})
 
 (def lowerings
   "The two ways a declaration runs. A record names one, because the whole
@@ -542,31 +549,53 @@
   complete for the generation it names and says nothing about any other
   run. The scope is that ONE generation, as a map, because a bare
   `:complete? true` relative to nothing would be a completeness claim
-  about every execution — the shape [[scope?]] refuses."
-  [generation]
+  about every execution — the shape [[scope?]] refuses.
+
+  `commit` carries the facts the commit ALREADY HAS at the moment it
+  publishes, and nothing that would have to be remembered to state:
+
+    - `:generation` — the body revision this commit bound to;
+    - `:frame` — the frame it bound to, PRESENT and possibly nil, because
+      a headless probe commits against no frame and that is a fact the
+      projection states rather than omits;
+    - `:reads` — the subscription sites this ONE commit staged, each as
+      `{:site-key … :query … :frame-id … :owned? …}`. The commit's own
+      dependency set, so it is complete for this generation on the same
+      `:observation` basis as everything else here, and it is what a
+      later read joins against Spec 009's retained window to explain the
+      render.
+
+  The VALUES those reads returned are deliberately not here. What a
+  commit read is a fact about the view; what it read AS is arbitrary
+  application data, and an evidence surface that carried it would be a
+  second egress path for user data beside the one Spec 015 governs."
+  [{:keys [generation frame reads]}]
   (projection {:scope     {:committed-generation generation}
                :basis     :observation
                :complete? true
-               :loss      nil}))
+               :loss      nil
+               :frame     frame
+               :reads     (vec reads)}))
 
 (defn commit-record
   "The evidence record a Freehand render publishes at the SELECTED commit:
-  one runtime `occurrence`, its `lowering`, its monotonic `generation`,
-  and the [[commit-projection]] — all validated through [[record]] so a
-  malformed emission is refused AT THE SEAM rather than reaching a reader.
+  one runtime `occurrence`, its `lowering`, and the [[commit-projection]]
+  over `commit`'s generation, frame and staged reads — all validated
+  through [[record]] so a malformed emission is refused AT THE SEAM rather
+  than reaching a reader.
 
   This is the record kind the render-path emission seam
   ([[re-frame.freehand.cell/emit-commit-evidence!]] under the dev gate)
   states. A tool reads it without caring whether the occurrence ran
   interpreted or compiled, because the `lowering` is NAMED rather than
   inferred — the whole point of one schema for both modes."
-  [view-id lowering occurrence generation]
+  [view-id lowering occurrence commit]
   (record {:schema      schema
            :view-id     view-id
            :lowering    lowering
            :occurrence  occurrence
-           :generation  generation
-           :projections {:commit (commit-projection generation)}}))
+           :generation  (:generation commit)
+           :projections {:commit (commit-projection commit)}}))
 
 ;; ---------------------------------------------------------------------------
 ;; Retention — the existing axis, named as data
