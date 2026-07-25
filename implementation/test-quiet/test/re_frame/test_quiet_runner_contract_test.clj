@@ -123,11 +123,13 @@
           :err        (try @err-f (catch Throwable _ ""))
           :timed-out? true})))))
 
-(defn- run-runner
+(defn- run-runner-with-env
   "Relaunch a fresh JVM that runs `re-frame.test-quiet.runner/-main` with
   `extra-args`, putting `fixture-dir` on both the classpath and the
-  runner's `-d` discovery set.  Returns {:exit :out :err}."
-  [^java.io.File fixture-dir & extra-args]
+  runner's `-d` discovery set.  `env` is a map of extra environment
+  variables layered over the inherited environment (`{}` for none) — used by
+  the `RF2_MIN_TESTS` floor pins.  Returns {:exit :out :err}."
+  [^java.io.File fixture-dir env extra-args]
   (let [java-bin (str (io/file (System/getProperty "java.home") "bin"
                                (if (str/includes?
                                      (str/lower-case (System/getProperty "os.name"))
@@ -140,9 +142,17 @@
                         "-m" "re-frame.test-quiet.runner"
                         "-d" (.getAbsolutePath fixture-dir)]
                        extra-args)
-        proc     (-> (ProcessBuilder. ^java.util.List cmd)
-                     (.redirectErrorStream false)
-                     (.start))]
+        builder  (doto (ProcessBuilder. ^java.util.List cmd)
+                   (.redirectErrorStream false))
+        child-env (.environment builder)
+        ;; Strip the floor variable from the INHERITED environment first, so
+        ;; an outer shell that exported `RF2_MIN_TESTS` (for a different lane)
+        ;; cannot perturb any pin here. Each floor pin then sets exactly the
+        ;; value it means to test.
+        _        (.remove child-env "RF2_MIN_TESTS")
+        _        (doseq [[k v] env]
+                   (.put child-env (str k) (str v)))
+        proc     (.start builder)]
     ;; Drain stdout and stderr concurrently: with separate
     ;; pipes, slurping stdout fully and only THEN reading stderr can
     ;; deadlock — a child that fills the stderr pipe blocks on write (so
@@ -151,6 +161,11 @@
     ;; `drain-process` reads both on their own threads, so both pipes keep
     ;; flowing regardless of which stream the child writes to.
     (drain-process proc)))
+
+(defn- run-runner
+  "`run-runner-with-env` over the inherited environment."
+  [^java.io.File fixture-dir & extra-args]
+  (run-runner-with-env fixture-dir {} extra-args))
 
 (defn- with-fixture-dir
   "Make a fresh temp dir, run `f` with it, then delete it."
@@ -1241,3 +1256,94 @@
                    " least one channel's tail marker must survive the ring;"
                    " got stderr tail:\n"
                    (subs err (max 0 (- (count err) 400)) (count err)))))))))
+
+;; ----------------------------------------------------------------------
+;; Test-count floor (rf2-qqzmf).
+;;
+;; `clojure.test/run-tests` over an empty namespace set reports
+;; `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.` and
+;; cognitect exits 0 from that tally, so a discovery set that silently
+;; collapsed to nothing was indistinguishable from a green suite. The
+;; runner's `:summary` hook now fails a run that executed fewer tests than
+;; `RF2_MIN_TESTS` (default 1).
+;;
+;; Pinned BOTH ways, because a floor that cannot go red is the same defect
+;; wearing a different hat: a zero-test discovery set must exit 1, and an
+;; ordinary suite must still exit 0. Plus the configurable bound (a floor
+;; ABOVE the real count reds a genuinely green suite) and the malformed-value
+;; path (exit 2, never a silent fall back to the default).
+
+(deftest zero-test-discovery-is-red
+  (testing "a run whose selector matches no namespace exits 1, not 0"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "floor_zero_fixture_test" "floor-zero-fixture-test"
+                        "(deftest a-passing-test (is (= 1 1)))")
+        ;; `-r` is cognitect's namespace-regex selector; this one matches
+        ;; nothing on the fixture classpath, so `run-tests` runs 0 tests.
+        (let [{:keys [exit out err]} (run-runner dir "-r" "^zzz-matches-nothing$")]
+          (is (= 1 exit)
+              (str "a 0-test run must exit 1 — a discovery set that collapsed"
+                   " to nothing is a configuration error, not a green suite;"
+                   " got " exit "\n--- stdout ---\n" out
+                   "\n--- stderr ---\n" err))
+          (is (str/includes? out "Ran 0 tests")
+              (str "the real tally must still print above the diagnostic;"
+                   " got:\n" out))
+          (is (str/includes? err "below the floor of 1")
+              (str "the failure must name the floor it violated; got"
+                   " stderr:\n" err)))))))
+
+(deftest ordinary-suite-clears-the-floor
+  (testing "an ordinary green suite is unaffected by the floor"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "floor_ordinary_fixture_test" "floor-ordinary-fixture-test"
+                        "(deftest a-passing-test (is (= 1 1)))")
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "a suite that ran tests must still exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (not (str/includes? (str out err) "below the floor"))
+              (str "no floor diagnostic may appear on a clearing run; got"
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err)))))))
+
+(deftest floor-above-the-real-count-is-red
+  (testing "RF2_MIN_TESTS above the executed count reds an otherwise-green suite"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "floor_raised_fixture_test" "floor-raised-fixture-test"
+                        "(deftest a-passing-test (is (= 1 1)))")
+        ;; The fixture runs exactly ONE test; a floor of 2 must fire. This is
+        ;; the "prove it can red at N-1" half: without it, a floor that never
+        ;; fires would pass the zero-test pin by accident of some other exit.
+        (let [{:keys [exit out err]} (run-runner-with-env dir {"RF2_MIN_TESTS" "2"} [])]
+          (is (= 1 exit)
+              (str "a suite below its configured floor must exit 1 even with a"
+                   " clean tally; got " exit "\n--- stdout ---\n" out
+                   "\n--- stderr ---\n" err))
+          (is (str/includes? out "0 failures, 0 errors.")
+              (str "the tally really was clean — the floor is what failed the"
+                   " run; got:\n" out))
+          (is (str/includes? err "executed 1 test(s), below the floor of 2")
+              (str "the diagnostic must name both counts; got stderr:\n" err)))))))
+
+(deftest malformed-floor-is-a-configuration-error
+  (testing "a non-integer RF2_MIN_TESTS exits 2 rather than silently defaulting"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "floor_malformed_fixture_test" "floor-malformed-fixture-test"
+                        "(deftest a-passing-test (is (= 1 1)))")
+        ;; `1O` (letter O) silently falling back to the default would disable
+        ;; the very gate that catches silent non-execution.
+        (let [{:keys [exit out err]} (run-runner-with-env dir {"RF2_MIN_TESTS" "1O"} [])]
+          (is (= 2 exit)
+              (str "a malformed floor must exit 2 (configuration error),"
+                   " distinct from 1 (red); got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? (str out err) "is not a non-negative integer")
+              (str "the diagnostic must name the malformed value; got"
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (not (str/includes? out "Ran "))
+              (str "the run must be rejected BEFORE any test executes; got:\n"
+                   out)))))))

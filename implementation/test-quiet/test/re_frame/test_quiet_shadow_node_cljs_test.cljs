@@ -226,6 +226,43 @@
           "matched selectors drop out; unmatched ones survive in order"))))
 
 ;; ----------------------------------------------------------------------
+;; Whole-suite test-count floor (rf2-qqzmf) — the pure half.
+;;
+;; `unmatched-selectors` above guards the `--test=` path. The whole-suite
+;; path has the same hazard for a different reason: shadow-cljs's
+;; `find-test-namespaces` returns `[]` when a build's `:ns-regexp` matches
+;; nothing, silently, and `run-all-tests` over an empty set reports a 0-test
+;; success. `parse-min-tests` resolves the floor that closes it.
+;;
+;; Only the resolution is pinned in-process. The real whole-suite floor is
+;; NOT driven through `spawn-runner`: a spawn with no `--test=` selector runs
+;; the entire build — including this namespace — so a regressed guard would
+;; recurse rather than fail cleanly. The lane-level proof (zero-test build
+;; reds, ordinary build passes) belongs to the gate run, not to a child of
+;; the suite it is gating.
+
+(deftest min-tests-floor-resolution
+  (testing "an unset or blank RF2_MIN_TESTS resolves to the default floor"
+    ;; Default 1, not 0: the bound that can never go stale, since no build
+    ;; legitimately ships zero tests.
+    (is (= 1 cli/default-min-tests))
+    (is (= cli/default-min-tests (cli/parse-min-tests nil)))
+    (is (= cli/default-min-tests (cli/parse-min-tests "")))
+    (is (= cli/default-min-tests (cli/parse-min-tests "   "))))
+  (testing "a non-negative integer is honoured, with surrounding whitespace trimmed"
+    (is (= 0 (cli/parse-min-tests "0")) "0 explicitly disables the floor")
+    (is (= 1 (cli/parse-min-tests "1")))
+    (is (= 3000 (cli/parse-min-tests "3000")))
+    (is (= 3000 (cli/parse-min-tests " 3000 "))))
+  (testing "a malformed value is ::invalid, never a silent fall back to the default"
+    ;; The whole point of the gate is catching silent non-execution; a typo'd
+    ;; floor quietly disabling it would be the same bug in a new place.
+    (doseq [bad ["1O" "abc" "1.5" "-1" "1e3x" "٣"]]
+      (is (= :re-frame.test-quiet.shadow-node-cli/invalid
+             (cli/parse-min-tests bad))
+          (str (pr-str bad) " must be rejected, not coerced")))))
+
+;; ----------------------------------------------------------------------
 ;; Failure-exit decision — pinned via the predicate the :end-run-tests
 ;; defmethod branches on. (Invoking the defmethod itself calls
 ;; js/process.exit, which would tear down this runner.)

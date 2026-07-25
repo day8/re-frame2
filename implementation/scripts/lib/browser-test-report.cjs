@@ -21,6 +21,12 @@
 //   parseFailureCounts(failErr) → { failures, errors } or null. A gate
 //                                  is green only when both are 0 AND a
 //                                  `Ran ...` line was seen.
+//   parseRanCounts(ran)         → { tests, assertions } or null — the two
+//                                  integers RAN_RE already captures. A
+//                                  gate needs them because `Ran 0 tests`
+//                                  with a clean tally is a lane that
+//                                  discovered nothing, not a pass
+//                                  (rf2-qqzmf).
 //   formatCompactSummary(parts) → the one-line `<label>: <ran> <failErr>`.
 //   createDiagnosticBuffer()    → an ordered stdout/stderr line buffer
 //                                  flushed verbatim (with stream routing)
@@ -104,6 +110,19 @@ function parseFailureCounts(failErr) {
   };
 }
 
+// The `Ran N tests containing M assertions.` half of the summary, as the
+// integers it already carries (rf2-qqzmf). RAN_RE has always captured both;
+// nothing read them, so every browser lane derived its verdict from the
+// failure tally alone and a lane that ran NOTHING was green.
+function parseRanCounts(ran) {
+  const match = ran && String(ran).match(RAN_RE);
+  if (!match) return null;
+  return {
+    tests: parseInt(match[1], 10),
+    assertions: parseInt(match[2], 10),
+  };
+}
+
 function formatCompactSummary({ label = 'Browser tests', ran, failErr, source }) {
   const sourceSuffix = source ? ` (source: ${source})` : '';
   return `${label}: ${ran} ${failErr}${sourceSuffix}`;
@@ -139,6 +158,7 @@ module.exports = {
   isVerboseTests,
   summaryPartsFromText,
   parseFailureCounts,
+  parseRanCounts,
   formatCompactSummary,
   createDiagnosticBuffer,
 };

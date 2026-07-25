@@ -179,6 +179,57 @@
                      (or (contains? test-namespaces ns)
                          (contains? test-var-syms (symbol ns name)))))))))
 
+(def ^:private min-tests-env-var
+  "Environment variable naming this lane's test-count floor. ONE name across
+  every whole-suite lane — the JVM runner (`re-frame.test-quiet.runner`) and
+  the browser runner (`implementation/scripts/run-browser-tests.cjs`) read
+  the same variable. Because it is one name, scope it to the lane you are
+  running: a value calibrated for this ~380-file build will red a focused
+  build such as `:node-test-security`."
+  "RF2_MIN_TESTS")
+
+(defn- resolve-min-tests
+  "`cli/parse-min-tests` over the live `process.env`, or `::cli/invalid`."
+  []
+  (cli/parse-min-tests
+    (when (exists? js/process)
+      (unchecked-get js/process.env min-tests-env-var))))
+
+(defn- reject-empty-suite!
+  "The whole-suite counterpart to the `--test=` unmatched-selector guard: a
+  build whose `:ns-regexp` selected fewer than `min-tests` test vars must not
+  report a 0-test success. Returns true (and prints + exits nonzero) when the
+  run must be refused, false when it may proceed.
+
+  This is checked BEFORE `run-all-tests` rather than from the
+  `:end-run-tests` reporter, because the count is already known and a
+  configuration error should not first pretend to run a suite. Exit 2 marks a
+  malformed floor (configuration), 1 an under-floor lane (red)."
+  [min-tests available]
+  (cond
+    (= ::cli/invalid min-tests)
+    (do (println (str "ERROR: " min-tests-env-var " is not a non-negative"
+                      " integer."))
+        (println (str "  " min-tests-env-var " is the minimum number of tests"
+                      " this build must run; leave it unset for the default"
+                      " of " cli/default-min-tests "."))
+        (js/process.exit 2)
+        true)
+
+    (< available min-tests)
+    (do (println (str "ERROR: this build discovered " available
+                      " test var(s), below the floor of " min-tests
+                      " (" min-tests-env-var ")."))
+        (println (str "  A build whose :ns-regexp selects no tests is a"
+                      " configuration error, not a pass: a renamed test file,"
+                      " a one-character suffix drift, or a dropped"
+                      " :source-paths entry empties a lane silently"
+                      " (rf2-qqzmf)."))
+        (js/process.exit 1)
+        true)
+
+    :else false))
+
 (defn execute-cli [{:keys [test-syms help list unknown-args] :as _opts}]
   ;; Unknown args are a fatal parse error. The pure
   ;; `cli/parse-args` collects them into `:unknown-args` (without printing,
@@ -224,8 +275,13 @@
               (st/run-test-vars test-env test-vars))))
 
       :else
-      (do (seed-failure-exit!)
-          (st/run-all-tests test-env nil)))))
+      ;; Whole-suite path. `run-all-tests` over an empty test-var set reports
+      ;; a 0-test success exactly as `run-test-vars` does, so it gets the same
+      ;; guard the `--test=` branch above has had all along (rf2-qqzmf).
+      (when-not (reject-empty-suite! (resolve-min-tests)
+                                     (count (env/get-test-vars)))
+        (seed-failure-exit!)
+        (st/run-all-tests test-env nil)))))
 
 (defn main [& args]
   (reset-test-data!)
