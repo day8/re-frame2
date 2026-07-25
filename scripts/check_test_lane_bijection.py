@@ -1,0 +1,671 @@
+#!/usr/bin/env python3
+"""Build-file <-> lane-selector bijection for every test lane in the repo.
+
+WHY THIS EXISTS (rf2-4hc9p).  The per-lane test-count floor (rf2-qqzmf) makes a
+lane that ran ZERO tests go red.  It cannot see a lane that ran SOME of what it
+should: nine `.cljc` suites once sat on the `:node-test` build's classpath with
+namespaces ending `-test` instead of `-cljs-test`, so the `cljs-test$` selector
+skipped every one of them while the lane still reported thousands of passing
+tests and exited 0 (rf2-ezbzvm).  A floor cannot catch that, and neither can a
+calibrated per-lane number -- the collapse hides inside the headroom.
+
+What CAN catch it is a bijection.  Every file that defines a test and sits on a
+lane's classpath should be reachable by some lane's selector, and every lane's
+selector should reach something.  Both halves are decidable from the build
+configuration plus the source tree, with no runtime and no registry read.
+
+    scripts/check_test_lane_bijection.py            scan the repo
+    scripts/check_test_lane_bijection.py --verbose  ... and list every lane
+    scripts/check_test_lane_bijection.py --self-test  prove the gate fires
+
+THE LANES ARE READ, NEVER LISTED.  A lane roster inside this script would be
+the staleness class the gate exists to catch, so every lane comes from the file
+that defines it:
+
+  * CLJS lanes  -- `implementation/shadow-cljs.edn`: each build whose `:target`
+    is `:node-test` or `:browser-test`, its `:ns-regexp`, and its
+    `:source-paths` (the build's own if it overrides, else the top-level
+    vector).  Selection is shadow-cljs's own `re-find` semantics.
+  * JVM lanes   -- the artefact rosters in `scripts/test-jvm-implementation.sh`
+    and `scripts/test-jvm-tools.sh`, each artefact's `deps.edn` `:test` alias
+    supplying its discovery dirs (`--dir`, cognitect's default `test`) and its
+    namespace regex (`-r`, cognitect's default full-match `.*\\-test$`).
+
+A new artefact, a new build, a renamed directory or a retightened regex is
+therefore picked up by construction.
+
+WHAT COUNTS AS A TEST FILE.  A file that carries at least one TOP-LEVEL
+`(deftest` -- column 0, which is every one of the repo's ~20k deftests.  Naming
+is not consulted, so a test file that does not follow the `_test` filename
+convention is still in the universe.  This also makes the repo's one deftest
+GENERATOR (`implementation/core/test/re_frame/adapter/react_shared_suite_tests.clj`,
+a `defmacro` whose expansion emits the deftests, invoked from the namespaces
+that want the shared suite) fall out for free: it has no top-level deftest of
+its own, so it is not a test file and needs no exemption.
+
+THE FOUR RULES
+
+  B1  ORPHAN FILE.  A test file must be selected by at least one lane that can
+      load it (`.clj` -> JVM lanes, `.cljs` -> CLJS lanes, `.cljc` -> either).
+      A file selected by nothing runs nowhere, in any lane, ever.
+
+  B2  DUAL-RUNTIME SYMMETRY -- the nine-file class.  A `.cljc` test file under
+      a test root the CLJS build OWNS must be selected by a CLJS lane.  A
+      `.cljc` file is cross-runtime by construction and the repo's convention
+      is that its `.cljc` tests run in both runtimes; being JVM-discovered is
+      not evidence that the CLJS half runs.
+        A file that really is single-lane DECLARES it, in the one place the
+      declaration cannot drift from the thing it describes: its own namespace,
+      via the `-jvm-test` suffix.  The declaration has teeth both ways -- such
+      a namespace must be JVM-discovered (it claims a lane, so it must have
+      one) and must NOT be CLJS-selected (or the declaration is false).
+        "Owns" is read off the build config, not decided here: a
+      `:source-paths` entry that stays inside the shadow-cljs project is a tree
+      the CLJS build owns, while a `../`-escaping entry is a foreign tree
+      borrowed onto the classpath, whose lane is defined by its own `deps.edn`
+      elsewhere.  Borrowed trees are held by B1 only.  (Today that line falls
+      between `implementation/**` and `tools/**`; the `tools/{story,xray,
+      machines-viz}` test trees carry `.cljc` suites that no CLJS lane selects
+      and are tracked separately -- see rf2-mtrgt.)
+
+  B3  PHANTOM PATH.  Every root a lane declares must exist.  A renamed or
+      deleted directory silently empties the lane that pointed at it, and the
+      lane stays green on whatever is left.
+
+  B4  EMPTY SELECTOR.  A lane's selector must reach at least one test file --
+      the static half of the rf2-qqzmf floor, catching a typo'd regex before a
+      compile rather than after.  Inverted for a lane that declares itself a
+      classpath probe with `--probe` in its own `:test` alias: that lane must
+      reach ZERO, and gaining a test makes it red and tells it to drop the
+      flag.  Same declaration, same teeth, one tier earlier than the runner's
+      own runtime check.
+
+Counts belong in a PR body where they carry a date; this file states rules.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import sys
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+
+TEST_EXTS = (".clj", ".cljc", ".cljs")
+JVM_EXTS = (".clj", ".cljc")
+CLJS_EXTS = (".cljs", ".cljc")
+
+#: Cognitect test-runner v0.5.1 defaults (src/cognitect/test_runner.clj):
+#: `(or (:dir options) #{"test"})` and `[#".*\-test$"]` applied with
+#: `re-matches`.
+COGNITECT_DEFAULT_DIRS = ("test",)
+COGNITECT_DEFAULT_REGEX = r".*\-test$"
+
+#: A `.cljc` test namespace declaring that the JVM lane is its only lane.
+JVM_ONLY_SUFFIX = "-jvm-test"
+
+TOP_LEVEL_DEFTEST = re.compile(r"^\(deftest", re.MULTILINE)
+
+
+# --------------------------------------------------------------------------
+# EDN / shell reading.  Enough of a reader to pull vectors, maps and strings
+# out of the two configuration shapes this gate consults; not a general one.
+# --------------------------------------------------------------------------
+
+def strip_edn_comments(text: str) -> str:
+    """Drop `;` line comments, respecting string literals."""
+    out = []
+    in_str = esc = False
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+            out.append(c)
+        elif c == ";":
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def unescape_edn_string(s: str) -> str:
+    """`\\\\.` in EDN source is one backslash plus a dot in the value."""
+    return re.sub(r"\\(.)", lambda m: m.group(1) if m.group(1) in '\\"' else "\\" + m.group(1), s)
+
+
+def match_delimiter(text: str, i: int) -> int:
+    """`i` indexes an opening delimiter; return the index just past its match."""
+    depth = 0
+    in_str = esc = False
+    while i < len(text):
+        c = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c in "{[(":
+            depth += 1
+        elif c in "}])":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    raise ValueError("unbalanced delimiters")
+
+
+def read_string_vector(text: str, key: str):
+    """The vector of strings at `key`, or None when the key is absent."""
+    m = re.search(re.escape(key) + r"\s*\[", text)
+    if not m:
+        return None
+    end = match_delimiter(text, m.end() - 1)
+    body = text[m.end():end - 1]
+    return [unescape_edn_string(s) for s in re.findall(r'"((?:[^"\\]|\\.)*)"', body)]
+
+
+def read_map_entries(text: str):
+    """Yield `(key, body)` for each `key {...}` pair in a map body."""
+    i = 0
+    pattern = re.compile(r"([:A-Za-z0-9_.\-/]+)\s*\{")
+    while i < len(text):
+        m = pattern.search(text, i)
+        if not m:
+            return
+        open_idx = m.end() - 1
+        end = match_delimiter(text, open_idx)
+        yield m.group(1), text[open_idx:end]
+        i = end
+
+
+def read_shell_array(text: str, name: str):
+    """The entries of a `name=( ... )` bash array, comments dropped."""
+    m = re.search(re.escape(name) + r"=\(", text)
+    if not m:
+        return []
+    end = match_delimiter(text, m.end() - 1)
+    entries = []
+    for line in text[m.end():end - 1].splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            entries.append(line)
+    return entries
+
+
+# --------------------------------------------------------------------------
+# Lane model
+# --------------------------------------------------------------------------
+
+@dataclass
+class Lane:
+    name: str
+    runtime: str                  # "cljs" | "jvm"
+    roots: list                   # (absolute Path, owned-by-cljs-build bool)
+    regex: "re.Pattern"
+    full_match: bool              # cognitect uses re-matches; shadow re-find
+    probe: bool = False
+    defined_in: str = ""
+    missing_roots: list = field(default_factory=list)
+
+    def selects(self, ns: str) -> bool:
+        return bool(self.regex.fullmatch(ns) if self.full_match else self.regex.search(ns))
+
+
+def deps_edn_paths(deps: Path, alias_names):
+    """The source roots a `:deps`-resolved shadow build gets from a deps.edn.
+
+    shadow-cljs's `:deps true` / `:deps {:aliases [...]}` shape has no
+    `:source-paths` of its own -- the classpath comes from the sibling deps.edn.
+    That is `:paths`, plus each named alias's `:extra-paths`, plus the `:paths`
+    of each `:local/root` project it depends on (one level, which is as deep as
+    any test root in this repo sits).
+    """
+    text = strip_edn_comments(deps.read_text(encoding="utf-8"))
+    project = deps.parent
+    declared = read_string_vector(text, ":paths")
+    entries = [project / p for p in (["src"] if declared is None else declared)]
+
+    top_deps = ""
+    deps_map_at = re.search(r":deps\s*\{", text)
+    if deps_map_at:
+        top_deps = text[deps_map_at.end() - 1:match_delimiter(text, deps_map_at.end() - 1)]
+
+    scopes = [top_deps]
+    aliases_at = re.search(r":aliases\s*\{", text)
+    if aliases_at:
+        body = text[aliases_at.end() - 1:match_delimiter(text, aliases_at.end() - 1)]
+        for name, alias_body in read_map_entries(body[1:-1]):
+            if name in alias_names:
+                scopes.append(alias_body)
+                entries += [project / p for p in (read_string_vector(alias_body, ":extra-paths") or [])]
+
+    for scope in scopes:
+        for root in re.findall(r':local/root\s+"((?:[^"\\]|\\.)*)"', scope):
+            sibling = (project / unescape_edn_string(root) / "deps.edn").resolve()
+            if sibling.is_file():
+                sibling_text = strip_edn_comments(sibling.read_text(encoding="utf-8"))
+                sibling_paths = read_string_vector(sibling_text, ":paths")
+                entries += [sibling.parent / p
+                            for p in (["src"] if sibling_paths is None else sibling_paths)]
+    return entries
+
+
+def cljs_lanes(repo: Path):
+    """Every `:node-test` / `:browser-test` build in every shadow-cljs.edn.
+
+    Configs without a sibling `deps.edn` are skipped: their classpath cannot be
+    resolved, which is what distinguishes a live lane from a template payload
+    (`tools/template/resources/**`) or a fragment probe.
+    """
+    lanes = []
+    configs = sorted(repo.rglob("shadow-cljs.edn"))
+    for config in configs:
+        if "node_modules" in config.parts or ".shadow-cljs" in config.parts:
+            continue
+        if not (config.parent / "deps.edn").is_file():
+            continue
+        text = strip_edn_comments(config.read_text(encoding="utf-8"))
+        project = config.parent
+        shared = read_string_vector(text, ":source-paths")
+        # `:deps {:aliases [:cljs-test]}` names the deps.edn aliases whose
+        # `:extra-paths` join the build's classpath; `:deps true` names none.
+        deps_aliases = []
+        deps_at = re.search(r":deps\s*\{", text)
+        if deps_at:
+            deps_body = text[deps_at.end() - 1:match_delimiter(text, deps_at.end() - 1)]
+            deps_aliases = re.findall(r"[:A-Za-z0-9_.\-/]+", " ".join(
+                re.findall(r":aliases\s*\[([^]]*)\]", deps_body)))
+
+        builds_at = re.search(r":builds\s*\{", text)
+        if not builds_at:
+            continue
+        builds_body = text[builds_at.end() - 1:match_delimiter(text, builds_at.end() - 1)]
+
+        for name, body in read_map_entries(builds_body[1:-1]):
+            target = re.search(r":target\s+(:[a-z\-]+)", body)
+            if not target or target.group(1) not in (":node-test", ":browser-test"):
+                continue
+            regexp = re.search(r':ns-regexp\s+"((?:[^"\\]|\\.)*)"', body)
+            if not regexp:
+                raise SystemExit(f"error: build {name} in {config} has no :ns-regexp")
+            own = read_string_vector(body, ":source-paths")
+            if own is not None:
+                declared = [project / p for p in own]
+            elif shared is not None:
+                declared = [project / p for p in shared]
+            else:
+                declared = deps_edn_paths(config.parent / "deps.edn", set(deps_aliases))
+            roots, missing = [], []
+            for entry in declared:
+                path = Path(entry).resolve()
+                # A `../`-escaping entry is a foreign tree borrowed onto the
+                # classpath; anything else is a tree this build owns (B2).
+                owned = project.resolve() == path or project.resolve() in path.parents
+                if path.is_dir():
+                    roots.append((path, owned))
+                else:
+                    missing.append(os.path.relpath(path, project))
+            lanes.append(Lane(name=f"{config.parent.relative_to(repo).as_posix()}:{name}"
+                              if config.parent != repo else name,
+                              runtime="cljs", roots=roots,
+                              regex=re.compile(unescape_edn_string(regexp.group(1))),
+                              full_match=False,
+                              defined_in=config.relative_to(repo).as_posix(),
+                              missing_roots=missing))
+    return lanes
+
+
+def jvm_lanes(repo: Path):
+    """Every artefact on the two JVM lane rosters, read through its deps.edn."""
+    rosters = [(repo / "scripts" / "test-jvm-implementation.sh", "artefacts"),
+               (repo / "scripts" / "test-jvm-tools.sh", "tools")]
+    lanes = []
+    for script, array in rosters:
+        text = script.read_text(encoding="utf-8")
+        for artefact in read_shell_array(text, array):
+            deps = repo / artefact / "deps.edn"
+            if not deps.is_file():
+                raise SystemExit(f"error: {script.name} lists {artefact}, which has no deps.edn")
+            body = strip_edn_comments(deps.read_text(encoding="utf-8"))
+            alias = re.search(r":test\s*\{", body)
+            if not alias:
+                raise SystemExit(f"error: {artefact}/deps.edn has no :test alias "
+                                 f"but {script.name} runs `clojure -M:test` in it")
+            alias_body = body[alias.end() - 1:match_delimiter(body, alias.end() - 1)]
+            opts = read_string_vector(alias_body, ":main-opts") or []
+
+            dirs, regexes = [], []
+            for flag, value in zip(opts, opts[1:]):
+                if flag in ("-d", "--dir"):
+                    dirs.append(value)
+                elif flag in ("-r", "--namespace-regex"):
+                    regexes.append(value)
+            base = repo / artefact
+            roots, missing = [], []
+            for entry in dirs or COGNITECT_DEFAULT_DIRS:
+                path = (base / entry).resolve()
+                (roots if path.is_dir() else missing).append((path, False) if path.is_dir() else entry)
+            lanes.append(Lane(name=artefact, runtime="jvm", roots=roots,
+                              regex=re.compile(regexes[0] if regexes else COGNITECT_DEFAULT_REGEX),
+                              full_match=True, probe="--probe" in opts,
+                              defined_in=f"{artefact}/deps.edn",
+                              missing_roots=missing))
+    return lanes
+
+
+# --------------------------------------------------------------------------
+# The universe: files under a lane root that define a top-level deftest
+# --------------------------------------------------------------------------
+
+@dataclass
+class TestFile:
+    path: Path
+    ns: str
+    ext: str
+    #: True when some CLJS lane root that OWNS its tree contains this file.
+    on_owned_cljs_root: bool = False
+
+
+def discover(lanes, repo: Path):
+    """Map every lane root to its test files, keyed by (path, derived ns)."""
+    found = {}
+    for lane in lanes:
+        for root, owned in lane.roots:
+            for dirpath, _dirnames, filenames in os.walk(root):
+                for filename in filenames:
+                    ext = os.path.splitext(filename)[1]
+                    if ext not in TEST_EXTS:
+                        continue
+                    path = Path(dirpath) / filename
+                    try:
+                        text = path.read_text(encoding="utf-8")
+                    except (UnicodeDecodeError, OSError):
+                        continue
+                    if not TOP_LEVEL_DEFTEST.search(text):
+                        continue
+                    ns = str(path.relative_to(root).with_suffix("")).replace(os.sep, ".").replace("_", "-")
+                    key = (str(path), ns)
+                    entry = found.setdefault(key, TestFile(path=path, ns=ns, ext=ext))
+                    if lane.runtime == "cljs" and owned:
+                        entry.on_owned_cljs_root = True
+    return list(found.values())
+
+
+def loadable_by(lane: Lane, test_file: TestFile) -> bool:
+    exts = CLJS_EXTS if lane.runtime == "cljs" else JVM_EXTS
+    return test_file.ext in exts
+
+
+def check(lanes, files, repo: Path):
+    """Return a list of failure strings.  Empty means the bijection holds."""
+    failures = []
+
+    # B3 -- a lane pointing at a directory that is not there.
+    for lane in lanes:
+        for entry in lane.missing_roots:
+            failures.append(
+                f"B3 phantom lane path: {lane.runtime} lane `{lane.name}` declares root "
+                f"`{entry}` in {lane.defined_in}, which does not exist. The lane runs "
+                f"whatever is left and stays green.")
+
+    selected_by = {id(f): [] for f in files}
+    for lane in lanes:
+        roots = [root for root, _owned in lane.roots]
+        for test_file in files:
+            if not loadable_by(lane, test_file):
+                continue
+            if not any(root == test_file.path.parent or root in test_file.path.parents
+                       for root in roots):
+                continue
+            if lane.selects(test_file.ns):
+                selected_by[id(test_file)].append(lane)
+
+    def rel(p: Path) -> str:
+        try:
+            return str(p.relative_to(repo)).replace(os.sep, "/")
+        except ValueError:
+            return str(p)
+
+    # B1 -- selected by nothing at all.
+    for test_file in sorted(files, key=lambda f: f.ns):
+        if not selected_by[id(test_file)]:
+            failures.append(
+                f"B1 orphan test file: {rel(test_file.path)} defines tests as `{test_file.ns}`, "
+                f"which no lane selector reaches. It runs in no lane.")
+
+    # B2 -- a `.cljc` on a CLJS-owned root that no CLJS lane selects.
+    for test_file in sorted(files, key=lambda f: f.ns):
+        if test_file.ext != ".cljc" or not test_file.on_owned_cljs_root:
+            continue
+        cljs_hits = [l for l in selected_by[id(test_file)] if l.runtime == "cljs"]
+        jvm_hits = [l for l in selected_by[id(test_file)] if l.runtime == "jvm"]
+        declared_jvm_only = test_file.ns.endswith(JVM_ONLY_SUFFIX)
+        if declared_jvm_only:
+            if cljs_hits:
+                failures.append(
+                    f"B2 false single-lane declaration: {rel(test_file.path)} names itself "
+                    f"`{JVM_ONLY_SUFFIX}` yet CLJS lane(s) {[l.name for l in cljs_hits]} select "
+                    f"`{test_file.ns}`. Drop the suffix or retighten the selector.")
+            if not jvm_hits:
+                failures.append(
+                    f"B2 unbacked single-lane declaration: {rel(test_file.path)} names itself "
+                    f"`{JVM_ONLY_SUFFIX}` but no JVM lane discovers `{test_file.ns}`, so the "
+                    f"lane it claims does not run it.")
+        elif not cljs_hits:
+            failures.append(
+                f"B2 partially emptied CLJS lane: {rel(test_file.path)} is a `.cljc` test on a "
+                f"CLJS build source path, but no CLJS selector reaches `{test_file.ns}` -- its "
+                f"CLJS half never runs while the lane reports a green count. Rename the "
+                f"namespace to a selected suffix, or declare the JVM lane as its only lane "
+                f"with `{JVM_ONLY_SUFFIX}`.")
+
+    # B4 -- a selector that reaches nothing (or a probe that reaches something).
+    for lane in lanes:
+        roots = [root for root, _owned in lane.roots]
+        reached = [f for f in files
+                   if loadable_by(lane, f)
+                   and any(root == f.path.parent or root in f.path.parents for root in roots)
+                   and lane.selects(f.ns)]
+        if lane.probe:
+            if reached:
+                failures.append(
+                    f"B4 probe lane gained coverage: `{lane.name}` declares `--probe` in "
+                    f"{lane.defined_in} (it claims resolution, not coverage) yet now reaches "
+                    f"{[rel(f.path) for f in reached]}. It is claiming coverage — drop "
+                    f"`--probe` and take the test-count floor.")
+        elif not reached:
+            failures.append(
+                f"B4 empty lane selector: {lane.runtime} lane `{lane.name}` "
+                f"({lane.defined_in}) selects `{lane.regex.pattern}`, which reaches no test "
+                f"file on its roots. The lane will discover nothing.")
+    return failures
+
+
+# --------------------------------------------------------------------------
+# Self-test -- a synthetic repo per case, so the real parsers are exercised
+# --------------------------------------------------------------------------
+
+SELF_TEST_SHADOW = """{:source-paths ["core/src" "core/test" "../borrowed/test"]
+ :builds
+ {:node-test {:target :node-test :ns-regexp "cljs-test$"}}}
+"""
+
+#: A second CLJS build whose selector reaches into the `-jvm-test` space, i.e.
+#: a widened regex that contradicts a single-lane declaration.
+SELF_TEST_SHADOW_WIDENED = SELF_TEST_SHADOW.replace(
+    ':ns-regexp "cljs-test$"}}}',
+    ':ns-regexp "cljs-test$"}\n  :node-test-wide {:target :node-test :ns-regexp "jvm-test$"}}}')
+
+SELF_TEST_DEPS = """{:paths ["src"]
+ :aliases {:test {:extra-paths ["test"]
+                  :main-opts ["-m" "re-frame.test-quiet.runner"%s]}}}
+"""
+
+SELF_TEST_ROSTER = """#!/usr/bin/env bash
+artefacts=(
+  implementation/core
+  # a comment line, and a blank line, both ignored
+)
+"""
+
+SELF_TEST_TOOLS_ROSTER = """#!/usr/bin/env bash
+tools=(
+  borrowed
+)
+"""
+
+
+def build_self_test_repo(root: Path, *, files, shadow=SELF_TEST_SHADOW, probe_flag=""):
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "scripts" / "test-jvm-implementation.sh").write_text(SELF_TEST_ROSTER, encoding="utf-8")
+    (root / "scripts" / "test-jvm-tools.sh").write_text(SELF_TEST_TOOLS_ROSTER, encoding="utf-8")
+    (root / "implementation").mkdir(parents=True, exist_ok=True)
+    (root / "implementation" / "shadow-cljs.edn").write_text(shadow, encoding="utf-8")
+    # A shadow config is only a lane when its classpath resolves, which the
+    # sibling deps.edn is what establishes.
+    (root / "implementation" / "deps.edn").write_text('{:paths []}\n', encoding="utf-8")
+    for artefact, flag in (("implementation/core", probe_flag), ("borrowed", "")):
+        directory = root / artefact
+        (directory / "src").mkdir(parents=True, exist_ok=True)
+        (directory / "test").mkdir(parents=True, exist_ok=True)
+        (directory / "deps.edn").write_text(SELF_TEST_DEPS % flag, encoding="utf-8")
+    for relative, body in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+
+
+GREEN_FILES = {
+    # dual-runtime `.cljc`: JVM-discovered AND CLJS-selected
+    "implementation/core/test/app/both_cljs_test.cljc": "(ns app.both-cljs-test)\n(deftest t (is true))\n",
+    # declared single-lane `.cljc`
+    "implementation/core/test/app/only_jvm_test.cljc": "(ns app.only-jvm-test)\n(deftest t (is true))\n",
+    # a borrowed tree's JVM-only `.cljc` -- B1 holds, B2 does not apply
+    "borrowed/test/app/borrowed_test.cljc": "(ns app.borrowed-test)\n(deftest t (is true))\n",
+    # a generator: deftest only inside a defmacro, so not a test file at all
+    "implementation/core/test/app/shared_suite.clj":
+        "(ns app.shared-suite)\n(defmacro define! []\n  `(deftest generated (is true)))\n",
+}
+
+
+def run_self_test() -> int:
+    cases = []
+
+    def case(name, *, expect, files=None, shadow=SELF_TEST_SHADOW, probe_flag=""):
+        cases.append((name, expect, files if files is not None else dict(GREEN_FILES),
+                      shadow, probe_flag))
+
+    case("A green tree reports no failure", expect=None)
+
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/skipped_test.cljc"] = "(ns app.skipped-test)\n(deftest t (is true))\n"
+    case("B2 fires on a `.cljc` no CLJS selector reaches", expect="B2 partially emptied", files=files)
+
+    case("B2 fires on a false `-jvm-test` declaration",
+         shadow=SELF_TEST_SHADOW_WIDENED, expect="B2 false single-lane")
+
+    files = dict(GREEN_FILES)
+    files["implementation/core/src/app/unbacked_jvm_test.cljc"] = (
+        "(ns app.unbacked-jvm-test)\n(deftest t (is true))\n")
+    case("B2 fires on a `-jvm-test` no JVM lane discovers",
+         expect="B2 unbacked single-lane", files=files)
+
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/helper_thing.cljc"] = (
+        "(ns app.helper-thing)\n(deftest t (is true))\n")
+    case("B1 fires on a test file no lane selects", expect="B1 orphan", files=files)
+
+    case("B3 fires on a lane root that does not exist",
+         shadow=SELF_TEST_SHADOW.replace('"core/test"', '"core/renamed-away"'),
+         expect="B3 phantom lane path")
+
+    case("B4 fires on a selector that reaches nothing",
+         shadow=SELF_TEST_SHADOW.replace('"cljs-test$"', '"never-matches-anything$"'),
+         expect="B4 empty lane selector")
+
+    case("B4 fires on a `--probe` lane that gained a test",
+         probe_flag=' "--probe"', expect="B4 probe lane gained coverage")
+
+    ok = True
+    for name, expect, files, shadow, probe_flag in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            build_self_test_repo(root, files=files, shadow=shadow, probe_flag=probe_flag)
+            lanes = cljs_lanes(root) + jvm_lanes(root)
+            failures = check(lanes, discover(lanes, root), root)
+            if expect is None:
+                passed = not failures
+                detail = "expected no failure, got: " + "; ".join(failures)
+            else:
+                passed = any(expect in f for f in failures)
+                detail = f"expected a failure containing {expect!r}, got: " + ("; ".join(failures) or "none")
+            print(f"  {'ok  ' if passed else 'FAIL'} {name}")
+            if not passed:
+                print(f"       {detail}")
+                ok = False
+    print(f"self-test: {'PASS' if ok else 'FAIL'} ({len(cases)} cases)")
+    return 0 if ok else 1
+
+
+# --------------------------------------------------------------------------
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--verbose", action="store_true",
+                        help="list every lane and what its selector reaches")
+    parser.add_argument("--self-test", action="store_true",
+                        help="prove each rule fires on its defect and passes on a clean tree")
+    parser.add_argument("--repo-root", default=None,
+                        help="scan DIR instead of this script's repository")
+    args = parser.parse_args(argv)
+
+    if args.self_test:
+        return run_self_test()
+
+    repo = Path(args.repo_root).resolve() if args.repo_root else Path(__file__).resolve().parent.parent
+    lanes = cljs_lanes(repo) + jvm_lanes(repo)
+    files = discover(lanes, repo)
+
+    if args.verbose:
+        for lane in lanes:
+            roots = [root for root, _owned in lane.roots]
+            reached = sum(1 for f in files
+                          if loadable_by(lane, f)
+                          and any(root == f.path.parent or root in f.path.parents for root in roots)
+                          and lane.selects(f.ns))
+            flag = " [probe]" if lane.probe else ""
+            print(f"  {lane.runtime:4s} {lane.name:52s} /{lane.regex.pattern}/ "
+                  f"-> {reached} test file(s){flag}")
+        print(f"  {len(lanes)} lanes, {len(files)} test-defining files")
+
+    failures = check(lanes, files, repo)
+    if failures:
+        print(f"FAIL test-lane bijection: {len(failures)} problem(s)", file=sys.stderr)
+        for failure in failures:
+            print(f"  - {failure}", file=sys.stderr)
+        return 1
+    print(f"PASS test-lane bijection: {len(files)} test-defining files, "
+          f"{len(lanes)} lanes, every file selected and every selector reached")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

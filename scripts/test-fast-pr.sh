@@ -463,6 +463,24 @@ run "ambient-durable-read gate self-test" "python scripts/check_ambient_durable_
 run "ambient-durable-read gate (EP-0010)" "python scripts/check_ambient_durable_reads.py --verbose" \
   python "$spine_root/scripts/check_ambient_durable_reads.py" --verbose
 
+# Test-lane bijection (rf2-4hc9p, follows the rf2-qqzmf per-lane floor).  The
+# floor makes a lane that ran ZERO tests red; it cannot see a lane that ran
+# SOME of what it should — nine `.cljc` suites once sat on the `:node-test`
+# classpath with namespaces the `cljs-test$` selector could not match, and the
+# lane still reported thousands of passing tests (rf2-ezbzvm).  This gate reads
+# every lane from the file that DEFINES it (each shadow-cljs.edn's test builds,
+# each artefact's `deps.edn` `:test` alias via the two JVM rosters) and asserts
+# the bijection both ways: every file defining a top-level `deftest` is reached
+# by some selector, and every selector reaches something.  Runs unconditionally
+# — the drift it catches is introduced by a RENAME or a directory move that need
+# not touch the tier that owns it.  Self-test first (proves each rule fires on
+# its own defect and stays green on a clean tree), then the live scan.
+run "test-lane bijection self-test" "python scripts/check_test_lane_bijection.py --self-test" \
+  python "$spine_root/scripts/check_test_lane_bijection.py" --self-test
+
+run "test-lane bijection (rf2-4hc9p)" "python scripts/check_test_lane_bijection.py" \
+  python "$spine_root/scripts/check_test_lane_bijection.py" --repo-root "$spine_root"
+
 # ---------------------------------------------------------------------------
 # Documentation gates (run when a documentation surface changes).
 #
