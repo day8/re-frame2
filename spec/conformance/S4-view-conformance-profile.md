@@ -191,11 +191,17 @@ React verbatim may be a **portal**, and a portal renders into whatever container
 the caller names, `document.head` included. Nodes placed that way are host
 behaviour the **caller owns** — outside head ordering, de-duplication,
 precedence, and every hydration guarantee, `:rf/head-hash` mismatch detection
-included. What survives is **enumerability**: every site declares the `:raw`
-capability and is recorded in the manifest, so the set of such escapes is finite
-and listable. The **JVM tree has no such route** — `:raw` raises
-`:rf.error/jvm-host-op` — so a server-rendered head still comes only from
-`reg-head` / `active-head`.
+included. **Enumerability is not what survives** (rf2-wjgle). The `:raw`
+capability makes `ui/raw`'s *own* sites listable in the manifest, but that hatch
+is not the only way into host React: a runtime **React element** reaching an
+ordinary dynamic child position is handed to React with nothing recorded at the
+site, so the escapes a manifest can list are a strict subset of the escapes that
+exist. The normative statement — and the open design question a real containment
+would have to answer — is
+[004D §The document head is host-owned](../004D-Freehand-Compiled-Grammar.md#the-document-head-is-host-owned).
+What *does* survive is the JVM's absence: the **JVM tree has no such route** —
+`:raw` raises `:rf.error/jvm-host-op` — so a server-rendered head still comes
+only from `reg-head` / `active-head`.
 
 **Normative ownership (ruled, `rf2-3i7tr`) — do not reopen.** Spec 004
 normatively owns the compiled-view *structural absence* (no `ui/head`, no head
