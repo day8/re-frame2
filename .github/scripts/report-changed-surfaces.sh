@@ -53,9 +53,10 @@ ui_smoke=false
 tools_jvm=false
 # rf2-wq17m — two artefacts with a wired `:test` alias and a slot on
 # scripts/test-jvm-tools.sh's roster, but no PR-time CI lane until now. They get
-# their OWN outputs rather than joining `tools_jvm`: that output gates five
-# jvm-tools-* jobs, none of which runs either artefact, so setting it would fire
-# five unrelated probes and STILL skip the files these outputs exist to reach.
+# their OWN outputs rather than joining `tools_jvm`: that output gates FOUR
+# jvm-tools-* jobs (xray / story / story-mcp / mcp-base), none of which runs
+# either artefact, so setting it would fire four unrelated probes and STILL skip
+# the files these outputs exist to reach.
 tools_jvm_machines_viz=false
 tools_jvm_testbed_support=false
 template_expensive=false
@@ -1323,9 +1324,9 @@ else
         #
         # rf2-wq17m — that lane now has a CI job, `jvm-tools-machines-viz`,
         # gated on the dedicated output below. `tools_jvm` is still deliberately
-        # NOT set: it gates five jvm-tools-* jobs, none of which runs this
-        # artefact, so it would fire five unrelated probes and still skip these
-        # two files.
+        # NOT set: it gates four jvm-tools-* jobs (xray / story / story-mcp /
+        # mcp-base), none of which runs this artefact, so it would fire four
+        # unrelated probes and still skip these two files.
         #
         # spec-md guard (mirrors story/xray above): a pure documentation
         # change under tools/machines-viz/spec/**.md cannot affect any
@@ -1372,9 +1373,9 @@ else
         # assertions, which no CLJS build can load — now has a lane too
         # (rf2-wq17m): `jvm-tools-testbed-support`, gated on the dedicated
         # output below. `tools_jvm` stays deliberately unset for the same reason
-        # as machines-viz above: none of the five jvm-tools-* jobs runs this
-        # artefact, so it would fire five unrelated probes and still skip the
-        # file.
+        # as machines-viz above: none of the four jobs `tools_jvm` gates (xray /
+        # story / story-mcp / mcp-base) runs this artefact, so it would fire four
+        # unrelated probes and still skip the file.
         cljs_node_test=true
         cljs_browser=true
         tools_jvm_testbed_support=true

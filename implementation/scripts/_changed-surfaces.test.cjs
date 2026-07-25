@@ -315,8 +315,8 @@ test('testbed-support CLJS test-tree change runs cljs + cljs-browser (rf2-as6bg)
 // as the honest description of a file no job ran, and said in as many words that
 // it lands flipped when the job exists — a tripwire rather than a claim of
 // correctness. It is now flipped, and it still pins `tools_jvm` false, which is
-// the durable half of the original point: that output gates five jvm-tools-*
-// jobs, none of which runs this artefact.
+// the durable half of the original point: that output gates four jvm-tools-*
+// jobs (xray / story / story-mcp / mcp-base), none of which runs this artefact.
 test('testbed-support .clj fans out to its OWN jvm output, not tools_jvm (rf2-wq17m)', () => {
   const result = classify(
     'tools/testbed-support/test/re_frame/testbed/open_in_editor_server_test.clj',
