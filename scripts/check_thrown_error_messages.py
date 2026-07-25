@@ -99,14 +99,14 @@ specific bare-keyword kind.
 
 SCAN SURFACE
 
-Framework source under `implementation/` — `.clj` / `.cljc` / `.cljs`. The
-default excludes `test/` trees (a test that asserts the old shape is gone, or
+Framework source under `implementation/` — `.clj` / `.cljc` / `.cljs`. That
+roster is a RULING, not a default; see `DEFAULT_SCAN_DIRS` below for the
+enumerated exclusions and the stated ground for each. The default also
+excludes `test/` trees (a test that asserts the old shape is gone, or
 constructs a `(ex-info ":rf.error/…")` to exercise a predicate, legitimately
-names it). `tools/` is bundle-isolated dev tooling and `examples/` is
-consumer-shaped, so neither is framework source for this gate. The one
-framework artefact that CANNOT `:require` `re-frame.error` (the
-bundle-isolated `reagent-slim` adapter) hand-rolls a human sentence inline —
-so it too must clear the gate, and it is under `implementation/`.
+names it). The one framework artefact that CANNOT `:require` `re-frame.error`
+(the bundle-isolated `reagent-slim` adapter) hand-rolls a human sentence
+inline — so it too must clear the gate, and it is under `implementation/`.
 
 Exit code:
     0  no bare-keyword thrown-error message in framework source
@@ -128,7 +128,58 @@ from typing import Iterable, NamedTuple
 # Scan surface
 # --------------------------------------------------------------------------
 
-DEFAULT_SCAN_DIR = "implementation"
+# The roster is `implementation/` ALONE, and that is a DECISION (rf2-eo2y5),
+# not the shape a default happens to have. It used to be a bare
+# `DEFAULT_SCAN_DIR = "implementation"` with no note, which reads as unexamined
+# — and an unexamined scope is how a gate silently covers less than its reader
+# assumes, then gets "helpfully" widened by the next reader who cannot tell a
+# decision from an omission. Enumerate the candidate trees with:
+#
+#   git ls-files | grep -E '\.clj[cs]?$' | sed -E 's#/.*##' | sort -u
+#
+# WHY ONE TREE, when the sibling ratchet rosters them all. The two gates share
+# a template but not a subject. `check_retired_spellings.py` rosters every
+# Clojure tree because a retired SPELLING is drift wherever it appears — most
+# of all in the trees a reader copies from (rf2-kqxe6.25). A thrown-error
+# SHAPE is a contract only where something downstream reads it, and Spec 009
+# §The thrown-error shape governs the FRAMEWORK'S PUBLIC ERROR SURFACE: the
+# errors a consumer application catches, whose shape is a contract precisely
+# because consumer code and consumer AI branch on it. That surface is
+# `implementation/`.
+#
+# The excluded trees, and the ground for each:
+#
+#   * `tools/` — dev tooling. Ruled OUT OF SCOPE by rf2-eo2y5: a tool's
+#     ex-info is read by a developer running an inspection tool, and
+#     `tools/` ships on its own tag prefixes (`story-v…`, `xray-v…`,
+#     `machines-viz-v…`, `template-v…`), not on the framework's `v…` tag.
+#     THIS EXCLUSION IS NOT A CLAIM THE TREE IS CLEAN. Point `--scan-dir
+#     tools` at it and the gate reports findings; the ruling declined to
+#     convert them rather than finding nothing to convert. One QUALIFICATION
+#     is known and tracked: a `tools/` throw whose `ex-message` is relayed
+#     onto the MCP tool surface IS read by a consumer, so the shape does
+#     govern that subset — rf2-jquiy holds the traced cases. Widening this
+#     roster is not how that gets fixed; those sites get converted, and the
+#     roster stays as ruled.
+#   * `examples/`, `skills/`, `testbeds/`, `migration/`, `docs/tools/` —
+#     consumer-SHAPED code: sample apps, teaching material, the docs
+#     playground. An error thrown by an example app is the example's own,
+#     not the framework's public error surface, and no downstream contract
+#     branches on it.
+#   * `scripts/` — `scripts/_test_fixtures/check_thrown_error_messages/`
+#     holds this gate's own POSITIVE self-test fixtures. They plant the bad
+#     shapes on purpose; a live scan over them would be red by construction,
+#     forever. (Same ground the sibling states for the same directory.)
+#   * `docs/` — mkdocs stages `spec/` and `migration/` into `docs/` at build
+#     time (see `.gitignore`), so a checkout that has run `mkdocs build`
+#     carries GENERATED copies. Scanning `docs/` would report a finding
+#     twice, or report a stale one from a copy predating its fix.
+#   * `.clj-kondo/` — lint hook code (`.clj-kondo/hooks/**`) that runs inside
+#     the linter, never in a framework or consumer runtime.
+#
+# `spec/` carries no Clojure source at all (prose + EDN fixtures) and this
+# gate's suffix filter is source-only, so it is not a candidate.
+DEFAULT_SCAN_DIRS = ("implementation",)
 
 _SOURCE_SUFFIXES = (".clj", ".cljc", ".cljs")
 
@@ -639,10 +690,13 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--scan-dir",
+        action="append",
         default=None,
+        dest="scan_dirs",
         help=(
-            "Directory (relative to repo-root) to scan. Defaults to "
-            f"'{DEFAULT_SCAN_DIR}'."
+            "Directory (relative to repo-root) to scan. Repeatable. Defaults "
+            "to the rostered framework-source tree(s): "
+            f"{', '.join(DEFAULT_SCAN_DIRS)}."
         ),
     )
     parser.add_argument(
@@ -681,20 +735,36 @@ def main(argv: list[str]) -> int:
         )
         return 2
 
-    scan_root = repo_root / (args.scan_dir or DEFAULT_SCAN_DIR)
-    if not scan_root.exists():
-        sys.stderr.write(f"error: scan dir {scan_root} does not exist.\n")
+    scan_roots = [repo_root / d for d in (args.scan_dirs or DEFAULT_SCAN_DIRS)]
+
+    # A rostered tree that has been renamed or deleted is NOT skipped. Skipping
+    # is how a declared scope quietly narrows again — the gate would report
+    # success for a tree it never opened, which is the defect class this
+    # roster exists to close. Same posture as the sibling ratchet and the
+    # test-lane bijection gate's phantom-path rule.
+    missing = [r for r in scan_roots if not r.exists()]
+    if missing:
+        for root in missing:
+            sys.stderr.write(f"error: scan dir {root} does not exist.\n")
         return 2
 
     if args.verbose:
-        n = sum(1 for _ in _iter_source_files(scan_root, args.include_tests))
-        rel = str(scan_root.relative_to(repo_root)).replace("\\", "/")
+        n = sum(
+            1
+            for root in scan_roots
+            for _ in _iter_source_files(root, args.include_tests)
+        )
+        rels = ", ".join(
+            str(r.relative_to(repo_root)).replace("\\", "/") for r in scan_roots
+        )
         sys.stderr.write(
-            f"scanning {n} framework source file(s) under {rel} "
+            f"scanning {n} framework source file(s) under {rels} "
             f"(tests {'included' if args.include_tests else 'excluded'})...\n"
         )
 
-    findings = scan(scan_root, include_tests=args.include_tests)
+    findings: list[Finding] = []
+    for root in scan_roots:
+        findings.extend(scan(root, include_tests=args.include_tests))
     if findings:
         _report(findings, repo_root)
         return 1
