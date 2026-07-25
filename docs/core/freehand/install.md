@@ -61,6 +61,11 @@ matter to you: `(rf/destroy-adapter!)` unmounts every live Freehand root before 
 disposes anything, and its `flush-render!` returns with the page settled rather than
 leaving the repaint to a microtask.
 
+Unmount your roots with `v/unmount!` **before** destroying an adapter. The drain above
+is a safety net — it stops a root you forgot from holding subscriptions and DOM past
+the adapter's life — but only `v/unmount!` runs while the adapter is live, so only
+`v/unmount!` destroys a frame a root *ensured*.
+
 **Already on Reagent or UIx?** Install that adapter instead — `(rf/init!
 uix/adapter)` — and add its artefact to `deps.edn`. One adapter per process, so a
 mixed page picks one, and it can perfectly well be the wrapper's. Mount and unmount

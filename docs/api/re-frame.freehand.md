@@ -138,7 +138,7 @@ elements — the child path is browser-only, like the mount verbs.
 
   | | |
   |---|---|
-  | **Disposal drains your roots first** | `(rf/destroy-adapter!)` unmounts every live Freehand root — releasing their subscriptions, disconnecting their ViewCells, destroying a frame a root *ensured* — and disposes the spine second, because the drain needs the containers the spine teardown removes. Both phases are attempted whatever either does; a drain failure stays primary and a spine failure rides it as `rfFreehandAdapterCleanupError`. |
+  | **Disposal drains your roots first** | `(rf/destroy-adapter!)` unmounts every live Freehand root — releasing their subscriptions, disconnecting their ViewCells and releasing their frame references — and disposes the spine second, because the drain needs the containers the spine teardown removes. Both phases are attempted whatever either does; a drain failure stays primary and a spine failure rides it as `rfFreehandAdapterCleanupError`. This is a **safety net**, not a substitute for orderly teardown: unmount your roots with `v/unmount!` first. Core closes public delegation before it calls an adapter's teardown, so the drain cannot run a frame's destroy recipe (that recipe reads a container) — and does not need to, since the frame's containers belong to the adapter being destroyed. Only `v/unmount!`, on a live adapter, destroys a frame a root *ensured*. |
   | **`flush-render!` returns settled** | a ViewCell invalidation arms a *later* microtask, so a plain `flushSync` would return with the page stale. This adapter closes the pending window inside React's commit boundary and then converges to a bounded fixed point. |
 
   **The wrapper adapters remain first-class.** Reagent, UIx and reagent-slim are
