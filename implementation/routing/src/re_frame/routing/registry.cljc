@@ -145,7 +145,13 @@
   §Route-not-found). Cross-feature reserved keys are enumerated here so
   the authoring guard does not false-flag a legitimate SSR route."
   #{;; routing-owned (Spec 012 §Reserved route-metadata keys)
-    :doc :path :params :query :query-defaults :query-retain
+    :doc :path :params :query :query-defaults
+    ;; EP-0037 R5: route `:query-retain` is RETIRED with no alias — a route
+    ;; declaring it is now rejected as an unknown bare key. Carrying query
+    ;; state across routes is an APPLICATION policy spelled as an ordinary
+    ;; pure function over the destination address (Spec 012 §Carrying query
+    ;; state across routes); the framework no longer folds ambient current
+    ;; query into a destination the caller authored.
     ;; :can-enter is the first-class mirror of :can-leave (rf2-p69yaz
     ;; Option A) — the target route's enter-gate guard sub-id.
     ;; EP-0037 R1: route `:on-error` is RETIRED with no alias — a route
@@ -414,7 +420,7 @@
   restores clean doc-DCE (the middle slot is now a pure metadata map).
 
   `metadata` carries the route's reflection / lifecycle / shape keys (`:doc`,
-  `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`,
+  `:params`, `:query`, `:query-defaults`, `:tags`, `:parent`,
   `:on-match`, `:scroll`, `:can-leave`, `:can-enter`, plus the cross-feature
   `:head` / `:resources`); see Spec 012. The `:path` is merged onto the stored
   route-meta internally, so every downstream reader (`route-meta`, `match-url`,
@@ -502,20 +508,21 @@
         query-coerce (compile-schema-coercions (:query metadata))
         ;; rf2-x1x5am: query-key promotion ADVISORY (warn, never throw). A
         ;; `:sensitive` / `:large` `[:query k]` path on a route that does NOT
-        ;; promote `k` to a keyword via `:query` / `:query-defaults` /
-        ;; `:query-retain` silently fails open at egress (the keyword decl never
+        ;; promote `k` to a keyword via `:query` / `:query-defaults`
+        ;; silently fails open at egress (the keyword decl never
         ;; matches the runtime STRING key — `coerce-query`, rf2-5ifai). EP-0025
         ;; blesses fail-open as the hygiene bargain, so this is an authoring
         ;; footgun, not a contract break: emit a reg-route-time warning naming
         ;; the unpromoted key(s) so the author sees the pairing they forgot. The
         ;; promoted vocabulary is the SAME union `coerce-query` / `route-url`
         ;; treat as declared: the `query-coerce` keys (the `:query` schema) plus
-        ;; the `:query-defaults` keys plus `:query-retain`.
+        ;; the `:query-defaults` keys. EP-0037 R5 shrank this from three sources
+        ;; to two — `:query-retain` is retired, so it no longer widens the
+        ;; promoted vocabulary and no longer suppresses this advisory.
         _            (classification/advise-query-promotion!
                        id metadata
                        (into (set (keys query-coerce))
-                             (concat (keys (:query-defaults metadata))
-                                     (:query-retain metadata))))
+                             (keys (:query-defaults metadata))))
         ;; rf2-cylse.5: compile the `:params` schema into a path-coerce
         ;; table the SAME way as the query side, so PATH captures coerce
         ;; against their declared type (`:int`/`:uuid`/enum)
@@ -949,15 +956,14 @@
   `query-key->url-token` of each declared keyword (namespace-preserving),
   so the match-side parse can recover the EXACT declared keyword — namespace
   included — rather than collapsing `:user/id` to `:id` via a lossy
-  `(keyword (name k))`. `:query-coerce`, `:query-defaults`, and
-  `:query-retain` all contribute their keys; a later slot does not clobber
+  `(keyword (name k))`. `:query-coerce` and `:query-defaults` both
+  contribute their keys; a later slot does not clobber
   an earlier mapping for the same token (the token -> keyword relation is
   unique by construction, since each maps from one declared keyword)."
-  [query-coerce defaults retain]
+  [query-coerce defaults]
   (cond-> {}
     query-coerce   (into (map (fn [k] [(query-key->url-token k) k])) (keys query-coerce))
-    (seq defaults) (into (map (fn [k] [(query-key->url-token k) k])) (keys defaults))
-    (seq retain)   (into (map (fn [k] [(query-key->url-token k) k])) retain)))
+    (seq defaults) (into (map (fn [k] [(query-key->url-token k) k])) (keys defaults))))
 
 (defn- coerce-query
   "Coerce a raw `{string-key string-value}` map against a precompiled
@@ -965,8 +971,8 @@
   array-map to preserve URL key order.
 
   Per rf2-3k3o7 + rf2-5ifai: only query keys named by the route's
-  `:query` schema (encoded as `query-coerce`), `:query-defaults`, or
-  `:query-retain` are promoted to keyword keys; unknown keys retain
+  `:query` schema (encoded as `query-coerce`) or `:query-defaults`
+  are promoted to keyword keys; unknown keys retain
   their **string** form. The route's declared vocabulary defines the
   keyword universe; the framework refuses to extend the process-global
   keyword table on behalf of URL keys the route did not name. This
@@ -980,12 +986,15 @@
   permanent JVM keyword slots, and a bare
   `(reg-route :route/x {} \"/x\")` is the high-cardinality
   public-surface case where this hits hardest. Authors who want keyword
-  keys declare them via `:query` / `:query-defaults` / `:query-retain` —
+  keys declare them via `:query` / `:query-defaults` —
   author-named intent is the trust boundary.
 
-  `:query-defaults` and `:query-retain` slots widen the declared
-  universe (they are author-named intent, identical trust class to
-  the `:query` schema itself).
+  The `:query-defaults` slot widens the declared
+  universe (it is author-named intent, identical trust class to
+  the `:query` schema itself). EP-0037 R5 made those the ONLY two slots —
+  a key that used to be keyword-promoted solely because the retired
+  `:query-retain` named it must now be declared in `:query` or
+  `:query-defaults` to keep its keyword form.
 
   rf2-jlufhn: the declared-key match is by the REVERSIBLE
   `query-key->url-token` (namespace-preserving), not a bare `(keyword k)`.
@@ -994,8 +1003,8 @@
   losing the namespace and breaking the EP-0012 route-prism law for any
   namespaced query key (and silently merging `:user/id` + `:account/id`
   into one `:id`)."
-  [query-coerce defaults retain raw-query]
-  (let [token->declared (declared-query-tokens query-coerce defaults retain)]
+  [query-coerce defaults raw-query]
+  (let [token->declared (declared-query-tokens query-coerce defaults)]
     (reduce-kv
       (fn [m k v]
         (if-let [kk (get token->declared k)]
@@ -1234,7 +1243,6 @@
                       params        (coerce-path (:rf.route/params-coerce route-meta) raw-params)
                       query-coerce  (:rf.route/query-coerce route-meta)
                       defaults      (:query-defaults route-meta)
-                      retain        (:query-retain route-meta)
                       ;; Force the query parse on the first successful path
                       ;; match — unmatched URLs and pre-match iterations skip
                       ;; the work entirely (rf2-r1in4).
@@ -1252,7 +1260,7 @@
                           ;; framework does not extend the JVM keyword-table on
                           ;; behalf of attacker-controlled URLs.
                           coerced       (when raw-query
-                                          (coerce-query query-coerce defaults retain raw-query))
+                                          (coerce-query query-coerce defaults raw-query))
                           ;; Defaults: short-circuit when the route declares no
                           ;; defaults (the common case). When both raw-query and
                           ;; defaults are empty, fall back to an empty array-map

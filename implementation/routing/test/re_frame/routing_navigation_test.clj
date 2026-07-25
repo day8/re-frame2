@@ -40,64 +40,109 @@
       (is (= ["/articles/intro"] @pushed)
           ":rf.nav/push-url received the unparsed URL"))))
 
-;; ---- Spec 012 §Query strings and fragments — :query-retain ---------------
+;; ---- Spec 012 §Carrying query state across routes (EP-0037 R5) ------------
+;;
+;; `:query-retain` is RETIRED. A destination address is taken LITERALLY: the
+;; router never folds ambient current-route query state into a fresh
+;; destination. Applications that deliberately carry global URL state spell it
+;; as an ordinary pure function over the address — the recipe below is the one
+;; documented in `docs/routing/concepts.md` and Spec 012.
 
-(deftest routing-query-retain-carries-keys-across-navigations
-  (testing ":query-retain on the target carries declared keys from the current slice"
-    ;; Per Spec 012 §Query strings and fragments: `:query-retain` names a
-    ;; set of query keys that survive subsequent :rf.route/navigate
-    ;; dispatches even when the caller doesn't supply them — useful for
-    ;; theme / locale / debug. The retained values come from the current
-    ;; :rf.route/query slice; caller-supplied values win on conflict
-    ;; (rf2-u8t3s).
-    (rf/reg-route :route/search
-                  {:query-retain   #{:theme :locale}} "/search")
-    (rf/reg-route :route/cart
-                  {:query-retain #{:theme :locale}} "/cart")
+(defn- with-shell-query
+  "The documented explicit-carry recipe, verbatim (Spec 012 §Carrying query
+  state across routes). APPLICATION code, not framework code — it lives in the
+  test to prove the recipe carries, not to bless a framework helper.
+
+  Note the `(or destination-query {})`: an address that carries no query at all
+  is the ordinary spelling (`{:to :route/cart}`), and a REPLAYED destination
+  from a leave-pending stash omits an empty `:query` entirely (EP-0037 R4
+  `destination-of`), so the fold must tolerate a missing key."
+  [current-query address]
+  (update address :query
+          (fn [destination-query]
+            (merge (select-keys current-query [:theme :locale])
+                   (or destination-query {})))))
+
+(defn- current-query []
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+          [:rf.runtime/routing :current :query]))
+
+(deftest routing-destination-query-is-literal
+  (testing "a fresh destination gains NO ambient query from the current route"
+    (rf/reg-route :route/search {} "/search")
+    (rf/reg-route :route/cart   {} "/cart")
     (let [pushed (atom [])]
       (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-
-      ;; 1. Land on /search with ?theme=dark&locale=en — the URL-driven
-      ;;    path populates the slice via match-url + handle-url-change.
       (rf/dispatch-sync [:rf.route/transitioned "/search?theme=dark&locale=en"])
-      (is (= {:theme "dark" :locale "en"}
-             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :query]))
-          "initial slice carries the URL's query keys")
-
-      ;; 2. Navigate programmatically to :route/cart with NO query — the
-      ;;    target's :query-retain must merge :theme + :locale through.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
-      (let [last-url (last @pushed)]
-        (is (re-find #"theme=dark" last-url)
-            ":query-retain preserves :theme through programmatic nav")
-        (is (re-find #"locale=en" last-url)
-            ":query-retain preserves :locale through programmatic nav"))
-
-      ;; 3. Caller-supplied query values WIN over retained values.
-      (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart :query {:theme "light"}}])
-      (let [last-url (last @pushed)]
-        (is (re-find #"theme=light" last-url)
-            "caller-supplied :theme overrides retained value")
-        (is (re-find #"locale=en" last-url)
-            "other retained keys still carry through")))))
-
-(deftest routing-query-retain-no-op-without-declaration
-  (testing "routes without :query-retain do not inherit query keys"
-    (rf/reg-route :route/search
-                  {:query-retain #{:theme}} "/search")
-    (rf/reg-route :route/cart
-                  {} "/cart") ;; no :query-retain
-    (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/transitioned "/search?theme=dark"])
+      (is (= {"theme" "dark" "locale" "en"} (current-query))
+          "the slice carries the URL's query keys (as STRINGS — the route
+           declares no :query vocabulary, so nothing is keyword-promoted)")
       (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
       (is (= "/cart" (last @pushed))
-          ":query-retain undeclared → no carry-through, URL stays bare"))))
+          "an authored `{:to :route/cart}` pushes exactly /cart — no hidden carry"))))
+
+(deftest routing-explicit-query-carry-recipe-carries
+  (testing "the application's pure carry helper puts carried keys in the AUTHORED address"
+    ;; EP conformance row 9: "every cross-route carried key appears in the
+    ;; authored address after the application's pure carry helper runs". The
+    ;; policy is visible at the call site and testable without a frame.
+    (rf/reg-route :route/search
+                  {:query [:map [:theme {:optional true} :string]
+                                [:locale {:optional true} :string]
+                                [:q {:optional true} :string]]}
+                  "/search")
+    (rf/reg-route :route/cart
+                  {:query [:map [:theme {:optional true} :string]
+                                [:locale {:optional true} :string]]}
+                  "/cart")
+    (let [pushed (atom [])]
+      (fx/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+
+      ;; 1. Land on /search?theme=dark&locale=en. Both keys are DECLARED in the
+      ;;    route's `:query` schema, so they are keyword-promoted in the slice —
+      ;;    the migration R5 requires of a key that used to be promoted only
+      ;;    because `:query-retain` named it.
+      (rf/dispatch-sync [:rf.route/transitioned "/search?theme=dark&locale=en"])
+      (is (= {:theme "dark" :locale "en"} (current-query))
+          "declared query keys are keyword-promoted without :query-retain")
+
+      ;; 2. The helper is a PURE function of (current-query, address) — assert
+      ;;    the address it produces before anything is dispatched.
+      (is (= {:to :route/cart :query {:theme "dark" :locale "en"}}
+             (with-shell-query (current-query) {:to :route/cart}))
+          "the carried keys are visible in the AUTHORED address")
+
+      ;; 3. Dispatching that authored address carries them into the URL.
+      (rf/dispatch-sync [:rf.route/navigate (with-shell-query (current-query) {:to :route/cart})])
+      (let [last-url (last @pushed)]
+        (is (re-find #"theme=dark" last-url)
+            "the helper carried :theme through programmatic nav")
+        (is (re-find #"locale=en" last-url)
+            "the helper carried :locale through programmatic nav"))
+
+      ;; 4. The EXPLICIT destination query WINS over the carried value.
+      (is (= {:to :route/cart :query {:theme "light" :locale "en"}}
+             (with-shell-query (current-query) {:to :route/cart :query {:theme "light"}}))
+          "the authored destination query wins; other carried keys still ride")
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate
+                         (with-shell-query (current-query) {:to :route/cart :query {:theme "light"}})])
+      (let [last-url (last @pushed)]
+        (is (re-find #"theme=light" last-url)
+            "explicit destination :theme overrides the carried value")
+        (is (re-find #"locale=en" last-url)
+            "other carried keys still reach the URL"))
+
+      ;; 5. Opting OUT is spelling the address without the helper — there is no
+      ;;    per-route configuration to reason about.
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
+      (is (= "/cart" (last @pushed))
+          "skip the helper → no carry; the address is the whole truth"))))
 
 ;; ---- rf2-gxq7z1: nil-valued :query opt must not leak into the slice -------
 ;;
@@ -1450,8 +1495,9 @@
   (testing ":query-merge requires an in-place request — a destination target is rejected"
     ;; Per Spec 012 §Validity rules rule 4: :query-merge requires an IN-PLACE
     ;; request (no :to / :url). Cross-route query carry is DELETED — carrying
-    ;; state into another route's query is that route's :query-retain policy,
-    ;; not the caller's imperative :query-merge. A :query-merge beside :to is a
+    ;; state into another route's query is the APPLICATION's explicit fold over
+    ;; the destination address (EP-0037 R5), not the caller's imperative
+    ;; :query-merge and not route metadata. A :query-merge beside :to is a
     ;; structural error: the gate rejects it with :rf.error/navigate-bad-request
     ;; (:reason :query-merge-in-place-only), slice unchanged, no push.
     (rf/reg-route :route/a

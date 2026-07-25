@@ -16,7 +16,8 @@
   Everything here is PURE (or returns telemetry as DATA). The two entry
   points resolve their target differently — the programmatic path has
   three target forms (`:route/id`, `{:url ...}`, URL-string), open-redirect
-  fail-closed gating, params/opts swap detection, `:query-retain` merge,
+  fail-closed gating, params/opts swap detection, the in-place
+  `:query-merge` fold,
   and `route-url` validation/reject; the URL-driven path just matches a
   URL string and carries a default scroll strategy (`:top` forward,
   `:restore` for popstate/SSR). Those input-resolution differences stay
