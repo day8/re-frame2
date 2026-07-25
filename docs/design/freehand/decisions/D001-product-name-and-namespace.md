@@ -42,8 +42,9 @@ Consequences:
 - Distinctive and searchable in prose, source, traces, and package indexes.
 - Communicates that this is a designed authoring surface, not merely a generic
   `view` namespace.
-- Naturally supports small qualified edges such as `re-frame.freehand.host` and
-  `re-frame.freehand.test` without suggesting separate products.
+- Naturally supports small qualified edges such as `re-frame.freehand.test`,
+  `re-frame.freehand.form`, and `re-frame.freehand.controls` without suggesting
+  separate products.
 - Slightly longer when written unaliased; normal code pays none of that because it
   uses `v`.
 

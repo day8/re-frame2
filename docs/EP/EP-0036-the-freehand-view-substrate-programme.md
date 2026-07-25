@@ -117,8 +117,14 @@ not fit the common model disappear rather than opting a view out of parity.
 7. **Proof is honest.** Separate React and JVM emitters may share normalizers but
    prove parity through common conformance values and fixtures.
 
-The detailed D001–D021 rulings are indexed in
+The detailed D001–D022 rulings are indexed in
 `docs/design/freehand/decisions/README.md`.
+
+The accepted 2026-07-26 product-completion delta is recorded in
+`docs/design/freehand/product-completion-setpoint.md`. It extends these laws with
+the sole inward React host door, pure forms and first-party controls, executable
+fixture/tooling authority, and ownership/evidence witnesses. It is additional
+vertical work under this EP, not a second programme.
 
 ### Canonical contract migration
 
@@ -207,9 +213,10 @@ The following are release work, not unresolved product questions:
 - root tests cover the minimal one-root spelling, the same form in structural
   rendering, explicit multi-root identity, frame preflight, hydration, failed-root
   isolation, and total teardown;
-- direct Vega and SpreadJS-class behaviors, Radix and TanStack wrappers, and an
-  AG-Grid-style `v/->react` cell prove all three host shapes without adding neutral
-  hooks, refs, portals, or arbitrary lifecycle callbacks.
+- direct Vega and SpreadJS-class behaviors, D022-declared Radix and TanStack
+  wrappers, and an AG-Grid-style `v/->react` cell prove the behavior, inward-host,
+  and outward-bridge routes without adding neutral hooks, refs, portals, or
+  arbitrary lifecycle callbacks.
 
 ### Conformance and donor deletion gate
 
@@ -291,8 +298,11 @@ External renderer adapters remain independent and are not renamed into Freehand.
 - **State and host boundaries:** re-frame is the only reactive state system;
   semantic controllers, behaviors, and wrappers replace the donor forms that do
   not cross.
-- **D001–D021:** all are ruled;
+- **D001–D022:** all are ruled;
   `docs/design/freehand/decisions/README.md` states each ruling.
+- **Product completion:** DC-01–DC-09 and ER-01–ER-08 are accepted in
+  `docs/design/freehand/product-completion-setpoint.md`; implementation stays
+  inside this programme.
 - **Contract ownership:** existing specs are migrated; `004D` owns the compiled
   grammar; there is no new numbered Freehand family.
 - **Programme shape:** vertical F0–F6 slices replace the seven-spec waterfall.
@@ -301,9 +311,16 @@ External renderer adapters remain independent and are not renamed into Freehand.
 
 ## Open Issues
 
-There are no open product decisions required before implementation. If a slice
-discovers a genuine contradiction, it must propose one explicit amendment to the
-affected ruling or canonical contract; it must not silently preserve both answers.
+There are no open product decisions blocking the accepted implementation work. If
+a slice discovers a genuine contradiction, it must propose one explicit amendment
+to the affected ruling or canonical contract; it must not silently preserve both
+answers.
+
+One operator-level architecture choice is deliberately deferred: the commissioned
+`v/$` comparison may justify replacing compiled Hiccup, but the experiment itself
+does not make that change. `v/->element`, behavior outlets, a reusable async
+helper, and scheduling/equality vocabulary remain evidence-gated rather than open
+prerequisites.
 
 Programme graduation remains open until F6: conformance green, pilots passed,
 evidence current, consumers migrated, and the donor artifact deleted.
@@ -311,10 +328,12 @@ evidence current, consumers migrated, and the donor artifact deleted.
 ## References
 
 - Freehand design record: `docs/design/freehand/README.md`
+- Product-completion setpoint:
+  `docs/design/freehand/product-completion-setpoint.md`
 - Product spine: `docs/design/freehand/codex-design.md`
 - Argued dossier: `docs/design/freehand/fable-design.md`
 - Fitness harness: `docs/design/freehand/studio/fitness-harness.md`
-- Decision register D001–D021: `docs/design/freehand/decisions/README.md`
+- Decision register D001–D022: `docs/design/freehand/decisions/README.md`
 - [EP-0030 — donor programme](EP-0030-the-compiled-view-substrate-program.md)
 - [EP-0031 — donor programming model](EP-0031-re-frame-ui-programming-model.md)
 - [EP-0032 — donor reactivity and ownership](EP-0032-re-frame-ui-reactivity-and-ownership.md)

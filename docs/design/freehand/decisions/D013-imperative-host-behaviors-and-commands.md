@@ -78,8 +78,10 @@ identity.
 
 This decision does not reopen the following points shared by the two designs:
 
-- Freehand has three host shapes: qualified React leaf, registered one-node
-  behavior, and explicit UIx/Helix/React wrapper. A behavior is not a neutral
+- Freehand has two inward host routes: D022's qualified React host descriptor and
+  this decision's registered one-node behavior. A simple React leaf and a
+  hook-owning UIx/Helix/React wrapper are implementation shapes behind the same
+  D022 descriptor, not separate host kinds. A behavior is not a neutral
   hook/effect system.
 - The use site is data: a qualified behavior id plus public configuration and
   outward event intents. The implementation is registered code.
@@ -314,7 +316,7 @@ Unlocks:
 
 ## Source basis
 
-- [Codex design — Three host shapes](../codex-design.md#three-host-shapes) defines
+- [Codex design — Host ownership routes](../codex-design.md#host-ownership-routes) defines
   the minimal registered behavior and its lifecycle laws.
 - [Codex design — React-library integration](../codex-design.md#react-library-integration)
   classifies direct Vega and SpreadJS as behavior-or-wrapper integrations.

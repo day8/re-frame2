@@ -275,7 +275,7 @@ Unlocks:
 
 ## Source basis
 
-- [Codex design — Three host shapes](../codex-design.md#three-host-shapes) keeps
+- [Codex design — Host ownership routes](../codex-design.md#host-ownership-routes) keeps
   portals and React protocols in wrappers while permitting one-node behaviors.
 - [Codex design — Re-implementing re-com](../codex-design.md#re-implementing-re-com)
   selects native top layer plus bounded host behavior for popup/focus/measurement.

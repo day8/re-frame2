@@ -5,12 +5,13 @@ substrate is **Freehand**; its public namespace is `re-frame.freehand`,
 conventionally aliased as `v`.
 
 This is the product spine. It incorporates the ruled
-[`decisions/D001-D021`](decisions/README.md) and defines the target until each
-surface graduates into its canonical specification. It is not a second spec tree:
-after a spec migration lands, that spec owns the contract. Required prototypes,
-pilots, and measurements are acceptance obligations, not open product design. The
-argued dossier, fitness harness, and `re-frame.ui` donor code supply evidence but
-do not independently enlarge Freehand's API.
+[`decisions/D001-D022`](decisions/README.md), as extended by the
+[product-completion setpoint](product-completion-setpoint.md), and defines the
+target until each surface graduates into its canonical specification. It is not a
+second spec tree: after a spec migration lands, that spec owns the contract.
+Required prototypes, pilots, and measurements are acceptance obligations, not
+open product design. The argued dossier, fitness harness, and `re-frame.ui` donor
+code supply evidence but do not independently enlarge Freehand's API.
 
 Notation:
 
@@ -418,12 +419,12 @@ the caret only when the caller's new reset key establishes a new baseline.
 The model and protocol are settled; the portable component claim remains gated by
 the same-value, stale-blur, browser editing, HMR, frame, JVM, multiplicity, orphan,
 and cost harnesses. Dropdown and typeahead pilots may reveal further shared
-controller infrastructure. A high-rate or opaque editor may instead use a qualified
-host-owned wrapper; that is an explicit protocol/performance escape, not generic
-local state.
+controller infrastructure. A high-rate or opaque editor may instead use a
+React-owned wrapper declared through `v/defhost`; that is an explicit
+protocol/performance escape, not generic local state.
 
 Freehand exposes no local-state, ref, effect, or hook forms. React-owned protocols
-use a qualified host leaf or UIx/Helix wrapper.
+stay inside a React component declared through the one D022 host boundary.
 
 ## 4. Common semantics
 
@@ -808,24 +809,26 @@ one-node behavior. Enter/exit retention uses `v/presence`. These intrinsics do n
 own focus policy, keyboard semantics, timers, geometry, or domain lifecycle.
 React portals remain in explicit wrappers; Freehand has no neutral portal primitive
 or target registry. Reconsider one only after multiple non-overlay integrations
-cannot fit a leaf, behavior, outward bridge, or wrapper.
+cannot fit a declared React host, behavior, outward bridge, or explicit nested
+root.
 
-### Three host shapes
+### Host ownership routes
 
 | Shape | Use |
 |---|---|
-| qualified host leaf | React component with values in and callbacks out |
+| declared `v/defhost` | React component with values/callbacks, or a React-owned wrapper using hooks, context, refs, effects, portals, or compound protocols |
 | registered behavior | one DOM node owned by an imperative library with connect/update/disconnect and optional finite commands |
-| UIx/Helix wrapper | React-owned hooks, context, refs, effects, portals, compound cloning, or callback protocols |
+| outward `v/->react` bridge | a foreign React owner needs a stable component value for a declared Freehand view |
 
 Bare React component heads are outside the Freehand tree. A host descriptor names
-the boundary, and a declared wrapper states its structural/SSR policy.
+the boundary and states its structural/SSR policy. Simple leaves and hook-owning
+wrappers are implementation shapes behind the same D022 descriptor kind.
 
 #### Outward React bridge
 
 Some React libraries demand a component value as a prop—for example a grid cell
-renderer or drag overlay. `v/->react` is the outward half of the same wrapper
-boundary, not a fourth host shape:
+renderer or drag overlay. `v/->react` is the outward half of the same ownership
+boundary:
 
 ```clojure
 {:cellRenderer (v/->react person-cell)}
@@ -973,7 +976,8 @@ bus, ref registry, service locator, or catalog of framework-owned behaviors.
 
 This is not a general `on-mount`/`on-unmount` callback. It is a finite host adapter
 protocol. Mapbox, direct Vega, canvas, observers, editors, or direct SpreadJS may
-fit it. Radix context/portals and hook-based React adapters remain wrappers.
+fit it. Radix context/portals and hook-based React adapters remain React-owned
+wrappers registered through `v/defhost`.
 
 ### Roots, structural rendering, and SSR
 
@@ -1004,9 +1008,9 @@ The versioned structural host retains declared view boundaries, public props,
 children, data intents/key maps, presence and top-layer metadata, error boundaries,
 and host behavior/component/command markers. Host internals remain opaque.
 
-A browser-only host leaf uses `client-only` with an explicit fallback. A host with
-real server support can provide an explicit JVM/SSR adapter. A React component does
-not acquire server semantics merely because it can create browser DOM.
+A D022 React host is client-only in v1 and declares either a portable fallback or
+explicit no-server content. Freehand never executes the registered React component
+on the JVM.
 
 ## 6. Compiled mode
 
@@ -1196,16 +1200,16 @@ compatibility exercise; §8 pilots determine completeness.
 
 | Library shape | Representative API | Boundary | Consequence |
 |---|---|---|---|
-| declarative leaf | `react-vega` `spec` and options | qualified React leaf | static chart remains data-oriented |
-| imperative view | Vega View API for data, resize, signals | direct Vega behavior or `react-vega` wrapper | View/listeners private; config/intents visible; disconnect tested |
-| large widget | SpreadJS Workbook from `workbookInitialized`, instance methods, nested sheets | direct Workbook behavior with explicit command target, or React wrapper | one opaque owner; finite commands/events cross a small data API |
+| declarative leaf | `react-vega` `spec` and options | declared `v/defhost` | static chart remains data-oriented |
+| imperative view | Vega View API for data, resize, signals | direct Vega behavior or React-owned wrapper declared by `v/defhost` | View/listeners private; config/intents visible; disconnect tested |
+| large widget | SpreadJS Workbook from `workbookInitialized`, instance methods, nested sheets | direct Workbook behavior with explicit command target, or React-owned wrapper declared by `v/defhost` | one opaque owner; finite commands/events cross a small data API |
 | component-as-prop | AG Grid cell renderer, drag overlay, virtual row component | `v/->react` descriptor bridge with optional top-level prop adapter | stable frame-aware React identity; foreign parameter object projected explicitly |
-| compound/context/ref | Radix `asChild`, prop cloning, forwarded refs, portals | UIx/React wrapper | do not emulate React composition in neutral Hiccup |
-| headless hook adapter | TanStack `useReactTable` over framework-neutral core | core as value logic or hook wrapper | do not recreate hooks; state in, intent out |
-| simple controlled control | date picker/select value + callback | qualified leaf with `v/event` | no bespoke adapter per leaf |
+| compound/context/ref | Radix `asChild`, prop cloning, forwarded refs, portals | React-owned wrapper declared by `v/defhost` | do not emulate React composition in neutral Hiccup |
+| headless hook adapter | TanStack `useReactTable` over framework-neutral core | core as value logic or React-owned `v/defhost` wrapper | do not recreate hooks; state in, intent out |
+| simple controlled control | date picker/select value + callback | declared `v/defhost` with `v/event` | no bespoke adapter per leaf |
 
-These cases fit the three host shapes. They do not justify neutral refs, effects,
-hooks, or arbitrary mount callbacks.
+These cases fit the ownership routes above. They do not justify neutral refs,
+effects, hooks, or arbitrary mount callbacks.
 
 ### Testing
 

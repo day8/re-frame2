@@ -230,6 +230,36 @@ The smallest future experiment should be an enforced empty-read declaration for 
 props-only boundary, with any `v/sub` rejected. It can test the value of static
 read contracts without first inventing placeholder interpolation.
 
+## 2026-07-26 amendment — test-render subscription overrides
+
+Mike accepted one development/testing substitution seam under
+`re-frame.freehand.test`. It preserves Story's useful ability to show an error,
+loading, empty, or other difficult view state without replaying the full event
+history. It does not introduce `:reads`, application state, or a production
+`v/*` API.
+
+The contract is deliberately narrow:
+
+1. An override key is the entire subscription query vector, compared by ordinary
+   equality. There are no prefixes, patterns, predicates, or fallback matching.
+2. A matching `v/sub` inside the explicit test/Story render bracket reads the
+   pinned value. A miss takes the ordinary subscription path.
+3. The override map never mutates app-db, registration state, or the subscription
+   cache and never satisfies a subscription assertion. A derivation test still
+   tests the real subscription.
+4. The seam and its React carriage are development/test-only and production
+   elided. Installation and cleanup are bracket-owned and exact.
+5. Story records `:sub-overrides` as a lower-fidelity rendering rung. Freehand
+   evidence uses the existing `:basis :declaration` and a test-render scope, with
+   explicit loss such as `{:reason :subscription-resolution-substituted}`; it
+   does not invent a fifth evidence basis or claim that real subscription logic
+   ran.
+
+Spec 008 owns the mounted/structural test contract when the implementation slice
+lands. The Story provider, `re-frame.freehand.test` facade, Spec 008 text, mounted
+proof, and programmer guide move together. Until then, the shipped guide remains
+honest about the currently absent Freehand seam.
+
 ## Tool contract to settle now
 
 The initial evidence schema should distinguish:

@@ -1,6 +1,6 @@
 # Freehand decision register
 
-All twenty-one Freehand product decisions are **Ruled**. The files in this
+All twenty-two Freehand product decisions are **Ruled**. The files in this
 directory explain the problem, alternatives, consequences, and rationale; their
 header states the operative ruling so an implementer does not have to infer it
 from a recommendation section.
@@ -16,12 +16,15 @@ Use these sources according to the question being answered:
 1. An explicit operator ruling controls.
 2. [EP-0036](../../../EP/EP-0036-the-freehand-view-substrate-programme.md)
    controls product topology, programme ownership, migration, and gates.
-3. A canonical specification controls a surface once its Freehand migration has
+3. The accepted
+   [product-completion setpoint](../product-completion-setpoint.md) records the
+   2026-07-26 completion rulings until their vertical slices graduate.
+4. A canonical specification controls a surface once its Freehand migration has
    landed. Until then, the existing specification describes the donor-era shipped
    contract and [`codex-design.md`](../codex-design.md) describes the ratified
    Freehand target.
-4. This register records the individual rulings and their rationale.
-5. [`fable-design.md`](../fable-design.md) and the
+5. This register records the individual rulings and their rationale.
+6. [`fable-design.md`](../fable-design.md) and the
    [fitness harness](../studio/fitness-harness.md) supply worked examples,
    evidence, failure modes, and acceptance pressure. They do not add API.
 
@@ -32,7 +35,8 @@ code; after that migration there is one owner.
 ## Settled foundations
 
 - The product is Freehand, published through `re-frame.freehand` with alias `v`
-  and no second public namespace.
+  and no second product root or alternative primary facade. Qualified edge
+  namespaces such as `.test`, `.form`, and `.controls` remain part of Freehand.
 - Freehand is one re-frame-native substrate with interpreted and compiled modes;
   the compiled mode is required.
 - The useful `re-frame.ui` machinery is absorbed as the compiled mode's
@@ -76,6 +80,7 @@ code; after that migration there is one owner.
 | [D019](D019-error-boundaries-and-production-reports.md) | resettable error boundary, once-per-generation safe intent, and private frame error egress |
 | [D020](D020-tool-evidence-retention-and-warning-policy.md) | one occurrence-keyed evidence schema and the existing Spec 009 retention axis |
 | [D021](D021-performance-budgets-and-release-evidence.md) | deterministic release gates plus mandatory published timing/byte evidence without fixed thresholds |
+| [D022](D022-public-react-host-door.md) | sole inward React door is one declared `v/defhost` descriptor kind; no runtime `v/host` or `v/react-el` |
 
 ## Implementation horizons
 
@@ -90,6 +95,9 @@ design.
   error, and tooling slices.
 - **Continuous release evidence:** D021 applies from the first runnable B1–B5
   fixture and cannot weaken a semantic or browser-correctness gate.
+- **Product-completion slices:** D022 and the accepted completion setpoint add the
+  declared React host, forms/controls, executable fixture spine, and integration
+  witnesses without reopening the original topology.
 
 Dependency constraints remain small and explicit: D003 precedes the controller
 work governed by D004/D016; D006–D009 precede the controlled-input proof; D013
