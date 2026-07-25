@@ -196,22 +196,27 @@
   A real app's client and server entry points register the arm appropriate to
   their host; splitting it here is that same split, not a test convenience.
 
-  `:sensitive` is re-declared on the replacement, because trace classification
-  rides the REGISTRATION and not the id: the framework's default declares
-  `[[:requested-url] [:destination] [:target]]` so the denial's URL carriers
-  are redacted in trace copies, and an app handler that drops the metadata
-  drops the redaction with it (Spec 012 §Replaceable framework defaults)."
+  BEHAVIOUR ONLY — no metadata map, which is the whole recipe. The denial
+  payload's URL carriers (`:requested-url` / `:destination` / `:target`) embed
+  query values and path params, and their `:sensitive` classification is a fact
+  about the FRAMEWORK's payload shape rather than something the application is
+  asked to restate, so it rides across a behaviour override and an app that
+  declares its own paths gets the union (Spec 012 §Replaceable framework
+  defaults; rf2-kqxe6.20). Redaction at actual egress under exactly this bare
+  spelling is proven upstream by
+  `re-frame.routing-egress-test/public-entry-denied-override-still-redacts-carriers-on-egress`,
+  so this app cites that contract instead of re-asserting it — and models the
+  recipe with no boilerplate, because an exercise app is copied."
   [arm]
-  (let [sensitive {:sensitive [[:requested-url] [:destination] [:target]]}]
-    (case arm
-      :none nil
-      :client (rf/reg-event :rf.route/entry-denied sensitive
-                            (fn [{:keys [db]} [_ {:keys [destination]}]]
-                              {:db (assoc-in db [:conduit/session :return-to] destination)
-                               :fx [[:dispatch [:rf.route/navigate
-                                                {:to :conduit/login :replace? true}]]]}))
-      :server (rf/reg-event :rf.route/entry-denied sensitive
-                            (fn [_ _] {:fx [[:rf.server/redirect {:location "/login"}]]})))))
+  (case arm
+    :none nil
+    :client (rf/reg-event :rf.route/entry-denied
+                          (fn [{:keys [db]} [_ {:keys [destination]}]]
+                            {:db (assoc-in db [:conduit/session :return-to] destination)
+                             :fx [[:dispatch [:rf.route/navigate
+                                              {:to :conduit/login :replace? true}]]]}))
+    :server (rf/reg-event :rf.route/entry-denied
+                          (fn [_ _] {:fx [[:rf.server/redirect {:location "/login"}]]}))))
 
 (defn- stub-host-fx! []
   (reset! pushed [])
@@ -614,9 +619,7 @@
     (let [app (seal-frame! {:frame-id :conduit/late-arm})
           seen (atom [])]
       (rf/dispatch-sync [:rf.route/navigate {:to :conduit/feed}] {:frame app})
-      (rf/reg-event :rf.route/entry-denied
-                    {:sensitive [[:requested-url] [:destination] [:target]]}
-                    (fn [_ [_ d]] (swap! seen conj d) {}))
+      (rf/reg-event :rf.route/entry-denied (fn [_ [_ d]] (swap! seen conj d) {}))
       (rf/dispatch-sync [:rf.route/navigate {:to :conduit/settings}] {:frame app})
       (is (= 1 (count @seen))
           "the late registration received the denial on the already-sealed frame")
