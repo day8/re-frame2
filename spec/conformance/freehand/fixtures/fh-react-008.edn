@@ -1,0 +1,68 @@
+;; FH-REACT-008 — the host's structural projection, its SSR policy, and the
+;; compiled build refusal.
+;;
+;; Freehand never runs the registered React component on the JVM, so what a
+;; structural render owes is an honest statement of identity and of LOSS.
+;; The three slots below are each chosen against a way the node could lie:
+;; `:children` folds to HTML so it carries only what the server can honestly
+;; emit; the caller's children are counted rather than walked because where
+;; React places them is React's business; and a `:map-props` adapter's output
+;; is reported as present rather than recorded, because the adapter exists to
+;; build values a portable tree cannot print.
+{:fh/id "FH-REACT-008"
+ :fh/law
+ "A host crossing renders structurally as an honest marker — the declared host id, the declared SSR policy, the AUTHORED ordinary props with a carrier recording as its opaque role marker, a COUNT of the children that crossed into React's tree, and a :children slot carrying only the SSR projection (the declared fallback, or nothing) — never a host value, a React element, a function or a third-party instance; v/render-static refuses the crossing; and a {:compiled true} parent that mounts a host refuses at BUILD with :rf.ui.compile/host-crossing-unsupported naming the source and a recovery, rather than accepting the view or silently walking it interpreted."
+
+ :projections
+ [{:case        "a client-only host emits identity and no server content"
+   :host        :fixture/client-only-host
+   :props       {:spec "bar" :data [1 2 3]}
+   :node        {:rf.ui/host          :fixture/client-only-host-id
+                 :rf.ui/host-ssr      :client-only
+                 :props               {:spec "bar" :data [1 2 3]}
+                 :children            []}}
+  {:case        "a declared callback records as its OPAQUE ROLE marker, never as a function"
+   :host        :fixture/planes-host
+   :props       {:onSelect :fixture/event-carrier}
+   :node        {:rf.ui/host     :fixture/planes-host-id
+                 :rf.ui/host-ssr :client-only
+                 :props          {:onSelect {:rf.ui/opaque :v/event}}
+                 :children       []}}
+  {:case        "a fallback host renders the DECLARED fallback as its server content"
+   :host        :fixture/fallback-host
+   :props       {}
+   :node        {:rf.ui/host     :fixture/fallback-host-id
+                 :rf.ui/host-ssr :fallback
+                 :children       [{:tag :div :attrs {:class "chart-placeholder"}}]}}
+  {:case        "crossed children are COUNTED, not walked"
+   :host        :fixture/planes-host
+   :props       {}
+   :children    2
+   :node        {:rf.ui/host          :fixture/planes-host-id
+                 :rf.ui/host-ssr      :client-only
+                 :rf.ui/host-children 2
+                 :children            []}}
+  {:case        "a declared :map-props adapter is REPORTED, and its output is not recorded"
+   :host        :fixture/mapped-host
+   :props       {:data [1 2 3]}
+   :node        {:rf.ui/host           :fixture/mapped-host-id
+                 :rf.ui/host-ssr       :client-only
+                 :rf.ui/host-map-props true
+                 :props                {:data [1 2 3]}
+                 :children             []}}]
+
+ ;; The static-HTML fold owns no client, so the crossing is refused rather
+ ;; than folded to its stand-in — the law v/behavior is refused on.
+ :render-static {:error-id   :rf.error/static-render-requires-runtime
+                 :capability :host}
+
+ ;; The compiled tier RECOGNIZES the head and refuses the crossing. Both
+ ;; wrong answers are worse: emitting a foreign component call hands React a
+ ;; Freehand descriptor as an element type, and walking the subtree
+ ;; interpreted produces a manifest describing markup that is not what runs.
+ :compiled {:error-id :rf.ui.compile/host-crossing-unsupported
+            :names    ["compiled view mounts the declared host"
+                       "cannot yet lower a v/defhost crossing"
+                       "will not accept the view and fail at render instead"
+                       "{:compiled true}"
+                       "interpreted"]}}

@@ -304,7 +304,15 @@
         spelling (descriptor/host-ssr-spelling ssr)]
     (node/host (:host-id entry)
                spelling
-               (:props call)
+               ;; The ordinary plane and the FILLED declared positions, folded
+               ;; back into one recorded map. The planes are disjoint at the
+               ;; CALL, where the split decides what each emitter does with
+               ;; them; they are not disjoint in the RECORD, where a filled
+               ;; callback position is public evidence and its absence would
+               ;; leave the structural tree silent about the half of the
+               ;; crossing most worth asserting. Each carrier records as its
+               ;; opaque role marker, never as a function.
+               (merge (:props call) (:callbacks call))
                (contains? entry :map-props)
                (:keyed? call)
                (:key call)

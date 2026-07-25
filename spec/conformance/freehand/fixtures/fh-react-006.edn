@@ -1,0 +1,46 @@
+;; FH-REACT-006 — `v/defhost` is the SOLE inward React host door.
+;;
+;; The row this fixture proves is about a SURFACE, not a render. Before the
+;; door landed, vector-head classification already had three legal answers
+;; and one of them was "a declared host descriptor" — the diagnostic that
+;; refuses a bad head says so in its own message — while NO public verb
+;; produced one. An adopter could read what a host boundary was and could
+;; not build one.
+;;
+;; So the law has two halves and both need proving. `v/defhost` mints the
+;; head (`:mints`), and NOTHING ELSE does (`:absent` plus `:pre-door-value`).
+;; The absent names are D022's rejected alternatives, spelled here rather
+;; than described: each would be the same crossing under a second spelling,
+;; with a second set of laws to keep in step.
+{:fh/id "FH-REACT-006"
+ :fh/law
+ "v/defhost is the sole public verb that mints Freehand's third legal vector head: a declaration produces one stable, qualified, NON-CALLABLE host descriptor that classifies as :host, a direct call on it raises :rf.error/view-called-directly rather than answering nil, the pre-door marked map is an ordinary map and an error head, and no other name on the door mints or names a host boundary."
+
+ ;; The head the declaration mints, and how it classifies.
+ :mints
+ {:head        :fixture/declared-host
+  :classifies  :host
+  :predicate   true
+  :direct-call {:error-id :rf.error/view-called-directly}}
+
+ ;; The value the pilot used to reach PAST the door with, while the door had
+ ;; nothing behind it. Nominality is what makes it an ordinary map now.
+ :pre-door-value
+ {:value {:re-frame.freehand/host true :component "AcmeChart"}
+  :predicate false
+  :classifies :error
+  :error-id   :rf.error/view-bad-head}
+
+ ;; Names that MUST NOT appear on the public door. Each is rejected by name
+ ;; in D022 §Alternatives considered.
+ :absent ["host" "react-el" "->element"]
+
+ ;; The one name that MUST appear. Stated positively so a rename of the verb
+ ;; reds this row rather than passing vacuously through the absence list.
+ :present ["defhost"]
+
+ ;; Every declaration states these; there is no default for either, because
+ ;; a default would be the substrate choosing a server behaviour silently.
+ :required-options [:children :ssr]
+ :closed-options   [:callbacks :children :ssr :map-props :props]
+ :declaration-error-id :rf.ui.compile/bad-defhost}
