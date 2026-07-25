@@ -4400,7 +4400,7 @@ The harness runs every fixture whose `:fixture/capabilities` is a subset of the 
 {:operation :rf.error/machine-grammar-not-in-v1
  :op-type   :error
  :tags      {:category   :rf.error/machine-grammar-not-in-v1
-             :failing-id <machine-id>
+             :machine-id <machine-id>            ;; the registered TYPE — the machine family's attribution slot
              :feature    <unsupported-key>             ;; e.g. :after, :type :history
              :reason     "Transition-table feature `<X>` is not in this implementation's claimed capability list. See [§Capability matrix](#capability-matrix)."}
  :recovery  :no-recovery}                              ;; registration is rejected — the handler is not installed

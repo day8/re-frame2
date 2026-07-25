@@ -919,7 +919,7 @@ The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing
 
 Each error / warning category enumerated in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) has a registered Malli schema describing its `:tags` payload, so consumers can validate without ad-hoc parsing. The schemas below are the canonical CLJS-reference shapes; ports translate them mechanically into the host's schema language (per [§Scope](#scope)).
 
-Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from the `:rf/error-event` envelope above; the per-category schemas below describe the *additional* category-specific keys. `:category` is inherited only on the `:error` branch (`build-event` synthesizes it there and nowhere else), so a schema below for a `:warning` / `:info` / run-body category does not declare it — that category rides the envelope's top-level `:operation`. No schema below declares `:recovery`: it is hoisted out of `:tags` to the envelope top level on every branch. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
+Which slots are **envelope-level** — and therefore never a per-category key — is stated once, in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) under *Reading the two right-hand columns*. This section does not restate it. The schemas below are **standalone**: each declares every `:tags` key its category actually carries, including the ones the `:rf/error-event` envelope above already types (`:category`, `:failing-id`, `:reason`, `:frame`), so one schema validates a real tags map on its own without being composed with the envelope. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
 
 ```clojure
 ;; --- runtime: handler / sub / fx / interceptor exceptions ---
@@ -1448,8 +1448,8 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:offending-value :any]])
 
 (def MachineGrammarNotInV1Tags
-  ;; No `:substitute` slot: [005 §Capability matrix](005-StateMachines.md#capability-matrix)
-  ;; states this category's tag map exactly, and the substitute PATTERN for an
+  ;; No `:substitute` slot: the [009 catalogue row](009-Instrumentation.md#error-event-catalogue)
+  ;; is the tag roster, and the substitute PATTERN for an
   ;; unclaimed feature is prose in CP-5-MachineGuide, not a payload key. The v1
   ;; CLJS reference claims every capability, so it never emits this row — a
   ;; PORT that declines one does, and it has no substitute string to supply.
