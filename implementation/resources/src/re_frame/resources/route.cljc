@@ -343,8 +343,10 @@
   Its commit-time sibling is `re-frame.routing.readiness/project-at-commit`,
   which seeds the slice from the plan's blocking set in ROUTING vocabulary
   (plan-error / blocking / usable-data). Packaging requires two sites rather
-  than one shared fn — see the block comment above — so the table below and
-  that namespace's table must be edited together.
+  than one shared fn — see that namespace's docstring — so the table below and
+  its table must be edited together. `re-frame.readiness-projector-conformance-
+  cljs-test` is the guard that makes 'must' enforceable: it drives every Spec
+  012 input class through both halves and fails on a divergence.
 
   The projection (Spec 012 §Route readiness is a resource projection):
 
