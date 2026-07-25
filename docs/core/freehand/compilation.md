@@ -76,7 +76,8 @@ not a quota or a badge.
 ```
 
 Call sites stay `[todo-row props]`. Structural tests do not change. The public var
-remains a **descriptor** (not `IFn`) — you never `(todo-row {})`.
+remains a **descriptor** — mounted, never invoked. `(todo-row {})` does not
+render; it raises `:rf.error/view-called-directly`, naming the three recoveries.
 
 The grammar version is artifact-wide (`:re-frame.freehand/v1`), carried on findings
 and manifests. It is **not** a per-view compatibility profile between products, and
@@ -370,7 +371,8 @@ Mechanically:
 - Compiled parent → **statically named** interpreted child: fine (emitted boundary).
 - Compiled parent → runtime-chosen head: put the dynamic choice **inside** an
   interpreted child, or stay interpreted.
-- Direct call `(view props)`: always wrong (descriptor is not `IFn`).
+- Direct call `(view props)`: always wrong — the descriptor answers it with
+  `:rf.error/view-called-directly` rather than rendering.
 
 ### Evidence: static vs realized
 

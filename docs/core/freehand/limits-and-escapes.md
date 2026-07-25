@@ -15,7 +15,7 @@ This page is a map of walls and recoveries.
 | You cannot | Why | Do this instead |
 |---|---|---|
 | Vector-call a bare `defn` | boundaries are declared descriptors | `v/defview` + `[view props]`, or call the helper with parens |
-| Direct-call a `v/defview` | public vars are not `IFn` | `[view props]` |
+| Direct-call a `v/defview` | a declared boundary is mounted, never invoked; the call raises `:rf.error/view-called-directly` | `[view props]` |
 | Use `v/sub` outside a declared render | render-only observation | `rf/subscribe-once` |
 | Call `v/sub` off the render thread | capture is same-thread only | realize on the render thread or extract a child view |
 | Put multi-intent vectors in handlers | one event per user action | one semantic event + effects |
