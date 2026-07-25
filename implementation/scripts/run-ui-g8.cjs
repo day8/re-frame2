@@ -227,9 +227,16 @@ function runMutationTeeth() {
 // it false, and a vacuous (zero) baseline is rejected as a broken measurement.
 // These teeth run over SYNTHETIC arrays — they prove the comparison is
 // non-vacuous WITHOUT ever gating the real measured latency.
+//
+// rf2-yumaq added the fourth tooth. A baseline that rounds to 0 ms USED to kill
+// the whole gate ("baseline p95 must be a positive finite number: 0") — a red
+// indistinguishable from a real browser failure, produced because the reference
+// was too FAST. It now reports a skipped comparison; the tooth pins that the
+// skip is stated and, crucially, that it does NOT report `within-10pct` true.
 function runBudgetTeeth() {
   const tight = Array(RECORDED_SAMPLES).fill(1.0);
   const overBudget = Array(RECORDED_SAMPLES).fill(2.0); // 2x the baseline p95
+  const zero = Array(RECORDED_SAMPLES).fill(0); // baseline below timer resolution
   const teeth = [];
   const ok = engineLatencyEvidence('synthetic', tight, tight);
   if (ok['within-10pct'] !== true) {
@@ -241,9 +248,20 @@ function runBudgetTeeth() {
     fail('budget tooth did not bite: a 2x compiled p95 was still reported within 10%');
   }
   teeth.push('over-budget compiled p95 (2x baseline) flagged outside 10%');
-  teeth.push(expectRejected('a zero baseline p95 is rejected as a broken measurement', () => {
+  teeth.push(expectRejected('a zero baseline p95 is rejected by the raw budget math', () => {
     withinBudget(1.0, 0);
   }));
+  const tooFast = engineLatencyEvidence('synthetic', tight, zero);
+  if (tooFast.comparison !== 'skipped') {
+    fail('too-fast tooth: a zero baseline p95 did not report a SKIPPED comparison');
+  }
+  if (tooFast['within-10pct'] !== null || tooFast['p95-ratio'] !== null) {
+    fail('too-fast tooth: a skipped comparison must report null ratio and null within-10pct, never a verdict');
+  }
+  if (!tooFast['comparison-reason']) {
+    fail('too-fast tooth: a skipped comparison must state its reason');
+  }
+  teeth.push(`zero baseline p95 skipped with a stated reason (${tooFast['comparison-reason']})`);
   return teeth;
 }
 
@@ -374,10 +392,14 @@ async function main() {
         const label = ch === 'commit'
           ? 'commit (true event-to-commit)'
           : 'settlement (former metric)';
+        // A skipped comparison has a null ratio — say so, with the reason.
+        const verdict = ev.comparison === 'skipped'
+          ? `ratio n/a — ${ev['comparison-reason']}`
+          : `ratio ${ev['p95-ratio'].toFixed(3)}, within-10% ${ev['within-10pct']}`;
         console.log(
           `  [${e.engine}] ${label} p95: compiled ${ev.compiled['p95-ms'].toFixed(3)}ms ` +
             `vs hand-written ${ev.handwritten['p95-ms'].toFixed(3)}ms ` +
-            `(ratio ${ev['p95-ratio'].toFixed(3)}, within-10% ${ev['within-10pct']}) — evidence only`,
+            `(${verdict}) — evidence only`,
         );
       }
     }

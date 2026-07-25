@@ -37,6 +37,7 @@ const {
   PERCENTILE_CONVENTION,
   RATIO_BUDGET,
   NOISE_POLICY,
+  ZERO_BASELINE_REASON,
   CHANNELS,
   latencyPercentile,
   validateLatencySamples,
@@ -165,6 +166,39 @@ test('engineLatencyEvidence flips within-10% to false when compiled p95 crosses 
   assert.equal(e['within-10pct'], false);
 });
 
+// ----- rf2-yumaq: a baseline that is TOO FAST must not redden the gate -------
+
+test('engineLatencyEvidence SKIPS the comparison when the baseline p95 is 0 (too fast to compare)', () => {
+  const e = engineLatencyEvidence('chromium', fill25(1.0), fill25(0));
+  assert.equal(e.comparison, 'skipped');
+  assert.equal(e['p95-ratio'], null);
+  assert.equal(e['within-10pct'], null); // NOT true — a skip is never a verdict
+  assert.equal(e['comparison-reason'], ZERO_BASELINE_REASON);
+  assert.match(e['comparison-reason'], /too fast to compare/);
+  // Both distributions are still recorded — the skip hides nothing.
+  assert.equal(e.compiled['p95-ms'], 1.0);
+  assert.equal(e.handwritten['p95-ms'], 0);
+  assert.deepEqual(e.handwritten['raw-ms'], fill25(0));
+});
+
+test('engineLatencyEvidence marks a real comparison as compared, with no skip reason', () => {
+  const e = engineLatencyEvidence('webkit', fill25(1.0), fill25(1.0));
+  assert.equal(e.comparison, 'compared');
+  assert.equal(e['comparison-reason'], null);
+});
+
+test('a zero COMPILED p95 still compares — only the denominator can be missing', () => {
+  const e = engineLatencyEvidence('chromium', fill25(0), fill25(1.0));
+  assert.equal(e.comparison, 'compared');
+  assert.equal(e['p95-ratio'], 0);
+  assert.equal(e['within-10pct'], true);
+});
+
+test('withinBudget / p95Ratio stay STRICT on a zero denominator (the runner tooth still bites)', () => {
+  assert.throws(() => withinBudget(1.0, 0), /positive finite/);
+  assert.throws(() => p95Ratio(1.0, 0), /positive finite/);
+});
+
 test('engineLatencyEvidence validates BOTH raw arrays (a malformed one fails loudly)', () => {
   assert.throws(() => engineLatencyEvidence('chromium', fill25(1).slice(0, 10), fill25(1)), /exactly 25/);
   assert.throws(() => engineLatencyEvidence('chromium', fill25(1), fill25(1).slice(0, 10)), /exactly 25/);
@@ -253,6 +287,27 @@ test('buildPerformanceSummary reports an over-budget commit channel as observed-
   });
   const md = buildPerformanceSummary([over]);
   assert.match(md, /\| chromium \| commit \| 2\.000 \| 1\.000 \| 2\.000 \| observed over \|/);
+});
+
+test('buildPerformanceSummary renders a skipped channel as n/a + not-compared, never a ✓ (rf2-yumaq)', () => {
+  const tooFast = engineLatencyChannels('chromium', {
+    ...fixtureLatency(),
+    'handwritten-commit-raw-ms': fill25(0), // baseline below the timer resolution
+  });
+  const md = buildPerformanceSummary([tooFast]);
+  assert.match(md, /\| chromium \| commit \| 1\.200 \| 0\.000 \| n\/a \| not compared \|/);
+  // The reason is STATED in the packet, not left as a bare blank cell.
+  assert.equal(md.includes(ZERO_BASELINE_REASON), true);
+  // The other channel is unaffected and still carries its real numbers.
+  assert.match(md, /\| chromium \| settlement \| 5\.000 \| 4\.000 \| 1\.250 \| observed over \|/);
+  // A skip must never be dressed up as a pass.
+  assert.equal(/\| chromium \| commit \|[^\n]*✓/.test(md), false);
+});
+
+test('buildPerformanceSummary omits the skip footnote when every channel compared', () => {
+  const md = buildPerformanceSummary(twoEngineEvidence());
+  assert.equal(md.includes(ZERO_BASELINE_REASON), false);
+  assert.equal(md.includes('not compared'), false);
 });
 
 test('buildPerformanceSummary rejects an empty per-engine set', () => {
