@@ -18,7 +18,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those the MCP form is `e
 - [Reading what's on screen — two planes (`read-dom` vs `read-ui`)](#reading-whats-on-screen--two-planes-read-dom-vs-read-ui)
   - [View → rendered content + producing entity (`ui/read`)](#view--rendered-content--producing-entity-uiread)
   - [`read-dom` — raw DOM content by explicit CSS selector](#read-dom--raw-dom-content-by-explicit-css-selector)
-- [Compiled-view inspection — manifest, mounted set, render cause](#compiled-view-inspection--manifest-mounted-set-render-cause)
+- [Freehand view inspection — manifest, connected set, render cause](#freehand-view-inspection--manifest-connected-set-render-cause)
 - [Live watch (push-mode)](#live-watch-push-mode)
 - [Signal recording + blocking waits](#signal-recording--blocking-waits)
 - [Hot-reload coordination](#hot-reload-coordination)
@@ -136,7 +136,7 @@ Two rendered-state reads at **different layers** — NOT duplicates:
 - **`read-dom` = the raw DOM plane.** A CSS selector → matched nodes `{:tag :text :attrs}`. Multi-node, exact, **no re-frame2 awareness**. *"What does this exact node SAY?"*
 - **`read-ui` = the re-frame2 view plane.** Rides the `data-rf-view` map → content **PLUS the producing entity** (view-id, source-coord, subs-read, render-key). *"What is this view, and what produced it?"*
 
-Both read what the app **rendered**. When the question is instead what a compiled view *declares*, which incarnations are mounted, or why one re-rendered, that is the [compiled-view tier](#compiled-view-inspection--manifest-mounted-set-render-cause) below.
+Both read what the app **rendered**. When the question is instead what a compiled view *declares*, which incarnations are mounted, or why one re-rendered, that is the [Freehand tool tier](#freehand-view-inspection--manifest-connected-set-render-cause) below.
 
 **When to use which:** `read-dom` when you already have a CSS selector, want raw content across N matched nodes, and don't need provenance; `read-ui` when you want a view's content **and** its re-frame2 entity (which subs feed it, where it's defined) in one round-trip — or when you only have a view-id / screen point rather than a selector. Both apply per-node text caps at the source and emit the same `:rf.size/large-elided` marker for over-cap text. Both call the same preloaded runtime ns (`re-frame2-pair.runtime/dom-read` / `…/ui-read`) and share one per-node projection, so content shapes stay aligned.
 
