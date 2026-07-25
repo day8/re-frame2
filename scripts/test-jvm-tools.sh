@@ -17,7 +17,7 @@ tools=(
   # its source paths cannot load it, and the artefact was on neither JVM
   # roster — its tests ran in no lane at all, in CI or locally. Listed here
   # (the whole suite is seconds) so the lane exists; the matching CI job is
-  # tracked separately (rf2-a6r1t).
+  # tracked separately (rf2-as6bg).
   tools/testbed-support
   tools/mcp-conformance/wire-vocab
 )
