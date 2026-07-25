@@ -913,7 +913,7 @@
   spells `onChange` is written `:onChange`. D022: \"There is no automatic
   case conversion, deep Clojure-to-JavaScript conversion, callback
   inference, or per-prop conversion language.\""
-  [cand host-id ordinary callbacks]
+  [cand ordinary callbacks]
   (let [o (js-obj)]
     (reduce-kv (fn [_ k v] (gobj/set o (if (keyword? k) (name k) (str k)) v) nil)
                nil ordinary)
@@ -941,44 +941,42 @@
   "The real React element for a host crossing — the registered component,
   its props, and the caller's children as ordinary React children in that
   component's own tree (so the tree's context reaches them)."
-  [cand head]
-  (fn [{:keys [props callbacks] kid-forms :children}]
-    (let [entry     (descriptor/host-entry head)
+  [cand head {:keys [props callbacks] kid-forms :children}]
+  (let [entry     (descriptor/host-entry head)
           host-id   (:host-id entry)
           component (:component entry)
-          mapper    (:map-props entry)
-          ordinary  (if mapper (mapper props) props)]
-      (when (nil? component)
+        mapper    (:map-props entry)
+        ordinary  (if mapper (mapper props) props)]
+    (when (nil? component)
+      (malformed!
+        (str "The host " host-id " registered no React component. A host declaration "
+             "carries its component only on a ClojureScript expansion — there is no "
+             "React on the JVM — so this descriptor was built by a Clojure load of "
+             "the declaring namespace and cannot cross in the browser. Require the "
+             "declaring namespace from ClojureScript.")
+        {:host host-id}))
+    (when-not (map? ordinary)
+      (malformed!
+        (str "The :map-props adapter on " host-id " answered a "
+             (type-name ordinary) ". It prepares the ordinary-props MAP and must "
+             "answer one — it is not a place to build the element.")
+        {:host host-id}))
+    (let [reserved (vec (sort (filter (fn [k] (or (contains? (:callbacks entry) k)
+                                                  (= :key k)
+                                                  (= :children k)))
+                                      (keys ordinary))))]
+      (when (seq reserved)
         (malformed!
-          (str "The host " host-id " registered no React component. A host declaration "
-               "carries its component only on a ClojureScript expansion — there is no "
-               "React on the JVM — so this descriptor was built by a Clojure load of "
-               "the declaring namespace and cannot cross in the browser. Require the "
-               "declaring namespace from ClojureScript.")
-          {:host host-id}))
-      (when-not (map? ordinary)
-        (malformed!
-          (str "The :map-props adapter on " host-id " answered a "
-               (type-name ordinary) ". It prepares the ordinary-props MAP and must "
-               "answer one — it is not a place to build the element.")
-          {:host host-id}))
-      (let [reserved (vec (sort (filter (fn [k] (or (contains? callbacks k)
-                                                    (contains? (:callbacks entry) k)
-                                                    (= :key k)
-                                                    (= :children k)))
-                                        (keys ordinary))))]
-        (when (seq reserved)
-          (malformed!
-            (str "The :map-props adapter on " host-id " returned " (pr-str reserved)
-                 ". The adapter owns the ORDINARY plane only: declared callbacks, "
-                 "children, the key and every other reserved Freehand fact are "
-                 "withheld from it and installed afterwards, so it can neither "
-                 "supply nor replace one.")
-            {:host host-id :reserved reserved})))
-      (apply react/createElement
-             component
-             (host-props cand host-id ordinary callbacks)
-             (children cand kid-forms)))))
+          (str "The :map-props adapter on " host-id " returned " (pr-str reserved)
+               ". The adapter owns the ORDINARY plane only: declared callbacks, "
+               "children, the key and every other reserved Freehand fact are "
+               "withheld from it and installed afterwards, so it can neither "
+               "supply nor replace one.")
+          {:host host-id :reserved reserved})))
+    (apply react/createElement
+           component
+           (host-props cand ordinary callbacks)
+           (children cand kid-forms))))
 
 (defn- host-node
   "A `v/defhost` crossing in interpreted markup.
@@ -994,13 +992,20 @@
   (let [entry    (descriptor/host-entry head)
         call     (descriptor/normalize-host-call head (rest form))
         ssr      (:ssr entry)
-        el       ((host-element cand head) call)
-        el       (if (:keyed? call)
-                   (react/cloneElement el #js {:key (:key call)})
-                   el)]
-    (if (= :fallback (descriptor/host-ssr-spelling ssr))
-      (phase/boundary (emit cand (:fallback ssr)) el)
-      (phase/boundary nil el))))
+        el       (host-element cand head call)
+        outer    (if (= :fallback (descriptor/host-ssr-spelling ssr))
+                   (phase/boundary (emit cand (:fallback ssr)) el)
+                   (phase/boundary nil el))]
+    ;; The key rides the OUTER element, because that is the one that sits in
+    ;; the parent's children array and is what React reconciles siblings by.
+    ;; Keying the inner host element instead would key a value React only
+    ;; ever sees as the phase boundary's single child — legal, and useless.
+    ;; Key PRESENCE, not key truth: `normalize-host-call` reports `:keyed?`
+    ;; because React string-coerces a supplied key, so an explicit nil is the
+    ;; identity "null" and a different authored fact from no key at all.
+    (if (:keyed? call)
+      (react/cloneElement outer #js {:key (:key call)})
+      outer)))
 
 (defn- node
   [cand form]
