@@ -2,10 +2,13 @@
 ;; roster, and a finding is governed as a FINDING rather than as a site.
 ;;
 ;; `:diagnostics` is the one manifest roster whose entries are not lexical
-;; sites. The other six name a form the compiler READ — a `sub`, an event
-;; handler, a slot, a `(frame)` read, a `v/html`, a view crossing — and so own
-;; the `{:file :line :column}` source coordinate FH-STRUCT-010 makes total over
-;; them. A finding is MINTED from a node instead: it names the node's `:tag` and
+;; sites. The others are NAMED here rather than counted, because a tally goes
+;; wrong the moment a roster arrives or leaves and a name cannot:
+;; `:subscriptions` (a `sub`), `:events` (an event handler), `:slots` (a slot),
+;; `:html-sites` (a `v/html`) and `:crossings` (a view crossing) each name a form
+;; the compiler READ, and so own the `{:file :line :column}` source coordinate
+;; FH-STRUCT-010 makes total over them. `:frame-ops` was a sixth roster until
+;; rf2-h1ae3. A finding is MINTED from a node instead: it names the node's `:tag` and
 ;; the deterministic `:path` that reaches it, plus the compiler-minted stable
 ;; `:sid` its printed warning quotes. Those three are what locate it, and this
 ;; fixture governs that shape rather than bending a finding into the site law —
