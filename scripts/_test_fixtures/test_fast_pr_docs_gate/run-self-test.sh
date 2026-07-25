@@ -22,8 +22,12 @@
 #     bundled broken fixtures;
 #   motivating misses (#2232/#2233) — the pymdownx slug shapes that first
 #     motivated the doc gate still trip check_doc_slugs.py;
-#   coverage-honesty note (Q/R)    — `--plan` must state that the JVM tier is
-#     implementation/core ONLY and point at the full JVM sweep (rf2-dgzaf).
+#   coverage-honesty note (Q/R)    — `--plan` must state what the JVM tier
+#     actually contains and point at the full JVM sweep (rf2-dgzaf);
+#   per-artefact JVM selection (S-V) — a diff under an artefact's tree adds
+#     that artefact's suite, a diff elsewhere does not pay for it, a roster
+#     entry matches on a path boundary, and a skipped tier selects nothing
+#     (rf2-uwszd).
 #
 # Run from any cwd:
 #   bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh
@@ -231,11 +235,11 @@ python "$slugs_script" --repo-root "$case_2233" >/dev/null 2>&1
 assert "P #2233 (anchor missing -rf2-XXX suffix)" "1" "$?"
 
 # ---------------------------------------------------------------------------
-# Coverage-honesty note (rf2-dgzaf).  The spine's JVM tier is
-# implementation/core ONLY while `implementation_jvm` arms eighteen CI jobs, so
-# `--plan` must SAY so — a tier line reading `core JVM suite: run` is otherwise
-# read as a coverage claim.  Pinned because prose that nobody checks is exactly
-# how the header came to overstate what the spine ran.
+# Coverage-honesty note (rf2-dgzaf, rf2-uwszd).  The spine's JVM tier is a
+# SUBSET of the per-artefact suites `implementation_jvm` arms in CI, so `--plan`
+# must SAY which artefacts it selected — a tier line reading `JVM tier: run` is
+# otherwise read as a coverage claim.  Pinned because prose that nobody checks
+# is exactly how the header came to overstate what the spine ran.
 # ---------------------------------------------------------------------------
 r="$tmp_root/coverage-note"; mkrepo "$r"
 mkdir -p "$r/implementation/core/src/re_frame"
@@ -243,15 +247,51 @@ printf 'x\n' > "$r/implementation/core/src/re_frame/core.cljc"
 git -C "$r" add -A; git -C "$r" commit -q -m c
 plan_out="$(bash "$spine" --plan --repo-root "$r" 2>/dev/null)"
 case "$plan_out" in
-  *"implementation/core ONLY"*) note_core_only=yes ;;
-  *)                            note_core_only=no ;;
+  *"implementation/core PLUS the artefacts the diff touched"*) note_scope=yes ;;
+  *)                                                           note_scope=no ;;
 esac
-assert "Q --plan names the JVM tier as core-only" "yes" "$note_core_only"
+assert "Q --plan names the JVM tier as core plus what changed" "yes" "$note_scope"
 case "$plan_out" in
   *"test-jvm-implementation.sh"*) note_points_at_full=yes ;;
   *)                              note_points_at_full=no ;;
 esac
 assert "R --plan points at the full JVM sweep" "yes" "$note_points_at_full"
+
+# ---------------------------------------------------------------------------
+# Per-artefact JVM selection (rf2-uwszd).  `PLAN-JVM` is the machine-readable
+# list of artefact suites the run will execute.  The pins are both directions:
+# a diff under an artefact's tree must ADD that suite, and a diff elsewhere
+# must NOT pay for it.  `implementation/core` is on every list while the tier
+# runs — it is the substrate the others sit on.
+# ---------------------------------------------------------------------------
+plan_jvm() {
+  bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-JVM' || printf 'PLAN-JVM <none>\n'
+}
+
+r="$tmp_root/jvm-routing"; mkrepo "$r"
+mkdir -p "$r/implementation/routing/src/re_frame"
+printf 'x\n' > "$r/implementation/routing/src/re_frame/routing.cljc"
+git -C "$r" add -A; git -C "$r" commit -q -m routing
+assert "S routing source → routing's own suite is added" \
+  "PLAN-JVM implementation/core implementation/routing" "$(plan_jvm "$r")"
+
+assert "T a core-only diff does not pay for routing" \
+  "PLAN-JVM implementation/core" "$(plan_jvm "$tmp_root/coverage-note")"
+
+# A roster entry must match on a path BOUNDARY: `implementation/adapters/reagent`
+# is a prefix of `implementation/adapters/reagent-slim` as a string, and arming
+# the wrong artefact from a sibling's diff would be silent over-testing.
+r="$tmp_root/jvm-slim"; mkrepo "$r"
+mkdir -p "$r/implementation/adapters/reagent-slim/src"
+printf 'x\n' > "$r/implementation/adapters/reagent-slim/src/a.cljs"
+git -C "$r" add -A; git -C "$r" commit -q -m slim
+assert "U reagent-slim does not arm reagent (path boundary)" \
+  "PLAN-JVM implementation/core implementation/adapters/reagent-slim" "$(plan_jvm "$r")"
+
+r="$tmp_root/jvm-none"; mkrepo "$r"
+mkdir -p "$r/docs"; printf '# h\n' > "$r/docs/x.md"
+git -C "$r" add -A; git -C "$r" commit -q -m d
+assert "V tier skipped → no artefact suite at all" "PLAN-JVM" "$(plan_jvm "$r")"
 
 # ---- Summary ----
 total=$((pass_count + fail_count))
