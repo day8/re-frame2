@@ -8,7 +8,7 @@
   `re-frame.story.play.presence` is the SEAM: it holds the `:flush-presence!`
   late-bind hook and calls whatever the host registered there. It deliberately
   does NOT `:require` `re-frame.ui` — Story's published jar must not depend on
-  the pre-publication `day8/re-frame2-ui` (the same isolation the view-tool
+  the never-published `day8/re-frame2-ui` (the same isolation the view-tool
   consumer keeps). But a seam nothing installs is a seam nothing reaches: the
   hook shipped with no production installer at all, so a presence-bearing
   script could never advance the real clock.

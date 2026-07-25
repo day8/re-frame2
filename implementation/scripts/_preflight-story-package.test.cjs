@@ -244,13 +244,13 @@ test('an empty <version> fails — an incomplete GAV is unresolvable', () => {
 });
 
 test('a leaked test-only dependency fails with a pointed hint', () => {
-  // re-frame2-ui is PRE-PUBLICATION and lives under Story's :test alias.
-  // Seeing it in the published pom means the alias leaked into :deps.
+  // re-frame2-ui NEVER PUBLISHES (in-tree donor code) and lives under Story's
+  // :test alias. Seeing it in the published pom means the alias leaked into :deps.
   const deps = [...THIRD_PARTY, ...inRepoDeps(), dep('day8', 're-frame2-ui', VERSION)];
   expectFail(
     makeFixture({ pom: pomWith(deps) }),
     'leaked test-only dep',
-    /UNEXPECTED DIRECT dependency day8\/re-frame2-ui.*PRE-PUBLICATION/s,
+    /UNEXPECTED DIRECT dependency day8\/re-frame2-ui.*NEVER PUBLISHES/s,
   );
 });
 

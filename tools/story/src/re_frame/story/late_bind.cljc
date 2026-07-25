@@ -119,7 +119,7 @@
                                      the two arities of the framework verb
                                      `re-frame.ui.test/flush-presence!`.
                                      Story's shipped jar must not depend on
-                                     the pre-publication `day8/re-frame2-ui`,
+                                     the never-published `day8/re-frame2-ui`,
                                      so the verb arrives through this hook
                                      rather than a `:require`. Installed by
                                      ONE `:require` of the optional bridge
