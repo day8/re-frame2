@@ -1,5 +1,13 @@
 # re-frame.freehand
 
+!!! warning "Pre-alpha — `day8/re-frame2-freehand` is not published"
+
+    Freehand ships inside the re-frame2 monorepo and is **not published to
+    Clojars**, and there is no date at which it will be. You resolve it with
+    `:local/root` from a checkout — see
+    [Install](../core/freehand/install.md). The public surface is deliberately
+    still open: verbs can change while we learn from real apps.
+
 `re-frame.freehand` is the **one public door** of the Freehand view substrate
 (EP-0036; conventionally aliased `v`, artefact `day8/re-frame2-freehand`). A view is
 declared with `v/defview`, mounted with square brackets, and never invoked.
