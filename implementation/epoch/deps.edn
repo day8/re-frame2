@@ -25,6 +25,17 @@
                        ;; Publishes the resource egress hooks used by projection
                        ;; integration tests; production lookup is nil-safe.
                        day8/re-frame2-resources  {:local/root "../resources"}
+                       ;; rf2-isp3i — the MCP egress conformance fixture drives a
+                       ;; REAL `[:rf.resource/ensure …]` cascade so the resource
+                       ;; trace family reaches the gate. `ensure` lowers through
+                       ;; the managed-HTTP transport, which throws
+                       ;; `:rf.error/http-artefact-missing` unless
+                       ;; `re-frame.http.managed` has published its late-bind
+                       ;; hook, so the fixture needs the artefact on the TEST
+                       ;; classpath (the fx itself is overridden with a no-op —
+                       ;; nothing fetches). Mirrors the resources artefact's own
+                       ;; test-only http dep; production epoch stays http-free.
+                       day8/re-frame2-http       {:local/root "../http"}
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 

@@ -14,7 +14,13 @@
        the whole-output `:large?` sub REGISTRATION stamp (rf2-isp3i). The
        second is not app-db-rooted, so a fixture that declared only paths
        left this gate's own claim — no raw large bytes ANYWHERE — scanning
-       a record the shape never appeared in.
+       a record the shape never appeared in. `sensitive` likewise means BOTH
+       families: the app-db path AND the resource/mutation trace family, whose
+       owner-local SCOPED KEYS are classified by the resource OWNER's
+       `:sensitive?` declaration rather than by any app-db path (rf2-isp3i's
+       rescoping — before the widening this file contained no `reg-resource`
+       at all, so the family's projector had never been reached from the gate
+       that owns the no-raw-sensitive-egress claim).
     2. Run the ring through `projected-record` (per-record forwarder shape,
        e.g. `register-epoch-listener!` ship!) AND `projected-history` (bulk-egress
        shape, e.g. `watch-epochs` initial snapshot).
@@ -51,15 +57,34 @@
   An MCP-side end-to-end test is the job of the SDK-driven conformance
   `test/end-to-end-*.cjs` paths if and when MCP-server epoch tools ship."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
             [re-frame.frame :as frame]
+            ;; rf2-isp3i — `fx/reg-fx`, the plain fn, NOT the `rf/reg-fx` macro:
+            ;; see `install-resource-family!` for why the difference decides
+            ;; whether the frame's default image can still be reprojected.
+            [re-frame.fx :as fx]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
+            [re-frame.trace.tooling :as trace-tooling]
             ;; Side-effect requires (mirror epoch_test.clj fixture).
-            [re-frame.machines]))
+            [re-frame.machines]
+            ;; rf2-isp3i — load-bearing: registers the `:rf.resource/*` events
+            ;; this fixture dispatches AND publishes the late-bound
+            ;; `:resources/project-resource-trace-egress` hook the projection
+            ;; consults from `omit-off-box-resource-trace-keys`. Without the
+            ;; hook that arm is a nil-safe no-op and the family's rows would
+            ;; egress unprojected — the gate would report green over the very
+            ;; thing it claims.
+            [re-frame.resources]
+            ;; rf2-isp3i — `ensure` lowers into the managed-HTTP transport,
+            ;; which fails closed with `:rf.error/http-artefact-missing` unless
+            ;; this ns has published its late-bind feature probe. Test-only;
+            ;; production epoch stays http-free.
+            [re-frame.http.managed]))
 
 ;; ---- fixtures --------------------------------------------------------------
 ;;
@@ -201,6 +226,17 @@
     (coll? x)   (some contains-secret? x)
     :else       false))
 
+(defn- leaks-cedn-token?
+  "Whether a CEDN-1 encoded scoped key survives anywhere in `x`. Broader than
+  `contains-secret?`: a `state/key-id` is `identity/canonical-bytes` — a
+  REVERSIBLE PLAINTEXT encoding, not a digest — so a key-id in a trace tag
+  discloses the entry's scope + params in the clear inside a string the
+  shape-driven projector can only read as an opaque scalar (rf2-5o52l). This
+  catches ANY key-id, not only one carrying this suite's secret, so a future
+  emit site that reintroduces the class fails here even with innocuous params."
+  [x]
+  (boolean (re-find #"v\[k:" (pr-str x))))
+
 (defn- count-leaf-strings-at-least
   "Walk `x` and count leaf strings whose length is `>= n`. Used to bound
   the 'no raw large bytes anywhere in the projected output' check — a
@@ -214,6 +250,181 @@
                  (coll? v)   (run! walk v)))]
     (walk x)
     @counter))
+
+;; ---- the resource/mutation trace family (rf2-isp3i) ------------------------
+;;
+;; The SECOND sensitive family, and the one this file could not see at all.
+;;
+;; An app-db `:sensitive` PATH is classified by the frame; a resource's
+;; owner-local SCOPED KEY `[scope resource-id params]` is classified by the
+;; resource OWNER's `:sensitive?` declaration, and once the key is copied into a
+;; trace TAG the app-db-rooted walker is structurally blind to it (Spec 015 §10).
+;; The resource family therefore owns its own family-level off-box projector
+;; (`re-frame.resources.trace-egress/project-resource-trace-egress`), which the
+;; epoch tool-pair consults through a late-bound hook. Before this widening the
+;; file contained ZERO occurrences of `reg-resource` / `:rf.resource/` and never
+;; required the artefact, so the projector had never had a scoped key to find and
+;; the "no raw sensitive bytes ANYWHERE" scans above ran over records the family
+;; never appeared in. Two P1 leaks shipped through that blind spot:
+;;
+;;   - rf2-wd9im — the fail-closed default covered only MAP-valued unknown slots,
+;;     so a SEQUENTIAL value fell to the verbatim `:else`. The worst case is the
+;;     one every row below carries: a resource `:work/id` is
+;;     `[:rf.work/resource <scoped-key> <generation>]`, so the key — and with it
+;;     a `:sensitive?` owner's scope and canonical params — sits one level down
+;;     inside a vector under a slot no roster names.
+;;   - rf2-5o52l — `:rf.resource/owner-released` named the released entries by
+;;     `state/key-id`, which is `identity/canonical-bytes`: a REVERSIBLE
+;;     PLAINTEXT encoding, so the secret egressed in the clear inside a string
+;;     the projector correctly reads as an opaque scalar. `:resource/key` is
+;;     NAMED in the projector's vocabulary and the arm still could not help — a
+;;     named slot is no protection when the value in it is the wrong
+;;     representation.
+;;
+;; Both are reachable from the rows `drive-resource-family!` harvests, and
+;; `revert-proofs` in the PR body records the failure counts each reversion
+;; produces here.
+
+(def ^:private sensitive-resource-id :secret/article)
+(def ^:private plain-resource-id     :plain/article)
+(def ^:private plain-slug            "mcp-egress-plain-control")
+(def ^:private resource-owner        [:app :reader 1])
+
+(defn- install-resource-family!
+  "Register the two resource owners the family scans need: one `:sensitive?`
+  (its scoped key's scope + params MUST tokenize off-box) and one PLAIN (its key
+  MUST ride verbatim — the two-sided over-redaction control, so redacting
+  everything fails as loudly as leaking). Plus a no-op managed-HTTP fx so
+  `ensure` writes its `:loading` entry and emits its lifecycle rows without a
+  request leaving the box.
+
+  `fx/reg-fx`, NOT `rf/reg-fx`, and the difference is load-bearing. `rf/reg-fx`
+  is a macro that stamps the calling namespace as the registration's provenance,
+  so overriding `:rf.http/managed` through it puts TWO source-store slots under
+  one id (`re-frame.http.managed`'s provenance-free one and this ns's) and the
+  frame's next default-image reprojection dies on `:rf.error/image-duplicate-id`.
+  That failure is swallowed per-frame by the resilient reprojection sweep, so the
+  frame silently keeps the generation it was seated with — the one assembled
+  BEFORE the `reg-resource` calls below — and every `ensure` then throws
+  `:rf.error/resource-not-registered` while `resource-meta` (read outside the
+  cascade, off the global registrar) cheerfully reports the resource present. The
+  plain fn carries no provenance, so it REPLACES the artefact's own slot and the
+  reprojection keeps working. The resources artefact's own suites hit the same
+  seam and resolve it the same way."
+  []
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf/reg-resource sensitive-resource-id
+    {:scope         :rf.scope/global
+     :sensitive?    true
+     :params-schema [:map [:auth-token :string]]}
+    (fn [_params _ctx] {:request {:method :get :url "/secret"}}))
+  (rf/reg-resource plain-resource-id
+    {:scope         :rf.scope/global
+     :params-schema [:map [:slug :string]]}
+    (fn [_params _ctx] {:request {:method :get :url "/public"}}))
+  nil)
+
+(defn- resource-family-row?
+  "Whether `event` is a resource/mutation-family trace row — the same
+  namespace test the epoch tool-pair's `resource-family-op?` makes when
+  deciding which rows take the family projector."
+  [event]
+  (boolean (some-> (:operation event) namespace #{"rf.resource" "rf.mutation"})))
+
+(defn- drive-resource-family!
+  "Drive a REAL resource cascade against `frame-id` and return the
+  resource-family trace rows it emitted, exactly as the producer emitted them.
+
+  Two `ensure`s under ONE shared owner — the `:sensitive?` resource with the
+  secret in its params, the PLAIN resource beside it — then a
+  `release-owner`. That yields `:rf.resource/work-started` /
+  `fetch-started` / `owner-attached` per resource plus one
+  `:rf.resource/owner-released`, and between them every slot shape the two
+  shipped leaks lived in: a NAMED single-key slot (`:resource/key`), the
+  UNNAMED work-id whose scoped key is embedded one level down (`:work/id`,
+  rf2-wd9im), the `:released` key vector (rf2-5o52l), and the `:aborted`
+  work-id vector — each present twice over, once for a sensitive owner and once
+  for a plain one.
+
+  The rows are harvested off the trace bus rather than read out of the settled
+  epoch record because epoch CAPTURE DROPS THEM: `epoch.capture/capture-event!`
+  derives an event's frame as `(or (:frame tags) (:frame event))`, and the whole
+  family stamps `:rf.frame/id` — so `frame-id` is nil for every row and nothing
+  is buffered. Measured, not inferred: this cascade puts 7 family rows on the bus
+  and 0 into the 3 epoch records it settles. That is a real bug (fidelity: the
+  resource lifecycle is absent from every epoch a tool reads; coverage: the
+  epoch-side projector has never run over a real record) and it is filed as
+  rf2-hbmeb, NOT fixed here — the repair is a production capture-seam change,
+  outside this bead's one-fixture-gains-one-family fence. Until it lands, a real
+  record carrying real family rows is assembled by splicing
+  (`record-carrying-resource-rows`)."
+  [frame-id]
+  (let [rows (atom [])
+        k    ::resource-family-recorder]
+    (trace-tooling/register-listener!
+      k (fn [ev] (when (resource-family-row? ev) (swap! rows conj ev))))
+    (try
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource sensitive-resource-id
+                          :params   {:auth-token secret-password}
+                          :owner    resource-owner}]
+                        {:frame frame-id})
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource plain-resource-id
+                          :params   {:slug plain-slug}
+                          :owner    resource-owner}]
+                        {:frame frame-id})
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner resource-owner}]
+                        {:frame frame-id})
+      (finally (trace-tooling/unregister-listener! k)))
+    @rows))
+
+(defn- record-carrying-resource-rows
+  "The frame's last REAL epoch record with `rows` appended to its
+  `:trace-events` — the record a forwarder would ship if epoch capture retained
+  the family (rf2-hbmeb). Everything else about the record is the producer's:
+  its own trace rows, `:sub-runs`, `:effects`, bookkeeping slots and frame."
+  [frame-id rows]
+  (update (last (rf/epoch-history frame-id)) :trace-events (fnil into []) rows))
+
+(defn- redacted-token?
+  "Whether `c` is the resource family's opaque content-addressed egress token
+  `{:rf/redacted <digest>}` — distinct values stay distinct, so a tool's per-key
+  joins survive the redaction."
+  [c]
+  (and (map? c) (contains? c :rf/redacted)))
+
+(defn- family-row
+  "The tags of the first row in `rows` whose `:operation` is `op` and whose
+  `:resource/key` names `resource-id` (pass nil to match on `op` alone — the
+  `owner-released` row names no single resource). Position 1 of a projected
+  scoped key is the resource-id, which survives redaction for exactly this kind
+  of attribution, so the same lookup works on raw and projected rows."
+  [rows op resource-id]
+  (->> rows
+       (filter (fn [ev]
+                 (and (= op (:operation ev))
+                      (or (nil? resource-id)
+                          (= resource-id (second (:resource/key (:tags ev))))))))
+       first
+       :tags))
+
+(defn- released-member
+  "The `:released` member naming `resource-id` in a row's `tags`. Returns nil
+  when no member is a scoped-key VECTOR naming it — which is itself the
+  rf2-5o52l signature, since a key-id is a string."
+  [tags resource-id]
+  (first (filter #(and (vector? %) (= resource-id (second %)))
+                 (:released tags))))
+
+(defn- aborted-key
+  "The scoped key EMBEDDED at position 1 of the `:aborted` work-id naming
+  `resource-id` — `[:rf.work/resource <scoped-key> <generation>]`."
+  [tags resource-id]
+  (->> (:aborted tags)
+       (map #(nth % 1 nil))
+       (filter #(and (vector? %) (= resource-id (second %))))
+       first))
 
 ;; ============================================================================
 ;;  Forwarder-shape conformance — projected-record (per-record egress)
@@ -832,3 +1043,152 @@
             "`:include-sensitive? true` reveals the app-db sensitive leaf")
         (is (= [:login :rf/redacted] (:trigger-event proj))
             "the trigger-event args STAY redacted — event-args axis is orthogonal")))))
+
+;; ============================================================================
+;;  rf2-isp3i — the resource/mutation trace family reaches this gate.
+;;
+;;  See the fixture block above for what the family is and why an app-db-rooted
+;;  fixture could not see it. These two tests are the halves of one claim: the
+;;  first says a `:sensitive?` owner's scope + params never egress raw in ANY
+;;  representation, the second says a PLAIN owner's ride verbatim in the SAME
+;;  rows — so over-redaction fails as loudly as leaking, and neither half can be
+;;  satisfied by a blanket strip.
+;; ============================================================================
+
+(deftest forwarder-projected-record-leaks-no-raw-resource-family-bytes
+  (testing "MCP forwarder pattern over the RESOURCE trace family: a record
+            carrying the rows a real `ensure` / `release-owner` cascade emitted
+            MUST NOT egress a `:sensitive?` owner's resolved scope or canonical
+            params in ANY representation — not as the raw params map, and not
+            hidden inside a reversible CEDN-1 `key-id` string. The two leaks
+            this gate could not see (rf2-wd9im's embedded work-id key,
+            rf2-5o52l's plaintext key-id) both land in the rows below."
+    (rf/make-frame {:id :test/mcp})
+    (install-mcp-style-schemas! :test/mcp)
+    (install-resource-family!)
+    (let [rows      (drive-resource-family! :test/mcp)
+          record    (record-carrying-resource-rows :test/mcp rows)
+          projected (epoch/projected-record record)
+          proj-rows (filter resource-family-row? (:trace-events projected))]
+
+      ;; ---- fixture controls: the shape the scans below must be able to see --
+      (testing "FIXTURE — the cascade produced real family rows carrying the
+                real secret, so the scans are not passing over an empty set"
+        (is (seq rows) "the cascade emitted resource-family rows")
+        (is (contains-secret? rows)
+            "the RAW rows carry the secret — the projector's input is the
+             producer's own output, not an invented tag map")
+        (is (= 3 (count (filter #(= sensitive-resource-id
+                                    (second (:resource/key (:tags %))))
+                                rows)))
+            "three lifecycle rows name the :sensitive? owner (work-started /
+             fetch-started / owner-attached)")
+        (let [raw (family-row rows :rf.resource/work-started sensitive-resource-id)]
+          (is (= [:rf.scope/global sensitive-resource-id
+                  {:auth-token secret-password}]
+                 (:resource/key raw))
+              "FIXTURE — the raw `:resource/key` is the full scoped key")
+          (is (= (:resource/key raw) (nth (:work/id raw) 1))
+              "FIXTURE — and the SAME key is embedded at position 1 of the
+               `:work/id`, one level down inside a vector under a slot no
+               roster names (the rf2-wd9im shape)"))
+        (is (seq (:released (family-row rows :rf.resource/owner-released nil)))
+            "FIXTURE — the release row carries a `:released` slot (the
+             rf2-5o52l shape)"))
+
+      ;; ---- the claim this gate owns ---------------------------------------
+      (testing "ACCEPTANCE — no raw sensitive bytes anywhere in the projected
+                record, in either representation"
+        (is (not (contains-secret? projected))
+            "the raw secret is absent from every leaf of the projected record")
+        (is (not (leaks-cedn-token? projected))
+            "and no CEDN-1 key-id egresses under ANY tag — a key-id would
+             disclose the same scope + params in the clear while looking
+             opaque"))
+
+      ;; ---- per-slot, so a failure names the slot that leaked ---------------
+      (let [tags (family-row proj-rows :rf.resource/work-started
+                             sensitive-resource-id)
+            [pscope rid pparams] (:resource/key tags)
+            [marker embedded generation] (:work/id tags)]
+        (testing "the NAMED single-key slot tokenizes"
+          (is (= sensitive-resource-id rid)
+              "the resource-id (position 1) survives for attribution")
+          (is (redacted-token? pscope) "the resolved scope is tokenized")
+          (is (redacted-token? pparams) "the canonical params are tokenized"))
+        (testing "the UNNAMED work-id's EMBEDDED key tokenizes identically
+                  (rf2-wd9im — reached by DEPTH, not by slot name)"
+          (is (= :rf.work/resource marker) "the work-kind marker rides verbatim")
+          (is (= 1 generation) "the generation rides verbatim")
+          (is (= (:resource/key tags) embedded)
+              "the embedded key projects EXACTLY as the row's own
+               `:resource/key` — an unnamed slot and a named one cannot drift"))
+        (testing "the structural attribution a tool needs rides verbatim"
+          (is (= resource-owner (:owner tags)))
+          (is (= :running (:status tags)))
+          (is (= :test/mcp (:rf.frame/id tags))))
+        (is (true? (:sensitive? tags)) "the row is stamped :sensitive?"))
+
+      (let [tags     (family-row proj-rows :rf.resource/owner-released nil)
+            released (released-member tags sensitive-resource-id)
+            aborted  (aborted-key tags sensitive-resource-id)]
+        (testing "`:released` names the entry by SCOPED KEY, tokenized
+                  (rf2-5o52l — a key-id here is a string, so this lookup
+                  returns nil on the unfixed emit site)"
+          (is (some? released)
+              "the sensitive owner's released entry is named by a scoped-key
+               VECTOR, not a CEDN-1 byte string")
+          (is (= sensitive-resource-id (second released))
+              "its resource-id survives")
+          (is (redacted-token? (first released)) "its scope is tokenized")
+          (is (redacted-token? (nth released 2)) "its params are tokenized"))
+        (testing "`:released` and `:aborted` agree digest-for-digest on ONE row
+                  — the same identity, projected through the same
+                  classification, so a tool's per-key joins survive redaction"
+          (is (some? aborted) "the sensitive owner's work-id rode under :aborted")
+          (is (= released aborted)))
+        (is (true? (:sensitive? tags)) "the release row is stamped :sensitive?"))
+
+      ;; ---- forwarder pipelines double-project; that must not re-digest ------
+      (testing "idempotent under repeated projection — a forwarder that
+                accidentally projects twice (middleware composition,
+                tool-then-watcher fan-out) MUST NOT re-hash the tokens"
+        (is (= projected (epoch/projected-record projected))
+            "re-projecting an already-projected record is a fixed point")))))
+
+(deftest forwarder-projected-record-keeps-plain-resource-owner-verbatim
+  (testing "rf2-isp3i two-sided control — a PLAIN (registered, non-`:sensitive?`,
+            non-`:large?`) resource owner's scoped key rides its scope + params
+            VERBATIM off-box, in the SAME rows that tokenize the sensitive
+            owner's. Without this half, the acceptance test above could be
+            satisfied by redacting everything, which would destroy the
+            attribution every resource tool is built on."
+    (rf/make-frame {:id :test/mcp})
+    (install-mcp-style-schemas! :test/mcp)
+    (install-resource-family!)
+    (let [rows      (drive-resource-family! :test/mcp)
+          projected (epoch/projected-record
+                      (record-carrying-resource-rows :test/mcp rows))
+          proj-rows (filter resource-family-row? (:trace-events projected))
+          plain-key [:rf.scope/global plain-resource-id {:slug plain-slug}]
+          tags      (family-row proj-rows :rf.resource/work-started
+                                plain-resource-id)
+          release   (family-row proj-rows :rf.resource/owner-released nil)]
+      (is (= plain-key (:resource/key tags))
+          "the plain owner's NAMED key rides verbatim — scope and params intact")
+      (is (= plain-key (nth (:work/id tags) 1))
+          "and so does the key EMBEDDED in its work-id: the shape-driven default
+           projects through the OWNER, so closing the rf2-wd9im leak cost no
+           over-redaction on the ordinary row")
+      (is (= plain-key (released-member release plain-resource-id))
+          "and so does its `:released` member")
+      (is (= plain-key (aborted-key release plain-resource-id))
+          "and its `:aborted` work-id's embedded key")
+      (is (not (:sensitive? tags))
+          "a plain row is NOT stamped :sensitive?")
+      (is (not (leaks-cedn-token? tags))
+          "no CEDN-1 token rides the plain row either — the emit-site rule is
+           owner-independent")
+      (testing "the plain owner's params are the real map, not a token"
+        (is (= {:slug plain-slug} (nth (:resource/key tags) 2)))
+        (is (not (redacted-token? (nth (:resource/key tags) 2))))))))
