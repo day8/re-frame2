@@ -183,25 +183,32 @@
     (update-in runtime-db (plan-slots-map-path) dissoc nav-token)
     runtime-db))
 
-;; ---- the ONE readiness projector -----------------------------------------
+;; ---- the reply-driven readiness projector ---------------------------------
 ;; ---- (Spec 012 §Route readiness is a resource projection /
 ;; ----  Spec 016 §Route integration / §SSR wait point) ----------------------
 ;;
 ;; Route readiness (`:rf.route/transition` / `:rf.route/error`) is a PURE
 ;; projection over the active plan's BLOCKING resource requirements, read in
-;; Spec 016 resource vocabulary. There is exactly ONE implementation of that
-;; table, and EVERY path that can change a blocking requirement's facts
-;; projects through it: the activation commit (via the plan's blocking set,
-;; which routing seeds the slice from — `re-frame.routing.readiness`), a
-;; retained-owner adoption / handoff, an `ensure` fresh-skip, every resource
+;; Spec 016 resource vocabulary. `reconcile-readiness` is the ONE implementation
+;; of that table on the REPLY-DRIVEN side, and every path that can change a
+;; blocking requirement's facts AFTER the activation commit projects through it:
+;; a retained-owner adoption / handoff, an `ensure` fresh-skip, every resource
 ;; settle, SSR hydration, and epoch restore. No caller decides for itself what
 ;; a settle "meant": they write the entry, then hand the runtime-db to
 ;; `reconcile-readiness`, which RE-READS the facts. That is what keeps a second
-;; readiness state machine from existing.
+;; readiness state machine from existing on this side.
 ;;
-;; Routing owns no part of this: it provides the `:routing/on-route-entry` plan
-;; hook, seeds the slice at commit, and (EP-0037 R1) consults no settle event
-;; and no blocking predicate.
+;; The ACTIVATION COMMIT is the one path that does NOT come through here.
+;; Routing seeds the slice from the plan's blocking set with its own statement
+;; of the same table (`re-frame.routing.readiness/project-at-commit`), because
+;; packaging forbids sharing one function: `deps.edn` holds routing as a
+;; TEST-ONLY dep of this artefact and the routing integration is late-bound, so
+;; this namespace cannot `:require` it. The two agree — error beats loading
+;; beats idle in both — and changing the precedence means changing both sites.
+;;
+;; Routing owns no part of the reply-driven half: it provides the
+;; `:routing/on-route-entry` plan hook, seeds the slice at commit, and
+;; (EP-0037 R1) consults no settle event and no blocking predicate.
 ;;
 ;; The nav-token's blocking slot is the OUTSTANDING requirement set for that
 ;; activation — the requirements that still have to resolve. A requirement that
@@ -328,10 +335,16 @@
 
 (defn reconcile-readiness
   "Re-project the CURRENT route's readiness from the live Spec 016 resource
-  facts, and prune the requirements that are done. THE projector — every
-  caller that has just written a resource entry (a settle, an adoption, a
+  facts, and prune the requirements that are done. THE reply-driven projector —
+  every caller that has just written a resource entry (a settle, an adoption, a
   fresh-skip, hydration, restore) hands it the updated runtime-db instead of
   deciding for itself what the change meant. Returns the updated runtime-db.
+
+  Its commit-time sibling is `re-frame.routing.readiness/project-at-commit`,
+  which seeds the slice from the plan's blocking set in ROUTING vocabulary
+  (plan-error / blocking / usable-data). Packaging requires two sites rather
+  than one shared fn — see the block comment above — so the table below and
+  that namespace's table must be edited together.
 
   The projection (Spec 012 §Route readiness is a resource projection):
 
