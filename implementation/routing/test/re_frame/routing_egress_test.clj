@@ -32,7 +32,6 @@
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.elision :as elision]
-            [re-frame.live-frame :as live-frame]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
@@ -547,15 +546,25 @@
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "Inverse-load-order default app frame (explicit URL owner)."}))
 
-(defn- frame-targeted-sensitive
-  "The `:sensitive` declaration `:rf/default` ITSELF resolves for `(kind, id)`.
-  Read inside `call-with-frame-resolution` — the single seam every dispatch,
-  subscription and trace projection resolves registrations through — so this is
-  the EFFECTIVE classification, as distinct from a bare `rf/handler-meta`, which
-  reads the process resolver map."
+(defn- frame-targeted-meta
+  "The registration metadata `:rf/default` ITSELF resolves for `(kind, id)`, read
+  through the PUBLIC frame-targeted arity `(rf/handler-meta {:frame … :kind …
+  :id …})`.
+
+  This is the arity Spec 012 names as the effective read, so the test drives the
+  public map form directly rather than reaching for the internal
+  `call-with-frame-resolution` seam it is built on: the contract that is
+  documented is then the contract that is proven, on the surface a tool (Xray,
+  re-frame-pair) actually calls."
   [kind id]
-  (live-frame/call-with-frame-resolution :rf/default
-    (fn [] (:sensitive (rf/handler-meta kind id)))))
+  (rf/handler-meta {:frame :rf/default :kind kind :id id}))
+
+(defn- frame-targeted-sensitive
+  "The `:sensitive` declaration the frame-targeted public read reports — the
+  EFFECTIVE classification, as distinct from the POSITIONAL `(rf/handler-meta
+  kind id)` read, which is the process resolver map (last-write-wins)."
+  [kind id]
+  (:sensitive (frame-targeted-meta kind id)))
 
 (deftest app-registered-before-routing-still-redacts-framework-carriers
   (testing "rf2-kqxe6.20: the application namespace registers
@@ -576,11 +585,42 @@
                           (swap! seen conj denial)
                           {:db (assoc-in db [:auth :return-to] destination)}))))
       (entry-fixture!)
-      ;; (1) FRAME-TARGETED metadata — what every dispatch / projection reads.
+      ;; (1) FRAME-TARGETED metadata through the PUBLIC map arity — the read
+      ;;     Spec 012 names as effective, and what every dispatch / projection
+      ;;     resolves.
       (is (= [[:requested-url] [:destination] [:target] [:guard]]
              (frame-targeted-sensitive :event :rf.route/entry-denied))
           "the frame resolves the SAME union as the default-first order:
            framework carriers first, then the app's own declaration")
+      (let [m (frame-targeted-meta :event :rf.route/entry-denied)]
+        (is (nil? (:rf/framework-default? m))
+            "the frame-targeted read resolves the APPLICATION descriptor — the
+             framework's own copy stopped being projected once the app
+             registered the id")
+        (is (some? (:rf.provenance/ns m))
+            "and it carries application provenance, so a tool can say WHOSE
+             handler this is"))
+      ;; (1b) The POSITIONAL read is the process resolver map, and its documented
+      ;;      semantics are process-global LAST-WRITE-WINS — not the effective
+      ;;      classification. In THIS order the framework's own seeding is the
+      ;;      last writer, so the positional read reports the framework no-op and
+      ;;      omits the app's own path. Spec 012 states this rather than claiming
+      ;;      the positional form converges; pinned here so the documented
+      ;;      semantics cannot drift silently, and so the difference between the
+      ;;      two public arities stays visible to whoever reads this next.
+      ;;
+      ;;      This is NOT a carrier leak: the framework carriers ARE present at
+      ;;      this surface, and every dispatch / egress projection resolves
+      ;;      through the frame (assertion 2 below is the proof).
+      (let [positional (rf/handler-meta :event :rf.route/entry-denied)]
+        (is (= [[:requested-url] [:destination] [:target]] (:sensitive positional))
+            "last writer in this order is the framework's own seeding")
+        (is (true? (:rf/framework-default? positional))
+            "so the positional read identifies the framework no-op")
+        (is (not= (:sensitive positional)
+                  (frame-targeted-sensitive :event :rf.route/entry-denied))
+            "the two public arities answer DIFFERENTLY under this load order —
+             which is exactly why the frame-targeted form is the effective read"))
       ;; (2) TRACE PROJECTION — the egress the classification exists for.
       (let [payload (traced-event-payload
                       :rf.route/entry-denied
