@@ -1513,6 +1513,30 @@
   ;; the internal `re-frame.freehand.behaviors`.
   ["re-frame.freehand" "defbehavior"]       {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "behavior"]          {:tier :advanced    :owner "004" :status "EP-0036"}
+  ;; The inward React host door (EP-0036; D022) — the SOLE public verb that
+  ;; mints Freehand's third legal vector head. Before it, the head existed in
+  ;; `classify-head` and in `:rf.error/view-bad-head`'s own message and NO
+  ;; public verb produced one: an adopter could read what a host boundary was
+  ;; and could not build one. `defhost` is that verb, and it is deliberately
+  ;; alone — D022 rejects a runtime `v/host` constructor, a leaf/wrapper
+  ;; `:kind` split and `v/react-el` BY NAME, because each is the same crossing
+  ;; under a second spelling with a second set of laws to keep in step.
+  ;;
+  ;; TIER `:advanced`, not `:front-porch`. The paved path never reaches for it:
+  ;; an application composes `defview` boundaries, and it declares a host only
+  ;; where a third-party React component genuinely owns a region. That is the
+  ;; same judgment `defbehavior` / `behavior` carry one line above — the two
+  ;; sanctioned foreign boundaries, both reached for by exception — and the
+  ;; same one `error-boundary` and `slot` carry. Rowing it `:front-porch`
+  ;; beside `defview` would advertise a crossing whose ceremony (a declared
+  ;; callback roster, an explicit children policy, a required SSR policy)
+  ;; exists precisely because it is NOT the everyday case.
+  ;;
+  ;; KIND is `:macro`: like `defview` and `defbehavior` it is a declaration
+  ;; form, expanded on the JVM for both compilation targets, so a malformed
+  ;; declaration is a build refusal rather than a render-time surprise.
+  ;; Owned by Spec 004 §Qualified host leaves.
+  ["re-frame.freehand" "defhost"]           {:tier :advanced    :owner "004" :status "EP-0036"}
 
   ;; =========================================================================
   ;; re-frame.freehand.test — the Freehand substrate's STRUCTURAL TEST

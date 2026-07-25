@@ -1191,6 +1191,97 @@ an open flag is writable and not buffered, so it takes the key and no generation
    [workspace-page {:workspace-id workspace-id}]]
   ```
 
+## The inward React host door
+
+### `defhost`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (defhost name docstring? Component
+    {:callbacks {…} :children … :ssr … :map-props … :props …})
+  ```
+- **Description**: declare a React component as a Freehand **host** — the sole
+  public inward React boundary, and the only way to mint the third legal vector
+  head.
+
+  *Why sole.* The head was already recognised: vector-head classification has
+  three legal answers, and `:rf.error/view-bad-head` names "a declared host
+  descriptor" in its own message. What was missing was any public verb that
+  produced one, so an adopter could read what a host boundary was and could not
+  build one. `defhost` closes that, and it closes it once. A runtime `v/host`
+  constructor, a leaf/wrapper `:kind` split and a `v/react-el` staged scanner are
+  all rejected by name in D022: each is the same crossing under a second
+  spelling, and two spellings mean two sets of laws to keep in step.
+
+  The var holds a **non-callable host descriptor**, not the component and not a
+  function. `date-picker` is mounted as `[date-picker {…}]`; `(date-picker {})`
+  raises `:rf.error/view-called-directly` rather than answering `nil` the way a
+  map-shaped descriptor's lookup would — the same reason `v/defview`'s descriptor
+  is a `deftype`, at the boundary a hand arriving from React is most likely to
+  call by habit.
+
+  There is **one descriptor kind**. "Leaf" and "wrapper" describe the registered
+  React implementation — which may itself use hooks, context, refs, effects,
+  Suspense or a compound-component protocol — not two ABIs. Hooks stay outside
+  `v/defview`, and using one inside the registered component is the intended
+  route rather than a hook API in Freehand.
+
+  The option roster is closed. `:children` and `:ssr` are **required**: Freehand
+  never executes the registered component on the JVM, so a default would be the
+  substrate choosing a server behaviour silently.
+
+  Ordinary props, declared callbacks and children are **disjoint planes**.
+  Ordinary props pass shallowly and exactly — `:selected` reaches React as
+  `selected`, with no case conversion, no deep Clojure-to-JavaScript walk and no
+  per-prop conversion language — and a function in an ordinary slot is refused,
+  because a callback reaches a host only at a position the declaration named.
+  `:callbacks` names those finite positions as `:event` or `:handler`; a position
+  is never inferred from an `on*` name and a bare event vector there is refused
+  rather than converted, since a foreign API may itself want a vector at that
+  prop. The resulting functions carry the ordinary callback laws: stable identity
+  per site, the latest committed body and frame, silence for abandoned renders,
+  retirement after unmount and HMR. Children are ordinary React children in the
+  registered component's tree, under the declared policy.
+
+  `:map-props` is one optional whole-ordinary-props adapter, run in the browser
+  only, for preparing non-portable host values. Callback carriers, children and
+  the key are withheld from it and installed afterwards, so it can neither supply
+  nor replace a reserved fact; a returned map that names one is refused.
+
+  A structural render emits an honest marker — the declared host id, the declared
+  SSR policy, a **count** of the children that crossed into React's tree, and the
+  authored ordinary props with a carrier recording as its opaque role marker. The
+  node's `:children` carry the SSR projection and nothing else: the declared
+  fallback, or nothing at all. No host value, React element, function, ref or
+  third-party instance is ever serialized, and `v/render-static` refuses the
+  crossing outright for the reason it refuses a `v/behavior` — no client ever
+  replaces the stand-in.
+
+  A `{:compiled true}` parent that mounts a host refuses at **build time** with
+  `:rf.ui.compile/host-crossing-unsupported`, naming the source and two
+  recoveries. It never accepts the view and fails at render, and it never
+  silently walks the subtree with the interpreted walker. A malformed declaration
+  is `:rf.ui.compile/bad-defhost` at macro expansion.
+
+  A finished React element remains a legal opaque browser-only child where the
+  owning tree permits one — deliberately weaker, and not a second host API. See
+  [spec/004-Views.md](../../spec/004-Views.md#qualified-host-leaves).
+- **Example**:
+  ```clojure
+  (v/defhost date-picker
+    "A third-party date picker."
+    DatePicker
+    {:callbacks {:onChange :event}
+     :children  :none
+     :ssr       :client-only})
+
+  [date-picker
+   {:selected date
+    :onChange (v/event [js-date]
+                [:booking/date-picked (from-js-date js-date)])}]
+  ```
+
 ## Registered behaviors
 
 ### `defbehavior`
