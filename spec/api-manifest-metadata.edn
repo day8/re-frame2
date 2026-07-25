@@ -1368,6 +1368,15 @@
   ;; so an accidental public cannot accumulate on either host.
   ;; =========================================================================
   ["re-frame.freehand" "defview"]           {:tier :front-porch :owner "004" :status "EP-0036"}
+  ;; `custom-element` (rf2-sv2oq, ruled on rf2-5gliq 2026-07-25) is the second
+  ;; declaration form on the door: it declares which of a custom element's props
+  ;; are JS PROPERTIES rather than attributes. ADVANCED, not front-porch — the
+  ;; paved path never reaches for it, an undeclared element needs no declaration
+  ;; at all, and an application writes one only where it drives a
+  ;; property-accepting web component. Spec 004D §Template grammar owns the
+  ;; declaration grammar; 004B §Custom elements owns what the classification
+  ;; then MEANS at conversion, which is why the owner axis names 004D.
+  ["re-frame.freehand" "custom-element"]    {:tier :advanced    :owner "004D" :status "EP-0036"}
   ["re-frame.freehand" "view?"]             {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "describe"]          {:tier :tooling     :owner "004" :status "EP-0036"}
   ;; `manifest` is the third inspection read: a compiled declaration's
