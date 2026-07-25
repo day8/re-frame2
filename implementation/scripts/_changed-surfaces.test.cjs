@@ -2717,6 +2717,31 @@ test('the reachability CONTROL build is a controlled comparison (rf2-zl8ao)', ()
   );
 });
 
+test('the SOLE-requirer law that keeps the reachability arm honest still exists (rf2-qimh0)', () => {
+  // The classifier arms the controller, the facade, the two build entries, the
+  // checker and the build-config trio — not the Freehand tree. That is only
+  // safe while a NEW production requirer of `re-frame.freehand.control` cannot
+  // appear silently, and what forbids one is
+  // `re-frame-freehand-is-the-sole-requirer-of-the-controller` in the
+  // always-armed jvm-freehand lane. Pin the premise with the routing: if that
+  // law is ever relaxed, this reds and the classifier arm must widen. Exactly
+  // the shape of the sibling pin one gate up (rf2-xwa4n).
+  const law = fs.readFileSync(
+    path.join(
+      REPO_ROOT,
+      'implementation/freehand/test/re_frame/freehand/control_boundary_jvm_test.clj',
+    ),
+    'utf8',
+  );
+  assert.match(
+    law,
+    /'#\{re-frame\.freehand\}\s+requirers/,
+    'the boundary test must still pin re-frame.freehand as the SOLE requirer of the controller — '
+      + 'without it, a new production requirer could root the module in the release bundle and '
+      + 'dodge the narrowly-armed reachability gate',
+  );
+});
+
 test('cljs-freehand-reachability is gated on its output and runs the probe (rf2-zl8ao)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const block = jobBlock(workflow, 'cljs-freehand-reachability');
