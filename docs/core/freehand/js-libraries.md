@@ -22,12 +22,12 @@ law; this page is the **recipe** companion.
 | **Only enter/exit retention** | **`v/presence` + CSS** first | toasts, simple panel fade |
 | **React component**: values in, callbacks out (hooks only *inside* the lib) | **Qualified host leaf** | date pickers, many charts, **Framer `motion.*` / `AnimatePresence`** |
 | **Imperative DOM owner**: `new X(el)`, dispose | **Registered behavior** | Vega View, Mapbox GL, GSAP on a node |
-| **Your code must call React hooks** (or similar) | **Small React component** as a qualified host leaf | `useMotionValue`, custom scroll-linked motion |
+| **Your code must call React hooks** (or similar) | a **small React component** of your own, entered as a child | `useMotionValue`, custom scroll-linked motion |
 
 The fence is **hooks in your Freehand view body**, not “any JS library.” A foreign
-React component that uses hooks **internally** is fine as a leaf. If *you* need to
-call hooks, put them in a small React function component, register it with
-`host/component`, and keep the rest of the screen in Freehand.
+React component that uses hooks **internally** is fine as a child. If *you* need
+to call hooks, put them in a small React function component of your own and keep
+the rest of the screen in Freehand.
 
 If the need is only “keep this node a moment so CSS can fade it,” start with
 `v/presence` before any motion library.
@@ -57,13 +57,17 @@ What stays in the host boundary:
 For many toasts and panels, Freehand’s own presence API is the smaller design:
 
 ```clojure
-(v/presence {:timeout-ms 300}
-  (for [t (v/sub [:toasts/visible])]
-    [:div.toast
-     {:key (:id t)
-      :class ["opacity-100"]
-      ::v/unmounting {:class ["opacity-0"] :inert true :aria-hidden true}}
-     (:message t)]))
+(v/defview toast-card [{:keys [toast]}]
+  (let [exiting? (= :unmounting (v/presence-phase))]
+    [:div.toast {:class       (when exiting? "toast--exit")
+                 :inert       (when exiting? true)
+                 :aria-hidden (when exiting? true)}
+     (:message toast)]))
+
+(v/defview toast-tray [_]
+  (v/presence {:timeout-ms 300}
+    (for [t (v/sub [:toasts/visible])]
+      [toast-card {:key (:id t) :toast t}])))
 ```
 
 Domain events only say which toasts exist. Presence keeps the node for exit; CSS
@@ -75,70 +79,75 @@ gestures, or motion that CSS and presence cannot express cleanly.
 ## Pattern B — React leaf (values in, callbacks out)
 
 Use this when the library (or its React wrapper) is basically props and callbacks.
-Qualify the foreign head. Do not put a bare npm component in the Freehand tree
-without a host descriptor.
+Create the React **element** and put it in a child position — a bare React
+component at a vector head is not a Freehand descriptor.
 
 ```clojure
 (ns app.ui.chart
-  (:require [re-frame.freehand :as v]
-            [re-frame.freehand.host :as host]
-            ["react-sparkline" :default Sparkline]))
-
-(def sparkline-host
-  (host/component ::sparkline Sparkline))
+  (:require ["react" :as react]
+            ["react-sparkline" :default Sparkline]
+            [re-frame.freehand :as v]))
 
 (v/defview trend-sparkline [_]
   (v/client-only
    {:fallback [:div.sparkline-placeholder "…"]}
-   [sparkline-host
-    {:data     (v/sub [:metrics/sparkline])
-     :onSelect (v/event [point]
-                 [:metrics/point-selected (js->clj point :keywordize-keys true)])}]))
+   [:div.sparkline
+    (react/createElement
+      Sparkline
+      #js {:data     (clj->js (v/sub [:metrics/sparkline]))
+           :onSelect (v/event [point]
+                       [:metrics/point-selected
+                        (js->clj point :keywordize-keys true)])})]))
 ```
 
 Notes:
 
 - Foreign callbacks use `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` — not
   a bare `fn`. See [Events — escape roster](events-and-handlers.md#the-escape-roster).  
-- Browser-only leaves need `client-only` (or a real SSR adapter).  
-- Open foreign props may pass JS objects through; that is leaf-specific, not the
-  rule for Freehand’s own DOM nodes (those use keyword props and conversion).  
+- The JVM structural renderer accepts no React elements, so a server-rendered root
+  needs `v/client-only` around the child.  
+- Props on the foreign element are the library's own ABI — JS objects and all.
+  That is not the rule for Freehand's own DOM nodes, which take keyword props.  
 
 ## Pattern C — Framer Motion as Freehand host leaves
 
 **You stay on Freehand for the app.** Framer’s **component** API (`motion.div`,
-`AnimatePresence`, `motion.button`, …) sits in Freehand as **qualified foreign
-heads**: values in, callbacks out, children in one React tree. Hooks that live
-*inside* those Framer components are Framer’s business — you are not calling them
-from a `v/defview`.
+`AnimatePresence`, `motion.button`, …) enters a Freehand tree as **React elements
+in child positions**: values in, callbacks out, one shared React tree. Hooks that
+live *inside* those Framer components are Framer’s business — you are not calling
+them from a `v/defview`.
 
 ### Sketch (interpreted Freehand)
 
 ```clojure
 (ns app.toast
-  (:require [re-frame.freehand :as v :refer [sub]]
-            [re-frame.freehand.host :as host]
-            ["framer-motion" :refer [AnimatePresence motion]]))
-
-(def motion-div
-  (host/component ::motion-div (.-div motion)))
-
-(def animate-presence
-  (host/component ::animate-presence AnimatePresence))
+  (:require ["react" :as react]
+            ["framer-motion" :refer [AnimatePresence motion]]
+            [re-frame.freehand :as v :refer [sub]]))
 
 (v/defview toast [{:keys [id text]}]
-  [motion-div
-   {:initial #js {:opacity 0 :y 8}   ; foreign leaf: open props pass through
-    :animate #js {:opacity 1 :y 0}
-    :exit    #js {:opacity 0}
-    :onAnimationComplete (v/event [] [:toast/settled id])}
-   text])
+  [:div.toast-slot
+   (react/createElement
+     (.-div motion)
+     #js {:initial #js {:opacity 0 :y 8}
+          :animate #js {:opacity 1 :y 0}
+          :exit    #js {:opacity 0}
+          :onAnimationComplete (v/event [] [:toast/settled id])}
+     text)])
 
 (v/defview toasts [_]
-  [animate-presence {}
-   (for [{:keys [id text]} (sub [:toast/visible])]
-     [toast {:key id :id id :text text}])])
+  [:div.toasts
+   (react/createElement
+     AnimatePresence
+     #js {}
+     (clj->js (for [{:keys [id]} (sub [:toast/visible])]
+                (v/->react toast) )))])
 ```
+
+The outer half of that last expression is where the two worlds actually meet, and
+it is worth being explicit about: `AnimatePresence` wants React **children** it can
+retain, so the Freehand content going into it crosses back out through
+`v/->react`.
 
 What this is saying:
 
@@ -146,7 +155,7 @@ What this is saying:
 - Freehand still owns the view tree and data events.  
 - Framer still owns the motion implementation.  
 - Callbacks use Freehand’s roster (`v/event`), not bare functions.  
-- Heads are **qualified** with `host/component` — Freehand’s foreign-leaf rule.  
+- Foreign components are **elements in child positions**, never vector heads.  
 
 Conditional render stays familiar: drop the toast from app-db, remove the child;
 `AnimatePresence` is supposed to retain it through exit while `motion` reads
@@ -163,12 +172,13 @@ Freehand shell as a hypothesis until a test shows:
 3. node is gone afterward  
 
 Enter-only motion is a weaker claim; exit is where composition usually breaks.
-Compiled mode is a separate cliff: dynamic foreign heads and `#js` props may need
-different factoring under `v/check`.
+Compiled mode is a separate cliff: the compiled grammar refuses `v/client-only`
+outright and cannot see through a `createElement` call, so a view doing this work
+stays interpreted — which is fine, because promotion is per declaration.
 
 ### When Framer needs a tiny React component of your own
 
-Use a **small React function component** (registered as a Freehand host leaf) only
+Use a **small React function component** of your own, entered as a child, only
 when **your** code must call Framer hook APIs, for example:
 
 - `useMotionValue`, `useTransform`, `useScroll`  
@@ -180,10 +190,9 @@ reason to move the rest of the screen out of Freehand.
 
 ```clojure
 (ns app.ui.scrubber
-  (:require [re-frame.freehand :as v]
-            [re-frame.freehand.host :as host]
-            ["react" :as react]
-            ["framer-motion" :refer [useMotionValue]]))
+  (:require ["react" :as react]
+            ["framer-motion" :refer [useMotionValue]]
+            [re-frame.freehand :as v]))
 
 ;; Plain React component — hooks allowed here only
 (defn Scrubber [props]
@@ -192,16 +201,16 @@ reason to move the rest of the screen out of Freehand.
     ;; render using x; call (:on-change props) with plain values
     (react/createElement "div" nil …)))
 
-(def scrubber-host
-  (host/component ::scrubber Scrubber))
-
 (v/defview panel [_]
-  [scrubber-host
-   {:progress  (v/sub [:scrub/progress])
-    :on-change (v/event [v] [:scrub/set v])}])
+  [:div.panel
+   (react/createElement
+     Scrubber
+     #js {:progress  (v/sub [:scrub/progress])
+          :onChange  (v/event [x] [:scrub/set x])})])
 ```
 
-Same boundary as any other leaf: Freehand outside, host component at the edge.
+Same boundary as any other React child: Freehand outside, hooks confined to that
+one file.
 
 ## Pattern D — Imperative library on a DOM node (behavior)
 
@@ -211,48 +220,44 @@ like this.
 
 ```clojure
 (ns app.ui.motion
-  (:require [re-frame.freehand :as v]
-            [re-frame.freehand.host :as host]))
+  (:require [re-frame.freehand :as v]))
 
-(defn connect-fade! [el {:keys [open? duration-ms]}]
-  {:el el
-   :open? open?
-   :duration-ms (or duration-ms 250)
-   :anim nil})
-
-(defn update-fade! [mem cfg]
-  ;; when open? flips, run enter or leave on (:el mem); never put el in app-db
-  (merge mem cfg))
-
-(defn disconnect-fade! [{:keys [anim]}]
-  ;; cancel tweens, remove listeners
-  nil)
-
-(host/defbehavior fade-panel
-  {:connect    connect-fade!
-   :update     update-fade!
-   :disconnect disconnect-fade!
-   :ssr        :inert})
+;; Every lifecycle entry takes ONE context map.
+(v/defbehavior fade-panel
+  {:connect    (fn [{:keys [node config]}]
+                 ;; return value becomes this connection's private memory
+                 {:anim (start-fade! node config)})
+   :update     (fn [{:keys [node config prev-config memory]}]
+                 ;; runs only when :config moved by rf=
+                 (retarget-fade! node config prev-config memory))
+   :disconnect (fn [{:keys [memory]}]
+                 (some-> (:anim memory) cancel!))})
 
 (v/defview animated-panel [{:keys [title]}]
   (let [open? (v/sub [:ui/panel-open?])]
-    [:div.panel
-     {::v/behavior [fade-panel {:open? open? :duration-ms 280}]}
-     [:h2 title]
-     (when open?
-       [:div.body "…"])]))
+    [v/behavior {:use    fade-panel
+                 :target :ui/fade-panel
+                 :config {:open? open? :duration-ms 280}}
+     [:div.panel
+      [:h2 title]
+      (when open? [:div.body "…"])]]))
 ```
+
+The behavior owns **one element**, and that element is the boundary's single
+child. `:config` is data at every depth — a node, a ref or a preconstructed player
+is refused, which is exactly what keeps the use site readable by a test.
 
 | Rule | Why |
 |---|---|
-| `connect` after **commit** | speculative renders must not create players |
-| Config is Clojure data | `open?`, durations as values |
-| `update` on `rf=` config change | library reacts to re-frame facts |
-| `disconnect` once | no leaked tweens or listeners |
-| One behavior per node | do not co-own descendants with React if the library owns them |
+| `:connect` after **commit** | a render React abandons creates no player |
+| `:config` is data at every depth | `open?` and durations as values, never a node |
+| `:update` on `rf=` config change | the library reacts to re-frame facts |
+| `:disconnect` exactly once | no leaked tweens or listeners |
+| The child is one element | a behavior owns one node, and can reach no other |
+| `:opaque true` | say so when the library owns the descendants, and Freehand children there become an error |
 
-Optional **commands** (export, scrub to time) use a semantic `:instance` target —
-see [Host boundaries — commands](host-boundaries.md#commands-one-shot-host-ops).
+Optional **commands** (export, scrub to time) address the `:target` from the use
+site — see [Host boundaries — commands](host-boundaries.md#commands-one-shot-host-ops).
 
 Most animation “play when props change” work is **`:passive`** timing. Use
 **`:layout`** only when you must measure before paint and can prove no wrong-frame
@@ -263,23 +268,23 @@ flash. Silent forever-`rAF` loops are not a hidden policy.
 | Question | Prefer |
 |---|---|
 | Fade/slide on enter/exit only? | **`v/presence` + CSS** |
-| Framer components only (`motion.*`, `AnimatePresence`)? | **Qualified Freehand host leaves** (+ pilot for exit) |
-| You call Framer **hooks** (`useMotionValue`, …)? | **Small React host leaf** (hooks only inside that file) |
+| Framer components only (`motion.*`, `AnimatePresence`)? | **React elements in child positions** (+ pilot for exit) |
+| You call Framer **hooks** (`useMotionValue`, …)? | a **small React component of your own** — hooks only inside that file |
 | Drive a non-React player (GSAP on a node)? | **Behavior** |
 | Must mid-animation state time-travel? | Put *intent* in re-frame; keep the player in the host |
 
-**Reduced motion:** read a preference (media query or app setting as data) and
-pass a flag into the leaf or behavior. Freehand does not invent a global motion
-bus.
+**Reduced motion:** read a preference (a media query or an app setting, as data)
+and pass a flag through props or `:config`. Freehand does not invent a global
+motion bus.
 
 ## Common mistakes
 
 | Mistake | Better |
 |---|---|
-| “Framer means leave Freehand for another UI stack” | Freehand page + Framer host leaves |
+| “Framer means leave Freehand for another UI stack” | a Freehand page with Framer elements as children |
 | Store the GSAP/Framer instance in app-db | Host memory only |
 | Domain “unmount” events to own lifetime | re-frame owns whether the fact exists; motion is presentation |
-| Bare foreign head with no host qualification | `host/component` |
+| Bare React component at a vector head | create the element; put it in a child position |
 | Bare `fn` on a foreign callback | `v/event` / `v/handler` / … |
 | Assume AnimatePresence exit works untested | mounted pilot before you depend on it |
 | Full motion library for one opacity fade | presence + CSS |

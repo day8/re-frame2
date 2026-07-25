@@ -199,18 +199,33 @@ nav:
       - "Report errors in production": core/how-to/report-errors-in-production.md
       - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
       - "Use UIx or slim": core/how-to/use-uix-or-slim.md
-    - "re-frame.ui (experimental)":
-      - core/re-frame.ui/index.md
-      - "Mental model": core/re-frame.ui/mental-model.md
-      - "Build a view": core/re-frame.ui/build-a-view.md
-      - "Reactivity and ownership": core/re-frame.ui/reactivity-and-ownership.md
-      - "State: the four inputs": core/re-frame.ui/state.md
-      - "Events and handlers": core/re-frame.ui/events-and-handlers.md
-      - "Custom elements": core/re-frame.ui/custom-elements.md
-      - "Presence: exit animations": core/re-frame.ui/presence.md
-      - "Testing with ui.test": core/re-frame.ui/testing.md
-      - "SSR and hydration": core/re-frame.ui/ssr.md
-      - "Interop and the closed grammar": core/re-frame.ui/interop-and-limits.md
+    - "Freehand: the view layer":
+      - core/freehand/index.md
+      - "Start here":
+        - "Mental model": core/freehand/mental-model.md
+        - "Coming from Reagent": core/freehand/vs-reagent.md
+        - "Install and boot": core/freehand/install.md
+        - "Build a view": core/freehand/build-a-view.md
+      - "Everyday authoring":
+        - "Reactivity and ownership": core/freehand/reactivity-and-ownership.md
+        - "State: where a value lives": core/freehand/state.md
+        - "Forms": core/freehand/forms.md
+        - "Events and handlers": core/freehand/events-and-handlers.md
+        - "Debugging and performance": core/freehand/debugging.md
+      - "Structure and libraries":
+        - "Composition and theming": core/freehand/composition.md
+        - "Accessibility": core/freehand/accessibility.md
+        - "Semantic controllers": core/freehand/semantic-controllers.md
+        - "Compilation": core/freehand/compilation.md
+      - "Host and browser":
+        - "Host boundaries": core/freehand/host-boundaries.md
+        - "JavaScript libraries": core/freehand/js-libraries.md
+        - "Presence: enter and exit": core/freehand/presence.md
+        - "SSR and hydration": core/freehand/ssr.md
+      - "Ship and live with it":
+        - "Testing": core/freehand/testing.md
+        - "Adoption": core/freehand/adoption.md
+        - "Limits and escapes": core/freehand/limits-and-escapes.md
     - "Testing":
       - core/testing/index.md
       - "Event handlers": core/testing/event-handlers.md

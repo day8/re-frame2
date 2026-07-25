@@ -9,20 +9,22 @@ This page is the whole setup: the dependency, the one setting, why you cannot sk
 `re-frame.ui` is a separate artefact from the core library. An app that requires namespaces from both declares both — a direct `:require` deserves a direct dependency.
 
 ```clojure
-;; deps.edn
+;; deps.edn — resolved from a re-frame2 checkout beside your project
 {:paths ["src"]
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
          org.clojure/clojurescript {:mvn/version "1.12.145"}
 
-         day8/re-frame2            {:mvn/version "..."}
-         day8/re-frame2-ui         {:mvn/version "..."}}}
+         day8/re-frame2            {:local/root "../re-frame2/implementation/core"}
+         day8/re-frame2-ui         {:local/root "../re-frame2/implementation/ui"}}}
 ```
 
 React arrives through npm rather than Clojure — `package.json` carries `react` and `react-dom`, and Shadow resolves them from `node_modules` at compile time.
 
-!!! note "Pre-publication coordinates"
+!!! warning "`day8/re-frame2-ui` is donor-only and will not be published"
 
-    `day8/re-frame2` and `day8/re-frame2-ui` are not on Clojars yet. Until they are, projects inside a monorepo checkout resolve them with `:local/root`, the way [`examples/ui/minimal-counter`](https://github.com/day8/re-frame2/tree/main/examples/ui/minimal-counter) does. The setting below is unaffected by which coordinate style you use.
+    There is no Clojars coordinate for `day8/re-frame2-ui`, and there will not be one — the release contract says so in terms ([Release process](../../release-process.md)). A monorepo checkout resolves it with `:local/root`, the way [`examples/ui/minimal-counter`](https://github.com/day8/re-frame2/tree/main/examples/ui/minimal-counter) does, and that is the only supported shape.
+
+    This page exists to keep the **existing** donor views building. New view work belongs on [Freehand](../freehand/index.md), which is re-frame2's view layer and the substrate this guide's readers should be starting from.
 
 ## The setting
 

@@ -3,19 +3,16 @@
 A working Freehand screen, one idea at a time: subscription as a value, handler as
 data, controlled field, mount. Not a tour of every option.
 
-**Prerequisites:** basic re-frame2 events, subscriptions, and frames.
-
-!!! note "Implementation status"
-
-    Names match the ratified design. Adapter install and Shadow recipes land with
-    implementation; sketches may use placeholder adapter names.
+**Prerequisites:** basic re-frame2 events, subscriptions, and frames, plus a
+project that [depends on Freehand](install.md).
 
 One namespace:
 
 ```clojure
 (ns my.app
   (:require [re-frame.core :as rf]
-            [re-frame.freehand :as v :refer [sub]]))
+            [re-frame.freehand :as v :refer [sub]]
+            [re-frame.adapter.uix :as uix]))
 ```
 
 The `:as v` alias matters for projection keywords later. With that alias,
@@ -61,9 +58,10 @@ Here is the component in its first form:
 the paragraph. When `[:count]` changes, this view boundary re-renders. There is no
 `@` and no ratom.
 
-**How you call it:** write `[counter {}]` in a parent (or at the mount root).  
-**How you must not call it:** `(counter {})` — that is for helpers, not for
-declared views.
+**How you mount it:** write `[counter {}]` in a parent, or at the mount root.  
+**How you must not call it:** `(counter {})` raises `:rf.error/view-called-directly`.
+Parentheses are for plain `defn` helpers, which run inside whatever boundary
+called them.
 
 ## Step 3 — an event as data
 
@@ -146,41 +144,42 @@ a frame id.
 
 ```clojure
 (defn ^:export run []
-  ;; Adapter install follows re-frame2's (rf/init! adapter) pattern
-  (rf/init! freehand-adapter)
+  (rf/init! uix/adapter)
   (v/mount [counter {}]
-           (js/document.getElementById "root")))
+           (js/document.getElementById "root")
+           {:frame {:id :my.app/main :initial-events [[:app/init]]}}))
 ```
+
+Three things happen there, in order. `rf/init!` installs the reactive substrate —
+without it, minting a frame raises `:rf.error/no-adapter-installed`. The `:frame`
+plan mints `:my.app/main` and drains `[:app/init]` **before** React is handed
+anything, so the first render reads a seeded app-db rather than flashing an empty
+count. Then the root attaches to `#root`.
 
 Think of two layers:
 
 | Layer | Meaning |
 |---|---|
-| **DOM container** | e.g. `#root` — where React/Freehand attaches |
+| **DOM container** | e.g. `#root` — where React and Freehand attach |
 | **Frame** | re-frame world: app-db, events, subs for this UI |
-
-**Seeding before first paint** is frame **preflight** (the Root Descriptor story).
-In production style, the frame should exist and can drain `:initial-events` such as
-`[:app/init]` *before* React paints, so you do not flash empty count and note.
 
 The contracts to remember:
 
-1. seed once before first render  
-2. hot reload should **reuse** the live frame so state survives edits  
-3. multi-root pages need an explicit root identity when containers could collide  
+1. seed through the mount's `:frame` plan, not with a `dispatch-sync` beforehand  
+2. hot reload **re-renders the live root** when the root-id and container are
+   unchanged, so app-db survives a save  
+3. multi-root pages need a `:disambiguator` or explicit `:root-id` when one view
+   mounts twice  
 4. embedding Freehand inside foreign React uses `v/->react` and an **existing**
-   frame  
-
-Until samples land with polished preflight helpers, a temporary dev boot may
-`dispatch-sync` init before `mount`. Prefer preflight for the real boot path so
-first paint and HMR share one story.
+   frame
 
 ## The complete counter
 
 ```clojure
 (ns my.app
   (:require [re-frame.core :as rf]
-            [re-frame.freehand :as v :refer [sub]]))
+            [re-frame.freehand :as v :refer [sub]]
+            [re-frame.adapter.uix :as uix]))
 
 ;; ---- dataflow: plain re-frame2 --------------------------------------------
 
@@ -206,14 +205,14 @@ first paint and HMR share one story.
 ;; ---- mount ----------------------------------------------------------------
 
 (defn ^:export run []
-  (rf/init! freehand-adapter)
-  ;; Prefer frame preflight so seed events drain before paint — see install.md
+  (rf/init! uix/adapter)
   (v/mount [counter {}]
-           (js/document.getElementById "root")))
+           (js/document.getElementById "root")
+           {:frame {:id :my.app/main :initial-events [[:app/init]]}}))
 ```
 
 That is a complete Freehand view: a subscription as a value, an event as data, a
-controlled field on the sync door, mounted under a frame. No component-local
+controlled field on the sync door, mounted under a frame. No view-local
 reactive state, and no dispatch closures on the paved path.
 
 ## Day-one checklist
@@ -224,7 +223,7 @@ You can stop here and still ship a simple Freehand screen if you can:
 - write a `v/defview` that uses `(sub …)` / `(v/sub …)` as a value  
 - put an event vector on `:on-click`  
 - wire a controlled input with `::v/value` on `:on-input`  
-- mount with `v/mount` (and seed the frame before paint when you care about flash)
+- mount with `v/mount`, seeding the frame in the same call
 
 ## If something feels wrong
 
@@ -232,6 +231,6 @@ You can stop here and still ship a simple Freehand screen if you can:
 |---|---|---|
 | Button does nothing | event not registered / wrong frame | check `reg-event` id; confirm mount bound a live frame |
 | Input caret jumps or characters drop | not on the controlled door | use `:value` + `:on-input` (or `:on-change`) with a data handler |
-| `v/sub` throws outside render | render-only rule | use `rf/subscribe-once` in tools/tests |
-| `(my-view {})` fails | descriptors are not `IFn` | call `[my-view {}]` |
-| First paint empty then flash | seed after paint | preflight / seed before mount |
+| `:rf.error/view-read-outside-render` | `v/sub` outside a render | use `rf/subscribe-once` in tools; `t/with-render` in tests |
+| `:rf.error/view-called-directly` | `(my-view {})` | mount it: `[my-view {}]` |
+| First paint empty then flash | seeding after mount | seed with the mount's `:frame` `:initial-events` |

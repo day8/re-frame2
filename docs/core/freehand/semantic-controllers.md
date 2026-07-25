@@ -143,7 +143,7 @@ frame, SSR, and trace semantics (D017). Do not invent `v/debounce`.
 ## Where the data lives
 
 Controller state is **ordinary frame-scoped re-frame data** (usually that frame’s
-**app-db**). It is not React state, not `local`, and not a Freehand-private side
+**app-db**). It is not React state, not a view-local cell, and not a Freehand-private side
 channel.
 
 **There is no single Freehand-mandated path** like “always under
@@ -291,6 +291,109 @@ one `:control` for two writable cells unless they should share one draft.
 You only need buffer records for rows **currently editing** — not twenty permanent
 slots.
 
+## The three verbs a controller uses
+
+A controller is **not a new kind of thing**: it is a `v/defview` plus ordinary
+`reg-sub` and `reg-event` registrations, and its state is ordinary frame data an
+epoch, a snapshot and a JVM test all see. What the substrate contributes is three
+small functions, and they answer two questions a library would otherwise answer
+twice and differently: **where** the record lives, and **when** it is still the one
+the caller means.
+
+### `v/controller-key` — where the record lives
+
+```clojure
+(v/controller-key ::buffered-field props)
+;; => [::buffered-field [:invoice 42 :amount]]
+```
+
+The pair of your library's controller `kind` and the caller-supplied `:control`
+address. **Asking for the key is what makes a controller writable** — a props-only
+view never calls it and pays nothing.
+
+The `kind` is half the key, so a dropdown and a field addressed at the same domain
+identity read two records rather than each other's. The address is the caller's,
+and it is immutable EDN naming the domain thing that owns the state — never a DOM
+id, a React key, or anything derived from render position. A derived anchor turns a
+sort, a view rename or a parent extraction into a silent state migration, while
+`[:invoice 42 :amount]` survives all of them.
+
+An absent `:control` is refused with `:rf.error/view-control-address-missing`
+rather than defaulted, because every controller that skipped the address would
+otherwise share one record keyed by `nil` — which presents as one field editing
+another and has no local explanation. An explicit `nil` is refused *separately*,
+with `:rf.error/view-control-address-nil`: an absent prop is a call site that
+forgot the address, while a `nil` came from an expression that answered nothing —
+an unresolved route parameter, a subscription that has not landed — so the repair
+belongs upstream of the render. Presence decides which refusal you get, never
+truthiness: `false`, `0` and `""` are ordinary addresses.
+
+Where the record then lives is **your** choice. Freehand fixes the identity model
+and no storage path, so there is no reserved app-db root to migrate off later.
+
+### `v/controller-revision` — which generation is live
+
+```clojure
+(v/controller-revision ::buffered-field props)   ; the caller's :reset-key
+```
+
+Any EDN the caller likes — a counter, a timestamp, the id of the decision that set
+the baseline — because the fence only ever asks whether two of them are equal.
+**Asking for the revision is what makes a controller buffered.**
+
+What it must **not** be is the value. The case this exists for is a caller
+*rejecting* an edit by reasserting what it already had: the accepted value is
+`"10"`, the user drafts `"bad"`, the caller refuses and stands by `"10"`. The value
+before that decision and the value after it are identical, so value-equality sees
+nothing happen and the refused draft survives on screen — the bug every hand-rolled
+buffered input eventually acquires.
+
+It is **required**. An absent `:reset-key` is
+`:rf.error/view-control-reset-revision-missing`, because optional would be worse
+than absent: a control with no generation buffers perfectly right up to the first
+rejection, so omission ships a defect development never reproduces. A caller that
+genuinely never resets says so with a stable literal — `:reset-key 0` reads as *do
+not externally reset an active edit*, which is a statement rather than a silence.
+`nil` is refused separately again, and for the same reason.
+
+### `v/controller-current?` — the generation fence
+
+```clojure
+(v/controller-current? stamped revision) ; → boolean
+```
+
+One predicate, asked at **both** of a buffered controller's boundaries — the read,
+where a draft is displayed only while it is current, and the write, where only a
+current record may produce the caller's intent:
+
+```clojure
+;; the READ — display the draft only while it is current
+(rf/reg-sub :acme.buffered/text
+  (fn [db [_ k revision baseline]]
+    (let [record (get-in db [records-root k])]
+      (if (v/controller-current? (:reset-key record) revision)
+        (:draft record)
+        baseline))))
+
+;; the WRITE — only a current record may produce the caller's intent
+(when (v/controller-current? (:reset-key record) revision)
+  {:fx [[:dispatch (conj on-commit (:draft record))]]})
+```
+
+They are the same question through the same function, because a control whose
+display and whose commit disagreed about which generation is live would commit
+something the user could not see.
+
+It is **total, and safe in the missing direction**: an absent stamp is not
+current, whatever `revision` is — work that cannot prove its currency does not have
+it. That is the half a hand-rolled `(= a b)` gets wrong, since two `nil`s compare
+equal and an unstamped record would read as current. It is also what makes a draft
+written from a superseded render *born stale*: it carries the generation its own
+render displayed, so if the caller has moved on it is neither shown nor committed.
+
+A superseded draft is **invisible, not erased**, which is why a reset costs no
+render-time dispatch, no render-phase mutation and no remount.
+
 ## What `buffered-field` looks like (library sketch)
 
 Yes: it is a normal **`v/defview`**, plus library events/subs. It is not a
@@ -379,4 +482,4 @@ build these protocols in v1.
 | Single domain fact, simple event | props-only controlled control |
 | Keystroke = domain write | controlled input + domain event |
 | Commit / cancel / reject / shared field UX | semantic controller + library control |
-| High-rate or opaque editor | qualified [host boundary](host-boundaries.md), not fake “local” |
+| High-rate or opaque editor | a [registered behavior](host-boundaries.md), not a pretend local cell |

@@ -3,8 +3,8 @@
 **Where does a value live?** Shared app truth, parent props, or (rarely) a reusable
 field protocol — without a second reactive system.
 
-No `local`, ratom, or hook-shaped cell in ordinary Freehand views. Product state
-stays in re-frame. Host ephemera stay behind explicit host boundaries.
+There is no ratom and no hook-shaped cell in an ordinary Freehand view. Product
+state stays in re-frame; host ephemera stay behind explicit host boundaries.
 
 | Question | Answer |
 |---|---|
@@ -109,18 +109,22 @@ is). Simple. Often enough.
 ### Rung B — draft, then commit, still no controller
 
 ```clojure
-[:input {:value   (v/sub [:form/email-draft])
-         :on-input [:form/email-drafted ::v/value]
-         :on-blur  [:form/email-committed]
-         :on-key-down {"Enter"  [:form/email-committed]
-                       "Escape" [:form/email-cancelled]}}]
+[:input {:value       (v/sub [:form/email-draft])
+         :on-input    [:form/email-drafted ::v/value]
+         :on-blur     [:form/email-committed]
+         :on-key-down [:form/email-key ::v/key]}]
 ```
 
 Here the jobs split on purpose:
 
 - **input** updates the draft  
-- **blur** and **Enter** share **commit**  
-- **Escape** cancels  
+- **blur** commits  
+- **`:form/email-key`** branches on the key it was handed: Enter commits, Escape
+  cancels, anything else does nothing  
+
+The branch lives in the handler rather than the view because that is where it can
+also see application state — see
+[Events](events-and-handlers.md#keyboard-branching).
 
 You own the app-db keys and the cleanup. Freehand does not invent a second store
 for you, and unmount does not magically clear your draft.
@@ -139,7 +143,7 @@ Stop when you can:
 | Symptom | Fix |
 |---|---|
 | Draft vanishes on unmount / route leave | you expected lifecycle cleanup — clear in route/owner events |
-| “I need `local` for this toggle” | re-frame fact + event, or props-only controlled open? |
+| “I need view-local state for this toggle” | it is a re-frame fact plus an event, or a prop the parent owns |
 | Mid-edit wiped by async load | seed-merge untouched keys only |
 | Two writers on one draft | one owner path; controllers need unique `:control` addresses |
 
@@ -174,10 +178,10 @@ events. Call sites look roughly like this:
 
 | Absent | Use instead |
 |---|---|
-| `local` | re-frame facts (A/B) or a library controller (C) |
-| `v/self` / tree-derived writable addresses | your domain ids or explicit `:control` |
+| A view-local reactive cell | re-frame facts (A/B) or a library controller (C) |
+| Tree-derived writable addresses | your domain ids or an explicit `:control` |
 | Mount/unmount as domain cleanup | route / resource / machine ownership |
-| Built-in `buffered-field` or reserved `:rf.field/*` in v1 | library vocabulary if you need C |
+| A built-in `buffered-field`, or a reserved app-db root for controllers | library vocabulary if you need C — Freehand fixes the identity model and no storage path |
 
 ## Where state lives — quick map
 

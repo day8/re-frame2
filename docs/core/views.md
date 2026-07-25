@@ -515,6 +515,7 @@ that survives any async hop. [Frames](frames.md) is that pattern's home.
     (`(rf/init! reagent-adapter/adapter)`) is where hiccup becomes pixels.
     Port substrates and only `init!` plus view notation change —
     [Use UIx or reagent-slim](how-to/use-uix-or-slim.md). A more radical,
-    still-experimental option is [re-frame.ui](re-frame.ui/index.md), a first-party
-    *compiled* view substrate where views are macro-compiled rather than
-    interpreted at runtime.
+    still-experimental option is [Freehand](freehand/index.md), re-frame2's own
+    view layer — subscriptions read as plain values, handlers are event vectors,
+    and a hot declaration can be promoted to a compiled tier without touching a
+    single call site.

@@ -34,7 +34,7 @@ semantics.
 | Form field | labelled control (`:label` wrapping or `aria-labelledby`) | placeholder-as-only-label |
 
 Overlays, measurement, top-layer open state, and presence exit classes are defined
-on their host/presence pages. This page only states the **a11y obligations** those
+on their host and presence pages. This page only states the **a11y obligations** those
 features create.
 
 ## Names, roles, and keyboard
@@ -84,12 +84,16 @@ Structural replacement of a labelled region uses the
 While a keyed child is retained as **`:unmounting`**, it can still take focus and
 clicks unless you hide it from interaction and assistive tech:
 
+The presence boundary stamps nothing on your markup, so this is the **child's**
+job — it reads its own phase and hides itself:
+
 ```clojure
-[v/presence
- {::v/unmounting {:class ["opacity-0"]
-                  :inert true
-                  :aria-hidden true}}
- …]
+(v/defview toast-card [{:keys [toast]}]
+  (let [exiting? (= :unmounting (v/presence-phase))]
+    [:div.toast {:class       (when exiting? "toast--exit")
+                 :inert       (when exiting? true)
+                 :aria-hidden (when exiting? true)}
+     (:message toast)]))
 ```
 
 Development checks should warn when retained interactive content lacks `inert`
@@ -113,7 +117,7 @@ backdrop, Esc, and much of focus return. Your job:
 | Nested stacks | LIFO / native stacking — do not invent a second modal manager in app-db |
 
 Do not reimplement portal + trap as neutral Freehand primitives. Use the top-layer
-contract and, when React protocols demand it, a UIx wrapper.
+contract and, when React protocols demand it, a React component entered as a child.
 
 ## Forms
 

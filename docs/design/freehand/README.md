@@ -12,7 +12,7 @@ built by absorbing the useful `re-frame.ui` machinery.
 | [`fable-design.md`](fable-design.md) | argued dossier: worked code, corpus fitness, semantic traces, alternatives, wounds, and pre-mortems |
 | [`studio/fitness-harness.md`](studio/fitness-harness.md) | evidence and acceptance pressure from applications, re-com, and hard browser cases |
 | [`decisions/`](decisions/README.md) | D001–D021, each with its explicit ratified ruling and rationale |
-| [`draft-guide/`](draft-guide/README.md) | a DRAFT end-user guide, not the shipped guide — the operator's working draft, promoted here for durability and used as the base for the guide-authoring work |
+| the draft guide | PROMOTED and gone from this tree. It was the operator's working draft, and it became the shipped guide at [`docs/core/freehand/`](../../core/freehand/index.md) (rf2-fby7o), refined there against what actually landed. Its history is in git; keeping a second, staler copy beside the real one would only invite readers to the wrong page. |
 
 ## Authority
 

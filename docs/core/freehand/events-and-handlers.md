@@ -21,12 +21,11 @@ structural tree, free of stale render closures, and friendly to memo.
 
 The everyday handler is not a function. It is an **event vector** as above.
 
-## Projections: three live scalars
+## Projections: live scalars in a data event
 
 Sometimes the event needs a value that only exists when the browser fires — the
 current text of an input, whether a checkbox is checked, which key was pressed.
-
-Freehand reserves three **projection markers** for that:
+Freehand reserves **projection markers** for that:
 
 ```clojure
 [:input {:on-input  [:form/typed :email ::v/value]}]
@@ -34,17 +33,43 @@ Freehand reserves three **projection markers** for that:
 [:div   {:on-key-down [:editor/key ::v/key]}]   ; "Enter", "a", …
 ```
 
+Five markers carry names, and `v/projections` is the whole named roster:
+
+```clojure
+v/projections
+;; => #{::v/value ::v/checked ::v/key ::v/scroll-top ::v/new-state}
+```
+
+Each is sugar for the **general read door**, `[::v/read path]`, which reads any
+other shallow scalar off the live event the same way. A keyword is a property of
+the event itself; a vector is a chain walked from it:
+
+```clojure
+[:div {:on-scroll [:pane/scrolled [::v/read [:target :scrollLeft]]]}]
+[:div {:on-key-down [:editor/chord [::v/read :altKey]]}]
+```
+
+`::v/value` is exactly `[::v/read [:target :value]]`, and `::v/scroll-top` is
+`[::v/read [:target :scrollTop]]` — the named markers exist because those reads
+are frequent, not because they are privileged.
+
+What is closed is the **property**, not the set of names. A read is admitted only
+when it resolves to a shallow scalar — string, number, boolean, keyword — which is
+what keeps a projected read assertable by equality, printable, and host-neutral.
+Anything richer (two reads, arithmetic, a live host object) is `v/event`'s job.
+
 At fire time Freehand fills every matching **top-level** marker, then ordinary
 `dispatch` runs on the finished vector.
 
-- Nested markers stay ordinary data — not magic.  
+- Nested markers stay ordinary data — a projection keyword inside an ordinary
+  domain event is never secretly interpreted.  
 - Position zero (the event id) must not be a marker.  
-- Marker present but payload unavailable → typed error, no dispatch.  
 
-The same materializer covers literals, forwarded vectors, options maps, `v/event`
-results, both modes, production and tests. Reuse it in tests
-([Testing](testing.md)) — no second splice path. General `rf/dispatch` does **not**
-grow a payload-map arity; that is Freehand’s job at the event site.
+One function does all of it, and it is public: `v/materialize-event`. Literals,
+forwarded `conj`s, options maps, `v/event` bodies, interpreted and compiled,
+production and test all run through it, which is why general `rf/dispatch` needs
+no payload arity. Tests call it directly ([Testing](testing.md)) rather than
+growing a second splice path.
 
 ## Options maps
 
@@ -59,26 +84,32 @@ vocabulary (`:prevent-default`, `:stop-propagation`, `:capture`, `:passive`,
 The event is still data. The mechanics are data too, instead of a wrapper function
 that calls `.preventDefault`.
 
-## Keyboard conditions
+## Keyboard branching
 
-For simple key branching on `:on-key-down` and `:on-key-up`, Freehand allows one
-extra closed data form: a map from exact key strings to handler forms.
+There is no key-condition map. A handler slot holds **one** handler form, so
+branching on which key was pressed is one of two ordinary spellings.
+
+Send the key with the event and branch in the handler, where the decision can also
+see application state:
 
 ```clojure
-{:on-key-down
- {"Enter"     {:event [:picker/accept] :prevent-default true}
-  "Escape"    [:picker/close]
-  "ArrowDown" {:event [:picker/move 1] :prevent-default true}}}
+[:input {:on-key-down [:picker/key-pressed ::v/key]}]
 ```
 
-Keys are exact `KeyboardEvent.key` values (`"Enter"`, not a key code). Values are
-the same handler shapes you already know: vector, options map, `v/event`, or
-`nil`. Selection is one level deep. A missing key is a no-op. During IME
-composition, no branch matches.
+Or branch synchronously at the site with `v/event`, when the browser mechanics
+(`preventDefault`) depend on which key it was:
 
-No wildcards, regexes, modifier chords, or state predicates in this map — use
-`v/event` or a host boundary for those. The form is deliberately small; it may be
-removed before release if pilots do not show repeated use.
+```clojure
+[:input {:on-key-down (v/event [e]
+                        (case (.-key e)
+                          "Enter"  [:picker/accept]
+                          "Escape" [:picker/close]
+                          nil))}]
+```
+
+Prefer the first. It keeps the intent as data — visible to tools, assertable on a
+structural tree — and puts the decision in the handler, against the committed
+frame, rather than in the view.
 
 ## One event per user action
 
@@ -144,11 +175,21 @@ You want: type freely → accept on blur or Enter → cancel on Escape — but o
 **this** app, with **your** app-db keys.
 
 ```clojure
-[:input {:value   (v/sub [:lines/draft id])
-         :on-input [:lines/draft-changed id ::v/value]
-         :on-blur  [:lines/label-committed id]
-         :on-key-down {"Enter"  [:lines/label-committed id]
-                       "Escape" [:lines/draft-cancelled id]}}]
+[:input {:value       (v/sub [:lines/draft id])
+         :on-input    [:lines/draft-changed id ::v/value]
+         :on-blur     [:lines/label-committed id]
+         :on-key-down [:lines/draft-key id ::v/key]}]
+```
+
+`:lines/draft-key` is the branch point, and it is an ordinary handler:
+
+```clojure
+(rf/reg-event :lines/draft-key
+  (fn [{:keys [db]} [_ id k]]
+    (case k
+      "Enter"  {:fx [[:dispatch [:lines/label-committed id]]]}
+      "Escape" {:fx [[:dispatch [:lines/draft-cancelled id]]]}
+      {:db db})))
 ```
 
 **Which events should match?**
@@ -188,7 +229,8 @@ That control is **not** core Freehand. See
 Stop when you can:
 
 - put event vectors on buttons and forms  
-- use `::v/value` / `::v/checked` / `::v/key` for live scalars  
+- use `::v/value` / `::v/checked` / `::v/key` for live scalars, and
+  `[::v/read path]` for anything else shallow  
 - wire pattern **A** or **B** for a text field  
 - keep multi-step work as **one** domain event + effects  
 
@@ -233,11 +275,12 @@ app-db traffic**: the DOM holds text until commit.
 ;; Uncontrolled: no :value key — not on the Freehand door
 [:input {:default-value raw
          :auto-focus    true
-         :on-blur       (v/event [e]
-                          [:cells/commit-edit id (.. e -target -value)])
-         :on-key-down   {"Enter"  (v/event [e]
-                                    [:cells/commit-edit id (.. e -target -value)])
-                         "Escape" [:cells/cancel-edit id]}}]
+         :on-blur       [:cells/commit-edit id ::v/value]
+         :on-key-down   (v/event [e]
+                          (case (.-key e)
+                            "Enter"  [:cells/commit-edit id (.. e -target -value)]
+                            "Escape" [:cells/cancel-edit id]
+                            nil))}]
 ```
 
 | You gain | You give up |
@@ -289,9 +332,9 @@ When a vector is not enough, pick the form that matches the job:
 | Imperative foreign work | `(v/handler [x] …)` | return ignored; stable per site |
 | Callback invoked **while rendering** | `(v/render-fn [x] …)` | pure; no dispatch or app state |
 | Identity-as-protocol APIs | `(v/raw-fn f)` | identity passes through unchanged |
-| React hooks / portals / context | UIx wrapper | not neutral Freehand |
-| Quick local work on a **native** `:on-*` | bare `#(…)` | legal there only |
-| Any callback on a **foreign** component | one of the explicit forms | bare fn is rejected |
+| React hooks / portals / context | a React component, entered through the child fold | not neutral Freehand |
+| Owning a DOM node imperatively | `v/defbehavior` + `[v/behavior …]` | [Host boundaries](host-boundaries.md) |
+| Any callback on a **foreign** component | one of the explicit forms | a bare fn is rejected |
 
 **Phase rule:** event handlers see **committed** values — what the user actually
 saw. Render callbacks see the **current** render. One bare function cannot honestly

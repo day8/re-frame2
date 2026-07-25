@@ -19,18 +19,18 @@ This page is a map of walls and recoveries.
 | Use `v/sub` outside a declared render | render-only observation | `rf/subscribe-once` |
 | Call `v/sub` off the render thread | capture is same-thread only | realize on the render thread or extract a child view |
 | Put multi-intent vectors in handlers | one event per user action | one semantic event + effects |
-| Use `local` / neutral hooks in views | one reactive system | re-frame facts, controllers, or host wrappers |
-| Derive writable state from React keys / `v/self` | occurrence ≠ controller identity | explicit `:control` addresses |
+| Reach for view-local state or a neutral hook | one reactive system | re-frame facts, controllers, or a registered behavior |
+| Derive writable state from React keys or render position | occurrence ≠ controller identity | explicit `:control` addresses |
 | Bare fn on a foreign callback prop | unknown phase/identity | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
-| Bare React component as an ordinary head | foreign boundary must be named | `host/component` or UIx wrapper |
+| Bare React component at a vector head | a component is not a descriptor | create the element and put it in a **child** position |
 | Neutral portal primitive | not in v1 | top-layer intrinsics, behavior, or React wrapper |
-| Automatic promotion | honesty | `v/check` then `{:compiled true}` |
+| Automatic promotion | honesty | you add `{:compiled true}` yourself |
 | `:children` key inside the props map | reserved trailing channel only | trailing child forms → `:children` |
 | Opaque reactive fn as a “render prop” | hides `sub` / identity | `v/render-fn`/`v/slot` if pure; else declared child view |
 | `:parts` that rewrite structure or strip roles | attrs-only; owned a11y stays owned | composition spreads + a11y ownership rules |
 | Dynamic map on controlled input without `spread-safe` | forfeits door proof | `v/spread-safe` (not bare merge / `v/spread`) |
 | Put `:on-before-input` on the controlled door | precedes DOM mutation; not door-eligible | ordinary listener; door is `:on-input` / `:on-change` only |
-| Invent public APIs the design did not name (`v/frame-provider`, mount seed kwargs, …) | aspirational drift | stick to spine contracts; mark TBD helpers as unpublished |
+| Reach for a verb the door does not export (a frame provider, a render-history query, …) | it is absent on purpose | the door's roster is the surface; the absences on this page are rulings, not gaps |
 
 ## Compiled-mode walls
 
@@ -42,7 +42,7 @@ This page is a map of walls and recoveries.
 | Unkeyed dynamic lists | real `:key`s |
 | Inline interpreter fallback in compiled space | `[v/markup {:value …}]` as a declared interpreted child |
 
-Run `v/check` before promotion. Findings are the work order.
+The build refuses what the grammar cannot admit, and names the recovery. That refusal is the work order.
 
 ## Performance walls
 
@@ -75,12 +75,12 @@ the named recovery column.
 | Second compiler, `v/interp`, or hidden interpreted fallback inside compiled markup | stay interpreted, extract child, or `[v/markup {:value …}]` |
 | Permanent `re-frame.ui` sibling product | absorb donor; delete at gate |
 | Preserve every donor API because code was useful | Freehand owns the public contract |
-| Third “unprofiled” mode for local state / hooks / refs / effects | host boundary or UIx wrapper |
-| Automatic promotion or a “hot 5%” rule | measure → `v/check` → `{:compiled true}` |
+| A third “unprofiled” mode for local state, hooks, refs or effects | a registered behavior, or a React component in a child position |
+| Automatic promotion or a “hot 5%” rule | measure, fix structure, then `{:compiled true}` |
 | Callable declared views or a region DSL | `[view props]` / trailing children / compound views |
 | `:reads` query-template language in v1 | inline `(v/sub …)` only |
-| `v/self` or renderer-derived writable addresses | explicit `:control` / domain ids |
-| Generic component-local storage verbs or widget event namespaces | library events; no `:rf.field/*` in core v1 |
+| Renderer-derived writable addresses | explicit `:control` / domain ids |
+| Generic component-local storage verbs, or a reserved app-db root for controllers | library events; Freehand fixes the identity model and no storage path |
 | Controller / reducer DSL in Freehand | ordinary `reg-event` / `reg-sub` |
 | Render/unmount ownership of domain resources | routes, resources, machines |
 | Neutral portals or arbitrary lifecycle callbacks | top-layer, behavior, or React wrapper |
