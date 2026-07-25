@@ -542,6 +542,22 @@ body shape (e.g. `:tags #{:dev}`) can't round-trip through JSON.
   hardening above (`"must be a map or a valid EDN string"`).
 - `isError: true` when the parent story is not registered.
 
+A schema-violation error carries the registrar's diagnostic on both
+slots: the `:content` text is `"Registration failed: "` plus the
+registrar's own message, which names the offending key and the nearest
+declared slot; `:structuredContent` carries `:explain-humanized`, the
+`malli.error/humanize` projection of the failure keyed by the failing
+slot (`{:compnent ["disallowed key"]}`), per
+[`spec/010-Schemas.md`](../../../spec/010-Schemas.md) §humanize hook.
+
+The raw Malli `:explain` map is **never** relayed. Its `:schema` entries
+are live reified `malli.core/Schema` objects, and shipping them made the
+JSON encoder throw *past* the tool handler — the client got a
+protocol-level `-32603` naming a Malli class instead of this error
+result, on the commonest authoring mistake there is (rf2-2z9u3). Every
+handler that copies `ex-data` onto `:structuredContent` runs it through
+`tools.result/wire-safe-ex-data` for that reason.
+
 ### `unregister-variant`
 
 **Input.** `{:variant-id keyword (required)}`.
@@ -594,7 +610,9 @@ the `?` per Clojure idiom.
 - `isError: true` when `:write-back` is true but the gate is closed
   (`{:gated true}` in `structuredContent`).
 - `isError: true` when the write-back `reg-variant*` call fails (shape
-  validation, unresolved `:extends`, etc.).
+  validation, unresolved `:extends`, etc.). Same projection as
+  `register-variant`: a shape failure ships `:explain-humanized`
+  alongside the recorder payload, never the raw `:explain`.
 
 Filter layers (op-type `:event/dispatched`, frame scope, internal-ns
 skip) are inherited from the recorder; this tool does not expose a
