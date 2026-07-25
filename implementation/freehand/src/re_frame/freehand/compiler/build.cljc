@@ -72,6 +72,43 @@
 ;; and REPL paths (no `:compile-prepare` hook) keep populating the per-source
 ;; `::elements` slice through the macro + lazy own-source harvest below.
 
+(def refused-property-names
+  "The author-space names a `(v/custom-element tag {:properties #{…}})`
+  declaration may never classify as JS properties — `:class` and `:style`.
+
+  Both are ATTRIBUTES with grammars of their own: `:class` composes with the
+  `.class#id` tag sugar and `:style` carries the CSS map, and 004B/004D say so
+  outright — on a custom element, \"booleans/`:class`/`:style` follow DOM
+  rules\" exactly as they do on a `<div>`. Declaring one as a property is a
+  category error rather than an unusual-but-meaningful choice.
+
+  It had to become a REFUSAL because the substrate's answer was silent WRONG
+  OUTPUT. A property-classified name lands in the node's
+  `:rf.ui/property-props` set, and the serialiser omits exactly those names
+  from markup (a server cannot run a property setter; the client applies them
+  at hydration) — so the declaration was accepted and the element rendered
+  with its class and style absent from the HTML, while the structural fold,
+  reading the same declaration but serialising nothing, still carried them.
+  One declaration, two answers, and no diagnostic anywhere, because both
+  answers are structurally well-formed (rf2-oazgv).
+
+  TWO NAMES, and deliberately only two. This is NOT a general
+  attribute-versus-property taxonomy: the declaration remains the sole
+  classifier for every other name, including one that is also a standard HTML
+  attribute spelling (`:tab-index` is the JS property on a tag that declares
+  it). Nor is it a coercion — silently rewriting `:class` into an attribute
+  would be the same sin as silently dropping it. Extending this roster is
+  formally a RULING (rf2-5gliq ruled the v1 `:properties` grammar), not a
+  maintenance edit; a candidate name needs evidence that it is demonstrably a
+  category error, on its own bead.
+
+  Read by the two doors that recognise a declaration: the `v/custom-element`
+  macro validator (`re-frame.freehand.compiler/custom-element**`, which
+  refuses with `:rf.ui.compile/bad-custom-element`) and the syntactic
+  prepare-time harvest (`re-frame.freehand.compiler.harvest`, which declines
+  to SEED what the macro will refuse)."
+  #{:class :style})
+
 ;; `::view-static` is similarly DECOUPLED from the Shadow build path (rf2-u53yy.1
 ;; S3), but by the simplest mechanism of all: its ONLY reader, `v/render-static`,
 ;; is JVM-only (a CLJS expansion is rejected), so a real Shadow build never reads
