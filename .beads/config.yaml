@@ -16,6 +16,28 @@
 # path reproduce the ids we already have. Do not change this value.
 issue-prefix: "rf2"
 
+# Custom issue statuses (status.custom) — DELIBERATELY NONE (rf2-gtynf).
+#
+# Exactly like issue-prefix above, status.custom lives ONLY in the Dolt database
+# and never in this file. So a fresh clone bootstrapping from the tracked
+# .beads/issues.jsonl has no custom statuses, and `bd bootstrap --yes` REJECTS
+# any exported row that carries one:
+#   Bootstrap failed: import from JSONL: validation failed for <id>: invalid status: in_review
+# That broke the recovery floor (rf2-4l67v) once already, via `in_review`: a
+# status whose workflow class was [unspecified], so every class-driven view
+# skipped it and eight beads sat invisible for ~7 weeks before being closed.
+#
+# RULE: a custom status must be bootstrap-safe, and none is introduced without a
+# producer, a consumer/sweep, and an exit transition. Until a review state has
+# all three, review-gated beads stay `open` with a label, where `bd ready` keeps
+# them visible. Every bead is either visible or closed.
+#
+# WARNING: `bd config unset status.custom` does NOT retire a status. It reports
+# "Unset status.custom" and `bd config get` then reads "(not set)", but
+# `bd statuses` still lists the status and beads can still be moved into it. The
+# clearing that actually takes is the empty assignment:
+#   bd config set status.custom ""
+
 # Use no-db mode: JSONL-only, no Dolt database
 # When true, bd will use .beads/issues.jsonl as the source of truth
 # no-db: false
