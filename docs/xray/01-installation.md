@@ -4,14 +4,14 @@ You want Xray in a dev build without teaching production about it. This chapter 
 
 ## Add The Dev Dependency
 
-While re-frame2 is pre-alpha, use a checkout-local dependency from a dev alias:
+While re-frame2 is pre-alpha, use a checkout-local dependency from a dev alias. `:local/root` is relative to *your* `deps.edn`, so the path below assumes the convention the rest of the docs use: a re-frame2 clone sitting **beside** your project directory.
 
 ```clojure
-;; deps.edn
+;; deps.edn — resolved from a re-frame2 checkout beside your project
 {:aliases
  {:dev
   {:extra-deps
-   {day8/re-frame2-xray {:local/root "tools/xray"}}}}}
+   {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
 When Xray is published, this becomes a normal Maven coordinate. Keep it in a dev-only alias. Xray is a tool, not application code.
