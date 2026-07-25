@@ -24,10 +24,12 @@
     2. The ui deck's variant drives the app's REAL counter events through the
        Story play runner and its `:assert-db` on the app's real app-db key
        passes — the app hosted + played GREEN through the shell.
-    3. `[:flush-presence]` reaches the REAL `re-frame.ui.test/flush-presence!`
-       through the shipped `presence-host` bridge and advances a real retained
-       exit (green); with the bridge uninstalled it fails CLOSED
-       (`:cannot-run`) — the late-bound presence seam, end-to-end.
+    3. `[:flush-presence]` reaches the REAL framework presence clock through
+       the shipped `presence-host` bridge and advances a real retained exit
+       (green); with the bridge uninstalled it fails CLOSED (`:cannot-run`) —
+       the late-bound presence seam, end-to-end. That arm follows the BRIDGE,
+       so it crossed to Freehand's scheduler with it (rf2-gzmg0); the app
+       under test in arms 1–2 is still the donor one.
 
   COVERAGE SHAPE — a CLJS unit test on the node runtime, wired into the
   EXISTING `npm run test:cljs` suite (NOT Playwright). Pure `.cljs` (not
@@ -50,14 +52,19 @@
             [re-frame.story.play.presence :as story-presence]
             ;; The shipped OPTIONAL bridge — the one canonical presence-install
             ;; path (rf2-36biz). Requiring it installs the verb at load; each
-            ;; presence test re-arms/clears it explicitly. Holds the re-frame.ui
+            ;; presence test re-arms/clears it explicitly. Holds the substrate
             ;; dependency on the app side of the seam.
             [re-frame.story.play.presence-host :as presence-host]
             [re-frame.story.play.runner-events :as re]
             ;; re-frame.ui — the outward interop bridge that exports a compiled
             ;; view as a foreign React component (the substrate render seam).
+            ;; The APP under test here is still the donor one; only the
+            ;; presence CLOCK below crossed, because the bridge crossed.
             [re-frame.ui :as ui]
-            [re-frame.ui.presence-runtime :as presence-rt]
+            ;; The clock the SHIPPED bridge advances (rf2-gzmg0). The presence
+            ;; block below is an acceptance test of the bridge, not of the
+            ;; donor app, so it follows the bridge onto Freehand's scheduler.
+            [re-frame.freehand.presence-runtime :as presence-rt]
             ;; THE REAL APP (P-1). Requiring it registers the compiled `counter`
             ;; view + the `:ui-counter/*` events + `:ui-counter/count` sub.
             [realworld-resources.ui-counter :as ui-counter]))
@@ -229,7 +236,7 @@
     ;; The logical advance is the SOLE removal driver here.
     (presence-rt/set-wall-clock! false)
     ;; A REAL retained exit on the framework's OWN scheduler — the same registry
-    ;; a mounted (ui/presence …) boundary arms; its removal callback is the
+    ;; a mounted (v/presence …) boundary arms; its removal callback is the
     ;; app-visible consequence.
     (presence-rt/schedule-exit!
      300 #(router/dispatch-sync! [:realworld-ui/presence-removed]
@@ -244,8 +251,8 @@
                        [:assert-db [:toast] :removed]]}
              (fn [state]
                (is (= :pass (:status state))
-                   "the [:flush-presence] rung reached the REAL
-                    re-frame.ui.test/flush-presence! clock and settled")
+                   "the [:flush-presence] rung reached the REAL framework
+                    presence clock and settled")
                (is (zero? (presence-rt/pending-count))
                    "advancing to quiescence fired the retained exit")
                (is (= :removed (:toast (rf/app-db-value presence-frame))))
@@ -254,7 +261,7 @@
 (deftest without-the-bridge-the-flush-presence-step-fails-closed
   (async done
     ;; The fixture left the process-global hook cleared — model an app that
-    ;; loads re-frame.ui + renders a real (ui/presence …) boundary but OMITS
+    ;; loads the substrate + renders a real (v/presence …) boundary but OMITS
     ;; the bridge require.
     (is (nil? (story-presence/presence-flush-fn))
         "no presence host installed — the bridge require is absent")
