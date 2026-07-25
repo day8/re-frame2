@@ -1499,6 +1499,98 @@
             trace-events)
       trace-events)))
 
+(defn- elide-whole-output-large-slots
+  "The ONE whole-output `:large?` egress rule (rf2-irwsq).
+
+  A `:large?`-stamped sub's computed value reaches off-box egress through TWO
+  slots of the same record, and BOTH are projected by this function so they
+  structurally cannot drift:
+
+    - the structured `:sub-runs` row      — `:value` / `:prev-value`
+    - the `:rf.sub/run` trace tag        — `:rf.sub/value` / `:rf.sub/prev-value`
+
+  Both carry the raw value with a bare `:large?` flag beside it: the emit-time
+  chokepoint (`classification/project-sub-tags`) stamps the flag and
+  DELIBERATELY leaves the value in place so the on-box ring keeps the exact
+  value (Xray diff / `restore-epoch!` need it), and `capture/sub-run-row`
+  threads that same flag onto the row. The flag is therefore the whole
+  contract, and honouring it is this seam's job — a REGISTRATION marker, not a
+  path declaration, so neither the app-db-rooted walker nor the marks emit site
+  can act on it.
+
+  Given the container `m` and its two value-slot keys, substitutes the
+  canonical `:rf.size/large-elided` marker (`classification/large-marker`) for
+  each PRESENT slot and strips the now-spent `:large?` flag so the projected
+  shape matches the on-box base shape's metadata. A MARKER, not a drop: a tool
+  reading the projection must be able to tell that a value existed and was
+  withheld, which a silent drop would make indistinguishable from a sub that
+  produced nothing.
+
+  The marker's `:path` names the slot within its own container (`[:value]` /
+  `[:rf.sub/value]`), so the two projections agree on `:bytes` / `:type` /
+  `:reason` while each still names the slot it replaced.
+
+  `opts` `:include-large? true` is the trusted-local opt-in: it keeps the raw
+  value in both slots. The `:large?` flag is stripped either way.
+
+  Idempotent: a slot already carrying a marker is left untouched (rebuilding a
+  marker over a marker would report the marker's own size).
+
+  Per-PATH `:large` / `:sensitive` sub marks are NOT handled here — those are
+  substituted INTO the value at the marks emit site (`redact-with-paths`), so
+  they already ride both slots pre-marked. EP-0025 dropped the whole-output
+  `:sensitive?` overload, so there is no sensitive analogue of this rule: the
+  axis here is TOKEN BUDGET (a bulky derived value burning an off-box
+  consumer's context window), not privacy. Because the per-path sensitive
+  substitution already happened at emit, the marker's `:bytes` / `:digest` are
+  computed over a value whose secrets are already `:rf/redacted` — no size or
+  digest oracle over live secret bytes."
+  [m {:keys [include-large?]} value-key prev-value-key]
+  (let [mark (fn [k] (fn [v] (if (elision/marker? v) v (classification/large-marker v [k]))))]
+    (cond
+      (not (:large? m)) m
+      include-large?    (dissoc m :large?)
+      :else
+      (-> m
+          (cond-> (contains? m value-key)
+            (update value-key (mark value-key))
+            (contains? m prev-value-key)
+            (update prev-value-key (mark prev-value-key)))
+          (dissoc :large?)))))
+
+(defn- elide-large-sub-trace-values
+  "Project the `:rf.sub/run` trace tags' value slots for off-box egress
+  (rf2-irwsq).
+
+  The trace-tag TWIN of `elide-sub-run-row`: the same whole-output `:large?`
+  sub value rides `[:trace-events <i> :tags :rf.sub/value]` (plus
+  `:rf.sub/prev-value` on a reactive recompute) as well as the structured
+  `:sub-runs` row, and before this step egress elided only the row — so the
+  raw payload still reached every off-box consumer that reads `:trace-events`
+  (Xray-MCP `watch-epochs`, Pair-MCP `trace-window` / `watch-epochs` /
+  `snapshot`, hosted log shippers). Under the shipped `:trace-events-keep 50`
+  every record in the ring keeps its trace-events, so the payload rode on
+  EVERY record for that cascade.
+
+  Delegates to the shared `elide-whole-output-large-slots` rule — the same
+  code path the row uses — so the two egress projections cannot drift.
+  `:rf.sub/run` is the only operation whose tags can carry the flag
+  (`classification/project-sub-tags` is applied to that op alone), so this
+  walk is scoped to it; every other event and every non-value sub tag
+  (`:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/elapsed-ms`, …) rides through
+  untouched. Nil- and non-sequential-preserving."
+  [trace-events opts]
+  (if-not (sequential? trace-events)
+    trace-events
+    (mapv (fn [ev]
+            (if (and (map? ev)
+                     (= :rf.sub/run (:operation ev))
+                     (map? (:tags ev)))
+              (update ev :tags elide-whole-output-large-slots opts
+                      :rf.sub/value :rf.sub/prev-value)
+              ev))
+          trace-events)))
+
 (defn- elide-trace-events-slot
   "Project `:trace-events`: first re-root the
   per-event `:rf.event/db` slots on the t1 / t2 trace events so the
@@ -1527,6 +1619,14 @@
         ;; rollback `:dispositions` / …) — the family-level companion to the
         ;; scope-resolved projector above; same fail-closed off-box default.
         (omit-off-box-resource-trace-keys frame-id opts)
+        ;; Honour the whole-output `:large?` stamp on the `:rf.sub/run` tags —
+        ;; the trace-tag twin of the `:sub-runs` row elision, sharing one rule
+        ;; with it (rf2-irwsq). Runs BEFORE the bulk walk so the marker is
+        ;; computed over the same emit-projected value the row's marker is
+        ;; built from, keeping the two markers' `:bytes` / `:type` in agreement;
+        ;; `project-egress` has no sub-specific arm, so ordering is otherwise
+        ;; immaterial.
+        (elide-large-sub-trace-values opts)
         (projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- elide-sub-run-row
@@ -1540,37 +1640,20 @@
   emit site (the slots arrive carrying `:rf/redacted`), so no work is
   needed here for sensitive. The whole-output `:large?` case is carried
   on the row as `:large?` (threaded by `capture/sub-run-row`) with the
-  RAW value still attached (the on-box ring keeps the exact value). For
-  the off-box `:include-large? false` default we substitute the canonical
-  `:rf.size/large-elided` marker (`re-frame.classification/large-marker`, the
-  same `:reason :marks` provenance the propagation table sets) for both
-  value slots, then strip the now-spent `:large?` flag so the projected
-  row's shape matches the on-box base shape's metadata. Idempotent: a
-  marker value rebuilt through a second pass would be wrong-sized, so a
-  slot already carrying a marker is left untouched.
+  RAW value still attached (the on-box ring keeps the exact value), and
+  is projected by the SHARED `elide-whole-output-large-slots` rule — the
+  same code path the `:rf.sub/run` trace tag's value slots go through
+  (`elide-large-sub-trace-values`), so the two egress projections of the
+  same value cannot drift (rf2-irwsq). See that rule for the marker
+  substitution, the spent-flag strip, idempotence, and the
+  `:include-large?` opt-in.
 
   Per-PATH large declarations (a sub with `:large [<path>]` marks but no
   whole-output `:large?` stamp) are already substituted INTO the value
   at the marks emit site (`redact-with-paths`), so they ride the row
-  pre-marked and need no projection here.
-
-  `opts` `:include-large? true` opts the whole-output large value back in
-  so a trusted-local caller keeps the raw `:value` /
-  `:prev-value`; the `:large?` flag is still stripped so the projected
-  row's shape matches the on-box base shape's metadata."
-  [row {:keys [include-large?]}]
-  (cond
-    (not (:large? row)) row
-    include-large?      (dissoc row :large?)
-    :else
-    (-> row
-        (cond-> (contains? row :value)
-          (update :value (fn [v]
-                            (if (elision/marker? v) v (classification/large-marker v [:value]))))
-          (contains? row :prev-value)
-          (update :prev-value (fn [v]
-                                (if (elision/marker? v) v (classification/large-marker v [:prev-value])))))
-        (dissoc :large?))))
+  pre-marked and need no projection here."
+  [row opts]
+  (elide-whole-output-large-slots row opts :value :prev-value))
 
 (defn- elide-sub-runs-slot
   "Project the structured `:sub-runs` vector for off-box egress: walk

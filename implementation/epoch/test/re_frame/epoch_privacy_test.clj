@@ -388,7 +388,41 @@
                           (filter #(= :big (:sub-id %)))
                           first)]
         (is (elision/marker? (:value hist-row))
-            "projected-history also elides the large :sub-runs value")))))
+            "projected-history also elides the large :sub-runs value"))
+
+      ;; rf2-irwsq — THE TRACE-TAG TWIN. The same value also rides the
+      ;; `:rf.sub/run` trace tag at `[:trace-events <i> :tags :rf.sub/value]`.
+      ;; This arm probed only the structured row, so the tag's raw copy egressed
+      ;; unseen: a TOKEN-BUDGET leak on every off-box consumer that reads
+      ;; `:trace-events`. Both slots now go through the one shared rule
+      ;; (`tool-pair/elide-whole-output-large-slots`), so they cannot drift.
+      (let [tags-of   (fn [rec]
+                        (->> (:trace-events rec)
+                             (filter #(= :rf.sub/run (:operation %)))
+                             (filter #(= :big (get-in % [:tags :rf.sub/id])))
+                             first
+                             :tags))
+            raw-tags  (tags-of raw)
+            proj-tags (tags-of projected)]
+        (is (= 50000 (count (:rf.sub/value raw-tags)))
+            "raw on-box trace tag carries the full computed value")
+        (is (true? (:large? raw-tags))
+            "the emit chokepoint stamped the whole-output :large? flag on the tag")
+        (is (elision/marker? (:rf.sub/value proj-tags))
+            "projected :rf.sub/run tag's :rf.sub/value is a :rf.size/large-elided
+             marker, not the raw 50KB string")
+        (is (not (contains? proj-tags :large?))
+            "the now-spent :large? tag flag is stripped, as the row's is")
+        (is (= (get-in (:value proj-row)          [:rf.size/large-elided :bytes])
+               (get-in (:rf.sub/value proj-tags)  [:rf.size/large-elided :bytes]))
+            "row marker and tag marker agree on :bytes — one rule built both")
+        (is (elision/marker? (:rf.sub/value
+                               (tags-of (last (epoch/projected-history :test/main)))))
+            "projected-history elides the trace-tag twin too")
+        (let [lifted (tags-of (epoch/projected-record raw {:include-large? true}))]
+          (is (= 50000 (count (:rf.sub/value lifted)))
+              "NEGATIVE CONTROL — :include-large? true returns the raw value to
+               the tag, so the default elision is classification-driven"))))))
 
 (deftest projected-record-bookkeeping-passes-through
   (testing "bookkeeping slots are preserved by the projection — the

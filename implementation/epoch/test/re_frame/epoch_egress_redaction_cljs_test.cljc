@@ -283,15 +283,19 @@
           "fixture control: `:epoch-id` is actually populated, so the
            equality checks above are not comparing nil to nil"))))
 
-(deftest large-sub-output-value-slot-elides-at-egress
-  (testing "rf2-at60h — a whole-output `:large?` subscription's computed value
-            rides the structured `:sub-runs` row's `:value` / `:prev-value`.
-            The raw on-box row keeps the exact value (Xray diff and
-            `restore-epoch!` need it) but egress MUST substitute the marker;
-            shipping it raw was the pre-fix leak. This is a DISTINCT slot
-            from `:db-after` — and `epoch_cljs_test.cljs` exercises no
-            subscriptions at all, so the CLJS lane had no `:sub-runs` egress
-            coverage of any kind."
+(deftest large-sub-output-elides-in-both-egress-slots
+  (testing "rf2-at60h + rf2-irwsq — a whole-output `:large?` subscription's
+            computed value reaches off-box egress through TWO slots of the same
+            record: the structured `:sub-runs` row's `:value` / `:prev-value`
+            AND the `:rf.sub/run` trace tag's `:rf.sub/value` /
+            `:rf.sub/prev-value`. The raw on-box record keeps the exact value in
+            both (Xray diff and `restore-epoch!` need it) but egress MUST
+            substitute the marker in both; shipping either raw is the leak.
+            rf2-at60h fixed the row, rf2-irwsq the tag — they now share ONE
+            rule (`tool-pair/elide-whole-output-large-slots`) so they cannot
+            drift. These are DISTINCT slots from `:db-after` — and
+            `epoch_cljs_test.cljs` exercises no subscriptions at all, so the
+            CLJS lane had no `:sub-runs` egress coverage of any kind."
     (fresh-frame!)
     (rf/reg-event :egress/seed (fn [_ _] {:db {:n 0}}))
     (rf/reg-sub :egress/big {:large? true} (fn [_ _] (big-string payload-size)))
@@ -322,26 +326,67 @@
       (is (= benign (:value small-row))
           "NEGATIVE CONTROL — an UNMARKED sub's value rides through RAW, so
            the elision above is driven by the registration marker")
-      ;; NOT asserted: `(zero? (count-leaves-at-least payload-size proj))`.
-      ;; Writing that scan is how this suite FOUND rf2-irwsq: the whole-output
-      ;; `:large?` value ALSO rides the `:rf.sub/run` trace tag at
-      ;; `[:trace-events <i> :tags :rf.sub/value]`, and egress elides only the
-      ;; structured `:sub-runs` row — so the raw payload does still egress
-      ;; there today. Pinning the leak as expected would be worse than
-      ;; leaving it visible; the bead carries the repro. Privacy is NOT
-      ;; affected (per-path `:sensitive` sub marks are substituted at the
-      ;; EMIT site, so they are already redacted in both slots) — this is the
-      ;; token-budget axis only.
-      (is (= payload-size (count (get-in (->> (:trace-events proj)
-                                              (filter #(= :rf.sub/run (:operation %)))
-                                              (filter #(= :egress/big
-                                                          (get-in % [:tags :rf.sub/id])))
-                                              first)
-                                         [:tags :rf.sub/value])))
-          "rf2-irwsq CHARACTERISATION (not an endorsement): the trace-tag twin
-           of the elided row value still egresses raw. If this assertion goes
-           RED because the projector learned to elide the tag too, DELETE it —
-           that is the fix landing."))))
+      ;; rf2-irwsq — THE TRACE-TAG TWIN. The whole-output `:large?` value also
+      ;; rides the `:rf.sub/run` trace tag at
+      ;; `[:trace-events <i> :tags :rf.sub/value]`. Writing the record-wide scan
+      ;; below is how this suite FOUND that leak: egress elided only the
+      ;; structured `:sub-runs` row, so the raw payload still reached every
+      ;; off-box consumer that reads `:trace-events` (Xray-MCP `watch-epochs`,
+      ;; Pair-MCP `trace-window` / `snapshot`, hosted log shippers) — and under
+      ;; the shipped `:trace-events-keep 50` it rode EVERY record for the
+      ;; cascade. This block was a labelled CHARACTERISATION assertion pinning
+      ;; that raw tag; the fix flipped it to the elided shape. Privacy was never
+      ;; affected (per-path `:sensitive` sub marks are substituted at the EMIT
+      ;; site, so they are already redacted in both slots) — this is the
+      ;; TOKEN-BUDGET axis only.
+      (let [tags-of (fn [rec]
+                      (->> (:trace-events rec)
+                           (filter #(= :rf.sub/run (:operation %)))
+                           (filter #(= :egress/big (get-in % [:tags :rf.sub/id])))
+                           first
+                           :tags))
+            raw-tags  (tags-of raw)
+            proj-tags (tags-of proj)]
+        (is (= payload-size (count (:rf.sub/value raw-tags)))
+            "fixture: the RAW trace tag carries the full computed value (the
+             on-box ring keeps it — Xray diff / restore-epoch! need it)")
+        (is (true? (:large? raw-tags))
+            "fixture: the emit chokepoint stamped the whole-output `:large?`
+             flag on the raw tag — the marker the egress rule honours")
+        (is (elision/marker? (:rf.sub/value proj-tags))
+            "rf2-irwsq — the projected `:rf.sub/run` tag's `:rf.sub/value` is a
+             `:rf.size/large-elided` MARKER, not the raw payload. A marker and
+             not a drop: a tool must be able to tell a value existed and was
+             withheld, which a silent drop makes indistinguishable from a sub
+             that produced nothing.")
+        (is (not (contains? proj-tags :large?))
+            "the now-spent `:large?` tag flag is stripped, exactly as the
+             `:sub-runs` row's is — both slots go through ONE shared rule")
+        (is (= (get-in (:value proj-row)     [:rf.size/large-elided :bytes])
+               (get-in (:rf.sub/value proj-tags) [:rf.size/large-elided :bytes]))
+            "the row's and the tag's markers agree on `:bytes` — the structural
+             evidence that ONE rule produced both (they cannot drift)"))
+      ;; The cross-cutting claim the MCP wire boundary depends on, now assertable
+      ;; for the whole-output `:large?` SUB shape: NO raw large leaf anywhere in
+      ;; the projected record. This is the scan that was withheld pre-fix.
+      (is (pos? (count-leaves-at-least payload-size raw))
+          "fixture control: the RAW record does carry raw large leaves, so the
+           scan below is not vacuously green")
+      (is (zero? (count-leaves-at-least payload-size proj))
+          "rf2-irwsq — no raw large bytes ANYWHERE in the projected record:
+           neither the `:sub-runs` row nor its `:rf.sub/run` trace-tag twin")
+      ;; NEGATIVE CONTROL on the new tag path: the trusted-local opt-in lifts it,
+      ;; proving the elision is driven by the classification rather than by some
+      ;; unrelated truncation on the way out.
+      (let [lifted (epoch/projected-record raw {:include-large? true})]
+        (is (= payload-size (count (get-in (->> (:trace-events lifted)
+                                               (filter #(= :rf.sub/run (:operation %)))
+                                               (filter #(= :egress/big
+                                                           (get-in % [:tags :rf.sub/id])))
+                                               first)
+                                          [:tags :rf.sub/value])))
+            "NEGATIVE CONTROL — `:include-large? true` DOES return the raw value
+             to the trace tag, so the default elision is classification-driven")))))
 
 (deftest nil-and-non-map-input-projects-to-nil
   (testing "`projected-record` returns nil for non-map input — a forwarder
