@@ -51,13 +51,7 @@
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
-            [day8.re-frame2-xray.theme.global-styles :as global-styles]
-            ;; The native ViewCell invalidation-evidence consumer
-            ;; (rf2-vxgfnd.146). `init!` claims the projection under Xray's
-            ;; stable owner identity, exactly as the preload boot block does —
-            ;; load-inert (this require runs no side-effects; only `init!`
-            ;; invokes `install!`), keeping manual startup inert until `init!`.
-            [day8.re-frame2-xray.viewcell-evidence :as viewcell-evidence]))
+            [day8.re-frame2-xray.theme.global-styles :as global-styles]))
 
 ;; ---- mount entry points (re-exports from mount.cljs) --------------------
 ;;
@@ -129,12 +123,15 @@
   does NOT default the target to `:rf/default` (Spec 002 §Frame target
   resolution).
 
-  Wires the foundation side-effects — the registry handlers, the trace
-  and epoch collectors, the ViewCell evidence acquire (rf2-vxgfnd.286 —
-  opens Xray's ownership span over the re-frame.ui evidence projection, or
-  is inertly rejected when a foreign owner holds it / no ui substrate is
-  present), the browser-API exports, and the keybinding listener — then
-  threads each supplied opt through to its backing surface:
+  Wires the foundation side-effects — the registry handlers, the trace and
+  epoch collectors, the browser-API exports, and the keybinding listener —
+  then threads each supplied opt through to its backing surface:
+
+  The Views panel's mounted-view reads need no wiring here and never did
+  need any of their own (rf2-7gth0): `re-frame.freehand.tool` is a READER
+  with no registry to claim, so there is nothing for startup to acquire and
+  nothing a second tool could hold against Xray. The subs registered by
+  `register-xray-handlers!` read it directly.
 
   - `:target-frame` — dispatches `:rf.xray/set-target-frame` so the
     scrubber + every dependent panel re-fire on the standard reactive
@@ -163,16 +160,6 @@
    (registry/register-xray-handlers!)
    (install/register-trace-collector!)
    (install/register-epoch-collector!)
-   ;; Acquire the re-frame.ui ViewCell invalidation-evidence projection under
-   ;; Xray's stable owner identity, opening a fresh ownership span
-   ;; (rf2-vxgfnd.146/.238/.286). The manual `init!` path MUST wire this
-   ;; exactly as the preload boot block does — otherwise a clean process that
-   ;; requires core and calls `init!` (the supported alternative to
-   ;; `:devtools/preloads`) enables Xray WITHOUT ViewCell evidence.
-   ;; Idempotent: a second `init!` / shadow `:after-load` is the evidence
-   ;; tier's same-span re-arm (accumulated evidence survives); a foreign owner
-   ;; is never clobbered (acquire rejected — returns nil — Xray reads nothing).
-   (viewcell-evidence/acquire!)
    ;; The palette and Settings effects resolve mount operations through
    ;; these globals to avoid a mount/shell require cycle. Manual and
    ;; preload startup therefore install the same exports.
