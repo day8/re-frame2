@@ -330,7 +330,7 @@ lexical site index — never a re-derivation a second pass could drift from.
 | Roster | What it names |
 |---|---|
 | `:subscriptions` | each `sub` read: the query it read and its site coordinates |
-| `:events` | each committed event handler site and its source coordinate |
+| `:events` | each committed event handler site, its source coordinate, and the per-site facts that say what it dispatches (below) |
 | `:slots` | each compiled render-slot site, and whether its `render-fn` was inline |
 | `:html-sites` | each trusted-markup `v/html` site |
 | `:crossings` | the internal-view boundaries the body mounts, each MARKED with the mode it crosses into (§Manifests mark the crossing) |
@@ -343,6 +343,26 @@ rosters whose authoring forms land with a later slice (presence, top-layer, erro
 boundaries, and the reactive-read forms themselves) are declared here and
 populate as those forms become part of the grammar; a manifest never reports a
 site it could not have seen.
+
+**An `:events` entry states WHAT it dispatches, not only where from.** A roster that
+can name an intent site but not its intent is a count of handlers, and being read
+instead of the body is the whole reason the manifest exists. So beside the `:sid`,
+`:source-coord` and `:path` every roster entry carries, an `:events` entry names the
+authored handler `:prop`, its `:classification` (`:vector` / `:options`, or one of the
+dynamic kinds), whether the handler is `:serializable?`, whether the site sits inside
+the controlled-input synchronous door (`:sync?`), and the `:handler` itself. `:sync?`
+is **stated rather than omitted** on every entry, including the sites that are
+factually not that door — a component prop, a spread — because an entry that left the
+key absent would carry a narrower key set than its siblings, and the per-entry key law
+is what a reader relies on.
+
+`:handler` is the form the **analyzer recorded**, or the `:opaque` marker where the
+handler is CODE rather than data: a `v/event` / `v/handler` body, a bare fn, a dynamic
+expression, a spread. Publishing the recorded form rather than a reader-ready value
+keeps the literal-versus-dynamic honesty split at the **tool read**, one seam further
+out — `read-view-event-sites` applies over `:handler` exactly the predicate
+`read-view-dependencies` applies over a subscription's `:query`, so neither surface
+shows source code to a reader who asked for data (rf2-z0blg).
 
 **Source coordinates ride each site**, so a manifest fact and a build-log line
 name the same lexical position. A roster entry carries a `:source-coord` —
