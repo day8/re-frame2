@@ -507,6 +507,83 @@
   (flush-scope! (constantly true))
   nil)
 
+(defn pending-count
+  "How many cells are enrolled in the OPEN pending window. Zero means the
+  registry is QUIESCENT — the one fact a bounded flush driver settles
+  against, and a tool/test read."
+  []
+  (count @pending-cells))
+
+;; ---------------------------------------------------------------------------
+;; Bounded flush convergence
+;; ---------------------------------------------------------------------------
+;;
+;; A caller that forces the window closed SYNCHRONOUSLY — the Freehand
+;; adapter's `flush-render!` — cannot stop at one pass. The host commit that
+;; [[flush!]] provoked is application code: a layout effect that dispatches, a
+;; listener that re-marks, and a cell can be enrolled AFTER the pass that
+;; flushed it. So the drain has to run to a FIXED POINT.
+;;
+;; And that fixed point has to be BOUNDED. The ambient guards each see one
+;; synchronous pass — the router's drain depth, the host's own update-depth
+;; ceiling — so neither can see a re-enrolment that lands ACROSS two separate
+;; passes. Without a local bound an unstable commit→re-dirty cycle spins the
+;; synchronous call forever, which is the one failure mode a forcing caller
+;; cannot recover from because it never returns. The budget is that local
+;; bound, and exhausting it is a diagnosis, not a retry.
+
+(def ^:const flush-convergence-budget
+  "The finite ceiling on re-flush passes [[converge-flush!]] runs before
+  declaring the pending window NON-QUIESCENT and failing loud. Ordinary
+  commit-driven convergence settles in a handful of passes, so this ceiling
+  sits well above any legitimate multi-pass settle: tripping it means a commit
+  path is re-dirtying cells EVERY pass — an unstable effect/notification cycle
+  — never slow-but-terminating convergence."
+  100)
+
+(defn- flush-nonconvergence!
+  "Throw the ONE typed non-quiescence signal for a flush that will not settle
+  within [[flush-convergence-budget]] passes. `where` names the forcing site;
+  `pending` is the residual pending count, so the diagnostic locates the
+  runaway rather than merely reporting that one exists."
+  [where pending]
+  (error/throw-error!
+    :rf.error/flush-convergence-exceeded where
+    (str where " could not converge the ViewCell pending window within "
+         flush-convergence-budget " synchronous passes — " pending
+         " cell(s) still pending. A commit path is re-dirtying cells every "
+         "pass (an unstable layout-effect or notification cycle); this is a "
+         "non-quiescent flush, not slow convergence — fix the effect or "
+         "listener that keeps re-marking.")
+    {:recovery :no-recovery
+     :extra    {:passes  flush-convergence-budget
+                :pending pending}}))
+
+(defn converge-flush!
+  "Drive `flush-pass!` — a zero-arg thunk performing ONE synchronous flush —
+  to a BOUNDED fixed point: while the pending window is non-quiescent, run one
+  more pass, and never more than [[flush-convergence-budget]] of them.
+
+  The CALLER owns the INITIAL write-and-flush pass; this drains whatever that
+  pass's commit re-dirtied. A window already quiescent on entry loops ZERO
+  times and never touches `flush-pass!`, so the no-op case stays a no-op and a
+  one-shot commit-triggered re-dirty drains in one further pass. A window still
+  non-quiescent once the budget is spent fails loud with
+  `:rf.error/flush-convergence-exceeded`.
+
+  This is the ONE convergence law for the Freehand registry, so a second
+  synchronous forcing site rests on the same bound rather than growing its own
+  copy of it. Returns nil."
+  [where flush-pass!]
+  (loop [pass 0]
+    (let [pending (pending-count)]
+      (when (pos? pending)
+        (when (>= pass flush-convergence-budget)
+          (flush-nonconvergence! where pending))
+        (flush-pass!)
+        (recur (inc pass)))))
+  nil)
+
 (defn- observed-frames
   "The frames `cell`'s COMMITTED dependency set actually observes.
 

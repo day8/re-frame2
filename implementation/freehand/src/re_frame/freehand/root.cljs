@@ -1736,3 +1736,54 @@
         (release-frame! (.-frame-id root) root-id)
         (.unmount (.-react-root root)))))
   nil)
+
+;; ---------------------------------------------------------------------------
+;; The registry drain — adapter disposal's first phase
+;; ---------------------------------------------------------------------------
+;;
+;; This registry is Freehand's own. Freehand calls `createRoot` itself, so the
+;; host roots recorded here are invisible to the generic spine's active-root
+;; registry — which means adapter disposal cannot reach them, and disposing the
+;; spine while they are still mounted would pull the state containers out from
+;; under live subscriptions. The order is therefore fixed: drain these roots
+;; FIRST (each `unmount!` releases its claims, disconnects every ViewCell below
+;; it and releases its frame reference), and only then dispose the spine.
+;;
+;; ONE exact snapshot, and every root in it is attempted. A root that throws
+;; must not strand its siblings — a stranded root keeps a subscription alive
+;; past the disposal that was supposed to end it — so the drain records the
+;; FIRST failure and keeps going, exactly as the surrounding cleanup convention
+;; requires. The snapshot is deliberately not refreshed: `unmount!` runs host
+;; cleanups, not application mounts, so there is no second generation to chase,
+;; and chasing one would make the drain unbounded for no reachable case.
+
+(def ^:private no-drain-error
+  "The absent-failure sentinel. PRESENCE decides whether the drain failed, not
+  JS truthiness: an `unmount!` can throw a legitimately falsy value (`false`,
+  `nil`), and a truthy test would silently discard it. Compared only with
+  `identical?`."
+  #js {})
+
+(defn ^:no-doc drain-live-roots!
+  "Unmount EVERY live root in this document, in one exact snapshot, and answer
+  the number drained.
+
+  Attempts every root even when one throws: the FIRST failure is preserved and
+  re-raised once the drain has finished, so a throwing root is still observable
+  but cannot leave a sibling mounted. The registry is left empty either way —
+  `unmount!` releases each entry before it touches React.
+
+  INTERNAL, and the adapter's first disposal phase. A single root's teardown is
+  [[unmount!]]; this is the whole-document form."
+  []
+  (let [snapshot (vec (vals @live-roots))
+        failure  (volatile! no-drain-error)]
+    (doseq [^Root r snapshot]
+      (try
+        (unmount! r)
+        (catch :default e
+          (when (identical? @failure no-drain-error)
+            (vreset! failure e)))))
+    (when-not (identical? @failure no-drain-error)
+      (throw @failure))
+    (count snapshot)))
