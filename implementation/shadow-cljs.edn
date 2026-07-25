@@ -974,63 +974,6 @@
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.freehand.bench.b5-reachability-control-app/-main}}}
 
-  ;; ---------------------------------------------------------------------
-  ;; SCAFFOLDING for rf2-lnecd — deleted before the PR. The
-  ;; production-browser probe behind
-  ;; docs/design/freehand/studio/compiled-tier-browser-worth-it.md.
-  ;;
-  ;;   :studio-probe        the measured artefact — :advanced, goog.DEBUG
-  ;;                        false. What a consumer would actually ship.
-  ;;   :studio-probe-named  the same build with :pseudo-names, so a CDP CPU
-  ;;                        profile of PRODUCTION code names real functions
-  ;;                        instead of `Za`. Same optimisation, same flag.
-  ;;   :studio-probe-dev    :advanced with goog.DEBUG TRUE — the arm where
-  ;;                        the compiled tier's dev-gated duplicate-key
-  ;;                        proof is still present, which is the
-  ;;                        equal-semantics reading.
-  ;; ---------------------------------------------------------------------
-  :studio-probe
-  {:target     :browser
-   :output-dir "out/studio-probe"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.freehand.studio.probe/-main}}}
-
-  :studio-probe-named
-  {:target     :browser
-   :output-dir "out/studio-probe-named"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :pseudo-names  true
-                      :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.freehand.studio.probe/-main}}}
-
-  ;; The THIRD bundle for the reachability claim — a strict SUPERSET of
-  ;; :freehand-release-compiled that additionally REACHES the analyzer, so the
-  ;; "the compiler is macro-time and does not ship" sentinel has a positive
-  ;; control and its absence next door is a DCE result rather than a broken
-  ;; grep.
-  :studio-compiler-reach-control
-  {:target     :browser
-   :output-dir "out/studio-compiler-reach-control"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.freehand.studio.compiler-reach-control/-main}}}
-
-  :studio-probe-dev
-  {:target     :browser
-   :output-dir "out/studio-probe-dev"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :closure-defines {goog.DEBUG true}}
-   :modules {:main {:init-fn re-frame.freehand.studio.probe/-main}}}
-
   ;; The ClojureScript/Node lane of the Freehand B-spine (D021).
   ;;
   ;; `clojure -M:bench` is a JVM process, so it reaches every `.cljc`
