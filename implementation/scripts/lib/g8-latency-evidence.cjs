@@ -43,6 +43,19 @@ const PERCENTILE_CONVENTION =
 // EVIDENCE-ONLY — `within-10pct` is reported, never gated.
 const RATIO_BUDGET = 1.1;
 
+// Why a comparison is sometimes not made at all (rf2-yumaq). A baseline p95 of
+// exactly 0 is NOT a broken measurement — `validateLatencySamples` has already
+// proved every sample finite and non-negative. It means the hand-written React
+// control settled faster than the host clock can resolve, so the ratio has no
+// denominator. The evidence records that as a SKIPPED comparison with this
+// reason stated, because a perf gate must never redden because the thing it
+// measures was too fast. The compiled and hand-written p95s are still recorded,
+// so nothing is hidden and nothing is claimed: `within-10pct` becomes `null`
+// (not-compared), never `true`.
+const ZERO_BASELINE_REASON =
+  'hand-written baseline p95 is 0 ms — at or below the host timer resolution, so the ' +
+  'ratio has no denominator (too fast to compare); both p95s are still recorded';
+
 // The noise policy recorded in the artifact so the stated relative budget is
 // reproducible and meaningful. rf2-dpwel resolved the two measurement effects
 // the rf2-5qz8z audit surfaced: the endpoint is now the arm's own Profiler
@@ -151,9 +164,17 @@ function p95Ratio(compiledP95, baselineP95) {
 // The comparative-latency evidence object for ONE channel, built from the two
 // raw sample arrays measured in the SAME warmed run. Pure — the runner folds
 // this into the artifact's `performance` section (per engine, per channel).
+// A zero baseline p95 does not throw here: the samples are already validated,
+// so it is a resolution floor, not corruption — the comparison is reported as
+// `skipped` with `ZERO_BASELINE_REASON`, and both `p95-ratio` and
+// `within-10pct` are `null`. `withinBudget`/`p95Ratio` stay strict: they are
+// the pure math, and a zero denominator remains meaningless to them.
 function engineLatencyEvidence(engine, compiledRaw, handwrittenRaw) {
   const compiled = summarizeLatency(compiledRaw, `[${engine}] compiled latency`);
   const handwritten = summarizeLatency(handwrittenRaw, `[${engine}] hand-written latency`);
+  const compiledP95 = compiled['p95-ms'];
+  const baselineP95 = handwritten['p95-ms'];
+  const comparable = baselineP95 > 0;
   return {
     engine,
     'samples-recorded': RECORDED_SAMPLES,
@@ -161,8 +182,10 @@ function engineLatencyEvidence(engine, compiledRaw, handwrittenRaw) {
     'ratio-budget': RATIO_BUDGET,
     compiled,
     handwritten,
-    'p95-ratio': p95Ratio(compiled['p95-ms'], handwritten['p95-ms']),
-    'within-10pct': withinBudget(compiled['p95-ms'], handwritten['p95-ms']),
+    comparison: comparable ? 'compared' : 'skipped',
+    'comparison-reason': comparable ? null : ZERO_BASELINE_REASON,
+    'p95-ratio': comparable ? p95Ratio(compiledP95, baselineP95) : null,
+    'within-10pct': comparable ? withinBudget(compiledP95, baselineP95) : null,
   };
 }
 
@@ -215,16 +238,30 @@ function buildPerformanceSummary(perEngine) {
     '| engine | channel | compiled p95 ms | hand-written p95 ms | p95 ratio | within 10% (evidence) |',
     '|---|---|---:|---:|---:|:---:|',
   ];
+  let anySkipped = false;
   for (const e of perEngine) {
     for (const ch of CHANNELS) {
       const ev = e[ch];
+      // A skipped comparison renders as `n/a` / `not compared` — never as a ✓.
+      // Silently showing a tick for an uncomparable channel would turn the old
+      // false red into a false green, which is the more expensive defect.
+      const skipped = ev.comparison === 'skipped';
+      if (skipped) anySkipped = true;
+      const ratioCell = skipped ? 'n/a' : fmt(ev['p95-ratio']);
+      const verdictCell = skipped
+        ? 'not compared'
+        : (ev['within-10pct'] ? '✓' : 'observed over');
       lines.push(
         `| ${e.engine} | ${ch} | ${fmt(ev.compiled['p95-ms'])} | ${fmt(ev.handwritten['p95-ms'])} | ` +
-          `${fmt(ev['p95-ratio'])} | ${ev['within-10pct'] ? '✓' : 'observed over'} |`,
+          `${ratioCell} | ${verdictCell} |`,
       );
     }
   }
   lines.push('');
+  if (anySkipped) {
+    lines.push(`\`n/a\` / \`not compared\`: ${ZERO_BASELINE_REASON}.`);
+    lines.push('');
+  }
   lines.push('<details><summary>Raw latency samples (ms)</summary>');
   lines.push('');
   for (const e of perEngine) {
@@ -250,6 +287,7 @@ module.exports = {
   PERCENTILE_CONVENTION,
   RATIO_BUDGET,
   NOISE_POLICY,
+  ZERO_BASELINE_REASON,
   CHANNELS,
   latencyPercentile,
   validateLatencySamples,
