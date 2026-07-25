@@ -40,11 +40,12 @@ therefore picked up by construction.
 WHAT COUNTS AS A TEST FILE.  A file that carries at least one TOP-LEVEL
 `(deftest` -- column 0, which is where every one of the repo's deftests is
 written.  Naming is not consulted, so a test file that does not follow the
-`_test` filename convention is still in the universe.  This also makes the repo's one deftest
-GENERATOR (`implementation/core/test/re_frame/adapter/react_shared_suite_tests.clj`,
-a `defmacro` whose expansion emits the deftests, invoked from the namespaces
-that want the shared suite) fall out for free: it has no top-level deftest of
-its own, so it is not a test file and needs no exemption.
+`_test` filename convention is still in the universe.  This also makes the
+repo's one deftest GENERATOR
+(`implementation/core/test/re_frame/adapter/react_shared_suite_tests.clj`, a
+`defmacro` whose expansion emits the deftests, invoked from the namespaces that
+want the shared suite) fall out for free: it has no top-level deftest of its
+own, so it is not a test file and needs no exemption.
 
 THE FOUR RULES
 
@@ -453,7 +454,7 @@ def loadable_by(lane: Lane, test_file: TestFile) -> bool:
 def select(lanes, files):
     """One pass, both directions: lanes-per-file (B1/B2) and files-per-lane (B4)."""
     selected_by = {id(f): [] for f in files}
-    reached_by = {lane.name: [] for lane in lanes}
+    reached_by = {id(lane): [] for lane in lanes}
     for lane in lanes:
         lane_roots = frozenset(str(root) for root, _owned in lane.roots)
         for test_file in files:
@@ -463,7 +464,7 @@ def select(lanes, files):
                 continue
             if lane.selects(test_file.ns):
                 selected_by[id(test_file)].append(lane)
-                reached_by[lane.name].append(test_file)
+                reached_by[id(lane)].append(test_file)
     return selected_by, reached_by
 
 
@@ -522,7 +523,7 @@ def check(lanes, files, repo: Path):
 
     # B4 -- a selector that reaches nothing (or a probe that reaches something).
     for lane in lanes:
-        reached = reached_by[lane.name]
+        reached = reached_by[id(lane)]
         if lane.probe:
             if reached:
                 failures.append(
@@ -688,7 +689,7 @@ def main(argv=None) -> int:
         for lane in lanes:
             flag = " [probe]" if lane.probe else ""
             print(f"  {lane.runtime:4s} {lane.name:52s} /{lane.regex.pattern}/ "
-                  f"-> {len(reached_by[lane.name])} test file(s){flag}")
+                  f"-> {len(reached_by[id(lane)])} test file(s){flag}")
         print(f"  {len(lanes)} lanes, {len(files)} test-defining files")
 
     failures = check(lanes, files, repo)
