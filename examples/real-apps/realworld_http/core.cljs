@@ -442,7 +442,7 @@
   ;; with `with-frame`, so the interceptor lands on the chain the app's managed
   ;; requests actually run under. The frame need not exist yet — the chain is
   ;; keyed by frame-id and consulted when the first request fires. See the auth
-  ;; how-to: ../../../docs/core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-seam
+  ;; how-to: ../../../docs/core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-boundary
   (rf/with-frame :rf/default
     (rf/reg-http-interceptor :realworld/bearer-auth
                              {:before bearer-auth-interceptor}))

@@ -355,14 +355,17 @@ localStorage is the outside world, so it sits behind an [effect](../../core/glos
 
 ### The read — a coeffect
 
-The read happens at boot. Reading the world is a [coeffect](../../core/glossary.md#coeffect) — the mirror image of an effect: a declared fact from outside, delivered *into* a handler. The token is a *provided* coeffect: the boot boundary reads localStorage once and **stamps** the value onto the boot dispatch (you'll see that stamp in the boot wiring below), so the registration declares the fact for docs, schema, and ownership — there's no generator that re-reads the world on its own:
+The read happens at boot. Reading the world is a [coeffect](../../core/glossary.md#coeffect) — the mirror image of an effect: a declared fact from outside, delivered *into* a handler. The token is a **recordable** coeffect with a supplier: the registration owns the `localStorage` read, the supplier fires once at the start of the boot dispatch, and its value is recorded onto the causal token so replay re-presents exactly the token the boot saw:
 
 ```clojure
 (rf/reg-cofx :auth.session/token
   {:recordable? true
-   :provided?   true
-   :doc "The saved JWT (or nil). Read once at the boot boundary and stamped onto
-         the boot dispatch — never read ambiently by a handler."})
+   :doc "The saved JWT (or nil), read from localStorage. The supplier fires once,
+         at the start of the boot dispatch; its value is recorded, so replay and
+         epoch-restore re-present the captured token rather than re-reading
+         storage. Never read ambiently by a handler."}
+  (fn []
+    (some-> (.-localStorage js/globalThis) (.getItem "jwtToken"))))
 
 (rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
@@ -392,11 +395,13 @@ The read happens at boot. Reading the world is a [coeffect](../../core/glossary.
      :fx [[:auth.session/persist {:token nil}]]}))
 ```
 
-Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/requires`, and nothing it didn't ask for. Even the framework clock works this way — `:rf/time-ms` (wall-clock epoch ms, the one built-in coeffect, itself a *provided* fact stamped at enqueue) rides every dispatch, but a handler must declare it to read it. Declaring `:rf.cofx/requires` is just a line of metadata on an ordinary `reg-event`, so reaching for a world fact never changes the handler's shape. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`, stamping the saved token onto that dispatch (the boot wiring below shows exactly how).
+Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/requires`, and nothing it didn't ask for. Even the framework clock works this way — `:rf/time-ms` (wall-clock epoch ms, the one built-in coeffect, itself a *provided* fact stamped at enqueue) rides every dispatch, but a handler must declare it to read it. Declaring `:rf.cofx/requires` is just a line of metadata on an ordinary `reg-event`, so reaching for a world fact never changes the handler's shape. `[:auth/initialise]` runs from the frame's `:initial-events`, and *when* it runs turns out to matter a great deal — the boot wiring below is where that story is told.
 
-??? note "Going deeper — why the token gets these two flags"
+??? note "Going deeper — why the token is recordable, and why it keeps its supplier"
 
-    [Coeffects come in two grades](../../core/glossary.md#recordable-vs-ambient-coeffects), recordable and ambient ([Coeffects](../../core/coeffects.md) is the full treatment). The token folds into durable state, so it registers `:recordable? true` — a [time-travel](../../core/glossary.md#time-travel) replay re-presents the *recorded* value rather than re-reading the world. And because the boot boundary stamps it rather than a supplier generating it, it's `:provided? true` — a registration with no generator function, there only to give the boundary fact docs, schema, and an owner (so a typo'd requirement is distinguishable from a missing value). An *ambient* coeffect — the default — would be wrong here: re-read live, never recorded, fine for a display preference but never for anything that feeds a durable write.
+    [Coeffects come in two grades](../../core/glossary.md#recordable-vs-ambient-coeffects), recordable and ambient ([Coeffects](../../core/coeffects.md) is the full treatment). The token folds into durable state, so it registers `:recordable? true` — a [time-travel](../../core/glossary.md#time-travel) replay re-presents the *recorded* value rather than re-reading the world. An *ambient* coeffect — the default — would be wrong here: re-read live, never recorded, fine for a display preference but never for anything that feeds a durable write.
+
+    A recordable can also be registered **provided** (`:provided? true`, no supplier), with its value stamped onto the dispatch by an owner; that is what `:rf/time-ms` is. It is not the right shape here, and the reason is timing. This restore has to run from the frame's `:initial-events` so the token is in app-db before the first URL is resolved — and `:initial-events` is frame *configuration*, declared before the frame exists. A supplier-backed recordable needs nothing threaded through that configuration: the handler declares the fact, and the framework fires the supplier at the right moment. Choose *provided* for a fact whose owner is genuinely someone else. Either way a test pins an exact value the same way — as data on the dispatch (`{:rf.cofx {:auth.session/token "jwt-fixture"}}`, [Part 5](05-test-and-ship.md)), never by re-registering anything.
 
 !!! note "Two failure paths at boot, not one"
 
@@ -445,33 +450,39 @@ The point is that classifying the app-db path does *not* by itself redact the re
 
 ### Wiring it at boot
 
+The boot events belong in the frame's **`:initial-events`**, and the ordering that buys you is the point of this whole subsection:
+
 ```clojure
 ;; core.cljs — additions to Part 1's boot
-(rf/make-frame
-  {:id :rf/default
-   :doc        "The Conduit app frame."
-   :url-bound? true})                          ;; the frame's routing tracks the browser URL
-                                               ;; :auth/initialise (above) classifies [:auth :token]
-
-(defn- saved-token []
-  (some-> (.-localStorage js/globalThis) (.getItem "jwtToken")))
-
 (rf/with-frame :rf/default
-  (rf/reg-http-interceptor :conduit/bearer-auth {:before bearer-auth})
-  (rf/dispatch-sync [:app/initialise])
-  ;; The boot boundary reads localStorage and STAMPS the token onto the dispatch —
-  ;; that's what "provided" means: the value rides the envelope, not a generator.
-  (rf/dispatch-sync [:auth/initialise]
-                    {:rf.cofx {:auth.session/token (saved-token)}}))
+  (rf/reg-http-interceptor :conduit/bearer-auth {:before bearer-auth}))
+
+(rf/make-frame
+  {:id             :rf/default
+   :doc            "The Conduit app frame."
+   :url-bound?     true                        ;; the frame's routing tracks the browser URL
+   ;; Runs in order, synchronously, at frame creation — and BEFORE the frame's
+   ;; first URL→route sync. :auth/initialise (above) folds the saved JWT into
+   ;; [:auth :token], classifies that path, and fires the GET /user restore.
+   :initial-events [[:app/initialise]
+                    [:auth/initialise]]})
 ```
+
+Two things about that order, one obvious and one not.
+
+The obvious one: the bearer interceptor is registered *before* `make-frame`, because `:auth/initialise` fires an authenticated `GET /user` the instant the JWT hydrates, and the header has to be on duty by then. Registration is keyed by frame id and consulted when the first request fires, so the frame needn't exist yet.
+
+The one that catches people: **`:url-bound? true` performs its first URL→route sync after every `:initial-events` step, so the token is in app-db before any route is judged.** Dispatch the boot events *after* `make-frame` returns instead and the first URL has already been resolved against an empty auth slice — which, once the route guard lands in the next section, means a signed-in reader who reloads `/settings` is refused entry and bounced to login. `:initial-events` is not a stylistic preference here; it is the fix.
 
 !!! note "Nothing to wire for the route guard"
 
-    The frame carries no auth interceptor, because the guard is metadata on the protected routes themselves (next section) — requiring the routing artefact is what makes the runtime consult it. What the boot *does* own is ordering: `dispatch-sync` runs the boot events synchronously, so the token and its classification are committed before the first render, not a tick later. The `{:rf.cofx {…}}` map is the boundary stamping the declared fact: the same surface the Part 5 tests use to supply `:auth.session/token`, only here it carries the real localStorage read instead of a fixture.
+    The frame carries no auth interceptor, because the guard is metadata on the protected routes themselves (next section) — requiring the routing artefact is what makes the runtime consult it. What the boot *does* own is ordering, and `:initial-events` is where ordering is declared.
 
-!!! warning "Gotcha — forget the stamp and boot fails loud"
+!!! warning "Gotcha — the token lands in time, the *identity* does not"
 
-    Because `:auth.session/token` is a *provided* coeffect with no generator, the runtime has nothing to fall back on if the dispatch doesn't carry it. Drop the `{:rf.cofx {…}}` map (or fat-finger the key) and `:auth/initialise` raises `:rf.error/missing-required-cofx` at boot rather than silently reading `nil` — the fact has a registered home and a schema, so a missing supply reads as "you didn't stamp this," not "no such coeffect." That's the design paying off: a provided fact that never arrives is a wiring bug, and the runtime says so instead of booting you into a logged-out state you can't explain. (The framework clock `:rf/time-ms` is the one exception — it's stamped on *every* dispatch, so it never trips this.)
+    Getting the restore into `:initial-events` closes half the gap, and it is worth being precise about which half. `:initial-events` steps settle **synchronous** work; an in-flight request is not awaited. So when the first URL is resolved, `[:auth :token]` is populated and `[:auth :user]` is still `nil` — `GET /user` has gone out and nothing has come back. Conduit gives you no choice about that: the persisted credential is a bearer token, and the identity has to be fetched.
+
+    Which means a protected deep link *is* refused on that first resolution, and the next section's denial handler is where that refusal is given the right meaning: "we don't know yet" rather than "you're not signed in". If your own API lets you cache the signed-in user alongside the token, you can side-step the whole window — restore both at boot and there is nothing to wait for. [Add authentication](../../core/how-to/add-auth.md#read-the-saved-session-back-at-boot) teaches that simpler shape.
 
 ## The guard
 
@@ -508,26 +519,54 @@ The runtime dispatches `:rf.route/entry-denied` once, and it ships a no-op defau
 
 ```clojure
 (rf/reg-event :rf.route/entry-denied
-  {:doc "Steer a signed-out visitor to login, remembering where they were headed."}
+  {:doc "Steer a signed-out visitor to login, remembering where they were headed.
+         While a cold-boot restore is still in flight, DEFER the bounce instead —
+         we don't yet know that they're signed out."}
   (fn [{:keys [db]} [_ {:keys [destination]}]]
-    {:db (assoc-in db [:auth :return-to] destination)
-     :fx [[:dispatch [:rf.route/navigate {:to       :conduit.auth/login
-                                          :replace? true}]]]}))
+    (let [restoring? (and (nil?        (get-in db [:auth :user]))     ;; identity unknown…
+                          (some?       (get-in db [:auth :token])))]  ;; …but a token is in hand
+      (cond-> {:db (assoc-in db [:auth :return-to] destination)}
+        (not restoring?)
+        (assoc :fx [[:dispatch [:rf.route/navigate {:to       :conduit.auth/login
+                                                    :replace? true}]]])))))
+
+;; Once the restore settles, resolve whatever was deferred. Success → a FRESH
+;; navigate at the stash, which the guard re-evaluates and now allows. Failure →
+;; login, keeping the stash so signing in still returns them to the right page.
+;; No stash at all → a public deep link; nothing to do, and it stays put.
+(rf/reg-event :auth/settle-deferred-entry
+  (fn [{:keys [db]} _]
+    (let [return-to (get-in db [:auth :return-to])]
+      (cond
+        (nil? return-to)                     {}
+        (some? (get-in db [:auth :user]))    {:db (update db :auth dissoc :return-to)
+                                              :fx [[:dispatch [:rf.route/navigate
+                                                               (assoc return-to :replace? true)]]]}
+        :else                                {:fx [[:dispatch [:rf.route/navigate
+                                                               {:to :conduit.auth/login :replace? true}]]]}))))
 ```
 
-Three pieces are doing precise work:
+Dispatch `[:auth/settle-deferred-entry]` from **both** restore outcomes — `:auth/session-restored` and `:auth/session-expired` — and add `[[:dispatch [:auth/settle-deferred-entry]]]` to each one's `:fx`. It reads the settled slice rather than being told which happened, so there is one code path and no flag to get backwards.
+
+Why a branch in the handler rather than a smarter guard? Because `:can-enter` is a **closed boolean**, deliberately. A guard that could answer "ask me again later" would put a tri-state into every app's auth sub, and every guard would have to handle it. Mid-restore the honest answer to "is this visitor signed in?" is `false` — there is no user. What the *refusal* means is a policy question, and policy lives in the handler. And waiting is safe precisely because refusal is terminal: nothing committed, no `:on-match`, no resources — there is no protected page on screen to be exposed while we find out.
+
+While you're deferring, say so on screen. A deferred entry commits no route, so a `case` over `:rf.route/id` falls through to your not-found page — a lie to tell a reader who turns out to be signed in. One sub (`(and (nil? user) (some? token))`) and a "Restoring your session…" branch in the shell is the whole fix; both RealWorld examples carry it.
+
+Three more pieces are doing precise work:
 
 - **`:destination` is already the answer.** It is a [`:rf/route-destination`](../../../spec/Spec-Schemas.md#rfroute-destination) — the resolved address the target matched, carrying path params, query, and `#fragment` — and a valid `:rf.route/navigate` request in its own right. So the stash at `[:auth :return-to]` (the same spot `submit-success` read earlier) returns the user to the *exact* URL, and there is no `match-url` re-derivation to get wrong.
 - **`:replace? true` on the hop to login** keeps the refused URL off the back stack, so Back from `/login` doesn't bounce the visitor straight into the guard again.
 - **Register the handler bare.** `:rf.route/entry-denied` is a [replaceable framework default](../../../spec/012-Routing.md#replaceable-framework-defaults), and the framework's `:sensitive` classification of the payload's URL carriers rides across your replacement — so there is **no** `{:sensitive …}` map to add here, and your handler still sees the real values in-process.
 
-The return trip is an ordinary fresh navigation: the guard runs again and — now that a user is present — allows it. If the sign-in silently failed, it refuses again, which is exactly what you want.
+The return trip is an ordinary fresh navigation: the guard runs again and — now that a user is present — allows it. If the sign-in silently failed, it refuses again, which is exactly what you want. That is also why the deferred branch above needs no special machinery: "wait, then try again" is just the fresh return with a different trigger.
 
 ??? info "Coming from Axios?"
 
     Your redirect-on-401 *response* interceptor is gone entirely, not relocated. The gate now sits on the route declaration, one layer above any request: it stops the navigation *before* a request exists, because it already knows there is no user.
 
 Watch it fire. Signed out, click *Settings*. In Xray the navigation row is followed by the `:rf.route/entry-denied` dispatch and then your redirect to the login route — and no `[:settings/load]` row anywhere, because the route never committed. Sign in, and the ledger shows the bounce back to `/settings`: the stash paying off.
+
+Then watch the harder one. Signed in, reload directly on `/settings`. The ledger reads: `:auth/initialise` (token folded in, `GET /user` away), the initial `:rf.route/handle-url-change`, one `:rf.route/entry-denied` with **no** redirect after it, the `/user` reply, `:auth/settle-deferred-entry`, and finally the navigate that commits `/settings` — still no `[:settings/load]` until that last step, because nothing committed while the answer was unknown. If you ever see the redirect-to-login row in the middle of that sequence, the deferral has come undone.
 
 ### A sibling guard: don't lose an unsaved draft
 
