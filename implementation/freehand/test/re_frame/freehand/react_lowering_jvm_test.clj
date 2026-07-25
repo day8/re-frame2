@@ -93,7 +93,13 @@
    ;; lowered by THIS emitter. The prop-carried half — the render-fn authored
    ;; at a CALL SITE, which the analyzer records as an analysed template
    ;; rather than a value — has its own claim below.
-   {:op :slot     :body '[:div (v/slot (v/render-fn [r] [:span r]) (:label props))]}])
+   {:op :slot     :body '[:div (v/slot (v/render-fn [r] [:span r]) (:label props))]}
+   ;; Trusted markup. `:html` is an admitted op that is NOT a child-position
+   ;; node — it rides the enclosing element and is lowered by `emit-element*` —
+   ;; so this row keeps the roster covered while the claim that the emitter
+   ;; really READS it belongs to the content-carrier table below. That split is
+   ;; the whole reason the second table exists (rf2-rrosy).
+   {:op :html     :body '[:div (v/html (:markup props))]}])
 
 (deftest the-react-emitter-lowers-every-admitted-node-kind
   (testing "The emitter's `case` has no default arm, so an unlowered kind
@@ -131,8 +137,16 @@
 ;; second axis. Each row names a carrier, proves the analyzed AST really
 ;; FILLS it, and asserts the emitted form REACHES the lowering that carrier
 ;; requires. The coverage assertions hold the tables to
-;; `grammar/element-props-carriers` and `grammar/crossing-prop-markers`,
-;; exactly as the kind table is held to `grammar/admitted-ops`.
+;; `grammar/element-props-carriers`, `grammar/element-content-carriers` and
+;; `grammar/crossing-prop-markers`, exactly as the kind table is held to
+;; `grammar/admitted-ops`.
+;;
+;; A FOURTH defect of the same shape landed one level further out, and it is
+;; why there are three tables rather than two. `v/html`'s node hangs off the
+;; ELEMENT rather than its props, so the props axis could not see it either —
+;; and its `:op` is admitted, so the kind table read green over an emitter
+;; that never lowered it at all (rf2-rrosy). `element-content-rows` is that
+;; axis, deliberately one member wide.
 
 (defn- emitted
   "The React lowering of one body, as text to look for calls in."
@@ -159,6 +173,21 @@
    {:carrier :safe-spread :body '[:input (v/spread-safe {:value "v"} (:attrs props))]
     :reaches "re-frame.freehand.node/safe-caller-attrs"}])
 
+(def element-content-rows
+  "One source body per ELEMENT CONTENT carrier — the axis one level further
+  out than `element-rows`.
+
+  `:html` is the case that proved the axis was missing. It is an admitted
+  `:op`, so the kind table above covers it; it hangs off the ELEMENT node
+  rather than its `:props`, so `carriers-of` cannot see it; and the element
+  it rides is `:element`, which every row already covered. Both emitters
+  duly never read it, and a `(v/html s)` compiled clean and rendered
+  NOTHING — a well-formed element with the author's markup silently gone
+  (rf2-rrosy). `:reaches` is the write that proves the emitter read the
+  slot, exactly as it is for a props carrier."
+  [{:carrier :html :body '[:div (v/html (:markup props))]
+    :reaches "re-frame.freehand.compiled-react/html!"}])
+
 (def crossing-rows
   "One source body per CROSSING prop marker. `:reaches` is what the emitted
   props map must carry for the prop to arrive at all."
@@ -182,6 +211,20 @@
                        (doseq [[k v] (:props x)
                                :when (and (contains? grammar/element-props-carriers k)
                                           (if (= :key k) (:present? v) (seq v)))]
+                         (vswap! found conj k)))
+                     x)
+                   ast)
+    @found))
+
+(defn- content-carriers-of
+  "Every ELEMENT CONTENT carrier the analyzed AST actually filled — the axis
+  `carriers-of` structurally cannot reach, because it reads `:props`."
+  [ast]
+  (let [found (volatile! #{})]
+    (walk/postwalk (fn [x]
+                     (when (= :element (:op x))
+                       (doseq [k grammar/element-content-carriers
+                               :when (some? (get x k))]
                          (vswap! found conj k)))
                      x)
                    ast)
@@ -257,12 +300,29 @@
         (is (not (re-find #":(label|row|on-pick|on-done|cb) nil" text))
             (str marker " — and the boundary is not handed an absent prop"))))))
 
+(deftest the-react-emitter-reads-every-element-content-carrier
+  (testing "The axis outside `:props`. `:html` was analysed, admitted,
+            covered by the kind table — and read by neither emitter, so
+            `(v/html s)` produced an element with the author's markup gone
+            and every row stayed green. Each row proves the analysed element
+            really carries the slot, then proves the emission reaches the
+            write that lowers it."
+    (doseq [{:keys [carrier body reaches]} element-content-rows]
+      (let [[_ ast] (analyzed body)]
+        (is (contains? (content-carriers-of ast) carrier)
+            (str carrier " — the row really fills the carrier it names")))
+      (is (.contains ^String (emitted body) ^String reaches)
+          (str carrier " — the emitted body reaches " reaches)))))
+
 (deftest the-props-tables-cover-the-whole-admitted-rosters
   (testing "A per-carrier table is only as good as its coverage, so the
             coverage is the assertion — the same claim the node-kind table
             above makes, on the axis that table cannot see."
     (is (= grammar/element-props-carriers (into #{} (map :carrier) element-rows))
         "one row per element props carrier, and no row outside the roster")
+    (is (= grammar/element-content-carriers
+           (into #{} (map :carrier) element-content-rows))
+        "one row per element content carrier, and no row outside the roster")
     (is (= grammar/crossing-prop-markers (into #{} (map :marker) crossing-rows))
         "one row per crossing prop marker, and no row outside the roster")))
 

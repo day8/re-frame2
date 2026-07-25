@@ -10,13 +10,14 @@
      a grammar you can *name*: the version keyword is not decoration, it
      is the promise that this roster does not quietly grow under a
      running codebase. It grows by ruling, in a new version.
-  2. **What a node's PROPS may carry.** [[element-props-carriers]] and
-     [[crossing-prop-markers]] are the grammar's second axis, and the one
-     [[check!]] structurally cannot police: it walks `:op`, and a carrier
-     lives INSIDE a node's `:props`. An emitter that never reads one drops
-     the author's content with nothing raised — which is exactly how
-     `v/spread`, `v/spread-safe` and a call-site `v/render-fn` each
-     reached the DOM as an element that simply did not carry what was
+  2. **What a node CARRIES beside its `:op`.** [[element-props-carriers]],
+     [[element-content-carriers]] and [[crossing-prop-markers]] are the
+     grammar's second axis, and the one [[check!]] structurally cannot
+     police: it walks `:op`, and a carrier lives INSIDE a node's `:props`
+     or in a slot on the node itself. An emitter that never reads one
+     drops the author's content with nothing raised — which is exactly how
+     `v/spread`, `v/spread-safe`, a call-site `v/render-fn` and `v/html`
+     each reached the DOM as an element that simply did not carry what was
      written. The rosters exist so the emitter coverage suites can prove
      one row per carrier the way they already prove one row per node kind.
   3. **What a rejection tells you to do.** [[recovery]] is total over
@@ -49,7 +50,24 @@
   no unknown-node arm, which is what makes escaping structural rather
   than defensive."
   #{:text :nothing :expr :element :fragment :view :for :if :let :letfn :case
-    :presence :slot :behavior})
+    :presence :slot :behavior :html})
+
+(def element-content-carriers
+  "The CLOSED roster of an ELEMENT's OWN slots — outside `:props` — that
+  carry AUTHORED CONTENT every emitter must read.
+
+  The sibling of [[element-props-carriers]], and it exists for the same
+  defect and one axis further out. `:html` is the trusted-markup node
+  `(v/html s)` produces, and it hangs off the element node itself rather
+  than off its props, so BOTH rosters missed it: a per-`:op` walk sees
+  `:html` and a per-props-carrier table does not, and the element it rides
+  is `:element`, which every coverage row already covered. Both emitters
+  duly dropped it with nothing raised — the same `v/spread` failure with
+  the content one level higher up.
+
+  One member, and the roster stays that small deliberately: it is a fence
+  the emitter-coverage suites read, not a framework for element slots."
+  #{:html})
 
 (def element-props-carriers
   "The CLOSED roster of an ELEMENT's `:props` slots that carry AUTHORED
@@ -86,8 +104,6 @@
   slice; refusing it now is honest, and silently mis-lowering it is not."
   {:foreign        {:what "a foreign component boundary"
                     :recovery [:extract-declared-child :keep-interpreted]}
-   :html           {:what "the trusted-HTML escaping bypass"
-                    :recovery [:keep-interpreted]}
    :client-only    {:what "a browser-only subtree"
                     :recovery [:extract-declared-child :keep-interpreted]}
    :error-boundary {:what "an error boundary"

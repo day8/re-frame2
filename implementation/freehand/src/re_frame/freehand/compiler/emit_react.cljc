@@ -463,6 +463,20 @@
                                               (safe-spread-write o tag controlled? safe-spread)))
                       (seq top) (conj `(re-frame.freehand.top-layer/install!
                                         ~o ~tag ~top))
+                      ;; Trusted markup writes LAST, and it is a write rather
+                      ;; than a build-time literal for one reason: the string is
+                      ;; usually an expression, and an expression authored as the
+                      ;; element's CHILD must evaluate after the props map it
+                      ;; follows in the source — the order the interpreted walk
+                      ;; produces. It goes through the shared browser writer, so
+                      ;; the string check and the `<textarea>` / void refusals
+                      ;; are the interpreted walk's, not a second set here. The
+                      ;; analyzer sets `:children []` on an html-kid element, so
+                      ;; no positional child accompanies the markup and React's
+                      ;; children-vs-innerHTML conflict cannot arise.
+                      (:html node)
+                      (conj `(re-frame.freehand.compiled-react/html!
+                              ~o ~tag ~(:form (:html node))))
                       (:present? key-info)
                       (conj `(cljs.core/unchecked-set ~o "key" ~(:expr key-info))))
         ;; Bindings, in evaluation order: owned dynamic values (source order),

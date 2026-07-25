@@ -1346,6 +1346,53 @@
   (node/spread-safe-attrs owned caller))
 
 ;; ---------------------------------------------------------------------------
+;; Trusted markup — the one visible escaping bypass
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004B §Trusted markup. Everything else Freehand renders is ESCAPED, on
+;; both hosts and in both modes; this is the single door out of that, and it is
+;; a CALL so that the door is visible at the site where it is opened.
+;;
+;; It is one spelling, not a family. Every prop-shaped route to the same
+;; capability — `:dangerouslySetInnerHTML`, `:dangerously-set-inner-html`,
+;; `:inner-html`, literal or smuggled through a `v/spread` — is refused by the
+;; attribute grammar in every build, and the refusal names this verb. That
+;; asymmetry is the design: a bypass an author can reach only through a form
+;; the compiler records is a bypass a reviewer can enumerate.
+
+(defn html
+  "(v/html s) — render the trusted markup string `s` VERBATIM, as the sole
+  child of a DOM element.
+
+      [:article.body (v/html (:rendered-html post))]
+
+  The one place escaping is bypassed, and the call is the mark. In a
+  `{:compiled true}` declaration every site lands on the manifest's
+  `:html-sites` roster with its source coordinate, so a build can list every
+  place in an application where markup goes in unescaped; an interpreted
+  declaration makes the same call visible in the source but records nothing
+  at build time, because there is no build.
+
+  **Freehand does not sanitise, and neither does SSR.** `s` is written as
+  given. It is a derivative projection like any other view input — the verb
+  fetches nothing, authorises nothing and decides nothing — so the markup
+  must already be trustworthy when it arrives: rendered from your own
+  Markdown, sanitised in the event handler that stored it, or produced by a
+  CMS you trust. Untrusted markup handed to this verb is script execution in
+  your page.
+
+  The position is a CONTRACT, in both modes and on both hosts: the SOLE
+  child of a DOM element, which is the element that owns the markup. A
+  sibling, a nested run, or a view whose whole body is the call has no
+  element to own it and is refused by name. `<textarea>` is refused too —
+  React sets a textarea's content through `:value` — as is any void element,
+  and `s` must be a string.
+
+  Per [Spec 004B §Trusted markup](../../../../spec/004B-UI-Tree-and-Conversion.md)."
+  [s]
+  (node/trusted-markup s))
+
+;; ---------------------------------------------------------------------------
 ;; Semantic controllers — the writable-controller surface
 ;; ---------------------------------------------------------------------------
 ;;

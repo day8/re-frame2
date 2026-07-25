@@ -642,6 +642,42 @@ elements — the child path is browser-only, like the mount verbs.
                                 [result-row {:id id}])}]
   ```
 
+### `html`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (html s) → trusted markup
+  ```
+- **Description**: render the trusted markup string `s` **verbatim**, as the sole
+  child of a DOM element. Everything else Freehand renders is escaped, on both hosts
+  and in both modes; this is the single door out of that, and it is a call so the
+  door is visible at the site where it is opened. There is exactly one spelling: the
+  prop-shaped routes to the same capability — `:dangerouslySetInnerHTML`,
+  `:dangerously-set-inner-html`, `:inner-html`, whether written literally or
+  smuggled through a runtime `v/spread` map — are refused in every build, and the
+  refusal names this verb.
+- **Freehand does not sanitise, and neither does SSR.** `s` is written as given, so
+  a `<script>` element, an `onerror=` attribute or a `javascript:` href inside it
+  reaches the document exactly as written. The verb is a derivative projection like
+  any other view input: it fetches nothing, authorises nothing and decides nothing,
+  so the markup has to be trustworthy before it arrives — rendered from your own
+  Markdown, sanitised in the event handler that stored it, or produced by a CMS you
+  trust. What the verb buys is **enumerability**: in a `{:compiled true}`
+  declaration every site lands on the manifest's `:html-sites` roster with its
+  source coordinate, so the set of bypasses in an application is finite and
+  listable.
+- **Position is a contract.** The sole child of a DOM element, which is the element
+  that owns the markup — a sibling, a nested run, or a view whose whole body is the
+  call has no element to own it and is refused by name. `<textarea>` is refused too
+  (React sets a textarea's content through `:value`), as is every void element, and
+  `s` must be a string.
+- **Example**:
+  ```clojure
+  (v/defview article-body [{:keys [rendered-html]}]
+    [:article.body (v/html rendered-html)])
+  ```
+
 ### `raw-fn`
 
 - **Kind**: function

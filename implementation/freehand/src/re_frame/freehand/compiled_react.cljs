@@ -101,6 +101,19 @@
   ([o tag k v] (fr/put-attr! o tag k v false) o)
   ([o tag k v multiple?] (fr/put-attr! o tag k v multiple?) o))
 
+(defn ^:no-doc html!
+  "Write the element's TRUSTED MARKUP — `(v/html s)` — as React's
+  `dangerouslySetInnerHTML`.
+
+  The interpreted walk's own writer, called from here: the string check,
+  the `<textarea>` refusal and the void-element refusal are
+  [[re-frame.freehand.react/put-html!]]'s, so a compiled `(v/html …)` and
+  its interpreted twin cannot disagree about what a dynamic expression
+  that turns out not to be a string does."
+  [o tag raw]
+  (fr/put-html! o tag raw)
+  o)
+
 (defn ^:no-doc handler!
   "Attach a committed handler site's stable proxy, when the site carries
   one. An empty position writes nothing, and `v/render-fn` / `v/raw-fn`

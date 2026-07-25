@@ -2,11 +2,11 @@
   "rf2-tb5yq — the analyzer heads whose authoring vars `re-frame.freehand`
   does not publish, proved through the PRODUCTION resolution path.
 
-  Six analyzer fqn sets named vars that are interned nowhere:
+  Six analyzer fqn sets named vars that were interned nowhere:
 
       re-frame.freehand/frame            (frame-fqns)          — arm RETIRED
       re-frame.freehand/raw              (ui-raw-fqns)         — arm RETIRED
-      re-frame.freehand/html             (ui-html-fqns)        — still recognised
+      re-frame.freehand/html             (ui-html-fqns)        — SHIPPED
       re-frame.freehand/frame-root       (frame-root-fqns)     — arm RETIRED
       re-frame.freehand/frame-provider   (frame-provider-fqns) — arm RETIRED
       re-frame.freehand.react/lazy       — arm REMOVED with this suite
@@ -28,10 +28,25 @@
   lost, since a runtime React ELEMENT crosses into a Freehand tree unwrapped on
   its own account.
 
-  `html` alone is still recognised: it has no other spelling to fall back on and
-  a live `:html-sites` manifest roster, so it ships with rf2-rrosy — recognition
-  and lowering together. All six vars stay in the roster below: the tripwire is
-  about the VARS, and it must red whether an arm is standing or not.
+  ## `html` went the other way, and this suite records that
+
+  `html` is the sixth, and rf2-rrosy SHIPPED it rather than retiring it. It had
+  no other spelling to fall back on: the attribute grammar refuses every
+  `dangerouslySetInnerHTML` prop spelling on three tiers and names `(v/html …)`
+  as the recovery, so retiring the verb would have left a substrate that
+  refuses raw markup everywhere and offers no supervised alternative. So
+  `re-frame.freehand/html` is published, its recognition is reachable through
+  production resolution, `:html` is admitted by the v1 grammar, and both
+  emitters lower it — the React one to `dangerouslySetInnerHTML`, the JVM one
+  to the canonicaliser's `:html` slot.
+
+  It therefore moves from the ABSENCE roster to the COVERAGE one, and the two
+  are asserted in the same shape and by the same probes: unpublished heads
+  resolve to nil on both hosts, `html` resolves to its var on both and carries
+  a `spec/api-manifest.edn` row. That is the tripwire kept POINTED — a suite
+  that simply dropped the name would have stopped saying anything about it, and
+  the fact worth pinning is no longer that the var is absent but that
+  recognition, publication and lowering landed together.
 
   ## Why the JVM probe alone is not the proof
 
@@ -73,18 +88,25 @@
             [re-frame.build.spec-resource :as spec-resource]
             [re-frame.freehand]
             [re-frame.freehand.compiler :as compiler]
-            [re-frame.freehand.compiler.env :as env]))
+            [re-frame.freehand.compiler.env :as env]
+            [re-frame.freehand.compiler.grammar :as grammar]))
 
 (def ^:private unpublished-heads
-  "The six authoring heads the analyzer recognised and the door does not
-  publish, as the fully-qualified symbols an author's `(frame)` / `(v/html s)`
-  would have to resolve to. Five arms are retired; `html` is still recognised."
+  "The five authoring heads the analyzer recognised and the door does not
+  publish, as the fully-qualified symbols an author's `(frame)` would have to
+  resolve to. All five arms are retired."
   '[re-frame.freehand/frame
     re-frame.freehand/raw
-    re-frame.freehand/html
     re-frame.freehand/frame-root
     re-frame.freehand/frame-provider
     re-frame.freehand.react/lazy])
+
+(def ^:private shipped-heads
+  "The head that went the OTHER way (rf2-rrosy): recognised, PUBLISHED, and
+  lowered by both emitters. Carried here rather than deleted so the tripwire
+  keeps saying something about the name — the fact to pin is no longer the
+  absence but that all three landed together."
+  '[re-frame.freehand/html])
 
 (def ^:private phantom-runtime-targets
   "The runtime vars the retired `frame` / `frame-root` / `frame-provider` arms
@@ -173,6 +195,33 @@
       (doseq [sym unpublished-heads]
         (is (nil? (env/resolve-sym e sym))
             (str "production resolution of " sym))))))
+
+;; ---------------------------------------------------------------------------
+;; `html` is published — recognition, publication and lowering, one slice
+;; ---------------------------------------------------------------------------
+
+(deftest the-shipped-head-is-published-recognised-and-lowered
+  (testing "rf2-rrosy. `html` sat in the roster above with the note that it
+            would ship, and this is the row that says it did. Three facts, in
+            the same shape the absence rows use, because half of them was
+            exactly the state the Bead existed to remove: a compiler that
+            recognises a form it cannot lower, and a var whose publication
+            without the lowerings would have rendered NOTHING."
+    (let [e (production-env)]
+      (doseq [sym shipped-heads]
+        (is (interned? sym) (str sym " is interned on the JVM"))
+        (is (= sym (:fqn (env/resolve-sym e sym)))
+            (str "production resolution reaches " sym " — the analyzer arm that "
+                 "recognises it is live through the real door"))
+        (is (contains? manifest-vars sym)
+            (str sym " carries a public-API row, so it is published on BOTH hosts")))))
+  (testing "The lowering half, at the grammar. `:html` is inside
+            `:re-frame.freehand/v1`, so `grammar/check!` no longer refuses a
+            body carrying one — and the per-carrier emitter coverage suites
+            (`re-frame.freehand.react-lowering-jvm-test`) prove each emitter
+            really reads the slot."
+    (is (contains? grammar/admitted-ops :html)
+        ":html is admitted by the v1 grammar")))
 
 (deftest production-resolution-still-sees-the-vars-that-do-exist
   (testing "The control that makes the nils above mean something: the SAME env

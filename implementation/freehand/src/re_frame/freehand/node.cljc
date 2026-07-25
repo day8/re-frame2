@@ -250,6 +250,78 @@
            (contains? x :html)
            (contains? x :children))))
 
+;; ---------------------------------------------------------------------------
+;; Trusted markup — the one visible escaping bypass
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004B §Trusted markup. `(v/html s)` is the ONE spelling that puts an
+;; author's string into the document unescaped, and it is a call so that the
+;; bypass is VISIBLE at the site — the compiled tier additionally records every
+;; one of them on its manifest's `:html-sites` roster.
+;;
+;; The value the call answers is NOMINAL: a private type carrying the string,
+;; and nothing else. That is deliberate and it is the whole guard. The tree's
+;; trusted-markup NODE is the map `{:html s}`, and a map is a shape an author
+;; can write; if the door answered one, `[:div {:html s}]` in a child position
+;; would be a second, quieter spelling of the same bypass — one with no
+;; sole-child rule, no `<textarea>` refusal, no manifest site and no visible
+;; call. So [[collect]] refuses an `:html`-bearing map outright, the nominal
+;; value is the only thing either front end recognises, and the node is built
+;; HERE, by [[element]], from the element's own `:html` slot.
+
+(deftype ^:no-doc TrustedMarkup [markup])
+
+(defn ^:no-doc trusted-markup?
+  "Is `x` the value `(v/html s)` answers?"
+  [x]
+  (instance? TrustedMarkup x))
+
+(defn html-string!
+  "The trusted-markup string, or a loud refusal — the ONE check both
+  execution modes make on both hosts.
+
+  A LITERAL non-string is a compile error in a `{:compiled true}` body, but
+  the string is very often an expression, and an expression is a value only
+  the render knows. So the runtime check is shared rather than duplicated
+  per emitter: `(v/html (:body article))` answers the same diagnostic
+  interpreted and compiled, in the browser and on the JVM, when the field
+  turns out to be nil."
+  [where s]
+  (if (string? s)
+    s
+    (malformed!
+      where
+      (str "(v/html x) requires a string — trusted markup is markup, and the "
+           "substrate writes it verbatim rather than guessing what a "
+           (type-name s) " meant. Produce the string first, e.g. (v/html (str …)).")
+      {:value (shape s)})))
+
+(defn ^:no-doc trusted-markup
+  "The value `(v/html s)` answers — see [[re-frame.freehand/html]]."
+  [s]
+  (->TrustedMarkup (html-string! 're-frame.freehand/html s)))
+
+(defn ^:no-doc trusted-markup-string
+  "The markup string inside a [[trusted-markup?]] value."
+  [x]
+  (.-markup ^TrustedMarkup x))
+
+(defn ^:no-doc refuse-orphan-trusted-markup!
+  "The refusal a `(v/html …)` reaching any position but a DOM element's SOLE
+  child lands on — the runtime twin of the compiled tier's
+  `:rf.ui.compile/html-not-sole-child`, and the ONE sentence both interpreted
+  walks raise so an authored mistake has one answer on either host.
+
+  `where` names the raising site."
+  [where form]
+  (malformed!
+    where
+    (str "(v/html …) must be the SOLE child of a DOM element — the host owns "
+         "trusted markup through the element that carries it, so here there is "
+         "no element to own it, or a sibling it would have to share the "
+         "element's content with. Wrap it: [:div (v/html s)].")
+    {:value (shape form)}))
+
 (defn- conj-text
   "Append text, coalescing it into the preceding run when there is one.
 
@@ -342,6 +414,26 @@
     (string? form)         (conj-text acc form)
     (number? form)         (conj-text acc (conv/js-number-str form))
     (conv/child-run? form) (reduce #(collect walk where %1 %2) acc form)
+    ;; Trusted markup is not a child value, it is an ELEMENT's content: both
+    ;; front ends read it off the sole-child position and hand it to
+    ;; [[element]]'s `:html` slot, so one that reaches the child fold is one
+    ;; the author put somewhere no element can own. Refused by name, in the
+    ;; one place both walks and both modes reach.
+    (trusted-markup? form) (refuse-orphan-trusted-markup! where form)
+    ;; The trusted-markup NODE, written as a literal map. `node?` accepts it
+    ;; — the SSR serialiser and the structural test surface read exactly this
+    ;; shape — but a BUILD path must not, or `{:html s}` becomes a second
+    ;; spelling of the bypass with none of its supervision. The nominal value
+    ;; the door answers is the only spelling.
+    (and (map? form) (contains? form :html))
+    (malformed!
+      where
+      (str "A child is the trusted-markup NODE written as a literal map. That "
+           "shape is the tree's, not the template's: it carries no visible "
+           "call, no manifest site and none of the element rules trusted "
+           "markup is subject to. Write (v/html s) as the sole child of a DOM "
+           "element instead.")
+      {:value (shape form)})
     (node? form)           (conj acc form)
     (seq? form)            (reduce #(collect walk where %1 %2) acc form)
     (and walk (vector? form)) (do (refuse-metadata-key! where form)
@@ -932,6 +1024,10 @@
                   composes owned-first)
     `:properties` the custom-element property names the COMPILER already
                   classified from this element's literal props
+    `:html`       the TRUSTED-MARKUP string this element's content is, in
+                  place of children — the `(v/html s)` bypass, whose node
+                  is built here so the string check and the element rules
+                  it is subject to are the same in both modes
     `:children`   a thunk building the children, evaluated under this
                   element's namespace context
 
@@ -939,7 +1035,7 @@
   `:attrs` key at all, so one semantic element has exactly one
   representation."
   [{:keys [tag attrs dyn class sugar style events key? key-val children caller
-           properties]}]
+           properties html]}]
   (let [ctx        (conv/enter-ns *ns-context* tag)
         ;; The `(v/custom-element tag {:properties #{…}})` declaration, as
         ;; this element can know it — TWO ARMS OF ONE FACT, unioned, because
@@ -1022,7 +1118,30 @@
         ;; reserved key is SEMANTIC conversion input, not a diagnostic).
         prop-props (when declared (into #{} (filter declared) (keys attrs)))
         el-ns      (conv/element-ns ctx)
-        kids       (when children
+        ;; Trusted markup REPLACES the children — `[:div (v/html s)]` has one
+        ;; content channel, and it is the element's. The `<textarea>` refusal
+        ;; is here rather than in either front end because both reach it: React
+        ;; 19.2 rejects `dangerouslySetInnerHTML` on a textarea outright and the
+        ;; SSR serialiser refuses the same node, so a substrate that built it
+        ;; would produce a host throw on one path and divergent markup on the
+        ;; other (rf2-ib4fd). A VOID element needs no arm of its own: the leaf
+        ;; is a child, and the children-rejected refusal below is the one it
+        ;; already lands on.
+        html-leaf  (when (some? html)
+                     (when (= :textarea tag)
+                       (malformed!
+                         're-frame.freehand/render
+                         (str "A <textarea> cannot carry trusted markup — React "
+                              "sets a textarea's content through :value (or an "
+                              "ordinary text child), never dangerouslySetInnerHTML, "
+                              "which React 19 rejects on a <textarea>. Use "
+                              ":value \"…\" or an ordinary text child.")
+                         {:tag tag}))
+                     {:html (html-string! 're-frame.freehand/render html)})
+        kids       (cond
+                     (some? html-leaf) [html-leaf]
+
+                     children
                      ;; Pushing a thread binding costs a frame and a map
                      ;; assoc, and an HTML element under HTML — every
                      ;; element in an ordinary page — would push the value

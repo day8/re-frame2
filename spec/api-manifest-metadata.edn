@@ -1422,6 +1422,20 @@
   ;; about the element it renders. Spec 004 §Props forwarding owns the law.
   ["re-frame.freehand" "spread"]            {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand" "spread-safe"]       {:tier :advanced    :owner "004" :status "EP-0036"}
+  ;; Trusted markup (rf2-rrosy) — the ONE visible escaping bypass, mirroring
+  ;; the donor row `re-frame.ui/html`. A `.cljc` function on the door, so the
+  ;; JVM generator owns its kind and the CLJS probe reconciles the same row;
+  ;; `advanced`, deliberately, and here the tier IS the advertising cost. The
+  ;; paved path never needs it, and a front-porch row would read as an
+  ;; invitation to put markup strings in views. What earns it a published row
+  ;; at all is that the alternative is worse: every prop spelling of the same
+  ;; capability is refused in every build and the refusal NAMES this verb, so
+  ;; without it the substrate would refuse raw markup on three tiers and offer
+  ;; no supervised door — pushing an author with a CMS body or a rendered
+  ;; Markdown string outside the substrate, with no site record and none of the
+  ;; element rules. Spec 004B §Trusted markup owns the contract; 004D owns what
+  ;; it deliberately does NOT do (there is no sanitiser, on either host).
+  ["re-frame.freehand" "html"]              {:tier :advanced    :owner "004" :status "EP-0036"}
   ;; The writable-controller surface (rf2-drpa3.122; Spec 004 §Semantic
   ;; controllers, D004 + D016). THREE verbs, and three is the whole of what
   ;; the substrate contributes to a semantic controller: `controller-key`
