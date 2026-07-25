@@ -841,21 +841,29 @@ The handler reads the route slice — which lives in **runtime-db** at `[:rf.run
 
 `route-link` dispatches `:rf.route/url-requested` on click; the runtime's default handler classifies internal vs external and dispatches `:rf.route/navigate` for matched routes.
 
-**Template — wiring (called once at app boot):**
+**Template — wiring (declare URL ownership on the frame; there is no install step):**
+
+A frame owns the browser URL by carrying `:url-bound? true`, and that declaration *is* the wiring: the frame **lifecycle** installs the browser URL-change listener on creation — performing the initial URL → route-slice sync in the same step — and removes it on destroy. `:url-strategy` picks the address-bar shape (omit it for the default HTML5-history, path-form strategy; `rf.routing/hash-url-strategy` for a no-server-rewrite static host, optionally wrapped in `rf.routing/with-base-path` for a sub-path deployment).
 
 ```clojure
-(defn install-router! [frame-id]
-  (.addEventListener js/window "popstate"
-    #(rf/dispatch [:rf.route/handle-url-change (.. js/window -location -href)] {:frame frame-id}))
-  (rf/dispatch [:rf.route/handle-url-change (.. js/window -location -href)] {:frame frame-id}))
+(rdc/render @react-root
+  [rf/frame-root {:id             :app/main
+                  :doc            "The application frame."
+                  :url-bound?     true                       ;; this frame owns the browser URL
+                  :url-strategy   rf.routing/history-url-strategy   ;; the default; omittable
+                  :initial-events [[:app/initialise]]}
+   [root-view]])
 ```
 
-Routing has two co-equal URL-change events. Popstate and the initial sync (above) dispatch `:rf.route/handle-url-change` (default scroll `:restore`); forward navigation — a `route-link` click or programmatic push — dispatches `:rf.route/transitioned` (default scroll `:top`). Both run the identical slice-rewrite; neither delegates to the other.
+Nothing else is needed, and nothing else is *permitted*: an app never adds a `popstate` listener, never dispatches an initial `:rf.route/handle-url-change`, and never calls an install / remove pair — those exports are retired (see [012 §popstate drives the URL-owner frame](012-Routing.md#popstate-drives-the-url-owner-frame-both-directions)). A hand-rolled listener would duplicate the framework's, dispatch a second initial sync, and misreport the navigation cause in diagnostics.
+
+Routing has two co-equal URL-change events. `:rf.route/handle-url-change` (default scroll `:restore`) is dispatched by the `:url-bound?` lifecycle's own listener — for Back/Forward and for the initial sync alike, distinguished by the cause rider it stamps — while forward navigation, a `route-link` click or programmatic push, dispatches `:rf.route/transitioned` (default scroll `:top`). Both run the identical slice-rewrite; neither delegates to the other.
 
 **Pattern-level discipline:**
 
 - The route is framework-owned state in **runtime-db** (`[:rf.runtime/routing :current]`, read via the `:rf/route` sub); the URL is derivable. Never make routing state live in a parallel router outside the frame.
 - Navigation is an event. Don't call browser APIs directly from view code; dispatch `:rf.route/navigate` (or use `route-link`).
+- URL ownership is **declarative** — `:url-bound? true` on exactly one frame. Never hand-roll a `popstate` listener or an initial `:rf.route/handle-url-change` dispatch; the frame lifecycle owns both, and duplicating them double-syncs the slice.
 - Per-route data loading is **declarative** — list events in `:on-match` on `reg-route`. The runtime dispatches them.
 - Server-side renders set the route via `:rf.route/handle-url-change` against the request URL; the same `:on-match` events run server-side.
 - Path params and query params are **separate maps** in the runtime-db route slice — `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/routing :current :params])` and `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/routing :current :query])`.
@@ -868,6 +876,7 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
 - Per-route data dependencies are declared in `:on-match` (vector of event vectors).
 - Per-route error handling is declared in `:on-error` (single event vector) where needed.
 - All navigation goes through `:rf.route/navigate` (or `route-link`); no inline `pushState`.
+- Exactly one frame carries `:url-bound? true`; no app-space `popstate` listener and no initial `:rf.route/handle-url-change` dispatch.
 - The root view dispatches on `:rf.route/id`; per-page views are registered separately.
 - A `:rf.route/not-found` route is registered.
 - Nested layouts use `:parent` (or id-prefix-only if no shared loader/chrome is needed); read the chain via `:rf.route/chain`.
