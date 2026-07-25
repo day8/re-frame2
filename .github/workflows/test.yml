@@ -2513,8 +2513,9 @@ jobs:
     # rf2-xwa4n — PR #6880 shipped the probe as `npm run
     # test:freehand-evidence-elision` and nothing invoked it. A gate that never
     # runs is no gate: the next change to the evidence schema, the dev-gated
-    # emission seam, the release entry, the build config or the checker could
-    # merge without the proof ever executing.
+    # emission seam, the occurrence index behind it, the mounted commit edge
+    # that roots the seam, the release entry, the build config or the checker
+    # could merge without the proof ever executing.
     #
     # The gate builds TWO `:advanced` bundles of the SAME entry
     # (re-frame.freehand.release-app) differing only in `goog.DEBUG`, then greps
@@ -2532,8 +2533,12 @@ jobs:
     #
     # Surface-gated rather than unconditional: two `:advanced` builds are not
     # worth spending on every PR, and the classifier arms exactly the surfaces
-    # that can invalidate the proof — the evidence schema, the seam in cell,
-    # the release entry, the build-config trio and the checker itself.
+    # that can invalidate the proof. The roster is declared in ONE place —
+    # `report-changed-surfaces.sh`'s producer `case`, pinned by
+    # `FREEHAND_EVIDENCE_PRODUCERS` in `implementation/scripts/_changed-surfaces.test.cjs`
+    # — and this comment deliberately does not restate it: the two previous
+    # restatements here both went stale (they omitted `shell.cljs`, then
+    # `occurrences.cljc`) while reading as a complete enumeration.
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.freehand_evidence_elision == 'true'
     runs-on: ubuntu-latest

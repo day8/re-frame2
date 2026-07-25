@@ -2545,16 +2545,31 @@ test('the armed producer surfaces all EXIST (rf2-xwa4n)', () => {
   }
 });
 
+// The producer rows that the specific `case` shadows: every producer INSIDE the
+// Freehand artefact. The checker and the build-config trio are producers too but
+// live elsewhere in the tree, so they are held by their own assertions below —
+// that distinction is the only reason this is a filter rather than the whole
+// roster. DERIVED, not re-listed: this assertion was written as a hand-copied
+// list and went stale twice (it missed `shell.cljs` until the #6888 audit, then
+// `occurrences.cljc` until the #6969 audit), each time leaving a shadowed
+// producer's host arms unpinned while the roster above looked complete.
+const SHADOWED_FREEHAND_PRODUCERS = FREEHAND_EVIDENCE_PRODUCERS.filter((f) =>
+  f.startsWith('implementation/freehand/'),
+);
+
 test('the Freehand host arms survive the shadowing producer case (rf2-xwa4n)', () => {
   // A POSIX `case` takes the FIRST match, so the producer case shadows
   // `implementation/freehand/*`. It must WIDEN, never narrow: the three host
   // arms rf2-drpa3.58/.70 put on the artefact root have to survive.
-  for (const file of [
-    'implementation/freehand/src/re_frame/freehand/evidence.cljc',
-    'implementation/freehand/src/re_frame/freehand/cell.cljc',
-    'implementation/freehand/src/re_frame/freehand/shell.cljs',
-    'implementation/freehand/test/re_frame/freehand/release_app.cljs',
-  ]) {
+  //
+  // A filter that stopped matching would make this test pass over an empty
+  // list — the vacuity the derivation would otherwise buy at the cost of the
+  // hand-written list's one virtue.
+  assert.ok(
+    SHADOWED_FREEHAND_PRODUCERS.length >= 5,
+    'the shadowed-producer filter must still select the Freehand-tree producers',
+  );
+  for (const file of SHADOWED_FREEHAND_PRODUCERS) {
     const result = classify(file);
     for (const key of ['implementation_jvm', 'cljs_node_test', 'cljs_browser']) {
       assert.equal(
