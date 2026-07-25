@@ -88,10 +88,53 @@
             other off the analyzed AST — and they meet only at the
             canonicaliser's `:html` slot."
     (is (seq views/modes) "the pair table loaded")
-    (doseq [[interpreted compiled] views/modes]
-      (is (= (rendered interpreted {:markup markup :lang "en"})
-             (rendered compiled {:markup markup :lang "en"}))
-          (str interpreted " / " compiled " — one tree, either mode")))))
+    ;; The whole props roster the table's declarations read, so one sweep
+    ;; drives every pair: the `keyed-markup` pair takes its key and its
+    ;; markup from thunks (see `views/recorder`) and the rest ignore them.
+    (let [props {:markup markup :lang "en"
+                 :k (constantly "k1") :m (constantly markup)}]
+      (doseq [[interpreted compiled] views/modes]
+        (is (= (rendered interpreted props) (rendered compiled props))
+            (str interpreted " / " compiled " — one tree, either mode"))))))
+
+(deftest the-structural-paths-evaluate-the-key-before-the-trusted-markup
+  (testing "rf2-rrosy #6980 audit — the authored order, on the two STRUCTURAL
+            paths. `:key` is a prop, so an interpreted walk evaluates it with
+            the rest of the map BEFORE it looks at the child position; a
+            compiled twin that reversed the two would diverge in exactly the
+            ways side effects and exceptions can be observed. The defect the
+            audit found was the React emitter's, but the claim is the
+            declaration's, so it is pinned on every path the declaration has."
+    (doseq [view [:keyed-markup :keyed-markup-compiled]]
+      (let [[log props] (views/recorder)]
+        (structural view props)
+        (is (= [:key :html] @log)
+            (str view " — the key expression ran first, and each ran once"))))))
+
+(deftest a-throwing-structural-key-pre-empts-the-trusted-markup
+  (testing "The exception-prefix half of the order claim: what has already
+            happened when the render fails. A key that throws means the
+            markup expression never runs — on both structural paths."
+    (doseq [view [:keyed-markup :keyed-markup-compiled]]
+      (let [[log props] (views/recorder {:k #(throw (ex-info "key boom" {}))})]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"key boom"
+                              (structural view props))
+            (str view " — the authored key expression is what threw"))
+        (is (= [] @log)
+            (str view " — and the trusted-markup expression never ran"))))))
+
+(deftest a-throwing-structural-markup-runs-after-the-key
+  (testing "The other prefix. A markup expression that throws throws AFTER
+            the key has been evaluated, because the key is part of the props
+            map that precedes the child — so the key's side effect is
+            already recorded when the render fails."
+    (doseq [view [:keyed-markup :keyed-markup-compiled]]
+      (let [[log props] (views/recorder {:m #(throw (ex-info "markup boom" {}))})]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"markup boom"
+                              (structural view props))
+            (str view " — the authored markup expression is what threw"))
+        (is (= [:key] @log)
+            (str view " — and the key had already been evaluated, once"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The markup — verbatim, and the control that makes "verbatim" mean something

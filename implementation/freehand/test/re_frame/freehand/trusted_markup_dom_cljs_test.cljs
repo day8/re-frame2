@@ -25,12 +25,21 @@
   to fail; in the browser job the same declarations mount and the claims are
   read off `document`.
 
+  The host-neutral lane carries one more thing, and it is there because the
+  DOM cannot see it: EVALUATION ORDER. A compiled element writes its key and
+  its trusted markup into different slots of one props object, so an emitter
+  that ran the child expression before the props map produced byte-identical
+  DOM — and diverged only in side-effect order and in which expression throws
+  first. Those rows run the declaration's body directly and read a log
+  (rf2-rrosy, #6980 audit).
+
   The structural counterpart, over the same declarations, is
   `re-frame.freehand.trusted-markup-ssr-jvm-test`."
   (:require ["react" :as react]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as react-substrate]
             [re-frame.freehand :as v]
+            [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.root :as root]
             [re-frame.freehand.trusted-markup-views :as views]
@@ -67,12 +76,96 @@
             beside it, so one that quietly fell back to the interpreted walk
             could not pass."
     (doseq [k [:markup-body-compiled :markup-with-props-compiled
-               :literal-markup-compiled :markup-nested-compiled]]
+               :keyed-markup-compiled :literal-markup-compiled
+               :markup-nested-compiled]]
       (let [view (get views/by-name k)]
         (is (= :compiled (:lowering (v/describe view)))
             (str k " — declared compiled"))
         (is (contains? (:capabilities (v/manifest view)) :html)
             (str k " — and its manifest names the trusted-markup capability"))))))
+
+;; ---------------------------------------------------------------------------
+;; The host-neutral lane — evaluation ORDER on the two React paths
+;; ---------------------------------------------------------------------------
+
+;; What the DOM cannot see. Every mounted row below reads the RESULT, and the
+;; result is the same whichever of the element's two expressions ran first —
+;; `key` and `dangerouslySetInnerHTML` are different slots on the props object
+;; and neither write reads the other. So a compiled emitter that evaluated the
+;; child before the props map produced identical DOM and diverged only in
+;; side-effect order and in which expression throws first (rf2-rrosy, #6980
+;; audit). These rows make that observable: the declaration's key and its
+;; markup are opaque calls, and the suite hands it thunks that record.
+;;
+;; No DOM is needed to see it, so these run in the node suites too: the
+;; declaration's body is what evaluates, and `descriptor/react-body` /
+;; `descriptor/render-body` are the two fns a React mount would have called.
+
+(defn- ran
+  "Run one census declaration's BODY on the React path its lowering names —
+  the compiled twin's emitted React realisation, or the interpreted twin's
+  render body — and answer the log of what its two expressions did.
+
+  Calling the body is what a React mount does with it; going through the
+  mount as well would add a DOM the claim does not need, and a React error
+  boundary between the throw and the assertion."
+  [view-name props]
+  (let [view (get views/by-name view-name)]
+    ((or (descriptor/react-body view) (descriptor/render-body view)) props)))
+
+(deftest an-element-evaluates-its-key-before-its-trusted-markup
+  (testing "THE ORDER ROW. `:key` is authored inside the props map, so the
+            interpreted path evaluates it — with the rest of the map — before
+            it looks at the child position holding the markup. The compiled
+            twin owes the same order, and used to invert it: the emitter
+            conjoined the `html!` write before the `unchecked-set` of the key.
+            Both paths, one declaration, and each expression exactly once."
+    (doseq [k [:keyed-markup :keyed-markup-compiled]]
+      (let [[log props] (views/recorder)]
+        (ran k props)
+        (is (= [:key :html] @log)
+            (str k " — the key ran first, and each expression ran once"))))))
+
+(deftest a-throwing-key-pre-empts-the-trusted-markup
+  (testing "The first exception prefix. A key expression that throws means
+            the markup expression never runs at all — which is what the
+            author wrote, and what the interpreted path does. With the markup
+            emitted first the compiled twin ran it anyway, so a failed render
+            had performed a side effect the source says it could not reach."
+    (doseq [k [:keyed-markup :keyed-markup-compiled]]
+      (let [[log props] (views/recorder {:k #(throw (ex-info "key boom" {}))})
+            thrown      (try (ran k props) ::no-throw
+                             (catch :default e (ex-message e)))]
+        (is (= "key boom" thrown)
+            (str k " — the authored key expression is what threw"))
+        (is (= [] @log)
+            (str k " — and the trusted-markup expression never ran"))))))
+
+(deftest a-throwing-trusted-markup-runs-after-the-key
+  (testing "The other prefix, and the one that fails the other way round: a
+            markup expression that throws throws AFTER the key has been
+            evaluated, so the key's side effect is already recorded when the
+            render fails. Compiled, the markup used to throw first and the key
+            expression never ran."
+    (doseq [k [:keyed-markup :keyed-markup-compiled]]
+      (let [[log props] (views/recorder {:m #(throw (ex-info "markup boom" {}))})
+            thrown      (try (ran k props) ::no-throw
+                             (catch :default e (ex-message e)))]
+        (is (= "markup boom" thrown)
+            (str k " — the authored markup expression is what threw"))
+        (is (= [:key] @log)
+            (str k " — and the key had already been evaluated, once"))))))
+
+(deftest the-order-rows-run-one-react-path-each
+  (testing "The non-vacuity pin for the three rows above. They are a claim
+            about the COMPILED React lowering and its interpreted twin, so a
+            compiled declaration that quietly had no React realisation —
+            `descriptor/react-body` nil, the interpreted body run twice —
+            would satisfy every one of them while proving nothing."
+    (is (some? (descriptor/react-body (views/by-name :keyed-markup-compiled)))
+        "the compiled twin carries a React realisation, and that is what ran")
+    (is (nil? (descriptor/react-body (views/by-name :keyed-markup)))
+        "and the interpreted twin carries none, so its own body ran")))
 
 ;; ---------------------------------------------------------------------------
 ;; The browser lane

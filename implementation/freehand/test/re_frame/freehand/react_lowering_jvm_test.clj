@@ -459,6 +459,53 @@
       (is (= 1 (count (filter #(= '(:m props) %) nodes)))
           "and the :multiple expression exactly once"))))
 
+(deftest an-element-evaluates-its-key-before-its-trusted-markup
+  (testing "rf2-rrosy #6980 audit — trusted markup used to be conjoined onto
+            the write list BEFORE the key, so the emitted body evaluated the
+            element's CHILD expression ahead of a props expression the author
+            wrote first. Nothing about the props OBJECT turned on it — `key`
+            and `dangerouslySetInnerHTML` are different slots — but the
+            observable order did: a throwing key still ran the markup
+            expression, and a throwing markup expression pre-empted the key.
+            Interpreted, the whole authored map is evaluated before the child
+            position is looked at, so the compiled tier owes that order.
+
+            This reads the emitted FORM. The RUN twin of the same claim, over
+            the same declaration and on both React paths, is
+            `re-frame.freehand.trusted-markup-dom-cljs-test`; the structural
+            pair is `re-frame.freehand.trusted-markup-ssr-jvm-test`."
+    (let [[e ast]  (analyzed '[:div {:key (:k props)} (v/html (:markup props))])
+          form     (emit-react/emit-react-body e '[props] ast)
+          nodes    (vec (tree-seq coll? seq form))
+          key-idx  (.indexOf nodes '(:k props))
+          html-idx (.indexOf nodes '(:markup props))]
+      (is (<= 0 key-idx) "the :key expression is present in the emitted body")
+      (is (<= 0 html-idx)
+          "the trusted-markup expression is present — the row is not vacuous")
+      (is (.contains ^String (pr-str form)
+                     "re-frame.freehand.compiled-react/html!")
+          "and it is present as the html! WRITE, not as a positional child")
+      (is (< key-idx html-idx)
+          "the :key expression is evaluated before the trusted-markup one")
+      (is (= 1 (count (filter #(= '(:k props) %) nodes)))
+          "the :key expression is evaluated exactly once")
+      (is (= 1 (count (filter #(= '(:markup props) %) nodes)))
+          "and the trusted-markup expression exactly once"))))
+
+(deftest a-wholly-literal-trusted-markup-element-is-still-hoisted
+  (testing "The repair above reorders two writes and must not cost the
+            build-time settlement beside them: an element whose props and
+            whose markup are all literal is `:static?`, so the emitter builds
+            it ONCE outside the render and shares it. The hoist shows up as a
+            binding symbol in the emitted body rather than an inline
+            `compiled-react/el` call under the render fn."
+    (let [[e ast] (analyzed '[:div.static (v/html "<em>fixed</em>")])
+          form    (pr-str (emit-react/emit-react-body e '[props] ast))]
+      (is (.contains ^String form "rf-fh-const-")
+          "the literal trusted-markup element is bound once, outside the render")
+      (is (.contains ^String form "re-frame.freehand.compiled-react/html!")
+          "and the hoisted build still writes the markup"))))
+
 (deftest a-safe-spread-caller-multiple-shapes-the-owned-nil-value
   (testing "rf2-sf9n5 gap #1 — a v/spread-safe caller may legally carry
             :multiple, and it folds UNDER the owned props. The compiled emitter

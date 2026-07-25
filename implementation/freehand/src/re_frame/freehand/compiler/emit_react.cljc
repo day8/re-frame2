@@ -463,22 +463,37 @@
                                               (safe-spread-write o tag controlled? safe-spread)))
                       (seq top) (conj `(re-frame.freehand.top-layer/install!
                                         ~o ~tag ~top))
+                      ;; The key is the LAST of the props, and it is a props
+                      ;; expression: it is authored inside the map, so the
+                      ;; interpreted walk evaluates it — with the rest of the
+                      ;; map — before it ever looks at the child position. It
+                      ;; therefore writes before the trusted markup below.
+                      ;; Nothing about the OBJECT turns on this: `"key"` and
+                      ;; `"dangerouslySetInnerHTML"` are different slots and
+                      ;; neither write reads the other. What turns on it is
+                      ;; EVALUATION ORDER, which is observable through side
+                      ;; effects and through which of the two throws first —
+                      ;; and with the markup emitted ahead of the key both
+                      ;; diverged from the authored order: a throwing key let
+                      ;; the markup expression run anyway, and a throwing
+                      ;; markup expression pre-empted a key the author wrote
+                      ;; first (rf2-rrosy, #6980 audit).
+                      (:present? key-info)
+                      (conj `(cljs.core/unchecked-set ~o "key" ~(:expr key-info)))
                       ;; Trusted markup writes LAST, and it is a write rather
                       ;; than a build-time literal for one reason: the string is
                       ;; usually an expression, and an expression authored as the
-                      ;; element's CHILD must evaluate after the props map it
-                      ;; follows in the source — the order the interpreted walk
-                      ;; produces. It goes through the shared browser writer, so
-                      ;; the string check and the `<textarea>` / void refusals
-                      ;; are the interpreted walk's, not a second set here. The
-                      ;; analyzer sets `:children []` on an html-kid element, so
-                      ;; no positional child accompanies the markup and React's
-                      ;; children-vs-innerHTML conflict cannot arise.
+                      ;; element's CHILD must evaluate after the whole props map
+                      ;; it follows in the source — the order the interpreted
+                      ;; walk produces. It goes through the shared browser
+                      ;; writer, so the string check and the `<textarea>` / void
+                      ;; refusals are the interpreted walk's, not a second set
+                      ;; here. The analyzer sets `:children []` on an html-kid
+                      ;; element, so no positional child accompanies the markup
+                      ;; and React's children-vs-innerHTML conflict cannot arise.
                       (:html node)
                       (conj `(re-frame.freehand.compiled-react/html!
-                              ~o ~tag ~(:form (:html node))))
-                      (:present? key-info)
-                      (conj `(cljs.core/unchecked-set ~o "key" ~(:expr key-info))))
+                              ~o ~tag ~(:form (:html node)))))
         ;; Bindings, in evaluation order: owned dynamic values (source order),
         ;; then the guarded caller map (after the owned expressions), then the
         ;; one verdict derived from both — then each reconciler handler site,
