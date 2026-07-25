@@ -283,6 +283,66 @@
           "fixture control: `:epoch-id` is actually populated, so the
            equality checks above are not comparing nil to nil"))))
 
+(deftest large-sub-output-value-slot-elides-at-egress
+  (testing "rf2-at60h — a whole-output `:large?` subscription's computed value
+            rides the structured `:sub-runs` row's `:value` / `:prev-value`.
+            The raw on-box row keeps the exact value (Xray diff and
+            `restore-epoch!` need it) but egress MUST substitute the marker;
+            shipping it raw was the pre-fix leak. This is a DISTINCT slot
+            from `:db-after` — and `epoch_cljs_test.cljs` exercises no
+            subscriptions at all, so the CLJS lane had no `:sub-runs` egress
+            coverage of any kind."
+    (fresh-frame!)
+    (rf/reg-event :egress/seed (fn [_ _] {:db {:n 0}}))
+    (rf/reg-sub :egress/big {:large? true} (fn [_ _] (big-string payload-size)))
+    (rf/reg-sub :egress/small (fn [_ _] benign))
+    (rf/reg-event :egress/read-subs
+      (fn [_ _]
+        (rf/subscribe-once [:egress/big]   {:frame frame-id})
+        (rf/subscribe-once [:egress/small] {:frame frame-id})
+        {}))
+    (rf/dispatch-sync [:egress/seed]      {:frame frame-id})
+    (rf/dispatch-sync [:egress/read-subs] {:frame frame-id})
+    (let [raw       (last-record)
+          row-of    (fn [rec id] (->> (:sub-runs rec) (filter #(= id (:sub-id %))) first))
+          raw-row   (row-of raw :egress/big)
+          proj      (epoch/projected-record raw)
+          proj-row  (row-of proj :egress/big)
+          small-row (row-of proj :egress/small)]
+      (is (some? raw-row)  "fixture: the `:large?` sub produced a `:sub-runs` row")
+      (is (= payload-size (count (:value raw-row)))
+          "fixture: the raw row carries the full computed value")
+      (is (some? proj-row) "the projected record keeps the row")
+      (is (elision/marker? (:value proj-row))
+          "the projected `:value` is a `:rf.size/large-elided` marker")
+      (is (not (contains? proj-row :large?))
+          "the now-spent `:large?` row flag is stripped from the projection")
+      (is (= (:sub-id raw-row) (:sub-id proj-row))
+          "the value-free row metadata is preserved for tool display")
+      (is (= benign (:value small-row))
+          "NEGATIVE CONTROL — an UNMARKED sub's value rides through RAW, so
+           the elision above is driven by the registration marker")
+      ;; NOT asserted: `(zero? (count-leaves-at-least payload-size proj))`.
+      ;; Writing that scan is how this suite FOUND rf2-irwsq: the whole-output
+      ;; `:large?` value ALSO rides the `:rf.sub/run` trace tag at
+      ;; `[:trace-events <i> :tags :rf.sub/value]`, and egress elides only the
+      ;; structured `:sub-runs` row — so the raw payload does still egress
+      ;; there today. Pinning the leak as expected would be worse than
+      ;; leaving it visible; the bead carries the repro. Privacy is NOT
+      ;; affected (per-path `:sensitive` sub marks are substituted at the
+      ;; EMIT site, so they are already redacted in both slots) — this is the
+      ;; token-budget axis only.
+      (is (= payload-size (count (get-in (->> (:trace-events proj)
+                                              (filter #(= :rf.sub/run (:operation %)))
+                                              (filter #(= :egress/big
+                                                          (get-in % [:tags :rf.sub/id])))
+                                              first)
+                                         [:tags :rf.sub/value])))
+          "rf2-irwsq CHARACTERISATION (not an endorsement): the trace-tag twin
+           of the elided row value still egresses raw. If this assertion goes
+           RED because the projector learned to elide the tag too, DELETE it —
+           that is the fix landing."))))
+
 (deftest nil-and-non-map-input-projects-to-nil
   (testing "`projected-record` returns nil for non-map input — a forwarder
             mapping over a ring that contains a nil hole must not throw
