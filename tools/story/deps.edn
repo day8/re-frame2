@@ -90,6 +90,24 @@
                        ;; the JVM `clojure -M:test` gate the same classpath.
                        ;; ui depends only on core (already present) — no cycle.
                        day8/re-frame2-ui         {:local/root "../../implementation/ui"}
+                       ;; The presence rung's host bridge
+                       ;; (`re-frame.story.play.presence-host`) requires the
+                       ;; Freehand presence runtime, and the view-tool /
+                       ;; sub-override consumers read Freehand projections.
+                       ;; TEST-ONLY for the same reason the donor entry above
+                       ;; is: `day8/re-frame2-freehand` carries no `:clein`
+                       ;; deploy aliases (publication is F6 territory), so
+                       ;; Story's published jar must not depend on it — which
+                       ;; is precisely why the rung takes the advance through
+                       ;; a late-bind hook instead of a `:require` from
+                       ;; Story's own namespaces. The top-level `:node-test`
+                       ;; build already carries `freehand/src` on its
+                       ;; source-paths, so `npm run test:cljs` resolves the
+                       ;; same reads without this entry; this gives the JVM
+                       ;; `clojure -M:test` gate the same classpath. Freehand
+                       ;; depends only on core (already present) and NEVER on
+                       ;; the donor — no cycle, no donor namespace pulled in.
+                       day8/re-frame2-freehand   {:local/root "../../implementation/freehand"}
                        ;; Two test-only consumers need the live epoch surface
                        ;; on the JVM classpath:
                        ;;   • the invariant-sentinel fixture

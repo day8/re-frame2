@@ -2,24 +2,27 @@
   "S4-H (rf2-qwzmt) — the Story presence rung driven against the REAL
   framework verb and the REAL presence clock.
 
-  `re-frame.ui.test/flush-presence!` advances
-  `re-frame.ui.presence-runtime`'s exit scheduler — the SAME registry a
-  mounted `(ui/presence {:timeout-ms n} …)` boundary arms its retention
-  timers in. Scheduling a real exit and driving it through Story's
-  `[:flush-presence]` step proves the rung reaches the framework verb FOR
-  REAL, no stub, with no DOM required: mounted three-phase behaviour
-  (`:mounting` → `:present` → `:unmounting`) is the framework's own test
-  (`re-frame.ui.presence-dom-cljs-test`) and Story does not re-prove it.
+  The shipped bridge advances `re-frame.freehand.presence-runtime`'s exit
+  scheduler — the SAME registry a mounted `(v/presence {:timeout-ms n} …)`
+  boundary arms its retention timers in. Scheduling a real exit and driving
+  it through Story's `[:flush-presence]` step proves the rung reaches the
+  framework verb FOR REAL, no stub, with no DOM required. The mounted proof
+  that a real RETAINED CHILD leaves the DOM under this rung is the browser
+  companion `presence-freehand-dom-cljs-test`; the framework's own
+  three-phase behaviour (`:mounting` → `:present` → `:unmounting`) is pinned
+  at `re-frame.freehand.presence-dom-cljs-test` and Story does not re-prove
+  it.
 
   Pure `.cljs`, not `.cljc`, for two reasons that point the same way:
 
-  - the verb is PROMISE-backed on CLJS, so these tests are `async`, and
-    cljs.test then requires MAP fixtures — which a `.cljc` may not use
+  - the rung must be exercised against a PROMISE-backed host as well as the
+    shipped synchronous one, so these tests are `async`, and cljs.test then
+    requires MAP fixtures — which a `.cljc` may not use
     (`re-frame.story.meta-fixtures-test`: the map form silently skips every
     deftest on the JVM half);
-  - the presence CLOCK is a CLJS-only surface. The JVM arm of
-    `flush-presence!` is a documented no-op — the structural host has no
-    lifecycle to advance — so there is nothing here for the JVM to run.
+  - the presence CLOCK is a CLJS-only surface. The JVM arm of the bridge is
+    a documented no-op — the structural host has no lifecycle to advance —
+    so there is nothing here for the JVM to run.
 
   The host-agnostic half of the rung (the grammar, the capability +
   determinism classification, the hook, and the red/green playback proof
@@ -30,9 +33,10 @@
   removal driver — the determinism the whole rung exists for.
 
   This namespace establishes EVERYTHING it consumes and is run standalone as
-  well as in the consolidated bundle (rf2-i36h6). In particular it awaits each
-  Promise-backed advance through the run loop's own settle seam rather than
-  assuming a macrotask yield outran React `act`; see `flush-presence-step!`.
+  well as in the consolidated bundle (rf2-i36h6). In particular it takes every
+  advance through the run loop's own settle seam rather than assuming a
+  macrotask yield outran the host's own settlement; see
+  `flush-presence-step!`.
 
   The final block (rf2-iz0t8) covers the PROMISE-BACKED-ness itself rather
   than the clock: resolved and rejected thenable controls driven through the
@@ -50,7 +54,7 @@
             ;; does; `install!` re-arms it after the shared fixture's teardown.
             [re-frame.story.play.presence-host :as presence-host]
             [re-frame.story.play.runner-events :as re]
-            [re-frame.ui.presence-runtime      :as presence-rt]
+            [re-frame.freehand.presence-runtime :as presence-rt]
             ;; The shared harness (fresh registrar + runtime + variant frame,
             ;; and the same private step executor) — one harness across both
             ;; halves of the rung's coverage.
@@ -94,21 +98,23 @@
 
 (defn- flush-presence-step!
   "Drive ONE `[:flush-presence …]` step to completion and hand `k` its SETTLED
-  step-result. These are the two moves `runner-events/run-loop!` makes for a
-  Promise-backed presence host, in this order:
+  step-result. These are the two moves `runner-events/run-loop!` makes, in
+  this order:
 
-    1. AWAIT the advance's thenable (`settle-step-result!`). On CLJS the
-       framework verb runs its advance inside React `act` and its Promise
-       settles on act's OWN task — so 'the advance is over' is a fact ONLY
-       that thenable can report.
-    2. THEN yield one macrotask, so the React commits the advance queued have
+    1. SETTLE the advance (`settle-step-result!`). For the shipped Freehand
+       bridge that is SYNCHRONOUS — the advance runs inside the substrate's
+       `flushSync` commit — so the callback fires before the call returns.
+       For a Promise-backed host it AWAITS the thenable, because 'the advance
+       is over' is then a fact ONLY that thenable can report.
+    2. THEN yield one macrotask, so any commits the advance queued have
        landed before the next step reads them.
 
   A test driving `exec-step!` DIRECTLY owes BOTH. This namespace used to owe
-  only the yield, on the premise that a `setTimeout` 0 lands after the act has
-  settled. It does not: a macrotask is not ordered against act's own task, and
-  whenever the yield lost that race the NEXT step threw
-  `:rf.error/ui-test-overlapping-act` and advanced NOTHING.
+  only the yield, on the premise that a `setTimeout` 0 lands after a
+  Promise-backed host has settled. It does not: a macrotask is not ordered
+  against a host's own microtask chain, and whenever the yield lost that race
+  the NEXT step re-entered a host operation still in flight and advanced
+  NOTHING.
 
   That made this namespace's pass ORDER-DEPENDENT (rf2-i36h6): green under
   `npm run test:cljs`, where a namespace ahead of it had already exercised the
@@ -128,7 +134,7 @@
   never-fired exit leaves `:toast` nil exactly like a not-yet-due one). The
   STEP-RESULT is what tells those worlds apart, so every advance is checked
   through it: a reached, settled advance carries no `:exception` and no
-  `:cannot-run?`. Without this the overlapping-act failure above would have
+  `:cannot-run?`. Without this the in-flight-host failure above would have
   surfaced only as a downstream retention assertion two ticks later, which is
   precisely why it read as somebody else's bug."
   [result]
@@ -216,14 +222,15 @@
 ;; Promise-backed host settlement (rf2-iz0t8)
 ;; ===========================================================================
 ;;
-;; The canonical CLJS host returns `re-frame.ui.test/flush-presence!`'s
-;; Promise. `presence/advance!` used to call it inside a synchronous `try` and
-;; immediately return `{:status :advanced}` — so the executor recorded a clean
-;; step, the run loop merely yielded a `setTimeout` 0, and a LATER rejection
-;; (a React `act` failure, `:rf.error/flush-convergence-exceeded`) landed
-;; outside the `try`, became an unhandled rejection, and could no longer
-;; change the already-recorded result. A presence-bearing play reported
-;; `:pass` over a flush that had actually failed.
+;; The shipped Freehand bridge is SYNCHRONOUS, but the hook's contract is not
+;; — a host MAY return a Promise, and the donor's did. `presence/advance!`
+;; used to call the verb inside a synchronous `try` and immediately return
+;; `{:status :advanced}` — so the executor recorded a clean step, the run loop
+;; merely yielded a `setTimeout` 0, and a LATER rejection landed outside the
+;; `try`, became an unhandled rejection, and could no longer change the
+;; already-recorded result. A presence-bearing play reported `:pass` over a
+;; flush that had actually failed. These controls are now the ONLY coverage of
+;; that arm — no shipped host exercises it — which is exactly why they stay.
 ;;
 ;; The two hosts below differ in exactly ONE thing — whether their Promise
 ;; resolves or rejects — so neither verdict can be an artefact of anything
