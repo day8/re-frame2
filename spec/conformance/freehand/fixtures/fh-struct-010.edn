@@ -21,31 +21,36 @@
 ;; declaration's position, never omit the field and never invent a line.
 ;;
 ;; `:roster-coverage` is what stops that shape row being VACUOUS. A key contract
-;; asserted over zero entries passes loudest of all, and two of the five
-;; rosters are still empty across the census, so the shape row would read green
-;; over nothing for them. Each roster therefore declares how many entries the proof actually
+;; asserted over zero entries passes loudest of all, and one of the five
+;; rosters is still empty across the census, so the shape row would read green
+;; over nothing for it. Each roster therefore declares how many entries the proof actually
 ;; inspects — a positive integer, never a lower bound — and the SURFACE it
 ;; inspects them through:
 ;;
 ;;   :public   — reachable through the public door: a `v/defview` census
 ;;               declaration, read back with `v/manifest`.
 ;;   :analyzer — NOT proven through the public census today, and named as a gap
-;;               rather than quietly omitted. Two rosters sit here, for two
-;;               different reasons. `html` has no published var behind it at
-;;               all, so no census declaration CAN carry one; it arrives with
-;;               the slice that publishes the form. `slot` IS published —
-;;               `v/slot` sits on the door and carries a `spec/api-manifest.edn`
-;;               row — and its roster is empty for the more ordinary reason that
-;;               no declaration in the `re-frame.freehand.manifest-views` census
-;;               uses a slot. Either way the roster is empty across the public
-;;               census, so the shape row would read green over nothing; each is
-;;               proven one tier down, over the same analyzer the door calls.
-;;               `:subscriptions` used to sit here too — not because `v/sub` was
-;;               unpublished (it always was) but because the compiled lowering
-;;               resolved it against a runtime namespace that did not exist, so
-;;               no census declaration carrying one could LOAD. That runtime
-;;               landed and the row moved to `:public` — which is exactly the
-;;               deliberate move the split below exists to force.
+;;               rather than quietly omitted. ONE roster sits here now:
+;;               `slot`. `v/slot` IS published — it sits on the door and
+;;               carries a `spec/api-manifest.edn` row — and its roster is
+;;               empty for the ordinary reason that no declaration in the
+;;               `re-frame.freehand.manifest-views` census uses a slot. The
+;;               roster being empty across the public census is what would make
+;;               the shape row read green over nothing, so it is proven one tier
+;;               down, over the same analyzer the door calls.
+;;
+;;               TWO rosters have left this tier, and both departures are the
+;;               split doing its job. `:subscriptions` sat here not because
+;;               `v/sub` was unpublished (it always was) but because the
+;;               compiled lowering resolved it against a runtime namespace that
+;;               did not exist, so no census declaration carrying one could
+;;               LOAD; that runtime landed and the row moved. `:html-sites` sat
+;;               here because `v/html` had no published var behind it at all,
+;;               so no census declaration COULD carry one — rf2-rrosy published
+;;               the verb and lowered it on all four rendering paths, the
+;;               census gained the `trusted-markup` declaration, and the row
+;;               moved. Neither move happened quietly: the assertion below
+;;               reddened until the fixture said so.
 ;;
 ;; The split is ASSERTED, not assumed: an `:analyzer` roster must be empty across
 ;; the public census, so the day one becomes populated — a published form, or a
@@ -74,7 +79,7 @@
  {:subscriptions {:surface :public   :entries 1}
   :events        {:surface :public   :entries 3}
   :slots         {:surface :analyzer :entries 1}
-  :html-sites    {:surface :analyzer :entries 1}
+  :html-sites    {:surface :public   :entries 1}
   :crossings     {:surface :public   :entries 1}}
  :required-keys
  {:subscriptions #{:sid :query :source-coord :path}
@@ -99,6 +104,13 @@
   {:events 0 :subscriptions 0 :slots 0 :crossings 1
    :capabilities #{} :view-cell :elided :reactive? false
    :crossing {:view-id :re-frame.freehand.manifest-views/label :lowering :compiled}}
+  ;; The trusted-markup bypass. It NAMES a capability and it is not a reactive
+  ;; read, so the declaration claims `:html`, populates the `:html-sites`
+  ;; roster, and still proves its ViewCell elidable — capability and
+  ;; reactivity are different facts, and this is the row that says so.
+  :trusted-markup
+  {:events 0 :subscriptions 0 :slots 0 :crossings 0
+   :capabilities #{:html} :view-cell :elided :reactive? false}
   :basket-total
   {:events 0 :subscriptions 1 :slots 0 :crossings 0
    :capabilities #{:sub} :view-cell :present :reactive? true}

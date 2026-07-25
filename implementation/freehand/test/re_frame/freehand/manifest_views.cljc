@@ -5,10 +5,10 @@
   Every declaration below carries an obvious, hand-countable set of
   lexical sites, so the manifest each one reports and the ViewCell-elision
   verdict each one earns are facts a reader can check against the source
-  without running anything. Four declarations carry no reactive site and
+  without running anything. Five declarations carry no reactive site and
   OMIT the reactive ViewCell shell; three carry one — two an event site,
   one a subscription — and RETAIN it. The exact omitted count is therefore
-  four — an integer, not a threshold — and that is what `FH-DIAG-002`
+  five — an integer, not a threshold — and that is what `FH-DIAG-002`
   asserts, while `FH-STRUCT-010` asserts each declaration's finite
   manifest rosters against these bodies.
 
@@ -20,11 +20,17 @@
   wrong cause: the door published `v/sub` all along; what was missing was
   the runtime namespace the compiled lowering resolves it against.)
 
-  The two rosters this census does not populate are `:slots` and
-  `:html-sites`, and for two different reasons. `html` is not a published
-  var, so no declaration here CAN carry one. `v/slot` IS published — no
-  declaration here happens to use a slot, which is the ordinary reason a
-  roster is empty. Both are covered one tier down in
+  `:html-sites` IS part of the census too, since rf2-rrosy published
+  `v/html` and landed its lowering on all four rendering paths — so
+  `trusted-markup` below carries a real trusted-markup site and the roster
+  is proven through `v/manifest` like `:events` and `:crossings`. It sat one
+  tier down while the verb was recognised-but-unpublished, and the fixture
+  row moved when a declaration here could finally carry one, which is
+  exactly the deliberate move that split exists to force.
+
+  The ONE roster this census still does not populate is `:slots`, and for
+  the ordinary reason: `v/slot` is published, and no declaration here
+  happens to use a slot. It is covered one tier down in
   `re-frame.freehand.manifest-roster-coverage-cljs-test`, which injects a
   resolver and asserts the gap rather than leaving it implied;
   `viewcell-elision-oracle-jvm-test` reads the elision verdict off the same
@@ -65,6 +71,17 @@
   [{:keys [text]}]
   [:div.host [label {:text text}]])
 
+(v/defview trusted-markup
+  "One trusted-markup site. `(v/html s)` is the escaping bypass, and it is a
+  CAPABILITY the manifest names without being a reactive read — so the
+  declaration claims `:html`, lands a lexical site on the `:html-sites`
+  roster with its source coordinate, and still proves its ViewCell
+  elidable. Capability and reactivity are different facts, and the
+  trusted-markup site is the clearest place to say so."
+  {:compiled true}
+  [{:keys [markup]}]
+  [:article.body (v/html markup)])
+
 ;; ---------------------------------------------------------------------------
 ;; Present — a reactive site, so the ViewCell shell is retained. A committed
 ;; event handler reads the committed frame; a subscription reads state.
@@ -100,10 +117,11 @@
   "Census view-name keyword -> the declared view. The fixtures name views
   by these short keywords; this is where the name becomes the value, so a
   fixture cannot assert a fact about a view it did not actually load."
-  {:label        label
-   :card         card
-   :list-view    list-view
-   :mounts-label mounts-label
-   :basket-total basket-total
-   :button       button
-   :two-buttons  two-buttons})
+  {:label           label
+   :card            card
+   :list-view       list-view
+   :mounts-label    mounts-label
+   :trusted-markup  trusted-markup
+   :basket-total    basket-total
+   :button          button
+   :two-buttons     two-buttons})

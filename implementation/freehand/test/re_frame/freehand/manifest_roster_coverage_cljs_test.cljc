@@ -16,23 +16,24 @@
 
   ## Two surfaces, and the gap named rather than hidden
 
-  `:subscriptions`, `:events` and `:crossings` are read back through
-  `v/manifest`, the highest public surface there is. The other two cannot be
-  proven there, for two different reasons. `html` has no published var behind
-  it at all, so no declaration CAN carry one. `slot` IS published — `v/slot`
-  sits on the door and carries an api-manifest row — and its roster is empty
-  for the more ordinary reason that no census declaration uses a slot. Either
-  way the roster is empty across the census, so both are proven one tier down,
-  over the same analyzer `v/defview` calls — and the gap is asserted, not
-  assumed: an `:analyzer` roster must be EMPTY across the public census, so the
-  day one becomes populated its fixture row has to move deliberately.
+  `:subscriptions`, `:events`, `:html-sites` and `:crossings` are read back
+  through `v/manifest`, the highest public surface there is. `:slots` cannot be
+  proven there, for the ordinary reason: `v/slot` IS published — it sits on the
+  door and carries an api-manifest row — and its roster is empty because no
+  census declaration happens to use a slot. So it is proven one tier down, over
+  the same analyzer a `v/defview` body goes through — and the gap is asserted,
+  not assumed: an `:analyzer` roster must be EMPTY across the public census, so
+  the day one becomes populated its fixture row has to move deliberately.
 
-  `:subscriptions` is the row that moved. It sat on the analyzer tier not
-  because `v/sub` was unpublished — it always was — but because the compiled
+  TWO rows have moved that way, and both moves were forced by this suite going
+  red rather than noticed by a reader. `:subscriptions` sat on the analyzer tier
+  not because `v/sub` was unpublished — it always was — but because the compiled
   lowering resolved it against a runtime namespace that did not exist, so no
-  census declaration carrying a subscription could LOAD. The runtime landed,
-  the census gained a sub-bearing declaration, and this suite reddened until
-  the fixture row was moved: the tripwire doing exactly its job.
+  census declaration carrying a subscription could LOAD; the runtime landed and
+  the census gained a sub-bearing declaration. `:html-sites` sat there because
+  `v/html` had no published var behind it at all, so no declaration COULD carry
+  one; rf2-rrosy published the verb and lowered it on all four rendering paths,
+  and the census gained `trusted-markup`.
 
   ## Which host proves which half
 
@@ -70,17 +71,14 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private resolver
-  "The injected resolution stub — the probe bodies below are analysed against
-  it rather than against production resolution, which is what makes them
-  host-neutral. `slot` resolves to the var the door really publishes; `html`
-  resolves to the var the door WILL publish, since the form is analyzer-known
-  and unpublished. `sub` is deliberately absent: it is public, its compiled
-  lowering runs, and its roster is proven through `v/manifest` over the census
-  like `:events` is."
+  "The injected resolution stub — the probe body below is analysed against it
+  rather than against production resolution, which is what makes it
+  host-neutral. `slot` resolves to the var the door really publishes. `sub` and
+  `html` are deliberately absent: both are public, both lower, and both rosters
+  are proven through `v/manifest` over the census like `:events` is."
   (fn [sym]
     (case sym
       slot {:fqn 're-frame.freehand/slot :meta {}}
-      html {:fqn 're-frame.freehand/html :meta {}}
       nil)))
 
 (def ^:private probe-source
@@ -103,8 +101,7 @@
   "roster -> the site-index key the projection reads it from, and one body
   carrying EXACTLY the number of sites the fixture declares. Hand-countable, so
   a count that moves is an edit someone made rather than a number that drifted."
-  {:slots      {:site-key :slots :template '[:ul (slot row-renderer item)]}
-   :html-sites {:site-key :htmls :template '[:div (html "<b>probe</b>")]}})
+  {:slots {:site-key :slots :template '[:ul (slot row-renderer item)]}})
 
 (defn- probe-env []
   (-> (env/make-env {:host      #?(:clj :clj :cljs :cljs)
@@ -142,9 +139,8 @@
           (str roster " — the surface is one of the two this suite can read")))))
 
 (deftest the-public-door-gap-is-asserted-rather-than-assumed
-  (testing "Two rosters are proven one tier below `v/manifest` — one because
-            its authoring form is not public yet, one because no census
-            declaration uses the published form. That is a GAP,
+  (testing "A roster proven one tier below `v/manifest`, because no census
+            declaration uses the published form it records. That is a GAP,
             and a gap stated in a comment is a gap that outlives its cause — so
             it is stated executably: a roster the fixture marks `:analyzer` must
             be empty across the whole public census, and the day one becomes

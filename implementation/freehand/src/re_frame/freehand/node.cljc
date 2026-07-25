@@ -1026,8 +1026,11 @@
                   classified from this element's literal props
     `:html`       the TRUSTED-MARKUP string this element's content is, in
                   place of children — the `(v/html s)` bypass, whose node
-                  is built here so the string check and the element rules
-                  it is subject to are the same in both modes
+                  is built here so the element rules it is subject to are
+                  the same in both modes. A caller must not pass the slot
+                  at all unless it has markup: presence is what the emitted
+                  `html-string!` call proves, and a nil here reads as an
+                  element that simply has no content
     `:children`   a thunk building the children, evaluated under this
                   element's namespace context
 
