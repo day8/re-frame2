@@ -463,17 +463,40 @@
 (defn- upper-first [s]
   (if (seq s) (str (str/upper-case (subs s 0 1)) (subs s 1)) s))
 
-(defn react-style-name
-  "A CSS kebab property name as React spells it in a style object. Custom
-  properties pass verbatim (React routes them through `setProperty`);
-  vendor prefixes follow React's own casing."
-  [css-name]
+(defn- react-style-name* [css-name]
   (cond
     (custom-property? css-name)             css-name
     (str/starts-with? css-name "-webkit-")  (upper-first (camelize (subs css-name 1)))
     (str/starts-with? css-name "-moz-")     (upper-first (camelize (subs css-name 1)))
     (str/starts-with? css-name "-ms-")      (camelize (subs css-name 1))
     :else                                   (camelize css-name)))
+
+(def ^:private style-name-cache (atom {}))
+
+(defn react-style-name
+  "A CSS kebab property name as React spells it in a style object. Custom
+  properties pass verbatim (React routes them through `setProperty`);
+  vendor prefixes follow React's own casing.
+
+  Remembered per CSS name — see §Remembered projections above, whose
+  argument this is the fourth instance of and was the last to take it. The
+  projection is a `str/replace` over a regex with a function replacement,
+  and `style-into!` asks it once per style ENTRY per element per render: a
+  keyed run of 300 rows carrying `{:padding-left 4 :color \"…\"}` re-derived
+  600 answers it already had, every render. A CPU profile of the
+  interpreted walk in a production browser put `clojure.string/replace` at
+  the top of its named frames — 5.1% of all samples, the largest single
+  named cost in the walk — and that was this function.
+
+  Keyed on the STRING rather than on the authored keyword, which is the one
+  place this differs from [[parse-tag]] and deliberately so. `parse-tag`
+  must key on the keyword because `:svg/text` and `:text` share a `name`
+  and parse DIFFERENTLY, so a name-keyed cache would alias them. Here the
+  caller has already projected the key through `name` and the rule is a
+  total function of that string, so two keywords sharing a name have the
+  same answer and sharing one entry is correct rather than a collision."
+  [css-name]
+  (remembered style-name-cache css-name react-style-name*))
 
 (defn- react-prop-name* [k] (rules/react-prop-name (name k)))
 
