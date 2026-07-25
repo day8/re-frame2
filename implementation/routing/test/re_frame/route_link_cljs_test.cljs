@@ -138,8 +138,8 @@
         (is (= "/cart" (:url payload)))
         (is (= :route/cart (:to payload)))))))
 
-(deftest plain-left-click-passes-params-and-query
-  (testing "the dispatched payload carries :params and :query when present"
+(deftest plain-left-click-passes-params-query-and-fragment
+  (testing "the dispatched payload carries :params, :query and :fragment when present"
     (rf/reg-route :route/article {:params [:map [:id :string]]
                                   :query  [:map [:tab [:enum :summary :details]]]} "/articles/:id")
     ;; :tab is declared as a BOUNDED [:enum …] keyword slot in the route's
@@ -147,15 +147,21 @@
     ;; rf2-qot6ii); pass a conformant value through the link click so
     ;; rf2-ug2m1's route-url validation doesn't reject the caller's payload.
     (let [{:keys [dispatched]}
-          (click! {:to     :route/article
-                   :params {:id "intro"}
-                   :query  {:tab :summary}}
+          (click! {:to       :route/article
+                   :params   {:id "intro"}
+                   :query    {:tab :summary}
+                   :fragment "notes"}
                   (mk-event {}))
           payload (second dispatched)]
       (is (= {:id "intro"} (:params payload))
           ":params lands in the dispatched payload")
       (is (= {:tab :summary} (:query payload))
-          ":query lands in the dispatched payload"))))
+          ":query lands in the dispatched payload")
+      ;; rf2-e9974: the click payload now comes from the SHARED
+      ;; `url-requested-payload` rather than an inlined `cond->`, and
+      ;; `:fragment` was the one slot no assertion covered on either surface.
+      (is (= "notes" (:fragment payload))
+          ":fragment lands in the dispatched payload"))))
 
 ;; ---- modifier-key clicks defer to browser ------------------------------
 
