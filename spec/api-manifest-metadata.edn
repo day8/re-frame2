@@ -1892,6 +1892,76 @@
   ["re-frame.routing" "route-slice-algebra-view"] {:tier :tooling :owner "012" :status "v1"}
 
   ;; =========================================================================
+  ;; re-frame.resources — optional artefact (day8/re-frame2-resources), §016.
+  ;;
+  ;; rf2-ivuun. These rows are NEW because the namespace was absent from the
+  ;; generator's `jvm-namespaces` roster — eight of the nine feature artefacts
+  ;; were listed and resources was not, so the manifest carried ZERO resources
+  ;; rows and `doc_api_check` gave `docs/api/re-frame.resources.md` no coverage
+  ;; at all. The vars themselves are not new and nothing about them was ever
+  ;; unintrospectable: `day8/re-frame2-resources` was already on the
+  ;; generator's classpath. Note the `route-ids` / `route-meta` comment in the
+  ;; routing block ABOVE, which cites `resource-ids`/`resource-meta` as the
+  ;; sibling enumerate pair — written against rows that did not exist. That is
+  ;; the trap this omission set: the manifest reads as an existence authority.
+  ;;
+  ;; TIERING RULE APPLIED HERE, stated so the next reader is not guessing.
+  ;;   (a) Where a `re-frame.core` facade row already exists, the home-ns row
+  ;;       carries the SAME classification. Precedent: `epoch-history` /
+  ;;       `projected-record` / `restore-epoch!` are `:tooling` on BOTH
+  ;;       `re-frame.core` and `re-frame.epoch`. One capability, one tier — the
+  ;;       manifest must not classify the same var `:advanced` through the
+  ;;       facade door and something else through its home door. All fifteen
+  ;;       are `:advanced :owner "016" :status "v1 (optional capability)"` on
+  ;;       the facade, so they are that here.
+  ;;   (b) The registry-enumerate accessors with NO facade export are
+  ;;       `:tooling`, per the explicit `route-ids` / `route-meta` precedent
+  ;;       (and the sibling `machines` / `machine-meta`, `flows-snapshot` /
+  ;;       `flow-meta-at`).
+  ;;   (c) The two algebra views are `:tooling` with no facade export —
+  ;;       `#?(:clj ...)`-gated JVM aliases of the bundle-isolated
+  ;;       `re-frame.resources.tooling` sibling, so a CLJS app that loads
+  ;;       resources but attaches no tool DCEs the bodies. Exact mirror of
+  ;;       `flow-algebra-view` / `route-algebra-view` / `machine-algebra-view`
+  ;;       (EP-0014 issue-1 disposition).
+  ;; =========================================================================
+  ;; (a) Facade-mirrored — resources.
+  ["re-frame.resources" "reg-resource"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "clear-resource"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "resource-meta"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "resources"]            {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "resource-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ;; (a) Facade-mirrored — mutations (Spec 016 §Mutations).
+  ["re-frame.resources" "reg-mutation"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "clear-mutation"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "mutation-meta"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "mutations"]            {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "mutation-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ;; (a) Facade-mirrored — named resource-scope resolvers (Spec 016 §Named
+  ;; resource-scope resolvers). `resolve-resource-scope` is PURE over the
+  ;; resolver registry (the logout coeffect-db idiom): not an effect and with
+  ;; no observability side effect, so it emits no
+  ;; `:rf.resource/scope-resolved` trace.
+  ["re-frame.resources" "reg-resource-scope"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "clear-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ;; (a) Facade-mirrored — focus / reconnect revalidation host listeners (Spec
+  ;; 016 §Stale and GC scheduling). CLJS-only host listeners; the JVM arm is a
+  ;; no-op, so the var exists on both hosts and `ns-publics` sees it here.
+  ["re-frame.resources" "install-revalidation-listeners!"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "remove-revalidation-listeners!"]  {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ;; (b) Registry-enumerate accessors, owned-ns surface only.
+  ["re-frame.resources" "resource-ids"]         {:tier :tooling :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "mutation-ids"]         {:tier :tooling :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "scope-resolver-ids"]   {:tier :tooling :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "scope-resolver-meta"]  {:tier :tooling :owner "016" :status "v1 (optional capability)"}
+  ;; (c) Algebra views — a resource is the canonical PROCESS member of the
+  ;; algebra (Derivations §Process). Static registry view + live per-frame
+  ;; cache-entry view.
+  ["re-frame.resources" "resource-algebra-view"]       {:tier :tooling :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.resources" "resource-cache-algebra-view"] {:tier :tooling :owner "016" :status "v1 (optional capability)"}
+
+  ;; =========================================================================
   ;; re-frame.flows — optional artefact (day8/re-frame2-flows), §013.
   ;; =========================================================================
   ["re-frame.flows" "reg-flow"]              {:tier :implementation :owner "013" :status "v1"}

@@ -309,24 +309,34 @@ A resource (or payload, or route) references a named resolver as `{:from-db <sco
 
 Active-stale revalidation is expressed as **resource events** (see [`[:rf.resource/window-focused]` / `[:rf.resource/network-reconnected]`](#rfresourcewindow-focused--rfresourcenetwork-reconnected)) — never subscription-driven fetching. On window focus, tab-return, or network reconnect, the runtime rescans the frame's active-owner **stale** entries and refetches them by policy. A stale entry with no active owner is left alone: revalidation creates no liveness. The host-listener install/remove fns below wire and tear down the `window` listeners that dispatch those events.
 
-### `install-revalidation-listeners!` / `remove-revalidation-listeners!`
+### `install-revalidation-listeners!`
 
 - **Kind**: function (post-v1 lib)
 - **Signature**:
   ```clojure
   (install-revalidation-listeners! frame-id)   ;; → nil
-  (remove-revalidation-listeners!  frame-id)   ;; → nil
   ```
-- **Description**: `install-revalidation-listeners!` wires three host listeners for `frame-id`, each dispatched at `frame-id`:
+- **Description**: Wires three host listeners for `frame-id`, each dispatched at `frame-id`:
   - `focus` (on `window`) and `visibilitychange`-to-visible (on `document`, its only valid event target) → `[:rf.resource/window-focused]`.
   - `online` (on `window`) → `[:rf.resource/network-reconnected]`.
 
-  Installation is idempotent: re-installing replaces, never stacks, so it is hot-reload safe. It is CLJS-only; the JVM/SSR arm is a no-op. Listeners are recorded in a host side table and cancelled on frame destroy via the single `:resources/on-frame-destroyed!` hook. `remove-revalidation-listeners!` tears them down — useful for test isolation, and for single-page hosts that rotate which frame owns revalidation. It is a no-op when none is installed.
+  Installation is idempotent: re-installing replaces, never stacks, so it is hot-reload safe. It is CLJS-only; the JVM/SSR arm is a no-op. Listeners are recorded in a host side table and cancelled on frame destroy via the single `:resources/on-frame-destroyed!` hook.
 
 ```clojure
 ;; at boot, after the frame is live: wire focus / visibility / online revalidation
 (rf/install-revalidation-listeners! :rf/default)
+```
 
+### `remove-revalidation-listeners!`
+
+- **Kind**: function (post-v1 lib)
+- **Signature**:
+  ```clojure
+  (remove-revalidation-listeners! frame-id)   ;; → nil
+  ```
+- **Description**: Tears down the listeners [`install-revalidation-listeners!`](#install-revalidation-listeners) wired for `frame-id` — useful for test isolation, and for single-page hosts that rotate which frame owns revalidation. A no-op when none is installed. Frame destroy already tears them down via the `:resources/on-frame-destroyed!` hook, so this is for the cases where the frame outlives its revalidation ownership.
+
+```clojure
 ;; tear them down (test isolation, or when another frame takes over revalidation)
 (rf/remove-revalidation-listeners! :rf/default)
 ```
