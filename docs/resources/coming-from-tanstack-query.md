@@ -189,7 +189,7 @@ The mapping above is the vocabulary; this is the exhaustive reference card, each
 | **Optimistic updates + rollback** | `onMutate` snapshot + `onError` rollback | `updateQueryData` + `undo` patch | `optimisticData` + `rollbackOnError` | `:optimistic` (exact-target) / `:optimistic-tags` (tag-addressed) plan applied pre-request; runtime records the inverse; deterministic commit / rollback / reconcile on settle, with `:on-conflict` governing a contested rollback | **Landed** |
 | **Polling / refetch interval** | `refetchInterval` | `pollingInterval` | `refreshInterval` | `:poll-interval-ms` — revalidates every N ms while the entry is *actively owned* and the tab is visible | **Landed** |
 | **Refetch on window focus / reconnect** | `refetchOnWindowFocus` / `refetchOnReconnect` | `refetchOnFocus` / `refetchOnReconnect` | `revalidateOnFocus` / `revalidateOnReconnect` | `install-revalidation-listeners!` per frame; refetches only entries that are *stale AND owned* | **Landed** |
-| **Prefetch / route-plan preload** | `queryClient.prefetchQuery` / `<Link prefetch>` (Router) | `prefetch` endpoint action | `preload` | per-resource warm `ensure` works today (ownerless, cause-only); a **route-plan-level** prefetch verb (`[:rf.route/prefetch target]` in WARM mode) is deferred to post-v1 — the resources side is already warm-capable | **Deferred (later slice)** |
+| **Prefetch / route-plan preload** | `queryClient.prefetchQuery` / `<Link prefetch>` (Router) | `prefetch` endpoint action | `preload` | a single resource warms with an ownerless `ensure`; `[:rf.route/prefetch {:to :route/article :params {…}}]` warms a whole destination, running its **effective** parent-to-leaf plan in warm mode — every ensure ownerless under cause `[:route-prefetch <route-id>]`, `:blocking?` inert, no route state, guards, or `:on-match`. Frame-scoped, under ordinary freshness / dedupe / GC, so a later activation joins the warmed work and attaches the real owner. `[route-link {… :prefetch :intent}]` dispatches it on hover, focus, or touch | **Landed** |
 | **Infinite / load-more** | `useInfiniteQuery` | `infiniteQuery` (recent) | `useSWRInfinite` | `:infinite true` + `:next-page-param` — one scoped feed entry accumulates an ordered page vector; a causal `:rf.resource/load-more` extends it; `:rf.resource/items` is the merged read | **Landed** |
 | **Keep-previous-data while paging** | `placeholderData: keepPreviousData` | n/a (manual) | `keepPreviousData` | `:keep-previous?` on the route/resource; `:rf/resource` projects `:previous-data` / `:previous-key` | **Landed** |
 | **SSR / hydration** | `dehydrate` / `HydrationBoundary` | `getRunningQueries` + preload | fallback data | per-request frames; blocking route resources are the render wait point; allowlist projection serialized + hydrated under freshness rules | **Landed** |
@@ -198,6 +198,16 @@ The mapping above is the vocabulary; this is the exhaustive reference card, each
 | **Offline persistence / cross-tab** | persister plugins | n/a | external | not built; held for a later slice | **Deferred (later slice)** |
 
 Every "Landed" claim is pinned by tests in the reference implementation.
+
+**Prefetch lands narrower than `<Link prefetch>`, on purpose.** `:intent` is the
+only mode: there is no global default, no render or viewport preloading, no
+hover-delay knob, no separate preload cache, and no prefetch-stale clock. A mode
+matrix exists in the router libraries because a preload there has its own lifetime
+to manage; a warmed entry here *is* an ordinary resource entry, so `:stale-after-ms`
+and `:gc-after-ms` already answer whether the work is still worth having — and an
+unclaimed warm is ownerless, so it collects itself. [Warming a destination before
+the click](../routing/concepts.md#warming-a-destination-before-the-click) is the
+routing-side teaching.
 
 **The honest gaps — out of scope on purpose.** The bottom two rows are the deliberate non-goals of this HTTP-only phase: **normalized / GraphQL caches** (Apollo / Relay / normalizr) are a separate later artefact gated on a GraphQL phase, not a resources gap; and **offline persistence / cross-tab broadcast** is a deferred later slice. Don't let the rest of this page's confidence obscure them.
 
