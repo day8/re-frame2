@@ -562,7 +562,7 @@ The return trip is an ordinary fresh navigation: the guard runs again and — no
 
 ??? info "Coming from Axios?"
 
-    Your redirect-on-401 *response* interceptor is gone entirely, not relocated. The gate now sits on the route declaration, one layer above any request: it stops the navigation *before* a request exists, because it already knows there is no user.
+    Your redirect-on-401 *response* interceptor was doing two jobs, and only one of them moves here. The **gating** job — bounce a visitor who trips a 401 on a page they should never have opened — is gone entirely, not relocated: the gate now sits on the route declaration, one layer above any request, and stops the navigation *before* a request exists because it already knows there is no user. The **session-expiry** job stays exactly where it was, on the response side. `:can-enter` can only be as fresh as the auth state it reads, so it cannot notice a token that dies *after* entry was allowed; the next authenticated request is where that arrives. [Sign out](#sign-out) carries the `:after` hook.
 
 Watch it fire. Signed out, click *Settings*. In Xray the navigation row is followed by the `:rf.route/entry-denied` dispatch and then your redirect to the login route — and no `[:settings/load]` row anywhere, because the route never committed. Sign in, and the ledger shows the bounce back to `/settings`: the stash paying off.
 
@@ -615,6 +615,25 @@ Teardown is just setup reversed, in one event. Wire `(dispatch [:auth/logout])` 
 ```
 
 Nothing else to unhook, which is the nice part. The bearer interceptor reads app-db per request, so the header stops the instant the token is `nil`. The guard starts intercepting again for the same reason. State went away, and behaviour followed. That's the whole dividend of keeping the session *in* app-db rather than in scattered closures: there's exactly one place to clear, and everything that read it goes quiet on its own.
+
+### The second trigger: the server signs you out
+
+The navbar is not the only thing that ends a session. A JWT that was valid at boot expires while the reader sits on `/settings`, and the route guard cannot notice — it reads cached auth state, and that state still says *signed in*. Entry was already allowed; the next authenticated request is where the truth turns up. So catch it on the response side of the interceptor chain you registered for `bearer-auth` — same chain, other leg:
+
+```clojure
+(rf/with-frame :rf/default
+  (rf/reg-http-interceptor :conduit/expired-session
+    {:after (fn [ctx response]
+              (when (and (= :error (:status response))
+                         (= :rf.http/http-4xx (get-in response [:error :kind]))
+                         (= 401 (get-in response [:error :status])))
+                (rf/dispatch [:auth/logout] {:frame (:frame ctx)}))
+              response)}))                     ;; :after MUST return the response
+```
+
+Two details earn their keep. Mind the **two `:status` levels**: the reply envelope's `:status` is `:error`, and the HTTP code lives *inside* the failure map at `[:error :status]`, under a framework-owned `:kind` — branch on those, never on a stringified message. And carry the frame from `ctx`: the reply arrives in a transport callback, where a bare `rf/dispatch` can hit `:rf.error/no-frame-context`.
+
+There is nothing new to clear, and that is the point. `:auth/logout` already drops `:auth`, wipes the persisted JWT, and moves the reader off the page they can no longer see — so logout gained a second trigger, not a second code path. (Send them to `:conduit.auth/login` instead of `:conduit/home` if you'd rather; it's the one keyword.) Note the *shape* of this response: the expired token is discarded, not refreshed. Trading it for a fresh one and replaying the original request is semantic retry — a bigger job, and [a machine's](#when-a-machine-is-the-better-tool). [Add authentication](../../core/how-to/add-auth.md) carries the full response-hook treatment, including the chain's failure semantics.
 
 !!! note "What about the previous user's cached server data?"
 
