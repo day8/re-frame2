@@ -3,8 +3,8 @@
 
 EP-0007 rule 2 ("no stable accepted synonyms") gets the no-floor-lint
 treatment "where shapes allow": a *retired* spelling reappearing in
-framework source is a CI failure, not a doc note. Two renames have merged,
-so two retired spellings are now lintable:
+framework source is a CI failure, not a doc note. Three renames have merged,
+so three retired spellings are now lintable:
 
   (a) The bare `:frame` event-context COEFFECT (sweep item 1, rf2-1m6rf1).
       EP-0002 R3 "one carrier, one name" retired the duplicate `:frame`
@@ -18,6 +18,14 @@ so two retired spellings are now lintable:
       header, so it uses header vocabulary — the canonical (and only)
       target key is `:location`. `:url` / `:to` are retired and now throw
       `:rf.error/redirect-retired-target-key`.
+
+  (c) Route metadata `:query-retain` (EP-0037 R5, rf2-jlmgt). A destination
+      address is taken LITERALLY: the router no longer folds ambient
+      current-route query state into a route the caller authored. The key is
+      retired with NO alias — `reg-route` rejects it as an unknown bare key —
+      and it no longer widens the query-key promotion vocabulary. Carrying
+      query state across routes is application policy spelled as a pure
+      function over the destination address.
 
 WHY THE SHAPES ARE SCOPED PRECISELY (the "where shapes allow" caveat)
 
@@ -56,6 +64,30 @@ retired SHAPES:
       `{:fx [[:rf.server/redirect {:to "/x"}]]}` reintroduction without
       firing on `(navigate {:url "/x"})` client-nav, where no
       `:rf.server/*redirect` tag is present.
+
+  (c) `:query-retain` as a Clojure KEYWORD TOKEN — the keyword delimited on
+      both sides (start-of-line or one of `(`/`[`/`{`/whitespace/`,` before;
+      a closing delimiter, whitespace or end-of-line after). Unlike (a) and
+      (b) the retired key has NO sanctioned code use whatsoever, so the three
+      USE shapes EP-0037 row 9 enumerates all reduce to that one token shape:
+
+        - a `reg-route` metadata map    `{:query-retain #{:theme :locale}}`
+        - the accepted-key roster       `#{... :query-defaults :query-retain}`
+        - the promotion vocabulary      `[:query :query-defaults :query-retain]`
+
+      What the token boundary buys is prose safety. Every legitimate in-tree
+      mention NAMES the key as retired, and every one of them spells it as
+      backticked prose — `` `:query-retain` `` — so the opening backtick
+      denies the token-start boundary and the rule cannot fire on a retirement
+      note even where comment/string masking does not reach. The mentions:
+      `implementation/routing/src/re_frame/routing/{classification,navigate,
+      registry}.cljc` (comments + one docstring, masked as well as
+      backticked), `skills/re-frame2/references/tooling/routing.md`,
+      `spec/Spec-Schemas.md`, and
+      `spec/conformance/fixtures/routing-query-keyword-discipline.edn`. The
+      last three are outside this gate's scan surface (see SCAN SURFACE) —
+      the boundary is what keeps the rule correct if it is ever pointed at
+      them, and the self-test pins all five verbatim.
 
 WHERE A SHAPE IS TOO AMBIGUOUS TO LINT WITHOUT NOISE (documented, not shipped)
 
@@ -186,6 +218,18 @@ _SSR_REDIRECT_FX_RE = re.compile(r":rf\.server/(?:safe-)?redirect\b")
 # `(?=\s)` + `\b` ensure `:url` not `:urls`/`:url/x`, and `:to` not
 # `:token`/`:to/x`. Matched only inside an SSR-redirect window (see below).
 _RETIRED_REDIRECT_KEY_RE = re.compile(r":(?:url|to)\b(?!/)\s")
+
+# (c) The retired route-metadata key `:query-retain` (EP-0037 R5). Matched as a
+#     delimited Clojure KEYWORD TOKEN, which is what every USE shape has in
+#     common — a `reg-route` metadata-map key, a member of the accepted-key
+#     roster, a member of the promotion vocabulary — and what no retirement
+#     NOTE has, since those spell it as backticked prose. The trailing
+#     lookahead also rejects `:query-retain/x` and `:query-retains`.
+_RETIRED_QUERY_RETAIN_RE = re.compile(
+    r"(?:^|(?<=[\s(\[{,]))"      # keyword-token start (a backtick denies it)
+    r":query-retain"
+    r"(?=[\s)\]},]|$)"           # keyword-token end
+)
 
 
 class Finding(NamedTuple):
@@ -362,6 +406,16 @@ def _scan_text(path: Path, text: str) -> list[Finding]:
                 Finding(path, line_no, "retired-redirect-target-key",
                         raw_snippet(line_no))
             )
+
+    # (c) The retired `:query-retain` route-metadata key — line-local, and no
+    #     enclosing-form window is needed: the key has no sanctioned code use,
+    #     so a delimited keyword token IS the violation wherever it appears.
+    for line_no, line in enumerate(masked, start=1):
+        if _RETIRED_QUERY_RETAIN_RE.search(line):
+            findings.append(
+                Finding(path, line_no, "retired-query-retain-key",
+                        raw_snippet(line_no))
+            )
     return findings
 
 
@@ -397,6 +451,17 @@ _FIX_HINTS = {
         "still the canonical key on CLIENT navigation surfaces — different "
         "concept, different word, per spec/Conventions.md §The naming rules.)"
     ),
+    "retired-query-retain-key": (
+        "Route metadata `:query-retain` was retired by EP-0037 R5 with no "
+        "alias — `reg-route` rejects it as an unknown bare key, it is not in "
+        "the accepted-key roster, and it no longer widens the query-key "
+        "promotion vocabulary. A destination address is taken LITERALLY. "
+        "Declare the keys the route owns in `:query` / `:query-defaults`; "
+        "carry query state across routes with an ordinary pure function over "
+        "the destination address at the call site (Spec 012 §Carrying query "
+        "state across routes). To edit the CURRENT route's query, use the "
+        "in-place `:query` / `:query-merge` request."
+    ),
 }
 
 
@@ -427,7 +492,8 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "EP-0007 §Enforcement: fail on a retired spelling reappearing in "
-            "framework source (the bare :frame coeffect; redirect :url/:to)."
+            "framework source (the bare :frame coeffect; redirect :url/:to; "
+            "route :query-retain)."
         ),
     )
     parser.add_argument(
@@ -510,6 +576,27 @@ _SELF_TEST_FIXTURE_ROOT = (
     Path(__file__).resolve().parent / "_test_fixtures" / "check_retired_spellings"
 )
 
+# Sanctioned `:query-retain` mentions that live OUTSIDE this gate's scan surface
+# (a skill reference, a spec schema comment, a conformance fixture). Pinned
+# VERBATIM and scanned as raw single lines rather than as `.cljc` fixtures,
+# because that is the point: a Markdown bullet gets no comment/string masking,
+# so only the keyword-token boundary keeps the rule off it. If the surface ever
+# widens to these trees, this phase is what says it stayed correct.
+_SANCTIONED_PROSE_MENTIONS: tuple[tuple[str, str], ...] = (
+    ("skills/re-frame2/references/tooling/routing.md",
+     "and never gains query keys from whichever route was current. There is no "
+     "`:query-retain` (retired, no alias; declaring it is rejected as an "
+     "unknown bare key), no query middleware, no per-route carry policy."),
+    ("spec/Spec-Schemas.md",
+     "   [:query-defaults  {:optional true} [:map-of :keyword :any]]  "
+     ";; Destination-LOCAL. EP-0037 R5 retired `:query-retain`; cross-route "
+     "carry is the application's pure fold over the destination address."),
+    ("spec/conformance/fixtures/routing-query-keyword-discipline.edn",
+     ";;      EP-0037 R5 retired the third source, `:query-retain`: a key that "
+     "was keyword-promoted solely by its `:query-retain #{:theme}` declaration "
+     "must now be declared in `:query` / `:query-defaults`."),
+)
+
 
 def _run_self_tests(verbose: bool = False) -> int:
     """Scan each fixture file and assert the expected finding count.
@@ -519,6 +606,10 @@ def _run_self_tests(verbose: bool = False) -> int:
     that MUST stay green (expected=0). Fixtures live under a `negative`/`positive`
     dir; we scan with --include-tests semantics (direct-file mode) so the
     test-dir exclusion does not hide them.
+
+    A second phase scans `_SANCTIONED_PROSE_MENTIONS` — verbatim retirement
+    notes from trees this gate does not scan, where no masking applies — as raw
+    lines, so the shape scoping is proven independently of the masking.
     """
     cases: list[tuple[str, int]] = [
         # (fixture-file relative to fixture-root, expected finding count)
@@ -529,6 +620,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("positive/redirect_url_key.cljc",          1),
         ("positive/safe_redirect_to_key.cljc",      1),
         ("positive/redirect_url_multiline.cljc",    1),
+        # EP-0037 R5 `:query-retain` — the three USE shapes row 9 enumerates.
+        ("positive/query_retain_reg_route_meta.cljc",     1),
+        ("positive/query_retain_accepted_key_roster.cljc", 1),
+        ("positive/query_retain_promotion_vocabulary.cljc", 1),
         # --- negatives: every sanctioned counterpart must stay GREEN ---
         ("negative/public_frame_opt.cljc",          0),
         ("negative/frame_trace_tag.cljc",           0),
@@ -539,6 +634,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("negative/frame_in_comment.cljc",          0),
         ("negative/frame_in_docstring.cljc",        0),
         ("negative/retired_keys_def.cljc",          0),
+        # EP-0037 R5 `:query-retain` — every sanctioned in-tree mention names
+        # the key as RETIRED; none of them may fire the rule.
+        ("negative/query_retain_sanctioned_mentions.cljc", 0),
+        ("negative/query_retain_lookalikes.cljc",   0),
     ]
 
     failures = 0
@@ -562,11 +661,25 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
+    # Phase 2: the out-of-surface sanctioned prose mentions, scanned raw.
+    for origin, line in _SANCTIONED_PROSE_MENTIONS:
+        got = len(_scan_text(Path(origin), line))
+        if got == 0:
+            if verbose:
+                sys.stderr.write(f"self-test PASS: prose mention in {origin}\n")
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: sanctioned prose mention in {origin} fired "
+                f"{got} finding(s):\n      {line}\n"
+            )
+            failures += 1
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
+        total = len(cases) + len(_SANCTIONED_PROSE_MENTIONS)
+        sys.stderr.write(f"all {total} self-tests passed.\n")
     return 0
 
 
