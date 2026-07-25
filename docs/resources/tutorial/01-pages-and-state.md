@@ -382,7 +382,9 @@ Reading it top to bottom:
                     :initial-events [[:app/initialise]]})
     ```
 
-    Both forms run the seed before first render; the explicit `with-frame` / `dispatch-sync` form is the one this tutorial uses, because watching the seed dispatch happen is part of learning the pipeline. Note there's no `:db` config key — a frame *always* starts with `app-db = {}`, and seeding it is itself an event (here `:app/initialise`; the framework also ships `:rf/set-db` for the trivial "just set the whole map" case). Initialisation runs through the same [event pipeline](../../core/glossary.md#event-pipeline) as every later state change. There's no second mechanism for "the first state" — it's events all the way down.
+    Both forms run the seed before first render; the explicit `with-frame` / `dispatch-sync` form is the one this part uses, because watching the seed dispatch happen is part of learning the pipeline. Note there's no `:db` config key — a frame *always* starts with `app-db = {}`, and seeding it is itself an event (here `:app/initialise`; the framework also ships `:rf/set-db` for the trivial "just set the whole map" case). Initialisation runs through the same [event pipeline](../../core/glossary.md#event-pipeline) as every later state change. There's no second mechanism for "the first state" — it's events all the way down.
+
+    They stop being equivalent the moment a boot event has to run before the frame resolves the *first URL*. A `:url-bound? true` frame does its first URL→route sync after every `:initial-events` step, but *before* a `dispatch-sync` written on the next line — so a boot that must be in place for the initial route (session restore, most obviously) belongs in `:initial-events` and nowhere else. [Part 3](03-auth-and-forms.md#wiring-it-at-boot) is where that bites, and this boot moves there.
 
 ## See it move
 
