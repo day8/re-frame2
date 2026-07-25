@@ -1499,6 +1499,50 @@
             trace-events)
       trace-events)))
 
+(defn- omit-off-box-fx-args-resource-keys
+  "Redact the owner-local scoped keys the resource family plants in the FX-ARGS
+  trace tags — the SLOT-reached companion to `omit-off-box-resource-trace-keys`
+  directly above (rf2-1kiuj).
+
+  That arm routes on `resource-family-op?`, the row's OPERATION NAMESPACE. But a
+  resource `ensure` lowers into EFFECTS, and those effects address the work BY its
+  scoped key, so the family's keys also ride `:rf.fx/args` (stamped by
+  `re-frame.fx/handle-one-fx` on `:rf.fx/handled`, on
+  `:rf.fx/skipped-on-platform`, and on the always-on `:rf.error/*` fx-failure
+  traces) and `:rf.event/fx` (the whole effect vector, stamped by `do-fx`). Those
+  rows are `rf.fx` / `rf.error`, so the namespace routing skips them, and a
+  resolver-owned key's embedded scope + params are not app-db-rooted, so the
+  generic `project-egress` walk cannot classify them either. Between the two blind
+  spots a naturally-captured `ensure` record egressed a `:sensitive?` owner's
+  resolved scope + canonical params RAW at eighteen paths — while the SAME
+  payload's structured `:effects[*].args` slot, three rows below, read
+  `:rf/redacted` (`elide-effect-row`). One value, two carriers, one rule applied:
+  the rf2-irwsq shape.
+
+  The projector is the resource family's, consulted through the late-bound
+  `:resources/project-fx-args-egress` hook; it walks the two slots by SHAPE and
+  projects each embedded key through the SAME owner classification the family
+  rows' `:resource/key` takes, so the two carriers of one key cannot drift and a
+  PLAIN owner's fx args still ride verbatim. Applied to EVERY row rather than to a
+  roster of ops: the hook is reference-preserving on a tags map carrying neither
+  slot, so nothing here has to be kept in step with the fx emit sites — which is
+  the same reason `project-fx-tags` keys off the slot pair rather than off
+  `:rf.fx/handled` at the emit end.
+
+  Same posture as its sibling in every other respect: off-box default, lifted by
+  the trusted-local `:include-sensitive?`, no-op when no resources artefact is
+  loaded, idempotent, nil/non-sequential-preserving."
+  [trace-events frame-id {:keys [include-sensitive?]}]
+  (if (or include-sensitive? (not (sequential? trace-events)))
+    trace-events
+    (if-let [project (late-bind/get-fn :resources/project-fx-args-egress)]
+      (mapv (fn [ev]
+              (if (and (map? ev) (map? (:tags ev)))
+                (update ev :tags project (or (:rf.frame/id (:tags ev)) frame-id))
+                ev))
+            trace-events)
+      trace-events)))
+
 (defn- elide-whole-output-large-slots
   "The ONE whole-output `:large?` egress rule (rf2-irwsq).
 
@@ -1619,6 +1663,12 @@
         ;; rollback `:dispositions` / …) — the family-level companion to the
         ;; scope-resolved projector above; same fail-closed off-box default.
         (omit-off-box-resource-trace-keys frame-id opts)
+        ;; …and the SAME keys where they ride the FX-ARGS carriers
+        ;; (`:rf.fx/args` / `:rf.event/fx`) of rows the family does NOT own —
+        ;; reached by SLOT, since the arm above is reached by op namespace and a
+        ;; lowered `ensure` addresses its work by scoped key inside the effects
+        ;; (rf2-1kiuj).
+        (omit-off-box-fx-args-resource-keys frame-id opts)
         ;; Honour the whole-output `:large?` stamp on the `:rf.sub/run` tags —
         ;; the trace-tag twin of the `:sub-runs` row elision, sharing one rule
         ;; with it (rf2-irwsq). Runs BEFORE the bulk walk so the marker is
