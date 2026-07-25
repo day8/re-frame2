@@ -1700,7 +1700,7 @@
             ;; and accidentally read same-id B.
             pending-db  (if has-db?
                           (:db effects)
-                          (when run-on-db (get-in ctx [:coeffects :db])))
+                          (when run-on-db (-> ctx :coeffects :db)))
             ;; The pending runtime-db partition the flows read their qualified
             ;; inputs against: the handler's `:rf.db/runtime` effect when one
             ;; landed, else the current (unchanged) runtime-db. Only resolved
@@ -1710,7 +1710,7 @@
             pending-runtime-db (when run-on-db
                                  (if has-runtime-effect?
                                    (:rf.db/runtime effects)
-                                   (get-in ctx [:coeffects :rf.db/runtime])))
+                                   (-> ctx :coeffects :rf.db/runtime)))
             ;; Stamp `:rf.event/v` + `:rf.trace/event-id`
             ;; on the t1 / t2 trace events so they carry the same
             ;; per-event attribution every other `:op-type :rf.event`
@@ -2685,7 +2685,7 @@
             ;; (`marks/project-cofx-token-tags`) redacts per-cofx-id declared
             ;; `:sensitive` / `:large` slots before any off-box egress.
             run-cofx  (when interop/debug-enabled?
-                        (get-in initial-ctx [:coeffects :rf.cofx]))
+                        (-> initial-ctx :coeffects :rf.cofx))
             ;; rf2-yigokd — the envelope's OWN per-call + lexical
             ;; `:fx-overrides` / per-call `:interceptor-overrides` (NOT the
             ;; frame-merged `fx-overrides` local above — the per-frame tier is
@@ -3544,7 +3544,7 @@
     (fn []
       (let [drain-lock  (:drain-lock frame-record)
             router      (:router frame-record)
-            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+            drain-depth (get (:config frame-record) :drain-depth drain-depth-default)]
         (when (compare-and-set! drain-lock false true)
           ;; Exact-target revalidation belongs INSIDE the acquired serialization
           ;; boundary.  A scheduled callback for obsolete incarnation A must never
@@ -3592,7 +3592,7 @@
     (fn []
       (let [drain-lock  (:drain-lock frame-record)
             router      (:router frame-record)
-            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+            drain-depth (get (:config frame-record) :drain-depth drain-depth-default)]
         ;; Spin-CAS until we acquire. On JVM the active drainer holds
         ;; the lock for the duration of one drain pass — bounded by
         ;; drain-depth events at most — so the wait is bounded. CLJS
@@ -3639,7 +3639,7 @@
   [frame-id frame-record under-lock-fn]
   (let [drain-lock  (:drain-lock frame-record)
         router      (:router frame-record)
-        drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+        drain-depth (get (:config frame-record) :drain-depth drain-depth-default)]
     ;; The outer cold section owns THIS record's lock.  Same-id replacement
     ;; invalidates the target; it does not retarget the synchronous dispatch.
     (when (frame/frame-incarnation-live? frame-id drain-lock)
@@ -4311,8 +4311,8 @@
         (when (and (identical? expected-token (:drain-lock frame-record))
                    (frame/frame-incarnation-closing? frame-id expected-token))
           (let [real-router     (:router frame-record)
-                drain-depth    (get-in frame-record [:config :drain-depth]
-                                       drain-depth-default)
+                drain-depth    (get (:config frame-record) :drain-depth
+                                    drain-depth-default)
                 envelope       (build-envelope event {:frame frame-id})
                 teardown-router (atom {:queue            (conj interop/empty-queue
                                                                envelope)
