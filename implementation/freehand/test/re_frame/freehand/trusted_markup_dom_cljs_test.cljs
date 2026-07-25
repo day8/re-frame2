@@ -209,6 +209,27 @@
                          (str k " — and the sibling after it parsed nothing")))
                    done)))))
 
+(deftest a-literal-trusted-markup-site-renders-through-the-hoisted-element
+  (testing "A DISTINCT compiled code path. An element whose props and whose
+            trusted-markup argument are all literal is `:static?`, so the React
+            emitter builds it ONCE at module level and shares the element across
+            renders — the props object, and with it the
+            `dangerouslySetInnerHTML` value, are hoisted. That is the one
+            emitted shape where a stale or shared markup object would show up,
+            so the literal site gets its own mount rather than riding the
+            dynamic rows."
+    (if-not (browser?)
+      (skip! "the browser job runs the mount assertions")
+      (async done
+        (each-mode [:literal-markup :literal-markup-compiled] {}
+                   (fn [k c]
+                     (let [host (.querySelector c "div.static")]
+                       (is (some? (.querySelector host "em"))
+                           (str k " — the literal markup parsed into an element"))
+                       (is (= "fixed" (.-textContent host))
+                           (str k " — carrying its text"))))
+                   done)))))
+
 (deftest a-hostile-string-is-inserted-verbatim-because-there-is-no-sanitizer
   (testing "THE ROW THAT MUST NOT GO GREEN BY ACCIDENT. Freehand does not
             sanitise — no allowlist, no tag or attribute filter, no

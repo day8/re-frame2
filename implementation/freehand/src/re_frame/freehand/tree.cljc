@@ -235,7 +235,7 @@
                            :key-val  (:key authored)
                            :children (when (and (nil? markup) (seq kid-forms))
                                        #(children kid-forms))}
-                    (some? markup)  (assoc :html markup)
+                    (some? markup) (assoc :html markup)
                     (some? caller) (assoc :caller caller))
                   tag id authored))))
 
