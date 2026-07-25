@@ -510,7 +510,7 @@ Standard route-related events:
 | `:rf.route/transitioned` | URL-change handler for forward navigation (link click / programmatic push; default scroll `:top`). | 012 |
 | `:rf.route/url-requested` | The user clicked a framework-owned link. | 012 |
 | `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. | 012 |
-| `:rf.route/entry-blocked` | A `:can-enter` guard rejected navigation *into* a route (the enter-block mirror of `:rf.route/navigation-blocked`; carries the pending-nav map). | 012 |
+| `:rf.route/entry-denied` | A `:can-enter` guard rejected navigation *into* a route. TERMINAL — nothing commits and no pending value is created; dispatched exactly once per attempt, carrying `{:destination :target :cause :requested-url :guard}`. A framework no-op default handler ships, so denial is safe with no application handler. | 012 |
 | `:rf.route/continue` | User-dispatched event proceeding a blocked navigation. | 012 |
 | `:rf.route/cancel` | User-dispatched event abandoning a blocked navigation. | 012 |
 

@@ -1115,7 +1115,7 @@
 ;; Spec 012 §Navigation is an event: `:rf.route/navigate` carries ONE flat
 ;; request map — no positional arity, no reserved-target form. Address keys
 ;; (:to / :url / :params / :query / :fragment), policy keys (:replace? /
-;; :scroll / :bypass-guards?), and the in-place edit key :query-merge. The
+;; :scroll / :bypass-leave?), and the in-place edit key :query-merge. The
 ;; always-on structural gate is exercised in the dedicated gate suite below;
 ;; here we pin that the address forms navigate cleanly.
 
@@ -1920,9 +1920,11 @@
     (is (empty? @pushed)
         "no rejected request pushed a URL")))
 
-(deftest navigate-internal-enter-attempts-rider-is-stripped-before-gate
-  (testing "the runtime resume rider :rf.route/enter-attempts is stripped before
-            the gate (it is not an unknown key)"
+(deftest navigate-has-no-internal-request-exemption
+  (testing "EP-0037 R4 retired the enter-resume protocol, and with it the only
+            internal request rider. The `:rf.route/navigate` roster is now
+            CLOSED with no exemption: the retired `:rf.route/enter-attempts`
+            rider rejects as an ordinary unknown key."
     (rf/reg-route :route/rider {} "/rider")
     (let [errors (atom [])]
       (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
@@ -1931,11 +1933,14 @@
                                         (swap! errors conj ev))))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/rider :rf.route/enter-attempts 2}])
       (rf/unregister-listener! :trace ::rider)
-      (is (= :route/rider (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                             [:rf.runtime/routing :current])))
-          "the request navigates cleanly despite carrying the internal rider")
-      (is (empty? (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))
-          "no navigate-bad-request — the rider is stripped, not treated as unknown"))))
+      (is (nil? (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                                   [:rf.runtime/routing :current])))
+          "the malformed request navigated nowhere")
+      (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
+                              (= :unknown-keys (-> ev :tags :reason))
+                              (= [:rf.route/enter-attempts] (-> ev :tags :keys))))
+                @errors)
+          "the retired rider is rejected LOUD as an unknown request key"))))
 
 ;; ============================================================================
 ;; rf2-0zsvw — explicit :fragment override on an UNMATCHED raw-URL navigate

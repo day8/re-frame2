@@ -60,8 +60,12 @@
           ":rejecting-route names the route whose guard ran")
       (is (= :editor/can-leave? (:rejecting-guard pending))
           ":rejecting-guard names the sub-id that rejected")
-      (is (vector? (:requested-by-event pending))
-          ":requested-by-event captures the original :rf.route/url-requested vector")
+      (is (= {:to :route/cart} (:destination pending))
+          ":destination is the replayable RouteDestination (EP-0037 R4)")
+      (is (= :link (:cause pending))
+          ":cause names the door the blocked navigation came through")
+      (is (= {} (:policy pending))
+          ":policy is {} when the caller authored no :replace? / :scroll")
       (is (= :editor/article
              (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
           "the :rf/route slice does NOT change when blocked"))
@@ -121,8 +125,8 @@
 ;;
 ;; Per Spec 012 §Navigation blocking — pending-nav protocol and
 ;; Spec-Schemas.md §:rf/pending-navigation the slot carries
-;; `{:id :requested-by-event :requested-url :reason :rejecting-route
-;;   :rejecting-guard}`. Tools / dialogs read :rejecting-guard to render
+;; `{:id :destination :target :cause :policy :requested-url
+;;   :rejecting-route :rejecting-guard}`. Tools / dialogs read :rejecting-guard to render
 ;; meaningful "Discard changes on Editor?" prompts.
 
 (deftest pending-navigation-slot-shape
@@ -149,9 +153,18 @@
           ":rejecting-route names the active route at rejection time")
       (is (= :editor/can-leave? (:rejecting-guard pending))
           ":rejecting-guard names the rejecting sub-id (for tooling)")
-      (is (= [:rf.route/url-requested {:url "/cart"}]
-             (:requested-by-event pending))
-          ":requested-by-event captures the original event vector"))))
+      (is (= {:to :route/cart} (:destination pending))
+          ":destination replaces the original event vector as the replay description")
+      (is (= {:route-id :route/cart :params {} :query {} :fragment nil :url "/cart"}
+             (:target pending))
+          ":target is the resolved target the guards saw")
+      (is (= :link (:cause pending)) ":cause names the door")
+      (is (nil? (:reason pending))
+          "the leave-only slot carries no :reason discriminator — it is always a leave")
+      (is (nil? (:direction pending))
+          "…and no :direction discriminator")
+      (is (nil? (:enter-attempts pending))
+          ":enter-attempts is retired"))))
 
 (deftest navigation-blocked-trace-carries-rejecting-guard
   (testing ":rf.route/navigation-blocked trace carries :rejecting-guard
@@ -187,8 +200,8 @@
 
 (deftest continue-re-issues-via-url-requested-with-bypass
   (testing ":rf.route/continue re-emits :rf.route/url-requested with
-            :bypass-guards? #{:leave}, running the policy chain (the enter
-            guard still re-runs — rf2-p69yaz point 6)"
+            :bypass-leave? true, replaying the stored destination + policy
+            through the normal pipeline (entry is evaluated normally)"
     (rf/reg-route :editor/article
                   {:params    [:map [:id :string]]
                    :can-leave :editor/can-leave?} "/editor/articles/:id")

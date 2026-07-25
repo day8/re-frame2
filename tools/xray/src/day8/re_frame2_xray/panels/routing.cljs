@@ -174,7 +174,7 @@
 
     - :on-match           → 'transitioned' (green — a route landed)
     - :navigation-blocked → 'blocked'      (warning — a :can-leave guard refused)
-    - :entry-blocked      → 'entry blocked' (warning — a :can-enter guard refused)
+    - :entry-denied       → 'entry denied' (warning — a :can-enter guard refused)
     - :fragment-changed   → 'fragment changed' (info — anchor)
     - navigated? but no destination resolved → 'not-found' (error)"
   [{:keys [phase]} navigated? to-id]
@@ -185,8 +185,8 @@
     (= phase :navigation-blocked)
     {:label "blocked" :colour (:warning tokens)}
 
-    (= phase :entry-blocked)
-    {:label "entry blocked" :colour (:warning tokens)}
+    (= phase :entry-denied)
+    {:label "entry denied" :colour (:warning tokens)}
 
     (= phase :fragment-changed)
     {:label "fragment changed" :colour (:info tokens)}

@@ -45,8 +45,8 @@
             ;; Loaded for its ns-load side effects: registers the routes (with
             ;; the `:can-enter [:realworld.routing/authed?]` auth gate on the
             ;; `:requires-auth` routes), the `:realworld.routing/authed?` guard
-            ;; sub, and the `:rf.route/entry-blocked` redirect handler the
-            ;; auth-gate tests exercise (rf2-p69yaz).
+            ;; sub, and the `:rf.route/entry-denied` redirect handler the
+            ;; auth-gate tests exercise (EP-0037 R4).
             [realworld-http.routing]
             ;; Pagination pure helpers (page->offset / page-count / query-string /
             ;; paginate-path) exercised directly by the pagination-helpers test
@@ -865,17 +865,17 @@
     (is (= :rf.route/not-found (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))))
 
 (defn- auth-guard-test []
-  ;; The auth gate is the framework's `:can-enter` guard (rf2-p69yaz) — each
+  ;; The auth gate is the framework's `:can-enter` guard — each
   ;; `:requires-auth` route declares `:can-enter [:realworld.routing/authed?]`
-  ;; and an `:rf.route/entry-blocked` handler redirects to login + stashes the
-  ;; bounce-back (routing.cljs). No frame `:interceptors` — the one navigation
-  ;; gate runs the guard on every door. The route + handler + guard sub are all
-  ;; registered at `realworld.routing` / `realworld.auth` ns-load (required
-  ;; below).
+  ;; and an `:rf.route/entry-denied` handler stashes the denied destination and
+  ;; replace-navigates to login (routing.cljs). No frame `:interceptors` — the
+  ;; one pipeline runs the guard on every door. Entry denial is TERMINAL: it
+  ;; commits nothing and creates NO pending value, so the return after sign-in
+  ;; is a FRESH navigate, not a resume.
   (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; Unauthenticated: navigating to a :requires-auth route
-    ;; (:realworld.user/settings) is refused by :can-enter → :rf.route/entry-blocked
+    ;; (:realworld.user/settings) is denied by :can-enter → :rf.route/entry-denied
     ;; redirects to :realworld.auth/login.
     (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
@@ -886,12 +886,16 @@
     (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "unguarded route navigates normally with the gate active")
 
-    ;; Bounce-back stash: the entry-blocked redirect records the original target
-    ;; at [:auth :return-to].
+    ;; Fresh-return stash: the denial handler records the denied :destination
+    ;; — a :rf/route-destination — at [:auth :return-to]. NO pending-navigation
+    ;; value is created: entry denial is terminal.
     (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
-    (is (= {:to :realworld.user/settings :params {} :query {} :fragment nil}
+    (is (= {:to :realworld.user/settings}
            (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
-        "the redirect stashes the FULL address (path + params + query + fragment) for post-login bounce-back")
+        "the denial stashes the canonical destination for the post-login return")
+    (is (nil? (get-in (rf/frame-state-value f) [:rf.db/runtime :rf.runtime/routing
+                                                :pending-navigation]))
+        "a terminal denial creates NO pending-navigation value")
 
     ;; Authenticated: the same guarded nav now proceeds (:can-enter passes).
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
@@ -899,8 +903,8 @@
     (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "authenticated nav to a :requires-auth route proceeds")
 
-    ;; The post-login bounce-back event consumes the stashed target and
-    ;; clears the slot.
+    ;; The post-login return consumes the stashed destination and clears the
+    ;; slot — an ordinary FRESH navigate whose guard re-evaluates.
     (rf/dispatch-sync [:auth/post-login-redirect] {:frame f})
     (is (nil? (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
         ":auth/post-login-redirect clears the :return-to slot")))
@@ -921,18 +925,18 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out direct-URL/reload to a :requires-auth route redirects to login")
-    (is (= {:to :realworld.user/settings :params {} :query {} :fragment nil}
+    (is (= {:to :realworld.user/settings}
            (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
-        "the direct-URL redirect stashes the full address for bounce-back")
+        "the direct-URL denial stashes the canonical destination")
 
     ;; Editor route via direct URL with path params is also gated, and
     ;; the stash carries the full address (resolved off the requested URL).
     (rf/dispatch-sync [:rf.route/handle-url-change "/editor/my-slug"] {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out direct-URL to a :requires-auth editor route redirects to login")
-    (is (= {:to :realworld.editor/edit :params {:slug "my-slug"} :query {} :fragment nil}
+    (is (= {:to :realworld.editor/edit :params {:slug "my-slug"}}
            (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
-        "the editor direct-URL redirect stashes the full address (params included) for bounce-back")
+        "the editor direct-URL denial stashes the destination, path params included")
 
     ;; A non-auth route via direct URL is unaffected.
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
@@ -950,9 +954,9 @@
                       {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out anchor click to a :requires-auth route redirects to login")
-    (is (= {:to :realworld.user/settings :params {} :query {} :fragment nil}
+    (is (= {:to :realworld.user/settings}
            (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
-        "the anchor redirect stashes the full address for bounce-back")
+        "the anchor denial stashes the canonical destination")
 
     ;; A url-only request still gates via the URL-resolved target.
     (rf/dispatch-sync [:rf.route/url-requested {:url "/editor"}] {:frame f})
@@ -983,11 +987,12 @@
         "authenticated anchor click to a :requires-auth route proceeds")))
 
 (defn- auth-guard-return-to-full-address-test []
-  ;; rf2-k5zty — the return-to stash is the FULL resolved address
-  ;; ({:to :params :query :fragment}), so a login bounce-back lands on the EXACT
-  ;; URL the visitor was headed for, not a bare route. Before the fix the stash
-  ;; was {:id :params}, stranding the query string and #fragment. Drives the
-  ;; real example handlers (routing.cljs `:rf.route/entry-blocked` +
+  ;; rf2-k5zty — the return-to stash is the FULL resolved destination, so the
+  ;; post-login return lands on the EXACT URL the visitor was headed for, not a
+  ;; bare route. EP-0037 R4 hands the handler that destination directly on the
+  ;; `:rf.route/entry-denied` payload (no `match-url` re-derivation), so the
+  ;; canonical named address carries path params, query, and #fragment. Drives
+  ;; the real example handlers (routing.cljs `:rf.route/entry-denied` +
   ;; auth.cljs `:auth/post-login-redirect`).
 
   ;; --- 1. destination deep-link carrying BOTH query and fragment ---
@@ -1005,7 +1010,7 @@
             :query    {"tab" "preview"}
             :fragment "comments"}
            (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
-        "the stash carries the FULL address — query and #fragment included, not stranded")
+        "the stash carries the FULL destination — query and #fragment included, not stranded")
 
     ;; Sign in and bounce back — the return lands on the EXACT address.
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
@@ -1038,24 +1043,27 @@
         "the in-place edit under an expired session is refused → login")
     (is (= {:to       :realworld.editor/edit
             :params   {:slug "my-slug"}
-            :query    {}
             :fragment "comments"}
            (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
-        "the in-place edit's resolved address (current route + new #fragment) is stashed whole"))
+        "the in-place edit's resolved destination (current route + new #fragment) is stashed whole"))
 
-  ;; --- 3. unresolvable requested-url degrades gracefully ---
+  ;; --- 3. an unmatchable raw URL stays a RAW destination ---
   (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
-    ;; If match-url can't resolve the requested-url (a malformed URL the runtime
-    ;; should never actually hand this handler), the stash degrades to the
-    ;; rejecting-route with empty query and nil fragment — no crash from the nil
-    ;; match (the handler's `(or params {})` / `(or query {})` guards).
-    (rf/dispatch-sync [:rf.route/entry-blocked {:rejecting-route :realworld.editor/edit
-                                          :requested-url   "/editor/%zz?bad=%"}]
+    ;; The runtime never rewrites a destination it cannot reify without
+    ;; changing the requested URL: an unmatched in-app URL stays `{:url …}`
+    ;; (still a valid `:rf.route/navigate` request), so a hand-dispatched
+    ;; denial for one round-trips rather than being coerced into a bogus
+    ;; named address.
+    (rf/dispatch-sync [:rf.route/entry-denied
+                       {:destination   {:url "/editor/%zz?bad=%"}
+                        :requested-url "/editor/%zz?bad=%"
+                        :cause         :navigate
+                        :guard         :realworld.routing/authed?}]
                       {:frame f})
-    (is (= {:to :realworld.editor/edit :params {} :query {} :fragment nil}
+    (is (= {:url "/editor/%zz?bad=%"}
            (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
-        "graceful fallback: :to from rejecting-route, :params/:query empty, :fragment nil")))
+        "an unmatched in-app URL stays the RAW destination — replay preserves the URL")))
 
 ;; ============================================================================
 ;; ssr — `hydration-payload` selects the SSR-safe slice keys

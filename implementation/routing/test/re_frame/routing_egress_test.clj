@@ -20,7 +20,7 @@
     - rf2-jfaucw — the blocked-navigation record keeps raw route carriers:
       the `:rf.route/navigation-blocked` TRACE carries `:requested-url`
       (custom slot → emit-site scrub) and the DISPATCHED event payload carries
-      the pending-nav map with `:requested-url` + `:requested-by-event`
+      the pending-nav map with `:requested-url` + `:destination` / `:target`
       (event marks → marks chokepoint).
 
   The unifying EP-0015 invariant under test: the IN-PROCESS value stays raw
@@ -315,7 +315,7 @@
 (deftest navigation-blocked-dispatched-event-payload-redacts-carriers
   (testing "rf2-jfaucw: the DISPATCHED [:rf.route/navigation-blocked pending-nav]
             event trace redacts the pending-nav :requested-url +
-            :requested-by-event carrier slots via event marks"
+            :destination / :target carrier slots via event marks"
     (block-fixture!)
     (let [traces (atom [])]
       (rf/register-listener! :trace ::nb (fn [ev] (swap! traces conj ev)))
@@ -334,15 +334,17 @@
         (let [pending-nav (second dispatched)]
           (is (= privacy/redacted-sentinel (:requested-url pending-nav))
               ":requested-url redacted in the dispatched-event trace payload")
-          (is (= privacy/redacted-sentinel (:requested-by-event pending-nav))
-              ":requested-by-event redacted in the dispatched-event trace payload")
+          (is (= privacy/redacted-sentinel (:destination pending-nav))
+              ":destination redacted in the dispatched-event trace payload")
+          (is (= privacy/redacted-sentinel (:target pending-nav))
+              ":target redacted in the dispatched-event trace payload")
           ;; Structural slots survive.
-          (is (= :can-leave (:reason pending-nav)) ":reason kept")
+          (is (= :link (:cause pending-nav)) ":cause kept")
           (is (contains? pending-nav :id) ":id (pending-nav handle) kept"))))))
 
 (deftest navigation-blocked-pending-nav-slot-keeps-raw-in-process
   (testing "rf2-jfaucw: the DURABLE pending-nav runtime-db slot keeps the RAW
-            :requested-url / :requested-by-event so continue/cancel resume
+            :requested-url / :destination / :target so continue/cancel resume
             still work (marks/scrub touch only the egress copy)"
     (block-fixture!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}])
@@ -352,8 +354,8 @@
       ;; The in-process durable value is RAW (not redacted) — resume needs it.
       (is (= "/cart?coupon=SECRET100" (:requested-url pending))
           "the durable :requested-url is the RAW URL (continue re-dispatches it)")
-      (is (vector? (:requested-by-event pending))
-          "the durable :requested-by-event is the raw original event vector"))
+      (is (= {:to :route/cart :query {"coupon" "SECRET100"}} (:destination pending))
+          "the durable :destination is the raw replayable destination"))
     ;; And continue actually completes the navigation (resume works).
     (rf/dispatch-sync [:rf.route/continue (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                                               (get-in [:rf.runtime/routing :pending-navigation :id]))])

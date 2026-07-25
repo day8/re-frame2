@@ -3634,7 +3634,7 @@ The map is **closed**: an unknown address key fails at the authoring or event bo
 > **Owner:** [012-Routing §The raw-URL escape](012-Routing.md#raw-url-escape)
 > **Status:** v1-required
 
-The closed **replay union** of a `:rf/route-address` and the raw-URL escape — the shape runtime state uses when it must preserve a requested destination that may have no named-route spelling ([EP-0037](../docs/EP/EP-0037-route-planning-and-activation-ownership.md) §Terms, §Raw URL escape). Leave-only pending-navigation and entry-denial payloads carry it; a matching raw URL normalises to the named branch, and only a destination that cannot be reified without changing the requested URL stays raw. It never absorbs navigation policy — a pending leave stores explicit policy beside it (see [§`:rf/pending-navigation`](#rfpending-navigation)).
+The closed **replay union** of a `:rf/route-address` and the raw-URL escape — the shape runtime state uses when it must preserve a requested destination that may have no named-route spelling ([EP-0037](../docs/EP/EP-0037-route-planning-and-activation-ownership.md) §Terms, §Raw URL escape). The [leave-only pending value](#rfpending-navigation) and the [`:rf.route/entry-denied`](012-Routing.md#entry-is-terminal) payload both carry it — the denial's `:destination` is what an auth flow stashes and replays after sign-in; a matching raw URL normalises to the named branch, and only a destination that cannot be reified without changing the requested URL stays raw. It never absorbs navigation policy — a pending leave stores explicit policy beside it (see [§`:rf/pending-navigation`](#rfpending-navigation)).
 
 ```clojure
 (def RouteDestination
@@ -3690,7 +3690,7 @@ The shape of the **stored / effective** route-meta. Reserved keys per [012 §Res
    [:parent          {:optional true} :keyword]                            ;; parent route id; used by :rf.route/chain sub
    [:on-match        {:optional true} [:vector [:vector :any]]]            ;; events the runtime FIRES-AND-FORGETS after a successful activation (EP-0037 R1). Never drives readiness; a planning-failure target dispatches none. Per [012 §Per-route data loading](012-Routing.md#per-route-data-loading).
    [:can-leave       {:optional true} :keyword]                            ;; sub-id; (subscribe [<sub-id>]) returns boolean — true means "OK to leave". Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
-   [:can-enter       {:optional true} :keyword]                            ;; sub-id; enter-gate mirror of :can-leave (rf2-p69yaz). Block dispatches :rf.route/entry-blocked. Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
+   [:can-enter       {:optional true} :keyword]                            ;; sub-id; (subscribe [<sub-id> <target>]) returns boolean — true means "OK to enter". A false/non-boolean is a TERMINAL denial dispatching :rf.route/entry-denied. Per [012 §Entry is terminal](012-Routing.md#entry-is-terminal).
    [:scroll          {:optional true} [:enum :top :restore :preserve false]] ;; CLOSED vocabulary; `false` suppresses the :rf.nav/scroll fx. The map form was REMOVED (rf2-px26m) — nothing interpreted it, so it validated and then silently no-op'd. Per [012 §Custom scroll strategies](012-Routing.md#custom-scroll-strategies).
    [:sensitive       {:optional true} [:vector Path]]                      ;; projection-relative :rf/paths redacted at egress while the route is active (EP-0025). Per [012 §Route data classification](012-Routing.md#route-data-classification).
    [:large           {:optional true} [:vector Path]]])                    ;; projection-relative :rf/paths kept off the wire at egress while active (EP-0025); sensitive wins at same path. Per [012 §Route data classification](012-Routing.md#route-data-classification).
@@ -3704,23 +3704,30 @@ Per-host extension keys (`:myapp/...`, `:rf.tooling/...`) are tolerated — Rout
 > **Owner:** [012-Routing §Navigation blocking — pending-nav protocol](012-Routing.md#navigation-blocking--pending-nav-protocol)
 > **Status:** v1-required
 
-The shape of the pending-navigation slot, set by the runtime when a navigation is blocked by a `:can-leave` (leave) OR `:can-enter` (enter) guard. `:can-enter` is the first-class mirror of `:can-leave` (rf2-p69yaz Option A), so ONE slot shape covers both — `:reason` / `:direction` discriminate which end blocked. Lives in **runtime-db** at `[:rf.runtime/routing :pending-navigation]` per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys) and [§`:rf/runtime-db`](#rfruntime-db). Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
+The shape of the **leave-only** pending-navigation slot, set by the runtime when a `:can-leave` guard rejects (EP-0037 R4). There is no entry counterpart: [entry is terminal](012-Routing.md#entry-is-terminal) — a denied entry commits nothing and creates no pending value — so the slot carries no `:reason` / `:direction` discriminator. Lives in **runtime-db** at `[:rf.runtime/routing :pending-navigation]` per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys) and [§`:rf/runtime-db`](#rfruntime-db). Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
 
 ```clojure
 (def PendingNavigation
   [:map
    [:id                  :string]                                         ;; opaque pending-nav id; used by :rf.route/continue / :rf.route/cancel
-   [:requested-by-event  [:vector :any]]                                  ;; the original nav event vector — :rf.route/url-requested / :rf.route/navigate / :rf.route/handle-url-change (the :rf.route/navigate interior is the flat request map, [:rf.route/navigate {request}])
-   [:requested-url       :string]                                         ;; the URL the user was trying to reach
-   [:reason              [:enum :can-leave :can-enter]]                   ;; which GUARD KIND rejected (rf2-p69yaz)
-   [:direction           [:enum :leave :enter]]                           ;; which END of the transition blocked (:leave = current route's :can-leave; :enter = target route's :can-enter)
-   [:rejecting-route     :keyword]                                        ;; the rejecting route id (CURRENT route on a leave block; TARGET route on an enter block)
+   [:destination         :rf/route-destination]                           ;; the replayable destination — a named :rf/route-address, or the raw {:url …} escape when it has no named spelling
+   [:target              [:map                                            ;; the RESOLVED target the guards saw (a `ResolvedTarget` — facts, per [012 §Resolved target](012-Routing.md#resolved-target-and-the-plan-diagnostic-projection))
+                          [:route-id [:maybe :keyword]]
+                          [:params   {:optional true} [:maybe :map]]
+                          [:query    {:optional true} [:maybe :map]]
+                          [:fragment {:optional true} [:maybe :string]]
+                          [:url      :string]]]
+   [:cause               [:enum :link :navigate :popstate :initial :ssr]] ;; which door the blocked navigation came through
+   [:policy              [:map {:closed true}                             ;; the caller-authored navigation policy, replayed verbatim on continue; {} when none
+                          [:replace? {:optional true} :boolean]
+                          [:scroll   {:optional true} :any]]]
+   [:requested-url       :string]                                         ;; the URL the user was trying to reach (the caller's spelling)
+   [:rejecting-route     :keyword]                                        ;; the CURRENT route whose :can-leave rejected
    [:rejecting-guard     {:optional true} :keyword]                       ;; the sub-id of the rejecting guard (for tooling)
-   [:enter-attempts      {:optional true} :int]                           ;; loop-guard counter — present on an enter block; increments per resume (rf2-p69yaz point 7)
-   [:url-restored?       {:optional true} :boolean]])                     ;; true when a blocked popstate restored the address bar (the resume must re-move it)
+   [:url-restored?       {:optional true} :boolean]])                     ;; true when a blocked URL-driven transition restored the address bar (continue re-moves it by replace)
 ```
 
-The slot is `nil` (or absent) when no navigation is pending. Cleared by `:rf.route/continue` (the navigation completes, re-running `:can-enter`) or `:rf.route/cancel` (the navigation is abandoned). Open map — implementations may attach `:rf.route/...`-namespaced metadata; user code reads via `(subscribe [:rf/pending-navigation])`.
+`:policy` never carries `:bypass-leave?`: a request carrying a true bypass could not have entered the slot, and `:rf.route/continue` owns its own one-shot bypass. The slot is `nil` (or absent) when no navigation is pending. Cleared by `:rf.route/continue` (which replays `:destination` + `:policy` with that one-shot leave bypass) or `:rf.route/cancel` (the navigation is abandoned). Open map — implementations may attach `:rf.route/...`-namespaced metadata; user code reads via `(subscribe [:rf/pending-navigation])`.
 
 ### `:rf.fx/with-nav-token-args`
 

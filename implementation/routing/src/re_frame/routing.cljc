@@ -30,7 +30,7 @@
   - `re-frame.routing.events`         — shared nav-event helpers (fire-and-forget :on-match commit)
   - `re-frame.routing.readiness`      — pure resource-derived route-readiness projector (EP-0037 R1)
   - `re-frame.routing.plan`           — pure pre-commit navigation-planning seam (fragment/not-found/classification/telemetry/scroll) shared by both nav entry points
-  - `re-frame.routing.can-leave`      — :can-leave gate + pending-nav protocol + :rf.route/url-requested
+  - `re-frame.routing.decisions`      — the leave/entry decisions, the leave-only pending protocol, and :rf.route/url-requested
   - `re-frame.routing.nav-token`      — :rf.route/with-nav-token + stale-suppression fx
   - `re-frame.routing.navigate`       — :rf.route/navigate event
   - `re-frame.routing.url-change`     — :rf.route/transitioned + :rf.route/handle-url-change
@@ -47,7 +47,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
             [re-frame.subs :as subs]
-            [re-frame.routing.can-leave :as can-leave]
+            [re-frame.routing.decisions :as decisions]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.history :as history]
             [re-frame.routing.link :as link]
@@ -212,34 +212,38 @@
          :rf.cofx/requires [:rf.route/pending-nav-allocation]))
 
 ;; :rf.route/url-requested + :rf.route/continue + :rf.route/cancel +
-;; :rf.route/navigation-blocked — Spec 012 §Navigation blocking —
-;; pending-nav protocol. `:rf.route/url-requested` runs the leave guard (which
-;; mints a pending-nav id on a block), so it declares the recordable
+;; :rf.route/navigation-blocked + :rf.route/entry-denied — Spec 012
+;; §Navigation blocking. `:rf.route/url-requested` runs the leave decision
+;; (which mints a pending-nav id on a block), so it declares the recordable
 ;; pending-nav allocation cofx; `:rf.route/continue` / `:rf.route/cancel` /
-;; `:rf.route/navigation-blocked` never allocate, so they don't.
+;; `:rf.route/navigation-blocked` / `:rf.route/entry-denied` never allocate,
+;; so they don't — a terminal entry denial creates no pending value at all.
 (events/reg-event :rf.route/url-requested
                      url-requested-meta
-                     can-leave/url-requested-handler)
-;; The pending map carries the requested URL and original event. Mark those
-;; argument paths sensitive so dispatched-event trace copies redact their
-;; carrier values; handlers and the pending-navigation sub still receive the
-;; original in-process map.
+                     decisions/url-requested-handler)
+;; The leave-pending value and the entry-denial payload both carry the
+;; requested URL plus the replayable `:destination` / `:target` (which embed
+;; query values and path params). Mark those argument paths sensitive so
+;; dispatched-event trace copies redact their carrier values; handlers and
+;; the `:rf/pending-navigation` sub still receive the original in-process map.
+(def ^:private nav-carrier-sensitive
+  [[:requested-url] [:destination] [:target]])
 (events/reg-event :rf.route/navigation-blocked
                      (assoc framework-authority-meta
-                            :sensitive [[:requested-url] [:requested-by-event]])
-                     can-leave/navigation-blocked-handler)
-;; Enter blocks carry the same pending-map carriers and therefore use the
+                            :sensitive nav-carrier-sensitive)
+                     decisions/navigation-blocked-handler)
+;; A terminal entry denial carries the same carriers and therefore uses the
 ;; same trace classification.
-(events/reg-event :rf.route/entry-blocked
+(events/reg-event :rf.route/entry-denied
                      (assoc framework-authority-meta
-                            :sensitive [[:requested-url] [:requested-by-event]])
-                     can-leave/entry-blocked-handler)
+                            :sensitive nav-carrier-sensitive)
+                     decisions/entry-denied-handler)
 (events/reg-event :rf.route/continue
                      framework-authority-meta
-                     can-leave/continue-handler)
+                     decisions/continue-handler)
 (events/reg-event :rf.route/cancel
                      framework-authority-meta
-                     can-leave/cancel-handler)
+                     decisions/cancel-handler)
 
 ;; :rf.route/navigate — Spec 012 §Navigation is an event. Declares both
 ;; recordable allocation cofx (mints the nav-token on commit + any block's

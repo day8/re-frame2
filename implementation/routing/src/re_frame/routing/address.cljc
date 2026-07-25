@@ -11,16 +11,9 @@
 
       address keys        #{:to :params :query :fragment}
       raw-URL escape      #{:url}
-      policy keys         #{:replace? :scroll :bypass-guards?}
+      policy keys         #{:replace? :scroll :bypass-leave?}
       edit keys           #{:query :query-merge :fragment}
-      link behaviour keys #{:on-click}
-
-  (Spec R0 names the policy set `#{:replace? :scroll :bypass-leave?}` and the
-  link-behaviour set `#{:prefetch}`; both graduate in later EP-0037 slices —
-  the set-valued `:bypass-guards?` is retired for the boolean `:bypass-leave?`
-  in R4, and `:prefetch` lands in R3. R0b preserves the CURRENT vocabulary, so
-  the constants here spell `:bypass-guards?` / `:on-click` — the extraction
-  MECHANISM is what R0 ratifies, not those two key names.)
+      link behaviour keys #{:on-click :prefetch}
 
   Two operations make up the law:
 
@@ -62,12 +55,17 @@
   #{:url})
 
 (def policy-keys
-  "Navigation POLICY key class — `:replace?` / `:scroll` (and the leave-only
-  `:bypass-guards?`). Policy travels beside the address in the same flat map
-  but keeps its own shape and is extracted / validated SEPARATELY, so no
-  policy key is ever serialisable as a destination (Spec 012 §The extraction
-  law). `:bypass-guards?` becomes the boolean `:bypass-leave?` in EP-0037 R4."
-  #{:replace? :scroll :bypass-guards?})
+  "Navigation POLICY key class — `:replace?` / `:scroll` / the leave-only
+  boolean `:bypass-leave?`. Policy travels beside the address in the same
+  flat map but keeps its own shape and is extracted / validated SEPARATELY,
+  so no policy key is ever serialisable as a destination (Spec 012 §The
+  extraction law).
+
+  `:bypass-leave?` (EP-0037 R4, OI-3) is a plain public boolean — the
+  explicit trusted-programmer escape for the rare direct navigation that
+  must skip the current route's `:can-leave` confirmation. There is NO
+  entry bypass: entry is terminal, so there is nothing to skip past."
+  #{:replace? :scroll :bypass-leave?})
 
 (def edit-keys
   "In-place EDIT key class — `:query` / `:query-merge` / `:fragment`. When no
@@ -91,9 +89,9 @@
   "The closed set of keys a `:rf.route/navigate` request map may carry — the
   WHOLE accepted-key roster the structural gate validates before extraction:
   address ∪ raw-URL escape ∪ policy ∪ edit. Any other key (namespaced or not)
-  is rejected `:reason :unknown-keys`. The runtime's own resume rider
-  `:rf.route/enter-attempts` is stripped BEFORE the gate (continuation
-  bookkeeping, absent from the published grammar)."
+  is rejected `:reason :unknown-keys` — the programmatic door carries NO
+  internal exemption (EP-0037 R4 retired the `:rf.route/enter-attempts`
+  resume rider along with the whole enter-resume protocol)."
   (set/union address-keys raw-url-keys policy-keys edit-keys))
 
 ;; ---- the closed `:rf/route-address` value ---------------------------------

@@ -29,9 +29,13 @@
     (is (empty? (set/intersection address/policy-keys #{:to :url}))
         "a policy key can never be a destination")
     (is (contains? address/policy-keys :replace?))
-    (is (contains? address/policy-keys :scroll)))
+    (is (contains? address/policy-keys :scroll))
+    (is (contains? address/policy-keys :bypass-leave?)
+        "EP-0037 R4 OI-3: the leave-only escape is the plain boolean :bypass-leave?")
+    (is (not (contains? address/policy-keys :bypass-guards?))
+        "the set-valued :bypass-guards? is retired"))
   (testing "the navigate roster is address ∪ raw-URL ∪ policy ∪ edit"
-    (is (= #{:to :params :query :fragment :url :replace? :scroll :bypass-guards? :query-merge}
+    (is (= #{:to :params :query :fragment :url :replace? :scroll :bypass-leave? :query-merge}
            address/navigate-request-roster))))
 
 ;; ---- classify: whole-roster gate BEFORE extraction ------------------------

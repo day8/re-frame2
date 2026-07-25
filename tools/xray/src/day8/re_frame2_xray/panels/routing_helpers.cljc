@@ -727,9 +727,10 @@
 ;;     (a navigation actually landed this epoch)
 ;;   - event-bundle carries :rf.route/navigation-blocked → :navigation-blocked
 ;;     (a :can-leave gate rejected)
-;;   - event-bundle carries :rf.route/entry-blocked → :entry-blocked
-;;     (a :can-enter gate rejected — rf2-p69yaz; the enter mirror of the
-;;     leave block, carrying :tags :phase :can-enter per 021 §7)
+;;   - event-bundle carries :rf.route/entry-denied → :entry-denied
+;;     (a :can-enter gate rejected — EP-0037 R4; TERMINAL, so unlike a leave
+;;     block it parks no pending value. Carries :tags :phase :can-enter per
+;;     021 §7)
 ;;   - event-bundle carries :rf.route/fragment-changed → :fragment-changed
 ;;   - otherwise → nil (no routing activity this epoch)
 ;;
@@ -741,11 +742,11 @@
 (def ^:private routing-phase-ops
   "Trace operations that indicate a routing-related phase. Order is
   significant: nav-token/allocated wins (the actual on-match), then a
-  leave block, then an enter block, then fragment-changed. The first
-  match wins."
+  leave block, then a terminal entry denial, then fragment-changed. The
+  first match wins."
   [[:rf.route.nav-token/allocated :on-match]
    [:rf.route/navigation-blocked  :navigation-blocked]
-   [:rf.route/entry-blocked       :entry-blocked]
+   [:rf.route/entry-denied        :entry-denied]
    [:rf.route/fragment-changed    :fragment-changed]])
 
 (defn- event-bundle-event-vectors
@@ -777,7 +778,7 @@
   view's 'No route activity' branch).
 
   `:phase` is one of
-  `#{:on-match :navigation-blocked :entry-blocked :fragment-changed}`
+  `#{:on-match :navigation-blocked :entry-denied :fragment-changed}`
   per the trace-event mix.
   `:events` is the event-bundle's event-vector list (root + downstream
   dispatches), useful for the spec §7.2 'Events' row.

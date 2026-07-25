@@ -1096,17 +1096,16 @@
 ;; ---- rf2-8zvajk: CONTINUE after a blocked popstate re-moves the URL ------
 ;;
 ;; The block above restored the address bar to the rejecting route's URL via
-;; replaceState. On `:rf.route/continue` the resume re-dispatches the
-;; original `[:rf.route/handle-url-change requested-url {:bypass-guards?
-;; #{:leave}}]`, which rewrites the slice but emits NO history mutation (it
-;; assumes the browser already moved). After the restore that assumption is
-;; false — so without a fix the slice commits to /cart while the address bar
-;; stays on /editor/articles/X, leaving the visible route and the browser
-;; URL / history entry divergent (refresh, copy-URL, and subsequent
-;; Back/Forward all operate on the stale URL). The fix: a blocked popstate
-;; that restored the URL records `:url-restored?`, and continue replaces the
-;; address bar with `:requested-url` (replaceState — preserving the popstate
-;; entry's place, history length unchanged).
+;; replaceState. On `:rf.route/continue` the resume replays the STORED
+;; destination + policy through `:rf.route/navigate` with a one-shot
+;; `:bypass-leave? true` (EP-0037 R4). A plain replay would PUSH, which would
+;; add a second history entry on top of the popstate entry the browser is
+;; already sitting on. So a blocked URL-driven transition that restored the
+;; address bar records `:url-restored?`, and continue forces `:replace? true`
+;; — the address bar moves to `:requested-url` by replaceState, preserving
+;; that entry's place with the history length unchanged. Without it the slice
+;; would commit to /cart while the address bar stayed on /editor/articles/X,
+;; leaving the visible route and the browser URL divergent.
 
 (deftest blocked-popstate-continue-restores-url-cljs
   (testing "rf2-8zvajk: :rf.route/continue after a blocked popstate moves the

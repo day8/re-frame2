@@ -12,7 +12,7 @@
   target and build their plan through THIS seam — so no door reinvents the
   ResolvedTarget shape or the plan projection.
 
-  Guard coverage (`re-frame.routing.can-leave/maybe-block-navigation`) and
+  Guard coverage (`re-frame.routing.decisions/decide`) and
   leaf-only planning + commit (`re-frame.routing.events/commit-navigation`) are
   each already ONE definition every door calls; this namespace adds the third:
   the ResolvedTarget fact shape and the plan's diagnostic projection.

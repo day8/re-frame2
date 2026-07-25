@@ -16,7 +16,7 @@
   re-wires them on a fresh registrar."
   (:require [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.routing.can-leave :as can-leave]
+            [re-frame.routing.decisions :as decisions]
             [re-frame.routing.egress :as egress]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.plan :as plan]
@@ -110,8 +110,18 @@
    `cause` is the R0 navigation cause the door represents (`:link` for the
    forward `:rf.route/transitioned` door, `:popstate` for the URL-driven
    `:rf.route/handle-url-change` door — popstate / initial / SSR). It is
-   carried on the route plan built at the commit branch (EP-0037 R0b)."
-  [rdb url default-scroll frame nav-allocation app-db cause]
+   carried on the route plan built at the commit branch (EP-0037 R0b) and
+   on any leave-pending / entry-denial value the decisions produce.
+
+   EP-0037 R4: the guard decisions (stages 4-5) run HERE, after the
+   transition kind is classified (stage 3) and before any commit — so an
+   exact no-op evaluates NEITHER guard while a full or fragment-only
+   transition evaluates both, in order. `opts` is the door's trailing opts
+   map: `:bypass-leave?` is the public one-shot leave escape and
+   `:rf.route/decided?` is the runtime-internal rider the link door sets on
+   the `:rf.route/transitioned` event it synthesises after deciding, so the
+   same target is not decided twice."
+  [rdb url default-scroll frame nav-allocation pending-nav-allocation app-db cause opts]
   (let [rdb (or rdb {})
         ;; rf2-6t1xb: any unexpected throw out of `match-url` must not
         ;; crash the event drain. `match-url-fail-closed` catches the
@@ -202,16 +212,48 @@
                            :params           params
                            :query            query
                            :fragment         fragment
-                           :url              url})]
+                           :url              url})
+        ;; EP-0037 stages 4-5, evaluated ONCE and only for a non-no-op
+        ;; transition (stage 3 short-circuits an exact no-op below before
+        ;; this thunk is ever forced). `nil` means "both guards allowed".
+        ;; Skipped outright when the LINK door already decided this exact
+        ;; target and synthesised this event (`:rf.route/decided?`).
+        decision (delay
+                   (when-not (:rf.route/decided? opts)
+                     (decisions/decide
+                       {:rdb                    rdb
+                        :frame                  frame
+                        :target                 {:route-id route-id
+                                                 :params   params
+                                                 :query    query
+                                                 :fragment fragment
+                                                 :url      url}
+                        :requested-url          url
+                        :cause                  cause
+                        :policy                 {}
+                        :bypass-leave?          (:bypass-leave? opts)
+                        :url-driven?            true
+                        :pending-nav-allocation pending-nav-allocation})))]
     (cond
-      ;; Spec 012 §Per-route data loading rule 3: nothing relevant
-      ;; changed — skip the dispatch entirely. No nav-token allocation,
-      ;; no `:on-match` drain, no scroll fx, no slice rewrite. The
-      ;; previously-allocated token stands. This is the "redundant
-      ;; navigation to the already-active URL" no-op (clicking the
-      ;; current nav link, popstate to the current URL).
+      ;; Spec 012 §Per-route data loading rule 3 / EP-0037 stage 3: nothing
+      ;; relevant changed — skip the dispatch entirely. No guard evaluation,
+      ;; no pending state, no nav-token allocation, no `:on-match` drain, no
+      ;; scroll fx, no slice rewrite. The previously-allocated token stands.
+      ;; This is the "redundant navigation to the already-active URL" no-op
+      ;; (clicking the current nav link, popstate to the current URL); an
+      ;; exact no-op leaves nothing and enters nothing, so a redundant
+      ;; request can neither be blocked nor create pending state.
       identical-nav?
       {:rf.db/runtime rdb}
+
+      ;; EP-0037 stages 4-5: a FULL or FRAGMENT-ONLY transition consults the
+      ;; current route's `:can-leave` and then the target route's
+      ;; `:can-enter`. A leave rejection writes the resumable leave-only
+      ;; pending value; an entry rejection is TERMINAL (no pending value, no
+      ;; commit). Both restore the address bar by replace — this is a
+      ;; URL-driven door, so the host URL has already moved.
+      (some? @decision)
+      @decision
 
       ;; Spec 012 §Fragments rules 3-4 (rf2-8oxj6): short-circuit BEFORE
       ;; the nav-token allocation / on-match drain below. Honoured on
@@ -338,7 +380,7 @@
     nav-allocation :rf.route/nav-allocation
     pending-nav-allocation :rf.route/pending-nav-allocation
     app-db :db}
-   [_ url opts :as event-vec]]
+   [_ url opts]]
   (let [;; EP-0002 carried invariant — `:rf.route/transitioned` is a
         ;; cascade event, so the cofx carries the frame stamp under
         ;; `:rf.frame/id`; a nil stamp is an invariant failure
@@ -347,25 +389,21 @@
                   frame :rf.route/transitioned
                   {:where 'rf.route/transitioned-handler})
         opts    (or opts {})
-        rdb     (or rdb {})
-        blocked (can-leave/maybe-block-navigation
-                  rdb frame
-                  event-vec url
-                  (:bypass-guards? opts)
-                  pending-nav-allocation)]
-    (or blocked
-        ;; rf2-w3qgc: thread the active `frame` into `url-change-fx` so the
-        ;; forward-nav route-miss / malformed-url trace sites
-        ;; carry `:frame`, consistent with the popstate / SSR sibling
-        ;; (`handle-url-change-handler`, :restore below) and the programmatic
-        ;; `:rf.route/navigate {:url ...}` path. Spec 009 requires `:frame` on
-        ;; `:rf.error/no-such-handler {:kind :route}` and
-        ;; `:rf.warning/no-not-found-route`. The carried `:frame` (the
-        ;; cascade cofx supplies it) tags those traces. EP-0001 (rf2-vzld77):
-        ;; the route slice is durable routing runtime-db state.
-        ;; EP-0037 R0b: the forward `:rf.route/transitioned` door's plan cause
-        ;; is `:link`.
-        (url-change-fx rdb url :top frame nav-allocation app-db :link))))
+        rdb     (or rdb {})]
+    ;; rf2-w3qgc: thread the active `frame` into `url-change-fx` so the
+    ;; forward-nav route-miss / malformed-url trace sites
+    ;; carry `:frame`, consistent with the popstate / SSR sibling
+    ;; (`handle-url-change-handler`, :restore below) and the programmatic
+    ;; `:rf.route/navigate {:url ...}` path. Spec 009 requires `:frame` on
+    ;; `:rf.error/no-such-handler {:kind :route}` and
+    ;; `:rf.warning/no-not-found-route`. The carried `:frame` (the
+    ;; cascade cofx supplies it) tags those traces. EP-0001 (rf2-vzld77):
+    ;; the route slice is durable routing runtime-db state.
+    ;; EP-0037 R0b: the forward `:rf.route/transitioned` door's plan cause
+    ;; is `:link`. EP-0037 R4: the guard decisions run INSIDE
+    ;; `url-change-fx`, after the transition kind is classified.
+    (url-change-fx rdb url :top frame nav-allocation pending-nav-allocation
+                   app-db :link opts)))
 
 (defn handle-url-change-handler
   "`:rf.route/handle-url-change` event handler. Registered by the
@@ -382,7 +420,7 @@
     nav-allocation :rf.route/nav-allocation
     pending-nav-allocation :rf.route/pending-nav-allocation
     app-db :db}
-   [_ url opts :as event-vec]]
+   [_ url opts]]
   (let [;; EP-0002 carried invariant — `:rf.route/handle-url-change` is a
         ;; cascade event (popstate / initial / SSR), so the cofx carries
         ;; the frame stamp under `:rf.frame/id`; a nil stamp is an invariant
@@ -392,14 +430,9 @@
                   frame :rf.route/handle-url-change
                   {:where 'rf.route/handle-url-change-handler})
         opts    (or opts {})
-        rdb     (or rdb {})
-        blocked (can-leave/maybe-block-navigation
-                  rdb frame
-                  event-vec url
-                  (:bypass-guards? opts)
-                  pending-nav-allocation)]
-    (or blocked
-        ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-        ;; EP-0037 R0b: the URL-driven `:rf.route/handle-url-change` door
-        ;; (popstate / initial / SSR) carries the `:popstate` plan cause.
-        (url-change-fx rdb url :restore frame nav-allocation app-db :popstate))))
+        rdb     (or rdb {})]
+    ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+    ;; EP-0037 R0b: the URL-driven `:rf.route/handle-url-change` door
+    ;; (popstate / initial / SSR) carries the `:popstate` plan cause.
+    (url-change-fx rdb url :restore frame nav-allocation pending-nav-allocation
+                   app-db :popstate opts)))
