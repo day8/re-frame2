@@ -251,9 +251,15 @@ test('the script is committed executable (release.yml invokes it directly)', () 
   );
 });
 
-// ── The fleet gate: every deploy-leaf matrix value must rewrite cleanly ─
-// Parsed out of release.yml so the test follows the matrix rather than a
-// hand-copied duplicate of it.
+// ── The fleet gate: every declared leaf must rewrite cleanly ────────────
+// Parsed out of release.yml so the test follows the workflow rather than a
+// hand-copied duplicate of it. Every `- leaf:` declaration counts, across
+// BOTH deploy jobs: the `deploy-leaf` matrix (the eleven independent leaves)
+// and `deploy-ssr-ring`, which rf2-p4a93 moved into its own job so it cannot
+// publish ahead of the sibling `ssr` leaf its pom depends on. That job keeps
+// its leaf declaration in the same matrix shape precisely so this gate keeps
+// covering it; the ordering property itself is asserted in
+// _release-dag-policy.test.cjs.
 function parseDeployLeafMatrix() {
   const yml = fs.readFileSync(RELEASE_YML, 'utf8');
   const leaves = [];
@@ -284,11 +290,12 @@ test('every deploy-leaf rewrites its real deps.edn to exactly one published coor
   // compiled-view substrate joins the lockstep release train), then
   // 14 -> 13 when the helix deploy leaf left the train (S7/W13, rf2-d6epb),
   // then 13 -> 12 when the ui leaf left it again (rf2-a32r7 — re-frame.ui is
-  // donor-only and is never published).
+  // donor-only and is never published). It stayed 12 when rf2-p4a93 moved
+  // ssr-ring out of the matrix into its own job: 11 + 1.
   assert.equal(
     leaves.length,
     12,
-    `expected 12 deploy-leaf matrix values parsed from release.yml, got ${leaves.length}`,
+    `expected 12 leaf declarations parsed from release.yml, got ${leaves.length}`,
   );
 
   for (const { leaf, directory, localRoot, extraLocalRoot } of leaves) {
