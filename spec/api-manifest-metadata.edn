@@ -1514,6 +1514,42 @@
   ["re-frame.freehand.test" "attrs"]       {:tier :testing :owner "008" :status "EP-0036"}
   ["re-frame.freehand.test" "text"]        {:tier :testing :owner "008" :status "EP-0036"}
 
+  ;; =========================================================================
+  ;; re-frame.freehand.tool — the Freehand TOOL-TIER READER DOOR (rf2-hytu5;
+  ;; EP-0036). The third and last sanctioned `re-frame.freehand.*` namespace,
+  ;; and the smallest: ONE name, `view-manifest`.
+  ;;
+  ;; TOOLING, the same tier `v/describe` and `v/manifest` sit in, and for the
+  ;; same reason — it answers with inspection DATA and is never a dispatch
+  ;; surface. Tooling is a back-room, opt-in tier (§Tier taxonomy): the Guide
+  ;; and the skills load front-porch only, so rowing this here classifies the
+  ;; door without advertising it to application authors, which is the honest
+  ;; reading of a read an INSPECTOR performs and an application does not.
+  ;;
+  ;; Not `internal-public`, which the taxonomy reserves for surfaces exported
+  ;; so a host or tool can EMBED against framework plumbing: this is a
+  ;; first-class published read with a normative owner, not plumbing leaking
+  ;; through a seam. Its whole difference from `v/manifest` is TOTALITY — a
+  ;; tool is handed whatever it swept out of a namespace, so every value gets
+  ;; an answer and `nil` means "nothing statically known" — which is a tooling
+  ;; property, not an escalation in support level.
+  ;;
+  ;; Owner "004" (the declaration and its manifest are Spec 004's; the
+  ;; instrumentation contract these reads serve is 009's, but the owner axis
+  ;; records the contract's HOME, not every spec a row touches).
+  ;;
+  ;; DELIBERATELY NOT the donor `re-frame.ui.tool` surface, whose disposition
+  ;; is REPLACE and whose per-occurrence evidence accumulator was ruled out
+  ;; PERMANENTLY (rf2-drpa3.167), not deferred. There is no accumulator, no
+  ;; root registry, no interval log and no history store here — retention is
+  ;; Spec 009's ring — so the one name is the whole namespace by construction,
+  ;; and live reads over mounted occurrences are a separate slice (rf2-lvvl2)
+  ;; with a separate owner. `.cljc` and host-neutral like the door and the
+  ;; test sibling, so the JVM generator owns tier/kind via `ns-publics` and
+  ;; the CLJS probe reconciles the same row, FULLY-ROWED in both directions.
+  ;; =========================================================================
+  ["re-frame.freehand.tool" "view-manifest"] {:tier :tooling :owner "004" :status "EP-0036"}
+
   ["re-frame.ui.test" "render"]    {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "text"]      {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "attrs"]     {:tier :testing :owner "008" :status "Spec-004 S1"}

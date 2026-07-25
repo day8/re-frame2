@@ -117,6 +117,16 @@
     ;; the supported six are the whole namespace by construction rather than
     ;; by carve-out. Its CLJS surface is reconciled by the probe.
     re-frame.freehand.test
+    ;; The Freehand substrate's TOOL-TIER READER DOOR (rf2-hytu5; contract in
+    ;; Spec 004, the instrumentation it serves in Spec 009). The third and last
+    ;; sanctioned `re-frame.freehand.*` namespace, publishing ONE name —
+    ;; `view-manifest`, a total projection of the compile-time analysis a value
+    ;; already carries. `.cljc` and host-neutral like the door and the test
+    ;; sibling, so `ns-publics` is authoritative here and the CLJS half is
+    ;; reconciled by the probe. It is a READER, not a tool framework: there is
+    ;; no accumulator, no registry and no history store, so the one name is the
+    ;; whole namespace by construction rather than by carve-out.
+    re-frame.freehand.tool
     ;; Optional feature artefacts (public home namespaces).
     re-frame.schemas
     re-frame.machines

@@ -141,8 +141,9 @@ shadow-cljs halves (deps.edn and package.json) must pin the same version.
 
 The failure mode when the hook is missing is a *runtime* throw on namespace
 load — the app cannot resolve its own compiled views. The fix is always the
-same: add the hook. Full recipe with the smoke test:
-`docs/core/how-to/install-re-frame-ui.md` in the re-frame2 repo.
+same: add the hook. The settings themselves are carried, and drift-checked
+against this repo's real build config, in
+`skills/re-frame2-setup/references/shadow-cljs.md`.
 
 Boot installs the substrate's adapter once, then mounts:
 
@@ -493,5 +494,5 @@ Deep references, in the re-frame2 repo:
   roster (regenerated from the compiler; drift-checked in CI).
 - `docs/core/re-frame.ui/` — the guide (mental model, build-a-view, state,
   events-and-handlers, interop-and-limits, testing, ssr, presence).
-- `docs/core/how-to/install-re-frame-ui.md` — the full install recipe.
+- `skills/re-frame2-setup/references/shadow-cljs.md` — the Shadow settings, held against the real build config by a drift gate.
 - `spec/004-Views.md` — the normative grammar.

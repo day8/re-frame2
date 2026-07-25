@@ -419,7 +419,7 @@ decision, and each moves as one editorial pass.
 | Donor row | What it is | Disposition | Slice | Status |
 |---|---|---|---|---|
 | `docs/core/re-frame.ui/*` | the donor guide chapters: mental model, building a view, state, events, presence, reactivity, interop, SSR, testing, custom elements | MOVE | F6 | done |
-| `docs/core/how-to/install-re-frame-ui.md` | the donor install how-to | MOVE | F6 | pending |
+| `docs/core/how-to/install-re-frame-ui.md` | the donor install how-to | MOVE | F6 | done |
 | `docs/core/how-to/measure-before-paint.md` | the before-paint measurement how-to, written against donor forms | MOVE | F6 | pending |
 | `docs/core/views.md` | the view-layer overview that routes readers to the donor | REPLACE | F6 | done |
 | `docs/api/re-frame.ui*.md` | the generated donor API pages | REPLACE | F6 | pending |
