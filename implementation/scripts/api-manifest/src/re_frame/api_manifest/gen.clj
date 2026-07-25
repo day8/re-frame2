@@ -144,10 +144,21 @@
     ;; namespace by construction rather than by carve-out (the private helpers
     ;; beneath them are `defn-` / `def ^:private`).
     re-frame.freehand.tool
-    ;; Optional feature artefacts (public home namespaces).
+    ;; Optional feature artefacts (public home namespaces). All nine published
+    ;; feature coordinates are here. `re-frame.resources` was ABSENT until
+    ;; rf2-ivuun — eight of nine — even though `day8/re-frame2-resources` was
+    ;; already on this generator's classpath (see deps.edn), so the manifest
+    ;; carried ZERO resources rows while every other artefact carried 8-36. The
+    ;; consequence was not merely an undercount: `doc_api_check` derives its
+    ;; namespace roster FROM these rows, so `docs/api/re-frame.resources.md`
+    ;; received no coverage check at all, and anyone using the manifest as the
+    ;; "does this var exist" authority got false negatives across the whole
+    ;; resources surface. Adding a roster entry here is the whole fix; nothing
+    ;; about resources was ever unintrospectable.
     re-frame.schemas
     re-frame.machines
     re-frame.routing
+    re-frame.resources
     re-frame.flows
     re-frame.http
     re-frame.ssr
