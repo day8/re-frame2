@@ -350,117 +350,205 @@
              (text-of tree "rf-xray-reactive-destroyed-caption"))
           "the explanatory caption renders"))))
 
-;; ---- mounted-view evidence (S3 · re-frame.ui.tool · rf2-vxgfnd.95.7) ---
+;; ---- mounted views (Freehand tool door · rf2-7gth0) -------------------
 
-(defn- seed-evidence!
-  "Seed the three cumulative evidence subs the mounted-view + sites sections
-  read (independent of the epoch-scoped `:rf.xray/reactive-data`)."
-  [{:keys [rows version sites]}]
-  (rf/reg-sub :rf.xray/viewcell-evidence (fn [_db _q] (or rows [])))
-  (rf/reg-sub :rf.xray/viewcell-evidence-version (fn [_db _q] version))
-  (rf/reg-sub :rf.xray/view-evidence-sites (fn [_db _q] (or sites []))))
+(defn- seed-mounted-views!
+  "Seed the three Freehand-door reads the Mounted Views + Declared View Sites
+  sections consume (independent of the epoch-scoped `:rf.xray/reactive-data`).
 
-(deftest mounted-view-evidence-row-renders-occurrence-lifecycle-and-honest-loss
-  (testing "rf2-vxgfnd.95.7 — an evidence row surfaces occurrence identity, the
-            honest Activity-hidden lifecycle label, and the floored loss count."
+  The row shapes below are the ones `re-frame.freehand.tool` actually
+  publishes — the live counterpart is asserted against real occurrences in
+  `mounted_views_cljs_test`, so this suite can stay a pure render test."
+  [{:keys [rows schema sites]}]
+  (rf/reg-sub :rf.xray/mounted-views (fn [_db _q] (or rows [])))
+  (rf/reg-sub :rf.xray/mounted-views-schema (fn [_db _q] schema))
+  (rf/reg-sub :rf.xray/mounted-view-sites (fn [_db _q] (or sites []))))
+
+(deftest mounted-views-row-renders-current-state-and-its-cause
+  (testing "rf2-7gth0 — a row surfaces the occurrence, the lowering, the LATEST
+            committed generation, that commit's read count, and the run that
+            caused the render. Every quantity is a fact about now: there is no
+            lifetime render tally to render because the substrate keeps none."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data! {:has-event-bundle? false :focus {}})
-    (seed-evidence!
-      {:rows [{:occurrence 7 :view-id :cart/Row :root-id :page/shop
-               :connection :disconnected
-               :lifecycle {:intervals [{:state :disconnected
-                                        :reason :activity-hidden :proof :reconnect}]
-                           :dropped 0 :exact? true}
-               :causes #{:subscription} :count 4 :batches 2
-               :first-epoch 10 :latest-epoch 14
-               :targets [[:sub :rf/app [:a]]] :targets-exact? false
-               :dropped-count 70 :dropped-exact? false}]})
+    (seed-mounted-views!
+      {:rows [{:view-id :cart/Row
+               :occurrence {:parent nil :key 71}
+               :lowering :compiled :generation 4 :connection :connected
+               :root :unknown :at 18422.7 :dispatch-id 41 :frame :rf/app
+               :reads [{:query [:cart/total] :frame-id :rf/app :owned? true}
+                       {:query [:cart/item 3] :frame-id :rf/app :owned? true}]
+               :cause {:dispatch-id 41 :cause-event-id :cart/loaded
+                       :sub-ids #{:cart/total}}
+               :candidates [] :explained? true :loss nil
+               :window {:retained-runs 12 :spans-commit? true}}]})
     (let [tree (view/reactive-panel)
-          row  (text-of tree "rf-xray-reactive-viewcell-evidence-row-7")]
-      (is (some? row) "the occurrence-keyed row renders")
-      (is (re-find #"occ #7" row) "occurrence identity")
-      (is (re-find #"activity-hidden \(proven: reconnect\)" row)
-          "the qualified retroactive hide label renders with its proof")
-      (is (re-find #"≥70 dropped" row) "the floored loss is marked ≥, not exact")
-      (is (re-find #"4 renders" row) "the render count")
-      (is (re-find #"epochs 10→14" row) "the epoch span"))))
+          row  (text-of tree "rf-xray-reactive-mounted-views-row-0")]
+      (is (some? row) "the occurrence row renders")
+      (is (re-find #":cart/Row" row) "the declaring view")
+      (is (re-find #"occ 71" row) "the runtime occurrence key")
+      (is (re-find #"compiled" row) "the lowering is shown, never inferred")
+      (is (re-find #"gen 4" row) "the LATEST committed generation")
+      (is (re-find #"2 reads" row) "THAT commit's staged reads")
+      (is (re-find #":cart/loaded" row) "the event that caused the render")
+      (is (re-find #":cart/total" row) "…and the subscription it recomputed")
+      (is (not (re-find #":unknown" row))
+          "`:root` is always the substrate's explicit unknown, so the row shows
+           no root at all rather than printing the marker at a developer"))))
 
-(deftest mounted-view-evidence-empty-state-renders-honestly
-  (testing "no evidence → the honest empty placeholder, no fabricated rows."
+(deftest mounted-views-row-states-why-a-render-is-unexplained
+  (testing "a bounded window that has forgotten why a view rendered must say
+            so: a nil cause presented as complete evidence would assert that
+            nothing caused the render. The two reasons are different remedies,
+            so they read differently."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data! {:has-event-bundle? false :focus {}})
-    (seed-evidence! {:rows []})
+    (seed-mounted-views!
+      {:rows [{:view-id :cart/Row :occurrence {:key 71}
+               :lowering :interpreted :generation 1 :connection :connected
+               :root :unknown :frame :rf/app :reads []
+               :cause nil
+               :candidates [{:dispatch-id 9 :cause-event-id :cart/other
+                             :sub-ids #{:cart/total}}]
+               :explained? false
+               :loss {:reason :uncorrelated :dropped :unknown}}
+              {:view-id :cart/Total :occurrence {:key 72}
+               :lowering :compiled :generation 2 :connection :connected
+               :root :unknown :frame :rf/app :reads []
+               :cause nil :candidates [] :explained? false
+               :loss {:reason :cap :dropped :unknown}}]})
+    (let [tree (view/reactive-panel)
+          a    (text-of tree "rf-xray-reactive-mounted-views-row-0")
+          b    (text-of tree "rf-xray-reactive-mounted-views-row-1")]
+      (is (re-find #"uncorrelated" a)
+          "no cascade in scope at commit — a bigger buffer would not fix it")
+      (is (re-find #"1 lead" a)
+          "candidates are offered as LEADS, never promoted to the cause")
+      (is (re-find #"not retained" b)
+          "the window's own knob is the remedy for the cap arm")
+      (is (not (re-find #"lead" b)) "…and no leads are claimed where there are none"))))
+
+(deftest mounted-views-empty-state-renders-honestly
+  (testing "nothing connected → the honest empty placeholder, no fabricated rows."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data! {:has-event-bundle? false :focus {}})
+    (seed-mounted-views! {:rows []})
     (let [tree (view/reactive-panel)]
-      (is (has-testid? tree "rf-xray-reactive-viewcell-evidence-empty")
-          "empty placeholder renders when no incarnation has evidence"))))
+      (is (has-testid? tree "rf-xray-reactive-mounted-views-empty")
+          "empty placeholder renders when nothing has committed"))))
 
-(deftest mounted-view-evidence-version-banner-renders-on-mismatch
-  (testing "rf2-vxgfnd.95.7 — a producer evidence-schema version this build
-            does not understand renders the honest degradation banner."
+(deftest mounted-views-schema-banner-renders-on-mismatch
+  (testing "rf2-7gth0 — an evidence schema this build does not understand
+            renders the honest degradation banner, so a mismatched deployment
+            does not read as a host with nothing mounted."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data! {:has-event-bundle? false :focus {}})
-    (seed-evidence! {:rows [] :version {:version 9999 :supported? false}})
+    (seed-mounted-views! {:rows []
+                          :schema {:schema :re-frame.freehand.evidence/v9
+                                   :supported? false}})
     (let [tree   (view/reactive-panel)
-          banner (text-of tree "rf-xray-reactive-viewcell-evidence-version-banner")]
-      (is (some? banner) "the version-mismatch banner renders")
-      (is (re-find #"v9999" banner) "names the unrecognised version")
-      (is (re-find #"suppressed" banner) "explains rows are suppressed (no mis-parse)"))))
+          banner (text-of tree "rf-xray-reactive-mounted-views-schema-banner")]
+      (is (some? banner) "the schema-mismatch banner renders")
+      (is (re-find #"v9" banner) "names the unrecognised schema")
+      (is (re-find #"suppressed" banner)
+          "explains rows are suppressed (no mis-parse)"))))
 
-(deftest mounted-view-evidence-version-banner-absent-when-supported
-  (testing "a supported (or absent) version renders NO banner."
+(deftest mounted-views-schema-banner-absent-when-supported
+  (testing "a supported (or absent) schema renders NO banner."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data! {:has-event-bundle? false :focus {}})
-    (seed-evidence! {:rows [] :version {:version 1 :supported? true}})
+    (seed-mounted-views! {:rows []
+                          :schema {:schema :re-frame.freehand.evidence/v1
+                                   :supported? true}})
     (let [tree (view/reactive-panel)]
       (is (nil? (th/find-by-testid
-                  tree "rf-xray-reactive-viewcell-evidence-version-banner"))
-          "no banner on a supported version"))))
+                  tree "rf-xray-reactive-mounted-views-schema-banner"))
+          "no banner on a supported schema"))))
 
-(deftest compiled-view-sites-section-renders-dependencies-and-event-sites
-  (testing "rf2-vxgfnd.95.7 — the Compiled View Sites section surfaces
-            dependency + event-site provenance; :dynamic/opaque labelled."
+(deftest view-sites-section-renders-dependencies-and-event-sites
+  (testing "rf2-7gth0 — the Declared View Sites section surfaces dependency +
+            event-site provenance from the compiler manifest; a dynamic query
+            and an opaque handler are labelled, never shown as source code, and
+            the per-SITE source coordinate is what the [code] chip opens."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data! {:has-event-bundle? false :focus {}})
-    (seed-evidence!
+    (seed-mounted-views!
       {:sites [{:view-id :cart/Row
-                :source {:file "src/cart.cljs" :line 12 :column 3}
-                :capabilities #{:html}
-                :site-counts {:subs 2 :events 2}
-                :dependencies {:subscriptions [{:sid 1 :dynamic? false :query [:cart/total]}
-                                               {:sid 2 :dynamic? true}]}
-                :event-sites [{:prop :on-click :site-kind :literal
-                               :serializable? true :handler [:cart/add 3]}
-                              {:prop :on-blur :site-kind :dynamic
-                               :serializable? false :handler :opaque}]}]})
+                :lowering :compiled :basis :static-proof :complete? true :loss nil
+                :capabilities #{:sub :event}
+                :view-cell :present :reactive? true
+                :subscriptions [{:sid "s1" :dynamic? false :query [:cart/total]
+                                 :source-coord {:file "src/cart.cljs" :line 12 :column 3}}
+                                {:sid "s2" :dynamic? true :query-id :cart/item}]
+                :event-sites [{:prop :on-click :classification :vector
+                               :serializable? true :handler [:cart/add 3]
+                               :event-id :cart/add
+                               :source-coord {:file "src/cart.cljs" :line 19 :column 5}}
+                              {:prop :on-blur :classification :fn
+                               :serializable? false :handler :opaque :event-id nil}]}]})
     (let [tree   (view/reactive-panel)
-          events (text-of tree "rf-xray-reactive-view-site-events-_cart_Row")]
+          subs   (text-of tree "rf-xray-reactive-view-site-subs-_cart_Row")
+          events (text-of tree "rf-xray-reactive-view-site-events-_cart_Row")
+          facts  (text-of tree "rf-xray-reactive-view-site-facts-_cart_Row")]
       (is (has-testid? tree "rf-xray-reactive-view-sites-section")
-          "the Compiled View Sites section renders")
+          "the Declared View Sites section renders")
       (is (has-testid? tree "rf-xray-reactive-view-site-row-_cart_Row")
           "the per-view site row renders")
-      (is (has-testid? tree "rf-xray-reactive-view-site-code-_cart_Row")
-          "the [code] source chip renders for a manifest with a source coord")
+      (is (re-find #":cart/total" subs) "a literal query is projected verbatim")
+      (is (re-find #":cart/item \(dynamic args\)" subs)
+          "a query carrying a captured local shows the id the compiler knows and
+           leaves the runtime argument unsaid")
+      (is (has-testid? tree "rf-xray-reactive-view-site-sub-code-_cart_Row-0")
+          "the [code] chip renders for a site carrying a source coordinate")
+      (is (nil? (th/find-by-testid
+                  tree "rf-xray-reactive-view-site-sub-code-_cart_Row-1"))
+          "…and is ABSENT — not a dead chip — for a site carrying none")
       (is (re-find #":cart/add" events) "a literal handler vector is shown")
-      (is (re-find #"opaque" events) "a dynamic handler is honestly labelled opaque"))))
+      (is (re-find #"opaque" events) "a callback body is honestly opaque")
+      (is (re-find #"2 subs \(1 dynamic\)" facts) "the dependency summary")
+      (is (re-find #"view-cell present" facts)
+          "the compiler's ViewCell verdict rides the row"))))
 
-(deftest compiled-view-sites-section-renders-compile-tier-a11y-diagnostics
+(deftest view-sites-row-says-an-interpreted-declaration-was-never-analysed
+  (testing "rf2-7gth0 — the axis the donor tier could not state at all. An
+            interpreted declaration has no analysis step, so its empty rosters
+            mean nobody looked; rendering them as a clean bill of health would
+            be the one dishonest reading."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data! {:has-event-bundle? false :focus {}})
+    (seed-mounted-views!
+      {:sites [{:view-id :cart/Row
+                :lowering :interpreted :basis :opaque :complete? false
+                :loss {:reason :no-static-analysis :dropped :unknown}
+                :subscriptions [] :event-sites [] :diagnostics []}]})
+    (let [tree   (view/reactive-panel)
+          opaque (text-of tree "rf-xray-reactive-view-site-opaque-_cart_Row")]
+      (is (some? opaque) "the un-analysed line renders")
+      (is (re-find #"no static analysis" opaque))
+      (is (re-find #"unknown, not absent" opaque)
+          "the sites are UNKNOWN — the whole reason the projection vocabulary
+           exists is that unknown must not look like none")
+      (is (nil? (th/find-by-testid tree "rf-xray-reactive-view-site-facts-_cart_Row"))
+          "…and no roster summary is offered over rosters nobody built"))))
+
+(deftest view-sites-section-renders-compile-tier-a11y-diagnostics
   (testing "rf2-74vlo (S4-C) — the compiler's a11y findings ride the SAME
             static-evidence path as every other manifest fact; a suppressed
             finding still shows, carrying the author's reason."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data! {:has-event-bundle? false :focus {}})
-    (seed-evidence!
+    (seed-mounted-views!
       {:sites [{:view-id :cart/Row
-                :source {:file "src/cart.cljs" :line 12 :column 3}
-                :site-counts {:subs 0 :events 1}
-                :dependencies {:subscriptions []}
-                :event-sites []
+                :lowering :compiled :basis :static-proof :complete? true :loss nil
+                :subscriptions [] :event-sites []
                 :diagnostics
                 [{:sid "sid1-aa" :id :rf.ui.compile/a11y-click-non-interactive
                   :tag :div :suppressed? false}
@@ -478,32 +566,31 @@
           "a suppressed finding stays visible WITH its reason — a suppression
            is an inspectable fact, not an erasure"))))
 
-(deftest compiled-view-sites-diagnostics-line-absent-when-clean
+(deftest view-sites-diagnostics-line-absent-when-clean
   (testing "a view with no a11y findings renders no diagnostics line at all
             (the silent-when-zero grammar, not an empty 'no issues' row)."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data! {:has-event-bundle? false :focus {}})
-    (seed-evidence!
+    (seed-mounted-views!
       {:sites [{:view-id :cart/Row
-                :site-counts {:subs 0 :events 0}
-                :dependencies {:subscriptions []}
-                :event-sites [] :diagnostics []}]})
+                :lowering :compiled :basis :static-proof :complete? true :loss nil
+                :subscriptions [] :event-sites [] :diagnostics []}]})
     (let [tree (view/reactive-panel)]
       (is (nil? (th/find-by-testid
                   tree "rf-xray-reactive-view-site-diagnostics-_cart_Row"))
           "no diagnostics line for a clean view"))))
 
-(deftest compiled-view-sites-section-absent-when-no-sites
-  (testing "no compiled-view sites → the section is absent entirely (the
+(deftest view-sites-section-absent-when-no-sites
+  (testing "nothing connected → the section is absent entirely (the
             evidence-keyed silent-when-zero grammar, not an empty caption)."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data! {:has-event-bundle? false :focus {}})
-    (seed-evidence! {:sites []})
+    (seed-mounted-views! {:sites []})
     (let [tree (view/reactive-panel)]
       (is (nil? (th/find-by-testid tree "rf-xray-reactive-view-sites-section"))
-          "the section does not render for a substrate-free host"))))
+          "the section does not render for a host with nothing mounted"))))
 
 ;; ---- legend (rf2-ad7zx.6) ---------------------------------------------
 

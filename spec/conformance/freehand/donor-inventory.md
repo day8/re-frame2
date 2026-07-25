@@ -388,12 +388,12 @@ disposed when the consumer moves to Freehand names.
 | `tools/story/test/re_frame/story/view_tool*` | story's view-tool tests over donor projections | MOVE | F6 | pending |
 | `tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs` | story's end-to-end consumer test over a donor example | MOVE | F6 | pending |
 | `tools/story/spec/017-Testing-Story.md` | story's testing contract where it names the donor | REPLACE | F6 | pending |
-| `tools/xray/deps.edn` | the donor artifact coordinate on the xray classpath | REPLACE | F6 | pending |
-| `tools/xray/src/day8/re_frame2_xray/viewcell_evidence.cljs` | xray's reader over the reactor evidence plane | MOVE | F6 | pending |
-| `tools/xray/src/day8/re_frame2_xray/panels/reactive_panel_*` | the xray panel projecting donor view records | MOVE | F6 | pending |
-| `tools/xray/test/day8/re_frame2_xray/viewcell_evidence_cljs_test.cljs` | xray's evidence-reader tests over donor view records | MOVE | F6 | pending |
-| `tools/xray/test/day8/re_frame2_xray/realworld_ui_evidence_cljs_test.cljs` | xray's end-to-end evidence test over a donor-authored example | MOVE | F6 | pending |
-| `tools/xray/spec/*` | xray's own spec pages naming the donor substrate | REPLACE | F6 | pending |
+| `tools/xray/deps.edn` | the donor artifact coordinate on the xray classpath | REPLACE | F6 | done |
+| `tools/xray/src/day8/re_frame2_xray/viewcell_evidence.cljs` | xray's reader over the reactor evidence plane | MOVE | F6 | done |
+| `tools/xray/src/day8/re_frame2_xray/panels/reactive_panel_*` | the xray panel projecting donor view records | MOVE | F6 | done |
+| `tools/xray/test/day8/re_frame2_xray/viewcell_evidence_cljs_test.cljs` | xray's evidence-reader tests over donor view records | MOVE | F6 | done |
+| `tools/xray/test/day8/re_frame2_xray/realworld_ui_evidence_cljs_test.cljs` | xray's end-to-end evidence test over a donor-authored example | MOVE | F6 | done |
+| `tools/xray/spec/*` | xray's own spec pages naming the donor substrate | REPLACE | F6 | done |
 | `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/view_tool.cljs` | the pair server's view tool over donor projections | MOVE | F6 | done |
 | `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_data.cljs` | tool descriptors naming donor view vocabulary | REPLACE | F6 | done |
 | `tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md` | the pair tool catalogue where it names the donor | REPLACE | F6 | done |
@@ -408,7 +408,7 @@ disposed when the consumer moves to Freehand names.
 |---|---|---|---|---|
 | `examples/ui/minimal-counter/*` | the minimal runnable donor scaffold example | MOVE | F6 | done |
 | `examples/real-apps/realworld_resources/ui_*` | the donor-authored views of the realworld example, including its compiled editor and counter | MOVE | F6 | pending |
-| `tools/xray/testbeds/feature_matrix/scenarios.cjs` | the xray feature-matrix scenarios that mount donor views | MOVE | F6 | pending |
+| `tools/xray/testbeds/feature_matrix/scenarios.cjs` | the xray feature-matrix scenarios that mount donor views | MOVE | F6 | done |
 
 ## Donor material in docs and skills
 

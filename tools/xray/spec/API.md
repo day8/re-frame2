@@ -28,17 +28,9 @@ cycle re-runs without double-registration:
 3. Registers the epoch-settle pump under `:rf.xray/epoch-collector`
    via `re-frame.core/register-listener!` on the `:epoch` stream (sentinel-guarded; no-op
    when the `day8/re-frame2-epoch` artefact is absent).
-4. Acquires the re-frame.ui ViewCell invalidation-evidence projection
-   under Xray's stable owner identity, opening an ownership span
-   (`viewcell-evidence/acquire!`; the `:after-load` re-run is the
-   same-span re-arm — accumulated evidence survives, the receipt is
-   preserved). A foreign owner is never clobbered (the acquire is
-   rejected and Xray projects zero rows); a host without the re-frame.ui
-   substrate projects nothing. See `spec/021-Dynamic-Panel-Designs.md`
-   §3.4.1.
-5. Installs the dev-only browser API on `window.day8.re_frame2_xray.*`
+4. Installs the dev-only browser API on `window.day8.re_frame2_xray.*`
    (`open!`, `toggle!`, `popout!`, `status`, …).
-6. Attaches the global keydown listener. The shipped chords (the
+5. Attaches the global keydown listener. The shipped chords (the
    `keybinding.cljs` predicates are the source of truth; UX rationale
    in `spec/007-UX-IA.md` §Global shortcuts): `Ctrl+Shift+C` (toggle
    shell), `Ctrl/Cmd+K` (command palette), `Ctrl/Cmd+Shift+M`

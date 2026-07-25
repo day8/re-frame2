@@ -473,24 +473,22 @@
    ;; `:rf.cascade/captured`).
    :rf.xray/reactive-data
    :rf.xray/reactive-show-unchanged?
-   ;; rf2-vxgfnd.146/.95.7 — the Mounted View Evidence section's query over
-   ;; Xray's OWNED projection, sourced from the VERSIONED PUBLIC
-   ;; `re-frame.ui.tool/explain-render` projection (spec/021 §3.4.1);
-   ;; registered by `reactive-panel-subs/install!`.
-   :rf.xray/viewcell-evidence
-   ;; rf2-vxgfnd.286 — the ownership-REVISION reactive input to the query
-   ;; above: `viewcell-evidence` bumps it on every acquire/release so a live
-   ;; query recomputes to empty immediately (not on the next epoch pump).
-   :rf.xray/viewcell-evidence-ownership
-   ;; rf2-vxgfnd.95.7 — the evidence-schema version honesty read: when the
-   ;; `re-frame.ui.tool` producer stamps a version this build does not
-   ;; understand, rows degrade and the panel renders the honest banner.
-   :rf.xray/viewcell-evidence-version
-   ;; rf2-vxgfnd.95.7 — the static per-view manifest sites (event-site
-   ;; provenance + dependency sites) for the compiled views in the evidence,
-   ;; read from the versioned `view-manifest`/`view-dependencies`/
-   ;; `view-event-sites` projections.
-   :rf.xray/view-evidence-sites))
+   ;; rf2-7gth0 — the Mounted Views section's query over
+   ;; `re-frame.freehand.tool/read-mounted-views`, joined with the bounded
+   ;; read-time `explain-render` fold (spec/021 §3.4.1); registered by
+   ;; `reactive-panel-subs/install!`. There is no ownership-revision sibling:
+   ;; the Freehand door is a reader with no registry to claim, so the standing
+   ;; epoch-pump axis is the whole freshness story.
+   :rf.xray/mounted-views
+   ;; rf2-7gth0 — the evidence-schema honesty read: when the running
+   ;; application's Freehand door stamps a schema this build was not taught,
+   ;; rows degrade and the panel renders the honest banner.
+   :rf.xray/mounted-views-schema
+   ;; rf2-7gth0 — the declared per-view sites (dependency + event-site
+   ;; provenance, capabilities and the compile-tier a11y diagnostics) for the
+   ;; views present in the roster, read from
+   ;; `read-view-manifest`/`read-view-dependencies`/`read-view-event-sites`.
+   :rf.xray/mounted-view-sites))
 
 (def ^:private all-event-names
   "Every Xray-namespaced event registered by `register-xray-handlers!`.
@@ -798,12 +796,7 @@
    ;; Reactive panel events (rf2-wyvf2 · spec/021 §3 · renamed from
    ;; Views per §11.5; tab key stays `:views`).
    :rf.xray/reactive-set-unchanged
-   :rf.xray/reactive-toggle-unchanged
-   ;; rf2-vxgfnd.286 — the ownership reactivity bridge: `viewcell-evidence`'s
-   ;; listener dispatches this into `:rf/xray` on every evidence acquire/
-   ;; release, bumping `:rf.xray/viewcell-evidence-ownership` so a live
-   ;; query recomputes immediately (no epoch pump).
-   :rf.xray/viewcell-evidence-ownership-changed))
+   :rf.xray/reactive-toggle-unchanged))
 
 (def ^:private all-fx-names
   "Every Xray-namespaced fx registered by `register-xray-handlers!`.
@@ -1204,7 +1197,7 @@
 ;; no-migration rationale) and update the pins here. Mirrors the drift-guard
 ;; discipline of `focus-valid-panels-mirrors-live-dynamic-registry`.
 
-(def ^:private expected-schema-version 3)
+(def ^:private expected-schema-version 4)
 
 (deftest schema-version-is-pinned-so-changed-registrations-name-a-migration
   (testing "registry/schema-version matches the governance pin"

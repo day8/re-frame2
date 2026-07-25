@@ -448,7 +448,7 @@ namespace docstring (see `tools/xray/src/day8/re_frame2_xray/registry.cljs`).
 Xray renders pure hiccup, so it can mount only through a host adapter
 whose `:render` slot accepts hiccup render-trees — the **ratom family**
 (stock Reagent, Reagent-slim). The React-hook substrates (UIx and
-the first-party `re-frame.ui`) share an **element-shaped** `render`
+the first-party Freehand) share an **element-shaped** `render`
 that hands the tree to React untouched; a hiccup shell mounted there
 reaches React children as raw CLJS data (fn-as-child console.error
 plus an uncaught MapEntry pageerror — rf2-qgfo4). On those hosts the

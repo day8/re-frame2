@@ -1015,27 +1015,28 @@ async function runShellFeatureSweep(page) {
     { timeoutMs: 5000, description: 'epoch-scoped trace feed renders rows' },
   );
 
-  // rf2-vxgfnd.146/.95.7 — the native mounted-view evidence consumer is
-  // wired by the REAL preload in this chrome runtime: (1) the install
-  // sentinel is present (the preload claimed the re-frame.ui.tool.evidence
-  // projection under Xray's stable owner identity), and (2) the Views panel
-  // renders the cumulative Mounted View Evidence section (its EMPTY state
-  // here — the counter surface is Reagent-hosted, so no ViewCells deliver;
-  // the populated-row proof lives in the node suite). Xray now consumes the
-  // VERSIONED PUBLIC `re-frame.ui.tool` projections, not the raw tier read.
-  // Removing the preload install or the panel consumer wiring fails this sweep.
-  const evidenceInstalled = await page.evaluate(
-    () => !!globalThis.__day8_re_frame2_xray_viewcell_evidence,
-  );
-  if (!evidenceInstalled) {
-    failWithDetails(
-      'rf2-vxgfnd.146 — the Xray preload did not install the native ViewCell evidence projection',
-      { sentinel: '__day8_re_frame2_xray_viewcell_evidence' },
-    );
-  }
+  // rf2-7gth0 — the Views panel's Mounted Views section renders in this
+  // chrome runtime. There is NO install sentinel to probe any more, and none
+  // is missing: the predecessor claimed a single-owner evidence registry from
+  // the preload boot block and mirrored the claim onto
+  // `globalThis.__day8_re_frame2_xray_viewcell_evidence`, so the sentinel was
+  // the only cheap browser-side proof that the claim had happened.
+  // `re-frame.freehand.tool` is a reader with nothing to claim, so the
+  // section's own presence IS the wiring proof — removing the panel consumer
+  // or the subs that feed it fails this sweep.
+  //
+  // The section renders its EMPTY state here: this testbed's counter surface
+  // is Reagent-hosted, so no Freehand occurrence ever connects. The
+  // populated-row proof — a real cell commit reaching the rendered row —
+  // lives in the node suite (`mounted_views_cljs_test`,
+  // `reactive_panel_view_cljs_test`), which renders the real panel fn.
   await clickTab(page, 'views', 'rf-xray-reactive');
   await expectVisible(
-    page.locator('[data-testid="rf-xray-reactive-viewcell-evidence-section"]'),
+    page.locator('[data-testid="rf-xray-reactive-mounted-views-section"]'),
+    5000,
+  );
+  await expectVisible(
+    page.locator('[data-testid="rf-xray-reactive-mounted-views-empty"]'),
     5000,
   );
 }
