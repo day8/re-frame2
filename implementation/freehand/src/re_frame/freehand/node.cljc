@@ -1300,7 +1300,12 @@
        (not (contains? x :html))
        (not (contains? x :key))
        (not (contains? x :rf.ui/presence))
-       (not (contains? x :rf.ui/boundary))))
+       (not (contains? x :rf.ui/boundary))
+       ;; `:rf.ui/host` is the same kind of load-bearing marker: a host node's
+       ;; `:children` are its SSR PROJECTION, not content the enclosing view
+       ;; wrote, so adopting them would erase the host identity and re-attribute
+       ;; a declared fallback to the view above it.
+       (not (contains? x :rf.ui/host))))
 
 (defn boundary
   "Assemble one internal-view expansion into a boundary node. The boundary
@@ -1338,6 +1343,59 @@
       (pos? (count recorded)) (assoc :props recorded)
       key?                    (assoc :key key-val)
       (pos? (count kids))     (assoc :children kids))))
+
+;; ---------------------------------------------------------------------------
+;; Host-boundary nodes
+;; ---------------------------------------------------------------------------
+
+(defn host
+  "Assemble one `v/defhost` crossing into its structural node (D022
+  §Structure and SSR).
+
+      {:rf.ui/host          :app.booking/date-picker
+       :rf.ui/host-ssr      :client-only
+       :rf.ui/host-children 1
+       :props               {:selected \"2026-01-05\"
+                             :onChange {:rf.ui/opaque :v/event}}
+       :children            []}
+
+  Three facts, and each is chosen against a way this node could lie.
+
+  **`:children` is the SSR PROJECTION, and nothing else.** Freehand never
+  executes the registered React component on the JVM, so what the server
+  can honestly emit is the declared fallback or nothing at all — and
+  `:children` is the key that folds to HTML. `fallback` carries the walked
+  fallback nodes for a `{:fallback …}` declaration and is empty for
+  `:client-only`. It is retained when empty, like a fragment: it is the
+  node's discriminator, and without it the SSR serialiser meets a map with
+  no discriminating field.
+
+  **The caller's trailing children are COUNTED, not walked.** They cross
+  into the registered component's own React tree, and where that tree puts
+  them is React's business — so a server tree that showed them would invite
+  an assertion on content the server never emits and the client places
+  elsewhere. `v/client-only` makes the same choice about its client arm for
+  the same reason. `:rf.ui/host-children` is absent when the call supplied
+  none, so the ordinary childless crossing yields the smallest node.
+
+  **`props` are the AUTHORED ordinary props**, recorded through the same
+  [[recorded-prop]] every boundary uses — a declared callback carrier
+  becomes its opaque role marker, a function becomes `{:rf.ui/opaque :fn}`,
+  and a non-data value at any depth is refused. A declared `:map-props`
+  adapter's OUTPUT is deliberately absent: the adapter exists to build
+  values a portable tree cannot print, so recording its result is exactly
+  the host-value serialisation D022 forbids. Its presence is reported as
+  `:rf.ui/host-map-props`, which states the loss without incurring it."
+  [host-id ssr props map-props? key? key-val child-count fallback]
+  (let [recorded (reduce-kv (fn [m k x] (assoc m k (recorded-prop host-id k x)))
+                            {} props)]
+    (cond-> {:rf.ui/host     host-id
+             :rf.ui/host-ssr ssr
+             :children       (vec fallback)}
+      (pos? (count recorded)) (assoc :props recorded)
+      map-props?              (assoc :rf.ui/host-map-props true)
+      (pos? child-count)      (assoc :rf.ui/host-children child-count)
+      key?                    (assoc :key key-val))))
 
 ;; ---------------------------------------------------------------------------
 ;; The mount seam

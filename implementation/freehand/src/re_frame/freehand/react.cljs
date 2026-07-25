@@ -899,6 +899,109 @@
   (phase/boundary (emit cand (:fallback (second form)))
                   (emit cand (nth form 2))))
 
+;; ---------------------------------------------------------------------------
+;; The host crossing — the browser half of `v/defhost`
+;; ---------------------------------------------------------------------------
+
+(defn- host-props
+  "The React props object for one host crossing: the ordinary plane
+  SHALLOWLY and EXACTLY as authored, then the declared callback positions.
+
+  No `conv/attr-key`, no `.class#id` sugar, no controlled-input door and no
+  attribute grammar — none of that is a fact about a foreign component's
+  props. `:selected` reaches React as `selected`, and a name the library
+  spells `onChange` is written `:onChange`. D022: \"There is no automatic
+  case conversion, deep Clojure-to-JavaScript conversion, callback
+  inference, or per-prop conversion language.\""
+  [cand host-id ordinary callbacks]
+  (let [o (js-obj)]
+    (reduce-kv (fn [_ k v] (gobj/set o (if (keyword? k) (name k) (str k)) v) nil)
+               nil ordinary)
+    (reduce-kv
+      (fn [_ k carrier]
+        (gobj/set o (name k)
+                  (if (some? cand)
+                    ;; The site key is this walk's ordinal, exactly as an
+                    ;; element handler's is — so the position keeps ONE proxy
+                    ;; across re-renders and gets D008's committed body, frame
+                    ;; retargeting, abandoned-render silence and retirement.
+                    (events/site (cell/candidate-events cand)
+                                 (cell/next-site-key! cand)
+                                 carrier)
+                    ;; No declared boundary above this host, so no commit a
+                    ;; site could belong to. The element path degrades the same
+                    ;; way: hand over the authored function, with none of the
+                    ;; identity claims a site would have carried.
+                    (events/callback-fn carrier)))
+        nil)
+      nil callbacks)
+    o))
+
+(defn- host-element
+  "The real React element for a host crossing — the registered component,
+  its props, and the caller's children as ordinary React children in that
+  component's own tree (so the tree's context reaches them)."
+  [cand head]
+  (fn [{:keys [props callbacks] kid-forms :children}]
+    (let [entry     (descriptor/host-entry head)
+          host-id   (:host-id entry)
+          component (:component entry)
+          mapper    (:map-props entry)
+          ordinary  (if mapper (mapper props) props)]
+      (when (nil? component)
+        (malformed!
+          (str "The host " host-id " registered no React component. A host declaration "
+               "carries its component only on a ClojureScript expansion — there is no "
+               "React on the JVM — so this descriptor was built by a Clojure load of "
+               "the declaring namespace and cannot cross in the browser. Require the "
+               "declaring namespace from ClojureScript.")
+          {:host host-id}))
+      (when-not (map? ordinary)
+        (malformed!
+          (str "The :map-props adapter on " host-id " answered a "
+               (type-name ordinary) ". It prepares the ordinary-props MAP and must "
+               "answer one — it is not a place to build the element.")
+          {:host host-id}))
+      (let [reserved (vec (sort (filter (fn [k] (or (contains? callbacks k)
+                                                    (contains? (:callbacks entry) k)
+                                                    (= :key k)
+                                                    (= :children k)))
+                                        (keys ordinary))))]
+        (when (seq reserved)
+          (malformed!
+            (str "The :map-props adapter on " host-id " returned " (pr-str reserved)
+                 ". The adapter owns the ORDINARY plane only: declared callbacks, "
+                 "children, the key and every other reserved Freehand fact are "
+                 "withheld from it and installed afterwards, so it can neither "
+                 "supply nor replace one.")
+            {:host host-id :reserved reserved})))
+      (apply react/createElement
+             component
+             (host-props cand host-id ordinary callbacks)
+             (children cand kid-forms)))))
+
+(defn- host-node
+  "A `v/defhost` crossing in interpreted markup.
+
+  The SSR policy is realised by the SAME phase-conditional boundary
+  `v/client-only` uses, because it is the same fact: the registered React
+  component never ran on the server, so the hydration-phase render must
+  produce what the server produced — the declared fallback, or nothing —
+  and the post-hydration render produces the component. Reusing
+  `phase/boundary` is what keeps a host from being a second, quieter
+  hydration protocol."
+  [cand head form]
+  (let [entry    (descriptor/host-entry head)
+        call     (descriptor/normalize-host-call head (rest form))
+        ssr      (:ssr entry)
+        el       ((host-element cand head) call)
+        el       (if (:keyed? call)
+                   (react/cloneElement el #js {:key (:key call)})
+                   el)]
+    (if (= :fallback (descriptor/host-ssr-spelling ssr))
+      (phase/boundary (emit cand (:fallback ssr)) el)
+      (phase/boundary nil el))))
+
 (defn- node
   [cand form]
   (let [head (first form)]
@@ -920,11 +1023,7 @@
         ;; candidate. That is why a candidate can never collect a
         ;; descendant boundary's sites.
         :view    (boundary-node head (rest form))
-        :host    (malformed!
-                   (str "A declared host descriptor is a legal vector head, but the React "
-                        "emitter cannot cross one yet — the host boundary and its three host "
-                        "shapes land with the host-lifecycle slice.")
-                   {:value (shape head)})))))
+        :host    (host-node cand head form)))))
 
 (defn- collect
   "Fold one child value into the children accumulator.

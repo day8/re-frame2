@@ -155,6 +155,17 @@
   [m]
   (boolean (or (:re-frame.freehand/view m) (:rf.ui/view m))))
 
+(defn declared-host?
+  "Does resolved var metadata `m` mark a DECLARED Freehand host (D022)?
+
+  `:re-frame.freehand/host` is the marker `v/defhost` stamps. It is the
+  COMPILE-TIME half of the same declaration whose runtime half is the
+  `HostDescriptor` value in the Var: one expansion writes both, in one
+  form, so the classifier and the interpreted walk cannot answer
+  differently about the same declaration."
+  [m]
+  (boolean (:re-frame.freehand/host m)))
+
 (defn accepts-children?
   "May a declared view whose var metadata is `m` be called WITH children?
 
@@ -242,6 +253,17 @@
         (declared-view? meta)
         {:kind :view :sym sym :fqn fqn :view-id (view-id-of fqn meta)
          :lowering (view-lowering meta)}
+        ;; A `v/defhost` head (D022). Classified as its OWN kind rather than
+        ;; falling through to `:foreign`, because the two are not the same
+        ;; fact and the difference is load-bearing: a foreign head is emitted
+        ;; as a component call, and emitting one for a host descriptor would
+        ;; hand React a Freehand value as its element type — a view that
+        ;; compiled cleanly and failed at render. The refusal belongs at
+        ;; classification, where the declaration is still in hand.
+        (declared-host? meta)
+        {:kind :host :sym sym :fqn fqn
+         :host-id (or (:re-frame.freehand/host-id meta)
+                      (keyword (namespace fqn) (name fqn)))}
         ;; a re-frame.freehand.react/lazy component: a foreign head that IS callable on
         ;; the JVM structural render (it renders its fallback / nothing), so the
         ;; JVM emitter invokes it instead of raising the foreign host-op. Detected

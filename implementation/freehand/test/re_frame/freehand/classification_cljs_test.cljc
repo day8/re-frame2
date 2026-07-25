@@ -15,6 +15,14 @@
 
 (v/defview declared [_] [:div])
 
+(v/defhost declared-host
+  "A declared host descriptor, minted the ONE way there is (D022). Before
+   `v/defhost` this fixture row was a hand-written map carrying a reserved
+   marker key — the classifier recognised the third head and no public verb
+   produced one."
+  (fn [_] nil)
+  {:children :none :ssr :client-only})
+
 (def call-002 (conf/fixture :FH-CALL-002))
 
 (def ^:private heads
@@ -24,7 +32,7 @@
   {:fixture/declared-view   declared
    :fixture/element-keyword :div
    :fixture/custom-element  :my-widget
-   :fixture/host-descriptor {:re-frame.freehand/host true :component "Chart"}
+   :fixture/host-descriptor declared-host
    :fixture/plain-function  (fn [_] [:div])
    :fixture/string          "cart-badge"
    :fixture/nil             nil
@@ -89,13 +97,34 @@
       (is (= {:type :string :count 10 :head "cart-badge"} (:head data))
           "the head rides as a bounded shape summary, not as the value"))))
 
-(deftest host-descriptor-marker-is-exact
-  (testing "The host arm keys off the reserved marker, not off map-ness.
-            A plain map — the shape a descriptor would take if it were
-            data — is NOT a host boundary; it is an error, which is what
-            keeps the classification total rather than duck-typed."
-    (is (descriptor/host-descriptor? {:re-frame.freehand/host true}))
-    (is (not (descriptor/host-descriptor? {:re-frame.freehand/host false})))
-    (is (not (descriptor/host-descriptor? {:host true})))
+(deftest host-descriptor-is-nominal-not-a-marked-map
+  (testing "The host arm keys off the TYPE `v/defhost` mints, not off a
+            reserved key on a map. That is stronger than the marker it
+            replaced (D022): no map an application can write is a host
+            boundary, so the classification stays total without any
+            duck-typing at all — and a `defhost` declaration is the only
+            way to produce one.
+
+            The marked map below is the exact value the pilot used to
+            reach past the door with while the door had nothing behind it.
+            It is now an ordinary map: an ERROR head, like every other."
+    (is (descriptor/host-descriptor? declared-host))
+    (is (not (descriptor/host-descriptor? {:re-frame.freehand/host true})))
+    (is (not (descriptor/host-descriptor? {:re-frame.freehand/host true :component "Chart"})))
     (is (not (descriptor/host-descriptor? {})))
-    (is (not (descriptor/host-descriptor? declared)))))
+    (is (not (descriptor/host-descriptor? declared)))
+    (is (= :error (try (descriptor/classify-head {:re-frame.freehand/host true})
+                       (catch #?(:clj Exception :cljs :default) _ :error)))
+        "a marked map is refused, not admitted")))
+
+(deftest a-declared-host-is-mounted-never-called
+  (testing "D022: the descriptor is NON-CALLABLE. It is a deftype for the
+            reason `v/defview`'s is — a map answers `(the-host {…})` as a
+            LOOKUP, returning nil and rendering nothing, which is the
+            silent failure the boundary exists to remove at exactly the
+            place a hand arriving from React is most likely to call by
+            habit."
+    (is (= :rf.error/view-called-directly
+           (conf/caught-id #(declared-host {:selected 1}))))
+    (is (str/includes? (conf/caught-message #(declared-host {}))
+                       "mounted, never invoked"))))

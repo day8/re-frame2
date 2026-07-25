@@ -314,21 +314,24 @@
 ;; 2 — a foreign component at a vector head, in the BROWSER
 ;; ===========================================================================
 
-(deftest the-react-emitter-refuses-a-foreign-component-head
-  (testing "The headless suite proved the structural emitter refuses a host
-            descriptor. The React emitter refuses it too, and names the same
-            missing slice — so an adopter meets exactly one answer on both
-            hosts. That refusal is about a host DESCRIPTOR at a vector head,
-            the shape that lands later; it is orthogonal to the child path,
-            where a React component is an ordinary child VALUE rather than a
-            descriptor at a head."
-    (let [d (try (fr/element [pilot/foreign-leaf {:spec "bar"}]) nil
+(deftest the-react-emitter-crosses-a-declared-host-head
+  (testing "The headless suite proved the STRUCTURAL emitter crosses a
+            declared host. The React emitter crosses it too — same
+            declaration, same three planes — so an adopter meets exactly one
+            answer on both hosts. Both emitters used to refuse it and name a
+            slice that had not landed; `v/defhost` (D022) is that slice, and
+            it is deliberately the sole door: a second spelling beside it
+            would give one crossing two sets of laws to keep in step.
+
+            The crossing is orthogonal to the child path, where a finished
+            React element is an ordinary child VALUE rather than a
+            descriptor at a head — that escape survives, honestly weaker."
+    (let [el (fr/element [pilot/chart-host {:spec "bar"}])]
+      (is (some? el) "a declared host head produces a real React element"))
+    (let [d (try (fr/element [{:re-frame.freehand/host true} {:spec "bar"}]) nil
                  (catch :default e (ex-data e)))]
-      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
-      (is (re-find #"host boundary and its three host shapes"
-                   (or (:reason d) ""))
-          (str "the React emitter names the three host shapes as landing "
-               "later; got " (pr-str (:reason d)))))))
+      (is (= :rf.error/view-bad-head (:rf.error/id d))
+          "and the pre-door marker map is an ordinary map — an error head"))))
 
 ;; ===========================================================================
 ;; 3 — a real React component through the nested-root workaround
