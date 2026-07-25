@@ -205,6 +205,11 @@
 ;; TEST-ONLY dep of this artefact and the routing integration is late-bound, so
 ;; this namespace cannot `:require` it. The two agree — error beats loading
 ;; beats idle in both — and changing the precedence means changing both sites.
+;; `re-frame.readiness-projector-conformance-cljs-test` (this artefact's test
+;; tree — the only one that can require both namespaces) is what makes that
+;; enforceable: it drives every Spec 012 input class through BOTH halves, each
+;; in its own vocabulary, and fails on a divergence. It pins agreement; it does
+;; NOT imply the two should be unified.
 ;;
 ;; Routing owns no part of the reply-driven half: it provides the
 ;; `:routing/on-route-entry` plan hook, seeds the slice at commit, and
@@ -343,10 +348,8 @@
   Its commit-time sibling is `re-frame.routing.readiness/project-at-commit`,
   which seeds the slice from the plan's blocking set in ROUTING vocabulary
   (plan-error / blocking / usable-data). Packaging requires two sites rather
-  than one shared fn — see that namespace's docstring — so the table below and
-  its table must be edited together. `re-frame.readiness-projector-conformance-
-  cljs-test` is the guard that makes 'must' enforceable: it drives every Spec
-  012 input class through both halves and fails on a divergence.
+  than one shared fn — see the block comment above — so the table below and
+  that namespace's table must be edited together.
 
   The projection (Spec 012 §Route readiness is a resource projection):
 
