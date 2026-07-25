@@ -625,6 +625,15 @@ authored `:on-*` keys; the DOM event type is the kebab tail verbatim (`:on-my-ev
 `"my-event"`) — confirm against React 19's custom-element event registration
 **[S1-CONFIRM]**.
 
+The two grammars **overlap**, and the declaration ranks first. A web component may
+legitimately name a property in the `on-*` family, so a DECLARED `:on-detail` is a
+property on every lowering path — in `:attrs`, named by `:rf.ui/property-props`, omitted
+from server markup, set as `onDetail` in the browser — while an undeclared one is a
+native event on every lowering path. What admits a property is the NAME being declared,
+never the prefix and never the element merely carrying a declaration somewhere; see
+[004D §The declaration outranks handler position](004D-Freehand-Compiled-Grammar.md#the-declaration-outranks-handler-position),
+which owns the rule.
+
 ## The SSR consumption boundary
 
  Today's `re-frame.ssr/render-to-string` consumes the checked-in
