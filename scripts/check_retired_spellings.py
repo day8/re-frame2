@@ -3,7 +3,7 @@
 
 EP-0007 rule 2 ("no stable accepted synonyms") gets the no-floor-lint
 treatment "where shapes allow": a *retired* spelling reappearing in
-framework source is a CI failure, not a doc note. Three renames have merged,
+repo source is a CI failure, not a doc note. Three renames have merged,
 so three retired spellings are now lintable:
 
   (a) The bare `:frame` event-context COEFFECT (sweep item 1, rf2-1m6rf1).
@@ -130,7 +130,7 @@ spelling is correct, not drift. Pass `--include-tests` to scan them too
 (used by the self-test fixtures, which live under a `test`-named dir).
 
 Exit code:
-    0  no retired spelling in framework source
+    0  no retired spelling in any scanned source tree
     1  at least one retired spelling (results printed file:line)
     2  invocation / setup error
 
@@ -194,7 +194,7 @@ DEFAULT_SCAN_DIRS = (
 
 _SOURCE_SUFFIXES = (".clj", ".cljc", ".cljs")
 
-# Directory names whose contents are never framework source for this gate.
+# Directory names whose contents are never scannable source for this gate.
 _EXCLUDE_DIR_NAMES = frozenset({
     "node_modules",
     "target",
@@ -375,7 +375,7 @@ def _masked_lines(text: str) -> list[str]:
 
 
 def _iter_source_files(scan_root: Path, include_tests: bool) -> Iterable[Path]:
-    """Yield framework source files under scan_root.
+    """Yield scannable source files under scan_root.
 
     Excludes generated/vendor dirs always, and `test`/`tests` dirs unless
     `include_tests` is set.
@@ -460,7 +460,7 @@ def _scan_text(path: Path, text: str) -> list[Finding]:
 
 
 def scan(scan_root: Path, include_tests: bool = False) -> list[Finding]:
-    """Scan framework source under scan_root for retired spellings."""
+    """Scan source under scan_root for retired spellings."""
     findings: list[Finding] = []
     for path in _iter_source_files(scan_root, include_tests):
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -507,7 +507,7 @@ _FIX_HINTS = {
 
 def _report(findings: list[Finding], repo_root: Path) -> None:
     sys.stderr.write(
-        f"\n{len(findings)} retired spelling(s) found in framework source "
+        f"\n{len(findings)} retired spelling(s) found in repo source "
         "(EP-0007 §Enforcement):\n\n"
     )
     for f in findings:
@@ -532,7 +532,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "EP-0007 §Enforcement: fail on a retired spelling reappearing in "
-            "framework source (the bare :frame coeffect; redirect :url/:to; "
+            "repo source (the bare :frame coeffect; redirect :url/:to; "
             "route :query-retain)."
         ),
     )
