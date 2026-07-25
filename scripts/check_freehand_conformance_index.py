@@ -450,6 +450,27 @@ def _blank(chunk: str) -> str:
 
 
 _OPENERS = {"(": ")", "[": "]", "{": "}"}
+# The reader macro prefixes: `#`, `'`, `` ` ``, `~`, `~@`, `@` and `^meta`.  Each
+# belongs to the datum that FOLLOWS it, which is one fact and therefore one
+# authority — `_datum_end` needs it to find a datum's extent and `_evaluated`
+# needs it to find where a quoted datum begins.
+_PREFIXES = "#'`~@^"
+
+
+def _prefix_end(text: str, start: int) -> int:
+    """The index of the datum the run of reader prefixes at `start` introduces.
+
+    `start` itself when there is no prefix there, so this is safe to call on any
+    position a datum may begin at.  `~@` is one prefix spelled two characters,
+    and the inner step is what keeps its `@` from being read as a deref of
+    nothing.
+    """
+    i, n = start, len(text)
+    while i < n and text[i] in _PREFIXES:
+        i += 1
+        if i < n and text[i] == "@":
+            i += 1
+    return i
 
 
 def _datum_end(text: str, start: int) -> int:
@@ -469,12 +490,7 @@ def _datum_end(text: str, start: int) -> int:
             break
     if i >= n:
         return n
-    # A reader macro prefix (`#`, `'`, `` ` ``, `~`, `@`, `^meta`) belongs to the
-    # datum that follows it.
-    while i < n and text[i] in "#'`~@^":
-        i += 1
-        if i < n and text[i] == "@":
-            i += 1
+    i = _prefix_end(text, i)
     if i < n and text[i] in _OPENERS:
         return _form_end(text, i)
     if i < n and text[i] == '"':
@@ -583,6 +599,109 @@ def _read_as(cleaned: str, platform: str) -> str:
             i = end
         else:
             out.append(cleaned[i])
+            i += 1
+    return "".join(out)
+
+
+# `(quote …)`, the form both reader prefixes expand into.  The lookahead is what
+# keeps a name like `quoted-tree` from being read as a quote, the same way
+# `_COMMENT_FORM_RE`'s keeps `(commentary …)` from being read as a comment.
+_QUOTE_FORM_RE = re.compile(r"\(\s*(?:clojure\.core/)?quote(?=[\s()\[\]{}])")
+# A `'` that really is a QUOTE, read from the same token boundary `_SYMBOL_RE`
+# reads a name from and off the same one character class, because it is the same
+# question asked of the same alphabet.  A symbol may CONTAIN a `'` — `state'`,
+# `x'y` — and so may a keyword, so a `'` inside a token belongs to the token; and
+# `#'x` is a VAR quote, which evaluates to the Var and is a genuine reference
+# rather than data.
+_QUOTE_PREFIX_RE = re.compile(rf"(?<![:#{_SYMBOL_BODY}])'")
+
+
+def _evaluated(text: str) -> str:
+    """`text` reduced to what it EVALUATES — every quoted datum blanked.
+
+    The third and last reduction, after `_strip` (what is not code) and
+    `_read_as` (what this platform reads).  Same length, and balanced: a quoted
+    datum's extent is blanked whole, so a matched pair of delimiters leaves
+    together and every offset downstream still means what it meant.
+
+    QUOTED DATA IS DATA, and that is a fact about EVALUATION CONTEXT — which is
+    the one thing a token boundary cannot see.  `_SYMBOL_RE` reads `fx` from
+    `(quote fx)` and from `` `fx `` because both really do contain the token `fx`;
+    what neither contains is a reference to the Var.  A merged-PR audit found both
+    spellings standing a row up: `(is (= (quote fx) 1))` "reached" a fixture bound
+    to `fx`, and `(is (= `panel (first fx)))` beside a
+    `(v/defview panel {:compiled true} …)` witnessed a compiled mode the assertion
+    never entered.  Its predecessor found the same hole spelled `:fx` — a keyword
+    — so this is the same mistake read one level up: the census was classifying
+    tokens when what it needs is which tokens the reader hands to `eval`.
+
+    Three spellings, one rule.  `'x` and `` `x `` are reader prefixes over the
+    datum that follows; `(quote x)` is the form they expand into.  All three are
+    blanked, so the graph gets no edge from any of them — where before, two of
+    the three were silent and the third was red only by lexical accident (the
+    `'` fell inside `_SYMBOL_HEAD`, so `'fx` came back as the unresolvable token
+    `'fx`).  Accidentally loud is not the same as right.
+
+    AND IT IS A NARROWING, NOT A REFUSAL, which is the half that keeps it honest.
+    Inside a syntax quote, `~x` and `~@x` ARE evaluated — that is what they are
+    for — so those islands are recovered and read as code, recursively.  A
+    genuinely evaluated reference stays a reference however deep in a template it
+    is written.
+
+    Two residues, both missed edges rather than spurious ones, so both cost a
+    noisy defect on an honest row instead of a silent green:
+
+      * A nested syntax quote raises the level, and `~x` inside it belongs to the
+        INNER quote — data at this one.  Read that way here, which is correct; the
+        double-unquote that would climb back out (`` `(a `(b ~~c)) ``) is not
+        modelled, and yields nothing.
+      * `#'x` is a var quote and a real reference.  It resolved to nothing before
+        this change and resolves to nothing after — the leading `'` is not a
+        symbol head any binding is written with — so no edge is lost, and none is
+        invented.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "`":
+            end = _datum_end(text, i)
+            out.append(_syntax_quoted(text[i:end]))
+            i = end
+        elif c == "'" and _QUOTE_PREFIX_RE.match(text, i):
+            end = _datum_end(text, i)
+            out.append(_blank(text[i:end]))
+            i = end
+        elif c == "(" and _QUOTE_FORM_RE.match(text, i):
+            end = _form_end(text, i)
+            out.append(_blank(text[i:end]))
+            i = end
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _syntax_quoted(chunk: str) -> str:
+    """One syntax-quoted datum, blanked but for the islands it evaluates.
+
+    `chunk` starts at the `` ` ``.  Everything in it is data except what a `~` or
+    `~@` unquotes, and each of those is code again — so it goes back through
+    `_evaluated`, which is what makes `` `(a ~(b 'c)) `` read `b` and not `c`.
+    """
+    out = list(_blank(chunk))
+    i, n = _prefix_end(chunk, 0), len(chunk)
+    while i < n:
+        if chunk[i] == "`":
+            # A nested syntax quote: its `~`s are its own, and data at this
+            # level.  Skipped whole rather than walked into.
+            i = _datum_end(chunk, i)
+        elif chunk[i] == "~":
+            at = _prefix_end(chunk, i)
+            end = _datum_end(chunk, at)
+            out[at:end] = _evaluated(chunk[at:end])
+            i = end
+        else:
             i += 1
     return "".join(out)
 
@@ -787,7 +906,9 @@ def _read_tree(repo_root: Path, platform: str) -> _Graph:
     for path in sorted(test_root.rglob("*")):
         if path.suffix not in _CLJ_SUFFIXES or platform not in _platforms(path):
             continue
-        cleaned = _read_as(_strip(path.read_text(encoding="utf-8")), platform)
+        cleaned = _evaluated(
+            _read_as(_strip(path.read_text(encoding="utf-8")), platform)
+        )
         source[path] = cleaned
         ns, ctx = _ns_context(cleaned, path.as_posix())
         ns_of[path] = ns
