@@ -20,7 +20,7 @@
   the node suites' broader regex too — where there is no `customElements`
   to define into, so it says so rather than passing quietly.
 
-  Replaces the donor `re-frame.ui.custom-element-classification-dom-cljs-test`."
+  Replaces the donor `custom_element_classification_dom_cljs_test`."
   (:require ["react-dom/client" :as rdc]
             ["react" :as react]
             [cljs.test :refer-macros [async deftest is testing]]
