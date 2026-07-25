@@ -800,10 +800,10 @@ boundary's job).
 
 **Custom elements** (tag contains `-`): a bounded classification rule — literal props
 compile to properties when the name matches a declared property (per an optional
-`ui/custom-element` declaration), else attributes; booleans/`:class`/`:style` follow DOM
+`v/custom-element` declaration), else attributes; booleans/`:class`/`:style` follow DOM
 rules; native custom events ride the normal handler grammar. Never forced through
-`ui/raw`. Declaration grammar:
-`(ui/custom-element tag {:properties #{...}})` — top-level, compile-resolvable,
+`v/raw`. Declaration grammar:
+`(v/custom-element tag {:properties #{...}})` — top-level, compile-resolvable,
 registers like `defview`. The `:properties` set is the **entire v1 grammar** (options
 map closed, per the `defview` options-map discipline); future keys (`:events`, per-prop
 types, attribute reflection) are new rulings, not silent growth. Declared names →
@@ -814,14 +814,31 @@ emitter emits attributes only; property-props are applied at hydration. Rejected
 Lit-style rich schema (no consumer — demand bar), React-19-style runtime `in` check
 (breaks compile-time totality + gives SSR no static answer), attribute-only-v1 deferral
 (makes property-accepting web components unusable, hollowing "never through
-`ui/raw`"). **Export-at-S1, assert-at-S4:** the *name* is in the blessed **S1** export
-set (`re-frame.ui`'s S1 public surface, per [API.md](API.md) §Compiled views), so
-`ui/custom-element` is exported and callable from S1 — declaring a name never errors as
-an unknown symbol — but its property-vs-attribute **classification behaviour and
-stage-conformance assertion ship with the S4 epic** (the API.md table stages the row
-S4). `ui/custom-element` is added to the blessed public-surface freeze table as the
-delta protocol's first row-level delta — see
-[API §Freeze provenance and row-level delta protocol](API.md#freeze-provenance-and-row-level-delta-protocol).
+`v/raw`").
+
+**ONE declaration, every lowering path.** The classification belongs to the
+DECLARATION, not to the tier that happened to see the prop, so it binds wherever a prop
+is written: a compiled literal props map (classified at build time under that build's
+own declaration slice and carried to the canonicaliser as a constant), a compiled
+element's dynamic props, the interpreted walk, a `v/spread` or `v/spread-safe` forwarded
+map, the React writer, and the JVM structural tree. Values the compiler never saw have
+only the RUNTIME registry to ask, so the two arms answer one declaration and are
+unioned rather than ranked. A declared name keeps its authored kebab key in the
+structural tree and its value **verbatim** — outside the attribute-value grammar, which
+is exactly what admits the map / vector / host-object values the declaration exists for
+— and the props so classified are recorded on the node as the reserved
+`:rf.ui/property-props` fact the serialiser consumes
+([004B §Reserved `:rf.ui/*` keys](004B-UI-Tree-and-Conversion.md#reserved-rfui-keys)).
+A rule reaching only the compiled literal map is the REFUSED outcome: one declaration
+would mean *property* at a literal site and *attribute* one `v/spread` away.
+
+`v/custom-element` is published on the Freehand door and rowed under
+[API.md §Freehand views](API.md#freehand-views--re-framefreehand-spec-004). Its
+donor-era staging note ("export at S1, assert at S4") is retired with the publication:
+the name entered the `re-frame.ui` blessed public-surface freeze table as the delta
+protocol's first row-level delta — see
+[API §Freeze provenance and row-level delta protocol](API.md#freeze-provenance-and-row-level-delta-protocol)
+— and that table is design provenance for the donor spelling, not the live roster.
 
 ### Compile-tier warnings
 

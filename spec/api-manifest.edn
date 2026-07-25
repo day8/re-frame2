@@ -201,6 +201,7 @@
   {:namespace "re-frame.freehand", :var "controller-current?", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "controller-key", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "controller-revision", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.freehand", :var "custom-element", :tier :advanced, :kind :macro, :owner "004D", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "defbehavior", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "defview", :tier :front-porch, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.freehand", :var "describe", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
