@@ -28,9 +28,19 @@
 ;; The mount's `:frame` ENSURES frame :app and drains :initial-events to
 ;; completion before React is handed anything, so the first paint already
 ;; carries the seeded count — no dispatch-sync, no empty-then-flash. The
-;; root's identity is DERIVED from the mounted view's registered id, so a hot
-;; reload finds the same root live and re-renders it in place: your state
-;; survives edits.
+;; root's identity is DERIVED from the mounted view's registered id, so
+;; re-entering `v/mount` re-renders the root that is already live rather than
+;; allocating a second one (docs/core/freehand/install.md §Two roots on one
+;; page).
+;;
+;; Nothing in this scaffold re-enters it. `run` is the module's `:init-fn`,
+;; which shadow calls once on initial load, and no after-load hook is wired
+;; here — so under `watch` an edited view shows up on the next page load.
+;; That is a choice about how small this directory should be, not a limit:
+;; `rf/init!` is a no-op once an adapter is installed, and re-mounting the
+;; same root under the same frame plan re-renders in place without reseeding
+;; `:initial-events`, so marking `run` with `^:dev/after-load` is the whole
+;; of what a state-preserving reload loop takes.
 
 (defn ^:export run []
   (rf/init! v/adapter)
