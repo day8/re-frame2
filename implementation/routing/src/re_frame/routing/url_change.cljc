@@ -20,7 +20,6 @@
             [re-frame.routing.egress :as egress]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.plan :as plan]
-            [re-frame.routing.registry :as registry]
             [re-frame.routing.resolve :as resolver]
             [re-frame.routing.scroll :as scroll]
             [re-frame.trace :as trace]))
@@ -108,10 +107,11 @@
    entry. Routing never reads it.
 
    `cause` is the R0 navigation cause the door represents (`:link` for the
-   forward `:rf.route/transitioned` door, `:popstate` for the URL-driven
-   `:rf.route/handle-url-change` door — popstate / initial / SSR). It is
-   carried on the route plan built at the commit branch (EP-0037 R0b) and
-   on any leave-pending / entry-denial value the decisions produce.
+   forward `:rf.route/transitioned` door; `:popstate` / `:initial` / `:ssr`
+   for the three sub-doors `:rf.route/handle-url-change` represents, resolved
+   by `url-change-cause`). It is carried on the route plan built at the commit
+   branch (EP-0037 R0b) and on any leave-pending / entry-denial value the
+   decisions produce.
 
    EP-0037 R4: the guard decisions (stages 4-5) run HERE, after the
    transition kind is classified (stage 3) and before any commit — so an
@@ -123,25 +123,26 @@
    same target is not decided twice."
   [rdb url default-scroll frame nav-allocation pending-nav-allocation app-db cause opts]
   (let [rdb (or rdb {})
-        ;; rf2-6t1xb: any unexpected throw out of `match-url` must not
-        ;; crash the event drain. `match-url-fail-closed` catches the
-        ;; throw and yields a NIL match plus a `:throw-reason`
-        ;; discriminator (`:match-error`), so a throwing URL arriving via
-        ;; `:rf.route/transitioned` / `:rf.route/handle-url-change` fails
-        ;; closed to `:rf.route/not-found` exactly like a bare miss — the
-        ;; fail-closed contract the docstring promises.
-        {:keys [match throw-reason]} (registry/match-url-fail-closed url)
-        ;; rf2-4ic0f: when match-url returns nil, discriminate the
-        ;; bare-miss case from the malformed-URL case via the public
-        ;; `malformed-url?` predicate. The predicate scans the URL
-        ;; once; we run it only when match-url already missed (the
-        ;; happy path pays nothing). A throw already discriminated via
-        ;; `throw-reason` short-circuits the predicate (no double-scan).
-        malformed?        (and (nil? match) (nil? throw-reason)
-                               (registry/malformed-url? url))
-        ;; Malformed URLs surface no fragment in the slice — the
-        ;; fragment was the (or potentially the) decode-fail site.
-        fragment          (when-not malformed? (:fragment match))
+        ;; EP-0037 R0b: the URL -> ResolvedTarget extraction — including the
+        ;; `:rf.route/not-found` fallback normalisation and its `:reason`
+        ;; vocabulary — is the ONE shared definition in
+        ;; `re-frame.routing.resolve/url-resolution`, the same seam the LINK
+        ;; door's stage 3 + guards resolve through (`resolver/target-of-url`).
+        ;; Deriving it here as well is what let the two disagree: the link door
+        ;; decided against an incomplete target while this hop committed the
+        ;; canonical not-found one.
+        ;;
+        ;; rf2-6t1xb / rf2-4ic0f: the seam is fail-closed. `match-url-fail-closed`
+        ;; catches any throw out of `match-url` and yields a NIL match plus a
+        ;; `:throw-reason` discriminator (`:match-error`), so a throwing URL
+        ;; arriving via `:rf.route/transitioned` / `:rf.route/handle-url-change`
+        ;; degrades to `:rf.route/not-found` exactly like a bare miss; a bare
+        ;; miss is discriminated from a malformed URL by the `malformed-url?`
+        ;; scan, run only when `match-url` already missed.
+        {:keys [match throw-reason malformed? fallback?]
+         resolved-target :target}
+        (resolver/url-resolution url)
+        fragment          (:fragment resolved-target)
         ;; Spec 012 §Fragments rules 3-4: when the new URL differs from
         ;; the current slice ONLY in its `#fragment` (same route-id,
         ;; params, query) the runtime updates `:fragment`, emits the
@@ -155,25 +156,16 @@
         prev              (get-in rdb [:rf.runtime/routing :current])
         ;; rf2-u8qe7y: fragment-only classification (Spec 012 §Fragments
         ;; rules 3-4) is shared pre-commit policy — `plan/fragment-only?`.
+        ;; The fragment-only comparison is the PRE-fallback view: Spec 012
+        ;; §Fragments rules 3-4 compares against the MATCHED route's id /
+        ;; params / query, not against the not-found fallback the target
+        ;; normalises to — hence the raw `match` the seam also returns.
         fragment-only?    (and match (plan/fragment-only? prev (:route-id match)
                                                           (:params match) (:query match)
                                                           fragment))
-        matched?          (some? match)
-        validation-fail?  (:validation-failed? match)
-        fallback?         (or (not matched?) validation-fail?)
-        route-id          (if fallback? :rf.route/not-found (:route-id match))
-        ;; rf2-u8qe7y: the `:rf.route/not-found` fallback `:params` shape +
-        ;; `:reason` vocabulary is shared with the programmatic path —
-        ;; `plan/not-found-params`. The reason discriminator is mutually
-        ;; exclusive across the branches (a throw pre-empts the malformed
-        ;; scan; validation-fail is a match, not a miss).
-        params            (cond
-                            throw-reason     (plan/not-found-params url throw-reason)
-                            malformed?       (plan/not-found-params url :malformed-url)
-                            validation-fail? (plan/not-found-params url :validation)
-                            (not matched?)   (plan/not-found-params url nil)
-                            :else            (:params match))
-        query             (if fallback? {} (:query match))
+        route-id          (:route-id resolved-target)
+        params            (:params resolved-target)
+        query             (:query resolved-target)
         ;; Spec 012 §Per-route data loading rule 3: a re-navigation whose
         ;; resolved id/params/query/fragment match the current slice
         ;; exactly is a complete no-op — no new nav-token, no `:on-match`
@@ -326,22 +318,18 @@
         ;;
         ;; EP-0037 R0b: the URL-driven door lowers to the SAME resolved-target
         ;; / route-plan seam as the programmatic door. The plan's `:target` is
-        ;; the ResolvedTarget the commit publishes (byte-identical to the slice
-        ;; this door committed before R0b — the seam is load-bearing); its
-        ;; `:cause` / `:branch` / `:leaf-plan` are the R0 diagnostic projection
-        ;; (Spec 012 §Resolved target and the plan diagnostic projection). The
-        ;; raw URL IS the source here.
+        ;; the very ResolvedTarget `url-resolution` produced above — the value
+        ;; the link door's stage 3 and guards already decided against, now
+        ;; published into the slice, so the seam is load-bearing rather than a
+        ;; parallel diagnostic copy. Its `:cause` / `:branch` / `:leaf-plan` are
+        ;; the R0 diagnostic projection (Spec 012 §Resolved target and the plan
+        ;; diagnostic projection). The raw URL IS the source here.
         (routing-events/commit-navigation
           rdb
           (assoc (:target (resolver/route-plan
                             {:cause  cause
                              :source {:url url}
-                             :target (resolver/resolved-target
-                                       {:route-id route-id
-                                        :params   params
-                                        :query    query
-                                        :fragment fragment
-                                        :url      url})}))
+                             :target resolved-target}))
                  :transition transition)
           on-match-vec
           {:prev-id        (get-in rdb [:rf.runtime/routing :current :route-id])
@@ -405,6 +393,43 @@
     (url-change-fx rdb url :top frame nav-allocation pending-nav-allocation
                    app-db :link opts)))
 
+(defn url-change-cause
+  "The true R0 navigation cause for one `:rf.route/handle-url-change`
+  dispatch. The event is ONE door standing for THREE (Spec 012 §URL changes
+  are events — popstate, initial page load, and the SSR request URL), and the
+  R0 causes `:popstate` / `:initial` / `:ssr` are cause-specific diagnostics,
+  so the door must report which of the three it actually was rather than
+  labelling all three `:popstate`.
+
+  Resolution, in order:
+
+  1. the runtime-internal `:rf.route/cause` rider on the door's trailing opts
+     map. The framework's own strategy-aware history listener sets it — the
+     browser-driven `popstate` / `hashchange` callback stamps `:popstate`, and
+     the same listener's initial URL -> slice sync stamps `:initial` (Spec 012
+     §popstate drives the URL-owner frame). Only a member of
+     `resolver/causes` is honoured; anything else falls through, so a stray
+     value cannot invent a sixth cause. Like `:rf.route/decided?` this is a
+     runtime-internal rider on the trailing opts map, NOT a member of the
+     closed `:rf.route/navigate` request roster (Spec 012 §The request
+     grammar);
+  2. `:ssr` when the dispatching frame is a server frame — the SSR feed is
+     dispatched by the application's own `:initial-events`
+     (`[:rf.route/handle-url-change (:uri request)]`, Spec 012 §Server-side
+     rendering integration step 2), so it carries no framework rider and is
+     recognised by the frame's `:platform :server`, the same one read that
+     gates the SSR 403 floor;
+  3. `:initial` otherwise — a URL-change dispatch with no framework rider on a
+     client frame is an initial / direct-URL feed. `popstate` never reaches
+     here without the rider: the frame lifecycle owns the listener that fires
+     it."
+  [frame opts]
+  (let [riden (:rf.route/cause opts)]
+    (cond
+      (contains? resolver/causes riden)  riden
+      (decisions/server-frame? frame)    :ssr
+      :else                              :initial)))
+
 (defn handle-url-change-handler
   "`:rf.route/handle-url-change` event handler. Registered by the
   façade so a `:reload` re-wires it on a fresh registrar. Per Spec 012
@@ -415,7 +440,12 @@
   nav-token or re-firing :on-match (rf2-8oxj6). The default scroll
   strategy is `:restore` so the saved position trumps. `:frame` is
   threaded through so the SSR error-projection listener can attribute
-  the :no-such-handler trace per-frame."
+  the :no-such-handler trace per-frame.
+
+  This one event stands for THREE doors, so the plan cause is resolved
+  per-dispatch by `url-change-cause` rather than hardcoded — otherwise the
+  declared `:initial` and `:ssr` causes are dead and cause-specific
+  diagnostics misreport two of the five doors."
   [{frame :rf.frame/id rdb :rf.db/runtime
     nav-allocation :rf.route/nav-allocation
     pending-nav-allocation :rf.route/pending-nav-allocation
@@ -432,7 +462,8 @@
         opts    (or opts {})
         rdb     (or rdb {})]
     ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-    ;; EP-0037 R0b: the URL-driven `:rf.route/handle-url-change` door
-    ;; (popstate / initial / SSR) carries the `:popstate` plan cause.
+    ;; EP-0037 R0b: the URL-driven `:rf.route/handle-url-change` door stands for
+    ;; THREE sub-doors, so it carries the cause `url-change-cause` resolves for
+    ;; THIS dispatch — `:popstate`, `:initial`, or `:ssr`.
     (url-change-fx rdb url :restore frame nav-allocation pending-nav-allocation
-                   app-db :popstate opts)))
+                   app-db (url-change-cause frame opts) opts)))

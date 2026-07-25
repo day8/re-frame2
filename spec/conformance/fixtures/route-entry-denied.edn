@@ -61,10 +61,14 @@
   ;; Step 3: programmatic navigate — the SAME outcome (fail-closed per door).
   [:rf.route/navigate {:to :account/settings}]
 
-  ;; Step 4: deep-link / popstate — the same outcome, PLUS an address-bar
+  ;; Step 4: popstate (Back/Forward) — the same outcome, PLUS an address-bar
   ;; restore: the browser already moved, so the runtime replaces the URL back
   ;; to the current slice's URL (a replace, so no history entry is added).
-  [:rf.route/handle-url-change "/account"]
+  ;; `:rf.route/handle-url-change` stands for THREE doors, so the dispatch
+  ;; carries the `:rf.route/cause` rider exactly as the `:url-bound?` frame's
+  ;; history listener stamps it — that is what makes the denial trace below
+  ;; report `:cause :popstate` rather than the initial-load cause.
+  [:rf.route/handle-url-change "/account" {:rf.route/cause :popstate}]
 
   ;; Step 5: an EXACT no-op runs neither guard and creates no state.
   [:rf.route/handle-url-change "/"]
