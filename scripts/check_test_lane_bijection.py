@@ -143,11 +143,6 @@ DEFTEST_HEAD = re.compile(r"(?:[^\s()\[\]{}/]+/)?deftest\Z")
 #: The same as an opening form, for scanning a `defmacro` body.
 DEFTEST_FORM = re.compile(r"\((?:[^\s()\[\]{}/]+/)?deftest[\s()\[\]{}]")
 
-#: A `deftest` form in column 0 -- the shape almost every test file uses, and
-#: the only one the pre-repair gate could see.  Kept as a fast path.
-TOP_LEVEL_DEFTEST = re.compile(r"^\((?:[^\s()\[\]{}/]+/)?deftest[\s()\[\]{}]",
-                               re.MULTILINE)
-
 DEFMACRO_FORM = re.compile(r"\(defmacro\s+([^\s()\[\]{}]+)")
 
 #: Forms the reader sees through: what they wrap is still top level.  A reader
@@ -232,11 +227,9 @@ def deftest_emitting_macros(masked_texts) -> set:
 
 
 def defines_tests(masked: str, macro_names) -> bool:
-    # The overwhelmingly common shape, on MASKED text so it cannot be a
-    # docstring line: `(deftest` in column 0.  Recognising it without walking
-    # the delimiters is what keeps the scan's runtime where it was.
-    if TOP_LEVEL_DEFTEST.search(masked):
-        return True
+    """One rule and no column heuristic.  A `(deftest` in column 0 was measured
+    against the walk and saved 0.05s over the whole tree, which does not buy a
+    second way to be wrong."""
     for head in top_level_heads(masked):
         if DEFTEST_HEAD.match(head):
             return True
@@ -255,6 +248,7 @@ def declared_namespaces(masked: str):
         if m.group(1) not in seen:
             seen.append(m.group(1))
     return seen
+
 
 #: Build output and dependency trees.  Nothing under them defines a lane or a
 #: test the lanes select, and walking them dominates the runtime.
@@ -597,7 +591,8 @@ def discover(lanes, repo: Path):
         if "defmacro" in text and "deftest" in text)
 
     # Pass 2 -- classify.  The substring pre-filter keeps masking off the ~40%
-    # of scanned files that mention neither, which is what holds the runtime.
+    # of scanned files that mention neither token, which is what holds the
+    # runtime: masking is the only new work, and it is a callback-free `sub`.
     classified = {}
 
     def classify(key: str):
