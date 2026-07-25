@@ -53,9 +53,20 @@ stranger's `is` vouch for this suite's own non-asserting helper of the same name
 and let a `#?(:clj (is …) :cljs x)` helper be credited in a node lane that runs
 the other arm.  So a name resolves in the NAMESPACE that wrote it, read as ONE
 PLATFORM at a time, and both the fixture and the mode witness are whatever the
-asserting statement REACHES through those names.  Every reading here is
-self-tested with the DEFECT KIND pinned, not just the count, and every green
-fixture is falsified by removing the thing that makes it green.
+asserting statement REACHES through those names.
+
+And a NAME is not any run of symbol characters, which was the third audit and the
+last of the class.  The scan started wherever a symbol character appeared, so it
+read the tails of tokens rather than tokens: a keyword is a symbol run behind a
+`:`, so `(is (= :panel (first fx)))` yielded `panel`, and a
+`(v/defview panel {:compiled true} …)` in scope made that DATUM witness a
+compiled tier the assertion never entered.  The same promotion let `:fx` prove a
+row bound to `fx`, and `:check/findings` stand in for the compile-tier alias.  A
+keyword is data and a Var reference is a symbol, so a symbol is read from a TOKEN
+BOUNDARY — the character before it decides — and numeric literals stop yielding
+names with it.  Every reading here is self-tested with the DEFECT KIND pinned, not
+just the count, and every green fixture is falsified by removing the thing that
+makes it green.
 
 An id is an address.  An address that resolves to nothing is worse than no
 address at all, so this guard fails the build when:
@@ -238,7 +249,7 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 # it does not exist.
 #
 # But a site is not a proof.  What makes a row proven is that an ASSERTION runs
-# against the fixture, and eight shapes are indistinguishable from a proof to a
+# against the fixture, and nine shapes are indistinguishable from a proof to a
 # scan that stops short of the assertions:
 #
 #     ;; (conf/fixture :FH-CALL-001)              a comment
@@ -253,24 +264,30 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 #                                                 does, in another namespace
 #     (defn expect [x] #?(:clj (is …) :cljs x))   a helper that asserts on ONE
 #     (deftest t (expect fx))                     platform, credited on both
+#     (def fx (conf/fixture :FH-CALL-001))        a KEYWORD spelled like the
+#     (deftest t (is (= :fx 1)))                  binding, read as the Var
 #
 # The first three are the false greens the first merged-PR audit found; the
 # fourth was the same mistake waiting; the next two are what the SECOND audit
 # found still standing after the first fix, because reading forms is not the same
-# as reading assertions; and the last two are the THIRD, because reading
-# assertions is not the same as reading them in the namespace and on the platform
-# that has them.  Each one lets a law be retired by deletion — comment out the
-# proof, keep the line — with the gate still calling the row proven.
+# as reading assertions; the next two are the THIRD, because reading assertions is
+# not the same as reading them in the namespace and on the platform that has them;
+# and the last is the FOURTH, because a name is not any run of symbol characters —
+# `:fx` was read as `fx`, and a datum stood in for a Var.  Each one lets a law be
+# retired by deletion — comment out the proof, keep the line — with the gate still
+# calling the row proven.
 #
-# So the scan reads FORMS, then the ASSERTIONS, then the NAMES.  `_strip` blanks
-# comments, string and character literals, `#_`-discarded data and `(comment …)`
-# forms at any depth; `_top_level_forms` splits what survives on balanced parens;
-# `_read_tree` binds every definition to the namespace that wrote it, once per
-# platform; and a site counts only when an ASSERTING STATEMENT of a `deftest`
-# reaches it — written in one, or bound to a name one uses, directly or through a
-# helper it calls, with "the same name" meaning the same binding rather than the
-# same spelling.  A statement that asserts nothing contributes nothing, and a
-# file carrying no `deftest` proves nothing, whatever its name.
+# So the scan reads FORMS, then the ASSERTIONS, then the NAMES — and it reads a
+# name from a TOKEN BOUNDARY.  `_strip` blanks comments, string and character
+# literals, `#_`-discarded data and `(comment …)` forms at any depth;
+# `_top_level_forms` splits what survives on balanced parens; `_SYMBOL_RE` matches
+# a symbol only where one STARTS, so a keyword stays data; `_read_tree` binds every
+# definition to the namespace that wrote it, once per platform; and a site counts
+# only when an ASSERTING STATEMENT of a `deftest` reaches it — written in one, or
+# bound to a name one uses, directly or through a helper it calls, with "the same
+# name" meaning the same binding rather than the same spelling.  A statement that
+# asserts nothing contributes nothing, and a file carrying no `deftest` proves
+# nothing, whatever its name.
 _FIXTURE_CALL_RE = re.compile(
     r"\(\s*(?:[A-Za-z0-9.*+!_'?<>=-]+/)?fixture\s+(:FH-[A-Z]+-\d{3})\b"
 )
@@ -308,14 +325,42 @@ _REQUIRE_CLAUSE_RE = re.compile(r"^\(\s*:(?:require|use)")
 # `_cell_lanes` for why the second half is not optional.
 _COMPILED_DECLARATION_RE = re.compile(r":compiled\s+true\b")
 _COMPILE_TIER_NS_RE = re.compile(r"\bre-frame\.freehand\.compiler\b")
-# Clojure symbol characters, INCLUDING the `/` that qualifies one.  A qualified
-# symbol is read whole because the qualifier is what says which namespace the
-# name lives in: `sup/expect-tree` is a claim about `re-frame.freehand.support`,
-# and splitting it into two bare words is what made helper identity global.
-# Otherwise deliberately generous — this reads a form for the NAMES it mentions,
-# and a name matched too widely costs a spurious edge in the reachability graph,
-# never a missed one.
-_SYMBOL_RE = re.compile(r"[A-Za-z*+!_'?<>=][A-Za-z0-9*+!_'?<>=.$/-]*")
+# A SYMBOL, read from a TOKEN BOUNDARY.
+#
+# The body class carries the `/` that qualifies a symbol, because the qualifier
+# is what says which namespace the name lives in: `sup/expect-tree` is a claim
+# about `re-frame.freehand.support`, and splitting it into two bare words is what
+# made helper identity global.  The head class is the body minus the characters a
+# symbol cannot START with — a digit, and the `.` `/` `-` `$` that begin no name
+# this graph resolves.
+#
+# The LOOKBEHIND is the part a merged-PR audit had to ask for twice.  Without it
+# the scan started wherever a symbol character appeared, so it did not read tokens
+# at all — it read the tails of them.  A keyword is a symbol character run behind
+# a `:`, so `(is (= :panel (first fx)))` yielded `panel`, and with a
+# `(v/defview panel {:compiled true} …)` in scope that DATUM resolved to the Var
+# and vouched for a compiled tier the assertion never entered.  The same promotion
+# let `:fx` prove a row bound to `fx`, and `:check/findings` stand in for the
+# compile-tier alias `check`.  A keyword is DATA; a Var reference is a symbol; and
+# the one lexical fact that separates them is what precedes the token.  So a match
+# begins only where the previous character is neither a symbol character nor the
+# `:` that makes the token a keyword — after a delimiter, a reader prefix, or the
+# start of the form.  Numeric literals fall out with them (`1e5` no longer yields
+# `e5`), since a digit cannot be followed into a name either.
+#
+# It is a boundary, not a reader: this classifies the token's first character and
+# nothing more.  Comments, strings, character literals and discarded data are
+# already gone (`_strip`), so a match here is a token in code.  The residue is a
+# missed edge rather than a spurious one — a name the head class cannot begin
+# (`->tree`, `.getName`, `-main`) yields nothing, exactly as it resolved to
+# nothing before — and a missed edge costs a noisy `DEAD PROOF SITE` on an honest
+# row, never a silent green.  It fails to the loud side, like the unresolved
+# libspec in `_ns_context`.
+_SYMBOL_BODY = r"A-Za-z0-9*+!_'?<>=.$/-"
+_SYMBOL_HEAD = r"A-Za-z*+!_'?<>="
+_SYMBOL_RE = re.compile(
+    rf"(?<![:{_SYMBOL_BODY}])[{_SYMBOL_HEAD}][{_SYMBOL_BODY}]*"
+)
 
 _CLJ_SUFFIXES = (".clj", ".cljc", ".cljs")
 
@@ -1427,6 +1472,17 @@ def _cell_lanes(mode: str, host: str) -> frozenset[str]:
 # for the node lane and says nothing about the JVM, so a `compiled jvm` row needs
 # its witness on the JVM.  The defect names the host for that reason.
 #
+# Reachability is only as sound as NAME RESOLUTION, which is where this last got
+# out.  Both surfaces are reached by symbol, and a keyword is a symbol run behind
+# a `:` — so `:panel` witnessed a `(v/defview panel {:compiled true} …)` and
+# `:check/findings` witnessed the alias `check`, from data the assertion compares
+# against and never calls.  `_SYMBOL_RE` reads from a token boundary for that
+# reason.  What stays TEXTUAL, and is stated rather than hidden, is the marker
+# itself: a statement mentioning `{:compiled true}` or a spelled-out
+# `re-frame.freehand.compiler.…` as DATA still witnesses, because the marker is
+# read off the statement's text.  Reachability is what was missing and is enforced;
+# distinguishing a marker used as data from one used as code is not claimed.
+#
 # `interpreted` and `common` get no witness, and saying so is the honest half of
 # this.  Interpreted is the DEFAULT lowering — a declaration is interpreted by
 # carrying nothing — so there is no marker to demand, and a rule every proof
@@ -1868,6 +1924,20 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
+        # Red: A KEYWORD IS NOT THE VAR IT IS SPELLED LIKE, on the reachability
+        # axis.  The suite is `census_dead_def` above with `1` swapped for `:fx`,
+        # and before the symbol reader anchored to a token boundary that one
+        # character turned the same dead def green: `:fx` was read as the Var
+        # `fx`, so the asserting statement "reached" a fixture it only names in a
+        # datum.  Its control is `census_dead_def` itself - same shape, a literal
+        # spelled differently, red both before and after.
+        "census_keyword_shaped_like_the_fixture_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= :fx 1)))\n"},
+            (),
+            (),
+        ),
         # Red: the id appears inside a docstring.  Prose about a law is not a
         # proof of it, and prose is where an id is MOST likely to be written.
         "census_proof_site_in_a_docstring": (
@@ -2052,6 +2122,36 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
+        # Red, AND THE NEGATIVE CONTROL FOR THE GREEN ABOVE - the false green a
+        # merged-PR audit had to record twice.  The declaration is the same, the
+        # fixture is the same, and the assertion names NOTHING: `:panel` is a
+        # keyword, a datum the test compares against, and the symbol reader used
+        # to hand back `panel` from behind the `:` and resolve it to the Var.  So
+        # a `compiled jvm` row sat at defects=0 on an assertion that entered
+        # neither the Var nor the compiled tier.
+        "census_keyword_shaped_like_the_compiled_declaration": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= :panel (first fx))))\n"},
+            (),
+            (),
+        ),
+        # Red: THE OTHER HALF OF THAT PAIR.  One character of the keyword
+        # changed, nothing else - and this shape was ALREADY red, which is what
+        # made the one above a defect rather than a policy: the census's verdict
+        # turned on how a datum was SPELLED.  Both red now, so the spelling
+        # cannot be what carries a green; the Var-naming green above is.
+        "census_keyword_not_shaped_like_the_compiled_declaration": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= :not-panel (first fx))))\n"},
+            (),
+            (),
+        ),
         # Green: the FH-DIAG-001 shape.  A compiled-mode law proven through the
         # CHECKER, over declarations deliberately carrying no `{:compiled true}`
         # - the row a narrower witness would have reddened.  The fixture goes
@@ -2063,6 +2163,22 @@ def _build_census_fixtures(base: Path) -> None:
                                ":as check]))\n"
                                "(def fx (conf/fixture :FH-CALL-001))\n"
                                "(deftest t (is (seq (check/findings fx))))\n"},
+            (),
+            (),
+        ),
+        # Red: the same keyword promotion on the OTHER witness surface, and its
+        # green is the case above.  A NAMESPACED keyword is qualified by an
+        # alias-shaped word too, so `:check/findings` used to be read as
+        # `check/findings`, resolve its qualifier through the file's `:as`, and
+        # witness the compile tier - from a datum the assertion merely compares
+        # against.  A keyword names no namespace this file required.
+        "census_namespaced_keyword_shaped_like_the_tier_alias": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_jvm_test.clj": "(ns re-frame.freehand.a-jvm-test\n"
+                               "  (:require [re-frame.freehand.compiler.check "
+                               ":as check]))\n"
+                               "(def fx (conf/fixture :FH-CALL-001))\n"
+                               "(deftest t (is (= :check/findings (first fx))))\n"},
             (),
             (),
         ),
@@ -2341,6 +2457,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_commented_proof_site", 1, "DEAD PROOF SITE"),
         ("census_discarded_proof_site", 1, "DEAD PROOF SITE"),
         ("census_dead_def", 1, "DEAD PROOF SITE"),
+        ("census_keyword_shaped_like_the_fixture_binding", 1,
+         "DEAD PROOF SITE"),
         ("census_proof_site_in_a_docstring", 1, "DEAD PROOF SITE"),
         ("census_comment_form_inside_a_deftest", 1, "DEAD PROOF SITE"),
         ("census_dead_branch_in_a_called_helper", 1, "DEAD PROOF SITE"),
@@ -2355,7 +2473,13 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_interpreted_jvm_row", 0, None),
         ("census_mode_relabelled_to_compiled", 1, "UNWITNESSED MODE"),
         ("census_compiled_declaration_witnesses_the_mode", 0, None),
+        ("census_keyword_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
+        ("census_keyword_not_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
         ("census_compile_tier_witnesses_the_mode", 0, None),
+        ("census_namespaced_keyword_shaped_like_the_tier_alias", 1,
+         "UNWITNESSED MODE"),
         ("census_compile_tier_required_but_not_asserted_through", 1,
          "UNWITNESSED MODE"),
         ("census_compiled_declaration_not_reached_by_the_assertion", 1,

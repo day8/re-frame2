@@ -170,7 +170,7 @@ reaches it — written in one, or bound to a name such a statement uses, directl
 or through a helper it calls. A statement that asserts nothing contributes
 nothing, and a `deftest` whose statements never assert proves nothing at all.
 
-Eight shapes name a law and prove nothing:
+Nine shapes name a law and prove nothing:
 
 ```clojure
 ;; (def props-003 (conf/fixture :FH-PROPS-003))   a comment
@@ -185,16 +185,21 @@ Eight shapes name a law and prove nothing:
                                                   does, in another namespace
 (defn check [x] #?(:clj (is (seq x)) :cljs x))    a helper that asserts on ONE
 (deftest t (check props-003))                     platform, credited on both
+(def props-003 (conf/fixture :FH-PROPS-003))      a KEYWORD spelled like the
+(deftest t (is (= :props-003 1)))                 binding, read as the Var
 ```
 
 The first four are invisible to a scan that reads characters. The next two are
 invisible to a scan that reads forms but seeds from the whole `deftest`: the id
 is mentioned where a test can see it and where nothing evaluates it, so the suite
 stays green with the fixture broken — which is the one thing the row's green is
-supposed to rule out. The last two are invisible to a scan that reads assertions
-but not the *names* carrying them. Each is a way to delete a law's proof and
-leave its row standing, so each is a `DEAD PROOF SITE` — or, where the lost
-assertion is one platform's, an `UNEXECUTED CELL` on the lane that platform
+supposed to rule out. The next two are invisible to a scan that reads assertions
+but not the *names* carrying them. The last is invisible to one that reads names
+but not their *boundaries*: a keyword is a run of symbol characters behind a `:`,
+so a scan starting wherever such a character appears reads `props-003` out of
+`:props-003` and resolves the datum to the Var. Each is a way to delete a law's
+proof and leave its row standing, so each is a `DEAD PROOF SITE` — or, where the
+lost assertion is one platform's, an `UNEXECUTED CELL` on the lane that platform
 serves.
 
 What this establishes is bounded, and the bound is worth stating: the assertion
@@ -211,6 +216,14 @@ A name is resolved in the namespace that wrote it, through its own `:as` and
 `:refer`; matching bare words in one global pool lets any file's asserting helper
 vouch for every same-named helper anywhere, which is a suite being credited with
 a stranger's `is`.
+
+And a name is read from a **token boundary**, because a keyword is a run of symbol
+characters behind a `:`. A scan that begins wherever such a character appears is
+reading the tails of tokens, not tokens: `(is (= :panel (first fx)))` yields
+`panel`, and with a `(v/defview panel {:compiled true} …)` in scope that datum
+resolves to the Var and witnesses a compiled tier the assertion never enters. A
+keyword is data; a Var reference is a symbol; the character *before* the token is
+what separates them.
 
 The census also reads the **reader**. A `.cljc` suite is discovered by the JVM
 runner *and* the node runner, but a `#?(:clj (deftest …))` inside it asserts in
@@ -244,7 +257,13 @@ the top, a declaration anywhere below it — vouches for assertions that touch
 neither, so keeping the require and asserting on the raw fixture instead kept the
 row's `compiled` claim standing while nothing compiled ran. Presence is not
 proof, in the same way and for the same reason that a fixture named in a file is
-not a fixture a test reads.
+not a fixture a test reads. Reachability is only as sound as name resolution, so
+the witness is reached by a symbol read from a token boundary: `:panel` is a datum,
+not the declaration it is spelled like, and neither is `:check/findings` the alias.
+What stays textual, and is claimed as nothing more, is the marker itself — a
+statement mentioning `{:compiled true}` or a spelled-out
+`re-frame.freehand.compiler.…` as data still witnesses. Reachability is enforced;
+telling a marker used as data from one used as code is not.
 
 And the witness is only evidence where it *runs*. A compile-tier reference inside
 a `#?(:cljs …)` branch vouches for the node lane and says nothing about the JVM,
