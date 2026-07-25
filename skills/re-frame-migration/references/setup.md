@@ -278,7 +278,7 @@ The real done-signal is therefore **CI green on a clean checkout**, not a green 
 
 ## The pay-as-you-go artefact split — the principle
 
-re-frame2 splits seven per-feature artefacts out of core (`-schemas`, `-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`). **The rule is one line: add an artefact only when the codebase actually uses that feature. Never add one defensively.**
+re-frame2 splits nine per-feature artefacts out of core. Seven of them are the ones a v1 migration can trigger: `-schemas`, `-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`. The other two — `-ssr-ring` (the Ring host binding for SSR) and `-resources` (declarative server-state) — have no v1 counterpart at all, so no migration rule ever adds them; a codebase adopts them deliberately, after the migration, or not at all. **The rule is one line: add an artefact only when the codebase actually uses that feature. Never add one defensively.**
 
 The full trigger→rule→dependency matrix — *which* v1 surface forces *which* artefact (M-27 through M-33, plus the HTTP test-support require, M-31a / M-65) — lives in **one place** and is not restated here: [`breaking-changes.md` §Required (M-rules) by trigger surface](breaking-changes.md#required-m-rules-by-trigger-surface), rows M-27–M-33. Read it there when you need the per-surface mapping. The per-artefact `:require` + load-hook + missing-artefact behavior is in [`auto-cross-cutting.md` §Per-feature artefact adds](auto-cross-cutting.md#per-feature-artefact-adds-m-27-through-m-33).
 

@@ -29,8 +29,9 @@ Two top-level groupings:
   rf2-0imy canonical naming, "adapters" not "substrates"). One directory
   per adapter (`reagent`, `uix`, `reagent-slim`).
 - **Per-feature artefacts** — one flat directory per feature
-  (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`),
-  each plugged into core via the `re-frame.late-bind` hook table per
+  (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`,
+  `resources`, `epoch` — nine in all), each plugged into core via the
+  `re-frame.late-bind` hook table per
   [Conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
 The `ui/` artefact (the re-frame.ui compiled-view substrate, epic
