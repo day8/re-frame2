@@ -1,21 +1,26 @@
 (ns re-frame.freehand.emit-jvm-dead-arms-jvm-test
-  "rf2-drpa3.174 — the JVM emitter's two below-v1 arms that have no honest JVM
-  form (`:raw`, and a NON-lazy `:foreign`) refuse the shape loudly instead of
+  "rf2-drpa3.174 — the JVM emitter's below-v1 arm that has no honest JVM
+  form (a NON-lazy `:foreign`) refuses the shape loudly instead of
   emitting a call to `re-frame.freehand.tree/jvm-host-op!`, a var defined
   nowhere.
 
   The claim has two halves, and this suite pins both so a later grammar
   widening cannot silently re-expose an unresolved symbol:
 
-    - GRAMMAR — `:raw` and `:foreign` are outside `:re-frame.freehand/v1`, so
-      `grammar/check!` refuses a body carrying either before any emitter sees
-      it. That is what makes these emitter arms unreachable in the normal
-      pipeline (they are established DEAD, not merely suspected so).
+    - GRAMMAR — `:foreign` is outside `:re-frame.freehand/v1`, so
+      `grammar/check!` refuses a body carrying one before any emitter sees
+      it. That is what makes the emitter arm unreachable in the normal
+      pipeline (it is established DEAD, not merely suspected so).
 
     - JVM EMITTER — the arm itself, reached across a weaker seam (`emit-node`
       called directly) or after a future admission, raises an intentional
       Freehand compile diagnostic. It emits no form, so there is no undefined
       var for expansion to trip over.
+
+  The sibling `:raw` arm this suite also covered went with the `v/raw`
+  recognition (rf2-4gnrs): the authoring var was published on neither host, so
+  no body could carry the node, and the capability was never lost — a runtime
+  React element crosses into a Freehand tree unwrapped on its own account.
 
   Expansion is driven directly rather than through `defview` source, because a
   reached arm is a build failure — a suite that placed one in source could not
@@ -43,12 +48,10 @@
 ;; The arms are dead — the grammar refuses both node kinds before emission
 ;; ---------------------------------------------------------------------------
 
-(deftest raw-and-foreign-are-outside-the-v1-grammar
-  (testing "Neither :raw nor :foreign is an admitted v1 op, so a body carrying
+(deftest foreign-is-outside-the-v1-grammar
+  (testing ":foreign is not an admitted v1 op, so a body carrying
             one never reaches the JVM emitter in the normal pipeline — the
-            positive establishment that these arms are dead code."
-    (is (not (contains? grammar/admitted-ops :raw))
-        ":raw is not admitted by :re-frame.freehand/v1")
+            positive establishment that this arm is dead code."
     (is (not (contains? grammar/admitted-ops :foreign))
         ":foreign is not admitted by :re-frame.freehand/v1")))
 
@@ -56,19 +59,11 @@
 ;; The JVM emitter arm fails loud — an intentional diagnostic, no emitted var
 ;; ---------------------------------------------------------------------------
 
-(deftest a-raw-node-reaching-the-emitter-refuses-with-a-diagnostic
-  (testing "Reached across a weaker seam, the :raw arm raises the emitter's own
-            compile diagnostic and emits nothing — so there is no form naming
-            an undefined var for expansion to trip over."
-    (let [d (emit-outcome {:op :raw})]
-      (is (map? d) ":raw refuses, it does not emit a form")
-      (is (= :rf.ui.compile/unsupported-form (:rf.ui.compile/error d))
-          "under the emitter's compile diagnostic id")
-      (is (= :raw (:op d)) "naming the op it refused"))))
-
 (deftest a-non-lazy-foreign-node-reaching-the-emitter-refuses-with-a-diagnostic
-  (testing "Same for a non-lazy foreign component: it has no JVM structural
-            form, so the arm refuses rather than emitting one."
+  (testing "Reached across a weaker seam, a non-lazy foreign component has no
+            JVM structural form, so the arm raises the emitter's own compile
+            diagnostic and emits nothing — there is no form naming an
+            undefined var for expansion to trip over."
     (let [d (emit-outcome {:op :foreign :lazy? false :sym 'some.ns/Widget})]
       (is (map? d) "a non-lazy :foreign refuses, it does not emit a form")
       (is (= :rf.ui.compile/unsupported-form (:rf.ui.compile/error d))
@@ -76,12 +71,11 @@
       (is (= 'some.ns/Widget (:sym d)) "naming the foreign head it refused"))))
 
 (deftest the-refusal-is-a-diagnostic-not-an-unresolved-symbol
-  (testing "The exact regression rf2-drpa3.174 names: these arms used to emit
+  (testing "The exact regression rf2-drpa3.174 names: this arm used to emit
             a form naming re-frame.freehand.tree/jvm-host-op!, a var defined
             nowhere, so a reached arm expanded to an unresolved symbol rather
-            than a diagnostic. The arms now raise ExceptionInfo — the proof
-            they no longer produce an emittable form at all."
-    (is (thrown? clojure.lang.ExceptionInfo (emit-jvm/emit-node nil {:op :raw})))
+            than a diagnostic. The arm now raises ExceptionInfo — the proof
+            it no longer produces an emittable form at all."
     (is (thrown? clojure.lang.ExceptionInfo
                  (emit-jvm/emit-node nil {:op :foreign :lazy? false :sym 'x/Y})))))
 

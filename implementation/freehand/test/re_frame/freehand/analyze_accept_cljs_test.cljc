@@ -17,14 +17,10 @@
     (case sym
       map         {:fqn 'clojure.core/map :meta {}}
       sub         {:fqn 're-frame.freehand/sub :meta {}}
-      frame       {:fqn 're-frame.freehand/frame :meta {}}
-      ;; aliased + fully-qualified spellings resolve to the same vars
+      ;; aliased + fully-qualified spellings resolve to the same var
       ;; (rf2-vxgfnd.266 head reservation must key on the fqn, not the spelling)
       v/sub            {:fqn 're-frame.freehand/sub :meta {}}
-      v/frame          {:fqn 're-frame.freehand/frame :meta {}}
       re-frame.freehand/sub   {:fqn 're-frame.freehand/sub :meta {}}
-      re-frame.freehand/frame {:fqn 're-frame.freehand/frame :meta {}}
-      raw         {:fqn 're-frame.freehand/raw :meta {}}
       html        {:fqn 're-frame.freehand/html :meta {}}
       raw-fn      {:fqn 're-frame.freehand/raw-fn :meta {}}
       spread      {:fqn 're-frame.freehand/spread :meta {}}
@@ -45,7 +41,6 @@
       when-some   {:fqn 'clojure.core/when-some :meta {:macro true}}
       clojure.core/if-some {:fqn 'clojure.core/if-some :meta {:macro true}}
       ->          {:fqn 'clojure.core/-> :meta {:macro true}}
-      frame-provider {:fqn 're-frame.freehand/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
                    :meta {:rf.ui/view true :rf.ui/children? true}}
       leaf-view   {:fqn 'app.views/leaf-view
@@ -67,8 +62,8 @@
 
 (defn mk-self-env
   "Like `mk-env` but the view being compiled (`:self`) is `self-sym`. The
-  injected resolver ALSO resolves sub/frame to their public reactive
-  authoring vars, so this env is the rf2-vxgfnd.274 crux: a head equal to
+  injected resolver ALSO resolves `sub` to its public reactive
+  authoring var, so this env is the rf2-vxgfnd.274 crux: a head equal to
   `self-sym` must classify as a self-recursive internal view BEFORE the
   reactive-authoring reservation can reject it."
   [self-sym]
@@ -200,10 +195,10 @@
       "var copies do not carry view-ness (def does not copy var meta) — foreign"))
 
 (deftest reactive-verb-head-reservation-is-narrow
-  ;; rf2-vxgfnd.266 — reserving sub/frame heads BEFORE generic component
+  ;; rf2-vxgfnd.266 — reserving the `sub` head BEFORE generic component
   ;; classification must not disturb genuine foreign components or ordinary view
-  ;; heads: only a head resolving to one of the three public reactive authoring
-  ;; vars is reserved. A DIRECT (sub …)/(frame) CALL in child position is still
+  ;; heads: only a head resolving to the public reactive authoring
+  ;; var is reserved. A DIRECT (sub …) CALL in child position is still
   ;; the compiler-owned form and mints exactly one manifest site.
   (is (= :foreign (:op (ana* '[ForeignComp {}])))
       "a genuine foreign component head still classifies as :foreign")
@@ -214,10 +209,7 @@
   (testing "the reservation touches ONLY the head form — direct calls still index"
     (let [{:keys [sites]} (ana-full '[:div (sub [:q])])]
       (is (= 1 (count (:subs sites)))
-          "a direct (sub …) child is one indexed site, not a reserved head"))
-    (let [{:keys [sites]} (ana-full '[:div (:frame (frame))])]
-      (is (= 1 (count (:frame-ops sites)))
-          "a direct (frame) read is one indexed frame-ops site"))))
+          "a direct (sub …) child is one indexed site, not a reserved head"))))
 
 (deftest self-head-outranks-reactive-verb-reservation
   ;; rf2-vxgfnd.274 — vector-head precedence. A head equal to the view being
@@ -228,7 +220,7 @@
   ;; (Q5 rule 1) — so classification here is resolution-free. Reverting the
   ;; precedence to reserved-before-self throws :rf.ui.compile/unsupported-form
   ;; on every accept row below, so this deftest is the mutation fixture.
-  (doseq [verb '[sub frame]]
+  (doseq [verb '[sub]]
     (let [e   (mk-self-env verb)
           ast (ana/analyze e [verb {}])]
       (is (= :view (:op ast))
@@ -979,46 +971,23 @@
     (is (empty? (:subs sites)))))
 
 ;; ---------------------------------------------------------------------------
-;; (frame) — the compiled operation-bundle body form (rf2-vxgfnd.184)
+;; (frame) — RETIRED (rf2-h1ae3). `re-frame.freehand/frame` is published on
+;; neither host and the arm lowered to `re-frame.freehand.frames/frame-ops`, a
+;; namespace that exists nowhere, so the recognition was dead at both ends. A
+;; body spelling it now walks as an ORDINARY opaque call, indexing nothing —
+;; which is what `re-frame.freehand.unpublished-head-absence-jvm-test` proves
+;; through the production door rather than an injected resolver.
 ;; ---------------------------------------------------------------------------
 
-(deftest frame-form-lowers-to-the-runtime-bridge
-  (testing "the exact Guide 05 spelling: a let-bound destructured bundle"
+(deftest a-frame-call-is-an-ordinary-opaque-call
+  (testing "the retired spelling survives verbatim and mints no site of any kind"
     (let [{:keys [ast sites]}
-          (ana-full '(let [{:keys [frame dispatch]} (frame)]
-                       [:div.bridge (str frame)]))]
-      (is (= :let (:op ast)))
-      (is (= '(re-frame.freehand.frames/frame-ops)
-             (second (:bindings ast)))
-          "the zero-arg call lowers to the internal frame-ops bridge")
-      (is (= 1 (count (:frame-ops sites)))
-          "the site is recorded in the compiler manifest")
-      (is (some? (:sid (first (:frame-ops sites)))))
-      (is (vector? (:expr-path (first (:frame-ops sites)))))))
-  (testing "an expression-position read lowers too"
-    (let [{:keys [ast sites]}
-          (ana-full '[:div {:data-frame (:frame (frame))} "x"])]
-      (is (= '(:frame (re-frame.freehand.frames/frame-ops))
-             (get-in ast [:props :attrs 0 :value])))
-      (is (= 1 (count (:frame-ops sites))))))
-  (testing "two sites are two manifest rows with distinct sids"
-    (let [{:keys [sites]}
-          (ana-full '(let [a (frame) b (frame)] [:div (str a b)]))]
-      (is (= 2 (count (:frame-ops sites))))
-      (is (= 2 (count (distinct (map :sid (:frame-ops sites)))))))))
-
-(deftest frame-shadowing-never-mints-a-frame-site
-  (testing "a local named frame is an ordinary call, not re-frame.freehand/frame"
-    (let [{:keys [ast sites]}
-          (ana-full '[:div {:title (let [frame identity] (frame))}])]
-      (is (empty? (:frame-ops sites)))
-      (is (= '(let [frame identity] (frame))
-             (get-in ast [:props :attrs 0 :value])))))
-  (testing "the bundle's own destructured :frame key shadows the form after binding"
-    (let [{:keys [sites]}
-          (ana-full '(let [{:keys [frame]} (frame)] [:div (str frame)]))]
-      (is (= 1 (count (:frame-ops sites)))
-          "exactly the init call is a site; the bound local is a plain symbol"))))
+          (ana-full '[:div {:title (re-frame.freehand/frame)}])]
+      (is (= '(re-frame.freehand/frame)
+             (get-in ast [:props :attrs 0 :value]))
+          "the authored call is passed through, not lowered to a bridge")
+      (is (empty? (mapcat val sites))
+          "and no site bucket records it"))))
 
 (deftest html-sites-index
   (testing "v/html records a manifest site — the profile row's 'manifest
@@ -1045,7 +1014,6 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest interop-forms-lower
-  (is (= :raw (:op (ana* '(raw some-element)))))
   (let [el (ana* '[:div.content (html "<b>x</b>")])]
     (is (= :element (:op el)))
     (is (= "<b>x</b>" (get-in el [:html :form])) "sole-child v/html rides the element"))
@@ -1111,9 +1079,12 @@
     (is (some? (ana* '[:div.card (spread-safe {:role "region"}
                                               {:aria-label "x" "data-y" "y"})])))))
 
-(deftest raw-and-raw-fn-props-mark
-  (let [v (ana* '[ForeignComp {:el (raw host-el) :cb (raw-fn f)}])]
-    (is (= [:foreign :v/raw-fn]
+(deftest raw-fn-prop-marks-and-a-plain-value-does-not
+  ;; rf2-4gnrs retired the `(v/raw …)` prop recognition and the `:foreign`
+  ;; marker it alone minted: a runtime React ELEMENT crosses a boundary
+  ;; unwrapped, so it is an ordinary walked value under the nil marker.
+  (let [v (ana* '[ForeignComp {:el host-el :cb (raw-fn f)}])]
+    (is (= [nil :v/raw-fn]
            (mapv :marker (get-in v [:props :entries]))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1134,29 +1105,8 @@
     [:div {:title (when-some [x (sub [:q])] x)}]
     [:div (spread b o)]
     [:input.form-control (spread-safe {:value v :on-change [:set :rf.ui/value]} attr)]
-    (raw el)
     [:div.c (html "<hr/>")]
     [:ul (slot row-renderer 3 item) (slot (render-fn [x] [:li x]) item)]]  )
-
-;; ---------------------------------------------------------------------------
-;; frame-provider (S2c) — the SCOPE form lowers to :frame-provider anywhere
-;; ---------------------------------------------------------------------------
-
-(deftest frame-provider-lowers
-  (let [a (ana* '[frame-provider {:frame :app/session} [:p "scoped"]])]
-    (is (= :frame-provider (:op a)))
-    (is (= :app/session (:frame a)) "the :frame target is carried as a runtime value")
-    (is (= [:element] (mapv :op (:children a))) "children analyze normally")
-    (is (false? (:static? a)) "a scope boundary is never static"))
-  (testing "the :frame target may be a runtime expression"
-    (let [a (ana* '[frame-provider {:frame (:id row)} [:span "x"]])]
-      (is (= :frame-provider (:op a)))
-      (is (= '(:id row) (:frame a)))))
-  (testing "a frame-provider indexes a sub site in its :frame expression"
-    (let [{:keys [ast sites]} (ana-full '[frame-provider {:frame (sub [:current-frame])}
-                                          [:p "x"]])]
-      (is (= :frame-provider (:op ast)))
-      (is (= 1 (count (:subs sites))) "the (sub ...) in the target is a finite site"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Compiled render slots (S3, rf2-ri0k6n) — v/render-fn + v/slot

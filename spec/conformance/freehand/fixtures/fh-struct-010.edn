@@ -2,7 +2,7 @@
 ;; declaration actually carries.
 ;;
 ;; Each compiled view in the `re-frame.freehand.manifest-views` census reports
-;; a manifest whose subscription / event / slot / frame-op / crossing rosters
+;; a manifest whose subscription / event / slot / html / crossing rosters
 ;; and capability set are a function of its body's lexical sites. This fixture
 ;; pins the cardinality of each roster, the capability set, and the
 ;; ViewCell-elision verdict against the hand-countable bodies — so a manifest
@@ -21,7 +21,7 @@
 ;; declaration's position, never omit the field and never invent a line.
 ;;
 ;; `:roster-coverage` is what stops that shape row being VACUOUS. A key contract
-;; asserted over zero entries passes loudest of all, and three of the six
+;; asserted over zero entries passes loudest of all, and two of the five
 ;; rosters are still empty across the census, so the shape row would read green
 ;; over nothing for them. Each roster therefore declares how many entries the proof actually
 ;; inspects — a positive integer, never a lower bound — and the SURFACE it
@@ -29,11 +29,17 @@
 ;;
 ;;   :public   — reachable through the public door: a `v/defview` census
 ;;               declaration, read back with `v/manifest`.
-;;   :analyzer — NOT reachable through the public door today, and named as a gap
-;;               rather than quietly omitted. `slot`, `html` and `frame` have no
-;;               published var behind them, so no census declaration can carry
-;;               one. These rosters are proven one tier down, over the same
-;;               analyzer the door will call once those forms are public.
+;;   :analyzer — NOT proven through the public census today, and named as a gap
+;;               rather than quietly omitted. Two rosters sit here, for two
+;;               different reasons. `html` has no published var behind it at
+;;               all, so no census declaration CAN carry one; it arrives with
+;;               the slice that publishes the form. `slot` IS published —
+;;               `v/slot` sits on the door and carries a `spec/api-manifest.edn`
+;;               row — and its roster is empty for the more ordinary reason that
+;;               no declaration in the `re-frame.freehand.manifest-views` census
+;;               uses a slot. Either way the roster is empty across the public
+;;               census, so the shape row would read green over nothing; each is
+;;               proven one tier down, over the same analyzer the door calls.
 ;;               `:subscriptions` used to sit here too — not because `v/sub` was
 ;;               unpublished (it always was) but because the compiled lowering
 ;;               resolved it against a runtime namespace that did not exist, so
@@ -42,8 +48,16 @@
 ;;               deliberate move the split below exists to force.
 ;;
 ;; The split is ASSERTED, not assumed: an `:analyzer` roster must be empty across
-;; the public census, so the day one becomes reachable its row has to move here
+;; the public census, so the day one becomes populated — a published form, or a
+;; census declaration that finally uses one — its row has to move here
 ;; deliberately instead of drifting.
+;;
+;; `:frame-ops` was a sixth roster until rf2-h1ae3. It sat on the `:analyzer`
+;; tier because `re-frame.freehand/frame` was published on neither host — and
+;; the arm behind it also lowered to `re-frame.freehand.frames/*`, a namespace
+;; that exists nowhere, so it was dead at both ends and was retired rather than
+;; shipped. The ViewCell-elision verdicts below are unchanged by that removal:
+;; the roster was provably always empty, so it could never move a verdict.
 ;;
 ;; `:finding-rosters` names the manifest rosters that are NOT lexical-site
 ;; rosters, and so are outside every law above. `:diagnostics` is the one: its
@@ -61,37 +75,35 @@
   :events        {:surface :public   :entries 3}
   :slots         {:surface :analyzer :entries 1}
   :html-sites    {:surface :analyzer :entries 1}
-  :frame-ops     {:surface :analyzer :entries 1}
   :crossings     {:surface :public   :entries 1}}
  :required-keys
  {:subscriptions #{:sid :query :source-coord :path}
   :events        #{:sid :source-coord :path}
   :slots         #{:sid :inline? :source-coord :path}
   :html-sites    #{:source-coord :path}
-  :frame-ops     #{:sid :source-coord :path}
   :crossings     #{:view-id :lowering :source-coord :path}}
  :source-coord-keys #{:file :line :column}
  :finding-rosters #{:diagnostics}
  :views
  {:label
-  {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
+  {:events 0 :subscriptions 0 :slots 0 :crossings 0
    :capabilities #{} :view-cell :elided :reactive? false}
   :card
-  {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
+  {:events 0 :subscriptions 0 :slots 0 :crossings 0
    :capabilities #{} :view-cell :elided :reactive? false}
   :list-view
-  {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
+  {:events 0 :subscriptions 0 :slots 0 :crossings 0
    :capabilities #{} :view-cell :elided :reactive? false}
   :mounts-label
-  {:events 0 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 1
+  {:events 0 :subscriptions 0 :slots 0 :crossings 1
    :capabilities #{} :view-cell :elided :reactive? false
    :crossing {:view-id :re-frame.freehand.manifest-views/label :lowering :compiled}}
   :basket-total
-  {:events 0 :subscriptions 1 :slots 0 :frame-ops 0 :crossings 0
+  {:events 0 :subscriptions 1 :slots 0 :crossings 0
    :capabilities #{:sub} :view-cell :present :reactive? true}
   :button
-  {:events 1 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
+  {:events 1 :subscriptions 0 :slots 0 :crossings 0
    :capabilities #{:event} :view-cell :present :reactive? true}
   :two-buttons
-  {:events 2 :subscriptions 0 :slots 0 :frame-ops 0 :crossings 0
+  {:events 2 :subscriptions 0 :slots 0 :crossings 0
    :capabilities #{:event} :view-cell :present :reactive? true}}}

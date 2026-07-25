@@ -596,7 +596,7 @@
       ;;     :subscriptions [{:sid … :query [:person 7]
       ;;                      :source-coord {:file … :line 42 :column 12}
       ;;                      :path [0]}]
-      ;;     :events [] :slots [] :html-sites [] :frame-ops []
+      ;;     :events [] :slots [] :html-sites []
       ;;     :capabilities  #{:sub}
       ;;     :reactive?     true
       ;;     :view-cell     :present
@@ -605,8 +605,8 @@
       ;;                      :source-coord {:file … :line 44 :column 3}
       ;;                      :path [1]}]}
 
-  The `:subscriptions` / `:events` / `:slots` / `:html-sites` /
-  `:frame-ops` rosters are the view's finite lexical sites and
+  The `:subscriptions` / `:events` / `:slots` / `:html-sites`
+  rosters are the view's finite lexical sites and
   `:capabilities` their union with the structural capability bits. A roster
   entry's `:source-coord` is TOTAL OR ABSENT: present, it is a whole
   `{:file :line :column}` — the coordinates of the form that produced the

@@ -20,13 +20,15 @@
   wrong cause: the door published `v/sub` all along; what was missing was
   the runtime namespace the compiled lowering resolves it against.)
 
-  The three rosters this census still cannot populate — `:frame-ops`,
-  `:slots` and `:html-sites` — need `frame`, `slot` and `html`, which are
-  not published vars. They are covered one tier down in
-  `re-frame.freehand.manifest-roster-coverage-cljs-test`, which injects
-  the resolver those forms need and asserts the gap rather than leaving
-  it implied; `viewcell-elision-oracle-jvm-test` reads the elision
-  verdict off the same tier."
+  The two rosters this census does not populate are `:slots` and
+  `:html-sites`, and for two different reasons. `html` is not a published
+  var, so no declaration here CAN carry one. `v/slot` IS published — no
+  declaration here happens to use a slot, which is the ordinary reason a
+  roster is empty. Both are covered one tier down in
+  `re-frame.freehand.manifest-roster-coverage-cljs-test`, which injects a
+  resolver and asserts the gap rather than leaving it implied;
+  `viewcell-elision-oracle-jvm-test` reads the elision verdict off the same
+  tier."
   (:require [re-frame.freehand :as v]))
 
 ;; ---------------------------------------------------------------------------

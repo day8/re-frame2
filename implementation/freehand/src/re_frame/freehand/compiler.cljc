@@ -62,7 +62,6 @@
     (letfn [(scan [n]
               (when (map? n)
                 (case (:op n)
-                  :raw     (vswap! caps conj :raw)
                   :html    (vswap! caps conj :html)
                   :foreign (vswap! caps conj :foreign)
                   :slot    (vswap! caps conj :render-slot)
@@ -92,31 +91,35 @@
 
 (defn- compiled-capabilities
   "The full capability roster a compiled declaration carries: the
-  STRUCTURAL capabilities its AST names (`:raw` / `:html` / `:foreign` /
+  STRUCTURAL capabilities its AST names (`:html` / `:foreign` /
   `:render-slot` / `:render-fn` / `:custom-element` / `:spread` /
   `:spread-safe` / `:behavior`) unioned with the REACTIVE capabilities its
-  lexical `sites` own — `:sub`, `:event` and `:frame`, which with
-  `:dispatch-fn` are exactly the set whose emptiness proves the ViewCell
-  shell elidable ([[view-cell-elided?]])."
+  lexical `sites` own — `:sub` and `:event`, which with `:dispatch-fn` are
+  exactly the set whose emptiness proves the ViewCell shell elidable
+  ([[view-cell-elided?]])."
   [ast sites]
   (into (capabilities ast)
         (cond-> #{}
           (seq (:subs sites))      (conj :sub)
-          (seq (:events sites))    (conj :event)
-          (seq (:frame-ops sites)) (conj :frame))))
+          (seq (:events sites))    (conj :event))))
 
 (defn view-cell-elided?
   "True when a compiled view's analysis PROVES it carries no reactive
-  capability — no `sub`, no committed event handler, no `dispatch-fn`, and
-  no `(frame)` read — so the reactive ViewCell shell is OMITTED and the
-  view lowers to a plain memoized component.
+  capability — no `sub`, no committed event handler and no `dispatch-fn` —
+  so the reactive ViewCell shell is OMITTED and the view lowers to a plain
+  memoized component.
 
   This is the exact predicate the React emitter's host-render selection
-  turns on: a view with none of the reactive four never observes context,
+  turns on: a view with none of the reactive kinds never observes context,
   so it needs neither a `useSyncExternalStore` bridge nor an event owner.
   The verdict is DETERMINISTIC — a static function of the analyzed sites,
   never a timing measurement (EP-0036 D021) — which is why the omitted-cell
   COUNT over a fixture is an assertion on an exact integer.
+
+  It reads the two site kinds the analyzer actually records. The
+  `:frame-ops` input went with the `(frame)` arm (rf2-h1ae3): its authoring
+  var was published on neither host, so the bucket was provably always
+  empty and could never move a verdict.
 
   The asymmetry with the interpreted shell is deliberate and load-bearing:
   the interpreted shell ALWAYS observes frame context, because it has no
@@ -124,8 +127,7 @@
   earned only by that proof."
   [sites]
   (not (boolean (or (seq (:subs sites))
-                    (seq (:events sites))
-                    (seq (:frame-ops sites))))))
+                    (seq (:events sites))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-view static-render facts (Spec 004C §3 / EP-0034 §2 — the render-static
@@ -135,8 +137,8 @@
 (def ^:private runtime-requiring-site-caps
   "Site-kind -> the runtime-requiring capability token render-static rejects.
   Every one names a live-runtime need a pure `:server` static render cannot
-  honour (a sub read, a committed handler, a frame read)."
-  {:events :handler :subs :sub :frame-ops :frame})
+  honour (a sub read, a committed handler)."
+  {:events :handler :subs :sub})
 
 (defn view-static-facts
   "The SERVER-REACHABLE static-render facts for one analyzed body — the small
@@ -146,8 +148,8 @@
     {:caps <set of runtime-requiring capability tokens in THIS body>
      :deps <set of directly-referenced view-ids>}
 
-  `:caps` unions the runtime-requiring SITE kinds (subs / committed handlers /
-  frame reads), authored element/component `:ref` slots (a commit-phase host
+  `:caps` unions the runtime-requiring SITE kinds (subs / committed
+  handlers), authored element/component `:ref` slots (a commit-phase host
   hook a static render cannot honour -> `:ref`), a `v/behavior` boundary (a live
   host lifecycle a :server render owns no node for -> `:behavior`), and foreign
   heads (`:foreign`, which a `react/lazy` head folds into). `:deps` are the view
@@ -311,7 +313,6 @@
        :events        [{:sid \"…\" :source-coord {…} :path [1 0]}]
        :slots         [{:sid \"…\" :inline? true :source-coord {…} :path [2]}]
        :html-sites    []
-       :frame-ops     []
        :capabilities  #{:sub :event}
        :reactive?     true
        :view-cell     :present
@@ -320,9 +321,9 @@
                        {:view-id :re-frame.freehand/markup :lowering :interpreted
                         :source-coord {…} :path [1]}]}
 
-  - `:subscriptions` / `:events` / `:slots` / `:html-sites` / `:frame-ops`
-    are the view's finite reactive, intent, render-slot, trusted-markup
-    and committed-frame site rosters — the same lexical sites the
+  - `:subscriptions` / `:events` / `:slots` / `:html-sites`
+    are the view's finite reactive, intent, render-slot and trusted-markup
+    site rosters — the same lexical sites the
     analyzer indexed, projected to their statically knowable facts.
   - `:diagnostics` is the compile-tier finding roster
     ([[re-frame.freehand.compiler.a11y]]) — every a11y finding the
@@ -382,7 +383,6 @@
      :events        (mapv #(select-keys % [:sid :source-coord :path]) (:events sites))
      :slots         (mapv #(select-keys % [:sid :inline? :source-coord :path]) (:slots sites))
      :html-sites    (mapv #(select-keys % [:source-coord :path]) (:htmls sites))
-     :frame-ops     (mapv #(select-keys % [:sid :source-coord :path]) (:frame-ops sites))
      :diagnostics   (mapv #(select-keys % [:sid :id :tag :path :suppressed? :reason])
                           (:diagnostics sites))
      :capabilities  (compiled-capabilities ast sites)

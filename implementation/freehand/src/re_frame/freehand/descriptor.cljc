@@ -293,15 +293,15 @@
       {:view-id       :app.people/people-list
        :grammar       :re-frame.freehand/v1
        :subscriptions [{:sid … :query [:person 7] :path [0]}]
-       :events        [] :slots [] :html-sites [] :frame-ops []
+       :events        [] :slots [] :html-sites []
        :capabilities  #{:sub}
        :reactive?     true
        :view-cell     :present
        :crossings     [{:view-id :re-frame.freehand/markup
                         :lowering :interpreted :path [1]}]}
 
-  The `:subscriptions` / `:events` / `:slots` / `:html-sites` /
-  `:frame-ops` rosters are the view's finite lexical sites; `:capabilities`
+  The `:subscriptions` / `:events` / `:slots` / `:html-sites`
+  rosters are the view's finite lexical sites; `:capabilities`
   is their union with the structural capability bits; `:reactive?` /
   `:view-cell` carry the **capability-elision** verdict — a view with no
   reactive site omits the ViewCell shell (`:view-cell :elided`). `:crossings`

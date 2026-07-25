@@ -28,8 +28,7 @@
 (def ^:private resolver
   (fn [sym]
     (case sym
-      sub   {:fqn 're-frame.freehand/sub :meta {}}
-      frame {:fqn 're-frame.freehand/frame :meta {}}
+      sub {:fqn 're-frame.freehand/sub :meta {}}
       nil)))
 
 (defn- manifest-of
@@ -66,14 +65,19 @@
       (is (= :elided (:view-cell inert)) "the sub-free view omits its ViewCell")
       (is (false? (:reactive? inert))))))
 
-(deftest a-frame-read-is-reactive-too
-  (testing "`(frame)` resolves the committed frame — a reactive site — so
-            it populates `:frame-ops` and keeps the ViewCell, the same as a
-            subscription."
-    (let [m (manifest-of '[:span (str (:frame (frame)))])]
-      (is (= 1 (count (:frame-ops m))) "one frame-op site recorded")
-      (is (contains? (:capabilities m) :frame))
-      (is (= :present (:view-cell m)) "a frame-reading view keeps its ViewCell"))))
+(deftest a-committed-handler-is-the-other-reactive-input
+  (testing "The verdict turns on TWO site kinds, and both are proved here. The
+            third input it once read — `:frame-ops`, from the `(frame)` arm —
+            went with that arm (rf2-h1ae3): the authoring var was published on
+            neither host, so the bucket was provably always empty and could
+            never move a verdict."
+    (let [reads (manifest-of '[:button {:on-click [:go]} "go"])
+          inert (manifest-of '[:button "go"])]
+      (is (= 1 (count (:events reads))) "one committed handler site recorded")
+      (is (contains? (:capabilities reads) :event) "capabilities name :event")
+      (is (= :present (:view-cell reads)) "a dispatching view keeps its ViewCell")
+      (is (empty? (:events inert)) "no handler site in the inert body")
+      (is (= :elided (:view-cell inert)) "the handler-free view omits its ViewCell"))))
 
 (deftest structurally-inert-bodies-report-the-elided-verdict
   ;; The absence itself, over the shapes the deleted emitted-form oracle
@@ -88,7 +92,7 @@
           (str "no reactive site in " (pr-str template) " — the ViewCell is omitted"))
       (is (false? (:reactive? m)))
       (is (empty? (:subscriptions m)))
-      (is (empty? (:frame-ops m)))))
+      (is (empty? (:events m)))))
   (testing "the moment a body carries a committed event handler the verdict flips"
     (let [m (manifest-of '[:button {:on-click [:go]} "go"])]
       (is (= :present (:view-cell m))
