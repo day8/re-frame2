@@ -57,7 +57,6 @@
   An MCP-side end-to-end test is the job of the SDK-driven conformance
   `test/end-to-end-*.cjs` paths if and when MCP-server epoch tools ship."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
@@ -307,9 +306,26 @@
 ;;     named slot is no protection when the value in it is the wrong
 ;;     representation.
 ;;
-;; Both are reachable from the rows `drive-resource-family!` harvests, and
-;; `revert-proofs` in the PR body records the failure counts each reversion
-;; produces here.
+;; Both are reachable from the rows `drive-resource-family!` harvests, and both
+;; were MEASURED here by reverting the fix and re-running, because a widening
+;; that cannot red against a defect that actually shipped has proven nothing:
+;;
+;;   - revert rf2-wd9im (`trace_egress.cljc` back to the map-only default) → 5
+;;     failures, naming all five leaking paths — the three lifecycle rows'
+;;     `[:tags :work/id 1 2 :auth-token]`, the release row's `:released` and its
+;;     `:aborted` — and printing raw `{:auth-token "…"}` beside raw
+;;     `:rf.scope/global`;
+;;   - revert rf2-5o52l (`events.cljc` + `ssr.cljc` back to key-ids) → 8
+;;     failures, the report printing the raw CEDN-1 string
+;;     `v[k::rf.scope/global k::secret/article m{k::auth-token s:"…"}]`, and the
+;;     PLAIN control reddening too (a key-id is not a scoped-key vector, so the
+;;     plain owner's `:released` member goes missing) — the fixture notices the
+;;     change in both directions, not just the leaking one.
+;;
+;; Note what the second reversion shows about the first: `:released` is NOT in
+;; the projector's named `scoped-keys-slot` roster, so carrying scoped keys there
+;; only redacts because rf2-wd9im's shape-driven default recognises a key
+;; wherever it sits. The two fixes hold this slot up together.
 
 (def ^:private sensitive-resource-id :secret/article)
 (def ^:private plain-resource-id     :plain/article)
