@@ -188,19 +188,26 @@
                  **The render-tree hash is HICCUP-TIER-ONLY** (Spec 011
                  §Hydration-mismatch detection, the two-tier split). It applies
                  to substrates whose view is a pure fn returning a hashable
-                 render-tree — Reagent / UIx, where `((rf/view :app/root))`
-                 yields hiccup. The COMPILED-UI substrate (`re-frame.ui`) has NO
-                 hashable client render-tree — its views compile to React
-                 elements, not the structural tree the server hashes — so it does
-                 NOT pass `:render-tree-fn`. **The canonical compiled-ui boot is
-                 `ssr/hydrate!` WITHOUT `:render-tree-fn`, then `ui/hydrate-root`**:
-                 the compiled root VERIFIES by React-native ADOPTION (React diffs
-                 its first `:server`-phase render against the server DOM during
-                 hydration and reports divergence through `onRecoverableError`,
-                 surfaced as `:rf.ssr/hydration-mismatch` — see
-                 `re-frame.ui.runtime/emit-hydration-mismatch!`). The
-                 `:ssr {:on-mismatch :hard-error}` escalation is likewise
-                 hiccup-tier-only.
+                 render-tree — **Reagent and UIx, the published view adapters**,
+                 where `((rf/view :app/root))` yields hiccup. That is the boot a
+                 consumer of `day8/re-frame2-ssr` takes: `ssr/hydrate!` WITH
+                 `:render-tree-fn`, then the adapter's own render.
+
+                 A COMPILED-VIEW substrate has NO hashable client render-tree —
+                 its views compile to React elements, not the structural tree the
+                 server hashes — so it does NOT pass `:render-tree-fn`: it calls
+                 `ssr/hydrate!` without one and then hydrates its own root
+                 (`v/hydrate-root` on Freehand), VERIFYING by React-native
+                 ADOPTION instead — React diffs its first `:server`-phase render
+                 against the server DOM during hydration and reports divergence
+                 through `onRecoverableError`, surfaced as
+                 `:rf.ssr/hydration-mismatch`. Freehand is in-tree /
+                 pre-publication. The `re-frame.ui` compiled substrate (whose
+                 counterpart emitter is `re-frame.ui.runtime/emit-hydration-mismatch!`)
+                 is DONOR-ONLY code being absorbed into Freehand — `day8/re-frame2-ui`
+                 is not a Maven coordinate and never will be, so do not reach for
+                 `ui/hydrate-root` as a boot. The `:ssr {:on-mismatch :hard-error}`
+                 escalation is likewise hiccup-tier-only.
 
   Opts:
 
