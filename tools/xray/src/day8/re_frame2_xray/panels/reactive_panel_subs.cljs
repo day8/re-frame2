@@ -127,11 +127,9 @@
   `install!` registers `:rf.xray/reactive-data` + the panel-local
   disclosure-toggle state slot. Idempotent."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.subs.tooling :as subs-tooling]
-            [day8.re-frame2-xray.defaults :as defaults]
-            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
-            [day8.re-frame2-xray.viewcell-evidence :as viewcell-evidence]))
+            [day8.re-frame2-xray.mounted-views :as mounted-views]
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
 ;; ---- pure helpers (exposed for test) ------------------------------------
 
@@ -647,116 +645,75 @@
       (sequential? diff) (vec diff)
       :else [])))
 
-(defn install-viewcell-evidence-bridge!
-  "Install the ViewCell evidence REACTIVITY BRIDGE — the ownership-
-  transition event, the ownership-revision sub, the evidence-ledger
-  listener that mirrors each transition into `:rf/xray` app-db, and the
-  two-input `:rf.xray/viewcell-evidence` query that reads the receipt-
-  fenced rows against an ownership-revision reactive input.
+(defn install-mounted-views-subs!
+  "Install the three Views-panel reads over the Freehand tool door — the
+  connected-occurrence roster with its render explanations, the schema-honesty
+  read, and the declared per-view sites.
 
-  Extracted from `install!` (rf2-ykaq4u) so the registry's schema-
-  migration seam can install this bridge into an ALREADY-registered
-  pre-#5915 process. That process ran the umbrella idempotency gate under
-  the OLD code, so a subsequent `register-xray-handlers!` no-ops the whole
-  leaf install — a bridge reachable ONLY through `install!` would never
-  reach a live-upgraded process, leaving the old epoch-only evidence sub
-  cached and the ownership event/sub/listener absent. Registry
-  `migrate-schema!` calls this (via the `reactive-panel` facade) so the
-  live upgrade installs the current bridge without a page reload.
+  Extracted from `install!` so the registry's schema-migration seam can install
+  them into an ALREADY-registered process (rf2-ykaq4u). Such a process ran the
+  umbrella idempotency gate under older code, so a subsequent
+  `register-xray-handlers!` no-ops the whole leaf install — a sub reachable
+  ONLY through `install!` would never reach a live-upgraded one. Registry
+  `migrate-schema!` calls this through the `reactive-panel` facade.
 
-  Idempotent: re-frame's registrar REPLACES each handler in place and
-  `set-ownership-listener!` is a single-sink `reset!`, so both a fresh
-  boot (via `install!`) and a migration re-arm leave EXACTLY ONE ownership
-  listener and the current two-input evidence sub — replacing the old
-  one-input sub emits at most one `:rf.warning/handler-replaced`, never a
-  flood."
+  Idempotent: re-frame's registrar REPLACES each handler in place and the
+  sub-cache replacement hook evicts the stale reaction, so a fresh boot and a
+  migration re-arm both leave exactly the current three subs.
+
+  There is NO ownership bridge here, and there is nothing missing where one
+  used to be (rf2-7gth0). Its predecessor mirrored an evidence-projection
+  ownership revision into `:rf/xray` app-db as a second reactive axis, because
+  a donor acquire/release changed what Xray was allowed to read without
+  changing anything in app-db. The Freehand door has no ownership to change:
+  it is a reader, every read is authorized, and the only thing that moves is
+  the application itself. So the standing epoch-pump axis is the whole
+  freshness story again, exactly as it was before ownership existed."
   []
-  ;; Ownership of the evidence projection is NOT app-db state, so an
-  ;; acquire/release would not, on its own, invalidate the cumulative
-  ;; evidence query below — a live subscription + rendered panel could
-  ;; keep a stale row after Xray released the projection (or a foreign
-  ;; owner took the slot), until some unrelated epoch pump recomputed it.
-  ;; So each ownership transition bumps a monotonic revision the evidence
-  ;; ledger publishes through a listener; the listener mirrors it into
-  ;; Xray's OWN (`:rf/xray`) app-db, a reactive input to the derived
-  ;; query. Cache invalidation only TRIGGERS the recompute; the
-  ;; recompute's `rows` call still checks the exact ownership receipt, so
-  ;; reactivity can never authorize a stale reader.
-  (rf/reg-event :rf.xray/viewcell-evidence-ownership-changed
-    {:rf.trace/no-emit? true}
-    (fn [{:keys [db]} [_ revision]]
-      {:db (assoc db :viewcell-evidence-ownership-rev revision)}))
-
-  (rf/reg-sub :rf.xray/viewcell-evidence-ownership
-    (fn [db _query]
-      (get db :viewcell-evidence-ownership-rev 0)))
-
-  ;; The single ownership listener: on each acquire/release, mirror the
-  ;; revision into Xray's own frame — guarded on the `:rf/xray` frame
-  ;; existing (a pre-mount acquire has no live sub to invalidate) and
-  ;; dispatched SYNCHRONOUSLY so a held subscription reflects the change
-  ;; immediately, without an epoch pump. `:rf.trace/no-emit?` keeps this
-  ;; internal chrome event off the trace bus Xray inspects.
-  (viewcell-evidence/set-ownership-listener!
-    (fn [revision]
-      (when (frame/frame defaults/default-frame-id)
-        (rf/with-frame defaults/default-frame-id
-          (rf/dispatch-sync [:rf.xray/viewcell-evidence-ownership-changed
-                             revision])))))
-
-  ;; -- the ViewCell invalidation-evidence query (rf2-vxgfnd.146/.286) --
+  ;; -- the connected-occurrence roster (rf2-7gth0) ---------------------
   ;;
-  ;; The developer-facing query surface over Xray's OWNED
-  ;; `re-frame.ui.tool.evidence` projection (see
-  ;; `day8.re-frame2-xray.viewcell-evidence`). The accumulators are
-  ;; CUMULATIVE per cell (accretion since acquire), read live at compute
-  ;; time; the `rows` read is ownership-receipt-fenced so a foreign owner
-  ;; or a superseded span never surfaces. Two reactive inputs, both pure
-  ;; cache-invalidation triggers (the compute reads the authoritative
-  ;; receipt-checked `rows`, never these values):
-  ;;   - `:rf.xray/epoch-history` — the standing freshness axis; each
-  ;;     epoch pump recomputes the read, so newly delivered batches
-  ;;     surface on the next recorded epoch (the ViewCell flush runs a
-  ;;     microtask AFTER drain-settle, so a same-epoch read may trail by
-  ;;     one pump — cumulative rows catch up, never lose).
-  ;;   - `:rf.xray/viewcell-evidence-ownership` — the ownership-revision
-  ;;     axis (rf2-vxgfnd.286), so an acquire/release recomputes the query
-  ;;     IMMEDIATELY, not only on the next epoch pump.
-  ;; Hosts not running the re-frame.ui substrate project zero rows.
-  (rf/reg-sub :rf.xray/viewcell-evidence
+  ;; The Views panel's Mounted Views section. One row per occurrence
+  ;; CONNECTED RIGHT NOW, each carrying the latest committed generation,
+  ;; that commit's frame and staged reads, and the bounded read-time
+  ;; explanation of why it rendered — read live at compute time from
+  ;; `re-frame.freehand.tool` (see `day8.re-frame2-xray.mounted-views`).
+  ;;
+  ;; ONE reactive input, the standing freshness axis: each epoch pump
+  ;; recomputes the read, so a newly connected occurrence — or a
+  ;; disconnected one's removal — surfaces on the next recorded epoch. The
+  ;; input is a pure cache-invalidation trigger; the compute reads the
+  ;; substrate, never the input's value.
+  ;;
+  ;; A host not running Freehand projects zero rows, by the same door,
+  ;; with nothing special-cased.
+  (rf/reg-sub :rf.xray/mounted-views
     :<- [:rf.xray/epoch-history]
-    :<- [:rf.xray/viewcell-evidence-ownership]
-    (fn [[_history _ownership-rev] _query]
-      (viewcell-evidence/rows)))
+    (fn [_history _query]
+      (mounted-views/rows)))
 
-  ;; -- evidence-schema version honesty (rf2-vxgfnd.95.7) --------------
+  ;; -- evidence-schema honesty ----------------------------------------
   ;;
-  ;; The versioned public `re-frame.ui.tool` projections stamp
-  ;; `:rf.ui.tool/version`. When a producer's version is NOT the one this
-  ;; Xray build understands, `rows` degrades to `[]` (never mis-parses an
-  ;; evolved shape as exact) and the panel surfaces the mismatch honestly
-  ;; instead of silently rendering nothing. Same two reactive axes +
-  ;; receipt fence as the rows query, so a foreign takeover / release
-  ;; recomputes it immediately.
-  (rf/reg-sub :rf.xray/viewcell-evidence-version
+  ;; Every Freehand projection stamps `:schema`. When the running
+  ;; application stamps one this Xray build was not taught, `rows`
+  ;; degrades to `[]` rather than mis-parsing an evolved shape as exact,
+  ;; and the panel surfaces the mismatch instead of rendering an empty
+  ;; section that would read as a substrate-free host.
+  (rf/reg-sub :rf.xray/mounted-views-schema
     :<- [:rf.xray/epoch-history]
-    :<- [:rf.xray/viewcell-evidence-ownership]
-    (fn [[_history _ownership-rev] _query]
-      (viewcell-evidence/version-status)))
+    (fn [_history _query]
+      (mounted-views/schema-status)))
 
-  ;; -- static per-view manifest sites (rf2-vxgfnd.95.7) --------------
+  ;; -- declared per-view sites ----------------------------------------
   ;;
-  ;; Event-site provenance + dependency sites + manifest facts, read from
-  ;; the versioned public `view-manifest`/`view-dependencies`/
-  ;; `view-event-sites` projections for the DISTINCT views present in the
-  ;; receipt-fenced evidence rows (evidence-keyed empty-state law — a host
-  ;; with no compiled-view evidence projects no sites). Composes off the
-  ;; evidence sub so it inherits its ownership fence + reactive freshness;
-  ;; manifests carry no per-span ownership of their own.
-  (rf/reg-sub :rf.xray/view-evidence-sites
-    :<- [:rf.xray/viewcell-evidence]
+  ;; Subscription + event-handler sites, capabilities and the compile-tier
+  ;; a11y diagnostics for the DISTINCT views present in the roster above.
+  ;; Composes off the roster sub so it inherits its freshness and stays
+  ;; evidence-keyed: a host with nothing mounted projects no sites, even
+  ;; though the manifests themselves are readable before anything mounts.
+  (rf/reg-sub :rf.xray/mounted-view-sites
+    :<- [:rf.xray/mounted-views]
     (fn [rows _query]
-      (viewcell-evidence/view-sites (map :view-id rows))))
+      (mounted-views/view-sites (map :view-id rows))))
   nil)
 
 (defn install!
@@ -797,30 +754,12 @@
                 :show-unchanged?   (boolean (or panel-unchanged? config-unchanged?))
                 :has-event-bundle? (some? record)}))))
 
-  ;; -- ViewCell evidence ownership reactivity bridge (rf2-vxgfnd.286) --
-  ;; Registered via the extracted `install-viewcell-evidence-bridge!` so
-  ;; the registry schema-migration seam can install this same bridge into
-  ;; an already-registered pre-#5915 process where the umbrella idempotency
-  ;; gate no-ops the whole leaf install (rf2-ykaq4u).
-  (install-viewcell-evidence-bridge!)
-  nil)
-
-(defn install-legacy-viewcell-evidence-sub-for-test!
-  "TEST-ONLY (rf2-ykaq4u): register the PRE-#5915 epoch-only
-  `:rf.xray/viewcell-evidence` sub — the ONE-INPUT shape a pre-bridge
-  process cached (its only reactive axis was `:rf.xray/epoch-history`, so
-  an evidence acquire/release could not invalidate a held Views
-  subscription until an unrelated epoch pump). The live-upgrade fixture
-  installs this to model an already-registered old process whose bridge
-  the schema migration must install. Registered from THIS ns so its image-
-  assembly source coordinate matches the production sub the migration
-  re-registers (a different source ns would trip the duplicate-id image
-  guard). Never call from production. Returns nil."
-  []
-  (rf/reg-sub :rf.xray/viewcell-evidence
-    :<- [:rf.xray/epoch-history]
-    (fn [[_history] _query]
-      (viewcell-evidence/rows)))
+  ;; -- the Freehand tool-door reads (rf2-7gth0) ------------------------
+  ;; Registered via the extracted `install-mounted-views-subs!` so the
+  ;; registry schema-migration seam can install the same three subs into an
+  ;; already-registered process where the umbrella idempotency gate no-ops
+  ;; the whole leaf install (rf2-ykaq4u).
+  (install-mounted-views-subs!)
   nil)
 
 (defn install-legacy-reactive-data-sub-for-test!
@@ -837,9 +776,8 @@
   schema-3 migration must REPLACE it with the four-input sub (and evict the
   stale cache). Registered from THIS ns so its image-assembly source
   coordinate matches the production sub the migration re-registers — a
-  different source ns would trip the duplicate-id image guard, exactly as the
-  sibling `install-legacy-viewcell-evidence-sub-for-test!` documents. Never
-  call from production. Returns nil."
+  different source ns would trip the duplicate-id image guard. Never call from
+  production. Returns nil."
   []
   (rf/reg-sub :rf.xray/reactive-data
     :<- [:rf.xray/focus]

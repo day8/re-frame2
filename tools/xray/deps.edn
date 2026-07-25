@@ -41,14 +41,16 @@
          ;; projections; the Machine Inspector reads the runtime slice.
          day8/re-frame2-machines {:local/root "../../implementation/machines"}
 
-         ;; The Views panel's ViewCell Invalidation Evidence section
-         ;; consumes the ui artefact's TOOL tier
-         ;; (`re-frame.ui.tool.evidence` — rf2-vxgfnd.146). The
-         ;; dependency points THIS way only: re-frame.ui never depends
-         ;; on Xray, and production applications never pull Xray
-         ;; (bundle-isolation contract), so the ui artefact reaches
-         ;; production apps solely on its own terms.
-         day8/re-frame2-ui {:local/root "../../implementation/ui"}
+         ;; The Views panel's Mounted Views + Declared View Sites sections
+         ;; read the Freehand TOOL-TIER door (`re-frame.freehand.tool` —
+         ;; rf2-7gth0). The dependency points THIS way only: Freehand never
+         ;; depends on Xray, and production applications never pull Xray
+         ;; (bundle-isolation contract), so the freehand artefact reaches
+         ;; production apps solely on its own terms. The door is a reader —
+         ;; there is no registry to claim and no ownership to hold — and it
+         ;; nil-gates on `interop/debug-enabled?`, so a host that is not
+         ;; running Freehand simply projects zero rows.
+         day8/re-frame2-freehand {:local/root "../../implementation/freehand"}
 
          ;; Machine charts are owned by machines-viz and embedded here;
          ;; Xray does not maintain a second chart implementation.

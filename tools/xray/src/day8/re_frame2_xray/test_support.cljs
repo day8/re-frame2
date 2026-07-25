@@ -41,7 +41,6 @@
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
-            [day8.re-frame2-xray.viewcell-evidence :as viewcell-evidence]
             ;; rf2-e8330v (xxo3zz F3) — per-panel test-override seams.
             ;; Production registration installs NO `-for-test` ids; tests
             ;; opt into the override surface via `install-test-overrides!`.
@@ -74,20 +73,19 @@
 
 (defn reset-all!
   "`reset-sentinels!` PLUS the trace-collector rings
-  (`trace-collector/reset-for-test!`) PLUS an owner-checked release of
-  Xray's ViewCell evidence registration
-  (`viewcell-evidence/release-current!`, rf2-vxgfnd.286). The rings are
-  process-global `defonce` atoms the sentinel reset does NOT touch —
-  clearing them here closes the cross-test trace-bleed gap (rf2-sdqsla).
+  (`trace-collector/reset-for-test!`). The rings are process-global `defonce`
+  atoms the sentinel reset does NOT touch — clearing them here closes the
+  cross-test trace-bleed gap (rf2-sdqsla).
 
-  The evidence release is part of the clean-slate tier because a
-  `core/init!` (or preload) that acquired the projection leaves the tier
-  owner, sink, retained entries AND the globalThis sentinel set —
-  process-global state the sentinel/ring resets do NOT touch, so it would
-  leak across tests. The release is OWNER-CHECKED
-  (`release-current!`, never `force-release!`): it clears exactly Xray's
-  own registration and its sentinel, and a FOREIGN owner survives the
-  reset intact (rf2-vxgfnd.286 AC).
+  There is NO mounted-view evidence release here, and nothing is missing where
+  one used to be (rf2-7gth0). The predecessor tier had a single-owner registry
+  Xray claimed at `init!`, leaving an owner, a sink, retained entries and a
+  globalThis sentinel behind for the next test to inherit.
+  `re-frame.freehand.tool` is a reader: Xray installs nothing into it and so
+  has nothing to release. A suite that MOUNTS Freehand occurrences clears the
+  substrate's own current-occurrence index in its own fixture — the door for
+  that is `re-frame.freehand.occurrences/clear!`, which belongs to Freehand and
+  not to Xray's reset tier.
 
   Call at the START of a fixture, BEFORE registering frames — clearing
   the rings wipes the per-frame recording config, so a mid-setup call
@@ -98,7 +96,6 @@
   []
   (reset-sentinels!)
   (trace-collector/reset-for-test!)
-  (viewcell-evidence/release-current!)
   nil)
 
 (defn reset-runtime!

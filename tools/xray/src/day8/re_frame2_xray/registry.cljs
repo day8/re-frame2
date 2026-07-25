@@ -158,8 +158,19 @@
         stale reactive-data reaction, so a live-upgraded process reaches the
         four-input topology (held Views subscriptions invalidated) with no
         reload. Generalises the seam — a gated registration REPLACEMENT is a
-        schema delta exactly as an ADDITION is."
-  3)
+        schema delta exactly as an ADDITION is.
+    4 — Freehand tool-door reads (rf2-7gth0): the Views panel's mounted-view
+        surface crossed off the donor `re-frame.ui.tool` evidence tier onto
+        `re-frame.freehand.tool`. Three sub ids are NEW
+        (`:rf.xray/mounted-views`, `:rf.xray/mounted-views-schema`,
+        `:rf.xray/mounted-view-sites`) and four registrations are GONE
+        (`:rf.xray/viewcell-evidence`, `:rf.xray/viewcell-evidence-version`,
+        `:rf.xray/view-evidence-sites`, and the
+        `:rf.xray/viewcell-evidence-ownership` event/sub pair whose ownership
+        plane has no Freehand counterpart and was deleted rather than ported).
+        A schema-3 process has the old ids cached and none of the new ones, so
+        the migration installs the delta."
+  4)
 
 (defonce ^:private installed-schema
   ;; The registration-schema version this process has installed, or nil
@@ -182,26 +193,16 @@
   stale cache via the registrar replacement-hook), and gated on `from`
   predating the version that introduced its delta — so this is NOT an
   unconditional whole-registry re-registration; only the missing/changed
-  delta is installed, and only for a process that is behind."
+  delta is installed, and only for a process that is behind.
+
+  Schemas 1 and 2 have NO clause. Both installed the donor ViewCell evidence
+  reactivity bridge, and rf2-7gth0 deleted that bridge along with the donor
+  ownership plane it existed to publish — there is no longer a delta for them
+  to install, and a process behind either of them is also behind 4, whose
+  clause installs the current reads. A missing clause here is a fact about the
+  code, not an omission: the version history above keeps their entries so the
+  numbering stays a record rather than a sequence that renumbers itself."
   [from]
-  (when (< from 1)
-    ;; schema 1 — the ViewCell evidence REACTIVITY BRIDGE. A pre-#5915
-    ;; process cached the OLD epoch-only `:rf.xray/viewcell-evidence` sub
-    ;; and never installed the ownership event/sub/listener, so an evidence
-    ;; acquire/release could not invalidate a held Views subscription until
-    ;; an unrelated epoch pump. Install the current bridge (re-registering
-    ;; the evidence sub as the two-input shape) so the upgrade is immediate,
-    ;; no page reload. Routed through the `reactive-panel` facade the
-    ;; orchestrator already requires — the bridge stays panel-owned.
-    (reactive-panel/install-viewcell-evidence-bridge!))
-  (when (< from 2)
-    ;; schema 2 — the S3 view-evidence consumption subs (rf2-vxgfnd.95.7):
-    ;; the bridge now also registers `:rf.xray/viewcell-evidence-version`
-    ;; and `:rf.xray/view-evidence-sites`. A schema-1 process installed the
-    ;; bridge without them; re-running the (idempotent) bridge install adds
-    ;; exactly the missing two subs — reg-sub replaces in place, so the
-    ;; already-present bridge handlers are untouched.
-    (reactive-panel/install-viewcell-evidence-bridge!))
   (when (< from 3)
     ;; schema 3 — the Reactive-data topology REPLACEMENT (rf2-sa8j3). The
     ;; `:rf.xray/reactive-data` sub changed from two inputs to four inside
@@ -217,7 +218,17 @@
     ;; a fresh boot stamps `installed-schema` current inside the umbrella
     ;; block, so the seam's `(< schema-version schema-version)` guard is false
     ;; there and this clause never double-registers on a fresh boot.
-    (reactive-panel/install!)))
+    (reactive-panel/install!))
+  (when (< from 4)
+    ;; schema 4 — the Freehand tool-door reads (rf2-7gth0). Three NEW sub ids
+    ;; (`:rf.xray/mounted-views`, `-schema`, `:rf.xray/mounted-view-sites`)
+    ;; replaced the donor evidence subs, so a schema-3 process has none of
+    ;; them: its cached `:rf.xray/viewcell-evidence` sub names a consumer that
+    ;; no longer exists and the Views panel would render nothing. Install the
+    ;; three through the `reactive-panel` facade the orchestrator already
+    ;; requires — the reads stay panel-owned. Idempotent (reg-sub replaces in
+    ;; place), and reached only for a behind process.
+    (reactive-panel/install-mounted-views-subs!)))
 
 (defn register-xray-handlers!
   "Idempotent registration of Xray's :rf.xray/* events, subs, fxs.

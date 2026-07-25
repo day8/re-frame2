@@ -63,13 +63,13 @@
   []
   (view/reactive-panel dispatch))
 
-(def install-viewcell-evidence-bridge!
-  "See `reactive-panel-subs/install-viewcell-evidence-bridge!`. Re-exported
-  through the panel facade so the registry's schema-migration seam
-  (`registry/migrate-schema!`, rf2-ykaq4u) installs the ViewCell
-  reactivity bridge into a live-upgraded pre-#5915 process WITHOUT
-  reaching past the facade into the subs ns."
-  subs/install-viewcell-evidence-bridge!)
+(def install-mounted-views-subs!
+  "See `reactive-panel-subs/install-mounted-views-subs!`. Re-exported through
+  the panel facade so the registry's schema-migration seam
+  (`registry/migrate-schema!`, rf2-ykaq4u) installs the Freehand tool-door
+  reads into a live-upgraded process WITHOUT reaching past the facade into the
+  subs ns."
+  subs/install-mounted-views-subs!)
 
 (defn install!
   "Idempotent install for the Reactive panel's Xray-side
