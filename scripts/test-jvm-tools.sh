@@ -5,6 +5,11 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 tools=(
   tools/xray
+  # rf2-wq17m — 632 tests / 2537 assertions. 29 of its 31 suites are
+  # `*_cljs_test.*` and double-run in the CLJS lanes, but
+  # `engine_grammar_parity_test.cljc` (the engine<->viz grammar drift ratchet)
+  # and `mermaid_public_smoke_test.cljc` match neither CLJS selector, so this
+  # roster and the `jvm-tools-machines-viz` CI job are their only lanes.
   tools/machines-viz
   tools/story
   tools/story-mcp
@@ -16,8 +21,8 @@ tools=(
   # so the `node-test-testbed-support` CLJS build that carries this tree on
   # its source paths cannot load it, and the artefact was on neither JVM
   # roster — its tests ran in no lane at all, in CI or locally. Listed here
-  # (the whole suite is seconds) so the lane exists; the matching CI job is
-  # tracked separately (rf2-as6bg).
+  # (the whole suite is seconds) so the lane exists; rf2-wq17m added the
+  # matching PR-time job, `jvm-tools-testbed-support`.
   tools/testbed-support
   tools/mcp-conformance/wire-vocab
   # rf2-as6bg — the other direction of the same disagreement. tools/template
