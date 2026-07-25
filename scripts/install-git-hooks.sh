@@ -10,7 +10,12 @@
 #   - post-merge  (rf2-6jj3r) MCP-staleness advisory warning.
 #   - post-merge  (rf2-zt65l) hook-install staleness advisory: re-runs this
 #                 script's own --check after every pull, so a change under
-#                 scripts/git-hooks/ cannot sit uninstalled unnoticed.
+#                 scripts/git-hooks/ cannot sit uninstalled unnoticed. Covers
+#                 the pulls that merge or fast-forward.
+#   - post-rewrite (rf2-zt65l) the same advisory on the REBASE path. A rebase
+#                 never invokes post-merge, so `git pull --rebase` with a
+#                 local commit — the completion path AGENTS.md and CLAUDE.md
+#                 mandate — used to land hook drift in silence.
 #   - pre-commit  (rf2-ydl2p) refuses commits in the MAYOR checkout that
 #                 touch worker-tracked surfaces. Activation gated by a
 #                 marker file at `<git-common-dir>/mayor-marker`, which
@@ -53,6 +58,9 @@ block_spec() {
       ;;
     hook-staleness)
       printf 'post-merge\t# --- BEGIN re-frame2 hook-install staleness check (rf2-zt65l) ---\t# --- END re-frame2 hook-install staleness check (rf2-zt65l) ---\n'
+      ;;
+    hook-staleness-rebase)
+      printf 'post-rewrite\t# --- BEGIN re-frame2 hook-install staleness check, rebase path (rf2-zt65l) ---\t# --- END re-frame2 hook-install staleness check, rebase path (rf2-zt65l) ---\n'
       ;;
     mayor-commit-boundary)
       printf 'pre-commit\t# --- BEGIN re-frame2 mayor commit boundary (rf2-ydl2p) ---\t# --- END re-frame2 mayor commit boundary (rf2-ydl2p) ---\n'
@@ -173,11 +181,19 @@ install_mayor_marker() {
   # worktree); worker worktrees have their own per-worktree git dir at
   # <common>/worktrees/<name> and therefore see no marker -> hook no-ops.
   marker_path="$COMMON_DIR/mayor-marker"
+  # KEEP THIS TEXT BYTE-IDENTICAL TO THE .ps1 SIBLING, and name neither
+  # installer in it. The two installers write to the same file and both check
+  # it, so a version that named itself made the OTHER one report
+  # "mayor-marker content drifted" on a perfectly good install — and the
+  # post-merge advisory runs the .sh --check, so one .ps1 run was enough to
+  # make it fire on every pull for ever. An advisory that always fires is one
+  # nobody reads, which is the whole of rf2-zt65l.
   marker_content='re-frame2 mayor checkout marker (rf2-ydl2p).
 Presence of this file in <git-dir> activates the pre-commit hook that
 refuses commits to worker-tracked surfaces. Managed by
-scripts/install-git-hooks.sh; safe to delete (the hook then no-ops and
-this checkout behaves like a worker worktree from the hook'\''s POV).
+scripts/install-git-hooks.sh and its .ps1 sibling; safe to delete (the hook
+then no-ops and this checkout behaves like a worker worktree from the
+hook'\''s POV).
 '
 
   if [ ! -f "$marker_path" ]; then
@@ -217,6 +233,7 @@ this checkout behaves like a worker worktree from the hook'\''s POV).
 rc=0
 install_block mcp-staleness || rc=$?
 install_block hook-staleness || rc=$?
+install_block hook-staleness-rebase || rc=$?
 install_block mayor-commit-boundary || rc=$?
 install_block worker-beads-boundary || rc=$?
 install_mayor_marker || rc=$?

@@ -5,8 +5,13 @@
 # the mayor commit boundary (rf2-ydl2p) and the worker beads boundary
 # (rf2-ia8o7). They are mirror images, so one harness covers both.
 #
-# Six layers — the last two widen past the pre-commit hook itself, to the CI
-# arm that shares its classifier and to the installer that puts it on disk:
+# The harness has since grown to cover the whole local-durability surface those
+# two blocks belong to — EIGHT layers. Layers 1-4 are the pre-commit hook
+# itself; 5 is the CI arm that shares its classifier; 6-7 are the installer
+# that puts the hooks on disk and the advisory that notices when they go stale;
+# 8 is the checkpoint helper on the other side of the same boundary. It keeps
+# its name because `.github/workflows/test.yml` runs it by name, unconditionally,
+# on every pull request.
 #
 #   1. Library unit tests — invoke
 #      scripts/git-hooks/lib/check-mayor-commit-boundary.sh directly with
@@ -36,6 +41,22 @@
 #        (h) mayor commit staging .beads/issues.jsonl -> passes (the beads
 #            block must no-op in the primary worktree; that IS the
 #            checkpoint flow)
+#
+#   5. The CI arm (scripts/check-beads-pr-boundary.sh) on DIVERGED history —
+#      the branch-point selection it depends on (rf2-5z20y).
+#
+#   6. The INSTALLER, end to end: install, worktree inheritance, the bite, and
+#      drift detection (rf2-zt65l).
+#
+#   7. The staleness advisory on REAL pulls of both shapes — rebasing
+#      (post-rewrite) and merging (post-merge). Layer 6 invokes the hook by
+#      hand; this layer runs `git pull` and is the regression net for the
+#      rf2-zt65l audit reopen.
+#
+#   8. The checkpoint helper (scripts/beads-checkpoint.sh, rf2-51uz1), driven
+#      against a stub `bd`: a close that lives only in the database survives the
+#      pre-pull checkout, a broken export commits nothing, and a memory reorder
+#      is not a commit.
 #
 # Usage:
 #   sh scripts/git-hooks/test-pre-commit.sh
@@ -808,8 +829,15 @@ INSTALLER="$REPO_ROOT/scripts/install-git-hooks.sh"
   # A faithful miniature of the repo: installer, hook sources and libs,
   # tracked, at the paths the installer and the hooks resolve against.
   cp "$INSTALLER" scripts/
-  cp "$REPO_ROOT/scripts/git-hooks/pre-commit" \
-     "$REPO_ROOT/scripts/git-hooks/post-merge" scripts/git-hooks/
+  # The .ps1 sibling too: case 6k checks that the two installers certify each
+  # other's work, which is the property that broke when the mayor-marker text
+  # named whichever installer had written it.
+  [ -f "$REPO_ROOT/scripts/install-git-hooks.ps1" ] \
+    && cp "$REPO_ROOT/scripts/install-git-hooks.ps1" scripts/
+  for h in post-merge post-rewrite pre-commit; do
+    [ -f "$REPO_ROOT/scripts/git-hooks/$h" ] \
+      && cp "$REPO_ROOT/scripts/git-hooks/$h" scripts/git-hooks/
+  done
   cp "$REPO_ROOT"/scripts/git-hooks/lib/*.sh scripts/git-hooks/lib/
   printf '{"id":"seed","title":"seed"}\n' > .beads/issues.jsonl
   git add scripts .beads/issues.jsonl
@@ -842,7 +870,8 @@ for spec in \
   "pre-commit:# --- BEGIN re-frame2 mayor commit boundary (rf2-ydl2p) ---" \
   "pre-commit:# --- BEGIN re-frame2 worker beads boundary (rf2-ia8o7) ---" \
   "post-merge:# --- BEGIN re-frame2 MCP-staleness check (rf2-6jj3r) ---" \
-  "post-merge:# --- BEGIN re-frame2 hook-install staleness check (rf2-zt65l) ---"; do
+  "post-merge:# --- BEGIN re-frame2 hook-install staleness check (rf2-zt65l) ---" \
+  "post-rewrite:# --- BEGIN re-frame2 hook-install staleness check, rebase path (rf2-zt65l) ---"; do
   hook_file="$IREPO/.git/hooks/${spec%%:*}"
   marker="${spec#*:}"
   if ! grep -Fq "$marker" "$hook_file" 2>/dev/null; then
@@ -943,8 +972,428 @@ else
   pass "(6j) post-merge advisory silent on a healthy install"
 fi
 
+# 6k: THE TWO INSTALLERS AGREE. They write to one hooks directory and one
+# mayor-marker, and each certifies what the other wrote. When the marker text
+# named the installer that wrote it, running the .ps1 once made the .sh --check
+# report "mayor-marker content drifted" for ever — and the post-merge advisory
+# runs the .sh --check, so the whole apparatus degraded into a permanent nag.
+# Skipped, not failed, where no PowerShell is installed: the .sh installer is
+# the primary and must not need one.
+PWSH=""
+for candidate in pwsh powershell; do
+  if command -v "$candidate" >/dev/null 2>&1; then PWSH="$candidate"; break; fi
+done
+if [ -z "$PWSH" ]; then
+  printf '  SKIP  (6k) cross-installer parity: no pwsh/powershell on PATH\n'
+else
+  out=$(run_in_repo "$IREPO" "$PWSH" -ExecutionPolicy Bypass -File scripts/install-git-hooks.ps1)
+  case "$out" in
+    EXIT=0) : ;;
+    *) fail "(6k) the .ps1 installer failed ($out)"; cat "$IERR" >&2 ;;
+  esac
+  out=$(run_in_repo "$IREPO" sh scripts/install-git-hooks.sh --check)
+  case "$out" in
+    EXIT=0) pass "(6k) the POSIX --check certifies what the .ps1 installer wrote" ;;
+    *) fail "(6k) the installers disagree about a healthy install ($out)"; cat "$IERR" >&2 ;;
+  esac
+fi
+
 git -C "$IREPO" worktree remove --force "$IWORKER" >/dev/null 2>&1 || true
 rm -rf "$IBOX"
+
+# ----------------------------------------------------------------------------
+# Layer 7: the advisory on the REAL pull paths — rebase AND merge (rf2-zt65l).
+#
+# Layer 6 invokes `.git/hooks/post-merge` by hand. That proves the advisory
+# TEXT is right and says nothing about whether git ever runs it, which is where
+# the bead's audit reopen (PR #6921) found the hole:
+#
+#   `git pull --rebase` with a commit of your own performs a REAL rebase, and a
+#   rebase never invokes post-merge. Reproduced in two throwaway clones: the
+#   `--rebase` pull that landed hook drift printed NOTHING; the `--no-rebase`
+#   control printed the repair warning. `git pull --rebase` is the completion
+#   path AGENTS.md and CLAUDE.md mandate for every worker, so the advisory was
+#   silent on the one path everybody takes.
+#
+# git's hook for that path is `post-rewrite` (argument `rebase`). Measured on
+# git 2.53: diverged `--rebase` fires post-rewrite and NOT post-merge; a
+# `--rebase` pull with no local commit fast-forwards through git's merge
+# shortcut and fires post-merge. Between the two hooks, every pull that lands a
+# change is covered — and this layer drives real `git pull`s to prove it,
+# rather than calling hooks directly.
+# ----------------------------------------------------------------------------
+
+printf '\n[7] the advisory on real pulls: rebase (post-rewrite) and merge (post-merge)\n'
+
+RBOX=$(mktemp -d "${TMPDIR:-/tmp}/rf2-hookpull-XXXXXX")
+RERR="$RBOX/stderr.txt"
+RUP="$RBOX/upstream"
+RCL="$RBOX/clone"
+
+# A faithful miniature of the repo, as the UPSTREAM this clone pulls from.
+(
+  mkdir -p "$RUP/scripts/git-hooks/lib"
+  cd "$RUP"
+  git init -q -b main
+  git config user.email 'hookpull-test@example.invalid'
+  git config user.name 'hookpull-test'
+  git config commit.gpgsign false
+  cp "$INSTALLER" scripts/
+  for h in post-merge post-rewrite pre-commit; do
+    [ -f "$REPO_ROOT/scripts/git-hooks/$h" ] \
+      && cp "$REPO_ROOT/scripts/git-hooks/$h" scripts/git-hooks/
+  done
+  cp "$REPO_ROOT"/scripts/git-hooks/lib/*.sh scripts/git-hooks/lib/
+  git add scripts
+  git commit -q -m 'seed: installer + hook sources'
+) >/dev/null 2>&1
+
+git clone -q "$RUP" "$RCL" >/dev/null 2>&1
+(
+  cd "$RCL"
+  git config user.email 'hookpull-test@example.invalid'
+  git config user.name 'hookpull-test'
+  git config commit.gpgsign false
+) >/dev/null 2>&1
+
+run_in_clone() {
+  # Echoes EXIT=<n>; stderr (including git's own progress) lands in $RERR.
+  ( cd "$RCL" && "$@" >/dev/null 2>"$RERR" ) && echo "EXIT=0" || echo "EXIT=$?"
+}
+
+# drift_upstream_hook_source TAG — land a change under scripts/git-hooks/ that
+# leaves the installed COPIES stale, exactly as an ordinary upstream commit
+# does. The inserted line is a no-op `:` statement inside a managed marker
+# block, so the hook stays valid sh and `--check` sees the block differ.
+drift_upstream_hook_source() {
+  (
+    cd "$RUP"
+    awk -v tag="$1" '
+      {print}
+      /^# --- BEGIN re-frame2 MCP-staleness check \(rf2-6jj3r\) ---$/ {
+        print ": " tag
+      }' scripts/git-hooks/post-merge > post-merge.drifted
+    mv -f post-merge.drifted scripts/git-hooks/post-merge
+    git add scripts/git-hooks/post-merge
+    git commit -q -m "upstream: change a managed hook block ($1)"
+  ) >/dev/null 2>&1
+}
+
+local_commit() {
+  # A commit of the clone's own — the precondition that makes `git pull
+  # --rebase` do a real rebase instead of a fast-forward.
+  #
+  # `--no-verify` deliberately: the installer also dropped a mayor-marker in
+  # this clone, so the rf2-ydl2p pre-commit block correctly treats it as a
+  # mayor checkout and refuses ordinary source paths. That boundary is layer
+  # 2's subject; here it is just scaffolding in the way, and bypassing it keeps
+  # this layer measuring the one thing it is about — whether a pull that lands
+  # hook drift says so.
+  ( cd "$RCL" && echo "$1" > "$1.txt" && git add "$1.txt" \
+      && git commit -q --no-verify -m "local: $1" ) >/dev/null 2>&1
+}
+
+# 7a: the clone installs clean, and --check certifies it. Everything after
+# this measures a DRIFT that starts from a known-good install.
+out=$(run_in_clone sh scripts/install-git-hooks.sh)
+case "$out" in
+  EXIT=0) : ;;
+  *) fail "(7a) installer failed in the clone ($out)"; cat "$RERR" >&2 ;;
+esac
+out=$(run_in_clone sh scripts/install-git-hooks.sh --check)
+case "$out" in
+  EXIT=0) pass "(7a) the clone starts from a clean, certified install" ;;
+  *) fail "(7a) --check rejected the clone's fresh install ($out)"; cat "$RERR" >&2 ;;
+esac
+
+# The audit's exact shape: one local commit, then a pull that lands hook drift.
+local_commit mine
+drift_upstream_hook_source rf2-drift-one
+out=$(run_in_clone git pull --rebase origin main)
+pull_err_rebase=$(cat "$RERR" 2>/dev/null || true)
+
+# 7b: it really was a REBASE — the local commit was replayed on top of the
+# upstream commit. If this ever fast-forwards instead, 7c stops testing the
+# path the bead is about, so assert it rather than assume it.
+rebase_ok=0
+if [ "$out" = "EXIT=0" ] \
+   && [ "$(git -C "$RCL" log -1 --format=%s 2>/dev/null)" = "local: mine" ] \
+   && git -C "$RCL" merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+  rebase_ok=1
+  pass "(7b) git pull --rebase completed a real rebase (local commit replayed)"
+else
+  fail "(7b) the sandbox pull did not rebase as intended ($out)"
+  printf '%s\n' "$pull_err_rebase" >&2
+fi
+
+# 7c: THE AUDIT FINDING. That completed rebase must report the drift it just
+# landed. Before the post-rewrite arm existed this printed nothing at all.
+if [ "$rebase_ok" = "1" ]; then
+  case "$pull_err_rebase" in
+    *install-git-hooks.sh*)
+      pass "(7c) a rebasing pull reports the stale install and names the repair" ;;
+    *)
+      fail "(7c) a rebasing pull landed hook drift SILENTLY (no advisory)"
+      printf '%s\n' "$pull_err_rebase" >&2 ;;
+  esac
+fi
+
+# 7d: NO NAG. Repair, then take another rebasing pull that touches no hook
+# source: the advisory must stay quiet. An advisory that fires on ordinary work
+# gets muted, and a muted advisory is the bead all over again.
+out=$(run_in_clone sh scripts/install-git-hooks.sh)
+case "$out" in
+  EXIT=0) : ;;
+  *) fail "(7d) repair install failed ($out)"; cat "$RERR" >&2 ;;
+esac
+( cd "$RUP" && echo ordinary >> readme.txt && git add readme.txt \
+    && git commit -q -m 'upstream: an ordinary source commit' ) >/dev/null 2>&1
+local_commit mine-again
+out=$(run_in_clone git pull --rebase origin main)
+case "$(cat "$RERR" 2>/dev/null || true)" in
+  *'[re-frame2]'*)
+    fail "(7d) the advisory fired on a rebasing pull with a healthy install (nag)"
+    cat "$RERR" >&2 ;;
+  *)
+    if [ "$out" = "EXIT=0" ]; then
+      pass "(7d) a rebasing pull is silent when the install is current"
+    else
+      fail "(7d) the control pull failed ($out)"; cat "$RERR" >&2
+    fi ;;
+esac
+
+# 7e: the MERGE path still works. The rebase arm is an addition, not a
+# migration: `git pull` without --rebase, and `git pull --ff-only`, still go
+# through post-merge, and this is the control the audit used.
+drift_upstream_hook_source rf2-drift-two
+local_commit mine-third
+out=$(run_in_clone git pull --no-rebase --no-edit origin main)
+case "$(cat "$RERR" 2>/dev/null || true)" in
+  *install-git-hooks.sh*)
+    pass "(7e) a merging pull still reports the stale install (post-merge arm intact)" ;;
+  *)
+    fail "(7e) the merge path lost its advisory ($out)"
+    cat "$RERR" >&2 ;;
+esac
+
+rm -rf "$RBOX"
+
+# ----------------------------------------------------------------------------
+# Layer 8: the checkpoint helper (rf2-51uz1).
+#
+# The guards above stop the tracker database leaving the mayor checkout. This
+# layer covers the other half of the same durability surface: what the mayor
+# commits when it does check the tracker in.
+#
+# THE FAULT. `git checkout HEAD -- .beads` before a pull is correct — an
+# uncommitted export makes the pull abort and freezes HEAD at a stale base. But
+# a `bd close` after the last export-commit lives only in the database and in
+# the working file, so the checkout reverts it, and a checkpoint that commits
+# the working file writes that revert back. The close evaporates: rf2-5e8zv was
+# reopened exactly this way, and commit e80786e007 records three more.
+#
+# `scripts/beads-checkpoint.sh` re-exports from the database instead of
+# trusting the working file, which makes the revert unreachable. The cases
+# below drive it against a stub `bd` so the assertions are hermetic and the
+# real tracker is never touched.
+# ----------------------------------------------------------------------------
+
+printf '\n[8] checkpoint helper: export from the database, never the working file\n'
+
+CHECKPOINT="$REPO_ROOT/scripts/beads-checkpoint.sh"
+
+if [ ! -f "$CHECKPOINT" ]; then
+  fail "(8) scripts/beads-checkpoint.sh is missing"
+else
+
+CBOX=$(mktemp -d "${TMPDIR:-/tmp}/rf2-bdchk-XXXXXX")
+CERR="$CBOX/stderr.txt"
+COUT="$CBOX/stdout.txt"
+CREPO="$CBOX/repo"
+CBIN="$CBOX/bin"
+
+# The "database": whatever the stub `bd` prints. The tests move this file
+# around to say what the tracker knows, which is exactly the axis the fault
+# turns on — database state versus working-file state.
+mkdir -p "$CBIN" "$CREPO/scripts/git-hooks/lib" "$CREPO/.beads"
+cat > "$CBIN/bd" <<EOF
+#!/usr/bin/env sh
+# Stub bd for the layer-8 checkpoint tests. Prints the "database" on stdout,
+# the way \`bd export\` does; fails when told to.
+if [ -f "$CBOX/bd-fails" ]; then
+  printf 'stub bd: export failed\n' >&2
+  exit 1
+fi
+cat "$CBOX/db.jsonl"
+EOF
+chmod +x "$CBIN/bd"
+
+# HEAD's copy of the tracker: two open issues and two memories.
+{
+  printf '{"_type":"issue","id":"rf2-a","status":"open"}\n'
+  printf '{"_type":"issue","id":"rf2-b","status":"open"}\n'
+  printf '{"_type":"memory","key":"m1","value":"one"}\n'
+  printf '{"_type":"memory","key":"m2","value":"two"}\n'
+} > "$CBOX/head.jsonl"
+
+# The database, one `bd close rf2-b` later. This is the row whose survival the
+# bead's acceptance criterion is about.
+{
+  printf '{"_type":"issue","id":"rf2-a","status":"open"}\n'
+  printf '{"_type":"issue","id":"rf2-b","status":"closed"}\n'
+  printf '{"_type":"memory","key":"m1","value":"one"}\n'
+  printf '{"_type":"memory","key":"m2","value":"two"}\n'
+} > "$CBOX/db-closed.jsonl"
+
+(
+  cd "$CREPO"
+  git init -q -b main
+  git config user.email 'bdchk-test@example.invalid'
+  git config user.name 'bdchk-test'
+  git config commit.gpgsign false
+  cp "$CHECKPOINT" scripts/
+  cp "$REPO_ROOT/scripts/git-hooks/lib/check-beads-boundary.sh" scripts/git-hooks/lib/
+  cp -f "$CBOX/head.jsonl" .beads/issues.jsonl
+  git add scripts .beads/issues.jsonl
+  git commit -q -m 'seed: tracker at HEAD, two open issues'
+) >/dev/null 2>&1
+
+run_checkpoint() {
+  # $1 = directory; rest = args to the helper. Echoes EXIT=<n>.
+  d="$1"; shift
+  ( cd "$d" && PATH="$CBIN:$PATH" sh scripts/beads-checkpoint.sh "$@" \
+      >"$COUT" 2>"$CERR" ) && echo "EXIT=0" || echo "EXIT=$?"
+}
+
+# 8a: THE ACCEPTANCE. A close that exists only in the database must survive the
+# standard pre-pull cleanup. Revert the working file exactly as CLAUDE.md's
+# `git checkout HEAD -- .beads` does, then checkpoint: the commit must carry the
+# close, because it came from the database and not from the reverted file.
+cp -f "$CBOX/db-closed.jsonl" "$CBOX/db.jsonl"
+git -C "$CREPO" checkout -q HEAD -- .beads
+out=$(run_checkpoint "$CREPO")
+committed=$(git -C "$CREPO" show HEAD:.beads/issues.jsonl 2>/dev/null || true)
+case "$out" in
+  EXIT=0)
+    case "$committed" in
+      *'"id":"rf2-b","status":"closed"'*)
+        pass "(8a) a close survives the pre-pull checkout: the checkpoint re-exported it" ;;
+      *)
+        fail "(8a) the close EVAPORATED: the checkpoint committed the reverted file"
+        printf '%s\n' "$committed" >&2 ;;
+    esac ;;
+  *) fail "(8a) checkpoint failed ($out)"; cat "$CERR" >&2 ;;
+esac
+
+# 8b: --pre-pull REFUSES while the working export carries state HEAD lacks, and
+# names the fault and the remedy. This is the warning arm: the operator gets
+# told before the checkout, not after the close is gone.
+printf '{"_type":"issue","id":"rf2-c","status":"open"}\n' >> "$CREPO/.beads/issues.jsonl"
+out=$(run_checkpoint "$CREPO" --pre-pull)
+case "$out" in
+  EXIT=0) fail "(8b) --pre-pull certified a working export that is ahead of HEAD" ;;
+  *)
+    if grep -q 'beads-checkpoint' "$CERR" && grep -q 'AHEAD of HEAD' "$CERR"; then
+      pass "(8b) --pre-pull refuses a working export ahead of HEAD, names the remedy"
+    else
+      fail "(8b) --pre-pull refused but said nothing useful"
+      cat "$CERR" >&2
+    fi ;;
+esac
+
+# 8c: and it is SILENT once the tracker is checkpointed. A pre-flight check that
+# fires every tick is one the loop learns to ignore.
+git -C "$CREPO" checkout -q HEAD -- .beads
+out=$(run_checkpoint "$CREPO" --pre-pull)
+case "$out" in
+  EXIT=0)
+    if [ -s "$CERR" ]; then
+      fail "(8c) --pre-pull passed but still printed a warning"; cat "$CERR" >&2
+    else
+      pass "(8c) --pre-pull is silent when HEAD already carries the tracker"
+    fi ;;
+  *) fail "(8c) --pre-pull refused a checkpointed tracker ($out)"; cat "$CERR" >&2 ;;
+esac
+
+# 8d: A FAILED EXPORT COMMITS NOTHING. If the database cannot be read, the
+# working file is not a fallback — that is the whole point.
+before=$(git -C "$CREPO" rev-parse HEAD)
+: > "$CBOX/bd-fails"
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+rm -f "$CBOX/bd-fails"
+case "$out" in
+  EXIT=0) fail "(8d) a failed bd export was treated as success" ;;
+  *)
+    if [ "$before" = "$after" ] && grep -q 'untouched' "$CERR"; then
+      pass "(8d) a failed export commits nothing and says the tracker is untouched"
+    else
+      fail "(8d) failed export left the repo in an unexpected state"
+      cat "$CERR" >&2
+    fi ;;
+esac
+
+# 8e: AN EMPTY EXPORT IS REFUSED. A `git add` that caught the JSONL mid-rewrite
+# put an empty tracker on main once already (2026-06-10, commit 7aea52459).
+before=$(git -C "$CREPO" rev-parse HEAD)
+: > "$CBOX/db.jsonl"
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+case "$out" in
+  EXIT=0) fail "(8e) an empty export was checkpointed" ;;
+  *)
+    if [ "$before" = "$after" ] && grep -q '0 rows' "$CERR"; then
+      pass "(8e) an empty export is refused, naming the row count"
+    else
+      fail "(8e) empty export was rejected for the wrong reason"
+      cat "$CERR" >&2
+    fi ;;
+esac
+
+# 8f: NO CHURN COMMIT. `bd export` does not fix the order of the memory rows,
+# so a reorder is not a change. If it committed one, every heartbeat would
+# produce a few hundred lines of diff that mean nothing — and this repo has
+# already learned what committed churn does to a merge queue.
+before=$(git -C "$CREPO" rev-parse HEAD)
+{
+  git -C "$CREPO" show HEAD:.beads/issues.jsonl | grep '"_type":"issue"'
+  git -C "$CREPO" show HEAD:.beads/issues.jsonl | grep '"_type":"memory"' | sort -r
+} > "$CBOX/db.jsonl"
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+case "$out" in
+  EXIT=0)
+    if [ "$before" = "$after" ] && grep -q 'nothing to checkpoint' "$COUT"; then
+      pass "(8f) a memory reorder is not a change: no churn commit"
+    else
+      fail "(8f) a pure reorder produced a commit"
+      cat "$COUT" >&2
+    fi ;;
+  *) fail "(8f) checkpoint failed on a reordered export ($out)"; cat "$CERR" >&2 ;;
+esac
+
+# 8g: WORKER WORKTREES ARE REFUSED. The tracker database is the mayor
+# checkout's to commit; the helper derives that the same way the pre-commit
+# guard does, so one rule has one home.
+CWORKER="$CBOX/worker"
+git -C "$CREPO" worktree add -q -b worker/bdchk-test "$CWORKER" >/dev/null 2>&1
+cp -f "$CBOX/db-closed.jsonl" "$CBOX/db.jsonl"
+out=$(run_checkpoint "$CWORKER")
+case "$out" in
+  EXIT=0) fail "(8g) the helper checkpointed the tracker from a worker worktree" ;;
+  *)
+    if grep -q 'mayor checkout' "$CERR"; then
+      pass "(8g) a worker worktree is refused, and told whose job it is"
+    else
+      fail "(8g) refused in a worker worktree, but not for the stated reason"
+      cat "$CERR" >&2
+    fi ;;
+esac
+git -C "$CREPO" worktree remove --force "$CWORKER" >/dev/null 2>&1 || true
+
+rm -rf "$CBOX"
+
+fi
 
 # ----------------------------------------------------------------------------
 # Summary

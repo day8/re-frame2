@@ -1,0 +1,54 @@
+#!/usr/bin/env sh
+# .git/hooks/post-rewrite (re-frame2-managed segments)
+#
+# One advisory block, about the pull path post-merge cannot see:
+#
+#   rf2-zt65l — `git pull --rebase` with a commit of your own performs a REAL
+#               rebase, and a rebase never invokes post-merge. So a pull that
+#               landed changes under scripts/git-hooks/ used to say nothing at
+#               all on exactly the completion path AGENTS.md and CLAUDE.md
+#               mandate for every worker. `post-rewrite` is git's hook for
+#               that path (argument `rebase`).
+#
+# Installed by scripts/install-git-hooks.sh (POSIX) or .ps1 (Windows).
+# Source of truth: scripts/git-hooks/post-rewrite.
+#
+# The hook is ADVISORY: it never fails the rebase. It prints to stderr only.
+#
+# Cross-platform: runs under Git Bash on Windows, macOS, Linux. POSIX sh.
+
+# --- BEGIN re-frame2 hook-install staleness check, rebase path (rf2-zt65l) ---
+# Managed by scripts/install-git-hooks.sh. Do not edit between markers.
+{
+  # git passes the command that rewrote the commits as $1 — `rebase` or
+  # `amend` — and the old/new sha pairs on stdin.
+  #
+  # STDIN: this block DRAINS it, because a hook that leaves the rewrite list
+  # unread can hand git a broken pipe. Any block added after this one must
+  # therefore take the list from $_rf2_rewrites rather than reading stdin
+  # again. The `-t 0` test keeps a hand-run `sh .git/hooks/post-rewrite rebase`
+  # in a terminal from blocking on input that will never come.
+  _rf2_trigger="${1:-}"
+  _rf2_rewrites=""
+  if [ ! -t 0 ]; then
+    _rf2_rewrites=$(cat 2>/dev/null) || _rf2_rewrites=""
+  fi
+
+  # Only the rebase path. An `amend` rewrites one commit of your own and lands
+  # nothing from upstream, so it can create no hook drift — warning there would
+  # be a nag, and nags get muted.
+  if [ "$_rf2_trigger" = "rebase" ]; then
+    _rf2_repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || _rf2_repo_root=""
+    if [ -n "$_rf2_repo_root" ]; then
+      _rf2_lib="$_rf2_repo_root/scripts/git-hooks/lib/check-hook-install-staleness.sh"
+      if [ -f "$_rf2_lib" ]; then
+        # shellcheck source=lib/check-hook-install-staleness.sh
+        . "$_rf2_lib"
+        rf2_warn_stale_hook_install "$_rf2_repo_root" rebase
+      fi
+    fi
+  fi
+
+  unset _rf2_trigger _rf2_rewrites _rf2_repo_root _rf2_lib
+} || true
+# --- END re-frame2 hook-install staleness check, rebase path (rf2-zt65l) ---
