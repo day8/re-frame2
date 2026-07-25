@@ -1807,23 +1807,25 @@ A consumer picks their substrate by adding the matching adapter alongside the co
 
 ```clojure
 ;; deps.edn for a Reagent app
-{:deps {day8/re-frame2         {:mvn/version "2.0.0"}
-        day8/re-frame2-reagent {:mvn/version "2.0.0"}}}
+{:deps {day8/re-frame2         {:mvn/version "<latest>"}
+        day8/re-frame2-reagent {:mvn/version "<latest>"}}}
 
 ;; deps.edn for a UIx app
-{:deps {day8/re-frame2     {:mvn/version "2.0.0"}
-        day8/re-frame2-uix {:mvn/version "2.0.0"}}}
+{:deps {day8/re-frame2     {:mvn/version "<latest>"}
+        day8/re-frame2-uix {:mvn/version "<latest>"}}}
 
 ;; deps.edn for a Reagent app that uses Spec 010 schemas
-{:deps {day8/re-frame2         {:mvn/version "2.0.0"}
-        day8/re-frame2-reagent {:mvn/version "2.0.0"}
-        day8/re-frame2-schemas {:mvn/version "2.0.0"}}}
+{:deps {day8/re-frame2         {:mvn/version "<latest>"}
+        day8/re-frame2-reagent {:mvn/version "<latest>"}
+        day8/re-frame2-schemas {:mvn/version "<latest>"}}}
 
 ;; deps.edn for a Reagent app that uses Spec 005 state machines
-{:deps {day8/re-frame2          {:mvn/version "2.0.0"}
-        day8/re-frame2-reagent  {:mvn/version "2.0.0"}
-        day8/re-frame2-machines {:mvn/version "2.0.0"}}}
+{:deps {day8/re-frame2          {:mvn/version "<latest>"}
+        day8/re-frame2-reagent  {:mvn/version "<latest>"}
+        day8/re-frame2-machines {:mvn/version "<latest>"}}}
 ```
+
+`<latest>` is the latest released version of `day8/re-frame2` — look it up on Clojars. Every artefact ships at that one version (per [§Lockstep versioning through 1.0](#lockstep-versioning-through-10)), so the same literal fills every slot. The pre-1.0 tag vocabulary is `v0.0.1.alpha` / `v0.0.1.alpha-N` (see [docs/release-process.md §Tag format](../docs/release-process.md#tag-format)); these snippets carry a placeholder rather than a pinned version so they cannot drift from the repo-root `VERSION`.
 
 **Rationale.** Bundle isolation is guaranteed by structure rather than by careful dead-code elimination: a Reagent-only application simply does not have UIx code on the classpath. The Closure Compiler's DCE does not have to be perfect; the wrong substrate is structurally absent. This reinforces the substrate-independence-of-core thesis (Spec 006 §The reactive-substrate adapter contract) at the package layer. The same argument generalises to per-feature artefacts (e.g. `day8/re-frame2-schemas`, `day8/re-frame2-machines`, `day8/re-frame2-routing`, `day8/re-frame2-flows`, `day8/re-frame2-http`, `day8/re-frame2-ssr`, `day8/re-frame2-epoch`): an app that doesn't register any schemas doesn't carry the `re-frame.schemas` namespace or its Malli dep on its classpath; an app that doesn't register any machines doesn't carry the `re-frame.machines` namespace, the machine-transition engine, or the `:rf.machine.spawn/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any routes doesn't carry the `re-frame.routing` namespace, the route-rank / pattern-compile / nav-token machinery, the `:rf/route` reg-sub family, or any `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any flows doesn't carry the `re-frame.flows` namespace, the per-frame flow registry, the topological-sort engine, the dirty-check `last-inputs` map, or the `run-flows-on-db` walker (the outermost-`:after` flow transform); an app that doesn't issue any managed-HTTP requests doesn't carry the `re-frame.http.managed` namespace, the in-flight request registry, the Fetch / `HttpClient` transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, or any of the `:rf.http/*` keyword strings; an app that doesn't render server-side doesn't carry the `re-frame.ssr` namespace, the pure hiccup → HTML emitter, the FNV-1a render-tree-hash machinery, the per-request response accumulator (a framework-private side-channel atom keyed by frame-id), the seven `:rf.server/*` server-only fxs, the `reg-error-projector` registry kind plus its built-in default, or any of the `:rf.ssr/*` / `:rf.server/*` keyword strings; an app that doesn't consume the pair-tool / time-travel surface doesn't carry the `re-frame.epoch` namespace, the per-frame `:rf/epoch-record` ring buffer, the per-run trace-capture path, the `:sub-runs` / `:renders` / `:effects` projection walker, the schema-validate / machine-version / missing-reference predicates, or any of the `:rf.epoch/*` keyword strings.
 
