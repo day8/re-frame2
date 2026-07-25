@@ -431,7 +431,7 @@
   (let [s (slice f)]
     {:target     (select-keys s [:route-id :params :query :fragment])
      :url        (routing/route-url (-> (select-keys s [:params :query :fragment])
-                                   (assoc :to (:route-id s))))
+                                        (assoc :to (:route-id s))))
      :chain      (rf/with-frame f @(rf/subscribe [:rf.route/chain]))
      :identities (identity-set f)}))
 
