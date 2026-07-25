@@ -109,9 +109,10 @@ branches on it.
 
 ### Say which door you meant
 
-The route outcome is the same through all three, but the **cause** the runtime
-records is not — and the cause is what a `:rf.route/planned` projection, an
-entry denial and a blocked navigation all report. One dispatch shape per door:
+One event stands for three doors. The route outcome is the same through all of
+them, but the **cause** the runtime records is not — and the cause is what a
+`:rf.route/planned` projection, an entry denial and a blocked navigation all
+report. One dispatch shape per door:
 
 ```clojure
 ;; deep link, reload, initial load — a bare dispatch on a client frame
