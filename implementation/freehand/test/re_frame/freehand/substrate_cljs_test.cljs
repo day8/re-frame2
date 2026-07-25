@@ -246,9 +246,9 @@
 ;; `flush-render!` preserves write-all-queued-events-THEN-one-read/render for a
 ;; drain the THUNK opens. A flush forced from inside a drain that is ALREADY open
 ;; is the torn case, and the law that rejects it is one implementation in core
-;; (`re-frame.frame/guard-open-drain!`) rather than one copy per substrate —
-;; it closes over the router's drain state and no cell state, so Freehand reaches
-;; it without requiring anything from `re-frame.ui` (rf2-87ouj).
+;; (`re-frame.frame/guard-open-drain!`) rather than one copy per substrate — it
+;; closes over the router's drain state and no cell state, so this artefact
+;; reaches the law through core and still names no donor dependency (rf2-87ouj).
 
 (deftest flush-inside-an-open-event-drain-throws-before-the-window-closes
   (testing "A flush forced while a run-to-completion drain is still open would

@@ -261,9 +261,10 @@
   for this verb — is the torn case, and it fails loud instead: the shared core
   guard throws `:rf.error/flush-in-open-epoch` before the window is touched, so
   no partial render phase is published while queued update/commit work is still
-  outstanding. Same law, same id and same one implementation as the compiled-view
-  substrate's flush, because [[re-frame.frame/guard-open-drain!]] closes over the
-  router's drain state alone and no cell state (rf2-87ouj).
+  outstanding. Same law, same id and the same ONE implementation every substrate's
+  flush reaches, because [[re-frame.frame/guard-open-drain!]] closes over the
+  router's drain state alone and no cell state — so it lives in core and this
+  artefact acquires it without naming any other substrate (rf2-87ouj).
 
   Then it converges, because a commit can legitimately re-dirty: a layout effect
   that dispatches enrols a cell AFTER the pass that flushed it. Each further
