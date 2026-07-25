@@ -1,7 +1,22 @@
 # re-frame.ui.react
 
+!!! warning "Donor code — `re-frame.ui` is not published, and there is no coordinate to add"
+
+    `day8/re-frame2-ui` is **not** a Maven coordinate and never will be. The
+    compiled-view substrate is donor-only code being absorbed into
+    [Freehand](../core/freehand/index.md); the standalone artefact is deleted at
+    the EP-0036 F6e gate. The [release process](../release-process.md#policy) is
+    normative on that, and the artefact is absent from the release workflow's
+    deploy matrix. **There is nothing here you can put in a `deps.edn`.**
+
+    This page is retained as the contract record for view code an app *already*
+    carries on the substrate — the audience of the
+    [`re-frame2-ui` skill](../skills/re-frame2-ui.md). New view work starts at
+    [Freehand](../core/freehand/index.md); its host-interop story is
+    [Freehand host boundaries](../core/freehand/host-boundaries.md).
+
 `re-frame.ui.react` is the **frozen React-interop tier** of the compiled-view
-substrate (Maven coordinate `day8/re-frame2-ui`) — a deliberately tiny, closed set of
+substrate — a deliberately tiny, closed set of
 six wrappers for views that must participate in a *foreign* React world: an exported
 `defview` living inside a legacy parent, or a foreign widget embedded inside a `defview`
 whose API demands contexts, ids, effects, or code-splitting.

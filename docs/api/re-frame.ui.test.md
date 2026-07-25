@@ -1,5 +1,19 @@
 # re-frame.ui.test
 
+!!! warning "Donor code — `re-frame.ui` is not published, and there is no coordinate to add"
+
+    `day8/re-frame2-ui` is **not** a Maven coordinate and never will be. The
+    compiled-view substrate is donor-only code being absorbed into
+    [Freehand](../core/freehand/index.md); the standalone artefact is deleted at
+    the EP-0036 F6e gate. The [release process](../release-process.md#policy) is
+    normative on that, and the artefact is absent from the release workflow's
+    deploy matrix. **There is nothing here you can put in a `deps.edn`.**
+
+    This page is retained as the contract record for view code an app *already*
+    carries on the substrate — the audience of the
+    [`re-frame2-ui` skill](../skills/re-frame2-ui.md). The test surface for new
+    view work is [`re-frame.freehand.test`](re-frame.freehand.test.md).
+
 `re-frame.ui.test` is the **testing surface of the compiled-view substrate**
 (`re-frame.ui`). It is dev/test only — nothing in a production bundle may
 `:require` it (the bundle-isolation gate enforces this).

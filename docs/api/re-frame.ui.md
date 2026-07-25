@@ -1,12 +1,27 @@
 # re-frame.ui
 
-`re-frame.ui` is the first-party **compiled-view substrate** (Maven coordinate
-`day8/re-frame2-ui`). Views are authored as `defview` + hiccup; the compiler lowers
-templates to direct React construction (browser) and a versioned structural tree
-(JVM). There is no hiccup interpreter in production bundles on the compiled path.
+!!! warning "Donor code — `re-frame.ui` is not published, and there is no coordinate to add"
 
-This namespace is **not** re-exported from `re-frame.core`. Require it explicitly and
-install its adapter at boot:
+    `day8/re-frame2-ui` is **not** a Maven coordinate and never will be. The
+    compiled-view substrate is donor-only code being absorbed into
+    [Freehand](../core/freehand/index.md); the standalone artefact is deleted at
+    the EP-0036 F6e gate. The [release process](../release-process.md#policy) is
+    normative on that, and the artefact is absent from the release workflow's
+    deploy matrix. **There is nothing here you can put in a `deps.edn`.**
+
+    This page is retained as the contract record for view code an app *already*
+    carries on the substrate — the audience of the
+    [`re-frame2-ui` skill](../skills/re-frame2-ui.md). New view work starts at
+    [Freehand](../core/freehand/index.md) and its
+    [install page](../core/freehand/install.md).
+
+`re-frame.ui` is the **compiled-view substrate** donated to the Freehand programme.
+Views are authored as `defview` + hiccup; the compiler lowers templates to direct
+React construction (browser) and a versioned structural tree (JVM). There is no
+hiccup interpreter in production bundles on the compiled path.
+
+This namespace is **not** re-exported from `re-frame.core`. Donor code requires it
+explicitly and installs its adapter at boot:
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -15,8 +30,11 @@ install its adapter at boot:
 (rf/init! ui/adapter)
 ```
 
-Concept teaching lives in the UI guide (when published under `docs/ui/`) and the
-substrate design suite. This page is the contract surface for public symbols.
+Concept teaching for the substrate lives in the
+[`re-frame2-ui` skill](../skills/re-frame2-ui.md) and the substrate design suite;
+the donor guide chapters were replaced by the
+[Freehand guide](../core/freehand/index.md). This page is the contract surface for
+public symbols.
 
 **Stage honesty.** Front-porch symbols below are the ruled public API. Some
 runtime behaviours (committed DOM handlers and hydration

@@ -347,7 +347,7 @@ The framework ships a small, fixed set of standard `:rf/*` events you dispatch l
 
 ## Views
 
-The view layer is **substrate-agnostic**. The shared dataflow — frames, subscriptions, dispatch, source metadata, registry ids — is uniform across every adapter, and the same `capture-frame` carry primitive composes across all of them. The substrate-specific hooks (`use-subscribe`, `wrap-view`, …) live in each adapter's namespace doc: the first-party compiled-view substrate [re-frame.ui.md](re-frame.ui.md), plus [re-frame.adapter.reagent.md](re-frame.adapter.reagent.md) (covering both the full and slim Reagent variants) and [re-frame.adapter.uix.md](re-frame.adapter.uix.md).
+The view layer is **substrate-agnostic**. The shared dataflow — frames, subscriptions, dispatch, source metadata, registry ids — is uniform across every adapter, and the same `capture-frame` carry primitive composes across all of them. The substrate-specific hooks (`use-subscribe`, `wrap-view`, …) live in each adapter's namespace doc: [re-frame.freehand.md](re-frame.freehand.md) (the re-frame-native view layer), plus [re-frame.adapter.reagent.md](re-frame.adapter.reagent.md) (covering both the full and slim Reagent variants) and [re-frame.adapter.uix.md](re-frame.adapter.uix.md) — all three first-class and permanent. The donor compiled-view substrate [re-frame.ui.md](re-frame.ui.md) is documented for code that already carries it; it has no published artefact.
 
 ### `reg-view`
 
