@@ -30,6 +30,13 @@
   {:target     :browser
    :output-dir "resources/public/js"
    :asset-path "/js"
-   ;; shadow's :browser target re-runs :init-fn after each hot reload —
-   ;; no separate ^:dev/after-load hook is needed.
+   ;; `:init-fn` runs ONCE, on initial load: shadow appends the call to the
+   ;; module's own output (shadow.build.targets.browser/merge-init-fn), and a
+   ;; hot reload re-evaluates the changed namespace files, not the module
+   ;; wrapper. This scaffold wires no `:devtools :after-load` and marks
+   ;; nothing `^:dev/after-load`, so `watch` prints shadow's own
+   ;; "reloading code but no :after-load hooks are configured!" and an edited
+   ;; view is picked up on the next page load. That is the smallest thing
+   ;; that runs, not a limit of the mount — `v/mount` is idempotent per root,
+   ;; so re-entering it is the supported reload path when you want one.
    :modules    {:main {:init-fn my.app/run}}}}}
