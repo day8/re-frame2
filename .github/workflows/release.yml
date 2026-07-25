@@ -9,7 +9,6 @@
 #                                         ├── deploy-reagent
 #                                         ├── deploy-reagent-slim
 #                                         ├── deploy-uix
-#                                         ├── deploy-ui
 #                                         ├── deploy-machines
 #                                         ├── deploy-routing
 #                                         ├── deploy-flows
@@ -587,12 +586,18 @@ jobs:
         # Mirrors re-frame v1's release-notes pattern — minimal body
         # with a link back to the CHANGELOG. Mike updates CHANGELOG.md
         # in the same release commit before tagging.
+        #
+        # The CHANGELOG link is pinned to the TAG ref, not `main`. A
+        # Maven version is immutable once Clojars has it, so the release
+        # body must keep pointing at the CHANGELOG as it stood when that
+        # version shipped; a `blob/main` link lets any later edit on main
+        # silently rewrite the historical account of a shipped release.
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           body: |
-            See [CHANGELOG.md](https://github.com/day8/re-frame2/blob/main/CHANGELOG.md) for release notes.
+            See [CHANGELOG.md](https://github.com/day8/re-frame2/blob/${{ github.ref_name }}/CHANGELOG.md) for release notes.
 
             Artefacts published to Clojars:
             - `day8/re-frame2` ${{ needs.deploy-core.outputs.version }}

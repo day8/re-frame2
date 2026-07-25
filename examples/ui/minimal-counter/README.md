@@ -49,13 +49,17 @@ npx shadow-cljs watch app    # dev loop + http://localhost:8280
 `npx` matters: shadow-cljs is a local devDependency, so a bare `shadow-cljs`
 is not on `PATH`.
 
-## Pre-publish coordinates
+## Why the coordinates are checkout-relative
 
-`day8/re-frame2` and `day8/re-frame2-ui` are not on Clojars yet, so
-`deps.edn` resolves them with `:local/root` relative to this checkout. Copying
-this directory *out* of the monorepo therefore requires repointing those two
-coords at your own checkout (or at published `:mvn/version` coords once they
-exist). Nothing else in the tree is checkout-relative.
+`deps.edn` resolves both framework artefacts with `:local/root` relative to
+this checkout, and that is permanent rather than a stopgap. `day8/re-frame2-ui`
+is donor-only: the release contract rules out a Clojars coordinate for it, now
+and for good, so a monorepo checkout is the only supported way to resolve it.
+`day8/re-frame2` does ship to Clojars with every release, but this scaffold
+takes it from the same checkout so that the two artefacts cannot drift apart.
+
+Copying this directory *out* of the monorepo therefore means repointing both
+coords at your own checkout. Nothing else in the tree is checkout-relative.
 
 ## What the CI gate proves
 
