@@ -154,7 +154,7 @@ nothing, so the census derives — from the `(conf/fixture :FH-…)` sites in
 are actually proven and where. It fails on a row no test reads, a row whose id is
 written where no assertion can reach it, a row asserted only from lanes that do
 not serve the mode/host cells its applicability cell claims, a `compiled` row
-nothing compiled-tier proves, a test that
+whose proving assertion never reaches the compiled tier, a test that
 reads a fixture for a row the index no longer carries, a fixture file left on
 disk by a row that was deleted, a roster area holding no `active` row at all —
 the roster carries an area because a law lives there, and an index of bare
@@ -170,7 +170,7 @@ reaches it — written in one, or bound to a name such a statement uses, directl
 or through a helper it calls. A statement that asserts nothing contributes
 nothing, and a `deftest` whose statements never assert proves nothing at all.
 
-Six shapes name a law and prove nothing:
+Eight shapes name a law and prove nothing:
 
 ```clojure
 ;; (def props-003 (conf/fixture :FH-PROPS-003))   a comment
@@ -180,14 +180,22 @@ Six shapes name a law and prove nothing:
 (deftest t (is true) (comment props-003))         a comment FORM, inside a test
 (deftest t (is true) (uses-it))                   a helper whose only read sits
                                                   in a branch that never runs
+(defn check [x] (identity x))                     a helper that asserts nothing,
+(deftest t (check props-003))                     sharing a NAME with one that
+                                                  does, in another namespace
+(defn check [x] #?(:clj (is (seq x)) :cljs x))    a helper that asserts on ONE
+(deftest t (check props-003))                     platform, credited on both
 ```
 
-The first four are invisible to a scan that reads characters. The last two are
+The first four are invisible to a scan that reads characters. The next two are
 invisible to a scan that reads forms but seeds from the whole `deftest`: the id
 is mentioned where a test can see it and where nothing evaluates it, so the suite
 stays green with the fixture broken — which is the one thing the row's green is
-supposed to rule out. Each is a way to delete a law's proof and leave its row
-standing, so each is a `DEAD PROOF SITE`.
+supposed to rule out. The last two are invisible to a scan that reads assertions
+but not the *names* carrying them. Each is a way to delete a law's proof and
+leave its row standing, so each is a `DEAD PROOF SITE` — or, where the lost
+assertion is one platform's, an `UNEXECUTED CELL` on the lane that platform
+serves.
 
 What this establishes is bounded, and the bound is worth stating: the assertion
 is *co-located* with the fixture read, in one statement. It is not a proof that
@@ -196,15 +204,23 @@ it needs the suite to run.
 
 An assertion may be the helper's rather than the test's. `(sup/expect-tree fx)`
 asserts, because `expect-tree` does, and a rule that recognised only an `is`
-written in the `deftest` itself would red most of the suites here.
+written in the `deftest` itself would red most of the suites here. But it asserts
+because *that* `expect-tree` does — the one
+`re-frame.freehand.support` defines, reached through the alias this file gave it.
+A name is resolved in the namespace that wrote it, through its own `:as` and
+`:refer`; matching bare words in one global pool lets any file's asserting helper
+vouch for every same-named helper anywhere, which is a suite being credited with
+a stranger's `is`.
 
 The census also reads the **reader**. A `.cljc` suite is discovered by the JVM
 runner *and* the node runner, but a `#?(:clj (deftest …))` inside it asserts in
-only one of them — so the lane a proof reaches is the lane the *file* runs in
-crossed with the platforms whose reading of that file contains the reaching test.
-Taking the lane from the filename alone credits a row with a lane it never
-enters, which is how a `common jvm browser` row can be green on a proof the
-browser column's structural cell — the node runtime — never executes.
+only one of them — so the whole tree is read once per platform, and the lane a
+proof reaches is the lane the *file* runs in crossed with the platforms whose
+reading of that file contains the reaching assertion. A helper whose `is` lives
+in a `#?(:clj …)` arm carries the same narrowing to its callers. Taking the lane
+from the filename alone credits a row with a lane it never enters, which is how a
+`common jvm browser` row can be green on a proof the browser column's structural
+cell — the node runtime — never executes.
 
 ### The mode witness
 
@@ -213,14 +229,23 @@ served by the same JVM lane, so a row relabelled from one to the other keeps
 every cell it claims served — the mode token parsed, and evidenced by nothing.
 
 `compiled` is the mode a declaration *opts into*, so it is the mode that can be
-witnessed. A `compiled` row must be proven by a suite that exercises the compiled
-tier: a `{:compiled true}` declaration, or a `re-frame.freehand.compiler.*`
-namespace, in the suite itself or in a Freehand namespace it requires. The second
-half is not optional — `FH-DIAG-001` is a compiled-mode law proven through the
-compile **checker**, over declarations that deliberately carry no
-`{:compiled true}`, and a rule demanding the declaration alone would red an
-honest row and push the next author into writing a compiled twin for the gate's
-benefit. A row claiming `compiled` with no witness is an `UNWITNESSED MODE`.
+witnessed. A `compiled` row must be proven by an assertion that **reaches** the
+compiled tier: a `{:compiled true}` declaration, or a
+`re-frame.freehand.compiler.*` reference, in the asserting statement itself or in
+a binding it names — across a `:refer`/`:as` hop into the support namespace where
+a census of declarations lives. The second surface is not optional —
+`FH-DIAG-001` is a compiled-mode law proven through the compile **checker**, over
+declarations that deliberately carry no `{:compiled true}`, and a rule demanding
+the declaration alone would red an honest row and push the next author into
+writing a compiled twin for the gate's benefit.
+
+*Reaches*, not *is present near*. A witness read off the file — a `:require` at
+the top, a declaration anywhere below it — vouches for assertions that touch
+neither, so keeping the require and asserting on the raw fixture instead kept the
+row's `compiled` claim standing while nothing compiled ran. Presence is not
+proof, in the same way and for the same reason that a fixture named in a file is
+not a fixture a test reads. A row claiming `compiled` with no *reachable* witness
+is an `UNWITNESSED MODE`.
 
 `interpreted` and `common` carry no such witness, and the census claims none.
 Interpreted is the *default* lowering — a declaration is interpreted by carrying
