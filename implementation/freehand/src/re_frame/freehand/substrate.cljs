@@ -46,6 +46,16 @@
   drains the Freehand roots first and disposes the spine second, and the
   ordering decision itself is [[dispose-outcome]].
 
+  The drain is the SAFETY NET for a root an application forgot to unmount, and
+  it is deliberately narrower than `v/unmount!`: it releases claims, releases the
+  root's frame reference and unmounts React, but does not run a frame's destroy
+  recipe. Core closes public delegation before it calls this teardown, so a
+  destroy recipe's `read-container` would raise `:rf.error/adapter-disposed` —
+  and it does not need to run, because the frame's containers belong to the
+  adapter being destroyed. Destroying a root-owned frame is `v/unmount!`'s job on
+  a live adapter, which is why the contract asks an application to unmount its
+  roots first.
+
   **`flush-render!` settles ViewCells.** The inherited spine verb runs
   `react-dom/flushSync`, which commits work SCHEDULED inside its callback. But a
   ViewCell invalidation notifies nothing synchronously: `cell/mark-dirty!` marks
@@ -67,8 +77,7 @@
   called `re-frame.freehand.adapter` occupies the same JS path as that Var: the
   compiler reports `:ns-var-clash` and one of the two silently reads `nil`. So
   the machinery is homed under `substrate` and the door publishes `adapter` —
-  which is also exactly how the donor paired `re-frame.ui.substrate` with
-  `re-frame.ui/adapter`.
+  the same split the donor substrate arrived at, for the same reason.
 
   INTERNAL. The authoring surface is `v/adapter`; nothing else here is
   application API.
@@ -277,7 +286,10 @@
       (rf/init! v/adapter)
 
   Published on the door as `v/adapter`. Installation is explicit; there is no
-  default-adapter registry and no automatic selection."
+  default-adapter registry and no automatic selection. Unmount your Freehand
+  roots with `v/unmount!` before `(rf/destroy-adapter!)`: disposal drains a
+  forgotten root so it cannot outlive the adapter, but only the orderly verb can
+  destroy a frame the root owned."
   (assoc spine-adapter
          :dispose-adapter! dispose-adapter!
          :flush-render!    flush-render!))
