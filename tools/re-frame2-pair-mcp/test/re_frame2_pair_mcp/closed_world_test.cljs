@@ -44,8 +44,8 @@
   ;; connection and hand it a nil conn.
   (doseq [tool ["discover-app" "eval-cljs" "dispatch" "snapshot" "get-path"
                 "subscribe" "list-streams" "restore-epoch" "replace-app-db"
-                ;; The re-frame.ui.tool projection reads (rf2-vxgfnd.95.8) eval
-                ;; over nREPL in the browser runtime — NOT server-local.
+                ;; The re-frame.freehand.tool reads eval over nREPL in the
+                ;; browser runtime — NOT server-local.
                 "read-view-manifest" "read-view-dependencies"
                 "read-view-event-sites" "read-mounted-views" "explain-render"]]
     (is (false? (registry/closed-world-tool? tool))

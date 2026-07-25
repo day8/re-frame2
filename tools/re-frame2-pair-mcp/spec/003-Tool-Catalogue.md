@@ -2545,60 +2545,95 @@ malformed CSS selector;
 `:reason :rf.error/read-ui-failed` (with `:message`) on any other
 failure.
 
-## The compiled-view tool tier — read-view-manifest / read-view-dependencies / read-view-event-sites / read-mounted-views / explain-render
+## The Freehand tool tier — read-view-manifest / read-view-dependencies / read-view-event-sites / read-mounted-views / explain-render
 
-Five read-only projections (rf2-vxgfnd.95.8) of the **compiled-view
-tool tier** (`re-frame.ui.tool`, framework rf2-vxgfnd.95.6) — the same
-S3 view evidence Xray and Story read, exposed from a **running**
-re-frame2 app so a pairing agent inspects a compiled view WITHOUT
-reaching a private React / scheduler handle. Each projection is
-**versioned** (stamps `:rf.ui.tool/version`), **deterministic**,
-**serializable**, and egresses only bounded plain data — no `ViewCell`
-or React object crosses the wire.
+Five read-only projections of the **Freehand tool tier**
+(`re-frame.freehand.tool`) — the same view evidence Xray and Story read,
+exposed from a **running** re-frame2 app so a pairing agent inspects a
+Freehand view WITHOUT reaching a private React / cell / scheduler
+handle. Every read answers inside the four-axis evidence projection
+(`:scope`, `:basis`, `:complete?`, `:loss`), **versioned** (stamps
+`:schema`, and `:read` naming which read answered), **deterministic**,
+**serializable**, and egresses only bounded plain data — no cell or React
+object crosses the wire.
 
-| MCP wire tool             | `re-frame.ui.tool` projection | arg        |
+| MCP wire tool             | `re-frame.freehand.tool` read | arg        |
 |---------------------------|-------------------------------|------------|
-| `read-view-manifest`      | `view-manifest`               | `view-id`  |
-| `read-view-dependencies`  | `view-dependencies`           | `view-id`  |
-| `read-view-event-sites`   | `view-event-sites`            | `view-id`  |
-| `read-mounted-views`      | `mounted-views`               | —          |
+| `read-view-manifest`      | `read-view-manifest`          | `view-id`  |
+| `read-view-dependencies`  | `read-view-dependencies`      | `view-id`  |
+| `read-view-event-sites`   | `read-view-event-sites`       | `view-id`  |
+| `read-mounted-views`      | `read-mounted-views`          | —          |
 | `explain-render`          | `explain-render`              | `view-id?` |
 
-The wire names carry a [`NAMING.md`](../../mcp-conformance/NAMING.md)-conformant verb
-prefix (`read-` / `explain-`); the framework fn names (`view-manifest`,
-…) do not, so the four manifest reads take the `read-<thing>` idiom
-`read-ui` / `read-dom` / `read-sub` already use.
+The wire names and the framework fn names **agree**, and both satisfy
+[`NAMING.md`](../../mcp-conformance/NAMING.md)'s verb-prefix rule.
+Freehand's id-taking reads carry their own `read-` prefix because
+`view-manifest` is the value-taking sweep door and could not be the
+id-taking one's arity — so the reads an inspector calls are spelled
+`read-view-manifest` on both sides of the wire. `explain-render` needs no
+prefix; it is already a verb.
+
+### The fidelity this tier states — four axes, not a lifetime summary
+
+Freehand's tool tier is deliberately **thinner** than the donor
+compiled-view tier it replaces, and that difference is **stated** rather
+than papered over: the donor's cumulative per-occurrence evidence
+accumulator does not graduate into Freehand. What a pairing agent gets
+instead is honesty about the difference, which is what makes a thinner
+tier a usable one:
+
+- `read-mounted-views` answers what is **connected right now** — one row
+  per connected occurrence, dropped at disconnect. It is not a lifetime
+  roster, so there is no render total, no batch total, no
+  hide-versus-unmount interval ledger and no accumulated union of every
+  target ever observed. The projection's `:occurrence-facts` set names
+  exactly what a row does state, so an absent fact is visible as absent
+  rather than inferred from silence.
+- `explain-render` **folds Spec 009's retained window at read time** and
+  keeps nothing of its own. There is no second history store, no second
+  window and no second knob — retention is `:rf.trace/events-retained`.
+- an **interpreted** declaration answers the roster reads on an
+  `:opaque` basis with `{:reason :no-static-analysis :dropped :unknown}`
+  rather than an empty roster, because *unknown must not look like
+  none*.
+
+A read that cannot state a fact degrades it to an explicit unknown. It
+never fabricates one.
 
 ### Tier presence — direct eval, no preload coupling
 
 Unlike the `read-ui` / `read-dom` wrapper pattern, these tools **do not**
-route through a `re-frame2-pair.runtime` fn. `re-frame.ui.tool` lives in
-`day8/re-frame2-ui` — the **optional** compiled-view substrate; a
-re-frame2 app built on plain Reagent never has it on its classpath, so
-requiring it in the generic preload would make the preload uncompilable
-there. Each tool instead evals a self-contained form guarded by
-`cljs.core/exists?`: the projection is called only when the tier is
-present, and its absence is surfaced **honestly** as `:reason
-:view-tier-unavailable` — the S3 "tolerate absent evidence explicitly"
+route through a `re-frame2-pair.runtime` fn. `re-frame.freehand.tool`
+lives in `day8/re-frame2-freehand` — the **optional** Freehand view
+substrate; a re-frame2 app built on the Reagent or UIx adapter never has
+it on its classpath, so requiring it in the generic preload would make
+the preload uncompilable there. Each tool instead evals a self-contained
+form guarded by `cljs.core/exists?`: the read is called only when the
+tier is present, and its absence is surfaced **honestly** as `:reason
+:view-tier-unavailable` — the "tolerate absent evidence explicitly"
 discipline, not a fabricated emptiness. The tier is present whenever
-Xray is active, or when the app itself loads `re-frame.ui.tool`.
+Xray is active, or when the app itself loads `re-frame.freehand.tool`.
 
-### Absent / older evidence (S3 tolerance)
+### Absent / older evidence
 
 Each guarded form resolves to one of:
 
-- `{:ok? true …projection…}` — the projection, `:rf.ui.tool/version`
-  stamped, forwarded verbatim. The agent reads the version and
-  **reconciles** if it differs from what it expects (the tier's
-  versioned-degrade contract);
-- `{:ok? false :reason :view-tier-unavailable}` — `re-frame.ui.tool`
-  is not loaded (the optional substrate is absent);
-- `{:ok? false :reason :view-not-available :view-id …}` — no compiled
-  view is registered under that id (a nil manifest);
+- `{:ok? true …projection…}` — the projection, `:schema` stamped,
+  forwarded verbatim. The consumer-owned schema **gate** compares that
+  stamp against the schema this Pair build was written to forward, and a
+  stamp it does not recognise becomes `{:ok? false :reason
+  :view-tier-version-mismatch :expected … :actual …}` rather than a
+  successful read of a shape it cannot parse — Pair reaches an
+  arbitrarily old or new app, so the producer's stamp does not define
+  support;
+- `{:ok? false :reason :view-tier-unavailable}` —
+  `re-frame.freehand.tool` is not loaded (the optional substrate is
+  absent);
+- `{:ok? false :reason :view-not-available :view-id …}` — no Freehand
+  view is declared under that id (a nil read);
 - `{:ok? false :reason :view-tier-inactive}` — a production build
   nil-gates the whole tier;
-- `{:ok? false :reason :view-tier-error :message …}` — the projection
-  threw.
+- `{:ok? false :reason :view-tier-error :message …}` — the read threw.
 
 Every `:ok? false` rides `isError:true` (the universal §"Every `:ok?
 false` response is `isError: true`" contract), so a degraded read is
@@ -2609,116 +2644,185 @@ absent.
 
 ### Sensitive-data projection
 
-These reads project a view's compiler **manifest** + render **evidence**
-(structure, declared sites, occurrence / cause / loss counts, authored
-event vectors) — **not app-db values**. They carry no app-db-classified
-slot, so — like the registrar reads `handler-meta` / `list-handlers` —
-they need no elision / sensitive walker: the "normal projection" for a
-non-app-db read is verbatim bounded data. An authored event vector shows
-its id + literal args exactly as `handler-meta` surfaces a handler's
-source coordinate.
+These reads project a view's compiler **manifest** + bounded render
+**evidence** (structure, declared sites, occurrence identity, cause and
+loss accounting, authored event vectors) — **not app-db values**. A
+commit's `:reads` carry the **queries** without the values they
+returned, deliberately: a value is application data, and an evidence
+read is not a second egress path for it. They carry no
+app-db-classified slot, so — like the registrar reads `handler-meta` /
+`list-handlers` — they need no elision / sensitive walker: the "normal
+projection" for a non-app-db read is verbatim bounded data. An authored
+event vector shows its id + literal args exactly as `handler-meta`
+surfaces a handler's source coordinate.
 
 ### read-view-manifest
 
-The versioned public projection of a compiled view's **manifest** — what
-CAN happen, useful **before** mount. Requires `:view-id` (the compiled
-view's registry id, colon-tolerant string / keyword). Returns the
-view's `:source` coord, per-prop `:props` docs/defaults/schema (the
-single source of truth for a view's args — replaces a parallel
-args-description system), declared render-slot + interop sites,
-capability bits, template / hook fingerprints, and per-kind
-`:site-counts`. Read-only, versioned.
+What the compiler statically knows about a Freehand view — what CAN
+happen, useful **before** mount. Requires `:view-id` (the view's declared
+id, colon-tolerant string / keyword). The declaration's manifest rides
+**verbatim** under `:manifest` — source coord, per-prop docs / defaults /
+schema, the subscription / event / render-slot / trusted-markup /
+crossing rosters, capability bits, the ViewCell verdict, and the
+compile-tier `:diagnostics` findings including the **suppressed** ones
+carrying the author's reason. One value published twice cannot drift; two
+projections of one value eventually do.
 
 ```clojure
 ;; read-view-manifest {:view-id ":my.app/counter"}
-{:ok? true :rf.ui.tool/version 3 :view-id :my.app/counter
- :doc "..." :source {...}
- :props [{:key :label :doc "..." :schema :string}]
- :site-counts {:subs 2 :events 1 ...}}
+{:ok? true :schema :re-frame.freehand.evidence/v1 :read :view-manifest
+ :view-id :my.app/counter :lowering :compiled
+ :scope :possible-sites :basis :static-proof :complete? true :loss nil
+ :manifest {:view-id :my.app/counter :grammar :re-frame.freehand/v1
+            :subscriptions [...] :events [...] :capabilities #{:sub}
+            :diagnostics [...]}}
 ```
+
+An interpreted declaration answers `:manifest nil` with `:basis :opaque`,
+`:complete? false` and `:loss {:reason :no-static-analysis :dropped
+:unknown}` — never an empty roster that would read as a clean bill of
+health.
 
 ### read-view-dependencies
 
-The reactive dependency **sites** (subscriptions) a compiled
-view declares, with literal-vs-`:dynamic` query-shape honesty: a
-fully-literal query is projected verbatim (`:dynamic? false`); a query
-carrying a captured local is `:dynamic? true` (its literal `:query-id`
-is still shown — the runtime argument is not fabricated). Read from the
-manifest, so available before mount. Requires `:view-id`.
+The reactive dependency **sites** (`v/sub` sites) a Freehand view
+declares, with literal-vs-`:dynamic` query-shape honesty: a fully-literal
+query is projected verbatim (`:dynamic? false`); a query carrying a
+captured local is `:dynamic? true` (its literal `:query-id` is still
+shown — the runtime argument is not fabricated). **Sites, not reads** —
+one entry per lexical site, so a site inside a keyed list is one entry
+however many times it runs. Read from the manifest, so available before
+mount. Requires `:view-id`.
 
 ```clojure
 ;; read-view-dependencies {:view-id ":my.app/row"}
-{:ok? true :rf.ui.tool/version 3 :view-id :my.app/row
- :subscriptions [{:query [:total] :dynamic? false}
-                 {:query-id :item :dynamic? true}]}
+{:ok? true :schema :re-frame.freehand.evidence/v1 :read :view-dependencies
+ :view-id :my.app/row :lowering :compiled
+ :basis :static-proof :complete? true :loss nil
+ :subscriptions [{:query [:total] :dynamic? false :path [0]}
+                 {:query-id :item :dynamic? true :path [1]}]}
 ```
 
 ### read-view-event-sites
 
-The event-handler **sites** a compiled view declares (its `:on-*`
-handlers), each classified for honesty: a `:literal` event vector and a
-`:normalized` options-map event vector both carry their inspectable
-`:handler` event vector; a `ui/event`, `ui/handler`, bare fn, or dynamic
-expression is `:dynamic` with `:handler :opaque` — the tier never claims
-a raw callback's internals are inspectable. `:serializable?` and
-`:sync?` (the controlled-input synchronous door) ride each site.
-Requires `:view-id`.
+The event-handler **sites** a Freehand view declares (its `:on-*`
+handlers), each stating **where** it dispatches from **and what** it
+dispatches. A fully-literal handler is projected verbatim; a handler
+carrying a captured local, a call, or a callback body projects as
+`:handler :opaque` — the tier never claims a raw callback's internals are
+inspectable — while `:event-id` still shows the literal event id where the
+authored form has one. `:classification` keeps the two apart (`:vector` /
+`:options` carry an event vector; any other classification is a
+callback), and `:serializable?` plus `:sync?` (the controlled-input
+synchronous door) ride each site. `:site-facts` names the **closed** set
+of facts a row states, so an absent fact is visible as absent. Requires
+`:view-id`.
 
 ```clojure
 ;; read-view-event-sites {:view-id ":my.app/form"}
-{:ok? true :rf.ui.tool/version 3 :view-id :my.app/form
- :handlers [{:prop :on-click :site-kind :literal :handler [:submit] :serializable? true}
-            {:prop :on-input :site-kind :dynamic :handler :opaque :serializable? false :sync? true}]}
+{:ok? true :schema :re-frame.freehand.evidence/v1 :read :view-event-sites
+ :view-id :my.app/form :basis :static-proof :complete? true :loss nil
+ :event-sites [{:prop :on-click :classification :vector
+                :handler [:submit] :event-id :submit
+                :serializable? true :sync? false}
+               {:prop :on-input :classification :callback
+                :handler :opaque :event-id nil
+                :serializable? false :sync? true}]
+ :site-facts #{:sid :source-coord :path :prop :classification
+               :serializable? :sync? :handler :event-id}}
 ```
 
 ### read-mounted-views
 
-The committed **connected-instance** records for every compiled-view
-incarnation the evidence tier currently retains — no arg (spans every
-retained incarnation). Per incarnation: an `:occurrence` identity (a
-stable ordinal distinguishing two instances of one view), the owning
-root, the live `:connection` state, honest hide-vs-unmount `:lifecycle`
-labels (`:disconnected {:reason :unknown}` stays unknown until the
-runtime **proves** `:activity-hidden` or `:unmounted` — never
-fabricated), and the bounded render `:evidence`. An empty-but-versioned
-`{:views []}` when no evidence tool is installed — **never** a fabricated
-instance.
+Every Freehand occurrence **connected right now** — no arg,
+deliberately, because the question is *what is mounted*. Per occurrence:
+its `:view-id`, an `:occurrence` key distinguishing two live instances of
+one view, the `:lowering`, the `:generation`, the live `:connection`
+state, and the selected `:commit` (its `:frame` plus the queries that
+commit read, **without** the values they returned).
 
-This is the **hot-swap** read. There is no new reload protocol: a
-pairing agent edits a compiled view, lets shadow-cljs recompile over its
+This is **current state, not a lifetime roster**: rows drop at
+disconnect. `:occurrence-facts` names the closed set a row states, so a
+lifetime quantity is visibly not a fact the row is missing but a fact it
+does not have. `:complete? true` is exact about **under**-reporting — the
+index holds every connected occurrence that has published a selected
+commit. Over-reporting is bounded and stated rather than claimed away: a
+host torn down without disconnecting its cells leaves rows behind, and
+each row's `:generation` and `:at` are what let a reader see a stale one
+for what it is.
+
+It is also the **hot-swap** read. There is no new reload protocol: a
+pairing agent edits a Freehand view, lets shadow-cljs recompile over its
 normal watch (the existing [`tail-build`](#tail-build) HMR path), and
 re-reads `read-mounted-views` — a **compatible** body swap retains the
-occurrence (the identity + lifecycle log survive), an **incompatible**
-change remounts it (a fresh occurrence). The retention-vs-remount
-evidence the tier already records.
+occurrence (its `:generation` advances), an **incompatible** change
+remounts it (a fresh `:occurrence` key).
 
 ```clojure
 ;; read-mounted-views {}
-{:ok? true :rf.ui.tool/version 3
- :views [{:occurrence 3 :view-id :my.app/row :connection :connected
-          :lifecycle {:intervals [] :dropped 0 :exact? true}
-          :evidence {...}}]}
+{:ok? true :schema :re-frame.freehand.evidence/v1 :read :mounted-views
+ :scope :connected-occurrences :basis :observation :complete? true :loss nil
+ :occurrences [{:view-id :my.app/row :occurrence {:parent nil :key 71}
+                :lowering :compiled :generation 4 :connection :connected
+                :root :unknown :at 18422.7
+                :commit {:frame :rf/default
+                         :reads [{:query [:person 7] :owned? true}]}}]
+ :occurrence-facts #{:view-id :occurrence :lowering :generation
+                     :connection :root :dispatch-id :at :commit}}
 ```
+
+`:occurrences []` is the one empty answer that **is** a clean bill of
+health: the current-occurrence index is authoritative about what is
+connected.
 
 ### explain-render
 
-Why did a compiled view's live incarnations render? Per occurrence: the
-bounded render `:causes` (`:subscription` / `:hmr` / `:disposed`), occurrence +
-batch counters, first/latest movement epochs, the moving observation
-targets, and **explicit loss accounting** — `:observations
-{:identity-exact? bool}` (did the SHOWN targets keep exact identity) and
-`:loss {:dropped N :exact? bool}` (how many DISTINCT targets were omitted
-past the shown cap; a count is a completeness claim only when
-`:exact?`). Optional `:view-id` narrows to one view; omitted, every
-retained incarnation. An empty-but-versioned `{:occurrences []}` with no
-evidence.
+Why did a Freehand view's live occurrences render? The fold runs against
+Spec 009's **retained window** at read time and keeps nothing of its own.
+Per occurrence: the `:commit`, the `:dispatch-id` it was correlated to,
+and `:cause` — the **join**, not a guess — naming the run, the
+`:cause-event-id` that started it, and the `:sub-ids` it recomputed that
+this commit reads. Optional `:view-id` narrows to one view; omitted,
+every current occurrence.
+
+The **outer** roster is complete because the index knows every connected
+occurrence; an **inner** explanation is `:complete? true` only when the
+correlated run is still in the window. The three ways it cannot be are
+each reported as `:loss` with `:dropped :unknown`, because a window
+cannot say how many runs it never held:
+
+- `{:reason :cap}` — the window holds nothing for the frame (retention
+  off, nothing dispatched, or the frame released its ring), **or** the
+  commit named a run the ring no longer holds. Provably evicted: the id
+  is right there and the window does not have it. A bigger buffer is the
+  remedy;
+- `{:reason :uncorrelated}` — the commit named **no** run. A Freehand
+  commit usually lands in a post-settle React batch with no cascade on
+  the stack, so there was no correlation to record. A different reason
+  and a different remedy from a full buffer, which is why it is its own
+  member of the vocabulary.
+
+`:candidates` is offered in **every** case and is deliberately **not**
+the answer: the runs the window still holds that recomputed a
+subscription this commit reads. With no correlation those are leads, and
+presenting a lead as a cause is exactly what a confidently-empty answer
+would do.
 
 ```clojure
 ;; explain-render {:view-id ":my.app/row"}
-{:ok? true :rf.ui.tool/version 3 :view-id :my.app/row
- :occurrences [{:occurrence 3 :causes #{:subscription} :render-count 4
-                :observations {:identity-exact? true}
-                :loss {:dropped 0 :exact? true}}]}
+{:ok? true :schema :re-frame.freehand.evidence/v1 :read :explain-render
+ :view-id :my.app/row :scope :connected-occurrences :basis :observation
+ :complete? true :loss nil
+ :explanations [{:view-id :my.app/row :occurrence {:parent nil :key 71}
+                 :lowering :compiled :generation 4
+                 :frame :rf/default :dispatch-id 41
+                 :scope {:retained-runs 12 :spans-commit? true
+                         :window-starts-at 17980.2}
+                 :basis :observation :complete? true :loss nil
+                 :commit {...}
+                 :cause {:dispatch-id 41 :cause-event-id :people/loaded
+                         :sub-ids #{:person/by-id}}
+                 :candidates [...]}]}
 ```
 
 ## record
