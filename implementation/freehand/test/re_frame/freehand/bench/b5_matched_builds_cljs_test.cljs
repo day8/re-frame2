@@ -43,10 +43,17 @@
   that test SKIPS unless every one of the three is on disk. To publish the
   real figures:
 
-      shadow-cljs release freehand-release-interpreted \\
-                          freehand-release \\
-                          freehand-release-compiled
+      npm run build:freehand-matched
       RF2_REVISION=$(git rev-parse HEAD) npm run test:freehand
+
+  The npm script rather than a bare `shadow-cljs release` over the three ids,
+  because it clears the three shapes' build caches and output dirs first. That
+  is not housekeeping: a build that compiles fresh alongside a CACHE HIT gets
+  different Closure renaming and lands thousands of bytes from where the same
+  build lands with the caches cleared, so an unpinned posture publishes two
+  different deltas at one revision. See
+  [[re-frame.freehand.bench.b5/matched-build-posture]], which rides the
+  published fixture so a delta is never cited without its posture.
 
   It states no pass/fail about any BUNDLE FIGURE. Every reading is a byte
   count or a byte delta, which the harness can only publish — D021's NON-GOALS
@@ -186,9 +193,10 @@
       (testing "neither arm carries a namespace DOCSTRING. :advanced does not
                 strip one and the view manifest ships it once per declared
                 view, so a docstring here lands three times inside the artefact
-                under the probe — worth +339 bytes of a 17,905-byte delta on
-                the entries this pair replaced, whose docstrings described
-                different things."
+                under the probe — worth +339 bytes of the 17,905-byte delta
+                read at d5794fded8 on the entries this pair replaced, whose
+                docstrings described different things. That denominator is a
+                past reading at a named revision, not a live figure."
         (doseq [[arm src] {:interpreted interp :compiled compiled}]
           (is (re-find #"\(ns\s+\S+\s*\r?\n\s*\(:require" src)
               (str "the " (name arm) " arm's ns form goes straight to :require"))))
@@ -272,7 +280,21 @@
         (is (re-find #"character for character" (get-in record [:fixture :matched-on]))
             "the matched claim travels with the record, in the terms the census checks")
         (is (re-find #"gzip and brotli" (get-in record [:fixture :not-matched-on]))
-            "and so does what is left over — a caveat in a reviewer's memory is not evidence")))))
+            "and so does what is left over — a caveat in a reviewer's memory is not evidence"))
+      (testing "and it names the BUILD POSTURE the two artefacts were produced
+                under. :advanced is held still as a setting by the two build
+                definitions; the posture is what holds it still as an outcome,
+                because a build compiling fresh beside a cache HIT gets
+                different Closure renaming and lands thousands of bytes away.
+                Without this the same revision publishes two different deltas
+                and nothing in the record tells them apart."
+        (let [posture (get-in record [:fixture :build-posture])]
+          (is (re-find #"build:freehand-matched" posture)
+              "the posture names the one entry point that produces it")
+          (is (re-find #"\.shadow-cljs/builds/" posture)
+              "and the cache it clears to produce it")
+          (is (re-find #"4,075 raw bytes" posture)
+              "and what deviating from it was measured to cost"))))))
 
 (deftest promotion-delta-can-be-negative-when-promotion-shrinks
   (testing "The delta is evidence, not a threshold: when the compiled shape
