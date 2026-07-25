@@ -14,6 +14,10 @@
 #
 # Installs (one marker BLOCK each; a hook may carry several):
 #   - post-merge       (rf2-6jj3r) MCP-staleness advisory warning.
+#   - post-merge       (rf2-zt65l) hook-install staleness advisory: re-runs
+#                       the installer's own --check after every pull, so a
+#                       change under scripts/git-hooks/ cannot sit
+#                       uninstalled unnoticed.
 #   - pre-commit       (rf2-ydl2p) refuses commits in the MAYOR checkout
 #                       that touch worker-tracked surfaces.
 #   - pre-commit       (rf2-ia8o7) refuses commits in a WORKER worktree
@@ -54,6 +58,11 @@ $hookBlocks = @{
         'post-merge',
         '# --- BEGIN re-frame2 MCP-staleness check (rf2-6jj3r) ---',
         '# --- END re-frame2 MCP-staleness check (rf2-6jj3r) ---'
+    )
+    'hook-staleness' = @(
+        'post-merge',
+        '# --- BEGIN re-frame2 hook-install staleness check (rf2-zt65l) ---',
+        '# --- END re-frame2 hook-install staleness check (rf2-zt65l) ---'
     )
     'mayor-commit-boundary' = @(
         'pre-commit',
@@ -211,6 +220,7 @@ this checkout behaves like a worker worktree from the hook's POV).
 
 try {
     Install-Block -BlockId 'mcp-staleness'
+    Install-Block -BlockId 'hook-staleness'
     Install-Block -BlockId 'mayor-commit-boundary'
     Install-Block -BlockId 'worker-beads-boundary'
     Install-MayorMarker

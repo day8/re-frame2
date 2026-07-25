@@ -1,9 +1,13 @@
 #!/usr/bin/env sh
-# .git/hooks/post-merge (re-frame2-managed segment)
+# .git/hooks/post-merge (re-frame2-managed segments)
 #
-# Warns when a `git pull` (which invokes `git merge` and thus this hook)
-# brings down source changes for an MCP server whose compiled binary is
-# gitignored — the binary on disk is now stale.
+# Two advisory blocks, both about things a `git pull` (which invokes
+# `git merge`, and thus this hook) can silently invalidate:
+#
+#   rf2-6jj3r — source changes for an MCP server whose compiled binary is
+#               gitignored: the binary on disk is now stale.
+#   rf2-zt65l — changes under scripts/git-hooks/: the installed hooks are
+#               copies, so they are now stale.
 #
 # Installed by scripts/install-git-hooks.sh (POSIX) or .ps1 (Windows).
 # Source of truth: scripts/git-hooks/post-merge.
@@ -39,3 +43,26 @@
   unset _rf2_repo_root _rf2_lib _rf2_changed
 } || true
 # --- END re-frame2 MCP-staleness check (rf2-6jj3r) ---
+
+# --- BEGIN re-frame2 hook-install staleness check (rf2-zt65l) ---
+# Managed by scripts/install-git-hooks.sh. Do not edit between markers.
+{
+  # The hooks on disk are COPIES of scripts/git-hooks/*. A pull that lands a
+  # new or changed guard leaves the copies behind, silently, forever — that
+  # is rf2-zt65l: the beads boundary block sat unwritten for seven weeks
+  # while every checkout believed it was guarded. `git pull` is the moment
+  # the drift is created, so it is the moment to report it.
+  _rf2_repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || _rf2_repo_root=""
+  _rf2_installer="$_rf2_repo_root/scripts/install-git-hooks.sh"
+  # Invoke via `sh` — a Windows checkout may not carry the exec bit.
+  if [ -n "$_rf2_repo_root" ] && [ -f "$_rf2_installer" ] \
+     && ! sh "$_rf2_installer" --check >/dev/null 2>&1; then
+    printf '\n[re-frame2] git hooks on disk are stale or incomplete — the local\n' >&2
+    printf '  commit guards may not be armed. Repair (idempotent, seconds; linked\n' >&2
+    printf '  worktrees share one hooks directory, so a single run re-arms them all):\n\n' >&2
+    printf '      sh scripts/install-git-hooks.sh\n\n' >&2
+    printf '  What drifted:  sh scripts/install-git-hooks.sh --check\n\n' >&2
+  fi
+  unset _rf2_repo_root _rf2_installer
+} || true
+# --- END re-frame2 hook-install staleness check (rf2-zt65l) ---
