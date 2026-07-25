@@ -806,7 +806,8 @@ boundary's job).
 **Custom elements** (tag contains `-`): a bounded classification rule — literal props
 compile to properties when the name matches a declared property (per an optional
 `v/custom-element` declaration), else attributes; booleans/`:class`/`:style` follow DOM
-rules; native custom events ride the normal handler grammar. Never forced through
+rules; native custom events ride the normal handler grammar **unless the name is
+declared** — see §The declaration outranks handler position below. Never forced through
 `v/raw`. Declaration grammar:
 `(v/custom-element tag {:properties #{...}})` — top-level, compile-resolvable,
 registers like `defview`. The `:properties` set is the **entire v1 grammar** (options
@@ -836,6 +837,25 @@ is exactly what admits the map / vector / host-object values the declaration exi
 ([004B §Reserved `:rf.ui/*` keys](004B-UI-Tree-and-Conversion.md#reserved-rfui-keys)).
 A rule reaching only the compiled literal map is the REFUSED outcome: one declaration
 would mean *property* at a literal site and *attribute* one `v/spread` away.
+
+#### The declaration outranks handler position
+
+`on-*` is the handler grammar and `:properties` is the property grammar, and the two
+**overlap**: a web component may legitimately name a property in the `on-*` family — a
+`CustomEvent` detail bag, or a callback the element invokes itself. The **DECLARATION
+ranks first**, because it is the fact an author wrote down where the prefix is only a
+guess: a declared `:on-detail` is a property on every lowering path, and an undeclared
+one is a native event on every lowering path. What admits a property is the NAME being
+declared — never the prefix, and never the element merely carrying a declaration
+somewhere.
+
+Ranking the guess first is the REFUSED outcome, and for a sharper reason than an
+ordinary misclassification: it leaves the declaration unable to say anything at all
+about a whole valid property-name family. The classification is therefore ordered
+once, at the seam every lowering path shares, rather than restated per path — every
+site that partitions props into handlers and attributes consults the declaration in
+the same step, so the property arm and the handler arm cannot rank the two grammars
+differently (rf2-sv2oq).
 
 `v/custom-element` is published on the Freehand door and rowed under
 [API.md §Freehand views](API.md#freehand-views--re-framefreehand-spec-004). Its
