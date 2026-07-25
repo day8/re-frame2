@@ -42,19 +42,26 @@
        runtime-db partition, or large axes (the rf2-m9duxl / rf2-5w06uu
        Xray + Pair-MCP bypass leaks, both CLJS-side bugs);
     5. `:trigger-event` event-args fail-closed (rf2-nm611o);
-    6. classification RETENTION — a path classified once keeps redacting on
+    6. the `:trace-events` slot — the t1/t2 pending-db tag re-root (a leak the
+       whole rest of the tier would pass green on) and the off-box
+       `:rf.http/off-box-body :omit` fail-closed. Both are read by Xray's
+       Issues lens and the Pair-MCP `trace-window` tool, and a browser XHR
+       reply lands there the same way a server's does;
+    7. classification RETENTION — a path classified once keeps redacting on
        later, unrelated cascades, and the `:rf.epoch/sensitive?` rollup badge
        survives projection;
-    7. the `:redact-fn` egress override, including the fail-closed fallback
+    8. the `:redact-fn` egress override, including the fail-closed fallback
        when it throws (`catch #?(:clj Throwable :cljs :default)` is one of the
        few reader conditionals in this tier — CLJS `:default` catches
        non-`Error` throws too, so the arm is genuinely host-shaped).
 
-  NOT mirrored, and why: see the PR body. In short — HTTP/resource response
-  assembly (`epoch_egress_trace_events_test.clj`,
-  `epoch_egress_resource_trace_test.clj`) is server-side shape,
-  `configure!` argument validation is host-neutral plumbing already proved
-  once, and the JVM `debug-enabled?` gate arms are by definition JVM-shaped.
+  NOT mirrored, and why (the full list, with reasons, is in the PR body): the
+  resource / mutation trace family's egress projector is OWNED by the
+  resources artefact behind a late-bound hook and belongs to that artefact's
+  test tree; `configure!` argument validation is registry plumbing with no
+  egress path; and the `debug-enabled?`-false gate arms are JVM-shaped by
+  construction (CLJS has the separate, already-covered
+  `epoch_elision_prod_test.cljs` + `check-elision.cjs` DCE gate).
 
   ## Non-vacuity
 
@@ -151,16 +158,6 @@
     (map? x)    (boolean (or (some contains-secret? (keys x))
                              (some contains-secret? (vals x))))
     (coll? x)   (boolean (some contains-secret? x))
-    :else       false))
-
-(defn- contains-benign?
-  "Sibling of `contains-secret?` for the unclassified control value."
-  [x]
-  (cond
-    (string? x) (str/includes? x benign)
-    (map? x)    (boolean (or (some contains-benign? (keys x))
-                             (some contains-benign? (vals x))))
-    (coll? x)   (boolean (some contains-benign? x))
     :else       false))
 
 (defn- count-leaves-at-least
@@ -614,7 +611,90 @@
             "the event args stay redacted under the app-db opt-in")))))
 
 ;; ============================================================================
-;;  6. Classification RETENTION
+;;  6. The `:trace-events` slot — the densest payload a CLJS consumer reads
+;; ============================================================================
+;;
+;; Xray's Issues / Schema-timeline lens and the Pair-MCP `trace-window` tool
+;; both read `:trace-events` off the PROJECTED record, so this slot is as
+;; leak-exposed as `:db-after`. Two arms whose failure is a leak and whose
+;; shape is host-neutral (hand-built records — no HTTP artefact, no router
+;; timing), mirrored from `epoch_egress_trace_events_test.clj`.
+
+(defn- synthetic-record
+  "A minimal `:rf/epoch-record` shell. Hand-building it isolates the egress
+  projector from whatever traces the live router happens to emit."
+  [fid trace-events]
+  {:epoch-id            1
+   :frame               fid
+   :committed-at        0
+   :event-id            :egress/synthetic
+   :trigger-event       [:egress/synthetic]
+   :db-before           {}
+   :db-after            {}
+   :outcome             :ok
+   :rf.epoch/sensitive? false
+   :trace-events        trace-events
+   :sub-runs            []
+   :renders             []
+   :effects             []})
+
+(deftest trace-events-db-pending-tag-is-rerooted-and-redacted
+  (testing "the t1 / t2 pending-db traces (`:rf.event/db-pending`,
+            `:rf.event/db-pending-post-flow`) carry the FULL pending app-db
+            nested under `[:tags :rf.event/db]`. The bulk wire walk would
+            root that nested db at `[<i> :tags :rf.event/db …]`, where a
+            frame-declared `[:auth :password]` never matches — so egress
+            re-roots the walk at the frame's app-db. Delete the re-root and
+            the raw secret survives inside the projected trace while every
+            `:db-after` assertion stays green; that is precisely the
+            false-green shape this whole PR is about."
+    (fresh-frame!)
+    (let [tags {:rf.event/db {:auth {:password secret} :audit {:note benign}}}
+          rec  (synthetic-record
+                 frame-id
+                 [{:op-type :rf.event :operation :rf.event/db-pending          :tags tags}
+                  {:op-type :rf.event :operation :rf.event/db-pending-post-flow :tags tags}])
+          [t1 t2] (:trace-events (epoch/projected-record rec))]
+      (is (= :rf/redacted (get-in t1 [:tags :rf.event/db :auth :password]))
+          "t1's nested sensitive leaf is re-rooted and redacted")
+      (is (= :rf/redacted (get-in t2 [:tags :rf.event/db :auth :password]))
+          "t2's nested sensitive leaf likewise")
+      (is (= benign (get-in t1 [:tags :rf.event/db :audit :note]))
+          "NEGATIVE CONTROL — the unclassified sibling inside the SAME nested
+           db survives, so the re-root is redacting by classification rather
+           than blanking the tag")
+      (is (not (contains-secret? (epoch/projected-record rec)))
+          "and no secret bytes survive anywhere in the projected record"))))
+
+(deftest off-box-omits-an-unschematized-http-response-body
+  (testing "an HTTP response body with no schema is whole-sensitive off-box:
+            the transport stamps `:rf.http/off-box-body :omit` and the egress
+            projector replaces the body slot with `:rf/redacted`. This is
+            NOT server-shaped — a browser app's XHR replies land in
+            `:trace-events` exactly the same way, and a bearer token in an
+            unschematized reply body is the canonical leak."
+    (fresh-frame!)
+    (let [body {:token secret :user-id 42}
+          omit (synthetic-record
+                 frame-id
+                 [{:op-type   :rf.trace
+                   :operation :rf.http/replied
+                   :tags      {:value body :rf.http/off-box-body :omit}}])
+          ev   (first (:trace-events (epoch/projected-record omit)))]
+      (is (= :rf/redacted (:value (:tags ev)))
+          "the unschematized body slot is omitted off-box (fail-closed)")
+      (is (not (contains-secret? (epoch/projected-record omit)))
+          "the raw token appears nowhere in the projected record")
+      (is (contains-secret? omit)
+          "NEGATIVE CONTROL — the unprojected record DOES carry the token")
+      (is (= body (:value (:tags (first (:trace-events
+                                          (epoch/projected-record
+                                            omit {:include-sensitive? true}))))))
+          "and the trusted-local `:include-sensitive?` opt-in lifts the
+           omission, proving the assertion is about the disposition stamp"))))
+
+;; ============================================================================
+;;  7. Classification RETENTION
 ;; ============================================================================
 
 (deftest classification-is-retained-across-later-cascades
@@ -710,7 +790,7 @@
            through the egress projection too"))))
 
 ;; ============================================================================
-;;  7. The `:redact-fn` egress override
+;;  8. The `:redact-fn` egress override
 ;; ============================================================================
 
 (deftest redact-fn-runs-at-egress-not-at-storage
