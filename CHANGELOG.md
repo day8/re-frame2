@@ -2,26 +2,37 @@
 
 All notable changes to re-frame2 are recorded in this file.
 
-The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses pre-release suffixes (`.beta`, `.alpha`, `.rc`) on its way to a stable v1.0.0 line. Once stable, releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pre-1.0 releases carry a pre-release suffix (`.alpha`, `.beta`, `.rc`) on the way to a stable v1.0.0 line; from 1.0.0 on, releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Artefacts published per release (in lock-step — all 10 artefacts ship together at the same VERSION per [rf2-w05l](#) and [docs/release-process.md §Policy](docs/release-process.md#policy)):
+## What a release publishes
 
-| Artefact | Tier | Role |
+re-frame2 is not one jar. A `v*` tag publishes **thirteen** Maven coordinates to Clojars, and every one of them ships at the same version: the repo-root [`VERSION`](VERSION) file is the single source, and the release workflow refuses to deploy anything at all if an artefact has drifted off it. Pin them as a set.
+
+| Coordinate | Tier | What it gives you |
 |---|---|---|
-| `day8/re-frame2` | core | Registry, drain, fx, dispatch, subscribe, frame-provider, trace, the substrate-adapter contract, the headless plain-atom adapter |
-| `day8/re-frame2-schemas` | per-feature | Spec 010 — Malli-backed schema-attachment surface |
-| `day8/re-frame2-machines` | per-feature | Spec 005 — state machines |
-| `day8/re-frame2-routing` | per-feature | Spec 012 — routing |
-| `day8/re-frame2-flows` | per-feature | Spec 013 — flows |
-| `day8/re-frame2-http` | per-feature | Spec 014 — managed HTTP |
-| `day8/re-frame2-ssr` | per-feature | Spec 011 — SSR & hydration |
-| `day8/re-frame2-epoch` | per-feature | Tool-Pair §Time-travel — epoch / time-travel |
-| `day8/re-frame2-reagent` | per-substrate | Spec 006 — Reagent adapter (browser default) |
-| `day8/re-frame2-uix` | per-substrate | Spec 006 — UIx adapter ([rf2-3yij](#)) |
+| `day8/re-frame2` | core | The framework itself — registry, event drain, effects, `dispatch`, `subscribe`, frames, the trace surface, and the substrate-adapter contract. Everything below depends on this, and on nothing else in the set. |
+| `day8/re-frame2-reagent` | adapter | The Reagent adapter; the default browser substrate (Spec 006). |
+| `day8/reagent-slim` | adapter | Reagent re-implemented slim for React 19. It replaces stock Reagent rather than depending on it (Spec 006). |
+| `day8/re-frame2-uix` | adapter | The UIx adapter — hooks-shaped views over the same frames (Spec 006). |
+| `day8/re-frame2-schemas` | feature | Malli-backed schema attachment for app-db, events and subscriptions (Spec 010). |
+| `day8/re-frame2-machines` | feature | State machines (Spec 005). |
+| `day8/re-frame2-routing` | feature | Routes, navigation effects and the routing framework subs (Spec 012). |
+| `day8/re-frame2-flows` | feature | Flows — declarative derived state with a topology engine (Spec 013). |
+| `day8/re-frame2-http` | feature | The `:rf.http/managed` effect family, with retry, decode and abort semantics (Spec 014). |
+| `day8/re-frame2-ssr` | feature | Server-side rendering and hydration (Spec 011). |
+| `day8/re-frame2-ssr-ring` | feature | The Ring host adapter for SSR — a server frame per request, torn down every time. The one artefact that depends on a second framework artefact (`day8/re-frame2-ssr`) as well as core (Spec 011). |
+| `day8/re-frame2-resources` | feature | Declarative server state: the resource lifecycle, the work ledger, invalidation and GC (Spec 016). |
+| `day8/re-frame2-epoch` | feature | Epoch history and time-travel — the substrate the pair tools read (Tool-Pair §Time-travel). |
 
-A future Helix adapter (`day8/re-frame2-helix`, [rf2-2qit](#)) slots in alongside the existing per-substrate leaves when it ships.
+Everything past core is optional, and that is the point of the split: core reaches each feature through late-bound hooks, so an app that never registers a route carries none of the routing machinery on its classpath.
 
-Spec changes are tracked separately under `spec/` and referenced from each entry.
+Two things about that table are worth saying out loud.
+
+**`day8/reagent-slim` deliberately breaks the `re-frame2-*` naming pattern**, because it is a replacement for `reagent/reagent` rather than a re-frame2 feature. There is a second wrinkle behind it: in the monorepo its adapter namespace is `re-frame.adapter.reagent-slim`, so that both adapters can sit on one classpath, but the *published* jar renames it to the canonical `re-frame.adapter.reagent`. A consumer's `(:require [re-frame.adapter.reagent :as ra])` is therefore the same line whichever adapter they pinned.
+
+**The developer tools are not in the thirteen.** [`tools/`](tools/) — Xray, Story, the pair MCP servers, the app template — is versioned in lockstep with the framework and gated by the same script, but a `v*` tag does not publish it. `day8/re-frame2-xray` ships on an `xray-v*` tag and `day8/re-frame2-story` on a `story-v*` tag, each with its own release workflow.
+
+Spec changes are tracked under [`spec/`](spec/) and referenced from each entry below.
 
 ## [Unreleased]
 
@@ -35,35 +46,32 @@ Spec changes are tracked separately under `spec/` and referenced from each entry
 
 ### Spec
 
-## [0.0.1.alpha] — _unreleased_
+## [0.0.1.alpha] — unreleased
 
-First public pre-release. Mike fills in the release notes manually before tagging — this template lists the major themes that landed in the lead-up to the cut so the eventual notes have a starting point. None of these are commitments; the final list ships when the tag does.
+<!-- Maintainer note: the structural facts in this section — the artefact set, and
+     what is deliberately absent from it — are gated by CI and must stay true. The
+     narrative around them is written in the release commit, immediately before the
+     tag. Do not let this section outlive the machinery it describes. -->
 
-### Added
+The first public release, and an alpha in the honest sense: the shapes described in [`spec/`](spec/) are implemented and tested end-to-end, but the public API is not frozen. A later alpha may move it.
 
-- Reactive substrate machinery: `defn`-shape `reg-view`, frame-aware re-renders, and `frame-provider` for substrate-agnostic apps (Spec 006).
-- `:rf.http/managed` effect family with retry / decode / abort semantics (Spec 014).
-- Multi-instance frames and the `frame-provider` substrate boundary that lets adapters ship independently of the core (Spec 006 §Adapter shipping convention).
-- Production-elision contract (Spec 009): dev-only diagnostics drop out of advanced-compile bundles; CI gates on the elision probe (rf2-11hn).
-- Artefact split (rf2-0hxm + rf2-5vjj): `day8/re-frame2` ships substrate-agnostic; the seven per-feature artefacts (`-schemas`, `-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) ship as separate Maven coordinates so a consumer who omits a feature does not pay for it on the classpath; the per-substrate artefacts (`-reagent`, `-uix`) keep substrate code out of any app that has chosen the other substrate. All 10 artefacts ship in lockstep at the same VERSION per [rf2-w05l](#).
-- `migration/from-re-frame-v1/README.md` for agent-driven migration of v1 codebases to v2.
+### What ships
 
-### Changed
+All thirteen coordinates in the table above, at `0.0.1.alpha`. Views are written against one of the three adapters — Reagent, reagent-slim, or UIx — and everything else is opt-in.
 
-- Public dependency coordinate moved from `re-frame/re-frame` to `day8/re-frame2`. The `re-frame.core` namespace and its public surface are unchanged for the migration core path; see `migration/from-re-frame-v1/README.md` for the full rule set.
-- Alpha-namespace dissolution: features that lived under `re-frame.alpha.*` in late v1 development are either promoted into the public surface, retired, or moved into a substrate-adapter ns. See the relevant spec sections for each feature.
+### Coming from re-frame v1
 
-### Removed
+The dependency coordinate is now `day8/re-frame2`, and v1 and v2 cannot share a classpath. There is no compatibility shim and there will not be one: the coordinate change makes the redesign visible to your dependency tooling instead of hiding it behind a name that no longer means what it did.
 
-- The `re-frame/re-frame` 1.x compatibility shim. v1 and v2 cannot coexist on a single classpath; the coordinate move makes the redesign visible to ops tooling. See `migration/from-re-frame-v1/README.md` §M-0.
+`re-frame.core` is still the entry namespace and much of the v1 surface survives unchanged — `reg-sub`, `reg-fx`, `reg-cofx`, `dispatch`, `subscribe`, `dispatch-sync` and their handler signatures. The breaks that do exist are real, though: the three event registrars collapse into one `reg-event`, coeffects are declared rather than injected, interceptors are registered by reference, and a frame is always explicit — the runtime never infers one from absence. The full rule set, written to be applied by an agent, is [`migration/from-re-frame-v1/README.md`](migration/from-re-frame-v1/README.md).
 
-### Spec
+### What this release does not promise
 
-- Spec 006 — Reactive Substrate (substrate-adapter contract, `frame-provider`, artefact-split shipping convention).
-- Spec 009 — Production builds and the elision contract.
-- Spec 014 — `:rf.http/managed` effect.
-- `spec/Conventions.md` — published Maven coordinates and the per-substrate dependency shape.
-- `migration/from-re-frame-v1/README.md` — v1 → v2 migration rules.
+**No compiled-view substrate, under any coordinate.** The compiled-view work is not published in this release. There is no `day8/re-frame2-ui` on Clojars and there never will be — it is donor code being absorbed into re-frame2's native view layer, **Freehand**, which arrives in a later release under its own name ([EP-0036](docs/EP/EP-0036-the-freehand-view-substrate-programme.md)). Views in this release go through an adapter.
+
+**No devtools panel on the UIx scaffold.** Xray mounts through the ratom-family substrates, so the Reagent scaffold wires it in and the UIx scaffold deliberately does not. An honest absence beats a panel that fails to mount.
+
+**No scaffold for `day8/reagent-slim`.** The app template's substrate menu is `:reagent` and `:uix`, so a slim consumer starts from the Reagent scaffold and swaps the adapter coordinate.
 
 [Unreleased]: https://github.com/day8/re-frame2/compare/v0.0.1.alpha...HEAD
 [0.0.1.alpha]: https://github.com/day8/re-frame2/releases/tag/v0.0.1.alpha

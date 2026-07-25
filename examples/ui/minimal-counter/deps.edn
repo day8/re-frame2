@@ -1,10 +1,12 @@
 ;; minimal-counter — the smallest runnable re-frame.ui project.
 ;;
-;; PRE-PUBLISH COORDS. day8/re-frame2 and day8/re-frame2-ui are not on
-;; Clojars yet (repo-root README §Status), so this scaffold resolves them
-;; with :local/root against its enclosing monorepo checkout. That is the
-;; only route that works today. After publication these become
-;; :mvn/version coords and this file stops being checkout-relative.
+;; CHECKOUT-RELATIVE BY DESIGN, not pending a publish. day8/re-frame2-ui is
+;; donor-only: the release contract rules out a Clojars coordinate for it,
+;; now and permanently (see docs/release-process.md). Resolving it from an
+;; enclosing monorepo checkout is therefore the only supported shape, and it
+;; does not become an :mvn/version coord later. day8/re-frame2 does ship to
+;; Clojars with every release, but this scaffold resolves it from the same
+;; checkout so both artefacts come from one source and cannot drift apart.
 ;;
 ;; Both artefacts are named because the app :requires namespaces from
 ;; both -- re-frame.core and re-frame.ui -- and a direct :require deserves

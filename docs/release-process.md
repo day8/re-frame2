@@ -50,7 +50,6 @@ graph TD
   C --> R[deploy-reagent]
   C --> RS[deploy-reagent-slim]
   C --> U[deploy-uix]
-  C --> UI[deploy-ui]
   C --> M[deploy-machines]
   C --> RT[deploy-routing]
   C --> F[deploy-flows]
@@ -63,7 +62,6 @@ graph TD
   R --> GR
   RS --> GR
   U --> GR
-  UI --> GR
   M --> GR
   RT --> GR
   F --> GR
@@ -83,7 +81,6 @@ verify-version-lockstep ──► test ──► deploy-core
                                        ├── deploy-reagent
                                        ├── deploy-reagent-slim
                                        ├── deploy-uix
-                                       ├── deploy-ui
                                        ├── deploy-machines
                                        ├── deploy-routing
                                        ├── deploy-flows
@@ -97,9 +94,9 @@ verify-version-lockstep ──► test ──► deploy-core
                                         github-release
 ```
 
-**Why fan-out (not strict serial).** A strict topological linearization would suffice; the deps-graph data is wider — every leaf has core as its only re-frame2 dependency (the one exception is `ssr-ring`, which also depends on `ssr`; the release workflow rewrites both `:local/root` coordinates and resolves `ssr` from Clojars, so the leaves still fan out with no inter-leaf CI edge). The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The leaves group into per-feature artefacts (schemas, machines, routing, flows, http, ssr, ssr-ring, resources, epoch) and the view layer — the compiled-view substrate `ui` plus the adapter set (reagent default, reagent-slim, uix). The authoritative roster is always the `deploy-leaf` matrix in [`release.yml`](../.github/workflows/release.yml).
+**Why fan-out (not strict serial).** A strict topological linearization would suffice; the deps-graph data is wider — every leaf has core as its only re-frame2 dependency (the one exception is `ssr-ring`, which also depends on `ssr`; the release workflow rewrites both `:local/root` coordinates and resolves `ssr` from Clojars, so the leaves still fan out with no inter-leaf CI edge). The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The leaves group into per-feature artefacts (schemas, machines, routing, flows, http, ssr, ssr-ring, resources, epoch) and the view layer — the three substrate adapters (reagent, the default; reagent-slim; uix). The authoritative roster is always the `deploy-leaf` matrix in [`release.yml`](../.github/workflows/release.yml).
 
-**The view layer, as consumers meet it.** The app template (`tools/template/`, `day8/re-frame2-template`) scaffolds against this released view layer through its substrate menu: `:reagent` (the default), `:uix`, and the experimental `:ui` (re-frame.ui, offered alongside the adapters). The template menu and the view-layer rows of the `deploy-leaf` matrix move together.
+**The view layer, as consumers meet it.** The app template (`tools/template/`, `day8/re-frame2-template`) scaffolds against this released view layer through its substrate menu: `:reagent` (the default) and `:uix`. The menu is deliberately narrower than the adapter set — `day8/reagent-slim` is published but has no scaffold of its own, so a slim consumer starts from the Reagent variant and swaps the adapter coordinate. Adding a substrate to the `deploy-leaf` matrix does not automatically add a template variant; the two are decided separately.
 
 ## Pre-flight checklist
 
