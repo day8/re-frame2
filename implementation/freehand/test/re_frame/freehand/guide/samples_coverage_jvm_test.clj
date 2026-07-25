@@ -221,7 +221,8 @@
                                [:unowned (format "%s block %d has no roster row — first line: %s"
                                                  page (:n block) (pr-str (:first-line block)))])
                              (for [row (drop (count found) rows)]
-                               [:stale (str "roster row for a block that is gone — " (row-str page row))])))) ]
+                               [:stale (str "roster row for a block that is gone — "
+                                            (row-str page row))]))))]
                    problem)]
     (reduce (fn [m [k line]] (update m k (fnil conj []) line)) {} problems)))
 
@@ -441,10 +442,13 @@
                                 (str "unknown fixture alias " ns-alias " — the roster may name only "
                                      (pr-str (vec (sort (keys fixture-namespaces)))))
 
-                                (nil? (try (requiring-resolve
-                                             (symbol (str target) (name by)))
-                                           (catch Exception e (str "load failed: " (ex-message e)))))
-                                (str "no var " target "/" (name by))))
+                                :else
+                                (let [full (symbol (str target) (name by))
+                                      seen (try {:var (requiring-resolve full)}
+                                                (catch Exception e {:error (ex-message e)}))]
+                                  (cond
+                                    (:error seen) (str "loading " target " failed — " (:error seen))
+                                    (nil? (:var seen)) (str "no var " full)))))
 
                             :else "owner is neither a symbol nor a keyword")]
                     :when problem]
