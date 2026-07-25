@@ -1002,8 +1002,8 @@ on caller.
   REFUSES a program containing a bare `[:wait ms]` with `:cannot-run`
   rather than running it flakily. `[:wait-until pred]` is the
   deterministic alternative and SHOULD be preferred.
-- **`[:flush-presence]` / `[:flush-presence ms]`** advances the
-  compiled-view PRESENCE clock (Spec 004 §Presence) — the fake-clock twin
+- **`[:flush-presence]` / `[:flush-presence ms]`** advances the framework's
+  PRESENCE clock (Spec 004 §Presence) — the fake-clock twin
   of `[:wait ms]`, and the reason a presence-bearing variant needs no
   determinism opt-out. See §Presence-bearing variants below.
 - **`[:assert assertion-vector]`** evaluates a `:rf.assert/*` assertion
@@ -1053,7 +1053,7 @@ errors do.
 
 #### Presence-bearing variants
 
-A variant whose view renders a `(ui/presence {:timeout-ms n} …)` boundary
+A variant whose view renders a `(v/presence {:timeout-ms n} …)` boundary
 (Spec 004 §Presence) RETAINS a removed keyed child in the `:unmounting`
 phase until the `:timeout-ms` safety bound fires. That retention is a
 CLOCK, not a queue, so no rung of the settled-boundary ladder can settle
@@ -1064,9 +1064,9 @@ The only wall-clock answer would be `[:wait ms]` — which the determinism
 gate REFUSES (§The bare-`[:wait ms]` opt-out).
 
 `[:flush-presence]` is the deterministic answer. It advances the presence
-FAKE CLOCK through the framework's own verb
-(`re-frame.ui.test/flush-presence!`), firing due exits with no wall-clock
-sleep:
+FAKE CLOCK through the framework's own advance
+(`re-frame.freehand.presence-runtime/advance-clock!`), firing due exits with
+no wall-clock sleep:
 
 - `[:flush-presence]` advances to quiescence — every pending exit fires,
   so every retained child reaches its terminal removal;
@@ -1074,9 +1074,9 @@ sleep:
   exits that come due fire, so a script can observe a child still RETAINED
   in `:unmounting` and only THEN drive its removal.
 
-Phases are asserted the ordinary way. `(ui/presence-phase)` is a
+Phases are asserted the ordinary way. `(v/presence-phase)` is a
 render-time read, so a presence-aware view renders its phase (typically as
-an attribute — `{:data-phase (name (ui/presence-phase))}`) and the script
+an attribute — `{:data-phase (name (v/presence-phase))}`) and the script
 asserts on what was rendered:
 
 ```clojure
@@ -1092,11 +1092,11 @@ asserts on what was rendered:
 Story does NOT model presence, own a clock, or reimplement the three-phase
 machine — `re-frame.story.play.presence` is a thin seam that CALLS the
 framework verb. Because Story's shipped jar must not depend on the
-never-published `day8/re-frame2-ui`, the verb arrives through the
+pre-publication `day8/re-frame2-freehand`, the verb arrives through the
 `:flush-presence!` late-bind hook rather than a `:require`.
 
 **Installing the presence host is one `:require`.** An app that mounts the
-Story shell and renders `re-frame.ui` compiled views requires the optional
+Story shell and renders Freehand views requires the optional
 bridge once at boot:
 
 ```clojure
@@ -1106,9 +1106,13 @@ bridge once at boot:
 ```
 
 `re-frame.story.play.presence-host` is the ONE canonical integration path. It
-holds the `re-frame.ui` dependency on the *app's* side of the seam — Story's
+holds the Freehand dependency on the *app's* side of the seam — Story's
 jar ships the file but never requires it, so the dependency direction is
-unchanged. It installs at load time; there is nothing else to call.
+unchanged. It composes two verbs the substrate already published — the
+logical advance above, and core's adapter-dispatched synchronous commit
+(`re-frame.substrate.adapter/flush-render!`, Spec 006) so the removals the
+advance fires are committed before the step returns. It installs at load
+time; there is nothing else to call.
 (`re-frame.story.play.presence/install-presence-flush!` stays public for a
 host registering a different advance.)
 
@@ -1121,28 +1125,29 @@ consequence through app-db alone.
 (`:cannot-run`)** — it never skips silently. The step was requested and did
 not happen, so the run reports the distinct third status rather than a clean
 verdict over a clock that never moved. A missing hook does NOT prove a missing
-presence runtime: an app can load `re-frame.ui`, render a real
-`(ui/presence …)` boundary, and merely omit the bridge require. Nor may the
+presence runtime: an app can load Freehand, render a real
+`(v/presence …)` boundary, and merely omit the bridge require. Nor may the
 refusal be delegated to the assertion that follows — the grammar requires no
 following assertion at all, and an `:assert-db` one needs only the headless
 floor, so it would happily prove a state the un-advanced clock produced. (The
-framework's own JVM arm of `flush-presence!` remains a no-op, and correctly
-so: there the structural host provably has no lifecycle to advance. An absent
-hook establishes no such thing.)
+bridge's own JVM arm remains a no-op, and correctly so: there the structural
+host provably has no lifecycle to advance. An absent hook establishes no such
+thing.)
 
-**A Promise-backed host is AWAITED before the next step.** On CLJS the
-canonical verb (`re-frame.ui.test/flush-presence!`) returns a Promise, so
-reaching the host is not the same as the flush having succeeded. The runner
-therefore settles the returned thenable before it records the step: a
-fulfilled flush records the ordinary no-assertion step, and a REJECTED one
-(a React `act` failure, `:rf.error/flush-convergence-exceeded`) becomes the
-same step-exception a synchronously throwing host produces, failing the run.
-A rejection is never left unobserved, and can never arrive too late to change
-the verdict — the run cannot report `:pass` over a flush that failed. The
-interactive step-debugger records the settled result too, so it and the
-auto-run loop always agree. Synchronous hosts — the JVM verb, a custom
-synchronous advance — keep their existing behaviour exactly: nothing is
-deferred that was not already asynchronous.
+**A Promise-backed host is AWAITED before the next step.** The shipped
+Freehand bridge is SYNCHRONOUS — its advance runs inside the substrate's
+`flushSync` commit, so the DOM has settled by the time the call returns — but
+the hook's contract admits a Promise-backed host, and reaching such a host is
+not the same as the flush having succeeded. The runner therefore settles a
+returned thenable before it records the step: a fulfilled flush records the
+ordinary no-assertion step, and a REJECTED one becomes the same step-exception
+a synchronously throwing host produces, failing the run. A rejection is never
+left unobserved, and can never arrive too late to change the verdict — the run
+cannot report `:pass` over a flush that failed. The interactive step-debugger
+records the settled result too, so it and the auto-run loop always agree.
+Synchronous hosts — the shipped bridge, the JVM arm, a custom synchronous
+advance — call back before `settle!` returns: nothing is deferred that was not
+already asynchronous.
 
 **Source metadata is preserved for narrative projection.** The runner
 keeps the script step on every step-result and trace record, and the
@@ -3320,7 +3325,7 @@ offending `:wait-steps`. (A virtual clock that would make `[:wait ms]`
 deterministic remains a non-goal, §P1 non-goals.)
 
 `[:flush-presence]` is NOT a wall-clock step and is never refused: it
-advances the compiled-view presence FAKE clock (§Presence-bearing
+advances the framework's presence FAKE clock (§Presence-bearing
 variants), so a variant that would otherwise reach for `[:wait ms]` to
 outlast a `:timeout-ms` retention keeps its deterministic verdict. This is
 not the general virtual clock the non-goal rules out — it advances exactly

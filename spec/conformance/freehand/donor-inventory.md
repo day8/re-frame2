@@ -381,13 +381,13 @@ disposed when the consumer moves to Freehand names.
 | Donor row | What it is | Disposition | Slice | Status |
 |---|---|---|---|---|
 | `tools/story/deps.edn` | the donor artifact coordinate on the story classpath | REPLACE | F6 | pending |
-| `tools/story/src/re_frame/story/late_bind.cljc` | the late-bound seam story publishes for donor views | MOVE | F6 | pending |
-| `tools/story/src/re_frame/story/sub_overrides.cljc` | the author surface behind the donor subscription-override carriage | MOVE | F6 | pending |
-| `tools/story/src/re_frame/story/play/*` | presence, presence host, runner, and runner events reaching into the donor presence runtime | MOVE | F6 | pending |
-| `tools/story/test/re_frame/story/play/presence_*` | story's play-presence tests, mounted over the donor presence runtime | MOVE | F6 | pending |
+| `tools/story/src/re_frame/story/late_bind.cljc` | the late-bound seam story publishes for donor views | MOVE | F6 | done |
+| `tools/story/src/re_frame/story/sub_overrides.cljc` | the author surface behind the donor subscription-override carriage | MOVE | F6 | done |
+| `tools/story/src/re_frame/story/play/*` | presence, presence host, runner, and runner events reaching into the donor presence runtime | MOVE | F6 | done |
+| `tools/story/test/re_frame/story/play/presence_*` | story's play-presence tests, mounted over the donor presence runtime | MOVE | F6 | done |
 | `tools/story/test/re_frame/story/view_tool*` | story's view-tool tests over donor projections | MOVE | F6 | pending |
 | `tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs` | story's end-to-end consumer test over a donor example | MOVE | F6 | pending |
-| `tools/story/spec/017-Testing-Story.md` | story's testing contract where it names the donor | REPLACE | F6 | pending |
+| `tools/story/spec/017-Testing-Story.md` | story's testing contract where it names the donor | REPLACE | F6 | done |
 | `tools/xray/deps.edn` | the donor artifact coordinate on the xray classpath | REPLACE | F6 | done |
 | `tools/xray/src/day8/re_frame2_xray/viewcell_evidence.cljs` | xray's reader over the reactor evidence plane | MOVE | F6 | done |
 | `tools/xray/src/day8/re_frame2_xray/panels/reactive_panel_*` | the xray panel projecting donor view records | MOVE | F6 | done |

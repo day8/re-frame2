@@ -44,10 +44,8 @@
 
   - **`re-frame.freehand.presence-runtime/advance-clock!`** — the logical
     clock advance, in the same two arities the script step has (`nil` → to
-    quiescence, a number → advance by that many logical ms). This is the
-    EXACT counterpart of the advance the donor's `re-frame.ui.test/
-    flush-presence!` wrapped; the wrapper is what this bridge supplies, and
-    the advance itself never moved.
+    quiescence, a number → advance by that many logical ms). The advance is
+    the framework's; only the wrapper around it is this bridge's.
 
   - **`re-frame.substrate.adapter/flush-render!`** — core's adapter-dispatched
     SYNCHRONOUS commit (Spec 006 §`flush-render!`). The removals an advance
