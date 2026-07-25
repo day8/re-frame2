@@ -502,6 +502,47 @@ LANES: tuple[str, ...] = ("jvm", "node", "browser")
 
 _QUALIFIED_HOST_LANES = frozenset({"browser"})
 
+# rf2-49upn — where each lane's EXECUTION is scheduled, so the census can name
+# what has to be green beside it.
+#
+# This gate proves the STATIC half of a row: an assertion exists, is reachable,
+# and runs in a lane that serves every cell the row claims.  It cannot prove the
+# DYNAMIC half — that the assertion PASSES — because it never runs a suite; that
+# is the lane exit codes.  So a green census is a conditional claim, and this
+# table is the condition: the CI outputs that schedule the lanes the rows depend
+# on, armed for this ledger (index + fixtures) by
+# `.github/scripts/report-changed-surfaces.sh`, so both halves land on one
+# commit under `all-required-passed` rather than in two unrelated runs.
+#
+# Named here, not gated here: the executable pin is the regression row in
+# implementation/scripts/_changed-surfaces.test.cjs, which asserts the arm in
+# both directions.  Keep the two in step if an output is ever renamed.
+_LANE_CI: dict[str, tuple[str, str]] = {
+    "jvm": ("implementation_jvm", "jvm-freehand"),
+    "node": ("cljs_node_test", "cljs"),
+    "browser": ("cljs_browser", "cljs-browser"),
+}
+
+
+def _binding_note(needed: set[str]) -> str:
+    """One sentence naming the lanes the applicable rows require, and the CI
+    jobs whose green makes this gate's green mean anything."""
+    if not needed:
+        return ""
+    where = "; ".join(
+        f"{lane} -> {_LANE_CI[lane][1]} (armed by {_LANE_CI[lane][0]})"
+        for lane in LANES
+        if lane in needed
+    )
+    return (
+        "  Execution is DERIVED here, never observed: this gate proves the "
+        "assertions exist and are reachable, and the lane exit codes prove they "
+        f"pass.  The rows above require {where}.  "
+        "`.github/scripts/report-changed-surfaces.sh` arms those outputs for "
+        "this ledger, so the lanes run on the same commit this index is "
+        "certified on (rf2-49upn).\n"
+    )
+
 
 def _cells(line: str) -> list[str]:
     """Split a markdown table row into trimmed cells (outer pipes dropped)."""
@@ -976,6 +1017,11 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
     sites, dead_sites = _scan_proof_sites(repo_root)
     defects: list[str] = []
     table: list[tuple[str, str, str, str, str]] = []
+    # The ledger's derived EXECUTION requirement: the union, over every
+    # applicable row, of the lanes that serve the cells it claims.  Accumulated
+    # from the claim rather than from what the proofs happen to reach, so it
+    # stays the requirement even on a row that is currently unproven.
+    needed: set[str] = set()
 
     for line_no, row_id, applicability, fixture in rows:
         tokens = applicability.split()
@@ -1018,6 +1064,8 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
                     "lane(s) - narrow the applicability cell or prove the law "
                     "where it claims to bind"
                 )
+        for host in hosts:
+            needed |= _cell_lanes(mode, host)
         table.append((
             row_id,
             mode,
@@ -1100,6 +1148,7 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
             f"{len(all_rows) - len(table)} are addressed ids that do not bind "
             "(`retired`, `planned`) and are not applicable rows.\n"
         )
+        sys.stdout.write(_binding_note(needed))
 
     if defects:
         sys.stderr.write(
@@ -1123,6 +1172,7 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
             "assertion in a lane serving every mode/host cell it claims; "
             f"{burnt} further id(s) addressed but not binding.\n"
         )
+        sys.stderr.write(_binding_note(needed))
 
     return len(defects)
 

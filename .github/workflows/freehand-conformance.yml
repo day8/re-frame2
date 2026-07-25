@@ -19,6 +19,32 @@ name: freehand-conformance
 # There is no aggregator job because there is nothing to aggregate: one job,
 # always present, ~30 seconds including the pip install.
 #
+# WHAT THIS JOB DOES NOT PROVE (rf2-49upn). The census reads FORMS, not text,
+# and derives per row the lanes whose assertions actually reach that row's
+# fixture — but it never runs a suite. So its green is the STATIC half of a
+# row's claim (the proof exists, is reachable, and lives in a lane serving every
+# cell the row names); the DYNAMIC half — that the proof PASSES — is the lane
+# exit codes, and those live in `test.yml` (`jvm-freehand`, `cljs`,
+# `cljs-browser`). A Python-only workflow cannot hold both halves.
+#
+# What binds them is the changed-surface classifier, not a fourth copy of the
+# lanes here. `.github/scripts/report-changed-surfaces.sh` arms
+# implementation_jvm + cljs_node_test + cljs_browser for the whole ledger — the
+# fixtures root (rf2-drpa3.66) AND `conformance-index.md` (rf2-49upn) — so any
+# edit that can change what a row CLAIMS schedules the lanes that EXECUTE it,
+# on the same commit, under the one required `all-required-passed` aggregator.
+# Before that arm an index-only PR passed here with all three lanes SKIPPED,
+# which is exactly what the #6907 merged-PR audit flagged.
+#
+# Running the lanes inside this job instead was considered and declined: this
+# workflow is unfiltered, so it would put a JVM suite, a Node suite and a
+# Chromium run on EVERY pull request, and duplicate three jobs that are already
+# required. The arm costs nothing on the common path (a row lands with its
+# proof, and the proof already arms all three) and costs three lanes only on the
+# index-only PR — the one case where the gap was real. The census states this
+# condition in its own output: see `_binding_note` in the checker, printed under
+# both `--verbose` and `--report`.
+#
 # The self-test runs BEFORE the live scan, in the repo-wide house style: the
 # index is empty at establishment, and a validator that has only ever been run
 # against an empty index has not been tested. The self-test drives one

@@ -881,7 +881,7 @@ else
         cljs_browser=true
         cljs_prod=true
         ;;
-      spec/conformance/freehand/fixtures/*)
+      spec/conformance/freehand/fixtures/*|spec/conformance/freehand/conformance-index.md)
         # rf2-drpa3.66 — false-green fix, the Freehand-corpus counterpart of
         # the shared spec/conformance/fixtures/* case above.
         #
@@ -914,6 +914,39 @@ else
         # the browser lane. The arm stays the whole fixtures root rather than a
         # family prefix: two unrelated families already feed browser tests, and
         # a prefix list would rot silently on the third.
+        #
+        # rf2-49upn — conformance-index.md joins the fixtures here, because the
+        # index is the CLAIM the fixtures are evidence for and the two are one
+        # ledger. The census in check_freehand_conformance_index.py proves the
+        # STATIC half of a row: that an assertion under
+        # implementation/freehand/test/ REACHES the row's fixture, from a lane
+        # that serves every (mode, host) cell the row's applicability names.
+        # The DYNAMIC half — that the assertion PASSES — is the lane exit
+        # codes, which the census cannot see from where it runs.
+        #
+        # freehand-conformance.yml carries the census, is deliberately
+        # unfiltered, and is Python-only. So before this arm an index-only PR
+        # got the census green with jvm-freehand, `cljs` and cljs-browser all
+        # SKIPPED: the row's claim certified on a commit where nothing executed
+        # it. That is the shape the #6907 merged-PR audit flagged ("freehand-
+        # conformance passed, while JVM freehand, CLJS node, and browser lanes
+        # were all skipped"). Widening an applicability cell — `common jvm` to
+        # `interpreted browser`, say — is exactly an index-only edit, and it is
+        # the edit that most needs the lanes it newly claims.
+        #
+        # The marginal CI cost is ~zero on the common path: a row lands with
+        # its proof, and a proof lives under implementation/freehand/test/** or
+        # under the fixtures root, both of which already arm these same three
+        # outputs. The lanes are added only on an index-only PR — precisely the
+        # false-green shape. Binding is at COMMIT granularity, held by
+        # `all-required-passed`, not by one job re-running three required lanes.
+        #
+        # Only the index. The two sibling documents under this root stay off:
+        # donor-inventory.md is a different ledger (check_donor_inventory.py
+        # censuses live re-frame.ui consumers across the working tree, which no
+        # Freehand suite asserts on), and README.md is the document that DEFINES
+        # the addressing scheme — it speaks in illustrative ids and is excluded
+        # from the census's own citation scan for that reason.
         #
         # Still NOT cljs_prod / bundle_isolation — no bundle those two gates
         # measure requires Freehand (the `elision-probe` pair and the examples
