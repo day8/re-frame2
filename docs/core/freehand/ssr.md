@@ -71,8 +71,8 @@ before first paint. Hot reload should reuse the live frame so state survives.
 ### Multi-root
 
 Identity derives when unambiguous. Supply **`:root-id`** when containers could
-collide or when you need a stable external identity. Exact option maps land with
-implementation; the shape is:
+collide or when you need a stable external identity. `v/mount`'s option map is
+**closed** — identity, frame preflight, and React's own error callbacks:
 
 ```clojure
 ;; illustrative multi-root — same frame, two DOM containers
@@ -86,12 +86,9 @@ If another React tree owns the DOM and needs a Freehand view as a **component
 value**, use `v/->react` and pass an existing live frame (reserved prop or ambient
 context). The bridge never creates a frame.
 
-Advanced create / render / **hydrate** operations consume the same Root Descriptor
-shape and return an opaque handle. Structural tests accept the same root form so
-boot plans do not fork between test and production.
-
-Root acceptance includes: minimal boot path, explicit multi-root ids, frame
-preflight, hydration, failed-root isolation, and total teardown.
+`v/mount`, `v/hydrate-root` and `v/unmount!` are the whole root family. They share
+one **Root Descriptor** shape and one opaque handle, and structural tests accept the
+same root form — so boot plans do not fork between test and production.
 
 ## Hydration
 
@@ -104,15 +101,36 @@ preflight, hydration, failed-root isolation, and total teardown.
 5. First top-layer host ops (open popover/modal) run after commit when desired
    state says so — the server did not claim the browser layer was open.
 
-Target client entry: install the Freehand adapter, ensure the request/client
-frame is live (preflight / seed as appropriate), then run the product’s
-**hydrate** operation over the server markup. The product spine groups advanced
-create / render / **hydrate** with the paved `v/mount` path under one **Root
-Descriptor** family — identity, preflight, and teardown stay one story. Prefer
-that plan shared with tests rather than a parallel “SSR-only” constructor.
+The client entry is **`v/hydrate-root`**. Install the adapter, seed the client frame
+from the same snapshot the server rendered under, and adopt the markup:
 
-Exact public helper names land with Spec 004C; do not treat a guessed
-`v/hydrate` arity as frozen API.
+```clojure
+(defn ^:export resume [payload]
+  (rf/init! v/adapter)
+  (v/hydrate-root (js/document.getElementById "app")
+                  [app-root {}]
+                  {:frame {:id :my.app/main
+                           :initial-events [[:app/resume payload]]}}))
+```
+
+Note the argument order: **container first**, then the root form. `v/mount` takes the
+root form first because there the view is the subject and the container is merely
+where it goes; hydration starts from markup that already exists. The `:frame` plan
+runs to completion before React is handed anything, exactly as at `v/mount`, so the
+first render reads a frame that is already seeded — which is what makes the client's
+tree agree with the server's.
+
+Identity is not yours to supply here: it comes off the wire. The server emits a
+**Root Manifest** as the container's immediately following element sibling, and the
+hydrating root reads its `:root-id` and `identifierPrefix` from that. So the identity
+options are **refused** with `:rf.error/root-manifest-invalid` — a client rendering
+under its own prefix breaks `use-id` hydration outright. `:frame` and the host error
+callbacks are accepted exactly as at `v/mount`.
+
+A container with nothing to adopt and no manifest beside it takes the **fallback**:
+the root mounts client-side under a derived identity, which is the ordinary
+client-only first load of a page the server never rendered this root for. Server
+markup with *no* manifest is a broken render rather than a fallback, and fails loud.
 
 Error recovery on the server follows the Root Descriptor’s **server error
 projection**. Do not pretend a client `v/error-boundary` recovery commit ran on
