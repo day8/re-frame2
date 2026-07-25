@@ -62,6 +62,27 @@
 
 ;; ---- the ResolvedTarget ---------------------------------------------------
 
+(defn- without-nil-query-values
+  "Drop every query key whose value is nil.
+
+  `route-url` ELIDES a nil-valued query key when it builds the URL (rf2-gxq7z1),
+  so a target that KEEPS one describes a place its own canonical URL cannot
+  spell: the slice says `{:drop nil}` while the address bar says `/probe/7`, and
+  the same destination reached by URL resolves `{}`. A nil value is the caller
+  saying \"this key is not set\" — the absent-key spelling of the same fact — so
+  the resolved target carries the absence, not a nil.
+
+  Returns `query` IDENTICALLY when it holds no nil value, which is the common
+  case: the URL doors' query comes from `match-url`, whose coercions are total
+  passthroughs (never nil-producing), and rebuilding it would discard the
+  canonical KEY ORDER `registry/canonical-query-order` just established. When a
+  nil IS present the surviving entries are poured back into `(empty query)`, so
+  an array-map's order survives the strip too."
+  [query]
+  (if (some nil? (vals query))
+    (into (empty query) (remove (comp nil? val)) query)
+    query))
+
 (defn resolved-target
   "Shape the `ResolvedTarget` facts (Spec 012 §Resolved target and the plan
   diagnostic projection):
@@ -75,14 +96,28 @@
   after matching, **defaults**, and validation. It is a FACT, not another
   accepted input spelling — facts say `:route-id`, intent says `:to`.
 
-  `:route-id` / `:params` / `:fragment` / `:url` are reflected VERBATIM from
-  what the door already resolved. `:query` is the one field this seam resolves
-  rather than reflects: the route's declared `:query-defaults` are filled into
-  absent keys here (`registry/query-with-defaults`), because that is the
-  \"defaults\" step Spec 012's own definition of a `ResolvedTarget` names, and
-  this is the ONE place every door's target is shaped.
+  `:route-id` / `:params` / `:url` are reflected VERBATIM from what the door
+  already resolved. `:query` and `:fragment` are the two fields this seam
+  RESOLVES rather than reflects, and all three of their rules are the same rule:
+  a resolved target must describe a place its own canonical URL can spell, so
+  every spelling of one destination lowers to one target.
 
-  That single line is what makes the doors agree (rf2-kqxe6.23). `match-url`
+    - `:query` — the route's declared `:query-defaults` are filled into absent
+      keys (`registry/query-with-defaults`), because that is the \"defaults\"
+      step Spec 012's own definition of a `ResolvedTarget` names; and
+      nil-valued keys are dropped first (`without-nil-query-values`), because
+      `route-url` elides them from the URL. Stripping BEFORE filling is what the
+      programmatic door already did inline, preserved exactly: a route that
+      declares a nil DEFAULT still gets it.
+    - `:fragment` — an empty-string fragment collapses to nil
+      (`plan/normalize-fragment`), because `route-url` emits no trailing `#` for
+      it. `\"\"` is truthy, so an un-normalised one made the slice say
+      `:fragment \"\"` while the address bar said `/docs`.
+
+  This is the ONE place every door's target is shaped, so this is where those
+  rules belong.
+
+  The defaults fill is what makes the doors agree (rf2-kqxe6.23). `match-url`
   fills defaults, so the three URL-bearing doors always had them; the
   named-address doors — `[:rf.route/navigate {:to …}]`, `route-url`,
   `rf/route-link`'s href projection and `[:rf.route/prefetch …]` — never go
@@ -104,13 +139,28 @@
   one canonical URL. The fill is idempotent, so a door whose query `match-url`
   already filled lowers through unchanged, and it is membership-only — no
   second normalisation pass, no per-door defaults hook, no public
-  defaults-resolution API."
+  defaults-resolution API.
+
+  The nil-query and empty-fragment rules moved here for the same reason and by
+  the same evidence (rf2-kqxe6.7). Both were written down and applied at ONE
+  door: the programmatic handler stripped nil query values inline and called
+  `plan/normalize-fragment` itself, and `normalize-fragment`'s own docstring
+  says the rule exists to \"keep the programmatic and URL-driven paths in
+  agreement\". `[:rf.route/prefetch …]` reaches this seam directly, so it got
+  neither: prefetching `{:to :probe :params {:id \"7\"} :query {:drop nil}}`
+  warmed `{:drop nil :tab :overview}` while clicking the same address committed
+  `{:tab :overview}`, and `:fragment \"\"` warmed `\"\"` against a committed nil
+  — two resource identities for one destination, the R3 failure mode over
+  again. A door-local normalisation is a normalisation the next door forgets.
+  Both are idempotent, so the programmatic door's own earlier
+  `normalize-fragment` (which it still needs, to rebuild an unmatched raw URL
+  before this seam runs) lowers through unchanged."
   [{:keys [route-id params query fragment url]}]
   {:route-id route-id
    :params   params
    :query    (registry/query-with-defaults (registrar/lookup :route route-id)
-                                           query)
-   :fragment fragment
+                                           (without-nil-query-values query))
+   :fragment (plan/normalize-fragment fragment)
    :url      url})
 
 ;; ---- the URL -> ResolvedTarget extraction (ONE definition) ----------------
