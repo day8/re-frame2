@@ -2565,9 +2565,23 @@ test('the SOLE-requirer law that keeps the narrow arm honest still exists (rf2-x
   // while a NEW schema-touching producer cannot appear silently — and what
   // forbids one is
   // `the-evidence-schema-reaches-the-render-path-only-through-the-dev-gated-seam`
-  // in the always-armed jvm-freehand lane, which asserts `cell` is the sole
-  // Freehand namespace mentioning the schema. Pin the premise with the routing:
-  // if that law is ever relaxed, this reds and the classifier arm must widen.
+  // in the always-armed jvm-freehand lane. Pin the premise with the routing: if
+  // that law is ever relaxed, this reds and the classifier arm must widen.
+  //
+  // The law is now TWO rows, and the narrow arm leans on BOTH (rf2-lvvl2). The
+  // tool-tier read door `re-frame.freehand.tool` mentions the schema without
+  // being a producer, because nothing reachable from the public door requires
+  // it — an inspector loads a tool tier deliberately, into a dev build. So:
+  //
+  //   1. `cell` is the sole DOOR-REACHABLE mentioner (the render-path claim);
+  //   2. `tool` is asserted NOT door-reachable (what makes (1) safe — a
+  //      `tool.cljc` edit cannot put the schema in the release bundle, because
+  //      the release bundle does not contain `tool`).
+  //
+  // Row (2) is the load-bearing one for this classifier: reachability is
+  // decided by whoever REQUIRES the tool tier, not by the tool tier itself, so
+  // without it a door-side require could ship the schema while the elision gate
+  // sat unarmed. Both rows are pinned here.
   const law = fs.readFileSync(
     path.join(
       REPO_ROOT,
@@ -2578,8 +2592,17 @@ test('the SOLE-requirer law that keeps the narrow arm honest still exists (rf2-x
   assert.match(
     law,
     /'#\{re-frame\.freehand\.cell\}\s+seams/,
-    'the boundary test must still pin cell as the SOLE namespace reaching the evidence schema — '
-      + 'without it, a new producer file could dodge the narrowly-armed elision gate',
+    'the boundary test must still pin cell as the sole DOOR-REACHABLE namespace reaching the '
+      + 'evidence schema — without it, a new producer file could dodge the narrowly-armed '
+      + 'elision gate',
+  );
+  assert.match(
+    law,
+    /not\s+\(contains\?\s+reachable\s+'re-frame\.freehand\.tool\)/,
+    'the boundary test must still pin the tool-tier read door OFF the render path — that is what '
+      + 'makes the door-reachable form of the sole-producer law safe for the narrow arm. If the '
+      + 'tool tier becomes door-reachable, the schema has a second path into the release bundle '
+      + 'and freehand_evidence_elision must widen to arm on the door and the tool tier too',
   );
 });
 

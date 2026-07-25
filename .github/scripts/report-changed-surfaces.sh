@@ -570,10 +570,16 @@ else
         # The narrow list stays honest because the ALWAYS-armed jvm-freehand
         # lane carries
         # `the-evidence-schema-reaches-the-render-path-only-through-the-dev-gated-seam`
-        # (evidence_boundary_jvm_test.clj), which asserts `cell` is the SOLE
-        # Freehand namespace mentioning the schema. A new schema-touching
-        # producer cannot appear without reddening that walk, so it cannot slip
-        # past this list unnoticed. Widen both together if that law is ever
+        # (evidence_boundary_jvm_test.clj), which asserts `cell` is the sole
+        # DOOR-REACHABLE Freehand namespace mentioning the schema — and, beside
+        # it, that the tool-tier read door `re-frame.freehand.tool` (which
+        # mentions the schema and is deliberately NOT reachable from the public
+        # door) stays off the render path (rf2-lvvl2). Those two rows together
+        # are the premise: a new schema-touching PRODUCER cannot appear without
+        # reddening that walk, so it cannot slip past this list unnoticed.
+        # Reachability is decided by whoever REQUIRES the tool tier rather than
+        # by the tier itself, which is why the off-path row — not the tool file —
+        # is what this list leans on. Widen both together if either row is ever
         # relaxed. What that walk canNOT see is a DELETED CALL edge: it proves
         # require-reachability, and both namespaces stay require-reachable after
         # `cell/commit!` is removed from the reconcile. That is precisely why

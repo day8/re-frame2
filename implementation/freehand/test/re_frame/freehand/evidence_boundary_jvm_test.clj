@@ -15,9 +15,19 @@
      schema IS reachable from the public door — by construction, and
      through exactly one namespace. Checked as REACHABILITY over the
      require graph, rooted at the door: the schema is reachable, and
-     `cell` is the SOLE Freehand namespace whose `ns` form mentions it,
-     so the seam is a single controlled entry point rather than a
-     scattered dependency.
+     `cell` is the sole DOOR-REACHABLE Freehand namespace whose `ns` form
+     mentions it, so the seam is a single controlled entry point rather
+     than a scattered dependency.
+
+     The qualifier earns its keep. `re-frame.freehand.tool` — the
+     tool-tier read door (rf2-lvvl2) — reads the schema's projections and
+     is deliberately NOT reachable from the public door: a tool tier is
+     loaded on purpose, into a dev build, by the inspector that wants it,
+     which is why it can name the schema without putting a second path
+     onto the shipping bundle. That is asserted rather than assumed — the
+     off-path claim is its own row — and the total mention roster stays
+     pinned CLOSED beside the path claim, so a THIRD reader of the schema
+     still reds here and has to be classified into one of the two.
 
   On (2) and what it is NOT: this is a require-graph assertion, not a
   bundle proof. It answers \"how does a render reach this code\" and not
@@ -218,9 +228,34 @@
                  "rf2-3naow emission seam is supposed to reach it under the dev gate; if the "
                  "seam was removed, remove this test too — do not leave it asserting a wiring "
                  "that is gone.")))
-      (testing "and it reaches the path through exactly one seam"
-        (let [seams (freehand-namespaces-mentioning graph 're-frame.freehand.evidence)]
+      (testing "and it reaches the RENDER PATH through exactly one seam"
+        (let [mentions (freehand-namespaces-mentioning graph 're-frame.freehand.evidence)
+              seams    (set (filter reachable mentions))]
+          ;; The claim is about the SHIPPING PATH, so it is asserted over the
+          ;; namespaces that path reaches. `re-frame.freehand.tool` is the
+          ;; tool-tier read door: it reads the schema's projections, and NOTHING
+          ;; reachable from the public door requires it — a tool loads it
+          ;; deliberately, into a dev build, exactly as an inspector loads any
+          ;; tool tier. So it mentions the schema without being a door onto the
+          ;; shipping path, and the row below proves that rather than assuming
+          ;; it.
           (is (= '#{re-frame.freehand.cell} seams)
-              (str "the evidence schema must reach the render path through cell alone — the one "
-                   "dev-gated commit seam. A second Freehand namespace mentioning it would be a "
-                   "second, ungated door onto the shipping path. Found: " (pr-str seams))))))))
+              (str "the evidence schema must reach the RENDER PATH through cell alone — the one "
+                   "dev-gated commit seam. A second door-reachable Freehand namespace mentioning "
+                   "it would be a second, ungated door onto the shipping path. Found: "
+                   (pr-str seams)))
+          ;; The mention roster is pinned CLOSED beside the path claim, so a
+          ;; third namespace reaching the schema still reds here even when it is
+          ;; off the render path. Off-path is a reason to be reviewed, not a
+          ;; licence to spread.
+          (is (= '#{re-frame.freehand.cell re-frame.freehand.tool} mentions)
+              (str "exactly two Freehand namespaces may name the evidence schema: `cell`, the "
+                   "dev-gated commit seam on the render path, and `tool`, the OFF-PATH read "
+                   "door. A third is a new reader of the schema and wants a deliberate decision "
+                   "about which of those two it is. Found: " (pr-str mentions)))
+          (is (not (contains? reachable 're-frame.freehand.tool))
+              (str "re-frame.freehand.tool became reachable from the public door. That is what "
+                   "makes the row above safe: the read door may reach the evidence schema "
+                   "precisely BECAUSE a shipping bundle never requires it. If the door now "
+                   "needs the tool tier, the schema has a second path onto the render path and "
+                   "this whole boundary needs re-deciding — do not simply delete this row.")))))))

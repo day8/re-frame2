@@ -80,6 +80,15 @@
             ;; sits BELOW this namespace (it reaches only the shell) and takes
             ;; nothing back from it.
             [re-frame.freehand.reactive]
+            ;; The DEV-ONLY declared-view index a `v/defview` expansion records
+            ;; itself in. Required here because the DECLARATION is what
+            ;; registers: a consuming namespace must not have to acquire a
+            ;; require to be inspectable, exactly as `node` and `reactive` are
+            ;; required here so promotion stays a one-line change. The index
+            ;; sits BELOW this door and takes nothing back from it, and the
+            ;; registration is gated on `interop/debug-enabled?` at the
+            ;; expansion so a production build reaches it not at all.
+            [re-frame.freehand.registry :as registry]
             [re-frame.freehand.route-link-seam :as route-link-seam]
             [re-frame.interop :as interop]
             #?@(:clj  [[re-frame.freehand.compiler :as compiler]
@@ -397,7 +406,24 @@
                   ;; one representation, published once, read by both.
                   schema?   (vary-meta assoc :re-frame.freehand/props-schema schema-form)
                   docstring (vary-meta assoc :doc docstring))
-            (descriptor/declare-view ~entry)))))))
+            ;; The declaration records itself in the DEV-ONLY declared-view
+            ;; index on its way into its own Var. A tool arriving over a wire
+            ;; holds an id, not a value, and every reader beneath the tool tier
+            ;; takes the value — so without this an MCP inspector could ask
+            ;; nothing at all about `:app.people/people-list`
+            ;; (`re-frame.freehand.registry`, rf2-lvvl2).
+            ;;
+            ;; Gated HERE rather than inside `register!`, for the reason the
+            ;; `:source` entry above is gated here: this is where
+            ;; `interop/debug-enabled?` folds to `false` under `:advanced`,
+            ;; taking the call, its argument and every path into the index with
+            ;; it, so a production build carries no tool registry. The entry map
+            ;; is named ONCE — a two-armed `if` would emit the whole declaration
+            ;; twice into the bundle.
+            (let [view# (descriptor/declare-view ~entry)]
+              (when interop/debug-enabled?
+                (registry/register! ~view-id view#))
+              view#)))))))
 
 #?(:clj
    (defmacro defview

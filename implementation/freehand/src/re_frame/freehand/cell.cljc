@@ -803,8 +803,17 @@
 
   The seam builds a record only when a sink is installed AND
   `interop/debug-enabled?` is true, so an application that installs no sink
-  pays nothing beyond the folded-away gate. Downstream tooling
-  (rf2-drpa3.167) installs the accumulator here."
+  pays nothing beyond the folded-away gate.
+
+  What installs here is a MINIMAL CURRENT-OCCURRENCE INDEX — insert-or-update
+  on the selected commit, remove on disconnect, one row per live occurrence
+  (rf2-xftdv), read by the bounded `explain-render` over Spec 009's existing
+  retained ring (rf2-cpfbg). NOT a cumulative per-cell accumulator: the donor's
+  per-occurrence evidence accumulator was ruled out permanently (rf2-drpa3.167,
+  REPLACE), so nothing crossing this seam keeps lifetime counts, an interval
+  ledger, or a second retention knob. This docstring used to say downstream
+  tooling \"installs the accumulator here\", which named the design that ruling
+  rejected."
   [f]
   (let [prev @evidence-sink]
     (reset! evidence-sink f)
