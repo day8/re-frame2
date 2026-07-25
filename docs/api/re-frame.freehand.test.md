@@ -120,6 +120,12 @@ signature change or an accidental export turns the public-API gate red on both h
 Clojure — `(tree-seq map? :children tree)` and a predicate over `(:tag %)` (element
 tag) or `(:view-id %)` (view boundary). There is deliberately no selector language.
 
+Both hand `pred` **node maps only**. Text content is a host string rather than a node,
+and a raw walk yields those strings as leaves, so a membership test like
+`#(contains? % :rf.ui/presence)` reads the same on the JVM and in ClojureScript. Read
+text with `t/text` on the owning node; walk with `tree-seq` directly if you want the
+raw leaves.
+
 ### `find`
 
 - **Kind**: function
@@ -147,7 +153,7 @@ tag) or `(:view-id %)` (view boundary). There is deliberately no selector langua
   ```
 - **Description**: every node under `tree` (the root included) for which `pred` is
   truthy, in document order; an empty vector when nothing matches. `pred` reads node
-  **fields**, the same way `find`'s does.
+  **fields**, over node **maps only**, the same way `find`'s does.
 - **Example**:
   ```clojure
   (count (t/find-all tree #(= :li (:tag %))))
