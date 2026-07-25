@@ -1114,6 +1114,34 @@
             (frame/destroy-frame! handle))))))
   nil)
 
+(defn- release-frame-reference!
+  "Drop `root-id`'s reference to its frame and NOTHING else — the bookkeeping
+  half of [[release-frame!]] without the destroy recipe.
+
+  This exists for exactly one caller, [[drain-live-roots!]], and for a reason
+  that is core's rather than a preference. Adapter disposal claims the installed
+  generation and closes public delegation BEFORE it calls the adapter's own
+  teardown, so every `read-container` / `replace-container!` inside that window
+  raises `:rf.error/adapter-disposed`. A frame's destroy recipe reads the
+  runtime-db container (the machines teardown does, and on a classpath without
+  the machines artefact that read is the fallback path itself), so it CANNOT run
+  there — and it does not need to: the frame's containers were minted by the
+  adapter being destroyed and die with it.
+
+  So the reference goes, the row goes when it was the last one, and the frame
+  record is left to the next `rf/init!`. Destroying a root-owned frame is
+  [[unmount!]]'s job, on a live adapter, which is why the contract asks an
+  application to unmount its roots BEFORE destroying an adapter (Spec 006). The
+  drain is the safety net for a root that was forgotten, not a substitute for
+  orderly teardown."
+  [frame-id root-id]
+  (when (some? frame-id)
+    (let [remaining (disj (or (:refs (get @frame-ledger frame-id)) #{}) root-id)]
+      (if (seq remaining)
+        (swap! frame-ledger update frame-id assoc :refs remaining)
+        (swap! frame-ledger dissoc frame-id))))
+  nil)
+
 (defn- on-frame-destroyed!
   "The `:freehand/on-frame-destroyed!` destroy hook (step 7 of Spec 002's
   destroy recipe), following the epoch layer's token compare-clean precedent.
@@ -1714,6 +1742,32 @@
 ;; unmount!
 ;; ---------------------------------------------------------------------------
 
+(defn- tear-down-root!
+  "The three teardown steps, in the one order that is safe, shared by the public
+  [[unmount!]] and the adapter's [[drain-live-roots!]]: release the registry
+  entry (and with it the id, container and identifierPrefix claims), release the
+  root's frame reference through `release-frame-fn`, then unmount the React root
+  — whose layout cleanups disconnect every ViewCell below.
+
+  GUARDED on exact identity: a root already gone, or superseded by a newer root
+  claiming its id, is skipped rather than torn down on the successor's behalf.
+  Answers true when this exact root was the live one and was torn down.
+
+  The two callers differ in `release-frame-fn` alone, because they differ in
+  exactly one thing: whether a frame's destroy recipe may run. [[unmount!]] runs
+  on a live adapter and passes [[release-frame!]], which destroys a root-owned
+  frame; the drain runs inside adapter disposal with delegation already closed
+  and passes [[release-frame-reference!]], which cannot and need not."
+  [^Root root release-frame-fn]
+  (boolean
+    (when (root? root)
+      (let [root-id (:root-id (.-descriptor root))]
+        (when (identical? root (get @live-roots root-id))
+          (swap! live-roots dissoc root-id)
+          (release-frame-fn (.-frame-id root) root-id)
+          (.unmount (.-react-root root))
+          true)))))
+
 (defn unmount!
   "Tear `root` down completely, and answer nil.
 
@@ -1729,12 +1783,7 @@
   claiming its id, has nothing left to release, and tearing down on its
   behalf would tear down the SUCCESSOR."
   [^Root root]
-  (when (root? root)
-    (let [root-id (:root-id (.-descriptor root))]
-      (when (identical? root (get @live-roots root-id))
-        (swap! live-roots dissoc root-id)
-        (release-frame! (.-frame-id root) root-id)
-        (.unmount (.-react-root root)))))
+  (tear-down-root! root release-frame!)
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -1746,16 +1795,27 @@
 ;; registry — which means adapter disposal cannot reach them, and disposing the
 ;; spine while they are still mounted would pull the state containers out from
 ;; under live subscriptions. The order is therefore fixed: drain these roots
-;; FIRST (each `unmount!` releases its claims, disconnects every ViewCell below
-;; it and releases its frame reference), and only then dispose the spine.
+;; FIRST (each teardown releases its claims, releases its frame reference and
+;; disconnects every ViewCell below it), and only then dispose the spine.
 ;;
 ;; ONE exact snapshot, and every root in it is attempted. A root that throws
 ;; must not strand its siblings — a stranded root keeps a subscription alive
 ;; past the disposal that was supposed to end it — so the drain records the
 ;; FIRST failure and keeps going, exactly as the surrounding cleanup convention
-;; requires. The snapshot is deliberately not refreshed: `unmount!` runs host
+;; requires. The snapshot is deliberately not refreshed: teardown runs host
 ;; cleanups, not application mounts, so there is no second generation to chase,
 ;; and chasing one would make the drain unbounded for no reachable case.
+;;
+;; WHAT THE DRAIN DELIBERATELY DOES NOT DO is run a frame's destroy recipe. Core
+;; claims the installed generation and closes public delegation BEFORE it calls
+;; the adapter's teardown, so a `read-container` inside that window raises
+;; `:rf.error/adapter-disposed` — and a destroy recipe reads the runtime-db
+;; container. It also does not need to: the frame's containers belong to the
+;; adapter being destroyed. Destroying a root-owned frame is `unmount!`'s job on
+;; a live adapter, which is why the contract asks an application to unmount its
+;; roots BEFORE destroying an adapter. This drain is the safety net that stops a
+;; forgotten root from holding subscriptions and DOM past the adapter's life —
+;; not a substitute for orderly teardown.
 
 (def ^:private no-drain-error
   "The absent-failure sentinel. PRESENCE decides whether the drain failed, not
@@ -1768,19 +1828,25 @@
   "Unmount EVERY live root in this document, in one exact snapshot, and answer
   the number drained.
 
+  Each root gives back its registry claims and its frame REFERENCE, and React
+  unmounts it — so every ViewCell below disconnects, every dependency is released
+  and every published callback retired. What it does not do is destroy a
+  root-owned frame; see the section comment above for why core makes that
+  impossible inside adapter disposal, and unnecessary.
+
   Attempts every root even when one throws: the FIRST failure is preserved and
   re-raised once the drain has finished, so a throwing root is still observable
   but cannot leave a sibling mounted. The registry is left empty either way —
-  `unmount!` releases each entry before it touches React.
+  teardown releases each entry before it touches React.
 
-  INTERNAL, and the adapter's first disposal phase. A single root's teardown is
-  [[unmount!]]; this is the whole-document form."
+  INTERNAL, and the adapter's first disposal phase. A single root's orderly
+  teardown is [[unmount!]]; this is the whole-document safety net."
   []
   (let [snapshot (vec (vals @live-roots))
         failure  (volatile! no-drain-error)]
     (doseq [^Root r snapshot]
       (try
-        (unmount! r)
+        (tear-down-root! r release-frame-reference!)
         (catch :default e
           (when (identical? @failure no-drain-error)
             (vreset! failure e)))))

@@ -19,10 +19,14 @@
   against a live root: after it returns, the DOM already shows what the thunk
   dispatched — read back off `document` in the same turn, with no yield between.
 
-  **Disposal.** `(rf/destroy-adapter!)` unmounts every live Freehand root,
-  disconnects their ViewCells, releases a root-owned frame, and disposes the
-  spine — in that order, because the drain needs the containers the spine
-  teardown removes.
+  **Disposal, in two rows with different strengths.** `v/unmount!` on a live
+  adapter is the ORDERLY path and the one that destroys a root-owned frame.
+  `(rf/destroy-adapter!)` is the safety net: it unmounts every live Freehand root,
+  disconnects their ViewCells and releases their frame references before it
+  disposes the spine — but it does NOT run a frame's destroy recipe, because core
+  closes public delegation before calling the adapter's teardown and a destroy
+  recipe reads a container. Both rows are here, and the second says why it is the
+  weaker claim rather than leaving a reader to wonder.
 
   **Dispose then re-init.** A fresh install mounts a clean generation: new roots
   admit, a fresh frame seeds, and the page repaints off the new adapter rather
@@ -93,6 +97,27 @@
   []
   (js/Promise. (fn [resolve] (js/setTimeout #(resolve nil) 0))))
 
+(defn- teardown!
+  "Destroy the adapter the way a page does — OUTSIDE React's act environment.
+
+  This is not a stylistic preference. `root.unmount()` inside an act environment
+  is QUEUED rather than performed, and the drain's `unmount!` releases the root's
+  frame BEFORE it calls React. So under `act` the ordering inverts: the frame is
+  destroyed and the spine disposed, and only then does the queued unmount render
+  the still-mounted subtree — which reads a disposed container
+  (`:rf.error/adapter-disposed`) or probes a destroyed frame
+  (`:rf.error/frame-destroyed`). Worse, a test that resolves before the queue
+  drains abandons the unmount altogether and leaves the root live in a detached
+  container, where it surfaces as the NEXT test failing.
+
+  Outside the act environment `root.unmount()` runs synchronously, which is what
+  a real `(rf/destroy-adapter!)` does on a real page — so this drives the
+  contract rather than act's scheduler."
+  []
+  (live!)
+  (rf/destroy-adapter!)
+  (tick!))
+
 (defn- host-node! []
   (let [container (js/document.createElement "div")]
     (.appendChild js/document.body container)
@@ -128,10 +153,16 @@
   (rf/reg-event ::bump (fn [{:keys [db]} _] {:db (update db :count inc)}))
   (rf/reg-event ::set  (fn [{:keys [db]} [_ n]] {:db (assoc db :count n)})))
 
+(defn- seed-frame!
+  "Create `frame-id` and put `db` in it — the ordinary out-of-band seed a page
+  does before it scopes a frame from a root."
+  [frame-id db]
+  (live-frame/make-frame {:id frame-id})
+  (frame/replace-app-db! frame-id db)
+  frame-id)
+
 (defn- seed! [db]
-  (live-frame/make-frame {:id fid})
-  (frame/replace-app-db! fid db)
-  fid)
+  (seed-frame! fid db))
 
 (defn- db-count []
   (:count (frame/frame-app-db-value fid)))
@@ -271,7 +302,7 @@
                            "two roots are live and both are Freehand's own")
                        (is (= "3" (text left ".count")))
                        (is (= "3" (text right ".count")))
-                       (act #(rf/destroy-adapter!))))
+                       (teardown!)))
               (.then (fn [_]
                        (is (= #{} (root/live-root-ids))
                            "every root left the registry — id, container and
@@ -292,12 +323,14 @@
                         (.remove right)
                         (done)))))))))
 
-(deftest destroying-the-adapter-releases-a-root-owned-frame
-  (testing "A root that ENSURED its frame owns that frame's lifetime, and the
-            drain is what gives it back: the root's `unmount!` releases the
-            reference and destroys the frame once no live root still holds one. A
-            drain that skipped `unmount!` — or a disposal that tore the spine down
-            first — would leave the frame live over a disposed adapter."
+(deftest unmounting-a-root-destroys-the-frame-it-owned
+  (testing "The ORDERLY path, and the one that destroys a frame. A root given a
+            `:frame {:id …}` plan ENSURED that frame and owns its lifetime, so
+            `v/unmount!` releases the reference and destroys the frame once no
+            live root still holds one — on a LIVE adapter, which is what the
+            destroy recipe needs. This is the row that proves root-owned frame
+            release; the adapter-disposal row below is deliberately the weaker
+            claim, and says why."
     (if-not (browser?)
       (skip! "the browser job runs the frame-release assertions")
       (async done
@@ -306,21 +339,73 @@
               owned     :freehand-substrate-dom/owned]
           (-> (act #(v/mount [app {}] container
                              {:frame {:id owned :initial-events [[::seed]]}}))
-              (.then (fn [_]
+              (.then (fn [m]
                        (is (some? (frame/frame owned))
                            "the root's plan created the frame before React")
                        (is (= "0" (text container ".count"))
                            "and its :initial-events had already seeded app-db by
                             the first render")
-                       (act #(rf/destroy-adapter!))))
+                       (is (contains? (:refs (get (root/frame-ledger-snapshot) owned))
+                                      (:root-id (root/root-descriptor m)))
+                           "the ledger records this root's reference to it")
+                       (live!)
+                       (v/unmount! m)
+                       (tick!)))
               (.then (fn [_]
                        (is (nil? (frame/frame owned))
-                           "the root-owned frame was destroyed by the drain")
+                           "the last reference went, so the root-owned frame was
+                            destroyed")
+                       (is (nil? (get (root/frame-ledger-snapshot) owned))
+                           "and its ledger row went with it")
                        (is (= #{} (root/live-root-ids)))
+                       (is (nil? (text container ".count"))
+                           "the container was emptied by a real unmount")
                        (.remove container)
                        (done)))
               (.catch (fn [e]
-                        (is false (str "frame-release arm rejected: " e))
+                        (is false (str "orderly-unmount arm rejected: " e))
+                        (.remove container)
+                        (done)))))))))
+
+(deftest destroying-the-adapter-drains-a-forgotten-root-without-running-a-destroy-recipe
+  (testing "The SAFETY NET, and its honest boundary. Core claims the installed
+            generation and closes public delegation BEFORE it calls the adapter's
+            teardown, so a `read-container` inside that window raises
+            `:rf.error/adapter-disposed` — and a frame's destroy recipe reads the
+            runtime-db container. So the drain gives back the root's claims and
+            its frame REFERENCE and unmounts React, and leaves the frame record to
+            the next `rf/init!`. It does not need more than that: the frame's
+            containers belong to the adapter being destroyed. Destroying a
+            root-owned frame is `v/unmount!`'s job on a live adapter, which is why
+            the contract asks an application to unmount its roots first — this
+            row is what stops a FORGOTTEN root from holding subscriptions and DOM
+            past the adapter's life."
+    (if-not (browser?)
+      (skip! "the browser job runs the disposal assertions")
+      (async done
+        (register!)
+        (let [container (host-node!)
+              owned     :freehand-substrate-dom/forgotten]
+          (-> (act #(v/mount [app {}] container
+                             {:frame {:id owned :initial-events [[::seed]]}}))
+              (.then (fn [_]
+                       (is (some? (frame/frame owned)))
+                       (is (= "0" (text container ".count")))
+                       (teardown!)))
+              (.then (fn [_]
+                       (is (= #{} (root/live-root-ids))
+                           "the forgotten root left the registry — claims released")
+                       (is (nil? (text container ".count"))
+                           "and React really unmounted it, so its ViewCells are
+                            disconnected and its subscriptions released")
+                       (is (nil? (get (root/frame-ledger-snapshot) owned))
+                           "its frame reference was released and the row went")
+                       (is (nil? (rf/current-adapter))
+                           "and the spine was disposed after the drain, not before")
+                       (.remove container)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "forgotten-root drain rejected: " e))
                         (.remove container)
                         (done)))))))))
 
@@ -330,20 +415,28 @@
 
 (deftest a-disposed-adapter-re-inits-to-a-clean-generation
   (testing "After a full teardown a fresh `(rf/init! v/adapter)` mounts a page
-            that works: the root-id is free again, a fresh frame seeds, and the
-            new page repaints off the NEW adapter. A stale watch or a retained
-            registry entry surviving the teardown shows up here as a refused mount
-            or a page that never moves."
+            that works: the root-id is free again, a fresh frame seeds, and the new
+            page repaints off the NEW adapter. A stale watch or a retained registry
+            entry surviving the teardown shows up here as a refused mount or a page
+            that never moves.
+
+            The second generation gets its OWN frame id on purpose. Whether a frame
+            RECORD may outlive the adapter whose containers it holds and be reused
+            by the next one is core's question, not this adapter's — and pinning an
+            answer to it here would be pinning something this bead does not own."
     (if-not (browser?)
       (skip! "the browser job runs the re-init assertions")
       (async done
         (register!)
         (seed! {:count 1})
-        (let [first-container (host-node!)]
+        (let [first-container (host-node!)
+              second-fid      :freehand-substrate-dom/second-generation]
           (-> (act #(v/mount [app {}] first-container {:frame fid}))
-              (.then (fn [_]
+              (.then (fn [m]
                        (is (= "1" (text first-container ".count")))
-                       (act #(rf/destroy-adapter!))))
+                       (live!)
+                       (v/unmount! m)
+                       (teardown!)))
               (.then (fn [_]
                        (is (= #{} (root/live-root-ids)) "clean slate")
                        (.remove first-container)
@@ -351,15 +444,15 @@
                        (is (= :rf.adapter/freehand (rf/current-adapter))
                            "the same adapter Var installs again — it is not
                             single-use, only single-install")
-                       (seed! {:count 100})
+                       (seed-frame! second-fid {:count 100})
                        (let [second-container (host-node!)]
-                         (-> (act #(v/mount [app {}] second-container {:frame fid}))
+                         (-> (act #(v/mount [app {}] second-container {:frame second-fid}))
                              (.then (fn [m]
                                       (is (= "100" (text second-container ".count"))
                                           "the re-mounted page reads through the
                                            fresh adapter's containers")
                                       (live!)
-                                      (rf/dispatch-sync [::bump] {:frame fid})
+                                      (rf/dispatch-sync [::bump] {:frame second-fid})
                                       (-> (tick!)
                                           (.then (fn [_]
                                                    (is (= "101" (text second-container ".count"))
