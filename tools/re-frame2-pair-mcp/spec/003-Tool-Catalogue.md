@@ -2711,12 +2711,28 @@ dispatches. A fully-literal handler is projected verbatim; a handler
 carrying a captured local, a call, or a callback body projects as
 `:handler :opaque` — the tier never claims a raw callback's internals are
 inspectable — while `:event-id` still shows the literal event id where the
-authored form has one. `:classification` keeps the two apart (`:vector` /
-`:options` carry an event vector; any other classification is a
-callback), and `:serializable?` plus `:sync?` (the controlled-input
-synchronous door) ride each site. `:site-facts` names the **closed** set
-of facts a row states, so an absent fact is visible as absent. Requires
-`:view-id`.
+authored form has one.
+
+`:classification` is a **closed vocabulary** — `:vector`, `:options`,
+`:ui-event`, `:handler`, `:fn`, `:dynamic`, `:spread` — and it is what
+keeps the two opaque cases apart: `:vector` / `:options` carry an event
+vector, so an `:opaque` handler on one of those is an event vector with a
+runtime argument, while on any other classification it is a callback.
+
+`:serializable?` and `:sync?` ride each site. `:sync? true` is the
+controlled-input **synchronous door**, and it is reachable only on
+`:vector` / `:options` / `:ui-event` — the roles whose outcome is
+statically known to be one event vector or `nil` — on a controlled tag,
+in a door slot, and not behind `:capture` / `:passive`. `:handler` and
+`:fn` are excluded on purpose: not because they cannot dispatch, but
+because what they dispatch, and whether they dispatch at all or later
+from a promise, is unknowable at the moment the door would have to open.
+So a site cannot carry `:sync? true` and an opaque callback
+classification at once, and a reader that sees the pair should distrust
+the producer rather than the law.
+
+`:site-facts` names the **closed** set of facts a row states, so an
+absent fact is visible as absent. Requires `:view-id`.
 
 ```clojure
 ;; read-view-event-sites {:view-id ":my.app/form"}
@@ -2725,9 +2741,12 @@ of facts a row states, so an absent fact is visible as absent. Requires
  :event-sites [{:prop :on-click :classification :vector
                 :handler [:submit] :event-id :submit
                 :serializable? true :sync? false}
-               {:prop :on-input :classification :callback
+               {:prop :on-change :classification :options
+                :handler {:event [:field/set]} :event-id :field/set
+                :serializable? true :sync? true}
+               {:prop :on-blur :classification :fn
                 :handler :opaque :event-id nil
-                :serializable? false :sync? true}]
+                :serializable? false :sync? false}]
  :site-facts #{:sid :source-coord :path :prop :classification
                :serializable? :sync? :handler :event-id}}
 ```

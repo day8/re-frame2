@@ -1871,7 +1871,7 @@
      :edn-submap {:ok? false :reason :view-tier-unavailable}}}
 
    {:fixture/id    :read-view-event-sites/happy
-    :fixture/doc   "read-view-event-sites forwards the event-handler site projection - a literal handler verbatim, an opaque one marked, :event-id still shown where the authored form has one, and :site-facts naming the closed set a row states."
+    :fixture/doc   "read-view-event-sites forwards the event-handler site projection - a literal handler verbatim, an opaque one marked, :event-id still shown where the authored form has one, and :site-facts naming the closed set a row states. Every :classification here is a real member of the analyzer's CLOSED vocabulary (:vector / :options / :ui-event / :handler / :fn / :dynamic / :spread), and :sync? true rides only the :options site, because the synchronous door takes exactly the roles whose outcome is statically one event vector or nil - :fn maps to :bare-fn and is excluded. A canned envelope depicting an unreachable site shape would teach a shape the producer cannot emit."
     :fixture/tool  "read-view-event-sites"
     :fixture/args  {:view-id ":my.app/form"}
     :fixture/eval-script
@@ -1884,9 +1884,13 @@
                                                        :event-sites [{:prop :on-click :classification :vector
                                                                       :handler [:submit] :event-id :submit
                                                                       :serializable? true :sync? false}
-                                                                     {:prop :on-input :classification :callback
+                                                                     {:prop :on-change :classification :options
+                                                                      :handler {:event [:field/set]}
+                                                                      :event-id :field/set
+                                                                      :serializable? true :sync? true}
+                                                                     {:prop :on-blur :classification :fn
                                                                       :handler :opaque :event-id nil
-                                                                      :serializable? false :sync? true}]
+                                                                      :serializable? false :sync? false}]
                                                        :site-facts #{:sid :source-coord :path :prop
                                                                      :classification :serializable? :sync?
                                                                      :handler :event-id}}]
