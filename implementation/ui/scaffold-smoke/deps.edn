@@ -1,9 +1,10 @@
 ;; scaffold-smoke — the CI teeth for examples/ui/minimal-counter.
 ;;
 ;; A focused JVM smoke, deliberately its OWN tiny project so it does not
-;; ride (or slow) the implementation/ui suite. It has no framework deps of
-;; its own: it materializes the scaffold's documented files into a temp
-;; directory and shells out to `npm install` + `npx shadow-cljs compile app`.
+;; ride (or slow) the implementation/ui suite. It carries no SHIPPING framework
+;; dep — it materializes the scaffold's documented files into a temp directory
+;; and shells out to `npm install` + `npx shadow-cljs compile app` — and its
+;; one test-only dep is the shared quiet runner (see the `:test` alias).
 ;;
 ;;   clojure -M:test        — structural checks only (fast, no Node needed)
 ;;   RF2_UI_SCAFFOLD_COMPILE=1 clojure -M:test
@@ -13,7 +14,18 @@
 {:deps {org.clojure/clojure {:mvn/version "1.12.0"}}
 
  :aliases
+ ;; This lane is a SUITE — it claims coverage of the scaffold, so it must prove
+ ;; it RAN. Routed through `re-frame.test-quiet.runner` like every sibling
+ ;; artefact's `:test` alias, which is what applies the test-count floor
+ ;; (rf2-qqzmf): calling `cognitect.test-runner` directly left a discovery set
+ ;; that collapsed to nothing — a renamed test file, a lost `:extra-paths`, a
+ ;; `-r` selector matching no namespace — reporting `Ran 0 tests … / 0 failures,
+ ;; 0 errors.` and exiting 0, in a REQUIRED CI check. The runner supplies
+ ;; cognitect transitively and forwards args verbatim, so `clojure -M:test`
+ ;; keeps behaving identically in CI and on a laptop. This is emphatically NOT a
+ ;; `--probe` lane: `test/` holds JVM-runnable tests, and zero of them running
+ ;; is a configuration error, not the correct outcome.
  {:test {:extra-paths ["test"]
-         :extra-deps  {io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "cognitect.test-runner"]}}}
+         ;; Silent-on-success reporter + the test-count floor.
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../test-quiet"}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}
