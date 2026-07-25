@@ -403,7 +403,9 @@ render-time dispatch, no render-phase mutation and no remount.
 ## What `buffered-field` looks like (library sketch)
 
 Yes: it is a normal **`v/defview`**, plus library events/subs. It is not a
-substrate special form.
+substrate special form. It reaches for all three verbs above and nothing else —
+the view asks for its key and its generation, and both boundaries ask
+`v/controller-current?`.
 
 ```clojure
 (ns my.ui.buffered-field
@@ -411,55 +413,67 @@ substrate special form.
             [re-frame.freehand :as v :refer [sub]]))
 
 ;; ---- library dataflow ------------------------------------------------------
+;; Storage and every read key on the FULL controller key — the (kind, address)
+;; pair `v/controller-key` answers — never on the bare `:control` prop. Going
+;; through the verb is also what buys the four refusals above; keying on the raw
+;; prop bypasses every one of them and drops the kind half of the identity.
 
 (rf/reg-sub :fh.buffer/value
-  (fn [db [_ control reset-key external-value]]
-    (let [rec (get-in db [:fh.buffer/by-control control])]
-      (if (and rec (= (:reset-key rec) reset-key))
-        (:draft rec)
-        (or external-value "")))))
+  (fn [db [_ k revision baseline]]
+    (let [record (get-in db [:fh.buffer/by-key k])]
+      (if (v/controller-current? (:reset-key record) revision)
+        (:draft record)
+        (or baseline "")))))
 
 (rf/reg-event :fh.buffer/edited
-  (fn [{:keys [db]} [_ control reset-key text]]
-    {:db (assoc-in db [:fh.buffer/by-control control]
-                   {:reset-key reset-key :draft text})}))
+  (fn [{:keys [db]} [_ k revision text]]
+    {:db (assoc-in db [:fh.buffer/by-key k]
+                   {:reset-key revision :draft text})}))
 
 (rf/reg-event :fh.buffer/committed
-  (fn [{:keys [db]} [_ control reset-key on-commit]]
-    (let [rec (get-in db [:fh.buffer/by-control control])]
-      (if (and rec (= (:reset-key rec) reset-key))
-        {:db (update db :fh.buffer/by-control dissoc control)
-         :fx [[:dispatch (conj (vec on-commit) (:draft rec))]]}
-        {}))))   ; stale / already cancelled → no-op
+  (fn [{:keys [db]} [_ k revision on-commit]]
+    (let [record (get-in db [:fh.buffer/by-key k])]
+      (if (v/controller-current? (:reset-key record) revision)
+        {:db (update db :fh.buffer/by-key dissoc k)
+         :fx [[:dispatch (conj (vec on-commit) (:draft record))]]}
+        {}))))   ; superseded generation / already cancelled → no-op
 
 (rf/reg-event :fh.buffer/cancelled
-  (fn [{:keys [db]} [_ control reset-key]]
-    (let [rec (get-in db [:fh.buffer/by-control control])]
-      (if (and rec (= (:reset-key rec) reset-key))
-        {:db (update db :fh.buffer/by-control dissoc control)}
+  (fn [{:keys [db]} [_ k revision]]
+    (let [record (get-in db [:fh.buffer/by-key k])]
+      (if (v/controller-current? (:reset-key record) revision)
+        {:db (update db :fh.buffer/by-key dissoc k)}
         {}))))
 
 ;; ---- the control -----------------------------------------------------------
 
 (v/defview buffered-field
-  [{:keys [control value reset-key on-commit placeholder]}]
-  (let [text (sub [:fh.buffer/value control reset-key value])]
+  [{:keys [value on-commit placeholder] :as props}]
+  (let [k        (v/controller-key ::buffered-field props)
+        revision (v/controller-revision ::buffered-field props)
+        text     (sub [:fh.buffer/value k revision value])]
     [:input
      {:value       text
       :placeholder placeholder
-      :on-input    [:fh.buffer/edited control reset-key ::v/value]
-      :on-blur     [:fh.buffer/committed control reset-key on-commit]
+      :on-input    [:fh.buffer/edited k revision ::v/value]
+      :on-blur     [:fh.buffer/committed k revision on-commit]
       :on-key-down (v/event [e]
                      (case (.-key e)
-                       "Enter"  [:fh.buffer/committed control reset-key on-commit]
-                       "Escape" [:fh.buffer/cancelled control reset-key]
+                       "Enter"  [:fh.buffer/committed k revision on-commit]
+                       "Escape" [:fh.buffer/cancelled k revision]
                        nil))}]))
 ```
+
+The view never destructures `:control` or `:reset-key` itself. That is the point:
+the two verbs are the only door onto them, so a call site that forgot either one
+is refused at the door rather than silently sharing a record keyed by `nil` or
+buffering perfectly until the first rejection.
 
 ### Behaviour timeline
 
 1. **Not editing** — sub falls through to external `:value`.
-2. **First keystroke** — `edited` writes `{reset-key, draft}` under `control`.
+2. **First keystroke** — `edited` writes `{reset-key, draft}` under the
+   controller key.
 3. **Further keys** — update draft; controlled input rides Freehand’s
    [sync door](events-and-handlers.md#controlled-inputs).
 4. **Enter / blur** — `committed` checks generation, clears record, dispatches

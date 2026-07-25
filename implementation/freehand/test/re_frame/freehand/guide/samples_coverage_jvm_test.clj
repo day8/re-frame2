@@ -376,7 +376,7 @@
     [11 "86f1f8b0a35b" controllers/the-controller-revision-is-the-callers-reset-key]
     [12 "6c7f63421374" controllers/the-generation-fence-is-total-and-safe-when-the-stamp-is-missing]
     [13 "dbe82da73aae" controllers/register-acme-buffered-text!]
-    [14 "98155b34ebf3" controllers/buffered-field]]
+    [14 "51128afd8f00" controllers/buffered-field]]
    "ssr.md"
    [[ 1 "7d7c6d77a52d" host/chart-client-only-sub]
     [ 2 "b0412ac0fb48" :host-boot]
