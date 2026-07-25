@@ -1415,14 +1415,25 @@ way are host behaviour the caller owns: they sit outside head ordering,
 de-duplication, precedence, and every hydration guarantee this Spec and
 [011](011-SSR.md) make, `:rf/head-hash` mismatch detection included. The posture is
 trusted markup's — the framework names the boundary and does not inspect what crosses
-it — and the containment that survives is enumerability: every site declares the
-`:raw` capability and is recorded in the manifest, so the set of such escapes is
-finite and listable. The **JVM tree has no such route**: `:raw` raises
-`:rf.error/jvm-host-op` (§The JVM structural subset), so a server-rendered head still
-comes only from `reg-head` / `active-head` — which remains the path to reach for when
-the head is app state, rather than a portal no part of the substrate can see. The
-Wave-2 `ui/portal` row in §Interop would inherit the same caveat, its target being a
-caller-supplied node.
+it. The **JVM tree has no such route**: `:raw` raises `:rf.error/jvm-host-op` (§The
+JVM structural subset), so a server-rendered head still comes only from `reg-head` /
+`active-head` — which remains the path to reach for when the head is app state,
+rather than a portal no part of the substrate can see. The Wave-2 `ui/portal` row in
+§Interop would inherit the same caveat, its target being a caller-supplied node.
+
+**Enumerability is not a containment this substrate has** (rf2-wjgle). A
+capability-declaring hatch makes *its own* sites listable in the manifest, but it is
+not the only way into host React: a runtime **React element** reaching an ordinary
+child position is passed through to React untouched, gated only by
+`React.isValidElement` — React *elements*, so a portal or an array is a React node
+but not an element — and that arm sits outside the interpreted/compiled language
+gate, which is what lets it serve a compiled body's child seam as well as the
+interpreted walk. Nothing is recorded at such a site, so the escapes a manifest can
+list are a strict subset of the escapes that exist, and adding a capability-declaring
+hatch beside the unrecorded route would not change that. Making host-React escapes
+enumerable is therefore an open design question needing its own mechanism —
+recording at the element pass-through site — rather than a capability bit on one
+spelling.
 
 The reasoning is that head elements are document-global singletons with
 de-duplication, ordering, and precedence semantics that no part of the compiled
