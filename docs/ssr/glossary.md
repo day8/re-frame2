@@ -36,7 +36,7 @@ The `:platforms` declaration on an [effect](../core/glossary.md#effect) or [coef
 
 ### **head model**
 
-The data that becomes `<title>`, `<meta>`, OpenGraph, and JSON-LD on the server-rendered page: a pure `(db, route) → head-model` function registered with `reg-head` and named by a route. Derived from app-db like a sub, so it stays current on client-side route changes and rides the same mismatch detector as the body. Recipe: [Head metadata](head.md).
+The data that becomes `<title>`, `<meta>`, OpenGraph, and JSON-LD on the server-rendered page: a pure `(db, route) → head-model` function registered with `reg-head` and named by a route. Derived from app-db like a sub, so the model is *reconstructible* from the hydrated state — but reconstructible is not automatic. v1 ships no DOM-head reconciler, and the runtime compares only the body hash, so keeping the live head current after a client-side route change (and checking the head's separate `:rf/head-hash`) are the app's or host's job. Both obligations are set out in the recipe: [Head metadata](head.md).
 
 ### **error projector**
 
