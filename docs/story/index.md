@@ -98,13 +98,13 @@ clojure -Tnew create \
   :include-story? true
 ```
 
-For an existing checkout during alpha, use the local tool:
+For an existing checkout during alpha, use the local tool. `:local/root` is relative to *your* `deps.edn`, so the path assumes a re-frame2 clone sitting **beside** your project directory:
 
 ```clojure
-;; deps.edn
+;; deps.edn — resolved from a re-frame2 checkout beside your project
 {:aliases
  {:dev
-  {:extra-deps {day8/re-frame2-story {:local/root "tools/story"}}}}}
+  {:extra-deps {day8/re-frame2-story {:local/root "../re-frame2/tools/story"}}}}}
 ```
 
 Then require your stories namespace from your dev entry point and mount the

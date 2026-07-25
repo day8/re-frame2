@@ -11,7 +11,7 @@ Confirm all three, or stop:
 
 1. **The app is already on re-frame2.** Freehand is a re-frame2 view layer. If
    the app is still on re-frame v1, the events/subs/db migration comes first —
-   route to [`re-frame-migration`](../re-frame-migration) and come back only when
+   route to [`re-frame-migration`](../../re-frame-migration) and come back only when
    that is done.
 2. **The author specifically wants Freehand.** If they are content on Reagent
    (the supported default), there is nothing to do — say so. Don't migrate views
