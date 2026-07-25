@@ -22,6 +22,24 @@
   delay knob — a passive render dispatches nothing (Governing Law 1)."
   :intent)
 
+(def prefetch-intent-keys
+  "The CLOSED class of DOM positions a `:prefetch :intent` link warms from —
+  pointer hover, focus, touch-start, the credible-intent triggers Spec 012
+  §Route-plan prefetch names. Held here, beside `prefetch-intent-value`, for the
+  same reason `address/link-behavior-keys` is held in `address`: it is a closed
+  key class of routing's law, and a link surface that writes its own copy can
+  drift from it silently — a `v/route-link` would lack a trigger `rf/route-link`
+  installs, with nothing failing to say so.
+
+  Routing's own `prefetch-intent-attrs` maps over it; the compiled
+  `ui/route-link` and Freehand `v/route-link` descriptors reach it as the
+  `:routing/prefetch-intent-keys` late-bound seam, the same way they already
+  reach `prefetch-payload` — so no view substrate states the class for itself.
+
+  Order is the order the anchor's attrs are built in and carries no meaning:
+  the positions are independent, and each warms the same destination."
+  [:on-mouse-enter :on-focus :on-touch-start])
+
 (defn validate-prefetch!
   "Validate the `:prefetch` link-behaviour value, the ONE definition every link
   surface reaches (Spec 012 §`:prefetch :intent` — the opt-in warm-mode
@@ -102,6 +120,20 @@
   ;; calculation both halves of the render contract run, so `rf/route-link`
   ;; rejects an unsupported mode on the client AND in the SSR shell rather than
   ;; stripping it silently on the way to the `<a>`.
+  ;;
+  ;; DELIBERATE DUPLICATION — the `route-url` + `encode` pair below is also
+  ;; derived by `link-model` (bottom of this file), and that is STRUCTURAL
+  ;; rather than incidental (rf2-arenp). Neither can call the other: this fn
+  ;; must ALSO strip the control keys and hand back route-link's open
+  ;; DOM-attribute passthrough map (Spec 012 §The extraction law), which
+  ;; `link-model` must NOT do — the consuming view artefact owns its own markup
+  ;; — and this fn takes `encode` as an ARGUMENT (CLJS render passes the frame
+  ;; strategy's `:encode`, SSR passes `identity`) where `link-model` resolves it
+  ;; behind a reader conditional. A shared helper would need a home both already
+  ;; require, and there is none; a namespace invented to hold this calculation
+  ;; would cost more than it saves. Do not spend an afternoon unifying them —
+  ;; but if a shared home appears for another reason, collapse both onto it.
+  ;; (The same wall rf2-wzqtu hit for the readiness projectors.)
   (validate-prefetch! props)
   (let [{:keys [to params query fragment] :as addr} (address/extract-address props)
         path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
@@ -156,8 +188,8 @@
      "Build one intent-event handler that runs a caller-supplied handler of the
      same name FIRST (compose, not replace) and then dispatches `payload` to the
      `render-frame` with `:source :router` (rf2 routing-substrate attribution).
-     Reused for `:on-mouse-enter` / `:on-focus` / `:on-touch-start` so the three
-     prefetch triggers share one composition + dispatch law."
+     Reused at every `prefetch-intent-keys` position so the credible-intent
+     triggers share one composition + dispatch law."
      [caller-handler render-frame payload]
      (fn [e]
        (when caller-handler (caller-handler e))
@@ -166,18 +198,22 @@
 #?(:cljs
    (defn- prefetch-intent-attrs
      "The `:prefetch :intent` DOM handlers for `rf/route-link`, or nil when the
-     link does not opt in. Warms the destination on credible user intent —
-     pointer hover (`:on-mouse-enter`), focus (`:on-focus`), touch
-     (`:on-touch-start`) — NEVER on render / viewport (Governing Law 1). Each
-     composes with a caller-supplied handler of the same name (read from
-     `props`) and dispatches `[:rf.route/prefetch …]` to the render-time-captured
-     `render-frame`, exactly as the delayed click handler targets its frame. Per
-     Spec 012 §Route-plan prefetch."
+     link does not opt in. Warms the destination on credible user intent — at
+     every `prefetch-intent-keys` position, and NEVER on render / viewport
+     (Governing Law 1). Each handler composes with a caller-supplied handler of
+     the same name (read from `props`) and dispatches `[:rf.route/prefetch …]` to
+     the render-time-captured `render-frame`, exactly as the delayed click
+     handler targets its frame. Per Spec 012 §Route-plan prefetch."
      [props render-frame]
      (when-let [payload (prefetch-payload props)]
-       {:on-mouse-enter (compose-intent-handler (:on-mouse-enter props) render-frame payload)
-        :on-focus       (compose-intent-handler (:on-focus props)       render-frame payload)
-        :on-touch-start (compose-intent-handler (:on-touch-start props) render-frame payload)})))
+       ;; Map over the published class rather than writing the positions out a
+       ;; second time (rf2-7g4qn): `prefetch-intent-keys` is the ONE enumeration
+       ;; this anchor and the `:routing/prefetch-intent-keys` seam both read, so
+       ;; a position added there cannot reach one link surface and miss another.
+       (into {}
+             (map (fn [k]
+                    [k (compose-intent-handler (get props k) render-frame payload)]))
+             prefetch-intent-keys))))
 
 #?(:cljs
    (defn- plain-left-click?
@@ -434,6 +470,21 @@
   ;; here too. Its `prefetch-payload` call is CLJS-only (the JVM/SSR shell
   ;; installs no intent handlers), which left the server render accepting an
   ;; unsupported mode the client rejected.
+  ;;
+  ;; DELIBERATE DUPLICATION — the `route-url` + `encode` pair below is also
+  ;; derived by `href-attrs` (top of this file, the `rf/route-link` internal),
+  ;; and that is STRUCTURAL rather than incidental (rf2-arenp). Neither can call
+  ;; the other: `href-attrs` must ALSO strip the control keys and return
+  ;; route-link's open DOM-attribute passthrough map (Spec 012 §The extraction
+  ;; law), which this seam must NOT do — the consuming view artefact owns its
+  ;; own markup and passthrough attrs — and `href-attrs` takes `encode` as an
+  ;; ARGUMENT where this fn resolves it behind the reader conditional below.
+  ;; Calling `href-attrs` from here would also invert the seam: it is the
+  ;; `rf/route-link` internal, this is the ui-facing surface. A shared helper
+  ;; would need a home both already require, and there is none. Do not spend an
+  ;; afternoon unifying them — but if a shared home appears for another reason,
+  ;; collapse both onto it. (The same wall rf2-wzqtu hit for the readiness
+  ;; projectors.)
   (validate-prefetch! target)
   (let [{:keys [to params query fragment] :as addr} (address/extract-address target)
         path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})

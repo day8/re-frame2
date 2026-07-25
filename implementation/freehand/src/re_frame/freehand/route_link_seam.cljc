@@ -1,6 +1,6 @@
 (ns re-frame.freehand.route-link-seam
-  "The anchor `v/route-link` renders, and the two late-bound hooks it
-  reads to get it. (The `-seam` suffix avoids a ClojureScript ns/var
+  "The anchor `v/route-link` renders, and the late-bound hooks it reads
+  to get it. (The `-seam` suffix avoids a ClojureScript ns/var
   clash with the `re-frame.freehand/route-link` view var.)
 
   `route-link` is ORDINARY framework view code — a `v/defview` like any
@@ -11,9 +11,9 @@
   it, and hand the click back to routing.
 
   All routing knowledge stays in the OPTIONAL `re-frame.routing`
-  artefact, behind four substrate-neutral late-bound hooks routing
-  publishes and this namespace consumes — two for the click, two for the
-  `:prefetch :intent` warm-up, and each pair split the same way:
+  artefact, behind the substrate-neutral late-bound hooks routing
+  publishes and this namespace consumes — the click pair, and the
+  `:prefetch :intent` warm-up trio:
 
     `:routing/link-model`        — PURE, both hosts; the whole link
                                    calculation (strategy-encoded href,
@@ -23,13 +23,15 @@
     `:routing/prefetch-payload`  — PURE, both hosts; the
                                    `[:rf.route/prefetch {address}]` vector
                                    for a link that asked for it, or nil.
+    `:routing/prefetch-intent-keys` — DATA, both hosts; the closed class of
+                                   DOM positions an opted-in link warms from.
     `:routing/prefetch-on-intent!` — ClojureScript only; the intent
                                    dispatch that warms the destination.
 
   Consuming them through `re-frame.late-bind` (core) keeps the packaging
   graph `freehand -> core late-bind <- routing`: neither optional
   artefact statically requires the other (Conventions §Packaging). When
-  routing is absent both hooks are unbound and rendering a `v/route-link`
+  routing is absent the hooks are unbound and rendering a `v/route-link`
   fails loud with `:rf.error/routing-artefact-missing`, naming the
   artefact, its Maven coordinate, and the link site — a plain `[:a]`
   remains available for intentional browser-native navigation.
@@ -46,9 +48,9 @@
   something to invoke. [[veto]] and [[intent-callback]] are the
   translation at that boundary: they are where the accepted grammar is
   named, narrowed and enforced, before anything is handed across. The
-  click position is always owned; the three [[intent-keys]] are owned
-  only by a link that asked for `:prefetch :intent`, and stay ordinary
-  open event positions on every other link."
+  click position is always owned; the [[intent-keys]] are owned only by
+  a link that asked for `:prefetch :intent`, and stay ordinary open
+  event positions on every other link."
   (:require [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.freehand.events :as events]
@@ -89,9 +91,8 @@
   render — nil when the link did not ask for a prefetch.
 
   PURE, and asked on BOTH hosts, because a nil answer is what makes the
-  three [[intent-keys]] ordinary open event positions again: the JVM
-  render attaches no handler but still has to know whether it owns those
-  keys, or the server shell would emit an attribute the browser render
+  [[intent-keys]] ordinary open event positions again: the JVM render
+  attaches no handler but still has to know whether it owns those keys, or the server shell would emit an attribute the browser render
   strips. The descriptor never reads `:prefetch` itself — which values
   opt a link in, and which address they warm, is routing's law and stays
   behind the hook."
@@ -141,7 +142,7 @@
        (f e veto render-frame payload native?))))
 
 ;; ---------------------------------------------------------------------------
-;; The callback positions the framework OWNS — `:on-click`, and the three
+;; The callback positions the framework OWNS — `:on-click`, and the
 ;; intent positions a `:prefetch :intent` link binds
 ;; ---------------------------------------------------------------------------
 
@@ -160,21 +161,37 @@
   analytics ping). That is exactly `v/handler`'s declared role, and a bare
   function is its unceremonious spelling.
 
-  The same roster governs the three [[intent-keys]] on a link that asked
+  The same roster governs the [[intent-keys]] on a link that asked
   for `:prefetch :intent`, for the same mechanical reason: the framework
   runs the caller's handler itself, so it has to be something callable."
   [:bare-fn :v-handler :nil])
 
-(def intent-keys
-  "The three DOM positions a `:prefetch :intent` link binds — pointer
-  hover, focus and touch-start, the credible-intent triggers Spec 012
+(defn intent-keys
+  "Resolve the `:routing/prefetch-intent-keys` hook — the DOM positions a
+  `:prefetch :intent` link binds, the credible-intent triggers Spec 012
   names. FRAMEWORK-OWNED on such a link and on no other: the anchor
   installs its own handler at each, running the caller's FIRST, so the
   prefetch composes with the author's hover work rather than replacing it.
 
-  A link that did not opt in leaves all three exactly as it found them —
-  ordinary open Freehand event positions like every other `:on-*`."
-  [:on-mouse-enter :on-focus :on-touch-start])
+  A link that did not opt in leaves every one of them exactly as it found
+  it — ordinary open Freehand event positions like every other `:on-*`.
+
+  Asked of routing rather than written out here (rf2-7g4qn): WHICH
+  positions count as credible intent is routing's law, the same law
+  [[prefetch-payload]] already keeps behind the hook, and a descriptor
+  holding its own copy of the class would drift from it silently — a
+  `v/route-link` short a trigger `rf/route-link` installs, with nothing
+  failing to say so. Asked on BOTH hosts, because the JVM render strips
+  these positions too: a routing control key must not reach the server
+  shell as an HTML attribute.
+
+  Reached only when [[prefetch-payload]] has already answered non-nil, so
+  routing is proven present; the `require-fn!` is the honest spelling of
+  that, not a second gate."
+  []
+  ((late-bind/require-fn! :routing/prefetch-intent-keys
+                          'v/route-link
+                          routing-artefact)))
 
 (defn- value-description
   "A short HOST-NEUTRAL description of an offending callback value, for
@@ -245,7 +262,7 @@
 (defn intent-callback
   "Normalize a caller's value at one of the [[intent-keys]] into the
   callback routing's prefetch runs first — a plain one-argument fn, or nil
-  — or reject it. [[veto]]'s sibling for the three prefetch positions:
+  — or reject it. [[veto]]'s sibling for the prefetch positions:
   same roster, same error, same both-hosts render-time check, and a
   different reason.
 
@@ -303,7 +320,7 @@
   `:href` win. On ClojureScript the anchor carries the activation closure;
   on the JVM it does not — an SSR shell has no click to intercept.
 
-  A link that asked for `:prefetch :intent` additionally owns the three
+  A link that asked for `:prefetch :intent` additionally owns the
   [[intent-keys]]: each caller value is normalized by [[intent-callback]]
   (both hosts, same reason as the veto), stripped from the attrs, and on
   ClojureScript replaced by a handler that runs it FIRST and then warms
@@ -325,9 +342,13 @@
         target       (dissoc props :on-click :children)
         {:keys [href payload native?]} (link-model target render-frame)
         prefetch     (prefetch-payload target)
+        ;; Routing owns WHICH positions are credible intent; resolve the class
+        ;; once per opted-in render and use it for both the normalization and
+        ;; the strip, so the anchor cannot own a position it fails to strip.
+        ikeys        (when prefetch (intent-keys))
         intent-fns   (when prefetch
-                       (into {} (map (fn [k] [k (intent-callback k (get props k))])) intent-keys))
-        owned        (cond-> control-keys prefetch (concat intent-keys))
+                       (into {} (map (fn [k] [k (intent-callback k (get props k))])) ikeys))
+        owned        (cond-> control-keys prefetch (concat ikeys))
         attrs        (assoc (apply dissoc props owned) :href href)
         attrs #?(:cljs (into (assoc attrs
                                     :on-click

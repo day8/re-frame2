@@ -513,3 +513,10 @@
 ;; no DOM intent to intercept). Per Spec 012 §Route-plan prefetch.
 (late-bind/set-fn! :routing/prefetch-payload link/prefetch-payload)
 #?(:cljs (late-bind/set-fn! :routing/prefetch-on-intent! link/prefetch-on-intent!))
+;; The closed intent-position class itself (rf2-7g4qn) — DATA, not an op, so the
+;; hook is a thunk over `link/prefetch-intent-keys`. Published on BOTH hosts
+;; because a descriptor strips the positions it owns on the JVM too (the SSR
+;; shell must not emit a routing control key as an attribute), and a descriptor
+;; that wrote its own copy of the class would silently drift from the one
+;; `rf/route-link` installs.
+(late-bind/set-fn! :routing/prefetch-intent-keys (constantly link/prefetch-intent-keys))
