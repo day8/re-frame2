@@ -21,7 +21,9 @@
 #   gate-has-teeth (E/F)           — the doc validators exit non-zero on the
 #     bundled broken fixtures;
 #   motivating misses (#2232/#2233) — the pymdownx slug shapes that first
-#     motivated the doc gate still trip check_doc_slugs.py.
+#     motivated the doc gate still trip check_doc_slugs.py;
+#   coverage-honesty note (Q/R)    — `--plan` must state that the JVM tier is
+#     implementation/core ONLY and point at the full JVM sweep (rf2-dgzaf).
 #
 # Run from any cwd:
 #   bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh
@@ -227,6 +229,29 @@ NOT `cljs-reference-helix-as-alternative-substrate`.
 EOF
 python "$slugs_script" --repo-root "$case_2233" >/dev/null 2>&1
 assert "P #2233 (anchor missing -rf2-XXX suffix)" "1" "$?"
+
+# ---------------------------------------------------------------------------
+# Coverage-honesty note (rf2-dgzaf).  The spine's JVM tier is
+# implementation/core ONLY while `implementation_jvm` arms eighteen CI jobs, so
+# `--plan` must SAY so — a tier line reading `core JVM suite: run` is otherwise
+# read as a coverage claim.  Pinned because prose that nobody checks is exactly
+# how the header came to overstate what the spine ran.
+# ---------------------------------------------------------------------------
+r="$tmp_root/coverage-note"; mkrepo "$r"
+mkdir -p "$r/implementation/core/src/re_frame"
+printf 'x\n' > "$r/implementation/core/src/re_frame/core.cljc"
+git -C "$r" add -A; git -C "$r" commit -q -m c
+plan_out="$(bash "$spine" --plan --repo-root "$r" 2>/dev/null)"
+case "$plan_out" in
+  *"implementation/core ONLY"*) note_core_only=yes ;;
+  *)                            note_core_only=no ;;
+esac
+assert "Q --plan names the JVM tier as core-only" "yes" "$note_core_only"
+case "$plan_out" in
+  *"test-jvm-implementation.sh"*) note_points_at_full=yes ;;
+  *)                              note_points_at_full=no ;;
+esac
+assert "R --plan points at the full JVM sweep" "yes" "$note_points_at_full"
 
 # ---- Summary ----
 total=$((pass_count + fail_count))
