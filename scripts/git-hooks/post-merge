@@ -52,17 +52,19 @@
   # is rf2-zt65l: the beads boundary block sat unwritten for seven weeks
   # while every checkout believed it was guarded. `git pull` is the moment
   # the drift is created, so it is the moment to report it.
+  #
+  # This arm covers the pulls that MERGE or FAST-FORWARD. The rebasing pull
+  # (`git pull --rebase` with a local commit) never reaches this hook; its
+  # arm is the same library, called from post-rewrite.
   _rf2_repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || _rf2_repo_root=""
-  _rf2_installer="$_rf2_repo_root/scripts/install-git-hooks.sh"
-  # Invoke via `sh` — a Windows checkout may not carry the exec bit.
-  if [ -n "$_rf2_repo_root" ] && [ -f "$_rf2_installer" ] \
-     && ! sh "$_rf2_installer" --check >/dev/null 2>&1; then
-    printf '\n[re-frame2] git hooks on disk are stale or incomplete — the local\n' >&2
-    printf '  commit guards may not be armed. Repair (idempotent, seconds; linked\n' >&2
-    printf '  worktrees share one hooks directory, so a single run re-arms them all):\n\n' >&2
-    printf '      sh scripts/install-git-hooks.sh\n\n' >&2
-    printf '  What drifted:  sh scripts/install-git-hooks.sh --check\n\n' >&2
+  if [ -n "$_rf2_repo_root" ]; then
+    _rf2_lib="$_rf2_repo_root/scripts/git-hooks/lib/check-hook-install-staleness.sh"
+    if [ -f "$_rf2_lib" ]; then
+      # shellcheck source=lib/check-hook-install-staleness.sh
+      . "$_rf2_lib"
+      rf2_warn_stale_hook_install "$_rf2_repo_root" merge
+    fi
   fi
-  unset _rf2_repo_root _rf2_installer
+  unset _rf2_repo_root _rf2_lib
 } || true
 # --- END re-frame2 hook-install staleness check (rf2-zt65l) ---

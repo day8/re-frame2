@@ -11,18 +11,26 @@ disturbing beads-managed segments (`bd hooks install`).
 | Path | Purpose |
 |------|---------|
 | `post-merge` | Advisory: warn after `git pull` brings down MCP-source changes that invalidate the local server binary. **rf2-6jj3r.** |
-| `post-merge` | Advisory: warn after `git pull` when the hooks on disk no longer match this directory. **rf2-zt65l.** |
+| `post-merge` | Advisory: warn after a MERGING or FAST-FORWARDING pull when the hooks on disk no longer match this directory. **rf2-zt65l.** |
+| `post-rewrite` | Advisory: the same warning after a REBASING pull (`git pull --rebase` with a local commit), which never reaches `post-merge`. **rf2-zt65l.** |
 | `pre-commit` | Refuse commits in the MAYOR checkout that touch worker-tracked surfaces. **rf2-ydl2p.** |
 | `pre-commit` | Refuse commits in a WORKER worktree that touch the beads DATABASE. **rf2-ia8o7.** |
 | `lib/check-stale-mcp-binary.sh` | POSIX-sh library used by `post-merge`. |
+| `lib/check-hook-install-staleness.sh` | POSIX-sh library used by `post-merge` **and** `post-rewrite` (rf2-zt65l) — one advisory, one home. |
 | `lib/check-mayor-commit-boundary.sh` | POSIX-sh library used by `pre-commit` (rf2-ydl2p). |
 | `lib/check-beads-boundary.sh` | POSIX-sh library used by `pre-commit` (rf2-ia8o7) **and** by `scripts/check-beads-pr-boundary.sh`, the CI arm. |
-| `test-pre-commit.sh` | Library unit tests, sandboxed end-to-end smoke for both pre-commit blocks, the CI arm, and the installer. |
+| `test-pre-commit.sh` | Library unit tests, sandboxed end-to-end smoke for both pre-commit blocks, the CI arm, the installer, real pulls of both shapes, and the checkpoint helper. |
 
 The unit of installation is a marker **block**, not a hook: `pre-commit`
 carries two of them. The installers key their registries on block id
-(`mayor-commit-boundary`, `worker-beads-boundary`, `mcp-staleness`) so a
-hook can grow another block without either installer changing shape.
+(`mayor-commit-boundary`, `worker-beads-boundary`, `mcp-staleness`,
+`hook-staleness`, `hook-staleness-rebase`) so a hook can grow another block —
+or the set can grow another hook — without either installer changing shape.
+
+Hook sources carry no `.sh` extension, so `.gitattributes` pins each of them to
+`eol=lf` by name. A new hook here needs a line there too, or a Windows checkout
+(`core.autocrlf=true`) CRLF-rewrites the source and `--check` never again agrees
+with the LF-normalised installed copy.
 
 ## Installing, and staying installed
 
@@ -60,14 +68,43 @@ a 2026-06-01 copy that did not contain it. For seven weeks the guard was
 documented, tested, and absent. Nothing was ever going to say so, because
 nothing ran the installer and nothing compared the two.
 
-The `post-merge` block closes that loop at the moment the drift is created:
-after every merge it runs `--check` and, when that fails, prints the repair
-command. It is advisory — it never fails the merge — and it is silent on a
-healthy checkout, because an advisory that fires on ordinary work gets muted.
+The advisory closes that loop at the moment the drift is created: after a pull
+it runs `--check` and, when that fails, prints the repair command. It is
+advisory — it never fails the pull — and it is silent on a healthy checkout,
+because an advisory that fires on ordinary work gets muted.
 
 CI cannot cover this. The gate that matters here runs on a developer's
 laptop, and the only thing that can notice a stale copy is the machine
 holding it.
+
+#### It takes two hooks, because git splits the pull
+
+`git pull` is not one code path, and the advisory first shipped on only one of
+them:
+
+| Pull | What git does | Hook |
+|------|---------------|------|
+| `git pull`, `git pull --ff-only` | merge or fast-forward | `post-merge` |
+| `git pull --rebase`, no local commit | fast-forward through git's merge shortcut | `post-merge` |
+| `git pull --rebase`, local commit to replay | a real rebase | `post-rewrite` |
+
+A rebase never invokes `post-merge`. So for as long as the advisory lived only
+there, it was silent on exactly the completion path `AGENTS.md` and `CLAUDE.md`
+mandate for every worker — reproduced in two throwaway clones during the
+rf2-zt65l audit (PR #6921): the `--rebase` pull landed hook drift and printed
+nothing, while the `--no-rebase` control printed the warning. `post-rewrite`
+(argument `rebase`) is git's hook for that path, and it now carries the same
+block, from the same library.
+
+`post-rewrite` also fires for `git commit --amend`, which lands nothing from
+upstream and so can create no drift; the block checks its `$1` and stays quiet
+there. It drains stdin (git writes the old/new sha pairs to it), so any block
+added after it must take the list from `$_rf2_rewrites`.
+
+Layer 7 of `test-pre-commit.sh` drives real `git pull`s of all three shapes
+above. It has to: layer 6 calls the hook directly, and calling a hook directly
+proves the message is right while saying nothing about whether git ever runs it.
+That gap is precisely where the seven-week silence hid a second time.
 
 ## The two boundaries
 
@@ -278,6 +315,28 @@ coverage at all:
 14. Strip a block from the installed hook: `--check` fails and `post-merge`
     says so; re-running the installer repairs it and the advisory goes quiet
 
+From the rf2-zt65l audit reopen, driving real pulls between a throwaway upstream
+and a clone — the layer above calls the hook by hand, which cannot tell you
+whether git calls it:
+
+15. A `git pull --rebase` with a local commit really rebases …
+16. … and reports the hook drift it just landed (the audit's finding: it used
+    to print nothing at all)
+17. A rebasing pull that lands no hook change stays silent
+18. A merging pull still reports drift — the rebase arm is an addition, not a
+    migration
+
+From rf2-51uz1, on the other side of the same boundary — the checkpoint helper
+(`scripts/beads-checkpoint.sh`), against a stub `bd`:
+
+19. A `bd close` that exists only in the database survives the standard
+    `git checkout HEAD -- .beads` cleanup, because the checkpoint re-exports
+20. `--pre-pull` refuses while the working export is ahead of HEAD, and is
+    silent once it is not
+21. A failed or empty export commits nothing and leaves the tracker untouched
+22. A memory reorder is not a change, so it is not a commit
+23. A worker worktree is refused: the tracker database is the mayor's to commit
+
 ## Discovery context
 
 The pre-commit hook landed in response to rf2-oswhk (#2136),
@@ -303,8 +362,13 @@ channel, the mayor's pre-commit will refuse the commit.
 - **rf2-ia8o7 (PR #6677)** — the stale worker-snapshot incident that
   motivated the beads boundary.
 - **rf2-zt65l** — the seven-week gap between that boundary landing here and
-  reaching anybody's `.git/hooks`; source of the staleness advisory and the
-  installer's own test layer.
+  reaching anybody's `.git/hooks`; source of the staleness advisory, its
+  rebase-path arm, and the installer's own test layers.
+- **rf2-51uz1 / `scripts/beads-checkpoint.sh`** — the mirror-image fault on the
+  mayor's side: `git checkout HEAD -- .beads` before a pull reverts a `bd close`
+  the last export-commit missed, and a checkpoint that trusts the working file
+  writes the revert back. The helper re-exports from the database instead, and
+  `--pre-pull` says whether clearing `.beads` is safe yet.
 - **`CLAUDE.md` > Beads durability** — the operator-facing rules,
   including the merge-side rule (never `--theirs`/`--ours` on `.beads`;
   resolve then regenerate).

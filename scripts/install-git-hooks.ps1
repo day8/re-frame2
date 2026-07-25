@@ -17,7 +17,13 @@
 #   - post-merge       (rf2-zt65l) hook-install staleness advisory: re-runs
 #                       the installer's own --check after every pull, so a
 #                       change under scripts/git-hooks/ cannot sit
-#                       uninstalled unnoticed.
+#                       uninstalled unnoticed. Covers the pulls that merge
+#                       or fast-forward.
+#   - post-rewrite     (rf2-zt65l) the same advisory on the REBASE path. A
+#                       rebase never invokes post-merge, so `git pull
+#                       --rebase` with a local commit - the completion path
+#                       AGENTS.md and CLAUDE.md mandate - used to land hook
+#                       drift in silence.
 #   - pre-commit       (rf2-ydl2p) refuses commits in the MAYOR checkout
 #                       that touch worker-tracked surfaces.
 #   - pre-commit       (rf2-ia8o7) refuses commits in a WORKER worktree
@@ -63,6 +69,11 @@ $hookBlocks = @{
         'post-merge',
         '# --- BEGIN re-frame2 hook-install staleness check (rf2-zt65l) ---',
         '# --- END re-frame2 hook-install staleness check (rf2-zt65l) ---'
+    )
+    'hook-staleness-rebase' = @(
+        'post-rewrite',
+        '# --- BEGIN re-frame2 hook-install staleness check, rebase path (rf2-zt65l) ---',
+        '# --- END re-frame2 hook-install staleness check, rebase path (rf2-zt65l) ---'
     )
     'mayor-commit-boundary' = @(
         'pre-commit',
@@ -142,7 +153,17 @@ function Install-Block {
         return
     }
 
-    $existing = Get-Content -LiteralPath $dst -Raw
+    # Explicit UTF-8, never `Get-Content -Raw`: Windows PowerShell 5.x - the
+    # interpreter the documented `powershell -File` invocation uses - decodes
+    # with the system ANSI codepage. This file is read back and rewritten every
+    # time a SECOND block is appended to the same hook, so an ANSI read there
+    # silently re-encoded the FIRST block's em-dashes as mojibake. Measured on
+    # origin/main: after one `install-git-hooks.ps1` run the installed
+    # post-merge carried a C3 A2 sequence where the source had E2 80 94, and
+    # BOTH installers' checks then reported "block out of date" on a fresh,
+    # correct install - for ever, since re-installing reproduced it. Same root
+    # cause as rf2-ujhpf, one read further along.
+    $existing = [System.IO.File]::ReadAllText($dst, (New-Object System.Text.UTF8Encoding $false))
     if ($existing -match [regex]::Escape($beginMark)) {
         $existingBlock = Get-MarkerBlock -Path $dst -BeginMark $beginMark -EndMark $endMark
         if ($existingBlock -eq $sourceBlock) {
@@ -184,12 +205,20 @@ function Install-MayorMarker {
     # worker worktrees have a distinct per-worktree git dir at
     # <common>/worktrees/<name>/ and therefore see no marker -> hook no-ops.
     $markerPath = Join-Path $commonDir 'mayor-marker'
+    # KEEP THIS TEXT BYTE-IDENTICAL TO THE .sh SIBLING, and name neither
+    # installer in it. Both installers write this one file and both check it, so
+    # a version that named itself made the OTHER one report "mayor-marker
+    # content drifted" on a perfectly good install - and the post-merge advisory
+    # runs the .sh --check, so one .ps1 run was enough to make it fire on every
+    # pull for ever. An advisory that always fires is one nobody reads, which is
+    # the whole of rf2-zt65l.
     $markerContent = @"
 re-frame2 mayor checkout marker (rf2-ydl2p).
 Presence of this file in <git-dir> activates the pre-commit hook that
 refuses commits to worker-tracked surfaces. Managed by
-scripts/install-git-hooks.ps1; safe to delete (the hook then no-ops and
-this checkout behaves like a worker worktree from the hook's POV).
+scripts/install-git-hooks.sh and its .ps1 sibling; safe to delete (the hook
+then no-ops and this checkout behaves like a worker worktree from the
+hook's POV).
 "@
     # Normalise to LF and trailing-newline so sh and ps1 installers agree.
     $expected = ($markerContent -replace "`r`n","`n").TrimEnd("`n") + "`n"
@@ -203,7 +232,10 @@ this checkout behaves like a worker worktree from the hook's POV).
         return
     }
 
-    $current = Get-Content -LiteralPath $markerPath -Raw
+    # Explicit UTF-8 here too, for the same reason as Install-Block above. The
+    # marker text is ASCII today, so this is consistency rather than a bug fix -
+    # but the next person to reword it should not have to rediscover why.
+    $current = [System.IO.File]::ReadAllText($markerPath, (New-Object System.Text.UTF8Encoding $false))
     $currentNorm = ($current -replace "`r`n","`n")
     if ($currentNorm -eq $expected) {
         if (-not $Check) {
@@ -221,6 +253,7 @@ this checkout behaves like a worker worktree from the hook's POV).
 try {
     Install-Block -BlockId 'mcp-staleness'
     Install-Block -BlockId 'hook-staleness'
+    Install-Block -BlockId 'hook-staleness-rebase'
     Install-Block -BlockId 'mayor-commit-boundary'
     Install-Block -BlockId 'worker-beads-boundary'
     Install-MayorMarker
