@@ -310,7 +310,10 @@
        :grammar       :re-frame.freehand/v1
        :subscriptions [{:sid \"…\" :query [:person/by-id 7]
                         :source-coord {…} :path [0]}]
-       :events        [{:sid \"…\" :source-coord {…} :path [1 0]}]
+       :events        [{:sid \"…\" :prop :on-click :classification :vector
+                        :serializable? true :sync? false
+                        :handler [:person/selected 7]
+                        :source-coord {…} :path [1 0]}]
        :slots         [{:sid \"…\" :inline? true :source-coord {…} :path [2]}]
        :html-sites    []
        :capabilities  #{:sub :event}
@@ -325,6 +328,21 @@
     are the view's finite reactive, intent, render-slot and trusted-markup
     site rosters — the same lexical sites the
     analyzer indexed, projected to their statically knowable facts.
+  - An `:events` entry states WHAT it dispatches, not only where from:
+    `:prop` (the authored handler prop), `:classification` (`:vector` /
+    `:options` / the dynamic kinds), `:serializable?`, `:sync?` (the
+    controlled-input synchronous door) and `:handler` — the handler form
+    the analyzer recorded, or the `:opaque` marker where the handler is
+    CODE rather than data (a `v/event` / `v/handler` body, a bare fn, a
+    dynamic expression, a spread). Those five were collected in the
+    analyzer's site index and published nowhere a reader could reach
+    (rf2-z0blg — the same defect rf2-hytu5 fixed for `:diagnostics`),
+    which left an event-site read able to count lines and not to say what
+    a view does. `:handler` is the analyzer's recorded form, so a
+    reader-facing surface applies the literal/dynamic honesty split over
+    it rather than showing source code where a reader asked for data —
+    [[re-frame.freehand.tool/read-view-event-sites]] does exactly that,
+    with the predicate it already applies to a subscription's `:query`.
   - `:diagnostics` is the compile-tier finding roster
     ([[re-frame.freehand.compiler.a11y]]) — every a11y finding the
     declaration produced, INCLUDING the suppressed ones, each with the
@@ -380,7 +398,10 @@
     {:view-id       view-id
      :grammar       grammar/version
      :subscriptions (mapv #(select-keys % [:sid :query :source-coord :path]) (:subs sites))
-     :events        (mapv #(select-keys % [:sid :source-coord :path]) (:events sites))
+     :events        (mapv #(select-keys % [:sid :source-coord :path :prop
+                                          :classification :serializable? :sync?
+                                          :handler])
+                          (:events sites))
      :slots         (mapv #(select-keys % [:sid :inline? :source-coord :path]) (:slots sites))
      :html-sites    (mapv #(select-keys % [:source-coord :path]) (:htmls sites))
      :diagnostics   (mapv #(select-keys % [:sid :id :tag :path :suppressed? :reason])
