@@ -311,6 +311,13 @@
       ;; wrap this call in `(str "… " (ex-message e))` — so the consumer AI
       ;; on the other end of the wire reads THIS text. A bare `(str error-kw)`
       ;; shipped it `:rf.error/variant-shape` and nothing else.
+      ;; Caveat, until rf2-2z9u3 lands: a client cannot yet SEE this
+      ;; particular message. Both relays also copy `:explain` (below) into
+      ;; the tool result, and the live malli schema objects it holds are not
+      ;; JSON-encodable, so the response collapses into a protocol-level
+      ;; -32603 before the text ships. That is an ex-DATA defect; the message
+      ;; is correct here and correct the moment the relay stops shipping raw
+      ;; `:explain`. Sibling paths without `:explain` are unaffected.
       ;; The central `re-frame.error` builder is NOT used: `tools/` is
       ;; bundle-isolated and MUST NOT `:require re-frame.*`, so the shape is
       ;; hand-rolled inline (as `re-frame.story/configure!` already does).
@@ -377,11 +384,17 @@
               :tag         keyword?
               keyword?)]
     (when-not (ok? id)
-      ;; Canonical thrown-error shape — see `validate-shape!` above for why
-      ;; the message (not just the ex-data) is load-bearing on this path.
-      ;; This is the exact site rf2-jquiy traced: a malformed `:variant-id`
-      ;; sent to story-mcp's `register-variant` reached the agent as the
-      ;; bare string "Registration failed: :rf.error/variant-id-shape".
+      ;; Canonical thrown-error shape — see `validate-shape!` above.
+      ;; The reachability here is NARROWER than its siblings', and rf2-jquiy
+      ;; established that by driving the wire rather than reading the call
+      ;; graph: both story-mcp entry points (`tools/write.cljc`
+      ;; register-variant, `tools/recorder.cljc` record-as-variant) pre-check
+      ;; the id grammar on the STRING shape — `fresh-keyword-checked` against
+      ;; `story/valid-variant-id?`, single-sourced with the `schemas/…-id?`
+      ;; predicates below — before interning, and answer with their own
+      ;; conformant message. So an MCP client does not reach this throw; a
+      ;; library / REPL caller passing an already-keyword id does, and the
+      ;; shape is theirs to read.
       (let [error-kw (keyword "rf.error" (str (name kind) "-id-shape"))
             reason   (str "re-frame2-story: " (name kind) " id " (pr-str id)
                           " does not match the canonical id grammar")]
