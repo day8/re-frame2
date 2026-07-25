@@ -273,20 +273,58 @@
                   (no-static-analysis {:subscriptions []}))))))
 
 (def ^:private event-site-facts
-  "The per-entry facts an event site in the manifest CAN state today.
+  "The CLOSED set of facts one event-site row states.
 
-  Published beside the roster because the analyzer records more than this and
-  the manifest does not carry it: `:prop`, `:classification`, `:serializable?`,
-  `:sync?` and the authored `:handler` are collected in the compiler's site
-  index and dropped by the manifest projection (rf2-z0blg — the same defect
-  rf2-hytu5 fixed for `:diagnostics`).
+  Every member is present on every entry, which is what lets this set be
+  asserted as an EQUALITY against the entries themselves rather than as a
+  decoration beside them. Naming what an entry states is how a row says which
+  hand is empty.
 
-  So a reader seeing no `:handler` on a site is seeing a fact this build does
-  not publish, NOT a site with no handler — and the difference has to be
-  legible from the answer rather than from a changelog. Naming what an entry
-  states is how an empty-handed roster says which hand is empty. The set
-  retires with the gap it names."
-  #{:sid :source-coord :path})
+  The narrow set this used to name — coordinates and nothing else — was the gap
+  itself: `:prop`, `:classification`, `:serializable?`, `:sync?` and `:handler`
+  were recorded in the analyzer's site index and dropped by the manifest
+  projection, so an event-site read could say WHERE a view dispatches from and
+  not WHAT it dispatches (rf2-z0blg). The manifest publishes them now, so the
+  set names the whole vocabulary and the gap it used to name is closed.
+
+  A fact that is genuinely unknown is stated as an absence rather than left out:
+  `:handler` is the `:opaque` marker and `:event-id` is `nil` exactly where the
+  handler is not statically known data — see [[event-site]]. A reader therefore
+  never has to decide whether a missing key means this build does not publish
+  the fact or the site does not have it."
+  #{:sid :source-coord :path :prop :classification :serializable? :sync?
+    :handler :event-id})
+
+(defn- event-site
+  "One event site, with its handler-shape honesty stated per entry — the rule
+  [[dependency-site]] applies to a subscription's `:query`, applied to the
+  handler form the manifest records.
+
+  A fully-literal handler IS the shape that will dispatch, so it is projected
+  verbatim. A handler carrying a captured local or a call is a form whose value
+  does not exist until the view renders, and a handler that is a callback BODY
+  is code with no event vector at all; both project as the `:opaque` marker the
+  analyzer already uses for the second, because what a reader can do with them
+  is the same — nothing. `:event-id` still shows the literal event-id where the
+  authored form has one, the part the compiler really does know, while the
+  runtime arguments are left unsaid rather than invented.
+
+  `:classification` sits beside them and keeps the two apart: an `:opaque`
+  handler on a `:vector` or `:options` site is an event vector with a runtime
+  argument, and on any other classification it is a callback."
+  [{:keys [handler] :as site}]
+  (let [;; The event VECTOR the handler carries, under either spelling that
+        ;; carries one — the bare vector (`:vector`) or the options map that
+        ;; wraps it (`:options`) — and nil where the handler is code.
+        event (cond
+                (vector? handler) handler
+                (map? handler)    (:event handler)
+                :else             nil)]
+    (assoc (select-keys site [:sid :source-coord :path :prop :classification
+                              :serializable? :sync?])
+           :handler  (if (and (some? event) (literal-form? handler)) handler :opaque)
+           :event-id (when (and (vector? event) (keyword? (first event)))
+                       (first event)))))
 
 (defn read-view-event-sites
   "The event-handler SITES the view declared as `view-id` declares, read from
@@ -296,21 +334,34 @@
       ;; => {:schema … :read :view-event-sites :view-id … :lowering :compiled
       ;;     :scope :possible-sites :basis :static-proof
       ;;     :complete? true :loss nil
-      ;;     :event-sites [{:sid … :source-coord {…} :path [1 0]}]
-      ;;     :site-facts  #{:sid :source-coord :path}}
+      ;;     :event-sites [{:sid … :source-coord {…} :path [1 0]
+      ;;                    :prop :on-click :classification :vector
+      ;;                    :serializable? true :sync? false
+      ;;                    :handler [:person/selected 7]
+      ;;                    :event-id :person/selected}
+      ;;                   {:sid … :source-coord {…} :path [2 0]
+      ;;                    :prop :on-click :classification :vector
+      ;;                    :serializable? true :sync? false
+      ;;                    :handler :opaque :event-id :person/removed}]
+      ;;     :site-facts  #{:sid :source-coord :path :prop :classification
+      ;;                    :serializable? :sync? :handler :event-id}}
 
-  The ROSTER is complete and lossless: every event site the grammar can see is
-  here. What each entry can SAY is narrower than what the compiler knows, and
-  `:site-facts` states exactly how narrow — see [[event-site-facts]]. Nothing
-  is inferred to fill the gap: this read answers WHERE a view dispatches from,
-  and until the manifest publishes the classification it will not pretend to
-  answer WHAT it dispatches."
+  SITES, not dispatches. The roster is one entry per LEXICAL site, so a site
+  inside a keyed list is one entry however many times it runs; what a render
+  actually dispatched is a different quantity and is not derivable from this one.
+
+  Complete and lossless: every event site the grammar can see is here, each
+  saying WHERE it dispatches from AND what it dispatches — with the
+  literal/dynamic split its sibling [[read-view-dependencies]] applies to a
+  query stated per entry, so a handler whose value does not exist until render
+  is marked rather than shown as source code. `:site-facts` names the closed set
+  of facts a row states — see [[event-site-facts]]."
   [view-id]
   (when interop/debug-enabled?
     (when-some [view (registry/lookup view-id)]
       (envelope :view-event-sites view-id view
                 (if-some [m (descriptor/manifest view)]
-                  (static-proof {:event-sites (:events m)
+                  (static-proof {:event-sites (mapv event-site (:events m))
                                  :site-facts  event-site-facts})
                   (no-static-analysis {:event-sites []
                                        :site-facts  event-site-facts}))))))

@@ -2360,9 +2360,17 @@
                               (with-meta (apply list 'fn bindings body) (meta form)))]
       (check-loop-capture! (update e :loop-syms #(reduce disj % binders))
                            (str verb " at prop " k) form)
+      ;; `:sync?` is stated, not omitted. The controlled-input synchronous door
+      ;; is a property of a DOM element's own handler prop, so a COMPONENT prop
+      ;; is factually not one — and a site that left the key absent would carry
+      ;; a narrower key set than its siblings, which is what the manifest's
+      ;; per-entry key law is asserted against (rf2-z0blg). The spread sites say
+      ;; `false` here for the same reason; the DOM sites get theirs back-filled
+      ;; by `record-event-sync!`.
       (add-event-site! e identity
                        {:prop k :handler :opaque
-                        :classification kind :serializable? false})
+                        :classification kind :serializable? false
+                        :sync? false})
       (merge identity
              {:k k
               :slot (prop-slot-name k)

@@ -46,18 +46,30 @@
 ;; and one interpreted declaration that carries no analysis at all
 ;; ---------------------------------------------------------------------------
 
+(v/defview basket-row
+  "A child declaration [[basket]] mounts, so the parent's event roster carries a
+  COMPONENT-PROP committed callback beside its DOM handler sites. That is the
+  arm whose `:sync?` was absent rather than false until rf2-z0blg, which the
+  per-entry key law below could not have caught over a census without one."
+  {:compiled true}
+  [{:keys [label on-remove]}]
+  [:li [:button {:on-click on-remove} label]])
+
 (v/defview basket
   "A COMPILED declaration with a literal subscription, a captured-local
-  subscription and two event sites — so every honesty arm below has a real
-  entry to read, and the literal/dynamic split is a discrimination rather than
-  a tautology."
+  subscription, and one event site of each honesty class — a literal event
+  vector, a vector carrying a captured local, and an opaque committed callback
+  at a child's prop — so every honesty arm below has a real entry to read, and
+  each split is a discrimination rather than a tautology."
   {:compiled true}
   [{:keys [row-id]}]
   [:section.basket
    [:p (v/sub [:basket/total])]
    [:p (v/sub [:basket/line row-id])]
    [:button {:on-click [:basket/clear]} "Clear"]
-   [:button {:on-click [:basket/checkout 7]} "Buy"]])
+   [:button {:on-click [:basket/checkout 7]} "Buy"]
+   [:button {:on-click [:basket/remove row-id]} "Remove"]
+   [basket-row {:label "Line" :on-remove (v/event [_] [:basket/removed row-id])}]])
 
 (v/defview plain-list
   "The paved path: interpreted, so there is no analysis to report and no roster
@@ -224,27 +236,89 @@
             can see is here."
     (let [r (tool/read-view-event-sites basket-id)]
       (is (= :view-event-sites (:read r)))
-      (is (= 2 (count (:event-sites r)))
-          "exactly the two `:on-click` sites the body carries")
+      (is (= 4 (count (:event-sites r)))
+          "exactly the four event sites the body carries — three `:on-click`
+           handlers and one committed callback at the child's prop")
       (is (true? (:complete? r)))
       (is (nil? (:loss r))))))
 
-(deftest an-event-site-says-which-facts-it-can-state
+(deftest an-event-site-states-the-closed-set-of-facts-it-carries
   (testing "The analyzer records `:prop`, `:classification`, `:serializable?`,
-            `:sync?` and the authored `:handler` per site, and the manifest
-            projection drops all five (rf2-z0blg). So a reader seeing no
-            `:handler` is seeing a fact this build does not publish, NOT a site
-            with no handler — and `:site-facts` is what makes the difference
-            legible from the answer rather than from a changelog.
+            `:sync?` and `:handler` per site, and the manifest now PUBLISHES all
+            five (rf2-z0blg) — so a row says what a view dispatches, not only
+            where from. `:site-facts` names the closed set of facts a row states,
+            with `:event-id` beside `:handler` for the honesty split.
 
-            Asserted as an EQUALITY against the entries themselves, so the key
-            cannot drift into a decoration: if the manifest starts publishing
-            the classification and `:site-facts` is not updated, this reds."
+            Asserted as an EQUALITY against the entries themselves, so neither
+            side can drift: a manifest that stopped publishing a fact reds here,
+            and so does one that starts publishing a fact this set does not
+            name."
     (let [r (tool/read-view-event-sites basket-id)]
-      (is (= #{:sid :source-coord :path} (:site-facts r)))
+      (is (= #{:sid :source-coord :path :prop :classification :serializable?
+               :sync? :handler :event-id}
+             (:site-facts r)))
       (doseq [site (:event-sites r)]
         (is (= (:site-facts r) (set (keys site)))
             "every entry states exactly the facts the read says it states")))))
+
+(deftest a-literal-handler-is-projected-as-the-event-vector-it-is
+  (testing "A fully-literal handler IS the vector that will dispatch, so it is
+            safe to show verbatim — the same rule a fully-literal query gets."
+    (let [sites (:event-sites (tool/read-view-event-sites basket-id))
+          site  (first (filter #(= :basket/clear (:event-id %)) sites))]
+      (is (some? site) "the body carries a literal-handler site")
+      (is (= [:basket/clear] (:handler site))
+          "shown as data, because that is what it is")
+      (is (= :on-click (:prop site)) "under the prop the author wrote it at")
+      (is (= :vector (:classification site)))
+      (is (true? (:serializable? site)))
+      (is (false? (:sync? site))
+          "a `:button` `:on-click` is not the controlled-input synchronous
+           door — the fact is STATED, not left to be assumed from absence"))))
+
+(deftest a-captured-local-in-an-event-vector-shows-only-what-is-known
+  (testing "`[:basket/remove row-id]` closes over a template local, so the vector
+            that will dispatch does not exist until the view renders. Showing the
+            form would be handing a reader source code where they asked for data
+            — but the event-id is genuinely known, so it is still shown."
+    (let [sites (:event-sites (tool/read-view-event-sites basket-id))
+          site  (first (filter #(= :basket/remove (:event-id %)) sites))]
+      (is (some? site) "the body carries a captured-local handler site")
+      (is (= :opaque (:handler site))
+          "no handler value is offered, because there is no event vector yet")
+      (is (= :vector (:classification site))
+          "and the classification keeps it apart from a callback body: this IS
+           an event vector, with one argument that is not known yet"))))
+
+(deftest an-opaque-callback-claims-nothing-about-its-body
+  (testing "A `v/event` body is CODE. It carries no event vector, so there is no
+            event-id either — and that absence is STATED rather than left as a
+            missing key a reader has to interpret. It is also the component-prop
+            arm, whose `:sync?` was absent rather than false until rf2-z0blg."
+    (let [sites (:event-sites (tool/read-view-event-sites basket-id))
+          site  (first (filter #(= :ui-event (:classification %)) sites))]
+      (is (some? site) "the body mounts a child with a committed callback prop")
+      (is (= :on-remove (:prop site)))
+      (is (= :opaque (:handler site)))
+      (is (nil? (:event-id site)) "no event vector, so no head to name")
+      (is (false? (:serializable? site)))
+      (is (false? (:sync? site))
+          "a component prop is not a DOM controlled-input door site — false is
+           the fact, and stating it is what makes the row's key set whole"))))
+
+(deftest the-handler-honesty-split-is-a-discrimination
+  (testing "Non-vacuity for the three rows above: the census carries one site of
+            each class, so a projection that answered `:opaque` to everything —
+            or showed every recorded handler verbatim — cannot pass all three."
+    (let [sites (:event-sites (tool/read-view-event-sites basket-id))]
+      (is (= 2 (count (remove #(= :opaque (:handler %)) sites)))
+          "two literal handlers, projected verbatim")
+      (is (= 1 (count (filter #(and (= :opaque (:handler %)) (some? (:event-id %)))
+                              sites)))
+          "one dynamic event vector — opaque handler, known event-id")
+      (is (= 1 (count (filter #(and (= :opaque (:handler %)) (nil? (:event-id %)))
+                              sites)))
+          "and one callback body — opaque handler, and no event-id to know"))))
 
 (deftest an-interpreted-declaration-has-no-event-roster-to-claim
   (testing "The third read's honesty arm, asserted rather than assumed to

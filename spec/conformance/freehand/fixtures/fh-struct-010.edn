@@ -78,7 +78,8 @@
   :crossings     {:surface :public   :entries 1}}
  :required-keys
  {:subscriptions #{:sid :query :source-coord :path}
-  :events        #{:sid :source-coord :path}
+  :events        #{:sid :source-coord :path :prop :classification
+                   :serializable? :sync? :handler}
   :slots         #{:sid :inline? :source-coord :path}
   :html-sites    #{:source-coord :path}
   :crossings     #{:view-id :lowering :source-coord :path}}

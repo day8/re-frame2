@@ -553,6 +553,36 @@
     (is (= :opaque (:handler (second (:events sites)))))
     (is (false? (:serializable? (second (:events sites)))))))
 
+(deftest the-sync-door-fact-is-total-over-event-sites
+  (testing "`:sync?` is recorded on EVERY event site, whichever arm produced it,
+            because the manifest publishes it per entry and a site that left the
+            key absent would carry a narrower key set than its siblings — a
+            green over an uninhabited case rather than a proof (rf2-z0blg). The
+            DOM arms get theirs back-filled by `record-event-sync!` once every
+            prop is classified; the spread arms and the COMPONENT-PROP arm state
+            `false` at the site, which a component prop factually is: the
+            synchronous door belongs to a DOM element's own handler."
+    (let [{:keys [sites]}
+          (ana-full '[:div
+                      [:button {:on-click [:a/b 1]} "x"]
+                      [:input {:value v :on-input [:a/typed :rf.ui/value]}]
+                      [:button {:on-click (event [e] [:a/c e])} "y"]
+                      [:button {:on-click (fn [e] e)} "z"]
+                      [:span (spread forwarded)]
+                      [child-view {:on-pick (event [e] [:a/picked e])}]])]
+      (is (= 6 (count (:events sites)))
+          "one site per arm, so the totality claim below is over all of them")
+      (doseq [site (:events sites)]
+        (is (contains? site :sync?)
+            (str (:prop site) " / " (:classification site)
+                 " — states its synchronous-door fact rather than omitting it")))
+      (is (= #{true false} (set (map :sync? (:events sites))))
+          "and the fact DISCRIMINATES — a controlled `:on-input` literal vector
+           opens the one sync door, so a projection hard-coding false would pass
+           the totality row above and fail here")
+      (is (false? (:sync? (last (:events sites))))
+          "the component-prop arm in particular: false, not absent"))))
+
 (deftest event-sites-carry-runtime-and-tool-identity
   (let [{:keys [ast sites]}
         (analyze-site-fixture
