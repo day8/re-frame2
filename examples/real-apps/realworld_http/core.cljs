@@ -241,18 +241,28 @@
   [:div.app
    [header]
    [pending-nav-dialog]
-   (case @(subscribe [:rf.route/id])
-     :realworld/home              [articles/home-page]
-     :realworld/home-tag          [articles/home-page]
-     :realworld.auth/login             [auth/login-page]
-     :realworld.auth/register          [auth/register-page]
-     :realworld.article/show           [comments/article-page]
-     :realworld.editor/new            [editor/editor-page]
-     :realworld.editor/edit       [editor/editor-page]
-     :realworld.profile/show           [profile/profile-page]
-     :realworld.profile/favorites [profile/profile-page]
-     :realworld.user/settings          [settings/settings-page]
-     [not-found-page])
+   ;; The cold-boot deferred-entry window (see auth.cljs §THE COLD-BOOT DEEP-LINK
+   ;; WINDOW). A protected deep link whose session restore is still in flight has
+   ;; no committed route — entry denial commits nothing — so the `case` below
+   ;; would fall through to "Page not found" and tell a signed-in reader they
+   ;; mistyped their own bookmark. Say what is actually happening instead, for the
+   ;; one tick it takes `GET /user` to land. A PUBLIC deep link commits its route
+   ;; and renders normally throughout.
+   (if @(subscribe [:realworld.routing/deferred-entry?])
+     [:div.container.page {:data-testid "session-restoring"}
+      [:p "Restoring your session…"]]
+     (case @(subscribe [:rf.route/id])
+       :realworld/home              [articles/home-page]
+       :realworld/home-tag          [articles/home-page]
+       :realworld.auth/login        [auth/login-page]
+       :realworld.auth/register     [auth/register-page]
+       :realworld.article/show      [comments/article-page]
+       :realworld.editor/new        [editor/editor-page]
+       :realworld.editor/edit       [editor/editor-page]
+       :realworld.profile/show      [profile/profile-page]
+       :realworld.profile/favorites [profile/profile-page]
+       :realworld.user/settings     [settings/settings-page]
+       [not-found-page]))
    [footer]])
 
 ;; ============================================================================
@@ -385,12 +395,23 @@
     ;;     `:app/initialise` so the token is sitting in app-db before the
     ;;     bearer-auth interceptor needs to send anything authenticated.
     ;;   - `:app/initialise` — fans out to all the per-feature initialisers.
+    ;;
     ;; `:url-bound? true` performs the initial URL→slice sync after every
-    ;; `:initial-events` step above. That ordering is load-bearing: session
-    ;; restore completes before a deep link to a `:requires-auth` route runs its
-    ;; `:can-enter` gate, so the gate judges the restored user rather than an
-    ;; uninitialised auth slice. No explicit `:rf.route/handle-url-change`
-    ;; initial event is needed.
+    ;; `:initial-events` step above, so the saved TOKEN is in app-db before a
+    ;; deep link runs its `:can-enter` gate. The IDENTITY is a different story,
+    ;; and it is worth being exact rather than reassuring: frame setup settles
+    ;; only SYNCHRONOUS work and does not await an in-flight request (EP-0027
+    ;; §Construction), and this app's restore is an asynchronous `GET /user`
+    ;; (the Conduit contract persists a bearer token, not a cached profile).
+    ;; So the first URL resolution genuinely can run while `[:auth :user]` is
+    ;; still nil, and a deep link to a `:requires-auth` route IS refused at that
+    ;; moment. What makes that correct rather than a bug is where the refusal
+    ;; goes: entry denial is terminal (nothing commits), and routing.cljs's
+    ;; `:rf.route/entry-denied` handler DEFERS the login bounce while restore is
+    ;; in flight, stashing the destination for `:auth/settle-deferred-entry` to
+    ;; act on the moment `GET /user` lands (auth.cljs §THE COLD-BOOT DEEP-LINK
+    ;; WINDOW has the full sequence; rf2-k85nd is the bug that taught us).
+    ;; No explicit `:rf.route/handle-url-change` initial event is needed.
     (rdc/render @react-root
                 [rf/frame-root {:id              :rf/default
                                 :doc             "Realworld demo frame."

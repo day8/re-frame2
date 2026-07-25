@@ -25,7 +25,13 @@
             ;; `url-strategy` off `routing/with-base-path` +
             ;; `routing/history-url-strategy`. See the routing guide:
             ;; ../../../docs/routing/index.md
-            [re-frame.routing :as routing]))
+            [re-frame.routing :as routing]
+            ;; For `auth/restoring-session?` — the ONE definition of the
+            ;; cold-boot window in which identity is not yet known, shared with
+            ;; the `:auth/restoring-session?` sub so the denial handler below
+            ;; and the view layer can never disagree about it. (No cycle: auth
+            ;; requires schema + http, neither of which requires this ns.)
+            [realworld-http.auth :as auth]))
 
 ;; ============================================================================
 ;; ROUTES
@@ -140,10 +146,16 @@
 ;; routing rather than duplicating them for each navigation entry point.
 
 ;; The guard sub. `true` → OK to enter. It reads the durable `[:auth :user]`
-;; presence (not the machine's `:authed` state), so a deep-link that arrives
-;; DURING session restore judges a logged-in user correctly. `:can-enter` subs
+;; presence, not the machine's `:authed` state, because the durable slice is the
+;; thing a reload rebuilds and the machine snapshot is not. `:can-enter` subs
 ;; receive the pending target as a second arg — unused here, since the answer is
 ;; the same for every protected route (are you signed in?).
+;;
+;; Note what it does NOT try to do: report "still finding out". `:can-enter` is a
+;; closed boolean by design, and a tri-state guard would push "maybe" into every
+;; app's auth sub. Mid-restore the honest answer is `false` — there is no user —
+;; and the DENIAL HANDLER below is where "no user YET" is told apart from "no
+;; user, full stop".
 (rf/reg-sub :realworld.routing/authed?
   {:doc "The :can-enter auth guard: true when a user is signed in. Read by the
          :requires-auth routes' :can-enter slot."}
@@ -176,15 +188,52 @@
 ;; Registering this handler is optional: the framework ships a no-op default,
 ;; so a denial without it would simply be a hard deny (the visitor stays put).
 ;; We register it because a login bounce is friendlier than a dead click.
+;;
+;; THE ONE BRANCH. A refusal has two quite different meanings, and only the
+;; handler can tell them apart, because `:can-enter` deliberately answers a
+;; closed boolean:
+;;
+;;   "you are not signed in"    → bounce to login. The ordinary case.
+;;   "we don't know yet"        → STAY PUT and wait. A cold boot with a saved JWT
+;;                                whose `GET /user` is still in flight: the
+;;                                reader may well be signed in, and bouncing them
+;;                                to login here is the bug this branch exists to
+;;                                prevent (rf2-k85nd). Nothing has committed —
+;;                                denial is terminal — so no protected page,
+;;                                `:on-match`, or data has been exposed while we
+;;                                wait. `:auth/settle-deferred-entry` (auth.cljs)
+;;                                picks the stash up the moment restore settles:
+;;                                a FRESH navigate on success, login on failure.
+;;
+;; Both branches stash the destination first, so either way the reader ends up at
+;; the exact address they asked for. And both are fail-CLOSED: the deferred branch
+;; grants nothing, it only declines to give up.
 (rf/reg-event :rf.route/entry-denied
   {:doc "Steer a logged-out visitor who tried to enter a :requires-auth route to
          login, remembering the FULL destination they were headed for (route,
-         params, query, and #fragment) so the post-login return lands on the
-         exact URL."}
+         params, query, and #fragment) so the return lands on the exact URL.
+         While a cold-boot session restore is still in flight the visitor's
+         identity is unknown, so the bounce is DEFERRED rather than taken —
+         `:auth/settle-deferred-entry` resolves the stash once restore settles."}
   (fn [{:keys [db]} [_ {:keys [destination]}]]
-    {:db (assoc-in db [:auth :return-to] destination)
-     :fx [[:dispatch [:rf.route/navigate {:to       :realworld.auth/login
-                                          :replace? true}]]]}))
+    (cond-> {:db (assoc-in db [:auth :return-to] destination)}
+      (not (auth/restoring-session? db))
+      (assoc :fx [[:dispatch [:rf.route/navigate {:to       :realworld.auth/login
+                                                  :replace? true}]]]))))
+
+;; The shell's cue for the deferred window. A protected deep link that is waiting
+;; on restore has NO committed route (denial commits nothing), so a `case` over
+;; `:rf.route/id` would fall through to "Page not found" — a lie to tell a reader
+;; who is, in fact, signed in. A PUBLIC deep link commits its route and never
+;; trips this, so it keeps rendering normally while restore finishes.
+(rf/reg-sub :realworld.routing/deferred-entry?
+  {:doc "True while a protected deep link is parked waiting on a cold-boot
+         session restore: identity unknown AND no route committed. The app shell
+         (core.cljs) reads it to show a brief 'restoring your session' state."}
+  :<- [:auth/restoring-session?]
+  :<- [:rf.route/id]
+  (fn [[restoring? route-id] _]
+    (and restoring? (nil? route-id))))
 
 ;; ============================================================================
 ;; ROUTER WIRING
