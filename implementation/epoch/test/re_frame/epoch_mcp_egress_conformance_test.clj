@@ -305,10 +305,22 @@
 ;;     NAMED in the projector's vocabulary and the arm still could not help — a
 ;;     named slot is no protection when the value in it is the wrong
 ;;     representation.
+;;   - rf2-1kiuj — and the third: a correct projector that never RAN on the row.
+;;     An `ensure` lowers into effects that address the work BY its scoped key,
+;;     so the same keys ride `:rf.fx/args` / `:rf.event/fx` on `:rf.fx/*` rows,
+;;     and the epoch tool-pair picks which rows take the family projector by
+;;     OPERATION NAMESPACE (`resource-family-op?`) — which those rows fail. 18
+;;     raw paths across the three records this fixture settles, 14 of them on
+;;     the sensitive `ensure` alone, while that same record's structured
+;;     `:effects[*].args` slot read `:rf/redacted` three rows below. Fixed by
+;;     reaching the carriers by SLOT (`project-fx-args-egress`) rather than by
+;;     widening the op roster, which is why the scans below run over the WHOLE
+;;     record and the whole settled history rather than over the family rows.
 ;;
-;; Both are reachable from the rows `drive-resource-family!` harvests, and both
-;; were MEASURED here by reverting the fix and re-running, because a widening
-;; that cannot red against a defect that actually shipped has proven nothing:
+;; All three are reachable from the cascade `drive-resource-family!` drives, and
+;; all three were MEASURED here by reverting the fix and re-running, because a
+;; widening that cannot red against a defect that actually shipped has proven
+;; nothing:
 ;;
 ;;   - revert rf2-wd9im (`trace_egress.cljc` back to the map-only default) → 5
 ;;     failures, naming all five leaking paths — the three lifecycle rows'
@@ -321,6 +333,12 @@
 ;;     PLAIN control reddening too (a key-id is not a scoped-key vector, so the
 ;;     plain owner's `:released` member goes missing) — the fixture notices the
 ;;     change in both directions, not just the leaking one.
+;;   - revert rf2-1kiuj (drop the `omit-off-box-fx-args-resource-keys` arm from
+;;     `elide-trace-events-slot`) → see the reversion counts recorded on the
+;;     bead; the whole-record and whole-history scans name every leaking carrier
+;;     path, and the plain control stays GREEN in both directions, which is what
+;;     proves the fix discriminates by owner rather than blanket-stripping the
+;;     carriers.
 ;;
 ;; Note what the second reversion shows about the first: `:released` is NOT in
 ;; the projector's named `scoped-keys-slot` roster, so carrying scoped keys there
@@ -476,6 +494,69 @@
        (map #(nth % 1 nil))
        (filter #(and (vector? %) (= resource-id (second %))))
        first))
+
+;; ---- the FX-ARGS carriers (rf2-1kiuj) --------------------------------------
+;;
+;; The family's keys do not stay on the family's rows. An `ensure` LOWERS INTO
+;; EFFECTS, and those effects address the work BY its scoped key, so
+;; `re-frame.fx` stamps the key into `:rf.fx/args` (on each `:rf.fx/handled`) and
+;; into `:rf.event/fx` (the whole effect vector, on `:rf.fx/do-fx`). Those rows
+;; are `rf.fx`, so `resource-family-op?` — the OPERATION-NAMESPACE routing that
+;; picks which rows take the family projector — skipped them, and the
+;; app-db-rooted walk cannot classify a resolver-owned key either. The result was
+;; the sharpest form of the two-carrier shape rf2-irwsq named: this record's
+;; structured `:effects[*].args` slot egressed `:rf/redacted` while the
+;; `:rf.fx/args` TAG three rows above carried the same payload's secret in the
+;; clear.
+
+(defn- fx-carrier-rows
+  "Every trace row in `record` carrying one of the FX-ARGS egress carriers.
+  Keyed off the SLOT rather than the operation, exactly as the projector is: the
+  same pair rides `:rf.fx/handled`, `:rf.fx/skipped-on-platform` and the
+  always-on `:rf.error/*` fx-failure traces."
+  [record]
+  (filter #(or (contains? (:tags %) :rf.fx/args)
+               (contains? (:tags %) :rf.event/fx))
+          (:trace-events record)))
+
+(defn- fx-row
+  "The tags of the first `:rf.fx/handled` row in `record` whose `:rf.fx/id` is
+  `fx-id`."
+  [record fx-id]
+  (->> (:trace-events record)
+       (filter #(and (= :rf.fx/handled (:operation %))
+                     (= fx-id (get-in % [:tags :rf.fx/id]))))
+       first
+       :tags))
+
+(defn- embedded-keys-naming
+  "Every scoped-key-shaped 3-vector naming `resource-id` embedded ANYWHERE in
+  `x`, at any depth. The fx carriers bury the key one to four levels down —
+  inside a `[:rf.work/resource <key> <gen>]` work-id, inside a `[:rf.req <frame>
+  <work-id>]` request-id, inside a continuation event's arg map — so a
+  slot-addressed lookup cannot find them and this walk is what lets the
+  assertions below speak about all of them at once."
+  [x resource-id]
+  (let [found (atom [])
+        walk  (fn walk [v]
+                (when (coll? v)
+                  (when (and (vector? v) (= 3 (count v))
+                             (= resource-id (nth v 1)) (map? (nth v 2)))
+                    (swap! found conj v))
+                  (if (map? v)
+                    (doseq [[k vv] v] (walk k) (walk vv))
+                    (run! walk v))))]
+    (walk x)
+    @found))
+
+(defn- carrier-keys-naming
+  "Every scoped key naming `resource-id` embedded in ANY fx-args carrier of
+  `record`, deduplicated. The set the projection contract speaks about: after
+  projection it must be a single element, and that element must be exactly what
+  the family rows' own `:resource/key` projected to."
+  [record resource-id]
+  (into #{} (mapcat #(embedded-keys-naming (:tags %) resource-id))
+        (fx-carrier-rows record)))
 
 ;; ============================================================================
 ;;  Forwarder-shape conformance — projected-record (per-record egress)
@@ -1118,9 +1199,11 @@
     (install-mcp-style-schemas! :test/mcp)
     (install-resource-family!)
     (let [rows      (drive-resource-family! :test/mcp)
+          raw-hist  (rf/epoch-history :test/mcp)
           record    (record-carrying-resource-rows :test/mcp rows)
           projected (epoch/projected-record record)
-          proj-rows (filter resource-family-row? (:trace-events projected))]
+          proj-rows (filter resource-family-row? (:trace-events projected))
+          proj-hist (mapv epoch/projected-record raw-hist)]
 
       ;; ---- fixture controls: the shape the scans below must be able to see --
       (testing "FIXTURE — the cascade produced real family rows carrying the
@@ -1145,28 +1228,33 @@
                roster names (the rf2-wd9im shape)"))
         (is (seq (:released (family-row rows :rf.resource/owner-released nil)))
             "FIXTURE — the release row carries a `:released` slot (the
-             rf2-5o52l shape)"))
+             rf2-5o52l shape)")
+        (testing "and its FX rows carry the same key off the family's own rows
+                  (rf2-1kiuj) — the carriers the whole-record scan below needs
+                  to be able to see"
+          (is (seq (mapcat fx-carrier-rows raw-hist))
+              "the cascade's real records carry `:rf.fx/args` / `:rf.event/fx`
+               rows at all")
+          (is (seq (mapcat #(carrier-keys-naming % sensitive-resource-id) raw-hist))
+              "and the RAW carriers embed the `:sensitive?` owner's scoped key,
+               buried inside a work-id / request-id / continuation arg map where
+               no slot-addressed lookup reaches it")
+          (is (some #(contains-secret? (:tags %)) (mapcat fx-carrier-rows raw-hist))
+              "carrying the secret itself — so a green scan below is the
+               projector's doing, not an absent shape")))
 
       ;; ---- the claim this gate owns ---------------------------------------
-      ;; SCOPE NOTE, and it is not a hedge — read it before widening this scan.
-      ;; The secret scan below runs over the FAMILY ROWS, not the whole record,
-      ;; because widening this fixture surfaced a THIRD leak that is not this
-      ;; bead's to fix: the same record's `:rf.fx/handled` rows egress the SAME
-      ;; scoped key RAW under `:rf.fx/args` (and again under the `:rf.fx/do-fx`
-      ;; row's `:rf.event/fx`) — 14 paths on one naturally-captured `ensure`
-      ;; record, no splicing needed. Those rows are `:rf.fx/*`, so the epoch
-      ;; tool-pair's `resource-family-op?` routing skips them and the family
-      ;; projector never runs; the generic app-db-rooted walk cannot classify a
-      ;; resolver-owned key either. Filed as rf2-1kiuj, whose acceptance
-      ;; criterion is to widen this scan back to `projected` and delete this
-      ;; note. Deliberately NOT pinned as expected behaviour — nothing here
-      ;; asserts the leak exists, so the day it is fixed this file goes green
-      ;; without touching it.
       (testing "ACCEPTANCE — no raw sensitive bytes anywhere in the projected
-                resource family, in either representation"
-        (is (empty? (secret-leak-paths proj-rows))
-            "the raw secret is absent from every leaf of every projected
-             resource-family row — a failure here NAMES the leaking tag slot")
+                record, in either representation"
+        (is (empty? (secret-leak-paths projected))
+            "the raw secret is absent from every leaf of the WHOLE projected
+             record — a failure here NAMES the leaking tag slot")
+        (is (empty? (mapcat secret-leak-paths proj-hist))
+            "and from every leaf of every REAL record the cascade settled,
+             projected as a forwarder ships it — the assembled record above
+             carries the family rows of all three cascades but only the LAST
+             one's fx rows, so the `ensure` record's carriers are only seen
+             here (rf2-1kiuj)")
         (is (empty? (cedn-tokens projected))
             "and no CEDN-1 key-id egresses under ANY tag of the WHOLE record —
              a key-id would disclose the same scope + params in the clear while
@@ -1219,6 +1307,73 @@
           (is (= released aborted)))
         (is (true? (:sensitive? tags)) "the release row is stamped :sensitive?"))
 
+      ;; ---- the FX-ARGS carriers, per slot (rf2-1kiuj) -----------------------
+      (let [ensure-rec (first proj-hist)
+            family-key (:resource/key (family-row proj-rows :rf.resource/work-started
+                                                  sensitive-resource-id))
+            managed    (fx-row ensure-rec :rf.http/managed)
+            handle     (fx-row ensure-rec :rf.resource/record-work-handle)
+            do-fx      (->> (:trace-events ensure-rec)
+                            (filter #(= :rf.fx/do-fx (:operation %)))
+                            first :tags)]
+        (testing "FIXTURE — the `ensure` record really is the one the bead
+                  described: a `:rf.http/managed` row, a work-handle row and a
+                  `:rf.fx/do-fx` aggregate, each carrying the key"
+          (is (some? managed)   "the lowered `:rf.http/managed` fx row is present")
+          (is (some? handle)    "the `:rf.resource/record-work-handle` fx row is present")
+          (is (some? do-fx)     "the `:rf.fx/do-fx` aggregate row is present")
+          (is (some? family-key) "and the family row projected a key to compare against"))
+
+        (testing "every key embedded in EVERY carrier projects to EXACTLY what
+                  the family row's own `:resource/key` projected to — one value,
+                  two carriers, ONE rule, so the pair cannot drift"
+          (is (= #{family-key} (carrier-keys-naming ensure-rec sensitive-resource-id))))
+
+        (testing "so the carriers name the resource but disclose neither half of
+                  the identity"
+          (is (= sensitive-resource-id (nth family-key 1))
+              "the resource-id survives for attribution")
+          (is (redacted-token? (nth family-key 0)) "the resolved scope is tokenized")
+          (is (redacted-token? (nth family-key 2)) "the canonical params are tokenized"))
+
+        (testing "and the row's NON-key payload is untouched — the projector
+                  speaks for the family's keys, not for the fx family's args"
+          (is (= {:method :get :url "/secret"} (:request (:rf.fx/args managed)))
+              "the resolver's request map rides verbatim")
+          (is (= :test/mcp (:frame-id (:rf.fx/args handle))))
+          (is (= :rf.http/managed (:transport (:rf.fx/args handle)))))
+
+        (testing "a carrier row whose key redacted is stamped :sensitive?, the
+                  same signal the family rows carry"
+          (is (true? (:sensitive? managed)))
+          (is (true? (:sensitive? handle)))
+          (is (true? (:sensitive? do-fx))))
+
+        (testing "and the structured `:effects[*].args` twin still fails closed —
+                  the asymmetry this bead closed was between these two slots, so
+                  the fix must not have been to open the redacted one"
+          (is (every? #(= :rf/redacted (:args %))
+                      (filter #(contains? % :args) (:effects ensure-rec)))))
+
+        (testing "the MIXED slot: the release cascade's
+                  `:rf.resource/cancel-poll-timers` args name every timer key
+                  the released owner held, so BOTH owners' keys sit in ONE slot
+                  on ONE row and the projection must tell them apart. This is
+                  the sensitive half; the plain half is the over-redaction
+                  control in the sibling deftest below"
+          (let [cancel (fx-row (nth proj-hist 2) :rf.resource/cancel-poll-timers)
+                keys*  (get-in cancel [:rf.fx/args :resource/keys])
+                sk     (first (filter #(= sensitive-resource-id (second %)) keys*))]
+            (is (some? cancel) "FIXTURE — the cancel-timers fx row is present")
+            (is (= #{plain-resource-id sensitive-resource-id} (set (map second keys*)))
+                "FIXTURE — both owners' keys ride the slot, and both
+                 resource-ids survive for attribution")
+            (is (redacted-token? (nth sk 0)) "the SENSITIVE key's scope tokenizes")
+            (is (redacted-token? (nth sk 2)) "and its canonical params tokenize")
+            (is (= family-key sk)
+                "digest-for-digest the same identity the family row projected —
+                 a tool's per-key joins survive across the two families"))))
+
       ;; ---- forwarder pipelines double-project; that must not re-digest ------
       (testing "idempotent under repeated projection — a forwarder that
                 accidentally projects twice (middleware composition,
@@ -1237,6 +1392,7 @@
     (install-mcp-style-schemas! :test/mcp)
     (install-resource-family!)
     (let [rows      (drive-resource-family! :test/mcp)
+          proj-hist (mapv epoch/projected-record (rf/epoch-history :test/mcp))
           projected (epoch/projected-record
                       (record-carrying-resource-rows :test/mcp rows))
           proj-rows (filter resource-family-row? (:trace-events projected))
@@ -1261,4 +1417,41 @@
            owner-independent")
       (testing "the plain owner's params are the real map, not a token"
         (is (= {:slug plain-slug} (nth (:resource/key tags) 2)))
-        (is (not (redacted-token? (nth (:resource/key tags) 2))))))))
+        (is (not (redacted-token? (nth (:resource/key tags) 2)))))
+
+      ;; ---- and the same control on the FX-ARGS carriers (rf2-1kiuj) --------
+      (let [plain-rec (second proj-hist)          ; the PLAIN owner's `ensure`
+            release   (nth proj-hist 2)
+            managed   (fx-row plain-rec :rf.http/managed)
+            cancel    (fx-row release :rf.resource/cancel-poll-timers)]
+        (testing "FIXTURE — the plain `ensure` lowered into fx rows too"
+          (is (some? managed) "its `:rf.http/managed` row is present")
+          (is (seq (carrier-keys-naming plain-rec plain-resource-id))
+              "and its carriers embed the plain owner's key"))
+
+        (testing "every key in every carrier of the plain cascade rides its
+                  scope + params VERBATIM — closing rf2-1kiuj cost no
+                  attribution on the ordinary row, and a blanket redaction of
+                  the carriers would fail here"
+          (is (= #{plain-key} (carrier-keys-naming plain-rec plain-resource-id)))
+          (is (= {:method :get :url "/public"} (:request (:rf.fx/args managed)))
+              "as does the non-key payload beside it")
+          (is (not (:sensitive? managed))
+              "and a carrier row that redacted nothing is NOT stamped
+               :sensitive?"))
+
+        ;; The MIXED row — `:rf.resource/cancel-poll-timers`, whose args name
+        ;; every timer key the released owner held, so BOTH owners' keys sit in
+        ;; ONE slot — is asserted from BOTH sides. Its sensitive half lives with
+        ;; the acceptance claim above (it must RED when the fix is reverted);
+        ;; only the plain half belongs here, where the whole point is to stay
+        ;; GREEN in both directions.
+        (testing "the sharpest form of the control: on the ONE slot carrying
+                  BOTH owners' keys, the plain key is the one left alone"
+          (is (some? cancel) "FIXTURE — the cancel-timers fx row is present")
+          (let [keys* (get-in cancel [:rf.fx/args :resource/keys])]
+            (is (= 2 (count keys*)) "FIXTURE — both owners' keys ride the slot")
+            (is (= plain-key (first (filter #(= plain-resource-id (second %)) keys*)))
+                "the PLAIN key rides verbatim beside a tokenized sibling — the
+                 projection discriminates by OWNER within a single slot, which
+                 no blanket strip and no blanket pass-through can do")))))))
