@@ -251,8 +251,10 @@
 ;; `:rf.route/url-requested`, and `:rf.route/handle-url-change` — some forty lines
 ;; of `match-url` and current-slice resolution whose only job is completeness, and
 ;; whose bug is always the SAME bug: the door it forgot is the door that lets a
-;; logged-out visitor in. Spec 012 §Three doors says so outright, and it is why an
-;; auth-guard interceptor fails OPEN. `:can-enter` has nothing to enumerate.
+;; logged-out visitor in. Spec 012 §Redirects and guards opens by saying it
+;; outright — "Auth-on-a-route is `:can-enter`, not an interceptor" — and spells out
+;; the fail-OPEN case an interceptor has to remember for itself. `:can-enter` has
+;; nothing to enumerate.
 ;; A frame interceptor is still the right tool when the policy genuinely is not
 ;; about routes — a maintenance-mode lockout, a feature flag over a whole section.
 ;; See ../../../docs/routing/how-to/require-sign-in-on-a-route.md
