@@ -59,7 +59,14 @@
   fails closed independently of any frame. Structural attribution survives every
   case: the resource-id (position 1 of the projected key) and recognized
   structural scalar tags ride verbatim, so a tool can still attribute the row.
-  Unknown map-valued tags fail closed rather than bypassing projection.
+
+  A tag the slot vocabulary does not NAME is projected by SHAPE rather than
+  passed through verbatim (rf2-wd9im): a scoped key anywhere inside it — a member
+  of an unnamed key vector, or the key EMBEDDED at position 1 of a resource
+  work-id — projects through the same owner classification a NAMED slot's keys
+  do, a map payload tokenizes, and a scalar rides verbatim. So no map-shaped
+  value under an unrecognised tag egresses raw at any depth, and a slot nobody
+  has enumerated yet cannot leak the way `:blocking` / `:identities` did.
 
   The redaction is the off-box DEFAULT; the trusted-local `:include-sensitive?`
   opt-in lifts it at the epoch consumer (the `local-raw` boundary — the same
@@ -116,14 +123,28 @@
   #{:resource/key})
 
 (def ^:private scoped-keys-slot
-  "Tag slots that carry a VECTOR of scoped-key vectors across the resource +
+  "Tag slots NAMED as carrying a VECTOR of scoped-key vectors across the
+  resource +
   mutation trace family — `events.cljc` (`:matched` / `:keys` / `:exempt`),
   the `:rf.mutation/succeeded` settlement + its nested `:patch-summary`
   (`:removed` / `:committed` / `:patched` / `:populated` / `:invalidated`), the
   `:rf.mutation/optimistic-rolled-back` row (`:restored` / `:conflicted` /
   `:refetched`), the reconcile summaries (`:restored-keys` / `:conflicted-keys`
   / `:refetched-keys` / `:reconciliation-refetches`), and the
-  `:rf.resource/cancel-timers` fx evidence (`:resource/keys`)."
+  `:rf.resource/cancel-timers` fx evidence (`:resource/keys`).
+
+  This roster is a FIDELITY aid, not the line of defence (rf2-wd9im). It was
+  enumerated from the events / mutation / reconcile rows, so it is a list of the
+  slots someone happened to look at — and it rotted: `:blocking` / `:identities`
+  (EP-0037 `:rf.resource/route-plan`), `:optimistic-keys`, `:forced-keys`,
+  `:revisions`, and the scoped-key EMBEDDED in every `:work/id` /
+  `:superseded` / `:aborted` work-id all carry scoped keys and none of them is
+  named here. Naming a slot buys nothing a shape read cannot: the SHAPE-DRIVEN
+  fail-closed default (`project-unknown-slot-value`) recognises a scoped key
+  wherever it sits and projects it through the SAME
+  `project-trace-scoped-key`, so an unnamed slot's keys project IDENTICALLY to a
+  named one's. Do not grow this set for a newly-noticed slot; the default
+  already covers it."
   #{:resource/keys :matched :removed :keys :exempt :committed
     :patched :populated :invalidated
     :restored :conflicted :refetched
@@ -217,6 +238,94 @@
   vocabulary so a row's nested scoped keys never leak."
   #{:patch-summary :invalidation})
 
+(defn- scoped-key-shape?
+  "Whether `v` has the SHAPE of a scoped resource key
+  `[scope resource-id canonical-params]`: a 3-vector whose position 1 is the
+  resource-id KEYWORD and whose position 2 is the canonical params MAP. Read
+  ONLY by the shape-driven fail-closed default below, to recognise a scoped key
+  sitting in a slot the vocabulary does not name (rf2-wd9im).
+
+  The params `map?` test is what discriminates a real key from the family's
+  OTHER 3-element vectors, and it is the whole reason a shape read is safe here:
+  `:owner [:app :l 1]` (a view path) and `:cause [:mutation :m/save 7]` both
+  have a keyword at position 1 and a SCALAR at position 2, and both MUST ride
+  verbatim — tokenizing them would destroy attribution for no security gain.
+  A `:params-schema` may admit non-map params (a vector / an explicit nil), and
+  such a key is deliberately NOT recognised here; it falls to the recursive walk
+  instead, which still tokenizes every map the key contains (a `{:from-db …}`
+  resolved scope's value map included). The walk is the guarantee, this
+  predicate is the fidelity arm."
+  [v]
+  (and (vector? v) (= 3 (count v)) (keyword? (nth v 1)) (map? (nth v 2))))
+
+(defn- project-unknown-slot-value
+  "SHAPE-DRIVEN fail-closed projection of ONE tag value under a slot the
+  vocabulary above does not name. Returns `[projected sensitive?]`.
+
+  ## Why shape and not another slot name (rf2-wd9im)
+
+  The projector was keyed ENTIRELY on slot NAME, and the fail-closed default
+  rf2-7qbxbm added closed over ONE value shape — a MAP. A sequential value under
+  an unnamed slot fell through the verbatim `:else`, so
+  `:rf.resource/route-plan`'s `:blocking` / `:identities` (vectors of scoped
+  keys) egressed a `:sensitive?` owner's scope + params RAW, where the identical
+  keys under `:matched` tokenized. Adding those two names would have left the
+  same hole for `:optimistic-keys`, `:forced-keys`, `:revisions`, and — on the
+  MAJORITY of rows in the family — the scoped key EMBEDDED at position 1 of
+  every resource `:work/id` / `:superseded` / `:aborted` work-id
+  (`[:rf.work/resource <scoped-key> <generation>]`), none of which any roster
+  named. A name roster cannot cover a slot nobody has looked at yet; a shape
+  read covers all of them, including the ones added next year.
+
+  ## The rule
+
+    - an already-projected `{:rf/redacted …}` token rides as-is + stays
+      sensitive (idempotent — never re-digested);
+    - a SCOPED-KEY-SHAPED vector projects through `project-trace-scoped-key` —
+      the SAME owner classification the NAMED slots use, so an unnamed slot's
+      keys and a named slot's keys cannot drift, per-key distinctness (and
+      therefore a tool's per-key joins) survives, and a PLAIN owner's key still
+      rides verbatim (no over-redaction);
+    - a MAP is tokenized — the unambiguous app-payload shape (rf2-7qbxbm);
+    - any OTHER collection is walked MEMBER-WISE by this same rule, preserving
+      the collection's KIND. Depth is what reaches a work-id's embedded key and
+      a `{:from-db …}` scope's value map; kind preservation is load-bearing
+      because scoped-key identity is kind-SENSITIVE (rf2-wgutc2 — a list-params
+      key and a vector-params key are DISTINCT), so collapsing a list to a
+      vector at egress would make two distinct keys look like one, and `:tags`
+      rides as a SET whose egress shape tools read;
+    - a SCALAR rides verbatim — keywords / numbers / booleans / short id strings
+      are structural facts, not app payloads. Vectors of them (`:branch`'s route
+      ids, `:invalidated-tags`, `:owner`, a mutation `:work/id`) therefore still
+      ride verbatim member-by-member, which is the discrimination the bare
+      \"redact any vector-of-vectors\" guard could not make.
+
+  The invariant this buys, statable and testable: NO map-shaped value under an
+  unrecognised resource-family trace tag egresses off-box raw, at ANY depth.
+  Pure."
+  [v frame-id]
+  (cond
+    (redacted-token? v)   [v true]
+    (scoped-key-shape? v) (project-trace-scoped-key v frame-id)
+    (map? v)              [(ssr/redact-value v) true]
+
+    (coll? v)
+    (let [sens?* (volatile! false)
+          proj   (fn [x]
+                   (let [[pv s] (project-unknown-slot-value x frame-id)]
+                     (when s (vreset! sens?* true))
+                     pv))]
+      [(cond
+         (set? v)    (into #{} (map proj) v)
+         (vector? v) (mapv proj v)
+         ;; a list / lazy seq must stay a seq — `mapv` would print it as a
+         ;; vector and erase the kind distinction described above.
+         (seq? v)    (apply list (map proj v))
+         :else       (mapv proj v))
+       @sens?*])
+
+    :else [v false]))
+
 (declare project-tags*)
 
 (defn- project-disposition-row
@@ -297,44 +406,49 @@
                   (do (note! true) (assoc m k v))
                   (do (note! true) (assoc m k (ssr/redact-value v))))
 
-                ;; FAIL-CLOSED default (rf2-7qbxbm): an UNKNOWN slot whose value
-                ;; is a MAP — the unambiguous payload shape (an HTTP envelope, an
-                ;; arbitrary app result/error map the scoped-key / cursor /
-                ;; envelope vocabulary above did not recognise) — is tokenized
-                ;; rather than passed through verbatim. This flips the former
-                ;; verbatim `:else` (which fell OPEN on any unrecognised slot) to
-                ;; fail CLOSED on map payloads, so a FUTURE map-bearing slot
-                ;; added to a resource/mutation row without a projector clause
-                ;; cannot leak the same way `:error` did. An already-projected
-                ;; (`{:rf/redacted …}`) map is itself a map, so it is guarded
-                ;; FIRST and rides as-is (idempotent — never re-digested).
-                ;;
-                ;; SCALARS, scalar-collections, and SIBLING-OWNED slots ride
-                ;; verbatim through the final `:else`: structural facts
-                ;; (keywords / numbers / booleans / short id strings —
-                ;; `:rf.frame/id`, `:cause`, `:decision`, `:generation`,
-                ;; `:work/id`, `:delay-ms`, `:status-before` / `:status-after`,
-                ;; counts) and app-defined TAG-keyword vectors
-                ;; (`:invalidated-tags`) are not app-data payloads, and
-                ;; tokenizing them would destroy attribution / a tool's joins
-                ;; with no security gain; the scope-resolved sibling projector's
-                ;; `:input-values` / `:scope` slots (`sibling-owned-slot`) were
-                ;; ALREADY classified upstream (EP-0025 made resolved-scope egress
-                ;; unconditionally fail-closed), so re-tokenizing them here is a
-                ;; no-op at best and double-work at worst. The genuine app-data
-                ;; leak vectors are the scoped keys (above), the cursor (above),
-                ;; and the MAP-shaped HTTP envelope (above) — the conservative
-                ;; fail-closed scope the audit ruled.
+                ;; An already-projected token rides as-is and still marks the row
+                ;; sensitive — guarded BEFORE `sibling-owned-slot` so a
+                ;; pre-redacted `:scope` / `:input-values` does not lose the
+                ;; row's `:sensitive?` stamp.
                 (redacted-token? v)
                 (do (note! true) (assoc m k v))
 
+                ;; SIBLING-OWNED slots ride verbatim: the scope-resolved sibling
+                ;; projector already classified `:input-values` / `:scope`
+                ;; upstream on the row it owns (EP-0025 made resolved-scope
+                ;; egress unconditionally fail-closed), so re-tokenizing here is
+                ;; a no-op at best and double-work at worst.
                 (sibling-owned-slot k)
                 (assoc m k v)
 
-                (map? v)
-                (do (note! true) (assoc m k (ssr/redact-value v)))
-
-                :else (assoc m k v)))
+                ;; FAIL-CLOSED default — SHAPE-DRIVEN (rf2-7qbxbm gave it the
+                ;; map arm; rf2-wd9im made it read shape rather than only
+                ;; `map?`). Every slot the vocabulary above does not NAME is
+                ;; projected by `project-unknown-slot-value`: a scoped key
+                ;; anywhere inside it projects through the owner exactly as a
+                ;; NAMED slot's keys do, a map payload tokenizes, a scalar rides
+                ;; verbatim, and any other collection is walked member-wise.
+                ;;
+                ;; This is what closes the CLASS rather than an instance. The
+                ;; former arm covered ONE shape, so a sequential value fell
+                ;; through the verbatim `:else` and
+                ;; `:rf.resource/route-plan`'s `:blocking` / `:identities`
+                ;; egressed a sensitive owner's scope + params RAW — as did
+                ;; `:optimistic-keys` / `:forced-keys` / `:revisions` and the
+                ;; scoped key EMBEDDED in every resource `:work/id` /
+                ;; `:superseded` / `:aborted` work-id.
+                ;;
+                ;; NOTE for the reader who reaches here from a row's emit site:
+                ;; a slot NAME in `scoped-keys-slot` does not mean the row's
+                ;; value is a key vector. `:rf.resource/route-plan` carries
+                ;; `:removed` as an INT COUNT while the mutation-settlement rows
+                ;; carry it as a key vector — the two were written against
+                ;; different mental models of `:removed`. Both are handled: the
+                ;; named arm above requires `sequential?`, so the int count
+                ;; falls to this default and rides verbatim as the scalar it is.
+                :else
+                (let [[pv s] (project-unknown-slot-value v frame-id)]
+                  (note! s) (assoc m k pv))))
             {}
             tags)]
       [tags' @sens?*])))
@@ -358,8 +472,16 @@
   rides verbatim; an UNREGISTERED owner FAILS CLOSED (redacted — the
   trace-egress default). The resource-id (position 1 of every projected key) and
   recognized structural scalar tags (`:rf.frame/id`, `:cause`, `:decision`,
-  `:generation`, `:owner`, `:work/id`, `:delay-ms`, counts, …) ride verbatim;
-  unknown map-valued tags fail closed. When ANY projected slot redacted a
+  `:generation`, `:owner`, `:delay-ms`, counts, …) ride verbatim. A tag the
+  vocabulary does not NAME is projected by SHAPE (rf2-wd9im,
+  `project-unknown-slot-value`): a scoped key anywhere inside it projects through
+  the same owner classification, a map payload tokenizes, a scalar rides
+  verbatim. That is what covers `:rf.resource/route-plan`'s `:blocking` /
+  `:identities`, the optimistic rows' `:optimistic-keys` / `:forced-keys` /
+  `:revisions`, and the scoped key EMBEDDED at position 1 of every resource
+  `:work/id` / `:superseded` / `:aborted` work-id
+  (`[:rf.work/resource <scoped-key> <generation>]`) — none of which the slot
+  roster names. When ANY projected slot redacted a
   sensitive / unregistered key, the row is stamped `:sensitive? true`.
 
   The load-more PAGINATION CURSOR — `:page-param` (on `:rf.resource/load-more`)
