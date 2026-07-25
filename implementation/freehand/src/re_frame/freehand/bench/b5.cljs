@@ -521,7 +521,7 @@
   "How the readings over `path` were taken, published verbatim in the fixture
   so a reader knows exactly what each number is a number of.
 
-  A function of the artefact, not a constant. The three matched shapes route
+  A function of the artefact, not a constant. All three release shapes route
   through this same probe, and a method line that named
   `out/freehand-release/main.js` while its own fixture's `:artefact` named a
   different file described a measurement that did not happen — the exact
