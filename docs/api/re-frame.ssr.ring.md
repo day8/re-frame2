@@ -48,7 +48,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
   - `:version` — hydration payload's `:rf/version`; default `1`.
   - `:schema-digest` — hydration payload's `:rf/schema-digest`.
   - `:html-shell` — `(body-html payload-edn opts) → string`; defaults to [`default-html-shell`](#default-html-shell).
-  - `:content-type` — default `"text/html; charset=utf-8"`.
+  - `:content-type` — **no default**, and supplying one *force-replaces* the response Content-Type. Omit it (the normal case) and the wire value stays `text/html; charset=utf-8` — either the runtime's seeded default or the app's own `:rf.server/set-header "content-type"`, whichever the request established. See [`handler-defaults`](#handler-defaults).
 
   Error handling — `:error-view` vs `:on-error`. These two opts handle two different failures, and a robust deployment wires both. Classification is by the **projected status**: a projected **4xx** (routing miss / bad client input) keeps the app's own not-found / bad-request body + hydration payload and does **not** call `:error-view`; a projected **5xx** (server fault) ships the error page. A buggy `:error-view` — whether it throws OR depends on a reactive sub that recovers to `nil` — falls back once to the default template; a buggy `:on-error` falls back to `default-on-error`. Neither bug bypasses the error boundary.
 
@@ -162,16 +162,17 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
 - **Signature**:
   ```clojure
   handler-defaults
-  ;; => {:emit-hash?   true
-  ;;     :html-shell   default-html-shell
-  ;;     :content-type "text/html; charset=utf-8"}
+  ;; => {:emit-hash? true
+  ;;     :html-shell default-html-shell}
   ```
-- **Description**: The default `ssr-handler` opts, merged under caller-supplied opts at construction (caller values win). This is a data var, not a fn. It is exposed so callers can read or extend the baseline. `:on-error` is deliberately absent: it is resolved separately, so the defaults stay orthogonal to the on-error precedence.
+- **Description**: The default `ssr-handler` opts, merged under caller-supplied opts at construction (caller values win). This is a data var, not a fn. It is exposed so callers can read or extend the baseline. Two opts are deliberately absent:
+  - `:on-error` — resolved separately, so the defaults stay orthogonal to the on-error precedence.
+  - `:content-type` — **carries no default here, on purpose.** The opt is a genuine override that *force-replaces* the response Content-Type when supplied, so a default in this map would force-replace an app's own `:rf.server/set-header "content-type"` on **every** request. An absent (nil) opt instead leaves the runtime's default-seeded `text/html; charset=utf-8` (Spec 011 §Status defaults) — or the app's explicit Content-Type — in control. The on-the-wire default is `text/html; charset=utf-8` either way; it just does not come from this var.
 - **Example**:
   ```clojure
   ;; Read the baseline the handler constructor merges under your opts.
   ssr.ring/handler-defaults
-  ;; => {:emit-hash? true, :html-shell #object[...], :content-type "text/html; charset=utf-8"}
+  ;; => {:emit-hash? true, :html-shell #object[...]}
   ```
 
 ### `default-html-shell`
