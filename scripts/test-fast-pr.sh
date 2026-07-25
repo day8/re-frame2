@@ -3,14 +3,42 @@ set -euo pipefail
 
 # Fast pre-checkin spine for the canonical agent quality gate.
 #
-# Mirrors CI's PR-gate matrix so workers see local failures BEFORE pushing —
-# and mirrors CI's *tiering* too: the heavy runtime suites (core JVM, the
-# CLJS node-test build, the JS harness self-tests, per-namespace isolation)
-# and the documentation gates run ONLY when the changed surface actually
-# owns them, exactly as test.yml job-gates them on the changed-surface
-# classifier.  A documentation- or EP-only diff therefore runs the cheap
-# always-on static/drift checks plus the documentation gates and NOTHING
-# heavier — no JVM, no npm/CLJS, no per-namespace runtime (rf2-r6x1t).
+# WHAT IT ACTUALLY RUNS — read this before trusting a green (rf2-dgzaf).  This
+# is a SPINE, not a local mirror of CI's PR-gate matrix.  It runs, when the
+# changed surface owns the tier:
+#
+#   always     the cheap repo-wide static/drift checks (each paired with its
+#              own self-test where it has one);
+#   docs tier  the documentation-content gates, plus `mkdocs build --strict`
+#              — SOFT-SKIPPED when mkdocs is not on PATH;
+#   JVM tier   `implementation/core` and NOTHING ELSE.  Eighteen jobs in
+#              .github/workflows/test.yml gate on the very same
+#              `implementation_jvm` flag; this script runs ONE of them.  The
+#              other seventeen — ui, schemas, machines, routing, flows, http,
+#              ssr, security, ssr-ring, epoch, resources, freehand,
+#              spec-resource, the three conformance artefacts, and test-quiet
+#              — run in CI and NOT here, so a change under
+#              `implementation/routing/src` gets NONE of routing's 487 JVM
+#              tests from this script.  Run `scripts/test-jvm-implementation.sh` for
+#              those (it is the whole set, and it is what CI's per-artefact
+#              jobs collectively cover);
+#   node tier  the npm/CLJS `:node-test` build, the JS harness self-tests, and
+#              the per-namespace isolation gate.
+#
+# Everything else CI runs is in NO tier of this spine: the browser lanes, the
+# production-elision / bundle-isolation / perf-bundle gates, the adapter
+# classpath probes (gated on `adapter_diagnostic`, which this script does not
+# even consult), the adapter smokes, the Xray feature matrix, mcp-conformance,
+# and the tool JVM suites (`scripts/test-jvm-tools.sh`).
+#
+# So `PASS fast PR spine` means "the spine's own tiers passed" — never "what CI
+# will run passed".  The PASS line enumerates every tier and step that was
+# skipped, including the mkdocs soft-skip, so the gap is visible rather than
+# assumed.  `TESTING.md` carries the canonical PR/nightly/release matrix.
+#
+# What it DOES mirror is CI's *tiering* — which tiers run for a given diff —
+# because that decision is delegated wholesale to the classifier CI uses.  Tier
+# SELECTION is faithful; tier CONTENTS are the spine's own, narrower set above.
 #
 # HOW THE TIERING IS DECIDED — no second map.  The runtime tier is delegated
 # WHOLESALE to the very classifier CI uses,
@@ -117,6 +145,16 @@ if [ ! -x "$classifier" ] && [ ! -f "$classifier" ]; then
   exit 2
 fi
 
+# Every tier or step this run did NOT execute, named in the final PASS line
+# (rf2-dgzaf).  `PASS fast PR spine` on its own was compatible with the docs
+# build never having been attempted and with seventeen JVM artefact suites
+# never running; a gate that honestly says what it covered is worth more than
+# one that overstates and is believed.  Bash 3.2-compatible array (macOS).
+skipped=()
+note_skipped() {
+  skipped+=("$1")
+}
+
 run() {
   local surface="$1"
   local repro="$2"
@@ -140,6 +178,7 @@ run_soft() {
   if ! command -v "$probe" >/dev/null 2>&1; then
     printf '    SKIP %s: %s not on PATH (CI will run this; local soft-skip OK)\n' \
       "$surface" "$probe"
+    note_skipped "$surface ($probe not on PATH)"
     return 0
   fi
   if ! "$@"; then
@@ -286,6 +325,14 @@ if [ "$plan_only" = true ]; then
   printf '  core JVM suite:      %s\n' "$([ "$run_jvm" = true ] && echo run || echo skip)"
   printf '  node/CLJS suite:     %s\n' "$([ "$run_node" = true ] && echo run || echo skip)"
   printf '  reason:              %s\n' "$plan_reason"
+  # The tier NAMES understate their contents; say so here too, so `--plan` is
+  # not read as a coverage claim (rf2-dgzaf).
+  printf '  note:                the JVM tier is implementation/core ONLY —'
+  printf ' 17 of the 18 implementation_jvm\n'
+  printf '                       artefact suites run in CI, not here'
+  printf ' (scripts/test-jvm-implementation.sh).\n'
+  printf '                       No browser, bundle, adapter, Xray, MCP or'
+  printf ' tool-JVM gate is in any tier.\n'
   printf 'PLAN docs=%s jvm=%s node=%s\n' "$run_docs" "$run_jvm" "$run_node"
   exit 0
 fi
@@ -459,6 +506,7 @@ if [ "$run_docs" = true ]; then
     bash -lc "cd '$spine_root' && mkdocs build --strict"
 else
   printf '\n--- documentation surface unchanged → skipping doc gates (override with --with-docs) ---\n'
+  note_skipped "documentation gates (surface unchanged; --with-docs forces)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -467,8 +515,13 @@ fi
 if [ "$run_jvm" = true ]; then
   run "core JVM" "cd implementation/core && clojure -M:test" \
     bash -lc "cd '$spine_root/implementation/core' && clojure -M:test"
+  # Named even on the path that RUNS the tier: `implementation_jvm` armed
+  # eighteen CI jobs and this spine covered one of them.  A worker who changed
+  # routing, machines, resources … must see that its suite was not run here.
+  note_skipped "17 of 18 implementation_jvm artefact suites (only core ran; scripts/test-jvm-implementation.sh runs all)"
 else
   printf '\n--- implementation_jvm surface unchanged → skipping core JVM (override with --all) ---\n'
+  note_skipped "core JVM (implementation_jvm surface unchanged; --all forces)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -501,6 +554,21 @@ if [ "$run_node" = true ]; then
     bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs"
 else
   printf '\n--- cljs_node_test surface unchanged → skipping npm/CLJS/isolation (override with --all) ---\n'
+  note_skipped "npm/CLJS/isolation (cljs_node_test surface unchanged; --all forces)"
 fi
 
+# The spine's browser/bundle/adapter/tooling gap is unconditional — no tier of
+# this script runs those — so it is named on every PASS, not just when a tier
+# was skipped by classification.
+note_skipped "browser lanes, prod-elision/bundle-isolation/perf gates, adapter probes + smokes, Xray feature matrix, mcp-conformance, tool JVM suites (CI only; see TESTING.md)"
+
+# ---------------------------------------------------------------------------
+# Honest exit line: PASS names what was NOT run (rf2-dgzaf).
+# ---------------------------------------------------------------------------
 printf 'PASS fast PR spine\n'
+if [ "${#skipped[@]}" -gt 0 ]; then
+  printf 'NOT RUN by this spine (%d):\n' "${#skipped[@]}"
+  for item in "${skipped[@]}"; do
+    printf '  - %s\n' "$item"
+  done
+fi

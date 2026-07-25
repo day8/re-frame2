@@ -84,7 +84,7 @@ This axis is revisited at API-freeze / external-alpha prep, alongside the facade
 
 | Command | Scope |
 |---|---|
-| `scripts/test-fast-pr.sh` | The fast PR spine: always-on lockstep + skill/MCP + drift checks, plus the documentation gates and the runtime suites (core JVM, JS harness self-tests, CLJS node integration, per-namespace isolation) **tiered on the changed-surface classifier** — a docs/EP-only diff skips the runtime suites. `--all` / `RF2_FAST_PR_ALL=1` forces the complete spine; `--plan` prints the tier decision without running anything. |
+| `scripts/test-fast-pr.sh` | The fast PR spine: always-on lockstep + skill/MCP + drift checks, plus the documentation gates and the runtime suites (core JVM, JS harness self-tests, CLJS node integration, per-namespace isolation) **tiered on the changed-surface classifier** — a docs/EP-only diff skips the runtime suites. Its JVM tier is `implementation/core` **only**: `implementation_jvm` arms eighteen CI jobs and the spine runs one, so a change under another artefact still needs that artefact's suite (or `test-jvm-implementation.sh`). The spine's PASS line enumerates what it did not run. `--all` / `RF2_FAST_PR_ALL=1` forces the complete spine; `--plan` prints the tier decision without running anything. |
 | `scripts/test-jvm-implementation.sh` | All implementation JVM artefacts (including adapter probes). |
 | `scripts/test-jvm-tools.sh` | Tool JVM artefacts. |
 | `scripts/test-rigorous-local.sh` | Local mirror of the nightly sweep (spine + JVM + browser/bundle/Story/Xray + examples-compile; inventory pinned by a self-test). Use before release-sized changes. |
