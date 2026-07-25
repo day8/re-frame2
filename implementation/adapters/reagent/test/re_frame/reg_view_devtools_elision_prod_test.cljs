@@ -15,6 +15,23 @@
   matching CLJS-runtime test (`reg_view_devtools_cljs_test.cljs`)
   exercises the same surface under dev-mode.
 
+  ## Fixtures carry an attrs map (rf2-wns8d)
+
+  Every view declared below renders a root with an EXPLICIT attrs map
+  (`[:span {:id \"x\"} …]`), and that is load-bearing rather than
+  incidental. These tests assert the ABSENCE of a prop on the rendered
+  root; a root with no attrs map has no props at all, so the absence
+  reads true for a reason unrelated to the contract, and the assertion
+  cannot go red no matter what the framework does to props it finds.
+  Measured: with the earlier attr-less `[:span \"hi\"]` fixture, a
+  wrapper mutated to re-grow the pre-rf2-rohdn `_jsx*` props on an
+  existing root attrs map left every assertion here GREEN. With the
+  attrs map they go red, which is the whole point of an elision lane.
+
+  So: do not simplify the fixtures back to a bare `[:tag \"text\"]`.
+  Each assertion pins `(map? attrs)` first, so a fixture that drifts
+  fails loudly instead of quietly certifying nothing.
+
   Naming convention: files ending in `-prod-test.cljs` are picked up
   ONLY by the `:browser-test-prod-elision` build."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -26,7 +43,14 @@
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-(defn- root-attrs [hiccup]
+(defn- root-attrs
+  "The root element's attrs map, or nil when the root carries none.
+
+  Every fixture in this file gives its root an EXPLICIT attrs map, so a
+  nil return here means the shape under test never materialised — which
+  is why each assertion below pins `(map? attrs)` before reading a key
+  out of it. See the §Fixtures carry an attrs map note above."
+  [hiccup]
   (when (and (vector? hiccup) (map? (second hiccup)))
     (second hiccup)))
 
@@ -36,19 +60,21 @@
             Under :advanced + goog.DEBUG=false the entire reg-view*
             annotation branch DCEs anyway; rf2-rohdn also removed the
             JSX-prop emission so the same absence holds under dev-mode."
-    (rf/reg-view* :rf.prod-elision-test/jsx-no-attrs
-                  (fn [] [:span "hi"]))
-    (let [render (rf/view :rf.prod-elision-test/jsx-no-attrs)
+    (rf/reg-view* :rf.prod-elision-test/jsx-with-attrs
+                  (fn [] [:span {:id "x"} "hi"]))
+    (let [render (rf/view :rf.prod-elision-test/jsx-with-attrs)
           out    (render)
           attrs  (root-attrs out)]
-      (is (or (nil? attrs)
-              (nil? (:_jsxFileName attrs)))
+      ;; Precondition, not decoration (rf2-wns8d): if this fails the three
+      ;; key reads below are reading out of nil and certify nothing.
+      (is (map? attrs)
+          "the root carries an attrs map — the shape the assertions read")
+      (is (= "x" (:id attrs)) "the author's own attrs pass through")
+      (is (nil? (:_jsxFileName attrs))
           "NO :_jsxFileName on the rendered root")
-      (is (or (nil? attrs)
-              (nil? (:_jsxLineNumber attrs)))
+      (is (nil? (:_jsxLineNumber attrs))
           "NO :_jsxLineNumber on the rendered root")
-      (is (or (nil? attrs)
-              (nil? (:_jsxColumnNumber attrs)))
+      (is (nil? (:_jsxColumnNumber attrs))
           "NO :_jsxColumnNumber on the rendered root"))))
 
 (deftest reg-view-wrapped-fn-has-no-display-name-under-prod
@@ -70,9 +96,14 @@
             this prop at all) and by the elision gate (the whole branch
             DCEs in prod)."
     (rf/reg-view* :rf.prod-elision-test/jsx-literal-check
-                  (fn [] [:p "scan me"]))
+                  (fn [] [:p {:class "scan"} "scan me"]))
     (let [render (rf/view :rf.prod-elision-test/jsx-literal-check)
           out    (render)
           flat   (pr-str out)]
+      ;; Same precondition as above: a root with no attrs map is a root a
+      ;; prop-decorating regression never touches, so the scan below would
+      ;; be reading a string that could not have carried the literal.
+      (is (map? (root-attrs out))
+          "the root carries an attrs map — the shape a prop regression lands on")
       (is (not (clojure.string/includes? flat "_jsxFileName"))
           "the literal _jsxFileName does not appear in the rendered output"))))
