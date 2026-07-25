@@ -206,7 +206,7 @@
 
       (rf/make-frame {:id :app
                       :url-bound?   true
-                          :url-strategy rf/hash-url-strategy})
+                      :url-strategy rf.routing/hash-url-strategy})
 
   `route-url` still builds path-form `/active`; the strategy `:encode`s it
   to `#/active` at the `route-link` href and the history fxs, and `:decode`s

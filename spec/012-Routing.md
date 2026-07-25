@@ -1944,7 +1944,7 @@ A frame declares its strategy alongside `:url-bound?`:
 ```clojure
 (rf/make-frame {:id :app
                 :url-bound?   true
-                :url-strategy rf/hash-url-strategy})   ;; default: rf/history-url-strategy
+                :url-strategy rf.routing/hash-url-strategy})   ;; default: rf.routing/history-url-strategy
 ```
 
 ### The strategy contract

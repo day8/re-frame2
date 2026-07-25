@@ -5,7 +5,7 @@
   Everything else leans on this wiring. `init!` picks the reactive substrate
   (here, Reagent). The render root is a `frame-root {:id …}`: on first
   mount it creates the app frame, marks it `:url-bound?` so the frame owns the
-  address bar, and declares `:url-strategy rf/hash-url-strategy` so the router
+  address bar, and declares `:url-strategy routing/hash-url-strategy` so the router
   speaks hash URLs (`#/active`) — because TodoMVC's URLs are hash-based. The
   frame is seeded once via `:initial-events`. In re-frame2 the URL is just an
   input and navigation is just an event; the router's hash strategy handles the
@@ -38,7 +38,7 @@
 ;; the app frame and runs `:initial-events`; every reload after that reuses the
 ;; same frame and skips the seed, so your todos survive a code change.
 ;;
-;; `:url-strategy rf/hash-url-strategy` is the one line that makes this a hash
+;; `:url-strategy routing/hash-url-strategy` is the one line that makes this a hash
 ;; app. It tells the router to encode `route-url` output as `#/active` at the
 ;; egress points (link hrefs, pushState) and decode `window.location.hash` back
 ;; to a path on the way in. `route-url` and `match-url` stay path-form; only the
