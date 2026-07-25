@@ -1515,9 +1515,30 @@
   ["re-frame.freehand.test" "text"]        {:tier :testing :owner "008" :status "EP-0036"}
 
   ;; =========================================================================
-  ;; re-frame.freehand.tool — the Freehand TOOL-TIER READER DOOR (rf2-hytu5;
-  ;; EP-0036). The third and last sanctioned `re-frame.freehand.*` namespace,
-  ;; and the smallest: ONE name, `view-manifest`.
+  ;; re-frame.freehand.tool — the Freehand TOOL-TIER READER DOOR (rf2-hytu5,
+  ;; extended by rf2-lvvl2; EP-0036). The third and last sanctioned
+  ;; `re-frame.freehand.*` namespace. FOUR names: the value-taking
+  ;; `view-manifest`, and the three ID-taking reads a wire-attached inspector
+  ;; needs — `read-view-manifest`, `read-view-dependencies`,
+  ;; `read-view-event-sites`.
+  ;;
+  ;; Why the split is two doors and not one function's arities: `view-manifest`
+  ;; is TOTAL over every value, because a sweep over a namespace's publics
+  ;; hands it strings, numbers and plain fns and a reader that threw on the
+  ;; first non-view could not sweep. So `(view-manifest :a/keyword)` answers
+  ;; `nil` — a keyword is not a view — and must keep answering that. An MCP
+  ;; inspector holds no values at all: it arrives over a wire with
+  ;; `:app.people/people-list`. Overloading one name to mean both "project this
+  ;; value" and "resolve this id" would break the totality the sweep depends
+  ;; on, so the id-taking reads carry their own names.
+  ;;
+  ;; All four are the SAME tier for the same reason, so the three new rows are
+  ;; not an escalation: each answers with inspection DATA and none is a
+  ;; dispatch surface. The id-taking three additionally answer inside the
+  ;; four-axis evidence projection (`:scope` / `:basis` / `:complete?` /
+  ;; `:loss`), which is what lets a tool tell an INTERPRETED declaration — no
+  ;; analysis step, so nothing knowable — from a compiled one whose rosters
+  ;; really are empty.
   ;;
   ;; TOOLING, the same tier `v/describe` and `v/manifest` sit in, and for the
   ;; same reason — it answers with inspection DATA and is never a dispatch
@@ -1540,15 +1561,35 @@
   ;;
   ;; DELIBERATELY NOT the donor `re-frame.ui.tool` surface, whose disposition
   ;; is REPLACE and whose per-occurrence evidence accumulator was ruled out
-  ;; PERMANENTLY (rf2-drpa3.167), not deferred. There is no accumulator, no
-  ;; root registry, no interval log and no history store here — retention is
-  ;; Spec 009's ring — so the one name is the whole namespace by construction,
-  ;; and live reads over mounted occurrences are a separate slice (rf2-lvvl2)
-  ;; with a separate owner. `.cljc` and host-neutral like the door and the
-  ;; test sibling, so the JVM generator owns tier/kind via `ns-publics` and
-  ;; the CLJS probe reconciles the same row, FULLY-ROWED in both directions.
+  ;; PERMANENTLY (rf2-drpa3.167), not deferred. There is still no accumulator,
+  ;; no interval log and no history store here — retention is Spec 009's ring.
+  ;; The id-taking reads resolve through a dev-only DECLARED-VIEW index
+  ;; (`re-frame.freehand.registry`): one row per declaration, replaced when
+  ;; that declaration is re-evaluated, carrying no occurrence, generation or
+  ;; count. That index is INTERNAL and `^:no-doc`, and is absent from this
+  ;; projection BY CONSTRUCTION rather than by carve-out — the same standing
+  ;; `re-frame.freehand.descriptor` has, and for the same reason: nothing
+  ;; authors against it. Its only caller is the `v/defview` expansion and its
+  ;; only reader is this namespace, so a row here would advertise an authoring
+  ;; surface that does not exist. It is also dev-gated and elides from release
+  ;; builds, so a public row would name something a shipped bundle does not
+  ;; contain. Promoting it would be a D001 change (the sanctioned
+  ;; `re-frame.freehand.*` siblings are a closed set), which a registry-shaped
+  ;; internal does not earn.
+  ;;
+  ;; Live reads over MOUNTED occurrences remain a separate slice — `mounted-
+  ;; views` (rf2-xftdv) and the bounded `explain-render` (rf2-cpfbg) — each
+  ;; with its own owner, its own state and its own release seam. Nothing below
+  ;; can say what is mounted, and none of it pretends to.
+  ;;
+  ;; `.cljc` and host-neutral like the door and the test sibling, so the JVM
+  ;; generator owns tier/kind via `ns-publics` and the CLJS probe reconciles
+  ;; the same rows, FULLY-ROWED in both directions.
   ;; =========================================================================
-  ["re-frame.freehand.tool" "view-manifest"] {:tier :tooling :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.tool" "view-manifest"]          {:tier :tooling :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.tool" "read-view-manifest"]     {:tier :tooling :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.tool" "read-view-dependencies"] {:tier :tooling :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.tool" "read-view-event-sites"]  {:tier :tooling :owner "004" :status "EP-0036"}
 
   ["re-frame.ui.test" "render"]    {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "text"]      {:tier :testing :owner "008" :status "Spec-004 S1"}
