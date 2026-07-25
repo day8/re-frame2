@@ -1,0 +1,221 @@
+;; FH-STRUCT-011 — one `v/custom-element` declaration, every lowering path.
+;;
+;; A web component's rich inputs are JS PROPERTIES: `el.scale = {…}` is how a
+;; map gets in, and nothing about the keyword `:scale` says so. Undeclared, the
+;; name travels the attribute grammar, whose rule for an unrecognized kebab
+;; spelling is to pass it through VERBATIM — so React writes the attribute, the
+;; element's property setter never runs, and the component mounts renderable but
+;; INERT with nothing reported. That silence is why the declaration exists.
+;;
+;; WHY THE CASE TABLE IS SHAPED BY PATH RATHER THAN BY OUTCOME. Every row below
+;; pins the SAME classification, and the rows differ only in how the prop
+;; reached the element: a compiled literal props map (classified at build time
+;; under that build's own declaration slice), the interpreted walk, a
+;; `v/spread` beside a compiled element, a `v/spread` in an interpreted body, a
+;; `v/spread-safe` caller. That redundancy is the whole subject. The
+;; machinery's first consumer was the compiled literal map alone, and a rule
+;; reaching only that one means *property* at a literal site and *attribute*
+;; one `v/spread` away — one declaration, two meanings, no diagnostic. So the
+;; fixture is written to go RED at whichever path stops asking.
+;;
+;; THE ADVERSARIAL ROWS.
+;;
+;;   `:scale` carries a MAP. It is legal only because it is declared: the
+;;   `:refused` rows below show the identical value on an undeclared name
+;;   failing loud as an attribute, on a declared element and an undeclared one
+;;   alike. A property's meaning belongs to the element's own setter, which is
+;;   why the attribute-value grammar has no opinion about it.
+;;
+;;   `:tab-index` on `:ce-attrish` is a declared name that is ALSO a standard
+;;   HTML attribute spelling. The declaration is the SOLE classifier, so it is
+;;   the `tabIndex` property here and never the `tabindex` attribute — a
+;;   classification that consulted an attribute-name table would get this
+;;   backwards and be right about everything else.
+;;
+;;   `:ce-below` is declared BELOW the views that use it. Macros expand top to
+;;   bottom, so before the source harvest a view above its declaration baked
+;;   the ATTRIBUTE lowering and the same two forms reversed baked the property
+;;   one. Declaration order is not an authoring decision.
+;;
+;;   `:ce-plain` is declared nowhere. An undeclared ELEMENT needs no
+;;   declaration at all, so declaring is only ever the exception.
+;;
+;; THE MARKUP ROWS ARE THE SERVER'S HALF, and they are pinned as whole HTML
+;; strings because the claim is about what is NOT in them. A server cannot set
+;; a property, so a property-classified name is omitted from markup under EVERY
+;; spelling and applied by the client at hydration; a present-and-wrong
+;; attribute would hydrate without complaint and leave the component inert.
+;;
+;; THE DOM ROWS close the loop on a real element in a real browser, which is
+;; the only place "it was set as a property, not an attribute" is observable.
+{:fh/id "FH-STRUCT-011"
+ :fh/law
+ "A `(v/custom-element tag {:properties #{…}})` declaration classifies a prop identically on every lowering path — a compiled literal props map, a compiled element's dynamic props, the interpreted walk, `v/spread` and `v/spread-safe` — because the classification belongs to the declaration rather than to the tier that saw the prop. A declared name keeps its authored kebab key in the structural tree, keeps its value verbatim outside the attribute-value grammar, is named in the node's reserved `:rf.ui/property-props` set, is omitted from server markup under every spelling, and is applied in the browser as the ruled kebab -> camelCase JS property. Every other name is an attribute, an undeclared element is all-attributes, and declaration ORDER is not an authoring decision."
+
+ ;; The declarations the case table is written against, all from the one
+ ;; source `re-frame.freehand.custom-element-views`. Asserted against the live
+ ;; registry, so a fixture written for a declaration the source no longer makes
+ ;; cannot pass by reading its own expectations back.
+ :declarations
+ [{:tag :ce-panel   :properties #{:accent-color :help-text :scale}}
+  {:tag :ce-attrish :properties #{:tab-index}}
+  {:tag :ce-below   :properties #{:model}}]
+
+ ;; The tag that is deliberately absent from the registry.
+ :undeclared-tag :ce-plain
+
+ :cases
+ [{:note "the interpreted walk: three declared names are properties, the map value among them; the undeclared names are attributes"
+   :view :panel-literal
+   :tree {:view-id :re-frame.freehand.custom-element-views/panel-literal
+          :children [{:tag :ce-panel
+                      :attrs {:accent-color "blue" :help-text "h"
+                              :scale {:min 0 :max 10}
+                              :data-x "d" :label "lab"}
+                      :rf.ui/property-props #{:accent-color :help-text :scale}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "the same body promoted with `{:compiled true}` — the build-time classification answers the same tree"
+   :view :panel-literal-compiled
+   :tree {:view-id :re-frame.freehand.custom-element-views/panel-literal-compiled
+          :children [{:tag :ce-panel
+                      :attrs {:accent-color "blue" :help-text "h"
+                              :scale {:min 0 :max 10}
+                              :data-x "d" :label "lab"}
+                      :rf.ui/property-props #{:accent-color :help-text :scale}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "`v/spread` in an interpreted body: a map the compiler never saw, classified by the declaration's runtime arm"
+   :view :panel-spread
+   :tree {:view-id :re-frame.freehand.custom-element-views/panel-spread
+          :children [{:tag :ce-panel
+                      :attrs {:accent-color "blue" :help-text "h"
+                              :scale {:min 0 :max 10}
+                              :data-x "d" :label "lab"}
+                      :rf.ui/property-props #{:accent-color :help-text :scale}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "`v/spread` beside a COMPILED element — the dynamic props of a compiled site reach the same runtime arm"
+   :view :panel-spread-compiled
+   :tree {:view-id :re-frame.freehand.custom-element-views/panel-spread-compiled
+          :children [{:tag :ce-panel
+                      :attrs {:accent-color "blue" :help-text "h"
+                              :scale {:min 0 :max 10}
+                              :data-x "d" :label "lab"}
+                      :rf.ui/property-props #{:accent-color :help-text :scale}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "`v/spread-safe`: a forwarded DECLARED name is still a property, the owned prop still wins, and the forwarded undeclared name is still an attribute"
+   :view :panel-spread-safe
+   :args [{:caller {:accent-color "caller-blue" :label "ignored" :data-y "y"}}]
+   :tree {:view-id :re-frame.freehand.custom-element-views/panel-spread-safe
+          :props {:caller {:accent-color "caller-blue" :label "ignored" :data-y "y"}}
+          :children [{:tag :ce-panel
+                      :attrs {:accent-color "caller-blue" :label "owned" :data-y "y"}
+                      :rf.ui/property-props #{:accent-color}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "nil-is-absent runs FIRST: a conditional property the element does not carry is not a property of this element"
+   :view :panel-nil-property
+   :tree {:view-id :re-frame.freehand.custom-element-views/panel-nil-property
+          :children [{:tag :ce-panel
+                      :attrs {:help-text "h" :data-x "d"}
+                      :rf.ui/property-props #{:help-text}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "the declaration is the SOLE classifier: a declared standard-attribute spelling is a property, and the undeclared name beside it stays an attribute"
+   :view :attrish
+   :tree {:view-id :re-frame.freehand.custom-element-views/attrish
+          :children [{:tag :ce-attrish
+                      :attrs {:tab-index "3" :role "note"}
+                      :rf.ui/property-props #{:tab-index}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "an UNDECLARED element is all-attributes: no declaration, so no property marker at all — absent, never an empty set"
+   :view :undeclared
+   :tree {:view-id :re-frame.freehand.custom-element-views/undeclared
+          :children [{:tag :ce-plain :attrs {:accent-color "x" :data-y "y"}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "declaration order: the view sits ABOVE its declaration and classifies identically (interpreted)"
+   :view :below-literal
+   :tree {:view-id :re-frame.freehand.custom-element-views/below-literal
+          :children [{:tag :ce-below
+                      :attrs {:model "m" :data-x "d"}
+                      :rf.ui/property-props #{:model}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "declaration order: and compiled, where the classification is baked at macroexpansion and the harvest is what makes it right"
+   :view :below-literal-compiled
+   :tree {:view-id :re-frame.freehand.custom-element-views/below-literal-compiled
+          :children [{:tag :ce-below
+                      :attrs {:model "m" :data-x "d"}
+                      :rf.ui/property-props #{:model}}]
+          :rf.ui/tree-version 1}}
+
+  {:note "declaration order: and through `v/spread`, whose runtime arm cannot be order-dependent and must agree anyway"
+   :view :below-spread
+   :tree {:view-id :re-frame.freehand.custom-element-views/below-spread
+          :children [{:tag :ce-below
+                      :attrs {:model "m" :data-x "d"}
+                      :rf.ui/property-props #{:model}}]
+          :rf.ui/tree-version 1}}]
+
+ ;; The ruled kebab -> camelCase JS property name — the spelling the client
+ ;; SETS. Deliberately not react-dom's attribute table: that table's rule for
+ ;; an unrecognized kebab name is to pass it through, which is the whole defect
+ ;; the declaration exists to prevent.
+ :property-names
+ [{:note "the everyday case"                                  :attr :accent-color :property "accentColor"}
+  {:note "and again, so one row is not the whole claim"        :attr :help-text    :property "helpText"}
+  {:note "a single-word name is already its own property name" :attr :scale        :property "scale"}
+  {:note "a standard-attribute spelling still camelizes"       :attr :tab-index    :property "tabIndex"}]
+
+ ;; A value outside the attribute-value grammar is legal as a declared PROPERTY
+ ;; and refused as an attribute — on a declared element and an undeclared one
+ ;; alike, because what makes it legal is the NAME being declared, never the
+ ;; element merely having a declaration.
+ :refused
+ [{:note "the same map value on an undeclared name of a DECLARED element"
+   :form [:ce-panel {:nope {:min 0}}]
+   :id   :rf.error/ui-tree-malformed}
+  {:note "and on an undeclared element, where nothing is a property"
+   :form [:ce-plain {:scale {:min 0}}]
+   :id   :rf.error/ui-tree-malformed}]
+
+ ;; The SERVER's half, pinned whole because the claim is about absence. A
+ ;; property-classified name appears under NO spelling; the attributes beside
+ ;; it are unaffected.
+ :markup
+ [{:note "interpreted: the three properties omitted, the two attributes emitted"
+   :view :panel-literal          :html "<ce-panel data-x=\"d\" label=\"lab\"></ce-panel>"}
+  {:note "compiled: byte-identical markup — the modes cannot disagree about the server"
+   :view :panel-literal-compiled :html "<ce-panel data-x=\"d\" label=\"lab\"></ce-panel>"}
+  {:note "`v/spread`: byte-identical again, which is the literal-vs-spread parity claim at the serialiser"
+   :view :panel-spread           :html "<ce-panel data-x=\"d\" label=\"lab\"></ce-panel>"}
+  {:note "`v/spread` beside a compiled element: the fourth path, same markup"
+   :view :panel-spread-compiled  :html "<ce-panel data-x=\"d\" label=\"lab\"></ce-panel>"}
+  {:note "a declared standard-attribute spelling is omitted — NOT emitted as `tabindex`"
+   :view :attrish                :html "<ce-attrish role=\"note\"></ce-attrish>"}
+  {:note "an undeclared element emits everything: nothing is omitted where nothing is a property"
+   :view :undeclared             :html "<ce-plain accent-color=\"x\" data-y=\"y\"></ce-plain>"}
+  {:note "the order-independent declaration omits its property on the server too"
+   :view :below-literal          :html "<ce-below data-x=\"d\"></ce-below>"}]
+
+ ;; The BROWSER's half. The mounted element is the only place the difference
+ ;; between "set as a property" and "written as an attribute" is observable —
+ ;; the failure mode this whole surface exists for is renderable and inert, and
+ ;; a structural assertion cannot see inert.
+ ;;
+ ;; `:tag` is defined by the suite as a real custom element whose `accentColor`
+ ;; property is a plain accessor with NO attribute reflection, so an attribute
+ ;; write is visible as a missing property rather than as nothing at all.
+ :dom
+ {:tag "ce-accent"
+  :declared-properties #{:accent-color}
+  :props {:accent-color "blue" :data-x "d" :label "wide & <deep>"}
+  :expect
+  {:properties         {"accentColor" "blue"}
+   :absent-attributes  ["accent-color" "accentcolor" "accentColor"]
+   :attributes         {"data-x" "d" "label" "wide & <deep>"}
+   :absent-properties  ["label"]}}}
