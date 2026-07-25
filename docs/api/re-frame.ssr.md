@@ -261,7 +261,7 @@ The streaming surface is host-adapter territory. The SSR-aware host ([`re-frame.
 
 ## The head model
 
-The `<head>` is modelled separately from the body as a head-model: a data structure carrying `:title`, `:meta`, `:link`, `:json-ld`, `:html-attrs`, and `:body-attrs`. Head-models are registered per-route with `reg-head`. A registered head-fn is evaluated and rendered through the `re-frame.core` facade accessors `render-head` / `active-head` / `head-model->html` / `head-snapshot` (documented in [`re-frame.core`](re-frame.core.md)). The [`:rf/head`](#subscriptions) subscription returns the active route's head-model.
+The `<head>` is modelled separately from the body as a head-model: a data structure carrying `:title`, `:meta`, `:link`, `:json-ld`, `:html-attrs`, and `:body-attrs`. Head-models are registered per-route with `reg-head`. A registered head-fn is evaluated and rendered through the `re-frame.core` facade accessors `render-head` / `active-head` / `head-model->html` / `head-snapshot` (documented in [`re-frame.core`](re-frame.core.md)). Those four fns are the whole read surface: `active-head` returns the active route's head-model. There is **no `:rf/head` subscription** — see [§Subscriptions](#subscriptions--there-are-none).
 
 ### `reg-head`
 
@@ -364,12 +364,20 @@ A frame opts into SSR error projection via the `:ssr {:public-error-id ... :dev-
   (reg-error-projector id ?metadata projector-fn) → id
   ```
 - **Description**: Register a projector keyed by id. The projector signature is `(fn [trace-event] :rf/public-error)`. Named per-frame via the frame's `:ssr {:public-error-id ...}` metadata. Returns `id`.
+  - **The return shape is closed — get it wrong and your projector is discarded silently.** Conformant output carries **exactly** the four [`public-error-keys`](#public-error-keys): `:status` (an integer in `400`–`599`), `:code` (a keyword), `:message` (a string), `:retryable?` (a boolean). None missing, none extra — including a `:details` of your own, which only the runtime may append, *after* validation, under `:ssr {:dev-error-detail? true}`. A non-conforming return makes [`project-error`](#project-error) emit `:rf.error/sanitised-on-projection` and serve the locked generic-500 [`fallback-public-error`](#fallback-public-error) instead, on **every** error, for the life of the registration.
 - **Example**:
   ```clojure
   (rf/reg-error-projector :app/public-error
     (fn [trace-event]
-      {:status  500
-       :message "Something went wrong."}))
+      (if (= :rf.error/no-such-route (:operation trace-event))
+        {:status     404
+         :code       :not-found
+         :message    "We couldn't find that page."
+         :retryable? false}
+        {:status     500
+         :code       :internal-error
+         :message    "Something went wrong."
+         :retryable? false})))
   ```
 
 *Exposed both as the `re-frame.core` facade macro `rf/reg-error-projector` and as the `re-frame.ssr/reg-error-projector` function; the brief facade entry in [`re-frame.core`](re-frame.core.md) points here for the full contract.*
@@ -390,7 +398,7 @@ A frame opts into SSR error projection via the `:ssr {:public-error-id ... :dev-
   ;; Turn an internal error-trace event into the frame's client-safe
   ;; public-error projection (host adapter / error-page render path).
   (ssr/project-error :rf/default trace-event)
-  ;; => {:status 404 :code :not-found :message "Page not found"}
+  ;; => {:status 404 :code :not-found :message "Page not found" :retryable? false}
   ```
 
 ### `default-error-projector-fn`
@@ -661,16 +669,21 @@ Both fx are client-only (`:platforms #{:client}`). They are the payload-provenan
 | `[:rf.ssr/check-version server-value]` | A scalar (the payload's `:rf/version`) or `{:expected ?:actual}`. When `:actual` is absent, the client value resolves from the SSR artefact's compiled-in pattern-protocol constant (the same value the server stamped, so a matching build compares equal). A mismatch emits `:rf.ssr/version-mismatch`. |
 | `[:rf.ssr/check-schema-digest server-value]` | A scalar (the payload's `:rf/schema-digest`) or `{:expected ?:actual}`. When `:actual` is absent, the client value resolves via the `:schemas/app-schemas-digest` late-bind hook (schemas artefact). A mismatch emits `:rf.ssr/schema-digest-mismatch`. An absent hook emits `:rf.ssr/compatibility-check-skipped`. |
 
-### Subscriptions
+### Subscriptions — there are none
 
-| Sub | Returns |
+**`re-frame.ssr` and `re-frame.ssr.ring` register no subscriptions at all.** Their only
+registrations are the `:rf/hydrate` event, the server-only and client-only fx above, and
+the `:rf.server/request` coeffect below. In particular there is **no `:rf/head` sub and
+no `:rf/public-error` sub** — `@(rf/subscribe [:rf/head])` cannot resolve. Both keywords
+name a *data shape* registered in [Spec-Schemas](../../spec/Spec-Schemas.md)
+(`:rf/head-model` and `:rf/public-error`), not a registry entry.
+
+Read them through functions instead:
+
+| What you want | How to read it |
 |---|---|
-| `:rf/head` | The head model for the active route (resolved via `active-head` against the subscribed frame) |
-| `:rf/public-error` | The sanitised public-error projection when an error page is being rendered; `nil` otherwise |
-
-> **NOT USED** — `:rf/head` is never subscribed (no `[:rf/head]` call sites, and no `reg-sub :rf/head`) in `implementation/`, `examples/`, or `tools/`.
->
-> **NOT USED** — `:rf/public-error` is never subscribed (no `[:rf/public-error]` call sites, and no `reg-sub :rf/public-error`) in `implementation/`, `examples/`, or `tools/`. The `:rf/public-error` *map shape* is produced by `project-error`; only the **sub** is unused.
+| The active route's head model | The `re-frame.core` facade accessors `render-head` / `active-head` / `head-model->html` / `head-snapshot` — see [§The head model](#the-head-model) |
+| The sanitised public-error projection | [`project-error`](#project-error), or [`apply-error-projection!`](#apply-error-projection) which projects *and* stamps the response `:status` |
 
 The current request's **response accumulator** (status / headers / cookies / redirect) is *not* a registered subscription. It lives in a framework-private side-channel atom keyed by frame-id, and the runtime reads it exclusively via `re-frame.ssr/get-response`. The host adapter consumes the resolved value to build the wire response.
 
