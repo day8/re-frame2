@@ -250,35 +250,41 @@ You wired the detector already: the server's `:rf/render-hash` in Step 3, and th
 
 What the detector guarantees is that the bug is **never silent**. For CI, escalate it: a frame registered with `:ssr {:on-mismatch :hard-error}` throws a structured exception instead of warning, so a mismatch fails the build rather than shipping. Then fix the view the right way — put the timestamp in app-db at init, where it rides the payload and both sides render the same value.
 
-### The compiled-UI tier — adoption instead of hashing
+### The Freehand tier — adoption instead of hashing
 
-Everything above is the **hiccup tier**: Reagent views return a data render-tree, so the server and client each hash it and compare. The first-party **compiled** substrate (`re-frame.ui`, `defview`) has no such tree — its views compile straight to React elements — so it verifies a different way: **React-native adoption**. The boot is still two calls, but `ssr/hydrate!` runs **without** `:render-tree-fn` (there is no client tree to hash), and `ui/hydrate-root` adopts the DOM:
+Everything above is the **hiccup tier**: Reagent views return a data render-tree, so the server and client each hash it and compare. **Freehand** (`re-frame.freehand`, conventionally aliased `v`) has no such tree — a `v/defview` becomes React elements in the browser, interpreted or compiled — so it verifies a different way: **React-native adoption**. The client boot is still two calls, but `ssr/hydrate!` runs **without** `:render-tree-fn` (there is no client tree to hash), and `v/hydrate-root` adopts the DOM:
 
 ```clojure
 (ns my-app.client
-  (:require [re-frame.core :as rf]
-            [re-frame.ssr  :as ssr]
-            [re-frame.ui   :as ui]))
+  (:require [re-frame.core        :as rf]
+            [re-frame.ssr         :as ssr]
+            [re-frame.freehand    :as v]
+            [re-frame.adapter.uix :as uix]
+            [my-app.views :refer [root]]))          ;; a v/defview
 
 (defn run []
-  (rf/init! ui/adapter)
+  (rf/init! uix/adapter)                            ;; Freehand still rides a substrate adapter
   (rf/make-frame {:id :app :platform :client})
   (let [el      (js/document.getElementById "app")
         payload (ssr/hydrate! {:frame :app})]        ;; state only — NO :render-tree-fn
     (when payload
-      (ui/hydrate-root el
-        [ui/frame-provider {:frame :app} [(rf/view :app/root)]]
-        {:on-recoverable-error                        ;; optional — compose your own hook
+      (v/hydrate-root el [root {}]
+        {:frame :app                                 ;; SCOPE — make-frame above owns it
+         :on-recoverable-error                       ;; optional — compose your own hook
          (fn [error _info] (js/console.warn "recoverable:" error))}))))
 ```
 
-React diffs the root's first `:server`-phase render (its `ui/client-only` fallbacks) against the server DOM. On a **recoverable** mismatch — divergent text, a missing or extra node — it calls `onRecoverableError`, and the runtime surfaces that as the same `:rf.ssr/hydration-mismatch` trace you saw above (this time tagged `:where` `re-frame.ui/hydrate-root`, plus `:root-id` and `:error` — no hash), *then* still calls your `:on-recoverable-error`. It composes over your hook; it never replaces it.
+**Where the frame goes.** There is no provider element to wrap the tree in. A Freehand root binds its frame through the **mount opts**, and `:frame :app` is the *scope* shape — "something else owns this frame", which is exactly what `rf/make-frame` above did. (`:frame {:id :app …}` is the other shape: the root *ensures* the frame itself and owns its teardown. Both are in [Freehand → SSR and hydration](../core/freehand/ssr.md).) Identity, though, is **not** yours to pass: `:root-id`, `:disambiguator` and `:identifier-prefix` are refused here, because the hydrating root reads them off the server's Root Manifest — a client rendering under its own `identifierPrefix` breaks `use-id` hydration outright.
 
-**One honest limit.** Adoption reports only what React itself recovers from. An **attribute-only** mismatch — a stale `class`, `style`, or ARIA value on an element whose tag and text still match — is not in that set: React warns in development, makes [no promise to patch it](https://react.dev/reference/react-dom/client/hydrateRoot), and calls neither `onRecoverableError` nor any production equivalent. So a divergent attribute hydrates silently on this tier, with **no** trace. It is a real bug; the compiled tier simply does not carry the structural hash that would catch it — that is the trade the hiccup tier makes by keeping a client render-tree it *can* hash.
+React then diffs the root's first `:server`-phase render (its `v/client-only` fallbacks) against the server DOM. On a **recoverable** mismatch — divergent text, a missing or extra node — it calls `onRecoverableError`, and the runtime surfaces that as the same `:rf.ssr/hydration-mismatch` trace you saw above (this time tagged `:where` `re-frame.freehand/hydrate-root`, plus `:root-id` and `:error` — no hash), *then* still calls your `:on-recoverable-error`. It composes over your hook; it never replaces it.
+
+**One honest limit.** Adoption reports only what React itself recovers from. An **attribute-only** mismatch — a stale `class`, `style`, or ARIA value on an element whose tag and text still match — is not in that set: React warns in development, makes [no promise to patch it](https://react.dev/reference/react-dom/client/hydrateRoot), and calls neither `onRecoverableError` nor any production equivalent. So a divergent attribute hydrates silently on this tier, with **no** trace. It is a real bug; an adoption tier simply does not carry the structural hash that would catch it — that is the trade the hiccup tier makes by keeping a client render-tree it *can* hash.
+
+**And one gap: the server half of this tier has no paved Freehand spelling yet.** The client boot above is real today. Its server counterpart is not. `v/render-static` is Freehand's JVM render verb, but it is deliberately the **static-page** path — it emits no Root Manifest, no hydration payload and no phase flip — so what it produces is final HTML, not markup a live root can adopt. And `v/hydrate-root` needs that manifest: it is what carries the identity the client is forbidden to derive. The pieces exist in the `day8/re-frame2-ssr` artefact, but assembling body markup *plus* its manifest is a host-level job at the moment, not one verb you can call, so the walk-through above stops at the client edge on this tier. Steps 1–3 stay the hiccup-tier server render.
 
 ### Native UIx — adopt through the shared render path
 
-A native **UIx** app — views that compile straight to React elements, without `re-frame.ui` — has no client render-tree to hash either, so it also verifies by **React-native adoption**. One rule keeps it wired: hydrate through re-frame2's client mount entry, `(re-frame.substrate.adapter/render tree el {:hydrate? true})` (the adapter's `:render` slot), **not** `uix.dom/hydrate-root` (or react-dom `hydrateRoot`) directly. Only that path installs the framework `onRecoverableError` reporter — bounded to the adoption window and composed over any `:on-recoverable-error` you pass — so a recoverable mismatch surfaces the same `:rf.ssr/hydration-mismatch` trace, this time tagged `:where` `re-frame.substrate.spine/make-render`. Hydrate with the substrate-native renderer directly and you bypass it: React still recovers the DOM, but silently, with no framework trace. The attribute-only limit above applies here too.
+A native **UIx** app — views that compile straight to React elements, with no Freehand declaration in front of them — has no client render-tree to hash either, so it also verifies by **React-native adoption**. One rule keeps it wired: hydrate through re-frame2's client mount entry, `(re-frame.substrate.adapter/render tree el {:hydrate? true})` (the adapter's `:render` slot), **not** `uix.dom/hydrate-root` (or react-dom `hydrateRoot`) directly. Only that path installs the framework `onRecoverableError` reporter — bounded to the adoption window and composed over any `:on-recoverable-error` you pass — so a recoverable mismatch surfaces the same `:rf.ssr/hydration-mismatch` trace, this time tagged `:where` `re-frame.substrate.spine/make-render`. Hydrate with the substrate-native renderer directly and you bypass it: React still recovers the DOM, but silently, with no framework trace. The attribute-only limit above applies here too.
 
 ## Step 6 — gate the one-sided code: `:platforms`
 
