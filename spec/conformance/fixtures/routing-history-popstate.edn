@@ -1,12 +1,23 @@
 ;; Conformance fixture: routing/history-popstate
 ;;
-;; Per Spec 012 §URL changes are events: popstate (and the initial load)
-;; dispatch `[:rf.route/handle-url-change url]`. The runtime parses the
-;; URL via `match-url`, writes the canonical :rf/route slice
-;; (`:id` / `:params` / `:query` / `:fragment` / `:nav-token` / ...),
-;; and emits `:rf.nav/scroll` with the popstate-default `:restore`
-;; strategy. Crucially, the URL came FROM the browser — the runtime
-;; MUST NOT push it back via `:rf.nav/push-url` / `:rf.nav/replace-url`.
+;; Per Spec 012 §URL changes are events: popstate, the initial load and
+;; the SSR request URL all arrive as `:rf.route/handle-url-change`. ONE
+;; event stands for THREE doors, so the `:url-bound?` frame lifecycle's
+;; listener names which one it is via the runtime-internal
+;; `:rf.route/cause` rider on the event's trailing opts map — `:popstate`
+;; from the browser-driven callback, `:initial` from the same listener's
+;; initial URL sync (per [012 §The request grammar]
+;; (#the-request-grammar--address-policy-and-edit-keys)). A rider-free
+;; dispatch on a client frame IS the initial / direct-URL feed, so a
+;; fixture claiming to be the popstate contract must carry the rider or
+;; it exercises `:initial` under a popstate name.
+;;
+;; The runtime parses the URL via `match-url`, writes the canonical
+;; :rf/route slice (`:id` / `:params` / `:query` / `:fragment` /
+;; `:nav-token` / ...), and emits `:rf.nav/scroll` with the
+;; popstate-default `:restore` strategy. Crucially, the URL came FROM the
+;; browser — the runtime MUST NOT push it back via `:rf.nav/push-url` /
+;; `:rf.nav/replace-url`.
 ;;
 ;; This fixture pins the cross-implementation contract for the
 ;; popstate-driven URL-change cascade:
@@ -16,14 +27,18 @@
 ;;      routing-scroll-restoration.edn).
 ;;   3. NO :rf.nav/push-url / :rf.nav/replace-url fires (the URL is
 ;;      already in the address bar).
+;;   4. The commit's `:rf.route/planned` projection reports
+;;      `:cause :popstate` — the door the rider named, not `:initial`.
 ;;
-;; Per [012 §URL changes are events] (#url-changes-are-events) and
+;; Per [012 §URL changes are events] (#url-changes-are-events),
+;; [§Resolved target and the plan diagnostic projection]
+;; (#resolved-target-and-the-plan-diagnostic-projection) and
 ;; [§Scroll restoration] (#scroll-restoration).
 
 {:fixture/id           :routing/history-popstate
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx :core/trace}
- :fixture/doc          "Popstate-driven URL change: dispatch [:rf.route/handle-url-change url]. The :rf/route slice round-trips from the URL; :rf.nav/scroll fires with the popstate-default :restore strategy; the runtime does NOT push or replace the URL (it came from the browser)."
+ :fixture/doc          "Popstate-driven URL change: dispatch [:rf.route/handle-url-change url {:rf.route/cause :popstate}] exactly as the :url-bound? frame lifecycle's listener does. The :rf/route slice round-trips from the URL; :rf.nav/scroll fires with the popstate-default :restore strategy; the runtime does NOT push or replace the URL (it came from the browser); and the commit's :rf.route/planned projection reports :cause :popstate."
 
  :fixture/registry
  {:event {:rf/init                    {:doc "Seed."}
@@ -54,8 +69,11 @@
  :fixture/frame-config {:initial-events [[:rf/init]] :platform :client}
 
  :fixture/dispatches
- [;; Simulate a popstate landing on /articles/intro.
-  [:rf.route/handle-url-change "/articles/intro"]]
+ [;; Simulate a popstate landing on /articles/intro. The `:rf.route/cause`
+  ;; rider is what makes this a POPSTATE rather than an initial-load feed —
+  ;; the lifecycle's listener stamps it, and without it the identical
+  ;; dispatch on a client frame resolves as `:initial`.
+  [:rf.route/handle-url-change "/articles/intro" {:rf.route/cause :popstate}]]
 
  :fixture/expect
  {:final-runtime-db {:rf.runtime/routing {:current {:route-id     :route/article
@@ -86,4 +104,15 @@
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/init}}
-   {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/handle-url-change}}]}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/handle-url-change}}
+   ;; The commit branch emits ONE plan projection, and its `:cause` is the
+   ;; door the rider named. This is the assertion that makes the fixture
+   ;; bite: dropping the rider from the dispatch above reds it with
+   ;; `:cause :initial`. `:param-keys` is the resolved params' KEY SET —
+   ;; never their values (per 012 §Resolved target).
+   {:operation :rf.route/planned
+    :tags      {:cause      :popstate
+                :route-id   :route/article
+                :url        "/articles/intro"
+                :param-keys [:id]
+                :query-keys []}}]}}
