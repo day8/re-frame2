@@ -37,6 +37,8 @@
   Everything here is PURE. Internal namespace; the public facade is
   `re-frame.routing`."
   (:require [re-frame.registrar :as registrar]
+            [re-frame.routing.plan :as plan]
+            [re-frame.routing.registry :as registry]
             [re-frame.routing.subs :as routing-subs]))
 
 ;; ---- the R0 causes --------------------------------------------------------
@@ -74,6 +76,90 @@
    :query    query
    :fragment fragment
    :url      url})
+
+;; ---- the URL -> ResolvedTarget extraction (ONE definition) ----------------
+
+(defn url-resolution
+  "Resolve a requested URL to the ONE canonical `ResolvedTarget` every
+  URL-bearing door commits, together with the fallback discriminators a
+  caller's telemetry branches on.
+
+  This is the shared URL half of the R0b seam. A URL is the representation
+  every door shares, so the `:rf.route/not-found` **fallback normalisation** —
+  the reserved `route-id`, the `{:url … :reason …}` params vocabulary, the
+  emptied query, and the fragment a malformed URL cannot carry — has to be ONE
+  definition. When the link door normalised a miss differently from the door
+  that later committed it, the two disagreed about what the URL meant: the link
+  door decided against an incomplete target with a `nil` `:route-id`, so the
+  reserved `:rf.route/not-found` route's `:can-enter` guard was never consulted
+  and a click on a dead link committed a route the equivalent programmatic
+  `:rf.route/navigate` denied. The same mismatch hid the exact-no-op rule from
+  the link door, which pushed a history entry for the already-active not-found
+  URL. Deriving the target here — before stage 3 and the guards, and again at
+  the commit hop — is what makes those three answers the same answer.
+
+  Returns
+
+      {:target           the canonical ResolvedTarget the door commits
+       :match            the RAW `match-url` result (nil on a miss) — the
+                         pre-fallback view the fragment-only classification
+                         needs (Spec 012 §Fragments rules 3-4 compares against
+                         the matched route, not the fallback)
+       :matched?         `match-url` returned a match
+       :validation-fail? the pattern matched but its `:params` / `:query`
+                         schema rejected the parsed values
+       :malformed?       a path capture / query key-value / `#fragment` failed
+                         to %-decode
+       :throw-reason     the throw discriminator (`:match-error`) when
+                         `match-url` itself threw, else nil
+       :fallback?        the target is the reserved `:rf.route/not-found`}
+
+  `match-url-fail-closed` catches any throw and yields a nil match, so a
+  hostile / throwing URL degrades to the same shape as a bare miss. The
+  `:reason` discriminators are mutually exclusive: a throw pre-empts the
+  malformed scan, and a validation fail is a match rather than a miss. The
+  returned `:url` preserves the caller's spelling; `match-url` normalises the
+  semantic route fields."
+  [url]
+  (let [{:keys [match throw-reason]} (registry/match-url-fail-closed url)
+        ;; Discriminate the bare-miss case from the malformed-URL case only
+        ;; when `match-url` already missed (the happy path pays nothing); a
+        ;; throw already discriminated via `throw-reason` short-circuits the
+        ;; predicate, so the URL is never scanned twice.
+        malformed?       (boolean (and (nil? match) (nil? throw-reason)
+                                       (registry/malformed-url? url)))
+        ;; A malformed URL surfaces no fragment — the fragment was (or may
+        ;; have been) the decode-fail site.
+        fragment         (when-not malformed? (:fragment match))
+        matched?         (some? match)
+        validation-fail? (boolean (:validation-failed? match))
+        fallback?        (or (not matched?) validation-fail?)
+        route-id         (if fallback? :rf.route/not-found (:route-id match))
+        params           (cond
+                           throw-reason     (plan/not-found-params url throw-reason)
+                           malformed?       (plan/not-found-params url :malformed-url)
+                           validation-fail? (plan/not-found-params url :validation)
+                           (not matched?)   (plan/not-found-params url nil)
+                           :else            (:params match))
+        query            (if fallback? {} (:query match))]
+    {:target           (resolved-target {:route-id route-id
+                                         :params   params
+                                         :query    query
+                                         :fragment fragment
+                                         :url      url})
+     :match            match
+     :matched?         matched?
+     :validation-fail? validation-fail?
+     :malformed?       malformed?
+     :throw-reason     throw-reason
+     :fallback?        fallback?}))
+
+(defn target-of-url
+  "The canonical `ResolvedTarget` for a requested URL — `url-resolution`'s
+  `:target`, for the callers (the link door's stage 3 + decision) that need the
+  target and none of the fallback telemetry discriminators."
+  [url]
+  (:target (url-resolution url)))
 
 ;; ---- the parent-to-leaf branch + the leaf resource plan -------------------
 

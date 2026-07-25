@@ -128,10 +128,18 @@
      (let [w (when (exists? js/window) js/window)
            decode (:decode strat)
            install-listener! (:install-listener! strat)
+           ;; EP-0037 R0b: `:rf.route/handle-url-change` stands for three
+           ;; doors, so the listener names WHICH one it is via the
+           ;; runtime-internal `:rf.route/cause` rider on the event's trailing
+           ;; opts map (the sibling of `:rf.route/decided?`). Both dispatches
+           ;; below go through this one closure, so the two causes are the
+           ;; closure's one argument rather than two dispatch sites that can
+           ;; drift.
            dispatch-to-owner!
-           (fn [path-url]
+           (fn [cause path-url]
              (when-let [o (nav-fx/url-owner-frame-id)]
-               (router/dispatch-sync! [:rf.route/handle-url-change path-url]
+               (router/dispatch-sync! [:rf.route/handle-url-change path-url
+                                       {:rf.route/cause cause}]
                                       {:frame o})))]
        (when w
          ;; Failure-atomic handoff (rf2-j538f7.11): install the REPLACEMENT
@@ -143,15 +151,16 @@
          ;; coexist only within this synchronous block (no popstate/hashchange
          ;; fires mid-block), and the old one is removed immediately, so there
          ;; is no window for a double-fire.
-         (let [new-teardown (install-listener! dispatch-to-owner!)]
+         (let [new-teardown (install-listener! (partial dispatch-to-owner! :popstate))]
            (teardown-current!)
            (reset! history-listener-atom
                    {:owner    owner
                     :strategy strat
                     :teardown new-teardown})))
        ;; Initial sync: hydrate the owner's slice from the current URL so a deep
-       ;; link / reload / ownership transfer lands on the right route.
-       (dispatch-to-owner! (decode))
+       ;; link / reload / ownership transfer lands on the right route. Cause
+       ;; `:initial` — this is the initial page load, not a Back/Forward.
+       (dispatch-to-owner! :initial (decode))
        nil)))
 
 #?(:cljs

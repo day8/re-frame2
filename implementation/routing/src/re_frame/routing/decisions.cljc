@@ -41,6 +41,7 @@
             [re-frame.routing.egress :as egress]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.registry :as registry]
+            [re-frame.routing.resolve :as resolver]
             [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
 
@@ -203,13 +204,16 @@
         (registry/route-url {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})
         (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
-(defn- server-frame?
+(defn server-frame?
   "True iff `frame-id` is an SSR / server frame — its `:config :platform`
   is `:server` (set by the `:ssr-server` preset). Reads ONLY the FRAME's
   platform, never the host-wide default (which is `:server` on the JVM, so
   a JVM client-mode unit test must not be mistaken for SSR). Gates the
   default `403` entry-denial floor (Spec 011 §Route entry denial — the
-  default 403)."
+  default 403), and discriminates the `:ssr` navigation cause from the
+  browser's `:initial` one on the shared `:rf.route/handle-url-change` door
+  (`re-frame.routing.url-change/url-change-cause`) — one platform read, two
+  callers, rather than a second notion of what a server frame is."
   [frame-id]
   (= :server (:platform (frame/frame-meta frame-id))))
 
@@ -384,26 +388,14 @@
 ;; programmatic `:rf.route/navigate {:url}` sink gates through the SAME
 ;; fail-closed logic as `:rf.route/url-requested`.
 
-(defn target-of-url
-  "Resolve a requested URL to the pipeline's ResolvedTarget shape via
-  `match-url`. A URL is the representation every door shares, so deriving
-  the target here keeps stages 3-5 uniform. The returned `:url` preserves
-  the caller's spelling; `match-url` normalises the semantic route fields.
-
-  On a URL that matches no route the `match-url` half is nil and only
-  `:url` is populated (the target is `:rf.route/not-found`-shaped but the
-  decision still evaluates `:can-leave` on the CURRENT route — leaving a
-  page for a dead link is still a leave). `match-url-fail-closed` catches
-  any throw and yields a nil match, so a hostile/throwing URL degrades to
-  the same shape as a bare miss."
-  [requested-url]
-  (let [{:keys [match]} (registry/match-url-fail-closed requested-url)
-        {:keys [route-id params query fragment]} match]
-    {:route-id route-id
-     :params   params
-     :query    query
-     :fragment fragment
-     :url      requested-url}))
+;; The URL -> ResolvedTarget extraction (including the `:rf.route/not-found`
+;; fallback normalisation) is the ONE shared definition in
+;; `re-frame.routing.resolve/url-resolution` — the seam the commit hop lowers
+;; to as well. The link door reads it through `resolver/target-of-url`, so
+;; stage 3, the guards, and the commit all resolve the same URL to the same
+;; target (EP-0037 R0b). Deriving it locally is what let a dead link bypass the
+;; `:rf.route/not-found` route's `:can-enter` guard and push a history entry for
+;; the already-active not-found URL.
 
 (defn url-requested-handler
   "`:rf.route/url-requested` event handler — the LINK door. Registered by
@@ -438,7 +430,7 @@
                      (cond-> {:url url}
                        frame (assoc :frame frame)))
         {})
-      (let [target  (target-of-url app-url)
+      (let [target  (resolver/target-of-url app-url)
             current (get-in rdb [:rf.runtime/routing :current])
             ;; Stage 3 — an exact no-op (the link points at the already-active
             ;; target) terminates before guards, pending state, and history.
