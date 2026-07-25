@@ -1,4 +1,4 @@
-(ns re-frame.region-order-cljc-test
+(ns re-frame.region-order-cljs-test
   "Acceptance coverage for rf2-3fc89f.8 — parallel-region declaration order is
   an EXPLICIT registration contract (`:region-order`), normalised once, and is
   preserved across EVERY order-sensitive parallel operation once the region
@@ -15,7 +15,13 @@
   input, and asserts authored action-data, fx, cascade and spawn order, the
   birth entry cascade, the destroy exit cascade, and the root multi-target
   apply — plus the documented registration outcomes for missing/mismatched
-  order and the ≤8 small-map convenience derivation."
+  order and the ≤8 small-map convenience derivation.
+
+  The `-cljs-test` suffix is what MAKES that parity claim true. Shadow's
+  `:node-test` build selects on `cljs-test$`, so the original
+  `-cljc-test` ns — chosen to advertise dual-target — matched neither
+  lane's CLJS filter, and the CLJ/CLJS parity this file exists to pin had
+  never once been checked on CLJS (rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.result :as result]))

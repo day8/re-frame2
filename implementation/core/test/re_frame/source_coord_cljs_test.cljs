@@ -1,7 +1,7 @@
 (ns re-frame.source-coord-cljs-test
   "Per rf2-ts1a — CLJS-side smoke check for `:rf.trace/call-site` on
   `:rf.error/*` trace events. JVM-side coverage lives in
-  `source_coord_test.cljc`; the macro-expansion path is identical
+  `source_coord_jvm_test.cljc`; the macro-expansion path is identical
   across both targets (the `.cljc` macros run on the Clojure side of
   the compiler in either case), so this file primarily verifies that
   the CLJS bundle wires up the dynamic-var read end-to-end without a

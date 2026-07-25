@@ -1,4 +1,4 @@
-(ns re-frame.source-coord-test
+(ns re-frame.source-coord-jvm-test
   "Per rf2-ts1a — `:rf.trace/call-site` on `:rf.error/*` trace events.
 
   Complement to rf2-3nn8 (`:rf.trace/trigger-handler`). Where trigger-
@@ -21,7 +21,13 @@
   `source_coord_cljs_test.cljs`. Macro-expansion is JVM-side for both
   targets (the `.cljc` macros run on the Clojure side of the compiler
   in either case), so the call-site capture path itself is the same;
-  only the runtime delivery differs."
+  only the runtime delivery differs.
+
+  The `-jvm-test` suffix is deliberate, not the rf2-dn6v7 omission. Shadow's
+  `:node-test` build selects on `cljs-test$`; this file is the JVM half of a
+  DELIBERATE pair whose CLJS half is the `.cljs` mirror named above, so the
+  explicit lane suffix records that skipping the CLJS lane is the intent and
+  not an oversight (rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]

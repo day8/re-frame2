@@ -1538,7 +1538,7 @@
 ;; per `:always` iteration (carrying its own nested exit/action/entry
 ;; `:steps` + `:microstep-index` / `:from` / `:to`). Spec 005 §The
 ;; structured transition cascade is the authoritative contract; the
-;; instrumentation test `re-frame.machine-cascade-instrumentation-test`
+;; instrumentation test `re-frame.machine-cascade-instrumentation-cljs-test`
 ;; pins the exact shape.
 ;;
 ;; This is the data rf2-52u5n renders under EVENT HANDLER. The pre-existing

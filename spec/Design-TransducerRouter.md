@@ -304,4 +304,4 @@ re-evaluated under the new code, but the envelope-seq is replayed verbatim.
 - [011-SSR](011-SSR.md) — frame-per-request + loader fan-in motivating `manual-driver`.
 - [009-Instrumentation](009-Instrumentation.md) — trace-emission sites become the transducer's xform boundaries.
 - `implementation/core/src/re_frame/router_transducer.cljc` — Phase-1 reference scaffold.
-- `implementation/core/test/re_frame/router_transducer_test.cljc` — scaffold unit tests.
+- `implementation/core/test/re_frame/router_transducer_cljs_test.cljc` — scaffold unit tests.

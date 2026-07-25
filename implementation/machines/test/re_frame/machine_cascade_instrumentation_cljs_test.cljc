@@ -1,4 +1,4 @@
-(ns re-frame.machine-cascade-instrumentation-test
+(ns re-frame.machine-cascade-instrumentation-cljs-test
   "The `:rf.machine/transition` trace carries a structured `:cascade` field:
   the ordered exit / transition-action / entry steps (+ initial-descent +
   `:always` microsteps + per-region structure) that explain HOW a transition
@@ -20,7 +20,12 @@
   The HVAC fixture mirrors the live machine-epochs testbed
   (`:hvac/controller`) whose own `:data :trail` records the cascade order
   — that trail is the ORACLE these tests cross-check the emitted cascade
-  against."
+  against.
+
+  Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
+  `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
+  load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
+  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as mtest]

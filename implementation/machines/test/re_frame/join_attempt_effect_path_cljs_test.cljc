@@ -1,4 +1,4 @@
-(ns re-frame.join-attempt-effect-path-test
+(ns re-frame.join-attempt-effect-path-cljs-test
   "rf2-2lzk8a — keep the `:spawn-all` join-completion transport RESERVED and
   NON-REDIRECTABLE so the framework path can't be captured or suppressed (it is
   a fold-fence protection, not authentication — rf2-cpbjfp).
@@ -52,7 +52,12 @@
   fails the fallthrough folds; removing `:rf.machine/join-dispatch` from the
   reject set fails the capture + recursion guards; re-conflating the two policies
   (adding `:rf.machine/spawn` back to the target set) fails the redirect-target
-  case below."
+  case below.
+
+  Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
+  `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
+  load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
+  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])

@@ -1,4 +1,4 @@
-(ns re-frame.router-front-of-queue-test
+(ns re-frame.router-front-of-queue-cljs-test
   "Per rf2-j20a7 / Spec 005 §Level 4 — machine-internal continuation
   events insert at the FRONT of the per-frame router queue, while
   ordinary (external) dispatches stay plain-FIFO at the back.
@@ -7,7 +7,7 @@
   machines artefact: the marking flag is `:rf.machine/internal?`, which
   `re-frame.machines` stamps onto machine-originated child dispatches
   (covered end-to-end in
-  `re-frame.machine-front-of-queue-test` in the machines artefact). Here
+  `re-frame.machine-front-of-queue-cljs-test` in the machines artefact). Here
   we drive `re-frame.router/dispatch!` directly (the fn-form; call-site
   capture is irrelevant to queue-order semantics) with the flag set
   explicitly so the queue-insertion semantics are tested in isolation:
@@ -31,7 +31,12 @@
   an ordinary frame). The CHILD `dispatch!` calls inside the seed handler
   inherit the handler's frame binding, so they need no explicit frame —
   only the rootless top-level seed does (the carried-invariant contract:
-  no synthesised default floor)."
+  no synthesised default floor).
+
+  Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
+  `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
+  load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
+  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.router :as router]
