@@ -125,7 +125,15 @@
   ;; Binding names must be symbols — they appear verbatim in the source
   ;; (no quoting) so body forms can refer to them by name.
   (when-not (symbol? n)
-    (throw (ex-info ":rf.error/pair-mcp-rt-let-binding-bad-shape"
+    ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape: the
+    ;; human sentence + a trailing `[:rf.error/<id>]` token IS the ex-message.
+    ;; Load-bearing here (rf2-jquiy) — `server.cljs`'s `invoke-and-guard`
+    ;; relays `(.-message err)` into the `:handler-threw` envelope, so this
+    ;; text is what the agent on the other end of the MCP wire reads.
+    ;; Hand-rolled inline: `tools/` MUST NOT `:require re-frame.*`.
+    (throw (ex-info (str "rt-let binding name must be a symbol, got "
+                         (pr-str n)
+                         " [" :rf.error/pair-mcp-rt-let-binding-bad-shape "]")
                     {:rf.error/id :rf.error/pair-mcp-rt-let-binding-bad-shape
                      :where    're-frame2-pair-mcp/rt-let
                      :recovery :no-recovery

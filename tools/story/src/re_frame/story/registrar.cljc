@@ -298,14 +298,27 @@
   [kind id body]
   (when-let [explain (schemas/validate kind body)]
     (let [error-kw (keyword "rf.error" (str (name kind) "-shape"))
-          unknown  (unknown-key-reason kind explain)]
-      (throw (ex-info (str error-kw)
+          unknown  (unknown-key-reason kind explain)
+          reason   (or unknown
+                       (str "re-frame2-story: " (name kind) " body for "
+                            id " does not match " (name kind) " schema"))]
+      ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape:
+      ;; the human sentence + a trailing `[:rf.error/<id>]` token IS the
+      ;; ex-message, with `:rf.error/id` the sole machine discriminator.
+      ;; NOT decorative here (rf2-jquiy): story-mcp relays `(ex-message e)`
+      ;; verbatim onto the MCP tool surface — `tools/write.cljc`
+      ;; register-variant and `tools/recorder.cljc` record-as-variant both
+      ;; wrap this call in `(str "… " (ex-message e))` — so the consumer AI
+      ;; on the other end of the wire reads THIS text. A bare `(str error-kw)`
+      ;; shipped it `:rf.error/variant-shape` and nothing else.
+      ;; The central `re-frame.error` builder is NOT used: `tools/` is
+      ;; bundle-isolated and MUST NOT `:require re-frame.*`, so the shape is
+      ;; hand-rolled inline (as `re-frame.story/configure!` already does).
+      (throw (ex-info (str reason " [" error-kw "]")
                       {:rf.error/id error-kw
                        :where    'rf.story/reg-story
                        :recovery :fix-registration
-                       :reason   (or unknown
-                                     (str "re-frame2-story: " (name kind) " body for "
-                                          id " does not match " (name kind) " schema"))
+                       :reason   reason
                        :kind     kind
                        :id       id
                        :explain  explain}))))
@@ -333,14 +346,17 @@
                                   (not (contains? registered-tag-ids base))))
                               tags)]
       (when (seq unknown)
-        (throw (ex-info ":rf.error/unknown-tag"
-                        {:rf.error/id :rf.error/unknown-tag
-                         :where    'rf.story/reg-story
-                         :recovery :fix-registration
-                         :reason   (str "re-frame2-story: unregistered tag(s) on " id
-                                        ": " (pr-str unknown))
-                         :id       id
-                         :unknown  unknown}))))))
+        ;; Canonical thrown-error shape — see `validate-shape!` above for why
+        ;; the message (not just the ex-data) is load-bearing on this path.
+        (let [reason (str "re-frame2-story: unregistered tag(s) on " id
+                          ": " (pr-str unknown))]
+          (throw (ex-info (str reason " [" :rf.error/unknown-tag "]")
+                          {:rf.error/id :rf.error/unknown-tag
+                           :where    'rf.story/reg-story
+                           :recovery :fix-registration
+                           :reason   reason
+                           :id       id
+                           :unknown  unknown})))))))
 
 ;; ---- id-shape policing ----------------------------------------------------
 
@@ -361,13 +377,19 @@
               :tag         keyword?
               keyword?)]
     (when-not (ok? id)
-      (let [error-kw (keyword "rf.error" (str (name kind) "-id-shape"))]
-        (throw (ex-info (str error-kw)
+      ;; Canonical thrown-error shape — see `validate-shape!` above for why
+      ;; the message (not just the ex-data) is load-bearing on this path.
+      ;; This is the exact site rf2-jquiy traced: a malformed `:variant-id`
+      ;; sent to story-mcp's `register-variant` reached the agent as the
+      ;; bare string "Registration failed: :rf.error/variant-id-shape".
+      (let [error-kw (keyword "rf.error" (str (name kind) "-id-shape"))
+            reason   (str "re-frame2-story: " (name kind) " id " (pr-str id)
+                          " does not match the canonical id grammar")]
+        (throw (ex-info (str reason " [" error-kw "]")
                         {:rf.error/id error-kw
                          :where    'rf.story/reg-story
                          :recovery :fix-registration
-                         :reason   (str "re-frame2-story: " (name kind) " id " (pr-str id)
-                                        " does not match the canonical id grammar")
+                         :reason   reason
                          :kind     kind
                          :id       id}))))))
 
