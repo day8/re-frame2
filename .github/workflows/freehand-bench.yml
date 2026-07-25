@@ -221,12 +221,24 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      # B5's matched build row. The three shapes hold the entry structure,
-      # the optimisation level and `goog.DEBUG` still and vary only lowering,
-      # so the delta between the outer two is a reading of promotion. (Not
-      # exclusively: the twins are two namespaces and each ships its own ids.
-      # The published fixture names that confound — see
-      # re-frame.freehand.bench.b5/not-matched-on.)
+      # B5's build row: TWO MATCHED ARMS and one REPRESENTATIVE mixed bundle,
+      # which is D021's B5 row read as written ("representative interpreted,
+      # compiled, and mixed production bundles", plus a per-promoted-view
+      # delta). Only the pair is matched — one source in two states, same
+      # `:advanced`, same `goog.DEBUG` — and the delta is taken over the pair
+      # alone, because a delta needs two arms held still against each other and
+      # never needed three. `:freehand-release` is the SHIPPED-COST artefact,
+      # built from its own entry with its own ids: measured here for the
+      # headline absolute, deliberately not byte-matched, and
+      # `interpreted < mixed < compiled` is NOT a lowering series (rf2-rhg4q).
+      #
+      # What the pair's delta is attributable to depends on the encoding, and
+      # the published fixture says so per encoding rather than claiming "only
+      # lowering" across the board: raw is exact (the arms' identity tokens are
+      # the same length, and the measurement test proves the raw delta
+      # invariant under renaming them), gzip is exact to within a handful of
+      # bytes, and brotli is identity-sensitive at the hundred-byte scale. See
+      # re-frame.freehand.bench.b5/causal-isolation.
       #
       # Through the npm script, not a bare `npx shadow-cljs release` over the
       # three ids: the script clears the three shapes' build caches and output
@@ -237,7 +249,7 @@ jobs:
       # stable only because of that, an unstated property of this job's cache
       # configuration; now it is stable because the entry point says so, and
       # a local re-measurement gets the same number instead of a different one.
-      - name: Build the three matched release bundles
+      - name: Build the matched pair and the mixed shipped-cost bundle
         run: npm run build:freehand-matched
 
       # `test:freehand` is the artefact here: the B5 rows publish their
@@ -272,9 +284,9 @@ jobs:
             echo "RF2_REVISION was '${RF2_REVISION}'." >&2
             exit 1
           fi
-          shapes=$(grep -c 'B5 matched shape' "$log" || true)
+          shapes=$(grep -c 'B5 release shape' "$log" || true)
           if [ "$shapes" -ne 3 ]; then
-            echo "Expected 3 matched-shape records, found ${shapes}. The B5" >&2
+            echo "Expected 3 release-shape records, found ${shapes}. The B5" >&2
             echo "matched-build test SKIPS unless all three bundles are on" >&2
             echo "disk, so a green suite with no records means the release" >&2
             echo "builds above did not produce them." >&2
@@ -286,8 +298,8 @@ jobs:
               exit 1
             fi
           done
-          echo "Published 3 matched shapes, the shipped-cost row and the"
-          echo "promotion delta at ${RF2_REVISION}."
+          echo "Published 3 release shapes, the shipped-cost row and the"
+          echo "matched-pair promotion delta at ${RF2_REVISION}."
 
       - name: Upload the B5 matched-build records
         if: always()

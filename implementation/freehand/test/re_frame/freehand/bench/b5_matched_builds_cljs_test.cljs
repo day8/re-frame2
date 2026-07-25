@@ -322,8 +322,12 @@
               "raw is the one figure presented as lowering and nothing else")
           (is (re-find #"identity-sensitive" ci)
               "and brotli is named for what it is")
-          (is (re-find #"babc7fb540" ci)
-              "with the revision the percentages were read at — an unstamped absolute goes stale silently")))
+          (is (re-find #"at [0-9a-f]{10}" ci)
+              (str "with the revision the percentages were read at — an unstamped "
+                   "absolute goes stale silently. The SHAPE is asserted, not a "
+                   "particular sha: pinning one would mean a test edit every time "
+                   "the sweep is re-taken, and a check that has to be edited to "
+                   "re-measure is a check that discourages re-measuring"))))
       (testing "and it names the BUILD POSTURE the two artefacts were produced
                 under. :advanced is held still as a setting by the two build
                 definitions; the posture is what holds it still as an outcome,
@@ -369,7 +373,7 @@
   `:raw-bytes` is in.
 
   Not `count`, which answers UTF-16 code units. The bundles carry non-ASCII
-  characters in their string literals, so the two differ: at `babc7fb540` the
+  characters in their string literals, so the two differ: at `ba27e74a9e` the
   raw delta is 17,373 bytes and 17,363 code units. Comparing an invariance in
   one unit against a delta in the other fails by exactly that gap, which reads
   like a broken invariant rather than a mismatched ruler."
@@ -555,7 +559,12 @@
                   (str (name k) " shape reds nothing — it is all evidence"))
               (is (= :advanced (get-in record [:build :optimizations]))
                   (str (name k) " shape is an advanced artefact"))
-              (publish! (str "B5 matched shape — " (name k)) record)))
+              ;; "release shape", not "matched shape": all three are release
+              ;; artefacts and each is published, but only :interpreted and
+              ;; :compiled are MATCHED to each other. The label is what a reader
+              ;; of the transcript sees, so it may not claim the mixed shape
+              ;; into the pair (rf2-rhg4q).
+              (publish! (str "B5 release shape — " (name k)) record)))
           ;; The three digests are distinct: three different bundles.
           (is (= 3 (count (set (map (comp :sha256 :measured val) results))))
               "the three shapes are three distinct artefacts")

@@ -353,7 +353,7 @@
   Several, not one, because the quantity being probed is SENSITIVE — one token
   samples one point of it and reads like a constant. The #6909 audit published
   a single-token brotli figure of −16 bytes; sweeping seven tokens at
-  `babc7fb540` found a 227-byte spread, so that figure was one sample of
+  `ba27e74a9e` found a 227-byte spread, so that figure was one sample of
   something an order of magnitude larger. See [[causal-isolation]]."
   ["arm0" "aaaa" "same"])
 
@@ -370,7 +370,7 @@
   occurs, and therefore what makes the RAW delta invariant under it.
 
   Occurrence counts are NOT equal between the arms and are not meant to be: at
-  `babc7fb540` the interpreted arm shipped 23 and the compiled arm 29, and the
+  `ba27e74a9e` the interpreted arm shipped 23 and the compiled arm 29, and the
   six extra are compiled-tier source coordinates that exist BECAUSE the views
   were lowered. Those bytes are lowering's own and belong in the delta. What
   this controls for is the token's CONTENT, not its census."
@@ -394,7 +394,7 @@
       so this is the one figure the pair may present as lowering and nothing
       else.
     - GZIP (6 and 9) — the delta moved by at most 9 bytes across seven probe
-      tokens at `babc7fb540`, against deltas of 4,794 and 4,738: ≤0.2%.
+      tokens at `ba27e74a9e`, against deltas of 4,794 and 4,738: ≤0.2%.
       Attributable to lowering to within a handful of bytes.
     - BROTLI — the delta moved across a 227-byte spread (−198 to +29) at the
       same revision, against a 3,781-byte delta: up to ≈5%. The brotli figure
@@ -413,7 +413,7 @@
        "delta provably invariant under renaming them (asserted every built "
        "run) but does not make a compressed delta invariant, because "
        "compression is not a sum of its input's parts. Substituting "
-       "equal-length probe tokens at babc7fb540 moved the gzip-6/gzip-9 "
+       "equal-length probe tokens at ba27e74a9e moved the gzip-6/gzip-9 "
        "deltas by at most 9 bytes of 4,794/4,738 (≤0.2%) and the brotli delta "
        "across a 227-byte spread of 3,781 (up to ~5%). Read raw as lowering, "
        "gzip as lowering within a handful of bytes, and brotli as "
