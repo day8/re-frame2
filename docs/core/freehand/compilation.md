@@ -40,9 +40,9 @@ when debugging.
 When a view body is inside the finite subset, compilation can give you:
 
 - direct React lowering and a JVM structural emitter  
-- finite manifests for subscriptions, events, key maps, slots, host edges,
-  presence, and top-layer forms (static “what *can* happen,” not only what one
-  render observed)  
+- finite manifests for subscriptions, events, slots, host edges, presence, and
+  top-layer forms (static “what *can* happen,” not only what one render
+  observed)  
 - generated prop comparators and prebound handlers where the compiler can prove
   them  
 - static diagnostics with source coordinates  
