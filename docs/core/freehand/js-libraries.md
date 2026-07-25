@@ -22,6 +22,7 @@ law; this page is the **recipe** companion.
 | **Only enter/exit retention** | **`v/presence` + CSS** first | toasts, simple panel fade |
 | **React component**: values in, callbacks out (hooks only *inside* the lib) | **Qualified host leaf** | date pickers, many charts, **Framer `motion.*` / `AnimatePresence`** |
 | **Imperative DOM owner**: `new X(el)`, dispose | **Registered behavior** | Vega View, Mapbox GL, GSAP on a node |
+| **Imperative owner you must *await***: construction answers a Promise | **Registered behavior** whose `:connect` returns a **cell** | `vegaEmbed(el, spec)`, a Maps `loader.load()`, a workbook `.ready` |
 | **Your code must call React hooks** (or similar) | a **small React component** of your own, entered as a child | `useMotionValue`, custom scroll-linked motion |
 
 The fence is **hooks in your Freehand view body**, not “any JS library.” A foreign
@@ -284,6 +285,97 @@ Most animation “play when props change” work is **`:passive`** timing. Use
 **`:layout`** only when you must measure before paint and can prove no wrong-frame
 flash. Silent forever-`rAF` loops are not a hidden policy.
 
+## Pattern E — the handle arrives later (Promise-acquired hosts)
+
+A large class of libraries cannot be constructed on the spot. `vegaEmbed(el, spec)`
+answers a Promise. A Maps `loader.load()` answers a Promise. A workbook has a
+`.ready`. So at the moment `:connect` runs, the thing you are supposed to own does
+not exist yet.
+
+This needs no new machinery, and it is worth being precise about why. **re-frame
+event processing is one complete synchronous pass.** A Promise settling later does
+not pause an event, resume a handler, or await anything — it just runs a callback,
+which may dispatch a new and entirely ordinary event. There is nothing to
+schedule, so there is no scheduler.
+
+What the lifecycle needs is a *place to put the handle when it turns up*, and the
+memory law already says where: `:connect` establishes the connection's private
+memory **once**, and `:update`, a command and `:disconnect` only ever receive it.
+So when the handle is not ready, what `:connect` returns is a **mutable cell** —
+and the deferred continuation moves that one cell in place, exactly as a
+void-returning mutator does.
+
+```clojure
+(ns app.ui.chart
+  (:require [re-frame.freehand :as v]))
+
+;; The library's own async door, and its handle:
+;;   (acquire! node spec)     => Promise of a handle
+;;   (set-spec! handle spec)  mutates, answers nothing
+;;   (dispose! handle)        releases it, once
+
+(v/defbehavior async-chart
+  {:connect
+   (fn [{:keys [node config dispatch]}]
+     ;; The handle is not ready. The MEMORY is — so :connect returns a cell,
+     ;; synchronously, and the continuation closes over that local (NOT over
+     ;; (:memory ctx), which is still nil while :connect is running).
+     (let [cell (atom {:phase :pending :spec config})]
+       (.then (acquire! node config)
+              (fn [handle]
+                (if (= :closed (:phase @cell))
+                  (dispose! handle)                     ; late success: finalise, never install
+                  (do (swap! cell assoc :phase :ready :handle handle)
+                      (set-spec! handle (:spec @cell))  ; the LATEST spec, not :connect's
+                      (dispatch [:chart/ready]))))      ; an ordinary event, fenced to this connection
+              (fn [_err]
+                ;; :closed is TERMINAL — a late failure is evidence only
+                (swap! cell #(cond-> % (not= :closed (:phase %)) (assoc :phase :failed)))))
+       cell))
+
+   :update
+   (fn [{:keys [config memory]}]
+     (swap! memory assoc :spec config)                  ; desired state, always
+     (when (= :ready (:phase @memory))                  ; a host call only if there is a host
+       (set-spec! (:handle @memory) config)))
+
+   :disconnect
+   (fn [{:keys [memory]}]
+     ;; FENCE FIRST, then release: an acquisition still in flight must find a
+     ;; closed cell and finalise itself.
+     (let [{:keys [phase handle]} @memory]
+       (swap! memory assoc :phase :closed)
+       (when (= :ready phase) (dispose! handle))))})
+```
+
+Five rules, and each one is a bug you would otherwise ship:
+
+| Rule | The bug it prevents |
+|---|---|
+| `:connect` returns the cell **synchronously** | returning the Promise leaves `:disconnect` with nothing to release |
+| The continuation closes over the **local** cell | `(:memory ctx)` is still `nil` inside `:connect` |
+| `:disconnect` **fences before it releases** | an in-flight acquisition installs into a connection that is gone |
+| `:closed` is **terminal** | a late failure reopens a cell the teardown already settled |
+| Take the **two-argument** `.then` | a trailing `.catch` lets a throw from the success arm masquerade as an acquisition failure |
+
+**Commands do not queue.** While the phase is `:pending` there is no host, so a
+command refuses — visibly, naming the phase — and is not remembered. Replaying it
+when the handle finally arrives would fire an export the user asked for and gave
+up on.
+
+**The outward `dispatch` is already fenced.** A behavior context resolves its
+connection at firing time, so a continuation that outlives its node dispatches
+nothing and answers `false`. You do not need to null out your own callbacks; you
+do need to release host listeners in `:disconnect`.
+
+### Proven, not merely argued
+
+Unlike the exit-animation path above, this one is mounted. The ordering that
+matters — **unmount before the Promise resolves** — is asserted in
+`behavior_async_dom_cljs_test.cljs` against a deterministic surrogate: the late
+handle is disposed exactly once, never configured, and the library's book of
+undisposed instances reads empty. A real third-party witness is still outstanding.
+
 ## Animation checklist
 
 | Question | Prefer |
@@ -292,6 +384,7 @@ flash. Silent forever-`rAF` loops are not a hidden policy.
 | Framer components only (`motion.*`, `AnimatePresence`)? | **React elements in child positions** (+ pilot for exit) |
 | You call Framer **hooks** (`useMotionValue`, …)? | a **small React component of your own** — hooks only inside that file |
 | Drive a non-React player (GSAP on a node)? | **Behavior** |
+| Construction answers a Promise? | **Behavior** whose `:connect` returns a **cell** ([Pattern E](#pattern-e--the-handle-arrives-later-promise-acquired-hosts)) |
 | Must mid-animation state time-travel? | Put *intent* in re-frame; keep the player in the host |
 
 **Reduced motion:** read a preference (a media query or an app setting, as data)
@@ -309,6 +402,8 @@ motion bus.
 | `v/event` in a foreign element's `#js` props | a plain closure over `rf/capture-frame` — Freehand does not walk those props, so the carrier arrives non-callable |
 | A callback closing over `rf/dispatch` | close over `(rf/capture-frame)`'s `:dispatch`; the render scope is gone when the library calls |
 | Assume AnimatePresence exit works untested | mounted pilot before you depend on it |
+| Return the acquisition Promise from `:connect` | return a **cell**; `:disconnect` must have something to release |
+| Let a late handle install into a torn-down connection | `:disconnect` fences first; the continuation checks `:closed` and finalises |
 | Full motion library for one opacity fade | presence + CSS |
 
 ## Other libraries, same shapes
@@ -316,7 +411,8 @@ motion bus.
 | Library class | Pattern |
 |---|---|
 | Date picker / select (React) | a React element in a child position; callbacks close over `rf/capture-frame` |
-| Vega / Mapbox / SpreadJS | behavior (+ commands if needed) |
+| Mapbox GL, a Vega `View` you construct yourself | behavior (+ commands if needed) |
+| Vega Embed, a Maps `loader.load()`, a workbook `.ready` | behavior whose `:connect` returns a cell — [Pattern E](#pattern-e--the-handle-arrives-later-promise-acquired-hosts) |
 | Props-only React kits | qualified leaf |
 | Hook APIs *you* call | small React component as host leaf |
 | Freehand view inside a React grid cell | `v/->react` + live frame |

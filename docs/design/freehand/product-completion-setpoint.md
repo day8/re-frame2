@@ -56,17 +56,28 @@ identity, structure, SSR, and compiler claims.
 
 [D022](decisions/D022-public-react-host-door.md) owns the detailed ruling.
 
-### DC-02 — One async connection-owner recipe
+### DC-02 — Deferred foreign-handle ownership recipe
 
-Keep behavior `:connect` synchronous. It may start asynchronous acquisition and
-return a private pending/ready/failed/closed owner immediately. Publish one tested
-recipe covering latest desired config, late success and failure, cooperative
-cancellation, close-before-resolve, exact-once finalization, non-queued commands,
-and finalizer failure.
+Keep behavior `:connect` synchronous. It may start acquisition of a foreign handle
+and return a private pending/ready/failed/closed owner immediately. Publish one
+tested recipe covering latest desired config, late success and failure,
+cooperative cancellation, close-before-resolve, exact-once finalization,
+non-queued commands, and finalizer failure.
 
-Prove the recipe with Vega Embed and reuse its conformance-shaped double for Maps
-loading and a void-mutator SpreadJS-shaped adapter. Do not add a task system or
-helper until at least two more real integrations repeat irreducible machinery.
+**re-frame event processing remains one complete synchronous pass.** A later
+foreign completion may dispatch a new ordinary event; it never pauses or resumes
+the original event. There is no awaited event, no suspended handler, and nothing
+to resume — which is precisely why this recipe needs no task system, no async
+runtime, and no scheduling policy. The difficulty is that the handle arrives
+later, not that anything in re-frame is asynchronous.
+
+Prove the recipe with a deterministic Promise-acquired surrogate whose acquisition
+settles only on a controlled trigger, so the evidence is reproducible rather than
+a timing observation. A real third-party witness — Vega Embed, a Maps loader, a
+void-mutator SpreadJS-shaped adapter — is **evidence-deferred**: recorded as
+not-now rather than dropped, and it does not gate the recipe. Do not add a task
+system or helper until at least two more real integrations repeat irreducible
+machinery.
 
 ### DC-03 — Pure form transitions and causal owner release
 

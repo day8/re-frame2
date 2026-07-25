@@ -339,7 +339,8 @@
     [ 2 "b9e89841da17" :foreign-npm]
     [ 3 "e94f3380438e" :foreign-npm]
     [ 4 "2248c34107cb" :foreign-npm]
-    [ 5 "8e3bda770349" host/fade-panel]]
+    [ 5 "8e3bda770349" host/fade-panel]
+    [ 6 "b104f110d013" host/async-chart]]
    "limits-and-escapes.md"
    []
    "mental-model.md"
