@@ -843,8 +843,8 @@ registers like `defview`. The `:properties` set is the **entire v1 grammar** (op
 map closed, per the `defview` options-map discipline); future keys (`:events`, per-prop
 types, attribute reflection) are new rulings, not silent growth. Declared names →
 JS properties (bar the two refused below), kebab keyword mapped to the camelCase
-property (`:help-text` →
-`helpText`, mirroring the pinned DOM-spelling philosophy); undeclared names →
+property (`:help-text` → `helpText`, mirroring the pinned DOM-spelling
+philosophy); undeclared names →
 attributes; undeclared *elements* need no declaration (all-attributes default). SSR/JVM
 emitter emits attributes only; property-props are applied at hydration. Rejected:
 Lit-style rich schema (no consumer — demand bar), React-19-style runtime `in` check
