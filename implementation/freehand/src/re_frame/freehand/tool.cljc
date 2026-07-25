@@ -1,13 +1,16 @@
 (ns re-frame.freehand.tool
-  "The Freehand TOOL-TIER reader door — what an inspector reads a
-  declaration's compile-time analysis through.
+  "The Freehand TOOL-TIER reader door — what an inspector reads a view through.
 
-  One namespace, one question: **what did the compiler statically learn about
-  this view?** The answer is the manifest the compiled tier already builds —
-  its subscription, event, render-slot, trusted-markup, committed-frame and
-  boundary-crossing rosters, its capability set, its ViewCell verdict, and the
-  compile-tier `:diagnostics` findings. Nothing here computes anything; every
-  read is a projection of a value the declaration is already carrying.
+  Two questions, and the split between them is the whole shape of this
+  namespace. **What did the compiler statically learn about this view?** is
+  answered from the manifest the compiled tier already builds — its
+  subscription, event, render-slot, trusted-markup and boundary-crossing
+  rosters, its capability set, its ViewCell verdict, and the compile-tier
+  `:diagnostics` findings — so those reads compute nothing and retain nothing;
+  each is a projection of a value the declaration is already carrying. **What
+  is mounted right now, and why did it render?** cannot be answered that way,
+  and [[read-mounted-views]] / [[explain-render]] say below exactly what they
+  read instead and what it costs.
 
   ## Two doors, because there are two callers
 
@@ -47,30 +50,38 @@
   It is a READER, not a tool framework. There is no accumulator — the donor's
   per-occurrence evidence accumulator was ruled out permanently (rf2-drpa3.167,
   REPLACE), not merely deferred — no root registry, no interval log and no
-  history store: retention is Spec 009's ring, and nothing here retains
-  anything at all. The declared-view index it reads through holds ONE row per
-  declaration and no occurrence, generation or count.
+  history store. Nothing in this namespace retains anything; the two structures
+  it reads are a declared-view index holding ONE row per declaration
+  ([[re-frame.freehand.registry]]) and a current-occurrence index holding ONE
+  row per CONNECTED occurrence that drops it at disconnect
+  ([[re-frame.freehand.occurrences]]). Neither has a time axis. History is
+  Spec 009's retained ring, under Spec 009's one knob, and [[explain-render]]
+  folds that ring at READ time rather than keeping a fold of its own.
 
-  So none of these reads can say what is MOUNTED, and none of them pretends
-  to. Current-occurrence reads (`mounted-views`, rf2-xftdv) and the bounded
-  `explain-render` over the Spec 009 ring (rf2-cpfbg) are separate slices with
-  separate owners and their own release seams.
+  Which is why every read here can be asked when it will be honest and no
+  earlier. A declaration read answers before anything mounts. A
+  current-occurrence read answers about now and says nothing about what once
+  was. An explanation answers only as far back as the configured window
+  reaches, and reports the rest as loss.
 
   ## DEV-ONLY
 
-  Every id-taking read is gated on `re-frame.interop/debug-enabled?` and
-  answers `nil` under `:advanced` + `goog.DEBUG=false`, which is also what the
-  index it reads holds there: nothing. A consumer distinguishes that from an
-  unregistered view the way it distinguishes any absence — by asking about a
-  view it knows the application declares.
+  Every read except the total value-taking [[view-manifest]] is gated on
+  `re-frame.interop/debug-enabled?` and answers `nil` under `:advanced` +
+  `goog.DEBUG=false`, which is also what both indexes hold there: nothing. A
+  consumer distinguishes that from an unregistered view the way it
+  distinguishes any absence — by asking about a view it knows the application
+  declares.
 
   Normative owner: [`spec/004-Views.md`](../../../../spec/004-Views.md);
   the instrumentation contract these reads serve is
   [`spec/009-Instrumentation.md`](../../../../spec/009-Instrumentation.md)."
   (:require [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.evidence :as evidence]
+            [re-frame.freehand.occurrences :as occurrences]
             [re-frame.freehand.registry :as registry]
-            [re-frame.interop :as interop]))
+            [re-frame.interop :as interop]
+            [re-frame.trace.tooling :as trace-tooling]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -303,3 +314,268 @@
                                  :site-facts  event-site-facts})
                   (no-static-analysis {:event-sites []
                                        :site-facts  event-site-facts}))))))
+
+;; ---------------------------------------------------------------------------
+;; The CURRENT-OCCURRENCE reads — the only reads that need live state
+;; ---------------------------------------------------------------------------
+
+(def occurrence-facts
+  "The closed set of facts one mounted-occurrence row states.
+
+  Published beside the roster for the reason [[event-site-facts]] is: naming
+  what an entry states is how an empty-handed row says which hand is empty. A
+  reader migrating from the donor tool tier will look for a render count, a
+  batch count, a lifecycle interval ledger, a hide-versus-unmount label and an
+  accumulated union of every target the occurrence ever observed. None of those
+  is here, and none is coming: rf2-drpa3.167 ruled the cumulative
+  per-occurrence accumulator out permanently rather than deferring it. This is
+  CURRENT STATE — what is connected now, at which generation, over which
+  frame, having read what — so a lifetime quantity is not a fact it is missing
+  but a fact it does not have.
+
+  Two members are explicit statements of ignorance rather than data:
+
+    - `:root` is always `:unknown`. Cells do not know their owning root, and
+      the commit seam that writes these rows carries no root identity, so a
+      row that named one would be inventing it.
+    - `:at` is the commit's reading of the monotonic clock, not a wall-clock
+      timestamp and not an interval. It exists so [[explain-render]] can PROVE
+      that Spec 009's retained window is younger than the commit — which is
+      the difference between reporting eviction and guessing at a cause."
+  #{:view-id :occurrence :lowering :generation :connection :root :at :commit})
+
+(defn read-mounted-views
+  "Every Freehand occurrence CONNECTED RIGHT NOW, inside the projection that
+  says how far to trust the roster. `nil` in a production build.
+
+      (tool/read-mounted-views)
+      ;; => {:schema      :re-frame.freehand.evidence/v1
+      ;;     :read        :mounted-views
+      ;;     :scope       :connected-occurrences
+      ;;     :basis       :observation
+      ;;     :complete?   true
+      ;;     :loss        nil
+      ;;     :occurrences [{:view-id    :app.people/people-list
+      ;;                    :occurrence {:parent nil :key 71}
+      ;;                    :lowering   :compiled
+      ;;                    :generation 4
+      ;;                    :connection :connected
+      ;;                    :root       :unknown
+      ;;                    :at         18422.7
+      ;;                    :commit     {:scope {:committed-generation 4}
+      ;;                                 :basis :observation
+      ;;                                 :complete? true :loss nil
+      ;;                                 :frame :rf/default
+      ;;                                 :reads [{:site-key … :query [:person 7]
+      ;;                                          :frame-id :rf/default :owned? true}]}}]
+      ;;     :occurrence-facts #{…}}
+      ;;
+      ;;    Two rows with the same `:view-id` and different `:occurrence` keys
+      ;;    are two live occurrences of one view. That is the read this index
+      ;;    exists for, and the declaration-keyed index the other reads resolve
+      ;;    through structurally cannot state it.
+      ;;
+      ;;    `:reads` is the SELECTED COMMIT's dependency set, not a union over
+      ;;    the occurrence's life, and it carries the queries WITHOUT the values
+      ;;    they returned — a value is application data, and an evidence read
+      ;;    is not a second egress path for it.
+      ;;
+      ;;    No arg, deliberately: the question is *what is mounted*, and a view
+      ;;    id would answer a narrower one a caller can get by filtering.
+
+  THE ONE READ THAT NEEDS LIVE STATE, because it is the one question a
+  fire-and-forget commit sink cannot answer. An inspector attaches LATE, to an
+  application that has been mounting for minutes, so a consumer that starts
+  listening at attach time can only learn about commits from that moment on.
+  The substrate therefore keeps one row per connected occurrence at the commit
+  seam ([[re-frame.freehand.occurrences]]) — which is why a session that
+  attaches now still sees what connected before it arrived.
+
+  `:complete? true` is a claim about UNDER-reporting, and it is exact: the
+  scope is *occurrences connected now that have published a selected commit*,
+  and the index holds every one of them (a cell that never published is not
+  connected — it has no bundle — so it is outside the scope rather than missing
+  from the roster). Over-reporting has its own, bounded shape and is stated
+  rather than claimed away: removal is the host's explicit teardown, so a host
+  torn down some other way, without disconnecting its cells, leaves rows behind
+  until it does. Each row's `:generation` and `:at` are what let a reader see a
+  stale one for what it is."
+  []
+  (when interop/debug-enabled?
+    (evidence/projection
+      {:schema           evidence/schema
+       :read             :mounted-views
+       :scope            :connected-occurrences
+       :basis            :observation
+       :complete?        true
+       :loss             nil
+       :occurrences      (occurrences/rows)
+       :occurrence-facts occurrence-facts})))
+
+;; ---------------------------------------------------------------------------
+;; explain-render — a bounded fold of Spec 009's retained window, at READ time
+;; ---------------------------------------------------------------------------
+
+(defn- read-query-ids
+  "The set of query IDS one commit's staged reads name.
+
+  Query ids, not whole query vectors, because that is the axis the retained
+  trace stream keys sub recomputes on (`:rf.sub/id`) and a join has to be over
+  a shared spelling. A dynamic query's arguments are not part of the match —
+  matching on them would silently narrow the join whenever an argument moved
+  between the run and the commit."
+  [commit]
+  (into #{}
+        (keep (fn [{:keys [query]}]
+                (cond
+                  (keyword? query)                       query
+                  (and (vector? query) (seq query))      (first query))))
+        (:reads commit)))
+
+(defn- run-touching
+  "The `bundle`'s cause row when one of its retained sub recomputes names a
+  query id in `query-ids`, else nil.
+
+  `:cause-event-id` and never the event VECTOR: an event id is a keyword and
+  carries no application data, which is the same reason Spec 009 catalogues
+  `:rf.view/cause-event-id` as the attribution slot rather than the args."
+  [query-ids bundle]
+  (let [sub-ids (into #{}
+                      (comp (keep #(get-in % [:tags :rf.sub/id]))
+                            (filter query-ids))
+                      (:subs bundle))]
+    (when (seq sub-ids)
+      {:dispatch-id    (:dispatch-id bundle)
+       :cause-event-id (first (:event bundle))
+       :sub-ids        sub-ids})))
+
+(defn- window-start
+  "The oldest retained `:time` across `bundles`, or nil when the window holds
+  nothing. The one number an eviction proof needs: a window that begins AFTER a
+  commit cannot contain that commit's cause."
+  [bundles]
+  (->> bundles
+       (mapcat :trace-events)
+       (keep :time)
+       (reduce (fn [a b] (if (or (nil? a) (< b a)) b a)) nil)))
+
+(defn- explanation
+  "One occurrence's explanation, folded from `bundles` — the runs Spec 009's
+  ring retains for the frame that occurrence committed against — with the
+  completeness claim and the loss account computed from the fold rather than
+  asserted by the caller.
+
+  Three ways this cannot explain a render, and each is reported as LOSS rather
+  than as an empty-but-confident answer:
+
+    - the window holds NOTHING for the frame. Retention is off
+      (`:rf.trace/events-retained 0`), or nothing has been dispatched, or the
+      frame was destroyed and released its ring. `:cap`, because the window's
+      one knob is what decides this.
+    - the window does not REACH BACK to the commit — its oldest retained event
+      is younger than `:at`. The cause was evicted. `:cap` again, and this is
+      the arm the commit's clock reading exists to make provable rather than
+      guessable.
+    - the window reaches back and holds runs, but none of them recomputed a
+      subscription this commit read. Spec 009 retains only runs that carry a
+      dispatch correlation, and a Freehand commit lands in a post-settle
+      reactive flush that carries none of its own, so the join can be genuinely
+      absent — `:uncorrelated`, a different remedy from a bigger buffer.
+
+  `:dropped` is `:unknown` in all three: the window cannot say how many runs it
+  never held. An explanation is complete only when the window both spans the
+  commit and yields at least one cause, and `:cap`/`:uncorrelated` at
+  `:dropped :unknown` is what the alternative — an empty `:causes` reported
+  `:complete? true` — would have been hiding."
+  [row bundles]
+  (let [commit    (:commit row)
+        query-ids (read-query-ids commit)
+        causes    (into [] (keep #(run-touching query-ids %)) bundles)
+        started   (window-start bundles)
+        spans?    (and (some? started) (<= started (:at row)))
+        loss      (cond
+                    (empty? bundles) {:reason :cap :dropped evidence/unknown}
+                    (not spans?)     {:reason :cap :dropped evidence/unknown}
+                    (empty? causes)  {:reason :uncorrelated :dropped evidence/unknown})]
+    (evidence/projection
+      (cond-> {:view-id    (:view-id row)
+               :occurrence (:occurrence row)
+               :lowering   (:lowering row)
+               :generation (:generation row)
+               :frame      (:frame commit)
+               :scope      {:retained-runs (count bundles) :spans-commit? (boolean spans?)}
+               :basis      :observation
+               :complete?  (nil? loss)
+               :loss       loss
+               :commit     commit
+               :causes     causes}
+        (some? started) (assoc-in [:scope :window-starts-at] started)))))
+
+(defn explain-render
+  "Why the live occurrences of `view-id` rendered, folded from Spec 009's
+  RETAINED WINDOW at read time. No arg spans every current occurrence. `nil`
+  for an id this build declared no view under, and `nil` in production.
+
+      (tool/explain-render :app.people/people-list)
+      ;; => {:schema :re-frame.freehand.evidence/v1
+      ;;     :read   :explain-render
+      ;;     :view-id :app.people/people-list
+      ;;     :scope :connected-occurrences :basis :observation
+      ;;     :complete? true :loss nil
+      ;;     :explanations
+      ;;     [{:view-id … :occurrence {…} :lowering :compiled :generation 4
+      ;;       :frame :rf/default
+      ;;       :scope {:retained-runs 12 :spans-commit? true
+      ;;               :window-starts-at 17980.2}
+      ;;       :basis :observation :complete? true :loss nil
+      ;;       :commit {…}
+      ;;       :causes [{:dispatch-id 41 :cause-event-id :people/loaded
+      ;;                 :sub-ids #{:person/by-id}}]}]}
+
+  NOTHING IS RETAINED TO ANSWER THIS. The fold runs against the per-frame
+  retained-event ring Spec 009 already owns, under its single knob
+  (`:rf.trace/events-retained`, set through
+  `(rf/configure! {:trace-buffer {:events-retained N}})` — see
+  [[re-frame.freehand.evidence/retention]]), and the occurrence rows it folds
+  against are current state that disappears at disconnect. There is no Freehand
+  history store, no second window and no second knob: a second retention
+  mechanism would be a second thing to disable in production, a second place a
+  payload could survive, and a second answer to \"how far back does this go?\"
+  that disagrees with the first.
+
+  Which is exactly why the OUTER roster is complete while an inner explanation
+  often is not, and why the two claims are separate projections. The roster is
+  complete because the index knows every connected occurrence. An explanation
+  is complete only when the window both spans the commit and yields a cause —
+  and eviction, a disabled ring, and a commit that joins to no retained run are
+  each reported as LOSS with an explicit `:dropped :unknown`. See
+  [[explanation]] for the three arms; the short version is that a bounded
+  window that has forgotten why a view rendered must say so, because an empty
+  `:causes` presented as complete evidence would be asserting that nothing
+  caused the render.
+
+  Background tools may fold these bounded explanations into their own live
+  summaries. The substrate must not, and does not: this read builds its answer
+  and keeps none of it."
+  ([] (explain-render nil))
+  ([view-id]
+   (when interop/debug-enabled?
+     (when (or (nil? view-id) (some? (registry/lookup view-id)))
+       (let [rows (cond->> (occurrences/rows)
+                    view-id (filterv #(= view-id (:view-id %))))
+             ;; One ring read per FRAME, not per occurrence: several
+             ;; occurrences of one view commonly commit against one frame, and
+             ;; folding the same window once per row would be the same answer
+             ;; computed n times.
+             windows (into {}
+                           (map (fn [fid] [fid (trace-tooling/trace-buffer fid)]))
+                           (distinct (map #(:frame (:commit %)) rows)))]
+         (evidence/projection
+           {:schema       evidence/schema
+            :read         :explain-render
+            :view-id      view-id
+            :scope        :connected-occurrences
+            :basis        :observation
+            :complete?    true
+            :loss         nil
+            :explanations (mapv #(explanation % (get windows (:frame (:commit %)))) rows)}))))))

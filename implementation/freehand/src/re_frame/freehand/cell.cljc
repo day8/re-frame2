@@ -79,6 +79,7 @@
             [re-frame.freehand.eq :as eq]
             [re-frame.freehand.events :as events]
             [re-frame.freehand.evidence :as evidence]
+            [re-frame.freehand.occurrences :as occurrences]
             [re-frame.interop :as interop]
             [re-frame.router :as router]
             [re-frame.substrate.observation :as obs]))
@@ -841,11 +842,26 @@
 ;; `false`, the branch DCEs, and neither the record construction nor the
 ;; evidence schema it reaches survives into a production bundle.
 ;;
-;; This is a SEAM, not an evidence framework: it validates a record and hands
-;; it to whatever sink is installed. The default sink is nil — nothing is
-;; retained here, exactly as `re-frame.freehand.evidence` retains nothing (its
-;; `retention` names Spec 009's per-frame ring and no second store). The
-;; accumulator that folds these records is downstream (rf2-drpa3.167).
+;; This is a SEAM, not an evidence framework: it validates the commit's facts,
+;; writes ONE row for the committing occurrence into the dev-only
+;; current-occurrence index (`re-frame.freehand.occurrences`, rf2-xftdv), and
+;; hands the validated record to whatever sink is installed. The default sink
+;; is nil. Neither half accumulates: the index REPLACES an occurrence's row on
+;; each commit and drops it at disconnect, and `re-frame.freehand.evidence`
+;; retains nothing at all (its `retention` names Spec 009's per-frame ring and
+;; no second store). The cumulative per-occurrence accumulator was ruled out
+;; permanently (rf2-drpa3.167, REPLACE), not deferred.
+;;
+;; WHY THE INDEX IS WRITTEN HERE AND NOT INSTALLED AS THE SINK. An MCP
+;; inspector attaches LATE, to an application that has been mounting and
+;; re-rendering for minutes. A sink installed at attach time sees only the
+;; commits that happen after it, so an index installed there could never
+;; answer "what is mounted right now" — the one question that justifies keeping
+;; any live state. And the sink is a SINGLE slot that `set-evidence-sink!`
+;; replaces, so an index occupying it would be evicted the moment a tool
+;; installed its own push consumer, silently. The substrate therefore maintains
+;; the index itself, under the same dev gate, and leaves the sink to the
+;; consumer it is for.
 ;;
 ;; TWO PLANES, split along the publication line. The installed sink is an
 ;; observability CONSUMER of the commit, never an authority over it, so its
@@ -878,19 +894,26 @@
   render path's evidence sink, and answer the PRIOR sink. `nil` restores
   the no-op default.
 
-  The seam builds a record only when a sink is installed AND
+  The seam builds a RECORD only when a sink is installed AND
   `interop/debug-enabled?` is true, so an application that installs no sink
-  pays nothing beyond the folded-away gate.
+  pays only the commit's own facts — the validated projection the
+  current-occurrence index rows — beyond the folded-away gate.
 
-  What installs here is a MINIMAL CURRENT-OCCURRENCE INDEX — insert-or-update
-  on the selected commit, remove on disconnect, one row per live occurrence
-  (rf2-xftdv), read by the bounded `explain-render` over Spec 009's existing
-  retained ring (rf2-cpfbg). NOT a cumulative per-cell accumulator: the donor's
-  per-occurrence evidence accumulator was ruled out permanently (rf2-drpa3.167,
-  REPLACE), so nothing crossing this seam keeps lifetime counts, an interval
-  ledger, or a second retention knob. This docstring used to say downstream
-  tooling \"installs the accumulator here\", which named the design that ruling
-  rejected."
+  What installs here is a PUSH CONSUMER: a tool that wants to be told about
+  each selected commit as it happens (Xray's live panels are the shape).
+  Nothing crossing this seam keeps lifetime counts, an interval ledger, or a
+  second retention knob — the donor's per-occurrence evidence accumulator was
+  ruled out permanently (rf2-drpa3.167, REPLACE).
+
+  The MINIMAL CURRENT-OCCURRENCE INDEX (rf2-xftdv) does NOT install here, and
+  an earlier draft of this docstring saying it did was wrong for two reasons.
+  A sink installed at attach time sees only later commits, so an index living
+  in this slot could not answer \"what is mounted right now\" for anything that
+  connected before the inspector arrived — the whole point of the index. And
+  this is one slot that `set-evidence-sink!` REPLACES, so the index would be
+  evicted the moment a push consumer installed itself. The substrate maintains
+  the index at the commit seam instead; `re-frame.freehand.tool/read-mounted-views`
+  and `explain-render` read it."
   [f]
   (let [prev @evidence-sink]
     (reset! evidence-sink f)
@@ -931,33 +954,82 @@
    :key    #?(:clj  (System/identityHashCode cell)
               :cljs (goog/getUid cell))})
 
-(defn- commit-evidence-record
-  "DEV-GATED, BEFORE publication: when a sink is installed, build the commit
-  occurrence-record for `cell` at `lowering` / `generation` and VALIDATE it
-  through `re-frame.freehand.evidence/record`. Answers `[sink record]` — the
-  captured sink and its validated record — for delivery once the bundle is
-  live, or nil when the seam is inert (no sink, or debug disabled).
+(defn- commit-facts
+  "The facts the SELECTED commit already has, read off the bundle it is about
+  to publish: the generation, the frame it bound to, and the subscription
+  sites it staged — WITHOUT the values those reads returned, which are
+  application data and not a fact about the view.
 
-  FAIL-LOUD on a malformed FRAMEWORK record: `evidence/commit-record` throws
-  HERE, before `commit!` publishes anything, so an emission the schema refuses
-  aborts the whole commit rather than reaching a reader or leaving a
-  half-published bundle. That is the framework plane and it stays loud — only
-  the CONSUMER's own failure (the sink throwing) is contained, downstream and
-  only after a selected publication.
+  Read off the bundle rather than off the cell because the bundle is the
+  commit's own truth a moment before it becomes the cell's: the cell still
+  holds the PRIOR commit's dependency set at this point in `commit!`, so
+  asking the cell would describe the render before this one."
+  [bundle]
+  {:generation (:generation bundle)
+   :frame      (:frame bundle)
+   :reads      (mapv #(select-keys % [:site-key :query :frame-id :owned?])
+                     (:observations bundle))})
+
+(defn- commit-evidence
+  "DEV-GATED, BEFORE publication: build and VALIDATE what the selected commit
+  publishes about itself. Answers `{:occurrence … :row … :sink … :record …}`,
+  or nil when the whole plane is off (debug disabled).
+
+    - `:row` is the current-occurrence index row — the occurrence's identity,
+      its lowering, and the validated [[re-frame.freehand.evidence/commit-projection]]
+      of this commit's facts. Built on EVERY commit, because the index is the
+      substrate's own and does not wait for a tool to attach.
+    - `:record` is the full evidence record, built ONLY when a sink is
+      installed, because it is the sink's contract and nobody else's.
+
+  FAIL-LOUD on a malformed FRAMEWORK emission: the evidence doors throw HERE,
+  before `commit!` publishes anything, so an emission the schema refuses aborts
+  the whole commit rather than reaching a reader or leaving a half-published
+  bundle. That is the framework plane and it stays loud — only the CONSUMER's
+  own failure (the sink throwing) is contained, downstream and only after a
+  selected publication.
 
   The sink is captured together with its record so the tool that was installed
   when the commit began is the one delivered to, even if a listener the publish
   fires swaps the sink mid-flush.
 
+  `:at` on the row is the commit's monotonic clock reading, on the same
+  `interop/now-ms` axis every trace event's `:time` carries. It is one number
+  about NOW, not an interval and not a ledger, and it is here because it is what
+  lets a later read PROVE eviction: a retained window whose oldest event is
+  younger than the commit cannot contain that commit's cause, and saying so is
+  the difference between reporting loss and inventing an explanation.
+
   The `interop/debug-enabled?` gate stands alone as the body's outermost form,
   so under `:advanced` with `goog.DEBUG=false` Closure folds it to `false`, the
-  branch DCEs, and neither the record construction nor the evidence schema it
-  reaches survives into a production bundle."
-  [^ViewCell cell lowering generation]
+  branch DCEs, and neither the row, the record, the index nor the evidence
+  schema they reach survives into a production bundle."
+  [^ViewCell cell lowering bundle]
   (when interop/debug-enabled?
-    (when-let [sink @evidence-sink]
-      [sink (evidence/commit-record (view-id cell) lowering
-                                    (occurrence-of cell) generation)])))
+    (let [occurrence (occurrence-of cell)
+          facts      (commit-facts bundle)
+          sink       @evidence-sink]
+      (cond-> {:occurrence occurrence
+               :row        {:view-id    (view-id cell)
+                            :occurrence occurrence
+                            :lowering   lowering
+                            :generation (:generation facts)
+                            :connection :connected
+                            ;; Root identity is not a fact this seam has: roots
+                            ;; own cells, cells do not own roots, and nothing on
+                            ;; the commit path carries the owning root's id. So
+                            ;; the row says so EXPLICITLY rather than omitting
+                            ;; the key — an absent key reads as "none" at a
+                            ;; glance, which is the one shape this schema exists
+                            ;; to refuse, and cell-to-root attribution is
+                            ;; precisely what rf2-drpa3.167 ruled would not be
+                            ;; built.
+                            :root       evidence/unknown
+                            :at         (interop/now-ms)
+                            :commit     (evidence/commit-projection facts)}}
+        sink (assoc :sink   sink
+                    :record (evidence/commit-record (view-id cell) lowering
+                                                    occurrence facts))))))
 
 (defn- report-sink-escape!
   "Contain a THROWING evidence sink: record the escape in the single bounded
@@ -985,10 +1057,17 @@
   nil)
 
 (defn emit-commit-evidence!
-  "DEV-GATED, AFTER publication: deliver the pre-built, pre-validated `captured`
-  record to the installed sink, CONTAINING any failure the sink CONSUMER
-  raises. `captured` is the `[sink record]` [[commit-evidence-record]] built
-  and validated BEFORE the publish, or nil when the seam is inert.
+  "DEV-GATED, AFTER publication: row the committing occurrence in the
+  current-occurrence index, then deliver the pre-built, pre-validated record to
+  the installed sink, CONTAINING any failure the sink CONSUMER raises.
+  `captured` is what [[commit-evidence]] built and validated BEFORE the publish,
+  or nil when the whole plane is off.
+
+  THE INDEX WRITE COMES FIRST, and outside the guard. It is the substrate's own
+  bookkeeping over a commit that is already live, so a sink reading
+  `re-frame.freehand.tool/read-mounted-views` from inside its own callback sees
+  the commit it was just handed — and a sink that throws cannot leave the index
+  disagreeing with the cell about what is connected.
 
   The sink is an observability consumer of the commit, not an authority over
   it: a tool callback that throws must not turn a live, published, connected
@@ -999,13 +1078,14 @@
   A normal (non-throwing) sink receives the captured record EXACTLY ONCE per
   selected commit — the one `sink` call below. The `interop/debug-enabled?`
   gate stands alone so the whole delivery-and-containment machinery DCEs under
-  `:advanced` with `goog.DEBUG=false`, alongside the record it consumes."
+  `:advanced` with `goog.DEBUG=false`, alongside the row and record it carries."
   [^ViewCell cell captured]
   (when interop/debug-enabled?
     (when captured
-      (let [[sink record] captured]
+      (occurrences/observe! (:occurrence captured) (:row captured))
+      (when-let [sink (:sink captured)]
         (try
-          (sink record)
+          (sink (:record captured))
           (catch #?(:clj Throwable :cljs :default) e
             (report-sink-escape! (view-id cell) e))))))
   nil)
@@ -1076,21 +1156,22 @@
                                                    :value    (:value (get readings k))
                                                    :owned?   (obs/owned? (:handle r))}))
                                               order)}
-                ;; Build and VALIDATE the dev evidence record BEFORE the publish
-                ;; below — the two-plane split: a malformed FRAMEWORK
+                ;; Build and VALIDATE the dev evidence BEFORE the publish below —
+                ;; the two-plane split: a malformed FRAMEWORK projection or
                 ;; record fails loud here, so a commit the schema would refuse
                 ;; publishes nothing and the all-or-nothing boundary holds. The
-                ;; CONSUMER sink is not called yet — only after the bundle is
-                ;; live, where its failure is contained rather than fatal. Not
-                ;; callback-capable (it derefs the sink slot and validates a
-                ;; value — no app code), so it sits between the currency re-check
-                ;; and the publish without reopening that window. Like the
-                ;; acquisition and commit-read failures above, a throw here
-                ;; releases this candidate's freshly acquired handles in reverse
-                ;; order and RETHROWS — the fail-loud path leaks nothing, and the
-                ;; catch never swallows a framework error.
+                ;; index is not written and the CONSUMER sink is not called yet —
+                ;; only after the bundle is live, where the sink's failure is
+                ;; contained rather than fatal. Not callback-capable (it derefs
+                ;; the sink slot and validates values off the bundle — no app
+                ;; code), so it sits between the currency re-check and the publish
+                ;; without reopening that window. Like the acquisition and
+                ;; commit-read failures above, a throw here releases this
+                ;; candidate's freshly acquired handles in reverse order and
+                ;; RETHROWS — the fail-loud path leaks nothing, and the catch
+                ;; never swallows a framework error.
                 captured (try
-                           (commit-evidence-record owner-cell lowering (.-generation cand))
+                           (commit-evidence owner-cell lowering bundle)
                            (catch #?(:clj Throwable :cljs :default) e
                              (release-all! (rseq (fresh-handles order staged)))
                              (throw e)))]
@@ -1116,13 +1197,15 @@
             ;; is still corrected.
             (when (some (fn [[k {:keys [evidence]}]] (moved? (get readings k) evidence)) staged)
               (advance-revision! owner-cell))
-            ;; The dev-gated occurrence-record seam (rf2-3naow): a SELECTED
-            ;; commit is the one place the whole bundle is live, so it is where
-            ;; the record — built and validated above, before the publish — is
-            ;; DELIVERED to the consumer sink. A throwing sink is contained (the
-            ;; commit already stands), so delivery cannot turn `:published` into
-            ;; an exception. Compiles out with the gate in production; an
-            ;; abandoned candidate reaches neither branch.
+            ;; The dev-gated occurrence-record seam (rf2-3naow, rf2-xftdv): a
+            ;; SELECTED commit is the one place the whole bundle is live, so it
+            ;; is where the row — built and validated above, before the publish —
+            ;; enters the current-occurrence index and the record is DELIVERED to
+            ;; the consumer sink. A throwing sink is contained (the commit already
+            ;; stands), so delivery cannot turn `:published` into an exception.
+            ;; Compiles out with the gate in production; an abandoned candidate
+            ;; reaches neither branch, which is why an abandoned render leaves no
+            ;; row — it published nothing to be current at.
             (emit-commit-evidence! owner-cell captured)
             :published)))))))
 
@@ -1142,7 +1225,18 @@
   again — StrictMode's mount, cleanup, mount; a hidden subtree revealed —
   must RECONNECT. The next commit therefore reconnects the same cell from
   a clean slate, acquiring fresh handles rather than resurrecting the
-  released ones."
+  released ones.
+
+  This is also the current-occurrence index's RELEASE seam (rf2-xftdv): the
+  occurrence's row is dropped here, under the same dev gate the commit seam
+  writes it under, so `read-mounted-views` stops reporting an occurrence the
+  instant the host says it is gone. The row is REMOVED rather than marked,
+  because \"mounted\" means connected now and a `:disconnected` row would be a
+  reader's false positive; and nothing records WHY the host tore down, because
+  a hidden subtree and an unmounted one reach this function identically and a
+  label distinguishing them would be invented (rf2-drpa3.167). A reconnecting
+  cell rows itself again at its next selected commit, from the same occurrence
+  key — one row, not two."
   [^ViewCell cell]
   (let [s @(st cell)]
     (when-not (= :disconnected (:lifecycle s))
@@ -1155,5 +1249,7 @@
              :evidence  nil
              :dirty     nil)
       (swap! pending-cells disj cell)
+      (when interop/debug-enabled?
+        (occurrences/forget! (occurrence-of cell)))
       (release-all! (map :handle (vals (:deps s))))))
   nil)
