@@ -110,11 +110,12 @@
             nowhere inherits its declaration's position, so the field is
             present on every entry on every host."
     (let [required (:required-keys struct-010)
-          coord-ks (:source-coord-keys struct-010)]
-      ;; What the fixture governs is the manifest's LEXICAL-SITE rosters — the
-      ;; ones whose entries name a form the compiler read, and therefore own a
-      ;; source coordinate. Two kinds of key are excluded, for two different
-      ;; reasons, and both are stated rather than lumped:
+          coord-ks (:source-coord-keys struct-010)
+          findings (:finding-rosters struct-010)]
+      ;; The coordinate law below governs the manifest's LEXICAL-SITE rosters —
+      ;; the ones whose entries name a form the compiler read, and therefore own
+      ;; a source coordinate. Every other manifest key is accounted for, and the
+      ;; accounting is the fixture's rather than this file's:
       ;;
       ;;   - `:view-id` / `:grammar` / `:capabilities` / `:reactive?` /
       ;;     `:view-cell` / `:static-facts` are NOT rosters at all — single
@@ -122,22 +123,24 @@
       ;;     the render-static `{:caps :deps}` closure is a summary OVER the
       ;;     sites, and asking it for a per-entry `:source-coord` would be
       ;;     asking a set of capability tokens where its lines are.
-      ;;   - `:diagnostics` IS a roster, but its entries are compile-tier
-      ;;     FINDINGS, not sites: a finding names the `:tag` and `:path` of the
-      ;;     node it was minted from and carries no `:source-coord`, so the
-      ;;     per-entry coordinate law below cannot govern it. Its own fixture
-      ;;     row is a conformance change and is sequenced separately
-      ;;     (rf2-hytu5); `re-frame.freehand.tool-reader-cljs-test` pins the
-      ;;     roster's shape and non-emptiness meanwhile.
-      (is (= (set (keys required))
+      ;;   - `:finding-rosters` names the rosters whose entries are compile-tier
+      ;;     FINDINGS rather than sites: a finding is minted from a node, names
+      ;;     its `:tag` and `:path`, and carries no `:source-coord` for the law
+      ;;     below to govern. They are governed by `FH-DIAG-003`
+      ;;     (`re-frame.freehand.manifest-diagnostics-cljs-test`) instead of
+      ;;     being excluded here, so the two classes together name every roster
+      ;;     key the manifest carries and a new one cannot slip through
+      ;;     ungoverned.
+      (is (= (into (set (keys required)) findings)
              (set (keys (dissoc (v/manifest (census-view :label))
                                 :view-id :grammar :capabilities
-                                :reactive? :view-cell :static-facts
-                                :diagnostics))))
-          "the fixture names every lexical-site roster the manifest carries and no other")
-      (is (contains? (v/manifest (census-view :label)) :diagnostics)
-          "and the finding roster is present — excluded from the coordinate law
-           above, never from the manifest")
+                                :reactive? :view-cell :static-facts))))
+          "the fixture classifies every roster the manifest carries — site rosters
+           under the coordinate law, finding rosters under FH-DIAG-003 — and names
+           no roster the manifest does not carry")
+      (is (seq findings)
+          "the finding class is inhabited, so the classification above is a split
+           rather than a restatement")
       (doseq [[nm view] mv/by-name
               [roster ks] required
               entry       (get (v/manifest view) roster)]
