@@ -520,6 +520,10 @@
     :producer-ns 're-frame.routing
     :design-bead "rf2-kqxe6.7"
     :description "CLJS-only prefetch intent-dispatch op `(fn [event caller-handler render-frame payload])` consumed by every non-Reagent route-link view (the compiled `re-frame.ui/route-link` defview, the Freehand `v/route-link` descriptor): warms the destination on credible user intent — run the caller-supplied intent handler first (compose, not replace), then `router/dispatch!` the `:rf.route/prefetch` payload to the captured render frame with `:source :router` (a nil payload dispatches nothing — passive by construction). The hover/focus/touch sibling of `:routing/activate-link!`; keeps the intent-dispatch law inside routing so a view artefact reimplements none of it. Unbound on the JVM (SSR emits no intent handlers) and when routing is absent. Per Spec 012 §Route-plan prefetch."}
+   {:key         :routing/prefetch-intent-keys
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-7g4qn"
+    :description "The CLOSED class of DOM positions a `:prefetch :intent` route-link warms from — pointer hover, focus, touch-start (Spec 012 §Route-plan prefetch) — published on BOTH hosts as a thunk `(fn []) -> [<keyword> ...]` over `re-frame.routing.link/prefetch-intent-keys`. DATA rather than an op: the class is routing's law, and a view artefact that wrote its own copy would drift silently — a `v/route-link` lacking a trigger `rf/route-link` installs, with nothing failing to say so. Consumed by every non-Reagent route-link view (the Freehand `v/route-link` descriptor) both to normalise the caller's value at each owned position and to strip those positions off the passthrough attrs, which is why it is needed on the JVM too (the SSR shell installs no handler but must still not emit a routing control key as an HTML attribute). The class sibling of `:routing/prefetch-payload` / `:routing/prefetch-on-intent!`. Unbound when routing is absent → the consuming view has already failed loud at `:routing/prefetch-payload`."}
    {:key         :routing/preflight-frame-config!
     :producer-ns 're-frame.routing
     :design-bead "rf2-ktmto9"
