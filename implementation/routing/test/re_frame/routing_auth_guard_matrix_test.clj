@@ -1,9 +1,20 @@
 (ns re-frame.routing-auth-guard-matrix-test
   "Executable integration matrix pinning the canonical cross-cutting auth-guard
-  recipe (docs/routing/how-to/require-sign-in-on-a-route.md,
-  docs/core/how-to/add-auth.md, docs/resources/tutorial/03-auth-and-forms.md,
-  examples/real-apps/realworld_resources/routing.cljs, spec/012-Routing.md
-  §Cross-cutting guards) across ALL FOUR navigation entry doors — route-id
+  INTERCEPTOR recipe — the one for a policy that genuinely is not about routes
+  (a maintenance-mode lockout, a feature flag over a whole section), which lives
+  in docs/routing/how-to/require-sign-in-on-a-route.md §Appendix and is
+  cross-referenced from docs/core/how-to/add-auth.md §Appendix and
+  spec/012-Routing.md §Cross-cutting guards.
+
+  It is NOT the route-auth recipe. Route auth is `:can-enter` metadata plus a
+  `:rf.route/entry-denied` handler, evaluated in the one planning pipeline every
+  door already funnels through — no normaliser, nothing to enumerate, and both
+  RealWorld examples spell it that way (rf2-k85nd retired the last interceptor
+  spelling from examples/real-apps/realworld_resources/routing.cljs). What this
+  suite pins is why: an interceptor must cover every door ITSELF, and the matrix
+  below is the enumeration that proves how easily one is missed.
+
+  The matrix runs across ALL FOUR navigation entry doors — route-id
   `:rf.route/navigate`, the raw-URL `{:url ...}` navigate escape hatch, a
   `route-link` click (`:rf.route/url-requested`), and a URL-bar / popstate /
   deep-link (`:rf.route/handle-url-change`) — AND all THREE navigate request
