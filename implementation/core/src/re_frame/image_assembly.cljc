@@ -597,6 +597,73 @@
                   (map descriptor-kind+id))
             descriptors))))
 
+;; ---- carrier classification survives a behaviour override (rf2-kqxe6.20) --
+;;
+;; Replacing a framework default replaces BEHAVIOUR, not the framework's own
+;; payload shape. `:rf.route/entry-denied` / `:rf.route/navigation-blocked` are
+;; dispatched by the framework with a framework-CONSTRUCTED payload whose URL
+;; carriers (`:requested-url` / `:destination` / `:target`) embed query values
+;; and path params, so the framework declares them `:sensitive` and the egress
+;; chokepoint redacts them on every trace / off-box projection.
+;;
+;; That declaration is a fact about the framework's payload, not about the
+;; application's handler — so it must NOT evaporate when the application
+;; supplies its own handler under the same id. Before rf2-kqxe6.20 it did: the
+;; app's registration metadata replaced the framework's wholesale, and every
+;; canonical auth recipe (which has no reason to know the payload's carrier
+;; shape) silently dropped the redaction. An ordinary sign-in redirect then
+;; exposed the full denied destination to trace and off-box observation.
+;;
+;; So the framework's OWN declaration rides forward across the override, unioned
+;; with whatever the application declared. This is deliberately NOT metadata
+;; inheritance: nothing else on the framework's registration carries over (not
+;; `:rf/framework-default?`, not `:rf/framework-authority?`, not `:doc`, not the
+;; handler), and it applies to nothing but a framework REPLACEABLE DEFAULT.
+
+(def ^:private carrier-classification-keys
+  "The EP-0025 path-declaration keys a framework REPLACEABLE DEFAULT owns on
+  behalf of the payload the framework itself constructs. `:large?` (a
+  whole-value flag, not a carrier path) is deliberately absent."
+  [:sensitive :large])
+
+(defn framework-default-classification
+  "The `{:sensitive [paths] :large [paths]}` declaration the framework's OWN
+  REPLACEABLE DEFAULT for `(kind, id)` carries, or nil when `(kind, id)` has no
+  framework default (the overwhelming common case) or its default declares none.
+
+  Read from the SOURCE STORE's nil-provenance slot, which retains the
+  framework's own copy even after an application registration supersedes it in
+  the resolver map — so the declaration is still there to carry on a hot-reload
+  re-registration. Guarded by [[framework-default-descriptor?]], so the same
+  unforgeable marker+nil-provenance pair that gates the supersession seam gates
+  this."
+  [kind id]
+  (let [own (source-store/descriptor-for kind id nil)]
+    (when (framework-default-descriptor? own)
+      (not-empty (select-keys own carrier-classification-keys)))))
+
+(defn retain-framework-default-classification
+  "Return `metadata` with the carrier classification of the framework's OWN
+  REPLACEABLE DEFAULT for `(kind, id)` unioned in — the framework's declared
+  paths first, then any the registration itself declares, de-duplicated.
+
+  Identity-preserving (returns `metadata` itself) whenever `(kind, id)` is not a
+  framework default or its default declares no carrier paths, which is every
+  registration in an ordinary program. Called from the registration path (off
+  the hot path) so the stored metadata is HONEST — `rf/handler-meta` reports the
+  effective classification and every egress consumer derives it from the
+  registrar exactly as before, with no lookup added anywhere on the hot path.
+
+  Assumes `metadata`'s own declarations are already validated (a malformed
+  `:sensitive` must fail loud on its own terms, not inside this union)."
+  [kind id metadata]
+  (if-let [fw (framework-default-classification kind id)]
+    (reduce-kv (fn [m k fw-paths]
+                 (assoc m k (into [] (distinct) (concat fw-paths (get m k)))))
+               metadata
+               fw)
+    metadata))
+
 ;; ---- the collision validator — THE central \"order never decides\" guarantee
 ;;      (EP-0023 §Image Composition / §Image Validation) ----------------------
 
