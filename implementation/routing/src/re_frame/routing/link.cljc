@@ -31,13 +31,13 @@
   drift from it silently — a `v/route-link` would lack a trigger `rf/route-link`
   installs, with nothing failing to say so.
 
-  Routing's own `prefetch-intent-attrs` maps over it; the compiled
-  `ui/route-link` and Freehand `v/route-link` descriptors reach it as the
-  `:routing/prefetch-intent-keys` late-bound seam, the same way they already
-  reach `prefetch-payload` — so no view substrate states the class for itself.
+  Routing's own `prefetch-intent-attrs` maps over it; the Freehand
+  `v/route-link` descriptor reaches it as the `:routing/prefetch-intent-keys`
+  late-bound seam, the same way it already reaches `prefetch-payload` — so no
+  view substrate states the class for itself.
 
-  Order is the order the anchor's attrs are built in and carries no meaning:
-  the positions are independent, and each warms the same destination."
+  Order carries no meaning — the positions are independent, and each warms the
+  same destination — but it is stable, so the attrs a render emits are too."
   [:on-mouse-enter :on-focus :on-touch-start])
 
 (defn validate-prefetch!
