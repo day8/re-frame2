@@ -100,11 +100,37 @@ those bundles do not depend on the Machines-Viz tool artefact.
 
 ## Publishing
 
-Publishes to Clojars as `day8/re-frame2-machines-viz` in lockstep with
-the framework: `:local/root` during development; the release workflow
-rewrites it to a `:mvn/version` pinned to the repo-root
-[`VERSION`](../../VERSION) file, so the published version equals the
-framework's at every release (same posture as `tools/xray/deps.edn`).
+Machines-Viz publishes to Clojars as `day8/re-frame2-machines-viz` on a
+tag push of the form **`machines-viz-v<VERSION>`** (e.g.
+`machines-viz-v0.0.1.alpha`). The workflow lives at
+[`.github/workflows/release-machines-viz.yml`](../../.github/workflows/release-machines-viz.yml)
+and is triggered automatically — no manual deploy step.
+
+The tag's version segment must equal the repo-root
+[`VERSION`](../../VERSION) file (lockstep convention per
+[`spec/Conventions.md`](../../spec/Conventions.md) §Packaging
+conventions); a mismatched tag is refused before any deploy step runs.
+In development the dep on `day8/re-frame2` is a `:local/root`; the
+workflow rewrites it to a `:mvn/version` pinned to that same VERSION on
+the throwaway runner checkout immediately before `clein deploy`, so the
+published version equals the framework's at every release (same posture
+as `tools/xray/deps.edn`).
+
+To cut a release (Mike-only):
+
+```bash
+# 1. Ensure VERSION reads the target (e.g. 0.0.1.alpha)
+# 2. Tag and push:
+git tag machines-viz-v$(cat VERSION)
+git push origin machines-viz-v$(cat VERSION)
+```
+
+The framework release (the matching `v<VERSION>` tag on
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml))
+must precede it: the published pom depends on
+`day8/re-frame2 {:mvn/version <VERSION>}` and that artefact must already
+be discoverable on Clojars when `clein deploy` runs. The workflow checks
+this structurally — it resolves the rewritten graph before deploying.
 
 ## Spec
 

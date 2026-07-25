@@ -30,7 +30,7 @@ Two things about that table are worth saying out loud.
 
 **`day8/reagent-slim` deliberately breaks the `re-frame2-*` naming pattern**, because it is a replacement for `reagent/reagent` rather than a re-frame2 feature. There is a second wrinkle behind it: in the monorepo its adapter namespace is `re-frame.adapter.reagent-slim`, so that both adapters can sit on one classpath, but the *published* jar renames it to the canonical `re-frame.adapter.reagent`. A consumer's `(:require [re-frame.adapter.reagent :as ra])` is therefore the same line whichever adapter they pinned.
 
-**The developer tools are not in the thirteen.** [`tools/`](tools/) — Xray, Story, the pair MCP servers, the app template — is versioned in lockstep with the framework and gated by the same script, but a `v*` tag does not publish it. `day8/re-frame2-xray` ships on an `xray-v*` tag and `day8/re-frame2-story` on a `story-v*` tag, each with its own release workflow.
+**The developer tools are not in the thirteen.** [`tools/`](tools/) is versioned in lockstep with the framework, but a `v*` tag publishes none of it. Four tool jars carry Clojars coordinates gated by that same lockstep script — `day8/re-frame2-xray`, `day8/re-frame2-story`, `day8/re-frame2-story-mcp` and `day8/re-frame2-machines-viz` — and each ships on its own tag rather than the framework's: `xray-v*`, `story-v*` and `machines-viz-v*` each have a release workflow, and story-mcp has no publish path yet. Two further tools sit outside that set entirely: the pair MCP server ships on npm as `@day8/re-frame2-pair-mcp`, and the app template ships as a git coordinate on a `template-v*` tag.
 
 Spec changes are tracked under [`spec/`](spec/) and referenced from each entry below.
 

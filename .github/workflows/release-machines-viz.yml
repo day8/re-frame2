@@ -1,0 +1,262 @@
+# Release workflow for tools/machines-viz/ (rf2-4u3t1).
+#
+# Publishes `day8/re-frame2-machines-viz` to Clojars on a tag push of the
+# form `machines-viz-v[0-9]+.[0-9]+.[0-9]+*`
+# (e.g. `machines-viz-v0.0.1.alpha`).
+#
+# # Why this workflow exists at all
+#
+# tools/machines-viz/deps.edn has declared a publishable
+# `:clein/build {:lib day8/re-frame2-machines-viz …}` since rf2-o9arp, and
+# .github/scripts/verify-version-lockstep.sh has enforced its lockstep
+# version the whole time — but no workflow could publish it. The gate was
+# guarding the release-readiness of an artefact with no release path
+# (rf2-4u3t1). Two things were missing, and BOTH had to be fixed:
+#
+#   1. this workflow; and
+#   2. `:main` in the `:clein/build` map. The day8 clein fork's
+#      `build-opts` spec requires it, so every clein invocation in that
+#      directory aborted before doing any work — the artefact was not
+#      merely un-deployed, it was un-BUILDABLE. The lockstep gate cannot
+#      see that: it reads `:version` and the `:local/root` coordinates,
+#      never whether clein would accept the map.
+#
+# # Why a separate workflow rather than a job on an existing one
+#
+# Same rationale as release-xray.yml: Machines-Viz is a CONSUMER of the
+# framework, published from tools/, so it ships on its own cadence. It
+# also has no companion artefact — unlike Story, whose MCP surface is
+# specified as one shipping pair — so it follows the established
+# one-tool-one-glob pattern. The disjoint tag prefix
+# (`machines-viz-v…` vs `xray-v…` vs `story-v…` vs the framework's `v…`)
+# keeps the triggers from overlapping in either direction: a framework
+# release does not republish Machines-Viz, and this tag does not touch
+# `implementation/`.
+#
+# # Lockstep versioning
+#
+# Per spec/Conventions.md §Packaging conventions (rf2-w05l) every
+# published artefact ships at the repo-root VERSION.
+# tools/machines-viz/deps.edn declares
+# `:clein/build :version "../../VERSION"` so clein picks up the lockstep
+# version automatically, and verify-version-lockstep.sh's `tools/` loop
+# asserts both that and the rewritable `:local/root` coordinate. The
+# version-check step below additionally refuses a tag whose version
+# segment does not equal that same VERSION.
+#
+# # :local/root → :mvn/version rewrite
+#
+# `clein pom` SILENTLY SKIPS `:local/root` coordinates (rf2-do3m2 /
+# #6340), so a pom built straight from the in-tree deps.edn declares NO
+# `day8/re-frame2` dependency at all — verified locally for this artefact
+# while wiring this workflow up: the generated pom carried
+# org.clojure/clojure, com.cognitect/transit-cljs and reagent/reagent,
+# and core was reported as `Skipping coordinate`. The rewrite below is
+# therefore load-bearing for correctness, not convenience. It uses the
+# shared comment-aware helper (rf2-ldkuk), which ABORTS rather than
+# guesses if the coordinate is renamed, removed, or ambiguous — that
+# fail-loud exit is what stands in for release-story.yml's generated-pom
+# preflight, and it suffices here because every remaining dependency is
+# an `:mvn/version` coordinate clein demonstrably emits.
+#
+# Machines-Viz has exactly ONE in-repo coordinate: core. `transit-cljs`
+# (the share-URL encode path) and `reagent` (component-local Ratom state
+# in MachineChart, `reagent.dom.client` in the standalone viewer) are
+# ordinary Maven coordinates and need no rewrite. The rewrite is never
+# committed — it happens on the throwaway runner checkout.
+#
+# # Dependency availability (the ordering contract)
+#
+# The rewritten pom pins `day8/re-frame2` at the lockstep VERSION, so
+# core must ALREADY be on Clojars — cut by the framework release.yml on
+# the matching `v<VERSION>` tag. That ordering is enforced structurally
+# rather than by documentation: `clojure -P` resolves the rewritten graph
+# from Clojars/Maven and fails BEFORE `clein deploy` can touch Clojars.
+#
+# So the release ORDER for a given VERSION is:
+#
+#     v<VERSION>              (framework: core, adapters, features)
+#     machines-viz-v<VERSION> (this workflow)
+#
+# # Failure recovery
+#
+# Clojars does not support yanking. If `deploy-machines-viz` fails AFTER
+# the artefact is published (e.g. a network glitch on the upload
+# acknowledgement), DO NOT re-run with the same tag — Clojars will 409.
+# Bump VERSION (e.g. 0.0.1.alpha → 0.0.1.alpha-1), retag with the bumped
+# value, and rerun. The new version supersedes the partial-state
+# predecessor.
+#
+# # Secrets
+#
+# CLOJARS_USERNAME and CLOJARS_PASSWORD are configured at the repository
+# level (per the framework release.yml convention). CLOJARS_PASSWORD is a
+# Clojars deploy token; neither value is committed. Mike configures the
+# secrets out-of-band — this workflow only references them.
+#
+# # First publish protocol
+#
+# Mike triggers the first deploy manually by pushing the tag once the
+# framework tag for the same VERSION has published.
+
+name: release-machines-viz
+
+on:
+  push:
+    tags:
+      - "machines-viz-v[0-9]+.[0-9]+.[0-9]+*"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # 1. Lockstep version contract gate. Fails fast on a mismatched tag
+  #    or a hand-edited deps.edn that breaks the framework-wide
+  #    lockstep (the shared script's tools/ loop covers
+  #    tools/machines-viz/ per rf2-lwtke).
+  # ─────────────────────────────────────────────────────────────────
+  verify-version:
+    name: Verify Machines-Viz tag matches lockstep VERSION
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Verify tag matches VERSION
+        id: version
+        # Tag form: `machines-viz-v<VERSION>`. The version segment must
+        # equal the repo-root VERSION file content. Catches accidental
+        # tags (e.g. someone tagging `machines-viz-v0.0.2` while VERSION
+        # still reads 0.0.1.alpha) before any deploy step runs.
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          expected="machines-viz-v${version}"
+          if [ "$tag" != "$expected" ]; then
+            echo "::error::tag '$tag' does not match repo-root VERSION '$expected' (refusing publish — bump VERSION or fix the tag)"
+            exit 1
+          fi
+          echo "tag $tag matches VERSION $expected — proceeding"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify framework-wide lockstep contract
+        # Same script the framework release.yml + test.yml run. Its
+        # tools/ loop covers tools/machines-viz/deps.edn, so a
+        # hand-edited :mvn/version literal or a broken :version
+        # reference fails the gate here before clein touches Clojars.
+        run: ./.github/scripts/verify-version-lockstep.sh
+
+  # ─────────────────────────────────────────────────────────────────
+  # 2. Pre-release test gate for the Machines-Viz artefact. Runs the
+  #    artefact's JVM tests (the grammar/projection/layout suites,
+  #    including the engine-parity tests that keep the viz copy of the
+  #    machine grammar honest); CLJS/browser tests for Machines-Viz
+  #    already run in the regular test workflow.
+  # ─────────────────────────────────────────────────────────────────
+  test-machines-viz:
+    name: Machines-Viz pre-release test gate
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-machines-viz-${{ hashFiles('tools/machines-viz/deps.edn', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-machines-viz-
+            ${{ runner.os }}-clj-
+
+      - name: JVM tests (machines-viz artefact)
+        working-directory: tools/machines-viz
+        run: clojure -M:test
+
+  # ─────────────────────────────────────────────────────────────────
+  # 3. Deploy Machines-Viz. Rewrite → resolve → deploy. The lockstep
+  #    root (day8/re-frame2 core) is NOT deployed here — Machines-Viz
+  #    pins the framework version via the rewrite step, which assumes
+  #    core is already on Clojars at the same lockstep VERSION (cut by
+  #    the framework release.yml on the matching `v<VERSION>` tag).
+  # ─────────────────────────────────────────────────────────────────
+  deploy-machines-viz:
+    name: Deploy day8/re-frame2-machines-viz
+    needs: [verify-version, test-machines-viz]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-machines-viz-${{ hashFiles('tools/machines-viz/deps.edn', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-machines-viz-
+            ${{ runner.os }}-clj-
+
+      # ─────────────────────────────────────────────────────────────
+      # Rewrite the single in-repo :local/root coordinate →
+      # :mvn/version on the throwaway runner checkout (never
+      # committed), via the shared comment-aware helper. Aborts if the
+      # coordinate is absent (exit 3) or ambiguous (exit 4) rather than
+      # publishing a pom with no framework dependency.
+      # ─────────────────────────────────────────────────────────────
+      - name: Rewrite Machines-Viz :local/root → :mvn/version
+        working-directory: tools/machines-viz
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: |
+          set -eu
+          "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" \
+            "../../implementation/core" "$VERSION" deps.edn
+          echo "--- Rewritten dep coords:"
+          grep -E "day8/re-frame2" deps.edn
+
+      # ─────────────────────────────────────────────────────────────
+      # The ordering gate. Resolving the rewritten graph requires core
+      # to be ON Clojars at this VERSION. If the framework
+      # (`v<VERSION>`) tag has not published yet, this fails here —
+      # before anything is deployed.
+      # ─────────────────────────────────────────────────────────────
+      - name: Verify the in-repo dependency is published at this VERSION
+        working-directory: tools/machines-viz
+        run: |
+          set -eu
+          if ! clojure -P; then
+            echo "::error::could not resolve Machines-Viz's rewritten dependency graph from Clojars. Machines-Viz cannot publish before its sibling: cut v<VERSION> (framework) first."
+            exit 1
+          fi
+
+      - name: Deploy day8/re-frame2-machines-viz
+        working-directory: tools/machines-viz
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -M:clein deploy
