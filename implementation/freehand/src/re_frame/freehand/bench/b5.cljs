@@ -352,9 +352,19 @@
 
   Several, not one, because the quantity being probed is SENSITIVE — one token
   samples one point of it and reads like a constant. The #6909 audit published
-  a single-token brotli figure of −16 bytes; sweeping seven tokens at
+  a single-token brotli figure of −16 bytes; a seven-token exploratory sweep at
   `ba27e74a9e` found a 227-byte spread, so that figure was one sample of
-  something an order of magnitude larger. See [[causal-isolation]]."
+  something an order of magnitude larger.
+
+  THREE ship, not the seven that were explored: the three span nearly the whole
+  observed spread, and the invariant these tokens are used to assert on every
+  run — that the RAW delta does not move — held identically for all seven.
+
+  What ships is also the CHEAP half. The standing assertion counts bytes and
+  compresses nothing; the compressed figures in [[causal-isolation]] came from
+  an exploratory sweep, and are recorded as a revision-stamped reading rather
+  than re-derived per run, because brotli over a 730 KB artefact costs about
+  1.8 seconds per arm per token and a gate that slow gets skipped."
   ["arm0" "aaaa" "same"])
 
 (defn canonicalise-arm-identity
