@@ -153,7 +153,8 @@ nothing, so the census derives — from the `(conf/fixture :FH-…)` sites in
 `implementation/freehand/test/` and the lane each test file runs in — which rows
 are actually proven and where. It fails on a row no test reads, a row whose id is
 written where no assertion can reach it, a row asserted only from lanes that do
-not serve the mode/host cells its applicability cell claims, a test that
+not serve the mode/host cells its applicability cell claims, a `compiled` row
+nothing compiled-tier proves, a test that
 reads a fixture for a row the index no longer carries, a fixture file left on
 disk by a row that was deleted, a roster area holding no `active` row at all —
 the roster carries an area because a law lives there, and an index of bare
@@ -163,20 +164,39 @@ for, at any status.
 
 ### What counts as a proof
 
-A proof site is not a string. The census reads **forms**, and a site counts only
-when a `deftest` reaches it — written inside one, or bound to a name a test uses,
-directly or through a helper it calls. Four shapes name a law and prove nothing,
-and all four are indistinguishable from a proof to a scan that reads characters:
+A proof site is not a string. The census reads **forms**, and then it reads the
+**assertions**. A site counts only when an *asserting statement* of a `deftest`
+reaches it — written in one, or bound to a name such a statement uses, directly
+or through a helper it calls. A statement that asserts nothing contributes
+nothing, and a `deftest` whose statements never assert proves nothing at all.
+
+Six shapes name a law and prove nothing:
 
 ```clojure
 ;; (def props-003 (conf/fixture :FH-PROPS-003))   a comment
 #_(def props-003 (conf/fixture :FH-PROPS-003))    a reader-discarded form
 (ns x "see (conf/fixture :FH-PROPS-003)")         an id written in prose
 (def props-003 (conf/fixture :FH-PROPS-003))      a def no deftest ever reads
+(deftest t (is true) (comment props-003))         a comment FORM, inside a test
+(deftest t (is true) (uses-it))                   a helper whose only read sits
+                                                  in a branch that never runs
 ```
 
-Each is a way to delete a law's proof and leave its row standing, so each is a
-`DEAD PROOF SITE`.
+The first four are invisible to a scan that reads characters. The last two are
+invisible to a scan that reads forms but seeds from the whole `deftest`: the id
+is mentioned where a test can see it and where nothing evaluates it, so the suite
+stays green with the fixture broken — which is the one thing the row's green is
+supposed to rule out. Each is a way to delete a law's proof and leave its row
+standing, so each is a `DEAD PROOF SITE`.
+
+What this establishes is bounded, and the bound is worth stating: the assertion
+is *co-located* with the fixture read, in one statement. It is not a proof that
+the assertion would fail if the fixture changed — that is mutation testing, and
+it needs the suite to run.
+
+An assertion may be the helper's rather than the test's. `(sup/expect-tree fx)`
+asserts, because `expect-tree` does, and a rule that recognised only an `is`
+written in the `deftest` itself would red most of the suites here.
 
 The census also reads the **reader**. A `.cljc` suite is discovered by the JVM
 runner *and* the node runner, but a `#?(:clj (deftest …))` inside it asserts in
@@ -186,9 +206,32 @@ Taking the lane from the filename alone credits a row with a lane it never
 enters, which is how a `common jvm browser` row can be green on a proof the
 browser column's structural cell — the node runtime — never executes.
 
-Both readings are self-tested with the **defect kind** pinned, not merely the
+### The mode witness
+
+The lane axis cannot see the mode axis. `interpreted jvm` and `compiled jvm` are
+served by the same JVM lane, so a row relabelled from one to the other keeps
+every cell it claims served — the mode token parsed, and evidenced by nothing.
+
+`compiled` is the mode a declaration *opts into*, so it is the mode that can be
+witnessed. A `compiled` row must be proven by a suite that exercises the compiled
+tier: a `{:compiled true}` declaration, or a `re-frame.freehand.compiler.*`
+namespace, in the suite itself or in a Freehand namespace it requires. The second
+half is not optional — `FH-DIAG-001` is a compiled-mode law proven through the
+compile **checker**, over declarations that deliberately carry no
+`{:compiled true}`, and a rule demanding the declaration alone would red an
+honest row and push the next author into writing a compiled twin for the gate's
+benefit. A row claiming `compiled` with no witness is an `UNWITNESSED MODE`.
+
+`interpreted` and `common` carry no such witness, and the census claims none.
+Interpreted is the *default* lowering — a declaration is interpreted by carrying
+nothing — so there is no marker to demand, and a rule every proof satisfies would
+dress a green up as evidence rather than supply any.
+
+Every reading here is self-tested with the **defect kind** pinned, not merely the
 count: a case that reds for the wrong reason is the same mistake the census
-exists to catch, and a self-test that only counts makes it about itself.
+exists to catch, and a self-test that only counts makes it about itself. The
+green cases are falsified too — remove the thing that makes one green and it must
+red — because a green fixture that would pass either way pins nothing.
 
 That last one is the only guard against a deletion at the **top** of an area.
 Delete `FH-EVENT-005` when `FH-EVENT-004` is its neighbour and the ordinals stay

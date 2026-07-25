@@ -16,8 +16,9 @@ Two independent guards live here, and the difference between them matters:
       spec anchor, and names a fixture file that exists.
     * The EXECUTION CENSUS (`census`) reconciles the index against the suites
       that RUN it — that every active row's fixture is reached by an ASSERTION,
-      and that the assertions reaching it run in lanes serving every
-      mode/host cell the row claims.
+      that the assertions reaching it run in lanes serving every mode/host cell
+      the row claims, and that a row claiming the `compiled` mode is proven
+      through the compiled tier rather than merely labelled with it.
 
 Neither executes a fixture; running a law is the harness's job
 (`spec/conformance/freehand/README.md` §What this is not).  What the census adds
@@ -30,8 +31,20 @@ one, an id written in a docstring, and a `def` no test ever reads — four ways 
 delete a law's proof while leaving its row standing.  It also has to read the
 reader: a `#?(:clj (deftest …))` in a `.cljc` suite is discovered by both runners
 and asserts in only one, so taking the lane from the filename credits the row
-with a lane it never enters.  Both readings are enforced below, and both are
-self-tested with the DEFECT KIND pinned, not just the count.
+with a lane it never enters.
+
+Reading forms is necessary and it is not sufficient, which a merged-PR audit
+established the hard way.  A form-aware scan that seeds from the whole `deftest`
+still counts `(comment fx)` written beside the assertions, and still walks to a
+fixture down a helper's `(when false …)` branch — proofs by co-location, in code
+nothing evaluates.  So reachability starts at the ASSERTING STATEMENTS of a test
+body, not at the test.  And the lane cannot see the mode: `interpreted jvm` and
+`compiled jvm` are the same lane, so a row relabelled from one to the other kept
+every cell served and every claim unchecked.  `compiled` is the mode a
+declaration opts into, so it is the mode that can be witnessed, and it now is.
+Every reading here is self-tested with the DEFECT KIND pinned, not just the
+count, and every green fixture is falsified by removing the thing that makes it
+green.
 
 An id is an address.  An address that resolves to nothing is worse than no
 address at all, so this guard fails the build when:
@@ -70,10 +83,17 @@ and, from the execution census:
                              `implementation/freehand/test/` reads.  The row
                              names a file, the file exists, and nothing asserts
                              against it: a law proven by nobody.
-    * DEAD PROOF SITE      — the id IS written in a suite, and no `deftest`
+    * DEAD PROOF SITE      — the id IS written in a suite, and no ASSERTION
                              reaches it: commented out, `#_`-discarded, sitting
-                             in a docstring, or bound to a name nothing asserts
-                             on.  The shape a text scan calls proof.
+                             in a docstring, bound to a name nothing asserts on,
+                             or read only from a statement that asserts nothing.
+                             The shape a text scan calls proof.
+    * UNWITNESSED MODE     — an `active` row claims the `compiled` mode and
+                             nothing proving it exercises the compiled tier.
+                             The lane axis cannot see the mode axis — the JVM
+                             lane serves `interpreted jvm` and `compiled jvm`
+                             alike — so without a witness the mode token is
+                             parsed and never evidenced.
     * UNEXECUTED CELL      — an `active` row claims a (mode, host) cell that no
                              lane among its ASSERTING tests serves.  A
                              `common jvm browser` row read only from a `.cljs`
@@ -199,25 +219,30 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 # it does not exist.
 #
 # But a site is not a proof.  What makes a row proven is that an ASSERTION runs
-# against the fixture, and four shapes are indistinguishable from a proof to a
-# scan that reads characters:
+# against the fixture, and six shapes are indistinguishable from a proof to a
+# scan that stops short of the assertions:
 #
 #     ;; (conf/fixture :FH-CALL-001)              a comment
 #     #_(conf/fixture :FH-CALL-001)               a reader-discarded form
 #     (def unused (conf/fixture :FH-CALL-001))    a def no test ever reads
 #     "see (conf/fixture :FH-CALL-001)"           a docstring
+#     (deftest t (is true) (comment fx))          a comment FORM, inside a test
+#     (deftest t (is true) (helper))              a helper whose read is in a
+#                                                 branch that never runs
 #
-# The first three are the false greens a merged-PR audit found in the previous
-# reading of this census, and the fourth is the same mistake waiting.  Each one
-# would let a law be retired by deletion — comment out the assertions, keep the
-# line — with the gate still calling the row proven.
+# The first three are the false greens the first merged-PR audit found; the
+# fourth was the same mistake waiting; the last two are what the SECOND audit
+# found still standing after the first fix, because reading forms is not the same
+# as reading assertions.  Each one lets a law be retired by deletion — comment
+# out the proof, keep the line — with the gate still calling the row proven.
 #
-# So the scan reads FORMS.  `_strip` blanks comments, string and character
-# literals and `#_`-discarded data; `_top_level_forms` splits what survives on
-# balanced parens; and a site counts only when it is REACHABLE FROM A `deftest`
-# — written inside one, or bound to a name a `deftest` uses, directly or through
-# a helper the test calls.  A file carrying no `deftest` proves nothing, whatever
-# its name.
+# So the scan reads FORMS, and then reads the ASSERTIONS.  `_strip` blanks
+# comments, string and character literals, `#_`-discarded data and `(comment …)`
+# forms at any depth; `_top_level_forms` splits what survives on balanced parens;
+# and a site counts only when an ASSERTING STATEMENT of a `deftest` reaches it —
+# written in one, or bound to a name one uses, directly or through a helper it
+# calls.  A statement that asserts nothing contributes nothing, and a file
+# carrying no `deftest` proves nothing, whatever its name.
 _FIXTURE_CALL_RE = re.compile(
     r"\(\s*(?:[A-Za-z0-9.*+!_'?<>=-]+/)?fixture\s+(:FH-[A-Z]+-\d{3})\b"
 )
@@ -230,6 +255,27 @@ _DEFINER_RE = re.compile(
     r"([A-Za-z0-9*+!_'?<>=.<>-]+)"
 )
 _DEFTEST_RE = re.compile(r"^\(\s*deftest\b")
+# `(comment …)`, at any depth.  The lookahead is what keeps `(commentary …)`
+# from being read as a comment.
+_COMMENT_FORM_RE = re.compile(r"\(\s*(?:clojure\.core/)?comment(?=[\s()\[\]{}])")
+# clojure.test's assertion forms.  `is` is the whole vocabulary the Freehand
+# suites use; `are` is here because it is the other one clojure.test ships, and a
+# suite reaching for it should not be read as asserting nothing.
+_ASSERTION_HEAD_RE = re.compile(
+    r"\(\s*(?:[A-Za-z0-9.*+!_'?<>=-]+/)?(?:is|are)(?=[\s()\[\]{}])"
+)
+# The ns form, and the namespaces a file requires from the Freehand family.  Used
+# to carry a mode witness across the one hop that matters: a suite whose compiled
+# declarations live in a support namespace beside it.
+_NS_FORM_RE = re.compile(r"^\(\s*ns\s+([A-Za-z0-9.*+!_'?<>=-]+)")
+_FREEHAND_NS_RE = re.compile(r"re-frame\.freehand[A-Za-z0-9.*+!_'?<>=-]*")
+# The two surfaces that make a proof a COMPILED-mode proof.  A declaration opts
+# INTO compiled lowering with `{:compiled true}`, and the compile tier itself —
+# the analyzer, the checker, the grammar, the manifest env — is compiled-mode
+# machinery whatever the declarations it is pointed at carry.  See
+# `_cell_lanes` for why the second half is not optional.
+_COMPILED_DECLARATION_RE = re.compile(r":compiled\s+true\b")
+_COMPILE_TIER_NS_RE = re.compile(r"\bre-frame\.freehand\.compiler\b")
 # Clojure symbol characters.  Deliberately generous: this reads a form for the
 # NAMES it mentions, and a name matched too widely costs a spurious edge in the
 # reachability graph, never a missed one.
@@ -300,6 +346,20 @@ def _strip(text: str) -> str:
             + _blank(cleaned[at:end])
             + cleaned[end:]
         )
+
+    # `(comment …)` is the third way to write code that never runs, and the only
+    # one of the three that is a FORM: the reader reads it, it expands to nil,
+    # and its body is evaluated by nobody.  Blanked at ANY depth, because inside
+    # a `deftest` is exactly where it hides a deleted proof — the shape a merged
+    # PR audit found still counting as one.  After the `#_` pass, so a discarded
+    # `(comment …)` has already gone.
+    while True:
+        opened = _COMMENT_FORM_RE.search(cleaned)
+        if not opened:
+            break
+        at = opened.start()
+        end = _form_end(cleaned, at)
+        cleaned = cleaned[:at] + _blank(cleaned[at:end]) + cleaned[end:]
     return cleaned
 
 
@@ -446,35 +506,138 @@ def _platforms(path: Path) -> tuple[str, ...]:
     return ("clj", "cljs")
 
 
-def _proven_ids(text: str, platform: str) -> set[str]:
-    """The fixture ids a file's TESTS reach when the file is read as `platform`.
+def _body_forms(form: str) -> list[str]:
+    """`form`'s datums after its head — the STATEMENTS of a test body.
 
-    Reachability starts at the `deftest` forms and follows named bindings: a
-    `(def props-001 (conf/fixture :FH-PROPS-001))` counts when a test names
-    `props-001`, and so does a `defn-` helper the test calls that reads a fixture
-    of its own.  Nothing else counts — which is the point.  A fixture id is a
-    claim that a law is PROVEN, and a form no assertion can reach proves nothing
-    however it is spelled.
+    A `deftest`'s body is a sequence of statements, and each one either takes
+    part in an assertion or it does not.  That is the granularity the census
+    reads at: finer would need real dataflow (the fixture bound in a `let` head
+    is what the `is` in its body asserts on, and no scan of the `is` alone can
+    see it), and coarser is the reading a merged PR audit broke — the whole
+    `deftest` counted, so a statement beside the assertions counted too.
+
+    The `deftest`'s own name comes back among the datums.  It is a symbol, it
+    contains no assertion, and it is dropped by the same filter as any other
+    non-asserting statement, so it needs no special case.
+    """
+    inner = form[1:-1] if form.endswith(")") else form[1:]
+    items: list[str] = []
+    i, n = 0, len(inner)
+    while i < n:
+        if inner[i].isspace():
+            i += 1
+            continue
+        end = _datum_end(inner, i)
+        if end <= i:
+            break
+        items.append(inner[i:end])
+        i = end
+    return items[1:]
+
+
+def _asserting_names(repo_root: Path) -> frozenset[str]:
+    """Every name defined in the test tree whose body ASSERTS, transitively.
+
+    A suite that delegates to a helper — `(expect-tree fx …)`, `(run-cases fx)`
+    — is asserting, and a reading that recognised only an `is` written in the
+    `deftest` itself would call that shape unproven and red an honest row.  So
+    the helpers are read first, across the whole test tree rather than one file
+    at a time, because a shared `expect-…` lives in a support namespace by
+    design.  A definition asserts when its body contains a `clojure.test`
+    assertion or names another definition that does.
+
+    Names are matched unqualified: the call site reads `sup/expect-tree`, the
+    definition is `expect-tree`, and the symbol scan yields both halves.  Two
+    files may therefore share a name.  The cost is an extra asserting name,
+    never a missing one — the same generosity that governs the reachability
+    graph below, and in the same direction: a spurious edge, never a lost one.
+    """
+    bodies: dict[str, tuple[bool, set[str]]] = {}
+    test_root = repo_root / TESTS_REL
+    if not test_root.is_dir():
+        return frozenset()
+    for path in sorted(test_root.rglob("*")):
+        if path.suffix not in _CLJ_SUFFIXES:
+            continue
+        for form in _top_level_forms(_strip(path.read_text(encoding="utf-8"))):
+            binder = _DEFINER_RE.match(form)
+            if not binder:
+                continue
+            asserts = bool(_ASSERTION_HEAD_RE.search(form))
+            refs = set(_SYMBOL_RE.findall(form))
+            was = bodies.get(binder.group(1))
+            bodies[binder.group(1)] = (
+                (was[0] or asserts, was[1] | refs) if was else (asserts, refs)
+            )
+
+    asserting = {name for name, (yes, _refs) in bodies.items() if yes}
+    changed = True
+    while changed:
+        changed = False
+        for name, (_yes, refs) in bodies.items():
+            if name not in asserting and refs & asserting:
+                asserting.add(name)
+                changed = True
+    return frozenset(asserting)
+
+
+def _proven_ids(text: str, platform: str, asserting: frozenset[str]) -> set[str]:
+    """The fixture ids a file's ASSERTIONS reach when read as `platform`.
+
+    Reachability starts at the ASSERTING STATEMENTS of the `deftest` forms — not
+    at the `deftest` — and follows named bindings from there: a
+    `(def props-001 (conf/fixture :FH-PROPS-001))` counts when an asserting
+    statement names `props-001`, and so does a `defn-` helper such a statement
+    calls that reads a fixture of its own.
+
+    Seeding at the whole `deftest` is what a merged PR audit broke, and the two
+    shapes it broke it with are worth naming, because both survive a form-aware
+    scan that stops short of the assertions:
+
+        (deftest t (is true) (comment fx))      ; a comment beside a proof
+        (defn helper [] (when false fx))        ; a branch that never runs,
+        (deftest t (is true) (helper))          ; called for its symbol alone
+
+    In both, `fx` is mentioned inside a `deftest` and asserted on by nobody, so
+    the suite stays green when the fixture it names is broken — which is the one
+    thing a row's green is supposed to mean.  Under the reading here neither
+    statement asserts, so neither contributes, and a `deftest` whose statements
+    never assert proves nothing at all.
+
+    What this establishes is bounded, and the bound is worth stating plainly: an
+    assertion is CO-LOCATED with the fixture read, in one statement, and the
+    statement's value flows through the assertion in every ordinary test shape.
+    It is not a proof that the assertion would FAIL if the fixture changed —
+    that is mutation testing, and it needs the suite to run.  What it rules out
+    is the shape this gate exists for: a proof deleted by commenting it out, or
+    left standing in code nothing evaluates, with the row still calling itself
+    proven.
     """
     cleaned = _read_as(_strip(text), platform)
     definitions: dict[str, tuple[set[str], set[str]]] = {}
     tests: list[str] = []
 
     for form in _top_level_forms(cleaned):
-        ids = {k[1:] for k in _FIXTURE_CALL_RE.findall(form)}
         if _DEFTEST_RE.match(form):
             tests.append(form)
             continue
         binder = _DEFINER_RE.match(form)
         if binder:
-            definitions[binder.group(1)] = (ids, set(_SYMBOL_RE.findall(form)))
+            definitions[binder.group(1)] = (
+                {k[1:] for k in _FIXTURE_CALL_RE.findall(form)},
+                set(_SYMBOL_RE.findall(form)),
+            )
 
     proven: set[str] = set()
     seen: set[str] = set()
     frontier: list[str] = []
     for form in tests:
-        proven |= {k[1:] for k in _FIXTURE_CALL_RE.findall(form)}
-        frontier.extend(_SYMBOL_RE.findall(form))
+        for statement in _body_forms(form):
+            names = set(_SYMBOL_RE.findall(statement))
+            if not (_ASSERTION_HEAD_RE.search(statement) or names & asserting):
+                continue
+            proven |= {k[1:] for k in _FIXTURE_CALL_RE.findall(statement)}
+            frontier.extend(names)
     while frontier:
         name = frontier.pop()
         if name in seen or name not in definitions:
@@ -908,6 +1071,7 @@ def _scan_proof_sites(
     test_root = repo_root / TESTS_REL
     if not test_root.is_dir():
         return proving, dead
+    asserting = _asserting_names(repo_root)
     for path in sorted(test_root.rglob("*")):
         file_lanes = _lanes_for(path)
         if path.suffix not in _CLJ_SUFFIXES or not file_lanes:
@@ -915,7 +1079,7 @@ def _scan_proof_sites(
         text = path.read_text(encoding="utf-8")
         reached: dict[str, set[str]] = {}
         for platform in _platforms(path):
-            for row_id in _proven_ids(text, platform):
+            for row_id in _proven_ids(text, platform, asserting):
                 reached.setdefault(row_id, set()).update(
                     file_lanes & _PLATFORM_LANES[platform]
                 )
@@ -960,11 +1124,13 @@ def _cell_lanes(mode: str, host: str) -> frozenset[str]:
     What the mode axis does NOT do here is demand two executions of one law.
     That reading is available and it is wrong: the matrix gives `common` a single
     cell per host, and a `common` row is a claim that ONE proof binds in both
-    modes.  Nor is the mode token verifiable by asking which lowering a proof
-    drives — `FH-DIAG-001` is a `compiled` law proven through the compile
-    CHECKER, over declarations that deliberately carry no `{:compiled true}`, so
-    a "compiled rows must render a compiled view" rule would red an honest row
-    and push the next author into writing a compiled twin for the gate's benefit.
+    modes.  Nor is a `compiled` row's mode verifiable by asking which LOWERING
+    its proof drives — `FH-DIAG-001` is a `compiled` law proven through the
+    compile CHECKER, over declarations that deliberately carry no
+    `{:compiled true}`, so a "compiled rows must render a compiled view" rule
+    would red an honest row and push the next author into writing a compiled twin
+    for the gate's benefit.  What the mode axis DOES get is the witness in
+    `_compiled_witnesses`, which admits the checker for exactly that reason.
     """
     if host in ("jvm", "ssr"):
         return frozenset({"jvm"})
@@ -972,6 +1138,69 @@ def _cell_lanes(mode: str, host: str) -> frozenset[str]:
         return (frozenset({"node"}) if mode == "common"
                 else frozenset({"node", "browser"}))
     return _QUALIFIED_HOST_LANES
+
+
+def _compiled_witnesses(repo_root: Path) -> frozenset[Path]:
+    """The test files that EXERCISE the compiled tier.
+
+    The lane axis cannot see the mode axis: `interpreted jvm` and `compiled jvm`
+    are both served by the JVM lane, so a row relabelled from one to the other
+    keeps every cell it claims served and the census had nothing to say about it.
+    That is a claim parsed and never evidenced, and a merged PR audit called it
+    what it was.
+
+    `compiled` is the mode that can be witnessed, because it is the mode a
+    declaration OPTS INTO.  Two surfaces count, and the second is not optional:
+
+        {:compiled true}                 a declaration lowered at expansion
+        re-frame.freehand.compiler.…     the compile tier itself
+
+    The compile tier counts on its own because `FH-DIAG-001` is a compiled-mode
+    law proven through the CHECKER, over declarations deliberately carrying no
+    `{:compiled true}` — the exact row a narrower rule would have reddened.  The
+    witness is read at SUITE granularity: the file, or a Freehand namespace it
+    requires, since a suite whose compiled declarations live in a support
+    namespace beside it is exercising the compiled tier just as squarely.
+
+    `interpreted` and `common` get no such witness, and saying so is the honest
+    half of this.  Interpreted is the DEFAULT lowering — a declaration is
+    interpreted by carrying nothing — so there is no marker to demand, and a rule
+    every proof satisfies would dress a green up as evidence rather than
+    supplying any.  The census therefore evidences the mode axis in the one
+    direction it can, and claims nothing in the other.
+    """
+    test_root = repo_root / TESTS_REL
+    if not test_root.is_dir():
+        return frozenset()
+    ns_of: dict[Path, str] = {}
+    requires: dict[Path, set[str]] = {}
+    witnesses: set[Path] = set()
+    for path in sorted(test_root.rglob("*")):
+        if path.suffix not in _CLJ_SUFFIXES:
+            continue
+        cleaned = _strip(path.read_text(encoding="utf-8"))
+        ns_form = next(
+            (f for f in _top_level_forms(cleaned) if _NS_FORM_RE.match(f)), ""
+        )
+        named = _NS_FORM_RE.match(ns_form)
+        if named:
+            ns_of[path] = named.group(1)
+        requires[path] = set(_FREEHAND_NS_RE.findall(ns_form))
+        if (_COMPILED_DECLARATION_RE.search(cleaned)
+                or _COMPILE_TIER_NS_RE.search(cleaned)):
+            witnesses.add(path)
+
+    by_ns = {ns: path for path, ns in ns_of.items()}
+    changed = True
+    while changed:
+        changed = False
+        for path, required in requires.items():
+            if path in witnesses:
+                continue
+            if any(by_ns.get(ns) in witnesses for ns in required):
+                witnesses.add(path)
+                changed = True
+    return frozenset(witnesses)
 
 
 def _scan_citations(repo_root: Path) -> dict[str, list[Path]]:
@@ -996,12 +1225,13 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
 
     The manifest is DERIVED — from the `(conf/fixture :FH-…)` sites in
     `implementation/freehand/test/` and the lane each file runs in — so there is
-    no second copy of the mapping to keep in step.  Seven facts fall out, and
+    no second copy of the mapping to keep in step.  Eight facts fall out, and
     each is a defect shape: a row nothing reads, a row whose id is written where
     no assertion can reach it, a row asserted only from lanes that do not serve
-    the (mode, host) cells it claims, a fixture or a proof site left behind by a
-    row that no longer exists, a roster area holding no proven law at all, and an
-    id the corpus cites that the index does not carry.
+    the (mode, host) cells it claims, a `compiled` row nothing compiled-tier
+    proves, a fixture or a proof site left behind by a row that no longer exists,
+    a roster area holding no proven law at all, and an id the corpus cites that
+    the index does not carry.
 
     Only `active` rows are CLAIMS, so only they are reconciled against the
     suites.  A `retired` row is a burnt id: it proves nothing and needs no
@@ -1015,6 +1245,7 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
     all_rows = _parse_rows(index)
     rows = [(n, i, a, f) for n, i, a, f, status in all_rows if status == "active"]
     sites, dead_sites = _scan_proof_sites(repo_root)
+    compiled_witnesses = _compiled_witnesses(repo_root)
     defects: list[str] = []
     table: list[tuple[str, str, str, str, str]] = []
     # The ledger's derived EXECUTION requirement: the union, over every
@@ -1038,10 +1269,11 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
             )
             defects.append(
                 f"  DEAD PROOF SITE: {INDEX_REL.as_posix()}:{line_no} [{row_id}] "
-                f"is named in {where}, but no `deftest` there reaches it - the "
-                "reference is commented out, reader-discarded, or bound to a "
-                "name nothing asserts on.  A law is proven by an assertion "
-                "RUNNING against its fixture, not by the id appearing in a file"
+                f"is named in {where}, but no ASSERTION there reaches it - the "
+                "reference is commented out, reader-discarded, bound to a name "
+                "nothing asserts on, or read only from a statement that asserts "
+                "nothing.  A law is proven by an assertion RUNNING against its "
+                "fixture, not by the id appearing in a file"
             )
         elif not proving:
             defects.append(
@@ -1063,6 +1295,22 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
                     f"fixture run in the {'/'.join(sorted(lanes)) or 'no'} "
                     "lane(s) - narrow the applicability cell or prove the law "
                     "where it claims to bind"
+                )
+            if mode == "compiled" and not any(
+                path in compiled_witnesses for path, _lanes in proving
+            ):
+                where = ", ".join(sorted(p.name for p, _ in proving))
+                defects.append(
+                    f"  UNWITNESSED MODE: {INDEX_REL.as_posix()}:{line_no} "
+                    f"[{row_id}] claims the `compiled` mode, but nothing in "
+                    f"{where} exercises the compiled tier - no "
+                    "`{:compiled true}` declaration and no "
+                    "`re-frame.freehand.compiler.*` namespace, in the suite or "
+                    "in a Freehand namespace it requires.  The JVM lane serves "
+                    "`interpreted jvm` and `compiled jvm` alike, so without a "
+                    "witness the mode token is a claim nobody checked: prove the "
+                    "law through the compiled tier, or say `interpreted` / "
+                    "`common` and mean it"
                 )
         for host in hosts:
             needed |= _cell_lanes(mode, host)
@@ -1147,6 +1395,11 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
             f"{len(all_rows)} row(s) in the index in total; the remaining "
             f"{len(all_rows) - len(table)} are addressed ids that do not bind "
             "(`retired`, `planned`) and are not applicable rows.\n"
+            f"  Of those, {sum(1 for r in table if r[1] == 'compiled')} claim "
+            "the `compiled` mode and each is proven through the compiled tier.  "
+            "`interpreted` and `common` carry no mode witness and none is "
+            "claimed: interpreted is the DEFAULT lowering, so there is no marker "
+            "to demand (see `_compiled_witnesses`).\n"
         )
         sys.stdout.write(_binding_note(needed))
 
@@ -1169,7 +1422,9 @@ def census(repo_root: Path, verbose: bool = False, report: bool = False) -> int:
         sys.stderr.write(
             f"Freehand conformance census OK: {len(table)} APPLICABLE row(s) "
             f"across {len(AREAS)} area(s), none empty, each reached by an "
-            "assertion in a lane serving every mode/host cell it claims; "
+            "assertion in a lane serving every mode/host cell it claims, and "
+            f"each of the {sum(1 for r in table if r[1] == 'compiled')} "
+            "`compiled` row(s) proven through the compiled tier; "
             f"{burnt} further id(s) addressed but not binding.\n"
         )
         sys.stderr.write(_binding_note(needed))
@@ -1319,7 +1574,7 @@ def _build_census_fixtures(base: Path) -> None:
         # Green: a qualified host is proven by connecting the real wrapper in a
         # browser, so a mounted `-dom-cljs-test` suite serves it.
         "census_qualified_host": (
-            {"CALL": _row(applicability="compiled host:ag-grid")},
+            {"CALL": _row(applicability="interpreted host:ag-grid")},
             {"a_dom_cljs_test.cljs": _proof()},
             (),
             (),
@@ -1383,6 +1638,52 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
+        # Red: a `(comment …)` INSIDE the `deftest`.  The first of the two false
+        # greens a merged PR audit found in the previous reading: the reference
+        # is written where a test can see it and where nothing evaluates it, so
+        # the suite stays green with the fixture broken.
+        "census_comment_form_inside_a_deftest": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is true) (comment fx))\n"},
+            (),
+            (),
+        ),
+        # Red: the same false green wearing a helper.  The `deftest` calls
+        # `helper`, so a scan that seeds from every symbol in the test walks
+        # straight to `fx` - down a branch that never runs.
+        "census_dead_branch_in_a_called_helper": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(defn helper [] (when false fx))\n"
+                                 "(deftest t (is true) (helper))\n"},
+            (),
+            (),
+        ),
+        # Red: the degenerate case the two above are shaped from - a `deftest`
+        # that reads the fixture and asserts nothing at all.
+        "census_deftest_that_asserts_nothing": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (identity fx))\n"},
+            (),
+            (),
+        ),
+        # Green: the assertion is the HELPER's, and the row is proven all the
+        # same.  Without this the rule above would red every suite that shares
+        # its expectations - which is most of them - and the honest shape has to
+        # stay green or the strictness is just breakage.
+        "census_helper_carries_the_assertion": (
+            {"CALL": _row()},
+            {"support.cljc": "(ns re-frame.freehand.support)\n"
+                             "(defn expect-tree [x] (is (seq x)))\n",
+             "a_cljs_test.cljc": "(ns re-frame.freehand.a-cljs-test\n"
+                                 "  (:require [re-frame.freehand.support :as sup]))\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (sup/expect-tree fx))\n"},
+            (),
+            (),
+        ),
         # Red: the missing arm.  A `common jvm browser` row whose only assertion
         # is in a `#?(:clj …)` arm never enters the node lane, so the browser
         # cell - structural, proven in the node runtime - is unproven, however
@@ -1404,8 +1705,64 @@ def _build_census_fixtures(base: Path) -> None:
         ),
         # Red: a qualified host claimed by a suite that never enters a browser.
         "census_qualified_host_needs_a_browser": (
-            {"CALL": _row(applicability="compiled host:ag-grid")},
+            {"CALL": _row(applicability="interpreted host:ag-grid")},
             {"a_cljs_test.cljc": _proof()},
+            (),
+            (),
+        ),
+        # Green, and the control for the pair below: the same suite proving the
+        # same fixture for an `interpreted jvm` row.  Interpreted is the default
+        # lowering, so nothing beyond the lane is asked of it.
+        "census_interpreted_jvm_row": (
+            {"CALL": _row(applicability="interpreted jvm")},
+            {"a_cljs_test.cljc": _proof()},
+            (),
+            (),
+        ),
+        # Red: THE MODE RELABEL - the second false green the merged PR audit
+        # found.  One token changed on the row above, nothing changed in the
+        # suite, and the JVM lane serves both cells; before the witness, the
+        # census had nothing to say.
+        "census_mode_relabelled_to_compiled": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": _proof()},
+            (),
+            (),
+        ),
+        # Green: the same `compiled jvm` row, proven by a suite that lowers a
+        # declaration at expansion.
+        "census_compiled_declaration_witnesses_the_mode": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 + _proof().partition("\n")[2]},
+            (),
+            (),
+        ),
+        # Green: the FH-DIAG-001 shape.  A compiled-mode law proven through the
+        # CHECKER, over declarations deliberately carrying no `{:compiled true}`
+        # - the row a narrower witness would have reddened.
+        "census_compile_tier_witnesses_the_mode": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_jvm_test.clj": "(ns re-frame.freehand.a-jvm-test\n"
+                               "  (:require [re-frame.freehand.compiler.check "
+                               ":as check]))\n"
+                               "(def fx (conf/fixture :FH-CALL-001))\n"
+                               "(deftest t (is (seq (check/findings fx))))\n"},
+            (),
+            (),
+        ),
+        # Green: the witness carried one hop, which is the shape the real
+        # manifest suites have - the declarations live in a support namespace
+        # beside the assertions.
+        "census_compiled_witness_in_a_required_support_ns": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"support.cljc": "(ns re-frame.freehand.support)\n"
+                             "(v/defview panel {:compiled true} [_] [:div])\n",
+             "a_cljs_test.cljc": "(ns re-frame.freehand.a-cljs-test\n"
+                                 "  (:require [re-frame.freehand.support :as sup]))\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (seq fx)) (is (some? sup/panel)))\n"},
             (),
             (),
         ),
@@ -1603,6 +1960,15 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_discarded_proof_site", 1, "DEAD PROOF SITE"),
         ("census_dead_def", 1, "DEAD PROOF SITE"),
         ("census_proof_site_in_a_docstring", 1, "DEAD PROOF SITE"),
+        ("census_comment_form_inside_a_deftest", 1, "DEAD PROOF SITE"),
+        ("census_dead_branch_in_a_called_helper", 1, "DEAD PROOF SITE"),
+        ("census_deftest_that_asserts_nothing", 1, "DEAD PROOF SITE"),
+        ("census_helper_carries_the_assertion", 0, None),
+        ("census_interpreted_jvm_row", 0, None),
+        ("census_mode_relabelled_to_compiled", 1, "UNWITNESSED MODE"),
+        ("census_compiled_declaration_witnesses_the_mode", 0, None),
+        ("census_compile_tier_witnesses_the_mode", 0, None),
+        ("census_compiled_witness_in_a_required_support_ns", 0, None),
         ("census_reader_conditional_hides_the_browser_arm", 1, "UNEXECUTED CELL"),
         ("census_unexecuted_host", 1, "UNEXECUTED CELL"),
         ("census_qualified_host_needs_a_browser", 1, "UNEXECUTED CELL"),
