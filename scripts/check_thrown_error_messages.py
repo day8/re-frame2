@@ -99,10 +99,14 @@ specific bare-keyword kind.
 
 SCAN SURFACE
 
-Framework source under `implementation/` — `.clj` / `.cljc` / `.cljs`. That
-roster is a RULING, not a default; see `DEFAULT_SCAN_DIRS` below for the
-enumerated exclusions and the stated ground for each. The default also
-excludes `test/` trees (a test that asserts the old shape is gone, or
+Framework source under `implementation/` — `.clj` / `.cljc` / `.cljs`. The
+scope is a REACHABILITY RULE, not a directory list: the shape governs a
+message that is read off-box (a consumer app catching the ex-info, an MCP
+client shown the text), and not one whose only reader is the developer who
+ran the tool. `DEFAULT_SCAN_DIRS` below carries the decidable part of that
+rule plus the stated ground for every excluded tree — including the
+`tools/` paths the rule DOES reach, which a text scan cannot identify. The
+default also excludes `test/` trees (a test that asserts the old shape is gone, or
 constructs a `(ex-info ":rf.error/…")` to exercise a predicate, legitimately
 names it). The one framework artefact that CANNOT `:require` `re-frame.error`
 (the bundle-isolated `reagent-slim` adapter) hand-rolls a human sentence
@@ -128,44 +132,61 @@ from typing import Iterable, NamedTuple
 # Scan surface
 # --------------------------------------------------------------------------
 
-# The roster is `implementation/` ALONE, and that is a DECISION (rf2-eo2y5),
-# not the shape a default happens to have. It used to be a bare
-# `DEFAULT_SCAN_DIR = "implementation"` with no note, which reads as unexamined
-# — and an unexamined scope is how a gate silently covers less than its reader
-# assumes, then gets "helpfully" widened by the next reader who cannot tell a
-# decision from an omission. Enumerate the candidate trees with:
+# THE SCOPE IS A REACHABILITY RULE, AND THE ROSTER BELOW IS ITS DECIDABLE PART.
+#
+#   THE RULE (rf2-eo2y5, amended 2026-07-26): the Spec 009 thrown-error shape
+#   governs framework source, PLUS any `tools/` path whose thrown message is
+#   RELAYED OFF-BOX. A message is in scope when someone other than the
+#   developer at the keyboard reads it — a consumer application catching the
+#   ex-info, or an MCP client (a consumer AI) shown the text. It is out of
+#   scope when the only reader is a developer running an inspection tool, who
+#   has the stack trace, the source, and the ex-data in front of them.
+#
+# The rule is stated here rather than mechanised because THIS GATE CANNOT
+# DECIDE IT. Whether a throw's message is relayed off-box is an interprocedural
+# fact spanning artefacts: `(ex-message e)` is read in a `catch` in one tree
+# and the throw it re-narrates lives in another, reached through a call chain
+# a text scan cannot follow. A roster is the part that IS decidable, so the
+# roster carries the trees where the rule is unconditionally true and this
+# comment carries the rest. A comment that names the rule beats a roster that
+# silently means something narrower.
+#
+# It used to be a bare `DEFAULT_SCAN_DIR = "implementation"` with no note,
+# which reads as unexamined — and an unexamined scope is how a gate silently
+# covers less than its reader assumes, then gets "helpfully" widened by the
+# next reader who cannot tell a decision from an omission. Enumerate the
+# candidate trees with:
 #
 #   git ls-files | grep -E '\.clj[cs]?$' | sed -E 's#/.*##' | sort -u
 #
-# WHY ONE TREE, when the sibling ratchet rosters them all. The two gates share
-# a template but not a subject. `check_retired_spellings.py` rosters every
-# Clojure tree because a retired SPELLING is drift wherever it appears — most
-# of all in the trees a reader copies from (rf2-kqxe6.25). A thrown-error
-# SHAPE is a contract only where something downstream reads it, and Spec 009
-# §The thrown-error shape governs the FRAMEWORK'S PUBLIC ERROR SURFACE: the
-# errors a consumer application catches, whose shape is a contract precisely
-# because consumer code and consumer AI branch on it. That surface is
-# `implementation/`.
+# WHY THE ROSTER IS ONE TREE, when the sibling ratchet rosters them all. The
+# two gates share a template but not a subject. `check_retired_spellings.py`
+# rosters every Clojure tree because a retired SPELLING is drift wherever it
+# appears — most of all in the trees a reader copies from (rf2-kqxe6.25). A
+# thrown-error SHAPE is a contract only where something downstream reads it.
+# `implementation/` is where that is true of every file.
 #
 # The excluded trees, and the ground for each:
 #
-#   * `tools/` — dev tooling. Ruled OUT OF SCOPE by rf2-eo2y5: a tool's
-#     ex-info is read by a developer running an inspection tool, and
-#     `tools/` ships on its own tag prefixes (`story-v…`, `xray-v…`,
-#     `machines-viz-v…`, `template-v…`), not on the framework's `v…` tag.
-#     THIS EXCLUSION IS NOT A CLAIM THE TREE IS CLEAN. Point `--scan-dir
-#     tools` at it and the gate reports findings; the ruling declined to
-#     convert them rather than finding nothing to convert. One QUALIFICATION
-#     is known and tracked: a `tools/` throw whose `ex-message` is relayed
-#     onto the MCP tool surface IS read by a consumer, so the shape does
-#     govern that subset — rf2-jquiy holds the traced cases. Widening this
-#     roster is not how that gets fixed; those sites get converted, and the
-#     roster stays as ruled.
+#   * `tools/` — dev tooling: the reader of a tool's ex-info is the developer
+#     who ran the tool. `tools/` also ships on its own tag prefixes
+#     (`story-v…`, `xray-v…`, `machines-viz-v…`, `template-v…`), not on the
+#     framework's `v…` tag. Ruled out of scope by rf2-eo2y5, and the 38-site
+#     conversion sweep that widening would demand is refused.
+#     THIS EXCLUSION IS NOT A CLAIM THE TREE IS CLEAN, and it is NOT
+#     unconditional. Point `--scan-dir tools` at it and the gate reports
+#     findings; the ruling declined to convert them rather than finding
+#     nothing to convert. AND THE RULE ABOVE REACHES INTO IT: `tools/story-mcp`
+#     relays `(ex-message e)` straight into an MCP tool result, so the
+#     `tools/story` throws behind that relay are read by a consumer AI and
+#     ARE governed. rf2-jquiy owns the traced sites. Converting them is the
+#     fix; widening this roster is not — it would drag in the sites the
+#     ruling refused along with the ones it claimed.
 #   * `examples/`, `skills/`, `testbeds/`, `migration/`, `docs/tools/` —
 #     consumer-SHAPED code: sample apps, teaching material, the docs
 #     playground. An error thrown by an example app is the example's own,
-#     not the framework's public error surface, and no downstream contract
-#     branches on it.
+#     not the framework's public error surface, and nothing downstream
+#     re-narrates it.
 #   * `scripts/` — `scripts/_test_fixtures/check_thrown_error_messages/`
 #     holds this gate's own POSITIVE self-test fixtures. They plant the bad
 #     shapes on purpose; a live scan over them would be red by construction,
