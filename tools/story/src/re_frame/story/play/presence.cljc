@@ -4,7 +4,7 @@
 
   ## Why a rung exists
 
-  A variant whose view renders a `(ui/presence {:timeout-ms n} …)` boundary
+  A variant whose view renders a `(v/presence {:timeout-ms n} …)` boundary
   RETAINS a removed keyed child in `:unmounting` until the `:timeout-ms`
   safety bound fires. Playback then has a settlement problem the
   `settled-boundary` ladder cannot solve: the retention is a CLOCK, not a
@@ -14,10 +14,10 @@
   The only wall-clock answer is `[:wait ms]`, which the determinism gate
   REFUSES (`re-frame.story.determinism` §The bare-`[:wait ms]` opt-out).
 
-  `re-frame.ui.test/flush-presence!` is the framework's own answer: it
-  advances the presence FAKE CLOCK, firing due exits with no wall-clock
-  sleep. `(flush-presence!)` advances to quiescence (every pending exit
-  fires); `(flush-presence! ms)` advances the logical clock by `ms`, firing
+  The framework's own answer is its presence FAKE CLOCK
+  (`re-frame.freehand.presence-runtime/advance-clock!`), which fires due exits
+  with no wall-clock sleep. A bare advance goes to quiescence (every pending
+  exit fires); an advance of `ms` moves the logical clock by that much, firing
   only the exits that come due — so a script can observe the retained
   `:unmounting` phase and THEN its terminal removal, deterministically.
 
@@ -27,14 +27,15 @@
 
   ## The host hook
 
-  Story's shipped jar must not depend on `re-frame.ui` (`day8/re-frame2-ui`
-  is pre-publication — the same isolation `re-frame.story.view-tool` keeps),
-  so the verb arrives through the `re-frame.story.late-bind` registry under
-  `:flush-presence!`. The canonical installation is ONE `:require` of the
-  optional bridge `re-frame.story.play.presence-host`, which holds the
-  `re-frame.ui` dependency on the app's side of the seam and installs the
-  verb at its load time. `install-presence-flush!` below stays public for a
-  host that wants to register a different advance.
+  Story's shipped jar must not depend on the view substrate
+  (`day8/re-frame2-freehand` is pre-publication — the same isolation
+  `re-frame.story.view-tool` keeps), so the verb arrives through the
+  `re-frame.story.late-bind` registry under `:flush-presence!`. The canonical
+  installation is ONE `:require` of the optional bridge
+  `re-frame.story.play.presence-host`, which holds the Freehand dependency on
+  the app's side of the seam and installs the verb at its load time.
+  `install-presence-flush!` below stays public for a host that wants to
+  register a different advance.
 
   ## No host installed → `:cannot-run`, never a silent skip
 
@@ -44,9 +45,9 @@
   the framework's JVM arm of `flush-presence!` — conflated two different
   facts. The JVM arm is a no-op because the structural host provably has no
   lifecycle to advance; an ABSENT HOOK proves nothing of the kind, because an
-  app can load `re-frame.ui`, render a real `(ui/presence …)` boundary, and
-  simply omit the bridge call. Its playback would then advance nothing while
-  Story reported a clean verdict.
+  app can load Freehand, render a real `(v/presence …)` boundary, and simply
+  omit the bridge call. Its playback would then advance nothing while Story
+  reported a clean verdict.
 
   Nor does the following assertion carry the refusal: the grammar requires no
   following assertion at all, and an `:assert-db` one needs only the headless
@@ -59,17 +60,17 @@
   (:require [re-frame.story.late-bind :as late-bind]))
 
 (def presence-flush-hook-key
-  "The `re-frame.story.late-bind` hook key a `re-frame.ui`-hosted shell
-  registers its presence-clock advance under. The fn signature is
-  `(f ms-or-nil) → any` — `nil` means advance to quiescence, a number means
-  advance the logical clock by that many milliseconds. Both map 1:1 onto the
-  two arities of `re-frame.ui.test/flush-presence!`."
+  "The `re-frame.story.late-bind` hook key a Freehand-hosted shell registers
+  its presence-clock advance under. The fn signature is `(f ms-or-nil) → any`
+  — `nil` means advance to quiescence, a number means advance the logical
+  clock by that many milliseconds. Both map 1:1 onto the two arities of
+  `re-frame.freehand.presence-runtime/advance-clock!`."
   :flush-presence!)
 
 (defn install-presence-flush!
   "Register the host's presence-clock advance under the `:flush-presence!`
   late-bind hook. `flush-fn` takes ONE argument — the ms to advance by, or
-  `nil` for 'to quiescence' — mirroring `flush-presence!`'s two arities.
+  `nil` for 'to quiescence' — mirroring the clock advance's two arities.
   Idempotent (re-registration replaces, per Spec 001 hot-reload semantics)."
   [flush-fn]
   (late-bind/set-fn! presence-flush-hook-key flush-fn)
@@ -77,16 +78,17 @@
 
 (defn presence-flush-fn
   "The installed presence-advance fn, or nil when no host registered one
-  (the bare JVM / a Story app with no compiled-view presence boundaries)."
+  (the bare JVM / a Story app with no presence boundaries)."
   []
   (late-bind/get-fn presence-flush-hook-key))
 
 (defn- thenable
-  "`x` as a thenable, or nil. CLJS-only: the canonical host verb
-  (`re-frame.ui.test/flush-presence!`) is Promise-backed there, while the JVM
-  arm is a synchronous no-op and a custom host may be synchronous on either.
-  Duck-typed on `.then` rather than `instance? js/Promise` so any thenable a
-  host hands back is observed."
+  "`x` as a thenable, or nil. CLJS-only, and CONDITIONAL: the shipped Freehand
+  bridge is SYNCHRONOUS (its advance runs inside the substrate's `flushSync`
+  commit, so the DOM is settled by the time it returns) and hands back nil,
+  while a custom host — or one built on an awaited React `act`, as the donor's
+  was — may hand back a Promise. Duck-typed on `.then` rather than
+  `instance? js/Promise` so any thenable a host hands back is observed."
   [x]
   #?(:clj  (do x nil)
      :cljs (when (and (some? x) (fn? (unchecked-get x "then"))) x)))
@@ -103,11 +105,12 @@
     {:status :error    :ms … :error s} — the host verb threw
 
   An `:advanced` result additionally carries `:pending <thenable>` when the
-  host verb returned one and has therefore NOT finished (rf2-iz0t8). The
-  canonical CLJS host does exactly that — `flush-presence!` is Promise-backed
-  — so returning `:advanced` bare would report that the advance succeeded
-  while its outcome was still unknown. `settle!` is how a caller waits for the
-  answer; `:advanced` on its own means only 'the verb was reached'.
+  host verb returned one and has therefore NOT finished (rf2-iz0t8). A
+  Promise-backed host does exactly that, and returning `:advanced` bare would
+  report that the advance succeeded while its outcome was still unknown.
+  `settle!` is how a caller waits for the answer; `:advanced` on its own means
+  only 'the verb was reached'. The shipped Freehand bridge is synchronous and
+  carries no `:pending` — `settle!` then calls back before it returns.
 
   Never throws, and never judges: this is pure data → data reporting of what
   happened. The executor (`runner-events/exec-flush-presence!`) projects the
