@@ -498,7 +498,8 @@
       (close []))))
 
 ;; ----------------------------------------------------------------------
-;; Whole-suite test-count floor (rf2-qqzmf).
+;; What a lane claims, and what it must therefore prove (rf2-qqzmf) — the
+;; coverage floor for a suite lane, `probe-flag` for a resolution lane.
 ;;
 ;; The project already holds this standard in two places and had not
 ;; generalised it:

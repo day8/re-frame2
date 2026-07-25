@@ -18,8 +18,10 @@ set -euo pipefail
 #              ssr, security, ssr-ring, epoch, resources, freehand,
 #              spec-resource, the three conformance artefacts, and test-quiet
 #              — run in CI and NOT here, so a change under
-#              `implementation/routing/src` gets NONE of routing's 487 JVM
-#              tests from this script.  Run `scripts/test-jvm-implementation.sh` for
+#              `implementation/routing/src` gets NONE of routing's several
+#              hundred JVM tests from this script.  (No count is quoted: a
+#              number in a comment is exactly the kind of claim that goes
+#              stale.)  Run `scripts/test-jvm-implementation.sh` for
 #              those (it is the whole set, and it is what CI's per-artefact
 #              jobs collectively cover);
 #   node tier  the npm/CLJS `:node-test` build, the JS harness self-tests, and
