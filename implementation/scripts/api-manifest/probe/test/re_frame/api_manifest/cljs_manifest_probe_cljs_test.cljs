@@ -74,14 +74,18 @@
     SCOPE is not privacy: this is a published authoring surface and the gate
     treats it like one.
 
-  - `re-frame.freehand.tool` (rf2-hytu5) — the Freehand substrate's TOOL-TIER
-    reader door, enrolled on the same terms as the door and the test sibling:
-    `.cljc`, JVM-introspected for its manifest row, its live CLJS surface
-    reconciled here. FULLY-ROWED, both directions — `view-manifest` is the
-    WHOLE namespace, because this is a reader and not a tool framework (no
-    accumulator, no registry, no history store), so a second public var
-    appearing on either host fails direction-2 completeness rather than
-    accumulating quietly.
+  - `re-frame.freehand.tool` (rf2-hytu5, extended by rf2-lvvl2 / rf2-xftdv /
+    rf2-cpfbg) — the Freehand substrate's TOOL-TIER reader door, enrolled on
+    the same terms as the door and the test sibling: `.cljc`,
+    JVM-introspected for its manifest rows, its live CLJS surface reconciled
+    here. FULLY-ROWED, both directions — the SIX published reads
+    (`view-manifest` plus `read-view-manifest` / `read-view-dependencies` /
+    `read-view-event-sites` / `read-mounted-views` / `explain-render`) are the
+    whole namespace, because this is a reader and not a tool framework (no
+    accumulator, no interval log, no history store) and everything beneath
+    them is `defn-` / `def ^:private`, so a SEVENTH public var appearing on
+    either host fails direction-2 completeness rather than accumulating
+    quietly.
 
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
@@ -146,7 +150,7 @@
             ;; the same terms as the door above and as re-frame.ui.test.
             [re-frame.freehand.test]
             ;; rf2-hytu5 — the Freehand TOOL-TIER reader door, enrolled on the
-            ;; same terms again. One name, and the require forces its analysis
+            ;; same terms again. Six names, and the require forces its analysis
             ;; so `emit-ns-publics` reads the live surface.
             [re-frame.freehand.tool]))
 
@@ -196,7 +200,7 @@
    ;; -introspected rows, live CLJS surface reconciled here, fully-rowed.
    "re-frame.freehand.test"                          (emit-ns-publics re-frame.freehand.test)
    ;; rf2-hytu5 — the Freehand tool-tier reader door. Same terms: JVM-
-   ;; introspected row, live CLJS surface reconciled here, fully-rowed.
+   ;; introspected rows, live CLJS surface reconciled here, fully-rowed.
    "re-frame.freehand.tool"                          (emit-ns-publics re-frame.freehand.tool)})
 
 (def fully-rowed
@@ -226,9 +230,9 @@
     ;; come from :classification, fed in via `freehand-test-rows` below.
     "re-frame.freehand.test"
     ;; rf2-hytu5 — direction-2 completeness for the Freehand tool-tier reader
-    ;; door. `view-manifest` is the whole namespace by construction (a reader,
-    ;; not a tool framework), so a SECOND public var appearing on either host
-    ;; without a manifest row → RED. Its row likewise comes from
+    ;; door. The six published reads are the whole namespace by construction (a
+    ;; reader, not a tool framework), so a SEVENTH public var appearing on
+    ;; either host without a manifest row → RED. Its rows likewise come from
     ;; :classification, fed in via `freehand-tool-rows` below.
     "re-frame.freehand.tool"})
 
@@ -266,9 +270,9 @@
 (def freehand-tool-rows
   "The `re-frame.freehand.tool` `:classification` rows (rf2-hytu5), projected
    exactly as `freehand-test-rows` is. The tool-tier reader door is
-   JVM-introspected for its manifest row, but its CLJS surface must still be
+   JVM-introspected for its manifest rows, but its CLJS surface must still be
    reconciled here so neither host can silently expose an extra public — the
-   donor's accumulator / registry / history surfaces were ruled out
+   donor's accumulator / interval-log / history surfaces were ruled out
    permanently, and direction-2 completeness is what keeps them out."
   (emit-classification-rows "re-frame.freehand.tool"))
 
