@@ -248,11 +248,12 @@ nav:
   - API:
     - api/README.md
     - "re-frame.core": api/re-frame.core.md
-    # The view substrate has no published Maven coordinate either —
+    # The Freehand view substrate has no published Maven coordinate:
     # day8/re-frame2-freehand resolves with :local/root from a checkout, and
-    # there is no date at which it publishes. Both pages already say so; the
-    # nav does too, so a reader who never opens one is not misled (rf2-8jbpe,
-    # following the (donor) precedent below).
+    # there is no date at which it publishes. Both pages already open with that
+    # admonition (rf2-xlrbz); the nav now says so too, so a reader who never
+    # opens one is not misled. Same reason as the (donor) labels below, whose
+    # marker style this follows (rf2-8jbpe).
     - "re-frame.freehand (pre-alpha)": api/re-frame.freehand.md
     # The compiled-view substrate is DONOR code with no published Maven
     # coordinate (docs/release-process.md §Policy). The nav says so, matching
