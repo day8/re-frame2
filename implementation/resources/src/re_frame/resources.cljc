@@ -737,4 +737,13 @@
    ;; scoped keys once copied into trace tags). Published so the epoch artefact
    ;; reaches it without a static :require on resources.
    :resources/project-resource-trace-egress
-   trace-egress/project-resource-trace-egress})
+   trace-egress/project-resource-trace-egress
+   ;; The same owner classification, reached by SLOT rather than by op
+   ;; (rf2-1kiuj). An `ensure` lowers into effects that address the work BY its
+   ;; scoped key, so the family's keys ride `:rf.fx/args` / `:rf.event/fx` on
+   ;; `:rf.fx/*` / `:rf.error/*` rows — which the namespace routing above never
+   ;; reaches, and which the app-db-rooted walk cannot classify. The epoch
+   ;; tool-pair applies this to EVERY row (it no-ops on a row carrying neither
+   ;; slot), so no row predicate has to be kept in step with the emit sites.
+   :resources/project-fx-args-egress
+   trace-egress/project-fx-args-egress})

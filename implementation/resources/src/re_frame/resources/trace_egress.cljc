@@ -70,7 +70,18 @@
 
   The redaction is the off-box DEFAULT; the trusted-local `:include-sensitive?`
   opt-in lifts it at the epoch consumer (the `local-raw` boundary — the same
-  switch the app-db / HTTP-body / scope-resolved redactions honour)."
+  switch the app-db / HTTP-body / scope-resolved redactions honour).
+
+  ## The family's keys also ride FOREIGN rows (rf2-1kiuj)
+
+  Everything above is routed by the epoch tool-pair on the row's OPERATION
+  namespace. But an `ensure` lowers into EFFECTS, and those effects address the
+  work by its scoped key, so the same keys reach off-box egress under
+  `:rf.fx/args` and `:rf.event/fx` on `:rf.fx/*` / `:rf.error/*` rows the family
+  does not own — where the namespace routing never looks. `project-fx-args-egress`
+  (bottom of this ns) closes that: the SAME `project-trace-scoped-key` owner
+  classification, reached by SLOT instead of by op, and touching nothing on the
+  row but the keys."
   (:require [re-frame.resources.registry :as registry]
             [re-frame.resources.ssr :as ssr]))
 
@@ -326,6 +337,68 @@
 
     :else [v false]))
 
+(def ^:private fx-carrier-slot
+  "Trace tag slots owned by the FX family that the resource family's scoped keys
+  RIDE IN (rf2-1kiuj).
+
+  A resource `ensure` lowers into effects, and those effects address the work by
+  its scoped key: `[:rf.http/managed {:request-id [:rf.req <frame>
+  [:rf.work/resource <scoped-key> <gen>]] :on-success [… {:work/id … :resource/key
+  …}] …}]`. `re-frame.fx/handle-one-fx` stamps that argument payload verbatim
+  under `:rf.fx/args` (on `:rf.fx/handled`, on `:rf.fx/skipped-on-platform`, and
+  on the always-on `:rf.error/*` fx-failure traces), and `do-fx` stamps the whole
+  effect vector under `:rf.event/fx`. So the family's keys reach off-box egress on
+  rows the family does not own — `:rf.fx/*` / `:rf.error/*`, not `:rf.resource/*`.
+
+  The slots are named HERE, beside the shape predicate and the key projection they
+  need, rather than in the epoch consumer: one roster, in the namespace that knows
+  what a scoped key looks like. `project-fx-args-egress` no-ops (reference-
+  preserving) on a tags map carrying neither slot, so the consumer hands it every
+  row and needs no row predicate of its own."
+  #{:rf.fx/args :rf.event/fx})
+
+(defn- project-embedded-keys
+  "Project every resource SCOPED KEY embedded anywhere in `v`, leaving every
+  non-key value UNTOUCHED. Returns `[projected sensitive?]`.
+
+  The FOREIGN-CARRIER counterpart of `project-unknown-slot-value`, and it differs
+  from it in exactly one arm, deliberately: a MAP is DESCENDED INTO rather than
+  tokenized. The fail-closed map arm is right for an unnamed slot on a row the
+  resource family OWNS (the value there is presumed owner payload — rf2-7qbxbm);
+  it is wrong here, because an fx-args payload is the FX family's, and the only
+  thing in it the resource family may speak for is its own keys. Tokenizing the
+  whole payload would redact a PLAIN owner's request map as readily as a sensitive
+  one's — over-redaction, which for the resource tools is as much a defect as the
+  leak.
+
+  So: an already-projected token rides as-is (idempotent, never re-digested); a
+  scoped-key-shaped vector projects through `project-trace-scoped-key` — the SAME
+  owner classification the family rows' own `:resource/key` takes, so the two
+  carriers of one key cannot drift; any other collection is walked through,
+  preserving its KIND (scoped-key identity is kind-sensitive — rf2-wgutc2) and
+  walking a map's KEYS as well as its values (a key can be map-keyed by scoped
+  key); every other scalar rides verbatim. Pure."
+  [v frame-id]
+  (cond
+    (redacted-token? v)   [v true]
+    (scoped-key-shape? v) (project-trace-scoped-key v frame-id)
+
+    (coll? v)
+    (let [sens?* (volatile! false)
+          proj   (fn [x]
+                   (let [[pv s] (project-embedded-keys x frame-id)]
+                     (when s (vreset! sens?* true))
+                     pv))]
+      [(cond
+         (map? v)    (reduce-kv (fn [m k x] (assoc m (proj k) (proj x))) {} v)
+         (set? v)    (into #{} (map proj) v)
+         (vector? v) (mapv proj v)
+         (seq? v)    (apply list (map proj v))
+         :else       (mapv proj v))
+       @sens?*])
+
+    :else [v false]))
+
 (declare project-tags*)
 
 (defn- project-disposition-row
@@ -506,3 +579,45 @@
     tags
     (let [[tags' sens?] (project-tags* tags frame-id)]
       (cond-> tags' sens? (assoc :sensitive? true)))))
+
+(defn project-fx-args-egress
+  "Project the FX-ARGS trace tag slots of ANY trace row for OFF-BOX egress, so a
+  resource scoped key riding an FX row is classified by its resource OWNER
+  exactly as the same key riding a `:rf.resource/*` row is (rf2-1kiuj).
+
+  `project-resource-trace-egress` above is routed by the epoch tool-pair on the
+  row's OPERATION NAMESPACE (`resource-family-op?`), so it never reached
+  `:rf.fx/args` or `:rf.event/fx` — and a resolver-owned key's embedded scope +
+  params are not app-db-rooted, so the generic value-path walk cannot classify
+  them either (Spec 015 §10). Two blind spots meeting, and between them a
+  naturally-captured `ensure` record egressed a `:sensitive?` owner's resolved
+  scope and canonical params RAW at eighteen paths. In its sharpest form the
+  SAME payload rode TWO carriers of ONE record with only one rule applied — the
+  rf2-irwsq shape: the structured `:effects[*].args` slot read `:rf/redacted`
+  while the `:rf.fx/args` TAG three rows above it carried the secret in the clear.
+
+  Given a row's `tags` + the `frame-id`, walks `:rf.fx/args` / `:rf.event/fx` by
+  SHAPE (`project-embedded-keys`) and stamps `:sensitive? true` when a key
+  redacted. Everything else on the row rides UNTOUCHED, whatever its shape: the
+  row belongs to the fx family, and the resource family speaks only for the keys
+  inside it. A tags map carrying NEITHER slot rides through reference-preserved —
+  which is what lets the epoch consumer apply this to every row and keep no row
+  predicate of its own, so a family key riding a carrier on some future op is
+  covered without anyone widening a roster.
+
+  Idempotent (an opaque token re-projects to itself); a non-map `tags` rides
+  unchanged. Pure. Off-box only — the trusted-local `:include-sensitive?` opt-in
+  lifts it at the epoch consumer, and the on-box listener keeps the raw evidence."
+  [tags frame-id]
+  (if-not (map? tags)
+    tags
+    (let [sens?* (volatile! false)
+          tags'  (reduce (fn [m slot]
+                           (if-not (contains? m slot)
+                             m
+                             (let [[pv s] (project-embedded-keys (get m slot) frame-id)]
+                               (when s (vreset! sens?* true))
+                               (assoc m slot pv))))
+                         tags
+                         fx-carrier-slot)]
+      (cond-> tags' @sens?* (assoc :sensitive? true)))))
