@@ -670,12 +670,16 @@
     (let [app    (boot-app!)
           handle "ada"
           pkey   (profile-key handle :authored)
-          props  {:to :conduit/profile :params {:handle handle} :prefetch :intent}]
-      (testing "the link the app renders and the payload it warms name the same
-                destination the click will activate"
-        (is (= (str "/profile/" handle)
-               (:href (second #?(:clj  (routing/route-link-render-ssr props "Profile")
-                                 :cljs (routing/route-link-render     props "Profile")))))
+          props  {:to :conduit/profile :params {:handle handle} :prefetch :intent}
+          ;; ONE link. Both halves come off the SAME props map through the same
+          ;; two seams a real anchor uses: `prefetch-payload` is what the
+          ;; `:on-mouse-enter` handler dispatches, and `link-model`'s `:payload`
+          ;; is what the click handler dispatches. Hand-rolling either half would
+          ;; be a different test — the claim is about one link.
+          model  (link/link-model props app)]
+      (testing "the anchor the app renders warms and activates the same
+                destination"
+        (is (= (str "/profile/" handle) (:href model))
             "the href omits the key already at its declared default")
         (is (= [:rf.route/prefetch {:to :conduit/profile :params {:handle handle}}]
                (link/prefetch-payload props))
@@ -691,9 +695,9 @@
         (is (empty? (route-owners (entry app pkey)))
             "the warm entry is ownerless — warmup is not activation"))
 
-      ;; click the same link
-      (rf/dispatch-sync [:rf.route/navigate {:to :conduit/profile :params {:handle handle}}]
-                        {:frame app})
+      ;; click THAT SAME anchor — the link door, exactly what `:on-click`
+      ;; dispatches
+      (rf/dispatch-sync (:payload model) {:frame app})
       (let [token    (:nav-token (slice app))
             profiles (profile-identities app)
             e        (entry app pkey)]
