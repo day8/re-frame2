@@ -92,6 +92,13 @@
             [re-frame.freehand.route-link-seam :as route-link-seam]
             [re-frame.interop :as interop]
             #?@(:clj  [[re-frame.freehand.compiler :as compiler]
+                       ;; The compile-error CONSTRUCTOR, so a malformed
+                       ;; `v/defhost` declaration refuses with the same
+                       ;; `:rf.ui.compile/*` shape every other build refusal
+                       ;; carries. Already on the JVM path beneath `compiler`;
+                       ;; named here because the declaration macro throws
+                       ;; directly rather than through an analyzer env.
+                       [re-frame.freehand.compiler.env :as compiler-env]
                        [re-frame.freehand.compiler.root :as compiler-root]
                        ;; The JVM tree -> HTML seam `v/render-static` renders
                        ;; through. Loaded on the JVM (not by the consumer) so a
@@ -127,8 +134,8 @@
                        ;; back from it.
                        [re-frame.freehand.to-react :as to-react]]))
   #?(:cljs (:require-macros [re-frame.freehand
-                             :refer [custom-element defbehavior defview event
-                                     handler render-fn render-static]])))
+                             :refer [custom-element defbehavior defhost defview
+                                     event handler render-fn render-static]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -1927,6 +1934,289 @@
                        [:fallback :any]
                        [:reset-key {:optional true} :any]
                        [:on-error {:optional true} [:maybe :vector]]]}))
+
+;; ---------------------------------------------------------------------------
+;; The inward React host door — one declaration, one descriptor kind
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004 §Qualified host leaves (D022). `v/defhost` is the SOLE public
+;; way to mint the third legal vector head. Before it, the head existed in
+;; the classifier and in the diagnostic that names it and NO public verb
+;; produced one — the inward React boundary was a hole with a label on it.
+;;
+;; The declaration is the whole boundary. Everything a build, a structural
+;; test, an SSR render and a tool need to know about the crossing is said
+;; ONCE, at the declaration, and read from ONE place afterwards: the
+;; descriptor's private entry at runtime, and the Var's metadata at compile
+;; time. Both are written by this expansion, in the same form, so the two
+;; readers cannot answer differently about the same declaration.
+;;
+;; What is deliberately NOT here: a runtime `v/host` constructor, a `:kind`
+;; split between "leaf" and "wrapper", `v/react-el`, callback inference from
+;; an `on*` name, deep Clojure-to-JavaScript conversion, and a hook API.
+;; Each is a rejected alternative in D022, and each would be a second door.
+
+#?(:clj
+   (def ^:private defhost-option-keys
+     "The CLOSED roster of `defhost` option keys. Like
+     [[defview-option-keys]], a key outside it is refused rather than
+     ignored — including a reserved key a later slice owns."
+     #{:callbacks :children :ssr :map-props :props}))
+
+#?(:clj
+   (defn- bad-defhost!
+     "Refuse a malformed `defhost` declaration at MACRO EXPANSION, which
+     happens on the JVM for both compilation targets — so a bad
+     declaration never becomes a head a build accepts and a render
+     discovers. A `:rf.ui.compile/*` id because that is what this is: a
+     build refusal, the same class as `v/custom-element`'s, carrying the
+     declaration's own source location."
+     [sym coords reason extra]
+     (throw (compiler-env/compile-error
+              :rf.ui.compile/bad-defhost
+              (str "(v/defhost " sym " …): " reason)
+              (merge {:host sym} coords extra)))))
+
+#?(:clj
+   (defn ^:no-doc parse-defhost-args
+     "Parse `(defhost name docstring? component opts)` into
+     `{:docstring :component :opts}`, or nil when the shape is not one of
+     the two legal spellings. Plain CLJ so both the macro and its tests can
+     reach it."
+     [more]
+     (let [[a b c] more]
+       (cond
+         (and (string? a) (map? c) (= 3 (count more))) {:docstring a :component b :opts c}
+         (and (map? b) (= 2 (count more)))             {:docstring nil :component a :opts b}
+         :else nil))))
+
+#?(:clj
+   (defn ^:no-doc expand-defhost
+     "Build the expansion form for a `defhost` call. `cljs?` decides
+     whether the registered COMPONENT expression is emitted at all: there
+     is no React on the JVM, so a JVM expansion keeps the declaration —
+     its id, its callback positions, its children and SSR policy — and
+     drops the component, which is exactly what lets one `.cljc`
+     declaration answer a structural render on the JVM and a real mount in
+     the browser. It is the same asymmetry a compiled declaration's
+     `:react` body already carries."
+     [cljs? form-meta file ns-sym sym more]
+     (let [ns-sym (symbol (str ns-sym))
+           ;; The declaration's OWN source location, on every refusal below —
+           ;; a build refusal an author cannot navigate to is a build refusal
+           ;; they read twice.
+           coords (cond-> {:file file}
+                    (:line form-meta)   (assoc :line (:line form-meta))
+                    (:column form-meta) (assoc :column (:column form-meta)))
+           {:keys [docstring component opts]}
+           (or (parse-defhost-args more)
+               (bad-defhost!
+                 sym coords
+                 (str "v/defhost is spelled (v/defhost name docstring? Component "
+                      "{:callbacks … :children … :ssr …}) — a name, an optional "
+                      "docstring, the React component to register, then a literal "
+                      "options map. This declaration does not match.")
+                 {}))
+           unknown (vec (sort (remove defhost-option-keys (keys opts))))]
+       (when (seq unknown)
+         (bad-defhost!
+           sym coords
+           (str "options are the closed roster "
+                (pr-str (vec (sort defhost-option-keys))) "; this declaration "
+                "adds " (pr-str unknown) ". An option key is never discarded — a "
+                "reserved option whose owning slice has not landed is refused "
+                "until it does.")
+           {:unknown-options unknown}))
+       ;; `:children` and `:ssr` carry NO default. D022: every declaration
+       ;; states its children policy and its SSR policy. A default would be
+       ;; Freehand choosing what happens on the server for a component it
+       ;; cannot run there, and choosing silently.
+       (when-not (contains? opts :children)
+         (bad-defhost!
+           sym coords
+           (str "no :children policy. Every host declaration states one — "
+                (pr-str (vec (sort descriptor/children-policies)))
+                ". Children cross into the registered React component's own "
+                "tree, so an undeclared crossing is a refusal rather than an "
+                "opaque accident.")
+           {}))
+       (when-not (contains? descriptor/children-policies (:children opts))
+         (bad-defhost!
+           sym coords
+           (str ":children is one of " (pr-str (vec (sort descriptor/children-policies)))
+                "; got " (pr-str (:children opts)) ".")
+           {:children (:children opts)}))
+       (when-not (contains? opts :ssr)
+         (bad-defhost!
+           sym coords
+           (str "no :ssr policy. Every host declaration states one, because "
+                "Freehand never executes the registered React component on the "
+                "JVM: write :ssr :client-only for explicit no-server content, or "
+                ":ssr {:fallback [:div.placeholder]} for a portable stand-in.")
+           {}))
+       (when-not (descriptor/host-ssr-spelling (:ssr opts))
+         (bad-defhost!
+           sym coords
+           (str ":ssr is :client-only or {:fallback <markup>}; got "
+                (pr-str (:ssr opts)) ".")
+           {:ssr (:ssr opts)}))
+       (let [callbacks (get opts :callbacks {})]
+         (when-not (and (map? callbacks)
+                        (every? #(and (keyword? %) (nil? (namespace %))) (keys callbacks)))
+           (bad-defhost!
+             sym coords
+             (str ":callbacks is a literal map from EXACT foreign prop names — "
+                  "unqualified keywords, spelled as the library spells them — to "
+                  "a role; got " (pr-str callbacks) ".")
+             {:callbacks callbacks}))
+         (let [bad (vec (sort (remove descriptor/host-callback-roles (vals callbacks))))]
+           (when (seq bad)
+             (bad-defhost!
+               sym coords
+               (str "a :callbacks role is "
+                    (pr-str (vec (sort descriptor/host-callback-roles)))
+                    "; got " (pr-str bad) ". v/render-fn and v/raw-fn are real "
+                    "roster forms and are deliberately not declarable host "
+                    "positions — neither can carry the committed-site identity a "
+                    "declared position promises.")
+               {:roles bad})))
+         (let [reserved (vec (sort (filter #{:key :children} (keys callbacks))))]
+           (when (seq reserved)
+             (bad-defhost!
+               sym coords
+               (str ":callbacks may not name " (pr-str reserved)
+                    " — the call ABI owns those slots, so no call could deliver "
+                    "the callback the declaration advertises.")
+               {:reserved reserved}))))
+       (let [host-id     (keyword (str ns-sym) (str sym))
+             schema?     (contains? opts :props)
+             schema-form (props-schema/inert-form (get opts :props))
+             entry       (cond-> {:host-id   host-id
+                                  :callbacks (get opts :callbacks {})
+                                  :children  (:children opts)
+                                  :ssr       (:ssr opts)
+                                  :source    `(if interop/debug-enabled?
+                                                ~(source-coords/coords-form form-meta file ns-sym)
+                                                ~(source-coords/prod-coords-form form-meta file ns-sym))}
+                           schema?              (assoc :props-schema schema-form)
+                           (contains? opts :map-props) (assoc :map-props (:map-props opts))
+                           ;; The one expansion asymmetry, and the whole reason a
+                           ;; `.cljc` host declaration compiles on both hosts.
+                           cljs?                (assoc :component component))]
+         `(def ~(cond-> (vary-meta sym assoc
+                                   :re-frame.freehand/host true
+                                   :re-frame.freehand/host-id host-id
+                                   :re-frame.freehand/children-policy (:children opts))
+                  docstring (vary-meta assoc :doc docstring))
+            (descriptor/declare-host ~entry))))))
+
+#?(:clj
+   (defmacro defhost
+     "Declare a React component as a Freehand **host** — the one public
+     inward React boundary, and the only way to mint the third legal
+     vector head.
+
+         (v/defhost date-picker
+           \"A third-party date picker.\"
+           DatePicker
+           {:callbacks {:onChange :event}
+            :children  :none
+            :ssr       :client-only})
+
+         [date-picker
+          {:selected  date
+           :onChange  (v/event [js-date]
+                        [:booking/date-picked (from-js-date js-date)])}]
+
+     The var holds a **host descriptor**, not the component and not a
+     function: `date-picker` is mounted as `[date-picker {…}]` and is never
+     invoked. `(date-picker {})` raises `:rf.error/view-called-directly`
+     rather than answering `nil` the way a map-shaped descriptor would.
+
+     There is ONE host kind. \"Leaf\" and \"wrapper\" describe the registered
+     React implementation, not two ABIs: the component may be a plain
+     value/callback component, or a React-owned wrapper using hooks,
+     context, refs, effects, Suspense or a compound-component protocol.
+     Hooks stay outside `v/defview`, and using one inside the registered
+     component is the intended route rather than a hook API in Freehand.
+
+     Options — the roster is CLOSED. `:children` and `:ssr` are REQUIRED:
+
+       `:callbacks`  a finite map from EXACT foreign prop names to the
+                     roles `:event` or `:handler`
+       `:children`   `:none`, `:optional` or `:required`
+       `:ssr`        `:client-only`, or `{:fallback <markup>}`
+       `:map-props`  optional — one whole-ordinary-props adapter
+       `:props`      optional — a props schema, held inert
+
+     ## The three planes
+
+     Ordinary props, declared callbacks and children are DISJOINT.
+
+     **Ordinary props pass shallowly and exactly.** `:selected` reaches
+     React as `selected`; there is no case conversion, no deep
+     Clojure-to-JavaScript walk, and no per-prop conversion language. A
+     function in an ordinary slot is refused — a callback reaches a host
+     only at a position the declaration named, because that is what makes
+     the site finite, checkable and able to carry the committed identity.
+
+     **`:callbacks` names the finite positions**, and each takes the
+     matching `v/event` / `v/handler` carrier. It is never inferred from an
+     `on*` name, and a bare event vector there is refused rather than
+     converted: a foreign API may itself want a vector at that prop, and
+     guessing would confuse a host value with re-frame intent. The
+     resulting functions obey [[event]]'s laws — stable identity per site,
+     the latest committed body and frame, silence for abandoned renders,
+     retirement after unmount and HMR.
+
+     **Children are ordinary React children** in the registered
+     component's tree, preserving that tree's context. Freehand does not
+     promise that a Freehand-authored child can participate in `asChild`,
+     arbitrary `cloneElement` or ref injection — keep such a region
+     React-owned and register its wrapper here instead.
+
+     ## `:map-props` — the one adapter
+
+         {:map-props (fn [p] (update p :data clj->js))}
+
+     Runs on the WHOLE ordinary-props map, in the browser only, to prepare
+     non-portable host values. Callback carriers and trailing children are
+     withheld from it and installed afterwards, so it cannot supply or
+     replace a declared callback, the children, the key or any other
+     reserved fact; a returned map that names one is refused. The
+     structural tree records the AUTHORED props, not the adapter's output —
+     an adapter exists to make values a tree could not print.
+
+     ## Structure and SSR
+
+     Freehand never executes the registered React component on the JVM. A
+     structural render emits an honest marker carrying the declared host
+     id, the authored ordinary props (a callback recording as its opaque
+     role marker), and the declared SSR policy — never the component, a
+     React element, a ref or a third-party instance. `:ssr :client-only`
+     renders nothing on the server; `{:fallback …}` renders that markup in
+     its place, on the JVM and during the browser's hydration phase.
+
+     ## Compiled mode
+
+     A `{:compiled true}` parent that mounts a host REFUSES AT BUILD TIME,
+     with the declaration's source location and a recovery, until the
+     compiled lowering carries the same laws. It never accepts the view and
+     fails at runtime, and it never quietly falls back to the interpreted
+     walker.
+
+     ## The weaker escape
+
+     A finished React element remains a legal opaque browser-only child
+     where the owning tree permits one. Its callbacks are ordinary
+     captured-frame closures, and Freehand claims no site retirement, no
+     structural inspection, no SSR portability and no compiled visibility
+     for its internals. `v/event` and `v/handler` are non-callable carriers
+     and are therefore not legal raw `createElement` callbacks.
+
+     Per [Spec 004 §Qualified host leaves](../../../../spec/004-Views.md#qualified-host-leaves)."
+     [sym & more]
+     (expand-defhost (some? (:ns &env)) (meta &form) *file* (ns-name *ns*) sym more)))
 
 ;; ---------------------------------------------------------------------------
 ;; Registered behaviors — the one sanctioned imperative boundary
