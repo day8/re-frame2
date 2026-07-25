@@ -141,9 +141,13 @@ elements — the child path is browser-only, like the mount verbs.
   Top-level and compile-resolvable, and it registers the way `v/defview` does. The
   tag is an unqualified keyword containing `-`, the options map is **literal**, and
   `:properties` is the **whole** v1 grammar — an unknown key, a namespaced tag or a
-  runtime map raises `:rf.ui.compile/bad-custom-element`. Declaring is only ever the
-  exception: undeclared names are attributes, and an undeclared *element* needs no
-  declaration at all.
+  runtime map raises `:rf.ui.compile/bad-custom-element`. So does `:class` or
+  `:style` in the set: those two are *attributes* with grammars of their own —
+  `:class` composes with the `.class#id` tag sugar, `:style` carries the CSS map —
+  and because a property is omitted from markup, classifying one would render the
+  element with that value dropped from the HTML. They are refused rather than
+  quietly rewritten. Declaring is only ever the exception: undeclared names are
+  attributes, and an undeclared *element* needs no declaration at all.
 
   One tag has one property manifest. Two sources declaring it differently is
   `:rf.ui.compile/custom-element-conflict` at build time and
