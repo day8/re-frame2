@@ -72,10 +72,12 @@ Structural replacement of a labelled region uses the
 
 - Prefer **native** activators (`button`, `a`, `input`) so Enter/Space and tab order
   work without a custom handler.  
-- Exact-key maps on `:on-key-down` / `:on-key-up` are a **closed data form** for
-  common chords (see [Events](events-and-handlers.md)). Rich listbox/combobox
-  policy often needs `v/event` or a host widget — do not fake a full ARIA composite
-  with half a key map.  
+- Keyboard branching is an **ordinary event**. Send the key with the intent —
+  `[:menu/key-pressed ::v/key]` — and decide in the handler, or write
+  `(v/event [e] …)` at the site when `preventDefault` depends on which key it was
+  (see [Events](events-and-handlers.md#keyboard-branching)). Listbox and combobox
+  policy usually needs more than either: reach for a host widget rather than fake
+  a full ARIA composite out of a few key branches.  
 - IME composition must not commit partial text on Enter; Freehand’s controlled-input
   door already treats composition as a browser law.
 
