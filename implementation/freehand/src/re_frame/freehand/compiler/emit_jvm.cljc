@@ -213,7 +213,15 @@
                                            ~(:base safe)
                                            ~(:owned-handler-keys safe)))
          (:present? key-info) (assoc :key? true :key-val (:expr key-info))
-         markup           (assoc :html (:form markup))
+         ;; The string check is named IN the lowering rather than left to the
+         ;; slot, because the slot cannot tell an ABSENT `:html` from one whose
+         ;; expression evaluated to nil — and the compiler knows this element
+         ;; has trusted markup. `(v/html (:body article))` on a nil field
+         ;; therefore refuses here instead of building a childless element,
+         ;; which is the silent-loss failure this whole slice exists to remove.
+         markup           (assoc :html `(node/html-string!
+                                         're-frame.freehand/render
+                                         ~(:form markup)))
          (seq child-forms) (assoc :children
                                   `(fn [] (node/children ~@child-forms)))))))
 
