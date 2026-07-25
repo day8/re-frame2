@@ -1,13 +1,13 @@
 (ns re-frame.substrate.observation
-  "The internal observation port — the six-operation render-phase protocol the
-  compiled UI substrate (`day8/re-frame2-ui`) uses over the REAL per-frame
-  sub-cache. Per Spec 006 §The internal observation port (adapter-internal).
+  "The internal observation port — the six-operation render-phase protocol a
+  compiled-view substrate uses over the REAL per-frame sub-cache. Per Spec 006
+  §The internal observation port (adapter-internal).
 
   ADAPTER-INTERNAL. This namespace is NOT public API, NOT part of the closed
-  ten-fn adapter contract, and NOT consumable by apps or adapters — its sole
-  consumer is the `day8/re-frame2-ui` view runtime (the ViewCell/commit
-  reconciler), riding the R-6 lockstep release train with core. The
-  [[port-abi-version]] guard makes artifact drift a boot error.
+  ten-fn adapter contract, and NOT consumable by apps or adapters — its
+  consumers are compiled-view runtimes (the ViewCell/commit reconciler), built
+  from the same commit as core rather than resolved against a published
+  version. The [[port-abi-version]] guard makes a stale build a boot error.
 
   The six operations:
 
@@ -532,10 +532,10 @@
 ;; ---- ABI version guard -----------------------------------------------------
 
 (def port-abi-version
-  "Integer ABI version of this port. `day8/re-frame2-ui` records the version
-  it compiled against and asserts it at load via [[assert-port-abi-version!]],
-  failing loudly on skew — artifact drift is a boot error, never undefined
-  behaviour. Per Spec 006 §The internal observation port §Scope.
+  "Integer ABI version of this port. A consumer records the version it compiled
+  against and asserts it at load via [[assert-port-abi-version!]], failing
+  loudly on skew — a stale build is a boot error, never undefined behaviour.
+  Per Spec 006 §The internal observation port §Scope.
 
   v2 (rf2-vxgfnd.14): `read` on a node handle additionally carries `:node-key`
   — the acquired node's process-unique IDENTITY (the same key `probe` already
@@ -548,7 +548,7 @@
   2)
 
 (defn assert-port-abi-version!
-  "Boot guard for the sole consumer: throw `:rf.error/observation-port-
+  "Boot guard for a port consumer: throw `:rf.error/observation-port-
   version-mismatch` (always-on; also fanned through the production error-emit
   axis) when `expected` ≠ [[port-abi-version]]. Returns nil on a match."
   [expected]
@@ -556,8 +556,11 @@
     (let [reason (str "an observation-port consumer was compiled against "
                       "observation-port ABI version " (pr-str expected)
                       " but this core exports " port-abi-version
-                      "; core and its port consumers release on a lockstep "
-                      "train — align the two artifact versions.")]
+                      "; this port is adapter-internal and its consumers are "
+                      "never resolved independently of core — rebuild the "
+                      "consumer against this core (an in-tree consumer must be "
+                      "built from the same commit; a published one ships on "
+                      "core's lockstep release train).")]
       (error-emit/emit-error-both!
         :rf.error/observation-port-version-mismatch
         nil nil nil nil 0 (interop/now-ms)

@@ -185,29 +185,52 @@
                  hash-mismatch detection, or runs `verify-hydration!`
                  itself at its own render site).
 
-                 **The render-tree hash is HICCUP-TIER-ONLY** (Spec 011
-                 §Hydration-mismatch detection, the two-tier split). It applies
-                 to substrates whose view is a pure fn returning a hashable
-                 render-tree — **Reagent and UIx, the published view adapters**,
-                 where `((rf/view :app/root))` yields hiccup. That is the boot a
-                 consumer of `day8/re-frame2-ssr` takes: `ssr/hydrate!` WITH
-                 `:render-tree-fn`, then the adapter's own render.
+                 **The render-tree hash is HICCUP-TIER-ONLY, and the tier is
+                 keyed by RENDER-TREE REPRESENTATION — not by adapter brand**
+                 (Spec 011 §Hydration-mismatch detection). Pass
+                 `:render-tree-fn` when, and only when, the client render is a
+                 hashable DATA tree:
 
-                 A COMPILED-VIEW substrate has NO hashable client render-tree —
-                 its views compile to React elements, not the structural tree the
-                 server hashes — so it does NOT pass `:render-tree-fn`: it calls
-                 `ssr/hydrate!` without one and then hydrates its own root
-                 (`v/hydrate-root` on Freehand), VERIFYING by React-native
-                 ADOPTION instead — React diffs its first `:server`-phase render
-                 against the server DOM during hydration and reports divergence
-                 through `onRecoverableError`, surfaced as
-                 `:rf.ssr/hydration-mismatch`. Freehand is in-tree /
-                 pre-publication. The `re-frame.ui` compiled substrate (whose
-                 counterpart emitter is `re-frame.ui.runtime/emit-hydration-mismatch!`)
-                 is DONOR-ONLY code being absorbed into Freehand — `day8/re-frame2-ui`
-                 is not a Maven coordinate and never will be, so do not reach for
-                 `ui/hydrate-root` as a boot. The `:ssr {:on-mismatch :hard-error}`
-                 escalation is likewise hiccup-tier-only.
+                   • **Hashable data render-tree — Reagent and Reagent-slim.**
+                     A view is a pure fn returning hiccup, so
+                     `((rf/view :app/root))` yields the tree this step hashes.
+                     That is the boot: `ssr/hydrate!` WITH `:render-tree-fn`,
+                     then the adapter's own render. The
+                     `:ssr {:on-mismatch :hard-error}` escalation belongs to
+                     this tier alone.
+
+                   • **React-element root — NATIVE UIx.** A native UIx view's
+                     render-fn returns a React ELEMENT, not a hiccup data tree,
+                     so there is NOTHING to hash and it must NOT pass
+                     `:render-tree-fn`: call `ssr/hydrate!` without one. Its
+                     mismatch reporting comes from React-native ADOPTION
+                     instead, and only on the shared React-hook hydrate path —
+                     mount through the Spec 006 client entry
+                     `re-frame.substrate.adapter/render` with `{:hydrate? true}`
+                     and the framework installs the reporter, surfacing
+                     divergence as `:rf.ssr/hydration-mismatch` (`:where`
+                     `re-frame.substrate.spine/make-render`). Hydrating via
+                     `uix.dom/hydrate-root` directly bypasses it.
+
+                   • **Compiled view — Freehand.** Compiled views also emit
+                     React elements, so likewise NO `:render-tree-fn`: call
+                     `ssr/hydrate!` without one, then hydrate the substrate's
+                     own root (`v/hydrate-root`), which verifies by the same
+                     React-native adoption. Freehand is in-tree /
+                     pre-publication.
+
+                 React-native adoption reports the divergences React itself
+                 recovers from — text content, or a missing / extra / wrong-type
+                 element — through the root's `onRecoverableError`; it does not
+                 catch attribute-only drift, and it carries no `:hard-error`
+                 escalation, because React has already patched the DOM by the
+                 time the callback fires.
+
+                 The in-tree `re-frame.ui` donor substrate (whose counterpart
+                 emitter is `re-frame.ui.runtime/emit-hydration-mismatch!`) is
+                 DONOR-ONLY code being absorbed into Freehand —
+                 `day8/re-frame2-ui` is not a Maven coordinate and never will
+                 be, so `ui/hydrate-root` is not a boot available to you.
 
   Opts:
 
