@@ -122,12 +122,11 @@
       [:tr {:key (:id item)}
        (v/slot row item)])]])
 
-;; The block prints the caller as a bare fragment under a compiled-mode
-;; heading, so it is hosted in a COMPILED declaration here — which is the
-;; faithful reading and the only one that renders. A `v/render-fn` authored
-;; in an INTERPRETED body answers with raw hiccup, and a compiled parent's
-;; child collector refuses it (`:rf.error/ui-tree-malformed`); authored in a
-;; compiled body it lowers to nodes and the slot fills.
+;; The block prints the caller as a COMPILED declaration of its own, and
+;; annotates why (rf2-ynq9h): a `v/render-fn` authored in an INTERPRETED
+;; body answers with raw hiccup, and a compiled parent's child collector
+;; refuses it (`:rf.error/ui-tree-malformed`); authored in a compiled body
+;; it lowers to nodes and the slot fills. This declaration is that caller.
 (v/defview data-table-compiled-call
   {:compiled true}
   [{:keys [people]}]

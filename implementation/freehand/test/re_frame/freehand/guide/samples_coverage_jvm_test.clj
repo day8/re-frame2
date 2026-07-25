@@ -268,7 +268,7 @@
     [ 5 "8ed7b69a0185" compilation/item-row]
     [ 6 "63ff086fcdd5" compilation/field-help]
     [ 7 "0eb044ab4a85" compilation/markup-child]
-    [ 8 "d03e66cc655d" compilation/data-table-compiled]
+    [ 8 "6eca931fc482" compilation/data-table-compiled]
     [ 9 "ab5df8171160" compilation/todo-row-with-props-schema]]
    "composition.md"
    [[ 1 "6e08b04edd36" composition/panel]
