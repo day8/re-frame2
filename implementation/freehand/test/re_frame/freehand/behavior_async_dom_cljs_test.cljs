@@ -263,7 +263,12 @@
                 ;; `:closed` is TERMINAL — a late failure is evidence only.
                 (swap! cell (fn [m] (cond-> m (not= :closed (:phase m))
                                             (assoc :phase :failed))))
-                (announce! dispatch [:chart/failed (:id config)])))
+                ;; The OBSERVED phase rides on the event, which is the one
+                ;; divergence from the guide's sample and it is deliberate:
+                ;; without it, `:closed` being terminal is a claim nothing
+                ;; here could falsify. A cell that let `:failed` overwrite
+                ;; `:closed` reds this line and nothing else would notice.
+                (announce! dispatch [:chart/failed (:phase @cell)])))
        cell))
 
    :update
@@ -547,8 +552,10 @@
               (.then (fn [_]
                        (is (= [[:acquire 1 [4]]] @ops)
                            "a failed acquisition performed no host work at all")
-                       (is (= [[:chart/failed :main]] (events))
-                           "the failure arm ran — the rejection was HANDLED")
+                       (is (= [[:chart/failed :closed]] (events))
+                           "the failure arm ran — the rejection was HANDLED — and it
+                            observed the cell STILL CLOSED, because a teardown that
+                            has already settled the connection is terminal")
                        (is (= [false] (accepted))
                            "and its dispatch was refused, because the view is gone")
                        (nothing-survived! "after the late rejection")
