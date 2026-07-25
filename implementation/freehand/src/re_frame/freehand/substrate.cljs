@@ -256,6 +256,15 @@
   is not a per-epoch renderer. Any redundant microtask armed during the drain
   later finds the window already closed and renders nothing.
 
+  That ordering holds for a drain the thunk OPENS. A flush forced from INSIDE a
+  drain that is already open — an event handler, or anything it calls, reaching
+  for this verb — is the torn case, and it fails loud instead: the shared core
+  guard throws `:rf.error/flush-in-open-epoch` before the window is touched, so
+  no partial render phase is published while queued update/commit work is still
+  outstanding. Same law, same id and same one implementation as the compiled-view
+  substrate's flush, because [[re-frame.frame/guard-open-drain!]] closes over the
+  router's drain state alone and no cell state (rf2-87ouj).
+
   Then it converges, because a commit can legitimately re-dirty: a layout effect
   that dispatches enrols a cell AFTER the pass that flushed it. Each further
   pass is its own commit boundary, and the whole drain rides
@@ -268,6 +277,7 @@
   stays a no-op."
   ([] (flush-render! (fn [] nil)))
   ([f]
+   (frame/guard-open-drain! 're-frame.freehand.substrate/flush-render!)
    (let [spine-flush (:flush-render! spine-adapter)]
      (spine-flush (fn [] (f) (cell/flush!)))
      (cell/converge-flush! 're-frame.freehand.substrate/flush-render!
