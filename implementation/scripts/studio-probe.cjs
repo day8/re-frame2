@@ -86,7 +86,37 @@ function selfTimeTable(profile) {
   }
   const buckets = [...bucket.entries()].sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `${(100 * n / total).toFixed(2)}%  ${String(n).padStart(6)}  ${k}`);
-  return [...lines, '', '--- by bucket ---', ...buckets, `total samples: ${total}`];
+
+  // Caller attribution for a chosen frame. Self time says WHAT is hot; it
+  // never says WHO made it hot, and a memoisation aimed at the wrong caller
+  // is a change that costs and buys nothing.
+  const callers = [];
+  const want = arg('callers', null);
+  if (want) {
+    const parent = new Map();
+    for (const n of profile.nodes) for (const c of n.children || []) parent.set(c, n.id);
+    const hits = new Map();
+    const selfCount = new Map();
+    for (const id of profile.samples) {
+      const n = byId.get(id);
+      if (!n || !(n.callFrame.functionName || '').includes(want)) continue;
+      selfCount.set(id, (selfCount.get(id) || 0) + 1);
+      const chain = [];
+      let p = parent.get(id);
+      for (let d = 0; d < 4 && p !== undefined; d += 1) {
+        const pn = byId.get(p);
+        chain.push(pn ? (pn.callFrame.functionName || '(anon)') : '?');
+        p = parent.get(p);
+      }
+      const key = chain.join('  <-  ');
+      hits.set(key, (hits.get(key) || 0) + 1);
+    }
+    callers.push('', `--- callers of frames matching ${JSON.stringify(want)} ---`);
+    for (const [k, n] of [...hits.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)) {
+      callers.push(`${(100 * n / total).toFixed(2)}%  ${String(n).padStart(6)}  ${k}`);
+    }
+  }
+  return [...lines, '', '--- by bucket ---', ...buckets, `total samples: ${total}`, ...callers];
 }
 
 (async () => {
