@@ -244,14 +244,27 @@ assertion heads and the mode marker are all read off the same text and none can
 drift from another: a quoted `(conf/fixture :FH-…)` is not a fixture read, and a
 helper returning `'(is (seq fx))` returns a list rather than asserting.
 
+And knowing *which* datum is quoted still leaves **how far it reaches**. All three
+reductions ask one function — `#_` discards a datum, a reader conditional pairs its
+arms as datums, a quote blanks one — so a miscount there is a miscount everywhere.
+`^` is the shape that miscounts if it is filed with the prefixes that introduce one
+datum, because it consumes its metadata *and* the target that metadata annotates:
+read the short way, `'^{:audit true} [fx]` blanked the quote and the map and left
+`[fx]` standing in code, so a `deftest` whose only mention of the fixture was
+inside quoted data proved a row — and the assertion is true in Clojure with no
+`fx` in the image at all. The same datum written `(quote ^{:audit true} [fx])` was
+red throughout, because a list's extent needs no prefix arithmetic, and that
+difference is what made this arithmetic rather than policy.
+
 It is a narrowing, not a refusal. Inside a syntax quote `~x` and `~@x` *are*
 evaluated, so those islands are read as code and a genuine reference stays one
-however deep in a template it is written. Two residues remain, and both are
-*missed* edges rather than invented ones, so both cost a noisy defect on an honest
-row instead of a silent green: a nested syntax quote raises the level, so the
-double unquote that would climb back out of it (`` `(a `(b ~~c)) ``) is not
-modelled; and `#'x` is a var quote — a real reference — that resolves to nothing,
-as it did before the reduction existed.
+however deep in a template it is written — including `~^{:audit true} fx`, whose
+annotated datum is the pair. Two residues remain, and both are *missed* edges
+rather than invented ones, so both cost a noisy defect on an honest row instead of
+a silent green: a nested syntax quote raises the level, so the double unquote that
+would climb back out of it (`` `(a `(b ~~c)) ``) is not modelled; and `#'x` is a
+var quote — a real reference — that resolves to nothing, as it did before the
+reduction existed.
 
 The census also reads the **reader**. A `.cljc` suite is discovered by the JVM
 runner *and* the node runner, but a `#?(:clj (deftest …))` inside it asserts in
@@ -289,7 +302,9 @@ not a fixture a test reads. Reachability is only as sound as name resolution, so
 the witness is reached by a symbol read from a token boundary and from an
 *evaluated* position: `:panel` is a datum, not the declaration it is spelled like;
 neither is `:check/findings` the alias; and neither are `` `panel `` or
-`(quote panel)`, which name the declaration without evaluating it. Both halves of
+`(quote panel)`, which name the declaration without evaluating it — nor
+`'^{:audit true} [panel]`, whose annotation used to carry the quote away from the
+vector it quoted. Both halves of
 the witness are read off the same reduced text as the names, so a quoted
 `{:compiled true}` and a quoted `re-frame.freehand.compiler.…` witness nothing
 either. What stays textual, and is claimed as nothing more, is the marker within
