@@ -61,9 +61,10 @@ REPL. Nothing has to be "inside the router" to see the URL, because there's no i
 
 A loading bar that needs `useNavigation().state` no longer has to live high enough
 in the tree to be a router descendant — it's a one-line view over
-`:rf.route/transition`. An auth guard doesn't need a wrapper around the protected
-subtree; it's an [interceptor](../core/glossary.md#interceptor) that reads a tag off
-the route table.
+`:rf.route/transition`. An auth guard needs no wrapper around the protected subtree
+either: it's a [`:can-enter`](glossary.md#route-guard) boolean subscription named on
+the protected route itself, which the runtime consults in the one planning pipeline —
+so there is no tree position for it to be in, and no door for it to miss.
 
 ### Navigation is an event, so it shows up on the wire
 
