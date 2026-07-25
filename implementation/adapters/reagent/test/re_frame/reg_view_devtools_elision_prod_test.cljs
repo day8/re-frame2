@@ -17,12 +17,15 @@
 
   ## Fixtures carry an attrs map (rf2-wns8d)
 
-  Every view declared below renders a root with an EXPLICIT attrs map
-  (`[:span {:id \"x\"} …]`), and that is load-bearing rather than
-  incidental. These tests assert the ABSENCE of a prop on the rendered
-  root; a root with no attrs map has no props at all, so the absence
-  reads true for a reason unrelated to the contract, and the assertion
-  cannot go red no matter what the framework does to props it finds.
+  Every view whose assertions READ the rendered root's props declares a
+  root with an EXPLICIT attrs map (`[:span {:id \"x\"} …]`), and that is
+  load-bearing rather than incidental. Those tests assert the ABSENCE of
+  a prop on the rendered root; a root with no attrs map has no props at
+  all, so the absence reads true for a reason unrelated to the contract,
+  and the assertion cannot go red no matter what the framework does to
+  props it finds. (`reg-view-wrapped-fn-has-no-display-name-under-prod`
+  reads `.-displayName` off the wrapped fn rather than the output, so it
+  needs no attrs map and deliberately has none.)
   Measured: with the earlier attr-less `[:span \"hi\"]` fixture, a
   wrapper mutated to re-grow the pre-rf2-rohdn `_jsx*` props on an
   existing root attrs map left every assertion here GREEN. With the
@@ -46,10 +49,10 @@
 (defn- root-attrs
   "The root element's attrs map, or nil when the root carries none.
 
-  Every fixture in this file gives its root an EXPLICIT attrs map, so a
-  nil return here means the shape under test never materialised — which
-  is why each assertion below pins `(map? attrs)` before reading a key
-  out of it. See the §Fixtures carry an attrs map note above."
+  Every fixture that reads through this helper gives its root an
+  EXPLICIT attrs map, so a nil return means the shape under test never
+  materialised — which is why each caller pins `(map? …)` before reading
+  a key out of it. See the §Fixtures carry an attrs map note above."
   [hiccup]
   (when (and (vector? hiccup) (map? (second hiccup)))
     (second hiccup)))
