@@ -26,9 +26,11 @@
   Removal-then-reinsertion of a key interrupts the exit and re-enters at
   `:present`.
 
-  `(presence-phase)` is the single phase read — `react/useContext` on CLJS,
-  `:present` on the JVM structural subset. Outside a boundary it returns
-  `:present`, so presence-aware children stay reusable anywhere.
+  `(presence-phase)` is the single phase read, and WHICH RENDERER is running
+  decides how it is answered: the host render reads the boundary's React
+  context, the structural render — which has no lifecycle — answers
+  `:present` on both hosts. Outside a boundary it returns `:present` too, so
+  presence-aware children stay reusable anywhere.
 
   The runtime split:
 
@@ -47,7 +49,8 @@
 
   Normative owner:
   [`spec/004-Views.md`](../../../../../spec/004-Views.md) §Presence."
-  #?(:cljs (:require ["react" :as react])))
+  (:require [re-frame.freehand.node :as node]
+            #?@(:cljs [["react" :as react]])))
 
 ;; ---------------------------------------------------------------------------
 ;; reconcile — the PURE three-phase entry derivation (both hosts)
@@ -471,9 +474,27 @@
 
 (defn presence-phase
   "Read the current presence phase — `:mounting` / `:present` / `:unmounting`
-  inside a `(v/presence …)` boundary, `:present` outside one. A render-time
-  read (CLJS `react/useContext`); on the JVM structural subset it is always
-  `:present`."
+  inside a `(v/presence …)` boundary, `:present` outside one.
+
+  A render-time read, and WHICH RENDERER is running decides how it is
+  answered. The structural render has no lifecycle — its presence node says
+  `{:phase :present …}` — so it answers `:present`, on both hosts and in both
+  modes: a `.cljc` structural test of a presence-aware child is a cross-host
+  claim, which is the whole reason `t/render` exists. The host render reads
+  the phase the enclosing boundary published, through the React context.
+
+  The discriminator is the RENDERER, not the compiler. A reader conditional
+  looks like it would do, and on the JVM it does — there is only the
+  structural renderer there. In ClojureScript both renderers run in the same
+  compiled code, so it answered `react/useContext` for a structural render
+  too and a `t/render` of a phase-reading child threw `Invalid hook call`
+  (rf2-erqin).
+
+  Outside any render at all it is a hook called outside a component and React
+  says so, which is right: this is a render-time read and there is no render
+  to read."
   []
-  #?(:cljs (react/useContext presence-context)
+  #?(:cljs (if node/*structural-render?*
+             :present
+             (react/useContext presence-context))
      :clj  :present))

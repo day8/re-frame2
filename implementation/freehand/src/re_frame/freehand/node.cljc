@@ -207,6 +207,29 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
+;; Which renderer is running
+;; ---------------------------------------------------------------------------
+;;
+;; A view body is ordinary code, and a couple of the reads it may make have
+;; ONE answer under the structural renderer and another under the host one —
+;; `(v/presence-phase)` is the case that exists today. On the JVM there is
+;; only ever the structural renderer, so a reader conditional answers the
+;; question; in ClojureScript BOTH renderers run in the same compiled code and
+;; a reader conditional answers the WRONG one (rf2-erqin). This binding is the
+;; right discriminator on both hosts: it says a structural render is in
+;; progress, not which compiler produced the code.
+;;
+;; It lives here for the same reason `*ns-context*` does — one binding both
+;; front ends see, established once at the structural entry
+;; ([[re-frame.freehand.tree/render]]) and read wherever the answer is needed.
+
+(def ^:dynamic *structural-render?*
+  "Is a STRUCTURAL render currently in progress (as against the host render,
+  or no render at all)? Bound true for the extent of
+  [[re-frame.freehand.tree/render]] and its literal-root-form sibling."
+  false)
+
+;; ---------------------------------------------------------------------------
 ;; Children — canonical form
 ;; ---------------------------------------------------------------------------
 ;;

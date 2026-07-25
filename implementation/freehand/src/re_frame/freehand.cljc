@@ -1441,9 +1441,12 @@
 
 (def ^{:doc "(v/presence-phase) — the single presence-phase read: :mounting /
   :present / :unmounting inside a (v/presence …) boundary, :present outside one
-  (so presence-aware children stay reusable anywhere). A render-time read (a
-  React context read on ClojureScript); the JVM structural render always yields
-  :present.
+  (so presence-aware children stay reusable anywhere). A render-time read, and
+  which RENDERER is running decides how it is answered: a mounted host render
+  reads the boundary's React context, while the structural render — which has
+  no lifecycle — always yields :present, on both hosts. So a presence-aware
+  child renders under t/render, and a .cljc structural test of one is a
+  cross-host claim.
 
   Per [Spec 004 §Presence](../../../../spec/004-Views.md#presence)."
        :arglists '([])}

@@ -24,6 +24,7 @@
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.presence-views :as views]
             [re-frame.freehand.presence-views-compiled :as compiled]
+            [re-frame.freehand.test :as t]
             [re-frame.freehand.tree :as tree]))
 
 (def presence-001 (conf/fixture :FH-PRESENCE-001))
@@ -94,6 +95,70 @@
           "the root is the view boundary, wrapping the presence node")
       (is (contains? (first (:children t)) :rf.ui/presence)
           "the presence node is the boundary's child, not adopted away"))))
+
+;; ---------------------------------------------------------------------------
+;; The phase READ under a structural render — rf2-erqin
+;; ---------------------------------------------------------------------------
+;;
+;; The rows above pin the presence NODE. These pin the presence-aware CHILD:
+;; a view that reads its own `(v/presence-phase)` to stamp its exit class and
+;; `aria-hidden`, which is the shape Spec 004 §Presence tells an author to
+;; write and the shape a `.cljc` structural test is supposed to be able to
+;; render. A structural render carries no lifecycle — the presence node it
+;; builds says `{:phase :present …}` — so the read answers `:present`, and it
+;; answers it on BOTH hosts. It used to answer it only on the JVM: the
+;; ClojureScript arm was an unconditional `react/useContext`, and `t/render`
+;; opens no React render, so the identical declaration threw
+;; `TypeError: Cannot read properties of null (reading 'useContext')`.
+
+(v/defview toast-card
+  "The presence-aware child Spec 004 §Presence teaches: it owns its exit
+  styling and accessibility by reading its OWN phase. Nothing here is
+  host-bearing — the read is the whole point."
+  [{:keys [label]}]
+  (let [phase    (v/presence-phase)
+        exiting? (= :unmounting phase)]
+    [:div.toast {:class       (when exiting? "toast--exit")
+                 :aria-hidden (when exiting? "true")
+                 :data-phase  (name phase)}
+     label]))
+
+(v/defview toast-stack
+  "The same child under a real boundary — the whole declaration a consumer
+  writes, rendered structurally in one call."
+  [_]
+  [:div.stack
+   (v/presence {:timeout-ms 300}
+     [toast-card {:key "a" :label "saved"}])])
+
+(deftest a-presence-phase-reading-child-renders-structurally
+  (testing "A view that reads its own (v/presence-phase) renders under
+            t/render on both hosts, and reads :present — the one phase a
+            render with no retention machine can truthfully report."
+    (let [t    (t/render [toast-card {:label "saved"}])
+          card (t/find t #(= :div (:tag %)))]
+      (is (= "present" (:data-phase (t/attrs card)))
+          "the child stamped the phase it read")
+      (is (= "toast" (:class (t/attrs card)))
+          "and no exit class — a structural render is never :unmounting")
+      (is (not (contains? (t/attrs card) :aria-hidden))
+          "nor is the exiting subtree hidden from the a11y tree")
+      (is (= "saved" (t/text t))
+          "the child rendered its content rather than throwing"))))
+
+(deftest a-presence-phase-read-under-a-boundary-renders-structurally
+  (testing "The same child UNDER a (v/presence …) boundary renders too, and
+            agrees with the boundary's own marker: the node says :present and
+            so does every child that asks."
+    (let [t        (t/render [toast-stack {}])
+          presence (t/find t :rf.ui/presence)
+          card     (t/find t #(= :div (:tag %)))]
+      (is (= {:phase :present :timeout-ms 300} (:rf.ui/presence presence))
+          "the boundary node renders its children :present")
+      (is (= "present" (:data-phase (t/attrs (t/find presence #(= :div (:tag %))))))
+          "and the child's own read agrees with it")
+      (is (= :div (:tag card)) "the stack rendered")
+      (is (= "saved" (t/text presence))))))
 
 (deftest the-timeout-must-be-legal
   (testing "The interpreted `v/presence` enforces the same terminal-bound
