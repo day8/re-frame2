@@ -387,13 +387,23 @@
 (def ^:private listener-seq (atom 0))
 
 (defn- capture-traces
-  "Run `f` with a trace listener installed; return the collected trace events."
-  [f]
-  (let [seen (atom [])
-        id   (keyword "ep0037-r6" (str "listener-" (swap! listener-seq inc)))]
-    (rf/register-listener! :trace id (fn [ev] (swap! seen conj ev)))
-    (try (f) (finally (rf/unregister-listener! :trace id)))
-    @seen))
+  "Run `f` with a trace listener installed; return the collected trace events.
+
+  The 2-arity also hands each event to `on-event` AS IT ARRIVES (trace delivery
+  is synchronous — Spec 009 §Emitting trace events). A vector read once `f` has
+  returned can be counted, but it cannot be interleaved with milestones `f`'s own
+  code reaches, and interleaving is the whole of an ORDERING claim: it is what
+  distinguishes a dispatch that FOLLOWED a caller's handler from one that
+  preceded it (rf2-kqxe6.22)."
+  ([f] (capture-traces f nil))
+  ([f on-event]
+   (let [seen (atom [])
+         id   (keyword "ep0037-r6" (str "listener-" (swap! listener-seq inc)))]
+     (rf/register-listener! :trace id (fn [ev]
+                                        (swap! seen conj ev)
+                                        (when on-event (on-event ev))))
+     (try (f) (finally (rf/unregister-listener! :trace id)))
+     @seen)))
 
 (defn- event-ids [traces]
   (into #{} (comp (filter #(= :rf.event/run-start (:operation %)))
@@ -717,28 +727,51 @@
                compiled `v/route-link` and the Freehand descriptor have real-DOM
                intent tests; `rf/route-link`'s own composed handler had none. The
                handler must run the caller's `:on-mouse-enter` FIRST and then
-               enqueue exactly the prefetch payload, stamped `:source :router`,
+               enqueue EXACTLY ONE prefetch payload, stamped `:source :router`,
                to the frame that RENDERED the link — not an ambient frame
-               resolved at event time."
+               resolved at event time.
+
+               Read as an ORDERED MILESTONE SEQUENCE, because neither law is
+               visible to an after-the-fact read (rf2-kqxe6.22). `(some? (first
+               (filter …)))` over the captured traces is exactly as true for one
+               dispatch as for five, so cardinality goes unasserted; and a
+               caller-ran counter inspected once the composed handler has already
+               RETURNED is exactly as true whether the dispatch preceded the
+               caller or followed it, so ordering goes unasserted. A mutation that
+               dispatched twice, and before the caller, kept the whole CLJS lane
+               byte-identically green. So the caller pushes `:caller` and the
+               trace listener pushes `:dispatch` into ONE atom as each happens,
+               and the law IS the sequence."
        (let [app        (boot-app!)
              other      (seal-frame! {:frame-id :conduit/other})
              slug       "composed"
-             caller-ran (atom 0)
-             props      (article-link-props slug (fn [_e] (swap! caller-ran inc)))
+             ;; The expected payload, written out rather than read back through
+             ;; `prefetch-payload`: an expectation that arrives through the seam
+             ;; under test agrees with it by construction.
+             expected   [:rf.route/prefetch {:to :conduit/article :params {:slug slug}}]
+             milestones (atom [])
+             props      (article-link-props slug (fn [_e] (swap! milestones conj :caller)))
              attrs      (second (rf/with-frame app
                                   (routing/route-link-render props "Read it")))]
          (is (fn? (:on-mouse-enter attrs)))
          ;; render scope has unwound by the time a real pointer arrives, and a
          ;; DIFFERENT frame is ambient — exactly the rf2-o3nam4 hazard.
          (let [traces (capture-traces
-                        #(rf/with-frame other ((:on-mouse-enter attrs) #js {})))
-               row    (first (filter #(= :rf.event/dispatched (:operation %)) traces))]
-           (is (= 1 @caller-ran)
-               "the caller's own intent handler ran — composed, not replaced")
-           (is (some? row) "the handler enqueued exactly one dispatch")
-           (is (= [:rf.route/prefetch {:to :conduit/article :params {:slug slug}}]
-                  (-> row :tags :rf.event/v))
-               "…and it is the address-only prefetch payload")
+                        #(rf/with-frame other ((:on-mouse-enter attrs) #js {}))
+                        (fn [ev]
+                          (when (and (= :rf.event/dispatched (:operation ev))
+                                     (= expected (-> ev :tags :rf.event/v)))
+                            (swap! milestones conj :dispatch))))
+               rows   (filterv #(= :rf.event/dispatched (:operation %)) traces)
+               row    (first rows)]
+           (is (= [:caller :dispatch] @milestones)
+               "the caller's own intent handler ran FIRST and exactly ONE
+                prefetch dispatch followed it — composed, not replaced; once,
+                not twice; after, not before")
+           (is (= 1 (count rows))
+               "…and the composed handler enqueued nothing else besides it")
+           (is (= expected (-> row :tags :rf.event/v))
+               "…the dispatch is the address-only prefetch payload")
            (is (= app (-> row :tags :frame))
                "…targeting the RENDER-time frame, not the ambient one")
            ;; the trace projection lifts `:source` out of `:tags` onto the
