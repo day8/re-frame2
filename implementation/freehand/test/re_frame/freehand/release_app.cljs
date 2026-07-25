@@ -27,8 +27,7 @@
   while shadow-cljs — which carries `freehand/test` on `:source-paths` —
   can still compile it into a real production bundle."
   (:require [re-frame.core :as rf]
-            [re-frame.freehand :as v]
-            [re-frame.adapter.uix :as uix]))
+            [re-frame.freehand :as v]))
 
 ;; ---------------------------------------------------------------------------
 ;; The application's handlers. Ordinary re-frame2: the root's preflight plan
@@ -84,12 +83,16 @@
   `:rf.error/no-adapter-installed` until `rf/init!` has run. This is an
   INTERACTIVE mount — a click dispatches an event, app-db changes, and the
   view re-renders — so the adapter has to bridge reactive change into
-  React's re-render, exactly as a shipped Freehand app would. The UIx
-  adapter is the React-integrated adapter Freehand's own interactive DOM
-  mounts run against; a real consumer ships one like it, so the cost it
-  adds is a cost the bundle should carry rather than hide."
+  React's re-render.
+
+  That adapter is now Freehand's OWN (`v/adapter`, rf2-vo8fb). This fixture
+  used to install the UIx one, and it had to: Freehand shipped no adapter, and
+  the headless plain-atom adapter's derived value is not `IWatchable`, so a
+  moving subscription raised no notification at all. So the bundle measured a
+  Freehand page plus a wrapper library it never rendered a single element
+  through. It now measures what a consumer actually ships."
   []
-  (rf/init! uix/adapter)
+  (rf/init! v/adapter)
   (v/mount [app {}]
            (js/document.getElementById "app")
            {:frame {:id             ::frame

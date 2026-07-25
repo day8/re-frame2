@@ -17,27 +17,27 @@ change.
 ```clojure
 ;; deps.edn — resolved from a re-frame2 checkout beside your project
 {:deps {day8/re-frame2          {:local/root "../re-frame2/implementation/core"}
-        day8/re-frame2-freehand {:local/root "../re-frame2/implementation/freehand"}
-        day8/re-frame2-uix      {:local/root "../re-frame2/implementation/adapters/uix"}}}
+        day8/re-frame2-freehand {:local/root "../re-frame2/implementation/freehand"}}}
 ```
 
-Two optional artefacts join the same way when you need them:
-`day8/re-frame2-routing` for [`v/route-link`](#framework-views), and
-`day8/re-frame2-ssr` for [server rendering](ssr.md).
+Two artefacts, and that is the whole floor: Freehand ships its own reactive-substrate
+adapter, so a Freehand app needs no wrapper-library artefact. Two optional artefacts
+join the same way when you need them: `day8/re-frame2-routing` for
+[`v/route-link`](#framework-views), and `day8/re-frame2-ssr` for
+[server rendering](ssr.md).
 
 ## Boot: adapter, then mount
 
 ```clojure
 (ns my.app
   (:require [re-frame.core :as rf]
-            [re-frame.freehand :as v]
-            [re-frame.adapter.uix :as uix]))
+            [re-frame.freehand :as v]))
 
 (v/defview app-root [_]
   [:main [counter {:label "hello"}]])
 
 (defn ^:export run []
-  (rf/init! uix/adapter)
+  (rf/init! v/adapter)
   (v/mount [app-root {}]
            (js/document.getElementById "app")
            {:frame {:id :my.app/main :initial-events [[:app/init]]}}))
@@ -46,14 +46,27 @@ Two optional artefacts join the same way when you need them:
 Alias Freehand as **`v`**. That alias is load-bearing beyond taste: `::v/value`
 only reads as `:re-frame.freehand/value` when `v` is the alias in that namespace.
 
-### Why the adapter is still required
+### Why an adapter at all, when Freehand renders itself
 
-Freehand renders views, but re-frame2's **reactive substrate** is a separate
-contract, and it is the adapter that fills it. Until `(rf/init! …)` has run,
-minting a frame raises `:rf.error/no-adapter-installed`. Freehand's own
-interactive browser tests run against the **UIx** adapter, and it is the one to
-reach for on a new app; the Reagent and reagent-slim adapters implement the same
-contract and work identically if you already have one installed.
+Because an adapter is not a renderer. Freehand puts elements on the page through
+`react-dom/client`; what re-frame2's **reactive substrate** contract asks for is the
+*observation* half — the container app-db lives in, and a derived value that says when
+it moved. The two are independent, and until `(rf/init! …)` has run, minting a frame
+raises `:rf.error/no-adapter-installed`.
+
+`v/adapter` is Freehand's own, and it is the one to install on a new app. It is built
+on the same React spine every adapter in the repo shares and adds no dependency of its
+own — Freehand already requires `react` and `react-dom/client`. Two things it does that
+matter to you: `(rf/destroy-adapter!)` unmounts every live Freehand root before it
+disposes anything, and its `flush-render!` returns with the page settled rather than
+leaving the repaint to a microtask.
+
+**Already on Reagent or UIx?** Install that adapter instead — `(rf/init!
+uix/adapter)` — and add its artefact to `deps.edn`. One adapter per process, so a
+mixed page picks one, and it can perfectly well be the wrapper's. Mount and unmount
+your Freehand roots with `v/mount` / `v/unmount!` either way, and unmount them before
+you destroy the adapter. The one thing that does not carry across: a wrapper adapter's
+own synchronous test helpers do not settle Freehand's view cells.
 
 Install it once, at boot, before the first frame exists. It is idempotent, so hot
 reload is safe.
@@ -85,7 +98,7 @@ root has superseded, is a no-op.
 ## Day-one checklist
 
 - `[re-frame.freehand :as v]` in the namespace
-- One `(rf/init! …)` at boot, before any frame is minted
+- One `(rf/init! v/adapter)` at boot, before any frame is minted
 - `(v/mount [root {}] el {:frame {:id … :initial-events […]}})`
 - `(v/unmount! root)` on teardown
 
