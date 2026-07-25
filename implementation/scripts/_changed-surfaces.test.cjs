@@ -287,6 +287,42 @@ test('machines-viz deps.edn change fires cljs + cljs-browser (rf2-z0cw6s)', () =
   assert.equal(result.cljs_browser, 'true');
 });
 
+// rf2-as6bg — tools/testbed-support had NO arm in the classifier at all, so a
+// testbed-support-only PR classified as zero changed surfaces and ran zero
+// gates: not just the `.clj` suite the bijection gate found (rf2-4hc9p), but
+// its three `.cljs` suites too. Its src+test are :source-paths of the
+// consolidated :node-test AND :browser-test builds, so those two gates own the
+// CLJS half — same shape as machines-viz above. These assertions are the teeth
+// on that arm; deleting it makes them red rather than making CI quietly empty.
+
+test('testbed-support src change runs cljs + cljs-browser (rf2-as6bg)', () => {
+  const result = classify('tools/testbed-support/src/re_frame/testbed/config.cljs');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+});
+
+test('testbed-support CLJS test-tree change runs cljs + cljs-browser (rf2-as6bg)', () => {
+  const result = classify(
+    'tools/testbed-support/test/re_frame/testbed/story_host_dom_cljs_test.cljs',
+  );
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+});
+
+// The `.clj` half — open_in_editor_server_test.clj, which no CLJS build can
+// load — still has no CI lane. tools_jvm is deliberately NOT set: none of the
+// five jvm-tools-* jobs runs this artefact, so setting it would fire five
+// unrelated probes and still skip the file. This pins the current, honest
+// state; a `jvm-tools-testbed-support` job in the hot-zone test.yml is
+// sequenced separately, and lands with this assertion flipped.
+test('testbed-support does NOT fan out to tools_jvm (no job runs it) (rf2-as6bg)', () => {
+  const result = classify(
+    'tools/testbed-support/test/re_frame/testbed/open_in_editor_server_test.clj',
+  );
+  assert.equal(result.tools_jvm, 'false');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
 // The CLJS-only
 // adapter / Xray / pair-MCP public surfaces live in the sidecar
 // (spec/api-manifest-metadata.edn) under :cljs-only and are carried into
