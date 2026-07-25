@@ -1097,17 +1097,33 @@
              rf2-5o52l shape)"))
 
       ;; ---- the claim this gate owns ---------------------------------------
+      ;; SCOPE NOTE, and it is not a hedge — read it before widening this scan.
+      ;; The secret scan below runs over the FAMILY ROWS, not the whole record,
+      ;; because widening this fixture surfaced a THIRD leak that is not this
+      ;; bead's to fix: the same record's `:rf.fx/handled` rows egress the SAME
+      ;; scoped key RAW under `:rf.fx/args` (and again under the `:rf.fx/do-fx`
+      ;; row's `:rf.event/fx`) — 14 paths on one naturally-captured `ensure`
+      ;; record, no splicing needed. Those rows are `:rf.fx/*`, so the epoch
+      ;; tool-pair's `resource-family-op?` routing skips them and the family
+      ;; projector never runs; the generic app-db-rooted walk cannot classify a
+      ;; resolver-owned key either. Filed as rf2-1kiuj, whose acceptance
+      ;; criterion is to widen this scan back to `projected` and delete this
+      ;; note. Deliberately NOT pinned as expected behaviour — nothing here
+      ;; asserts the leak exists, so the day it is fixed this file goes green
+      ;; without touching it.
       (testing "ACCEPTANCE — no raw sensitive bytes anywhere in the projected
-                record, in either representation"
-        (is (not (contains-secret? projected))
-            "the raw secret is absent from every leaf of the projected record")
+                resource family, in either representation"
+        (is (not (contains-secret? proj-rows))
+            "the raw secret is absent from every leaf of every projected
+             resource-family row")
         (is (not (leaks-cedn-token? projected))
-            "and no CEDN-1 key-id egresses under ANY tag — a key-id would
-             disclose the same scope + params in the clear while looking
-             opaque"))
+            "and no CEDN-1 key-id egresses under ANY tag of the WHOLE record —
+             a key-id would disclose the same scope + params in the clear while
+             looking opaque, and this one holds record-wide today"))
 
       ;; ---- per-slot, so a failure names the slot that leaked ---------------
-      (let [tags (family-row proj-rows :rf.resource/work-started
+      (let [raw  (family-row rows :rf.resource/work-started sensitive-resource-id)
+            tags (family-row proj-rows :rf.resource/work-started
                              sensitive-resource-id)
             [pscope rid pparams] (:resource/key tags)
             [marker embedded generation] (:work/id tags)]
@@ -1119,7 +1135,10 @@
         (testing "the UNNAMED work-id's EMBEDDED key tokenizes identically
                   (rf2-wd9im — reached by DEPTH, not by slot name)"
           (is (= :rf.work/resource marker) "the work-kind marker rides verbatim")
-          (is (= 1 generation) "the generation rides verbatim")
+          (is (= (nth (:work/id raw) 2) generation)
+              "the generation rides verbatim (read off the RAW row — the
+               counter is frame-lifetime scoped, so a literal here would rot
+               the moment another test registration lands before this one)")
           (is (= (:resource/key tags) embedded)
               "the embedded key projects EXACTLY as the row's own
                `:resource/key` — an unnamed slot and a named one cannot drift"))
