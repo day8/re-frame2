@@ -37,17 +37,32 @@ that defines it:
 A new artefact, a new build, a renamed directory or a retightened regex is
 therefore picked up by construction.
 
-WHAT COUNTS AS A TEST FILE.  A file that carries at least one TOP-LEVEL
-`(deftest` -- column 0, which is where every one of the repo's deftests is
-written.  Naming is not consulted, so a test file that does not follow the
-`_test` filename convention is still in the universe.  This also makes the
-repo's one deftest GENERATOR
-(`implementation/core/test/re_frame/adapter/react_shared_suite_tests.clj`, a
-`defmacro` whose expansion emits the deftests, invoked from the namespaces that
-want the shared suite) fall out for free: it has no top-level deftest of its
-own, so it is not a test file and needs no exemption.
+WHAT COUNTS AS A TEST FILE.  A file that evaluates at least one test-defining
+form AT THE TOP LEVEL.  Naming is not consulted, so a test file that does not
+follow the `_test` filename convention is still in the universe.  Top level is
+decided by reading the enclosing forms, not by the column the form starts in:
 
-THE FOUR RULES
+  * `(deftest ...)`, bare or namespace-qualified (`cljs.test/deftest`);
+  * the same, inside a reader conditional (`#?(:cljs (deftest ...))`) and/or a
+    `do` -- both are transparent to the reader, so what they wrap IS top level.
+    Column 0 was the original test, and it could not see either shape;
+  * a call to a macro whose expansion emits deftests.  The roster of such
+    macros is DERIVED, not listed: any `(defmacro NAME ...)` in the scanned
+    tree whose body contains a `deftest` form makes a top-level `(NAME ...)`
+    call a test definition.  The macro's own file stays a non-test file, since
+    the deftest there sits inside the `defmacro`, which is not transparent.
+
+Comments and string bodies are masked before any of this, because the repo's
+test files discuss `deftest` in prose at length.
+
+CLASSIFIED BY THE DECLARED NAMESPACE.  A lane selector is applied by the
+runner to the namespace the file DECLARES, so this gate reads `(ns ...)` rather
+than deriving a name from the file path.  Deriving it was a second false green:
+editing only the declared suffix moves the file out of a lane's selector while
+a path-derived name goes on matching, so the lane silently sheds the file and
+the gate goes on reporting it covered.
+
+THE FIVE RULES
 
   B1  ORPHAN FILE.  A test file must be selected by at least one lane that can
       load it (`.clj` -> JVM lanes, `.cljs` -> CLJS lanes, `.cljc` -> either).
@@ -84,6 +99,11 @@ THE FOUR RULES
       flag.  Same declaration, same teeth, one tier earlier than the runner's
       own runtime check.
 
+  B5  UNREADABLE NAMESPACE.  A test file must declare exactly one namespace.
+      With none, or with two that disagree, there is no name to apply a
+      selector to -- and a gate that quietly fell back to a path-derived guess
+      would be back to the false green B5 exists to remove.
+
 Counts belong in a PR body where they carry a date; this file states rules.
 """
 
@@ -114,7 +134,127 @@ SHADOW_DEFAULT_NS_REGEXP = r"-test$"
 #: A `.cljc` test namespace declaring that the JVM lane is its only lane.
 JVM_ONLY_SUFFIX = "-jvm-test"
 
-TOP_LEVEL_DEFTEST = re.compile(r"^\(deftest", re.MULTILINE)
+#: The token immediately after an opening delimiter -- a form's head.
+FORM_HEAD = re.compile(r"[^\s()\[\]{}\"';`~@,^]+")
+
+#: A head that is `deftest`, bare or namespace-qualified (`cljs.test/deftest`).
+DEFTEST_HEAD = re.compile(r"(?:[^\s()\[\]{}/]+/)?deftest\Z")
+
+#: The same as an opening form, for scanning a `defmacro` body.
+DEFTEST_FORM = re.compile(r"\((?:[^\s()\[\]{}/]+/)?deftest[\s()\[\]{}]")
+
+#: A `deftest` form in column 0 -- the shape almost every test file uses, and
+#: the only one the pre-repair gate could see.  Kept as a fast path.
+TOP_LEVEL_DEFTEST = re.compile(r"^\((?:[^\s()\[\]{}/]+/)?deftest[\s()\[\]{}]",
+                               re.MULTILINE)
+
+DEFMACRO_FORM = re.compile(r"\(defmacro\s+([^\s()\[\]{}]+)")
+
+#: Forms the reader sees through: what they wrap is still top level.  A reader
+#: conditional is recorded as `#?` whatever platform keyword heads it.
+TRANSPARENT_HEADS = frozenset({"#?", "do"})
+
+#: `(ns name)`, tolerating any number of metadata prefixes (`^{:doc ...}`,
+#: `^:no-doc`).  Anchored at column 0: an `ns` form is never nested.
+NS_FORM = re.compile(r"^\(ns\s+(?:\^(?:\{[^}]*\}|[^\s()\[\]{}]+)\s+)*([^\s()\[\]{}]+)",
+                     re.MULTILINE)
+
+
+#: A character literal, a string, or a `;` comment -- the three spans whose
+#: contents are not structure.  The char-literal branch is FIRST and is the
+#: only captured one, so a `\\"` or `\\;` survives (it is code) while a string
+#: or a comment is dropped; `sub(r"\\1")` therefore needs no Python callback,
+#: which is what keeps a 40 MB scan at C speed.
+MASKABLE = re.compile(r'(\\.)|"[^"\\]*(?:\\.[^"\\]*)*"|;[^\n]*', re.DOTALL)
+DELIMITERS = re.compile(r"[()\[\]{}]")
+
+
+def mask_source(text: str) -> str:
+    """Drop `;` comments and string bodies, leaving code and its line structure.
+
+    Every recogniser below reads CODE only.  The repo's test files discuss
+    `deftest` in docstrings and comments at length -- one of them spends a
+    paragraph on how a map-form `use-fixtures` "SILENTLY SKIPS every deftest"
+    -- so an unmasked scan reads prose as structure.
+
+    A comment's own newline is outside the match and survives, and a string is
+    replaced in place, so no newline is ever ADDED: a form that began a line
+    still begins one, and a form that did not cannot come to.  Newlines INSIDE
+    a string go with it, which is the point -- a docstring that quotes an
+    `(ns ...)` form must not read as a second declaration.
+    """
+    return MASKABLE.sub(r"\1", text)
+
+
+def top_level_heads(masked: str):
+    """Yield the head of every form the reader evaluates at the top level.
+
+    One pass over the delimiters, carrying the stack of enclosing heads.  A
+    form counts as top level when every form enclosing it is transparent -- a
+    reader conditional or a `do`.  That is what makes `#?(:cljs (deftest ...))`
+    and `#?(:clj (do ... (deftest ...)))` reachable while a `deftest` inside a
+    `defmacro` (the suite generator) correctly stays out of reach.
+    """
+    stack = []
+    for match in DELIMITERS.finditer(masked):
+        i = match.start()
+        if match.group(0) in "([{":
+            if masked[max(i - 3, 0):i] == "#?@" or masked[max(i - 2, 0):i] == "#?":
+                head = "#?"
+            else:
+                m = FORM_HEAD.match(masked, i + 1)
+                head = m.group(0) if m else ""
+            if all(h in TRANSPARENT_HEADS for h in stack):
+                yield head
+            stack.append(head)
+        elif stack:
+            stack.pop()
+
+
+def deftest_emitting_macros(masked_texts) -> set:
+    """Names of macros whose expansion emits deftests, derived from the tree.
+
+    A roster of generator macros written here would be the staleness class the
+    gate exists to catch, so it is read off the `defmacro` forms themselves: a
+    macro whose body contains a `deftest` form emits tests, and a top-level
+    call to it therefore defines them.
+    """
+    names = set()
+    for masked in masked_texts:
+        for m in DEFMACRO_FORM.finditer(masked):
+            try:
+                body = masked[m.start():match_delimiter(masked, m.start())]
+            except ValueError:
+                continue
+            if DEFTEST_FORM.search(body):
+                names.add(m.group(1))
+    return names
+
+
+def defines_tests(masked: str, macro_names) -> bool:
+    # The overwhelmingly common shape, on MASKED text so it cannot be a
+    # docstring line: `(deftest` in column 0.  Recognising it without walking
+    # the delimiters is what keeps the scan's runtime where it was.
+    if TOP_LEVEL_DEFTEST.search(masked):
+        return True
+    for head in top_level_heads(masked):
+        if DEFTEST_HEAD.match(head):
+            return True
+        if head in macro_names:
+            return True
+        slash = head.rfind("/")
+        if slash != -1 and head[slash + 1:] in macro_names:
+            return True
+    return False
+
+
+def declared_namespaces(masked: str):
+    """Every distinct namespace the file declares, in order of appearance."""
+    seen = []
+    for m in NS_FORM.finditer(masked):
+        if m.group(1) not in seen:
+            seen.append(m.group(1))
+    return seen
 
 #: Build output and dependency trees.  Nothing under them defines a lane or a
 #: test the lanes select, and walking them dominates the runtime.
@@ -389,12 +529,15 @@ def jvm_lanes(repo: Path):
 
 
 # --------------------------------------------------------------------------
-# The universe: files under a lane root that define a top-level deftest
+# The universe: files under a lane root that define tests at the top level
 # --------------------------------------------------------------------------
 
 @dataclass
 class TestFile:
     path: Path
+    #: The namespace the file DECLARES -- the name a lane selector is applied
+    #: to.  None when the declaration is missing or self-contradictory, which
+    #: B5 reports and which removes the file from selector-based reasoning.
     ns: str
     ext: str
     #: True when some CLJS lane root that OWNS its tree contains this file.
@@ -402,17 +545,24 @@ class TestFile:
     #: Every ancestor directory, as strings, so "is this file under one of the
     #: lane's roots?" is a set intersection rather than a walk per (lane, root).
     ancestors: frozenset = frozenset()
+    #: Set when the `(ns ...)` declaration could not be read (B5).
+    ns_problem: str = ""
 
 
 def discover(lanes, repo: Path):
-    """Map every lane root to its test files, keyed by (path, derived ns).
+    """Every test-defining file under a lane root, keyed by path.
 
     A root is walked once and a file is read once no matter how many lanes share
     it -- every CLJS build in `implementation/shadow-cljs.edn` shares one
     `:source-paths` vector, so the naive shape re-reads the whole tree per lane.
+
+    Two passes over that one read: the first derives the roster of macros whose
+    expansion emits deftests, the second classifies each file against it.  The
+    order matters -- a file whose only test definition is a call to such a macro
+    is invisible until the roster exists.
     """
-    defines_test = {}       # absolute path -> bool
-    walked = {}             # root -> [(path, ext)] of test-defining files
+    sources = {}            # absolute path -> raw text
+    walked = {}             # root -> [(path, ext)] of candidate files
     found = {}
 
     def scan(root: Path):
@@ -427,26 +577,63 @@ def discover(lanes, repo: Path):
                     continue
                 path = Path(dirpath) / filename
                 key = str(path)
-                if key not in defines_test:
+                if key not in sources:
                     try:
-                        defines_test[key] = bool(TOP_LEVEL_DEFTEST.search(
-                            path.read_text(encoding="utf-8")))
+                        sources[key] = path.read_text(encoding="utf-8")
                     except (UnicodeDecodeError, OSError):
-                        defines_test[key] = False
-                if defines_test[key]:
-                    hits.append((path, ext))
+                        sources[key] = ""
+                hits.append((path, ext))
         walked[root] = hits
         return hits
 
     for lane in lanes:
+        for root, _owned in lane.roots:
+            scan(root)
+
+    # Pass 1 -- the generator-macro roster, read off the tree's own `defmacro`
+    # forms.  Only files that carry both tokens can contribute one.
+    macro_names = deftest_emitting_macros(
+        mask_source(text) for text in sources.values()
+        if "defmacro" in text and "deftest" in text)
+
+    # Pass 2 -- classify.  The substring pre-filter keeps masking off the ~40%
+    # of scanned files that mention neither, which is what holds the runtime.
+    classified = {}
+
+    def classify(key: str):
+        if key in classified:
+            return classified[key]
+        text = sources[key]
+        if "deftest" not in text and not any(name in text for name in macro_names):
+            classified[key] = (False, None, "")
+            return classified[key]
+        masked = mask_source(text)
+        if not defines_tests(masked, macro_names):
+            classified[key] = (False, None, "")
+            return classified[key]
+        names = declared_namespaces(masked)
+        if len(names) == 1:
+            classified[key] = (True, names[0], "")
+        elif not names:
+            classified[key] = (True, None, "declares no `(ns ...)`")
+        else:
+            classified[key] = (
+                True, None, "declares more than one namespace: " + ", ".join(names))
+        return classified[key]
+
+    for lane in lanes:
         for root, owned in lane.roots:
-            for path, ext in scan(root):
-                ns = str(path.relative_to(root).with_suffix("")).replace(os.sep, ".").replace("_", "-")
-                entry = found.get((str(path), ns))
+            for path, ext in walked[root]:
+                key = str(path)
+                is_test, ns, problem = classify(key)
+                if not is_test:
+                    continue
+                entry = found.get(key)
                 if entry is None:
                     entry = TestFile(path=path, ns=ns, ext=ext,
-                                     ancestors=frozenset(str(p) for p in path.parents))
-                    found[(str(path), ns)] = entry
+                                     ancestors=frozenset(str(p) for p in path.parents),
+                                     ns_problem=problem)
+                    found[key] = entry
                 if lane.runtime == "cljs" and owned:
                     entry.on_owned_cljs_root = True
     return list(found.values())
@@ -464,6 +651,8 @@ def select(lanes, files):
     for lane in lanes:
         lane_roots = frozenset(str(root) for root, _owned in lane.roots)
         for test_file in files:
+            if test_file.ns is None:
+                continue        # no name to select on; B5 owns it
             if not loadable_by(lane, test_file):
                 continue
             if lane_roots.isdisjoint(test_file.ancestors):
@@ -494,15 +683,29 @@ def check(lanes, files, repo: Path):
         except ValueError:
             return str(p)
 
+    ordered = sorted(files, key=lambda f: (f.ns or "", str(f.path)))
+
+    # B5 -- no readable namespace, so no selector can be applied at all.
+    for test_file in ordered:
+        if test_file.ns is None:
+            failures.append(
+                f"B5 unreadable namespace: {rel(test_file.path)} defines tests but "
+                f"{test_file.ns_problem}. A lane selector is applied to the DECLARED "
+                f"namespace, so this file's lane membership is undecidable.")
+
     # B1 -- selected by nothing at all.
-    for test_file in sorted(files, key=lambda f: f.ns):
+    for test_file in ordered:
+        if test_file.ns is None:
+            continue
         if not selected_by[id(test_file)]:
             failures.append(
                 f"B1 orphan test file: {rel(test_file.path)} defines tests as `{test_file.ns}`, "
                 f"which no lane selector reaches. It runs in no lane.")
 
     # B2 -- a `.cljc` on a CLJS-owned root that no CLJS lane selects.
-    for test_file in sorted(files, key=lambda f: f.ns):
+    for test_file in ordered:
+        if test_file.ns is None:
+            continue
         if test_file.ext != ".cljc" or not test_file.on_owned_cljs_root:
             continue
         cljs_hits = [l for l in selected_by[id(test_file)] if l.runtime == "cljs"]
@@ -606,9 +809,26 @@ GREEN_FILES = {
     "implementation/core/test/app/only_jvm_test.cljc": "(ns app.only-jvm-test)\n(deftest t (is true))\n",
     # a borrowed tree's JVM-only `.cljc` -- B1 holds, B2 does not apply
     "borrowed/test/app/borrowed_test.cljc": "(ns app.borrowed-test)\n(deftest t (is true))\n",
+    # deftests the reader sees through to: one behind a reader conditional, one
+    # behind a `do` inside one.  Both are top-level definitions and both are
+    # properly selected here, so the green baseline exercises the recogniser
+    # positively as well as the mutations below exercising it negatively.
+    "implementation/core/test/app/conditional_cljs_test.cljc":
+        "(ns app.conditional-cljs-test)\n"
+        "#?(:cljs\n   (deftest in-a-reader-conditional (is true)))\n"
+        "#?(:clj\n   (do\n     (deftest in-a-do (is true))))\n",
     # a generator: deftest only inside a defmacro, so not a test file at all
     "implementation/core/test/app/shared_suite.clj":
         "(ns app.shared-suite)\n(defmacro define! []\n  `(deftest generated (is true)))\n",
+    # ... and its caller, which IS one: the suite arrives by expansion
+    "implementation/core/test/app/generated_cljs_test.cljs":
+        "(ns app.generated-cljs-test\n"
+        "  (:require-macros [app.shared-suite :refer [define!]]))\n(define!)\n",
+    # prose is not structure.  A commented-out deftest and a docstring quoting
+    # one in column 0 -- the exact shape a raw `^\\(deftest` scan misreads.
+    "implementation/core/test/app/prose_helper.clj":
+        "(ns app.prose-helper)\n;; (deftest not-a-test (is true))\n"
+        '(def example\n  "for the docs:\n(deftest also-not-a-test (is true))\nend")\n',
 }
 
 
@@ -649,6 +869,52 @@ def run_self_test() -> int:
 
     case("B4 fires on a `--probe` lane that gained a test",
          probe_flag=' "--probe"', expect="B4 probe lane gained coverage")
+
+    # The recogniser mutations.  Each plants a test file in one of the shapes
+    # the pre-repair column-0 scan could not see, under a namespace no selector
+    # reaches.  Seeing the shape is what makes B1 fire; not seeing it was a
+    # silent pass.
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/rc_helper.cljc"] = (
+        "(ns app.rc-helper)\n#?(:cljs\n   (deftest t (is true)))\n")
+    case("B1 sees a deftest behind a reader conditional", expect="B1 orphan", files=files)
+
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/rc_do_helper.cljc"] = (
+        "(ns app.rc-do-helper)\n#?(:clj\n   (do\n     (deftest t (is true))))\n")
+    case("B1 sees a deftest behind a reader-conditional `do`",
+         expect="B1 orphan", files=files)
+
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/macro_helper.cljs"] = (
+        "(ns app.macro-helper\n"
+        "  (:require-macros [app.shared-suite :refer [define!]]))\n(define!)\n")
+    case("B1 sees a macro-generated suite entry point", expect="B1 orphan", files=files)
+
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/qualified_helper.cljc"] = (
+        "(ns app.qualified-helper)\n(clojure.test/deftest t (is true))\n")
+    case("B1 sees a namespace-qualified deftest", expect="B1 orphan", files=files)
+
+    # The declared-namespace mutation: the FILE keeps its selected path, only
+    # the `(ns ...)` moves.  A path-derived name goes on matching `cljs-test$`
+    # while the lane, which reads the declaration, has quietly dropped it.
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/both_cljs_test.cljc"] = (
+        "(ns app.both-test)\n(deftest t (is true))\n")
+    case("B2 fires when only the DECLARED namespace leaves the selector",
+         expect="B2 partially emptied", files=files)
+
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/nameless_cljs_test.cljc"] = "(deftest t (is true))\n"
+    case("B5 fires on a test file that declares no namespace",
+         expect="B5 unreadable namespace", files=files)
+
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/two_ns_cljs_test.cljc"] = (
+        "(ns app.two-ns-cljs-test)\n(deftest t (is true))\n(ns app.somewhere-else)\n")
+    case("B5 fires on two disagreeing namespace declarations",
+         expect="B5 unreadable namespace", files=files)
 
     ok = True
     for name, expect, files, shadow, probe_flag in cases:
