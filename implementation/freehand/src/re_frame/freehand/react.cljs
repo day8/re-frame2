@@ -204,29 +204,15 @@
   Named and shared for the reason [[put-class!]] is: the compiled tier
   reaches trusted markup through THIS function, so `(v/html s)` produces
   the same props object whether the structure was resolved at build time
-  or a moment ago — and the string check is
-  [[re-frame.freehand.node/html-string!]]'s, the one both hosts make.
+  or a moment ago.
 
-  `<textarea>` is refused here rather than left to React. React 19 throws
-  on `dangerouslySetInnerHTML` for a textarea and the SSR serialiser
-  refuses the same node, so the substrate says so itself instead of
-  answering a host crash on one path and divergent markup on the other
-  (rf2-ib4fd); a void element cannot carry content at all."
+  The string check and the two host refusals — `<textarea>`, and every void
+  element — are [[re-frame.freehand.node/html-content!]]'s, the same call
+  the structural canonicaliser makes. So all four rendering paths raise one
+  sentence per law instead of four copies that could drift."
   [o tag raw]
-  (when (= :textarea tag)
-    (malformed! (str "A <textarea> cannot carry trusted markup — React sets a "
-                     "textarea's content through :value (or an ordinary text child), "
-                     "never dangerouslySetInnerHTML, which React 19 rejects on a "
-                     "<textarea>. Use :value \"…\" or an ordinary text child.")
-                {:tag tag}))
-  (when (contains? conv/children-rejected-tags tag)
-    (malformed! (str "The element " tag " cannot carry trusted markup — it is a void "
-                     "element, and React throws rather than render content inside "
-                     "one. Put the content in an attribute, or use an element that "
-                     "takes children.")
-                {:tag tag}))
   (gobj/set o "dangerouslySetInnerHTML"
-            #js {:__html (node/html-string! 're-frame.freehand/render raw)})
+            #js {:__html (node/html-content! 're-frame.freehand/render tag raw)})
   o)
 
 (defn ^:no-doc put-attr!

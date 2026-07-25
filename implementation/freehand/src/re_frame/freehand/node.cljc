@@ -296,6 +296,40 @@
            (type-name s) " meant. Produce the string first, e.g. (v/html (str …)).")
       {:value (shape s)})))
 
+(defn html-content!
+  "The trusted-markup string element `tag` may carry, or a loud refusal — the
+  string check plus the two HOST laws, in the ONE function every path reaches.
+
+  Two element kinds cannot carry trusted markup at all, and both are refused
+  by the substrate rather than left to the host. React 19 THROWS on
+  `dangerouslySetInnerHTML` for a `<textarea>` (its content is
+  `:value`/`defaultValue`, or an ordinary text child) while the SSR serialiser
+  refuses the same node, so a substrate that built it would answer a host crash
+  on one path and divergent markup on the other (rf2-ib4fd). A VOID element has
+  no content channel at all.
+
+  Both sentences live here, once, because there are FOUR paths to them —
+  interpreted and compiled, React and structural — and four copies of a
+  sentence are four chances for one of them to drift."
+  [where tag s]
+  (when (= :textarea tag)
+    (malformed!
+      where
+      (str "A <textarea> cannot carry trusted markup — React sets a textarea's "
+           "content through :value (or an ordinary text child), never "
+           "dangerouslySetInnerHTML, which React 19 rejects on a <textarea>. "
+           "Use :value \"…\" or an ordinary text child.")
+      {:tag tag}))
+  (when (contains? conv/children-rejected-tags tag)
+    (malformed!
+      where
+      (str "The element " tag " cannot carry trusted markup — it is a void "
+           "element, and React throws rather than render content inside one. "
+           "Put the content in an attribute, or use an element that takes "
+           "children.")
+      {:tag tag}))
+  (html-string! where s))
+
 (defn ^:no-doc trusted-markup
   "The value `(v/html s)` answers — see [[re-frame.freehand/html]]."
   [s]
@@ -420,21 +454,23 @@
     ;; the author put somewhere no element can own. Refused by name, in the
     ;; one place both walks and both modes reach.
     (trusted-markup? form) (refuse-orphan-trusted-markup! where form)
-    ;; The trusted-markup NODE, written as a literal map. `node?` accepts it
-    ;; — the SSR serialiser and the structural test surface read exactly this
-    ;; shape — but a BUILD path must not, or `{:html s}` becomes a second
-    ;; spelling of the bypass with none of its supervision. The nominal value
-    ;; the door answers is the only spelling.
-    (and (map? form) (contains? form :html))
-    (malformed!
-      where
-      (str "A child is the trusted-markup NODE written as a literal map. That "
-           "shape is the tree's, not the template's: it carries no visible "
-           "call, no manifest site and none of the element rules trusted "
-           "markup is subject to. Write (v/html s) as the sole child of a DOM "
-           "element instead.")
-      {:value (shape form)})
-    (node? form)           (conj acc form)
+    ;; A built node passes through — EXCEPT the trusted-markup one written as a
+    ;; literal map. `node?` accepts that shape, because the SSR serialiser and
+    ;; the structural test surface read exactly it; a BUILD path must not, or
+    ;; `{:html s}` becomes a second spelling of the bypass with none of its
+    ;; supervision. `element` is the only thing that builds the leaf, from its
+    ;; own `:html` slot, so nothing legitimate arrives here carrying one.
+    (node? form)
+    (if (contains? form :html)
+      (malformed!
+        where
+        (str "A child is the trusted-markup NODE written as a literal map. That "
+             "shape is the tree's, not the template's: it carries no visible "
+             "call, no manifest site and none of the element rules trusted "
+             "markup is subject to. Write (v/html s) as the sole child of a DOM "
+             "element instead.")
+        {:value (shape form)})
+      (conj acc form))
     (seq? form)            (reduce #(collect walk where %1 %2) acc form)
     (and walk (vector? form)) (do (refuse-metadata-key! where form)
                                   (conj acc (walk form)))
@@ -1122,25 +1158,11 @@
         prop-props (when declared (into #{} (filter declared) (keys attrs)))
         el-ns      (conv/element-ns ctx)
         ;; Trusted markup REPLACES the children — `[:div (v/html s)]` has one
-        ;; content channel, and it is the element's. The `<textarea>` refusal
-        ;; is here rather than in either front end because both reach it: React
-        ;; 19.2 rejects `dangerouslySetInnerHTML` on a textarea outright and the
-        ;; SSR serialiser refuses the same node, so a substrate that built it
-        ;; would produce a host throw on one path and divergent markup on the
-        ;; other (rf2-ib4fd). A VOID element needs no arm of its own: the leaf
-        ;; is a child, and the children-rejected refusal below is the one it
-        ;; already lands on.
+        ;; content channel, and it is the element's. The string check and the
+        ;; two host refusals are [[html-content!]]'s, which the browser writer
+        ;; calls too: four rendering paths, one sentence each.
         html-leaf  (when (some? html)
-                     (when (= :textarea tag)
-                       (malformed!
-                         're-frame.freehand/render
-                         (str "A <textarea> cannot carry trusted markup — React "
-                              "sets a textarea's content through :value (or an "
-                              "ordinary text child), never dangerouslySetInnerHTML, "
-                              "which React 19 rejects on a <textarea>. Use "
-                              ":value \"…\" or an ordinary text child.")
-                         {:tag tag}))
-                     {:html (html-string! 're-frame.freehand/render html)})
+                     {:html (html-content! 're-frame.freehand/render tag html)})
         kids       (cond
                      (some? html-leaf) [html-leaf]
 
