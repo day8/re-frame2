@@ -1,0 +1,69 @@
+;; FH-REACT-007 — a host call has three DISJOINT planes.
+;;
+;; Ordinary props, declared callbacks, and children never overlap, and the
+;; split happens once so both emitters see the same three values. Each
+;; rejection row below closes a way an implementation drifts back toward
+;; guessing: inferring a callback from an `on*` name, coercing a bare event
+;; vector at a foreign prop, accepting a wrong-role carrier because both are
+;; "callbacks", or forwarding a bare function because it looked callable.
+{:fh/id "FH-REACT-007"
+ :fh/law
+ "A host call splits into three disjoint planes: unreserved ordinary props (data, shallow, exact), the finite declared :callbacks positions (each taking the matching v/event or v/handler carrier, never inferred and never coerced from a bare event vector), and trailing children under the declared policy; a function in an ordinary slot, a wrong-role carrier, a bare vector at a declared position, and a caller-authored :children are each refused."
+
+ ;; The declaration under test: one :event position, one :handler position.
+ :declaration
+ {:host      :fixture/planes-host
+  :callbacks {:onSelect :event :onMeasure :handler}
+  :children  :optional
+  :ssr       :client-only}
+
+ :accepts
+ [{:case      "ordinary props are data, shallow and exact"
+   :props     {:spec "bar" :rows 3 :variant :compact}
+   :ordinary  {:spec "bar" :rows 3 :variant :compact}
+   :callbacks []}
+  {:case      "a declared position takes its matching carrier and leaves the ordinary plane"
+   :props     {:spec "bar" :onSelect :fixture/event-carrier}
+   :ordinary  {:spec "bar"}
+   :callbacks [:onSelect]}
+  {:case      "both roles at once"
+   :props     {:onSelect :fixture/event-carrier :onMeasure :fixture/handler-carrier}
+   :ordinary  {}
+   :callbacks [:onSelect :onMeasure]}
+  {:case      "an unfilled declared position is legal — the declaration names positions a host HAS"
+   :props     {:spec "bar"}
+   :ordinary  {:spec "bar"}
+   :callbacks []}
+  {:case      "an undeclared on*-looking name is ORDINARY DATA, never an inferred callback"
+   :props     {:onWhatever "not-a-callback"}
+   :ordinary  {:onWhatever "not-a-callback"}
+   :callbacks []}]
+
+ :rejects
+ [{:case     "a bare event vector at a declared position is not an implicit converter"
+   :props    {:onSelect [:chart/selected]}
+   :error-id :rf.error/view-bad-props}
+  {:case     "a v/handler at an :event position — the roles are different contracts"
+   :props    {:onSelect :fixture/handler-carrier}
+   :error-id :rf.error/view-bad-props}
+  {:case     "a v/event at a :handler position"
+   :props    {:onMeasure :fixture/event-carrier}
+   :error-id :rf.error/view-bad-props}
+  {:case     "a bare function in an ordinary slot — declare the position instead"
+   :props    {:onWhatever :fixture/plain-function}
+   :error-id :rf.error/view-bad-props}
+  {:case     "a carrier in an UNDECLARED slot is refused too, not silently forwarded"
+   :props    {:onWhatever :fixture/event-carrier}
+   :error-id :rf.error/view-bad-props}
+  {:case     "a caller-authored :children — the call ABI owns that slot"
+   :props    {:children ["nope"]}
+   :error-id :rf.error/view-bad-props}
+  {:case     "a non-map props slot"
+   :props    :fixture/not-a-map
+   :error-id :rf.error/view-bad-props}]
+
+ ;; The children policy is the same closed roster an internal boundary uses,
+ ;; and it is reported through the same diagnostic.
+ :children-policy
+ {:none-with-children     {:error-id :rf.error/view-children-policy}
+  :required-without-any   {:error-id :rf.error/view-children-policy}}}

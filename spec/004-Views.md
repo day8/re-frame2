@@ -403,8 +403,9 @@ heuristic arm and no fallback:
 **Totality is the contract.** There is no fourth case and an implementation MUST
 NOT add one: no bare-function heads, no string heads, no duck-typed component
 detection. A plain map is *not* a host boundary merely by being a map — the host
-arm keys off a reserved marker, so the classification stays total rather than
-duck-typed.
+arm keys off the nominal type `v/defhost` mints, so the classification stays
+total without any duck-typing at all, and no map an application can write is a
+host boundary.
 
 The error names all three legal forms. When the offending head is callable it
 additionally names the recovery for the mistake this arm actually catches in the
@@ -1600,8 +1601,187 @@ are ordinary descriptors, and the route-link view over the [012](012-Routing.md)
 
 ### Qualified host leaves
 
-**Lands in:** F4 — data and host lifecycle. Carries the value-in/callback-out foreign
-component boundary and its structural/SSR policy.
+`v/defhost` declares a React component as a Freehand **host**. It is the SOLE
+public inward React boundary, and the only way to mint the third legal vector
+head.
+
+```clojure
+(v/defhost date-picker
+  "A third-party date picker."
+  DatePicker
+  {:callbacks {:onChange :event}
+   :children  :none
+   :ssr       :client-only})
+
+[date-picker
+ {:selected date
+  :onChange (v/event [js-date]
+              [:booking/date-picked (from-js-date js-date)])}]
+```
+
+**Sole is a contract, not a description.** [§Vector-head
+classification](#vector-head-classification) has three legal answers and one of
+them is a host descriptor; the diagnostic that refuses a bad head names it in
+prose. An implementation MUST NOT publish a second way to produce one. A runtime
+`v/host` constructor, a leaf/wrapper `:kind` split, and a `v/react-el` helper
+that receives an already-created element are each REJECTED by name: each is the
+same crossing under a second spelling, and a second spelling is a second set of
+laws to keep in step. A helper that grew enough declaration and commit machinery
+to carry the laws would simply *be* this door, renamed.
+
+#### Identity and invocation
+
+A declaration produces one stable, qualified, **non-callable** host descriptor.
+It is used as a vector head; a React component MUST NOT become a legal bare
+head. There is ONE descriptor kind — "leaf" and "wrapper" describe the
+registered React implementation, which may itself use hooks, context, refs,
+effects, Suspense, or a compound-component protocol, and not two ABIs.
+
+A direct call MUST NOT succeed. The descriptor is nominal for the reason
+[§A declared view cannot be called](#a-declared-view-cannot-be-called)
+gives: a map answers `(the-host {…})` as a *lookup*, returning `nil` and
+rendering nothing, which is the silent failure the boundary exists to remove at
+exactly the place a hand arriving from React is most likely to call by habit.
+
+There is **no public runtime constructor**. Host identity comes from the
+declaration and stays source-locatable and checkable.
+
+#### The declaration
+
+The option roster is CLOSED — `:callbacks`, `:children`, `:ssr`,
+`:map-props`, `:props` — and an unknown key is refused at macro expansion
+rather than ignored. `:children` and `:ssr` are REQUIRED and carry no default:
+Freehand never executes the registered component on the JVM, so a default would
+be the substrate choosing a server behaviour silently.
+
+#### Three disjoint planes
+
+Ordinary props, declared callbacks, and children are disjoint, and the split is
+performed once by a common normalizer both emitters call.
+
+**Ordinary props pass shallowly and exactly by default.** `:selected` reaches
+React as `selected`. There is no automatic case conversion, no deep
+Clojure-to-JavaScript conversion, no callback inference, and no per-prop
+conversion language. A function value in an ordinary slot is REFUSED: a callback
+reaches a host only at a position the declaration named, because that is what
+makes the site finite, checkable, and able to carry the committed identity
+below.
+
+**`:callbacks` is a finite map from EXACT prop names to the roles `:event` or
+`:handler`.** A position accepts the corresponding carrier and is never inferred
+from an `on*` name. A bare event vector at a foreign callback position is NOT an
+implicit converter and is refused — a host may itself want a vector at that
+prop, and guessing would confuse a host value with re-frame intent.
+`v/render-fn` and `v/raw-fn` are real roster forms and are deliberately not
+declarable positions: neither can carry the committed-site laws a declared
+position promises. Carriers materialize only at declared positions, after the
+candidate is selected, and the resulting functions obey [§Callback roles and
+identity](#callback-roles-and-identity) — stable identity per site, the
+latest committed body and frame, silence for abandoned renders, retirement after
+unmount and hot reload.
+
+**Every declaration states its children policy**, drawn from the same closed
+`#{:none :optional :required}` roster an internal boundary uses. Undeclared
+child crossing is a refusal, not an opaque accident. Accepted children are
+ordinary React children in the registered component's own tree, preserving that
+tree's context. Freehand does NOT promise that a Freehand-authored child can
+participate in `asChild`, arbitrary `cloneElement`, or ref-injection protocols;
+keep such a region React-owned and register its wrapper through `v/defhost`.
+
+Hooks remain outside `v/defview`. Using a hook inside the registered React
+component is the intended route, not a hook API in Freehand.
+
+#### The one ordinary-props adapter
+
+A declaration MAY carry one whole-ordinary-props `:map-props` adapter to prepare
+non-portable host values. It runs in the browser only, and on the ordinary plane
+only: callback carriers and trailing children are WITHHELD from it and installed
+afterwards. The adapter MUST NOT supply or replace declared callbacks, children,
+the key, or any other reserved Freehand fact, and a returned map naming one is
+refused.
+
+Props-contract evidence under `:props` is OPTIONAL for application-private
+declarations; the stronger publication policy of
+[§Props, children, and `:key`](#props-children-and-key) still governs public
+library, catalogue, and generated-parity surfaces.
+
+#### Structure and SSR
+
+Freehand NEVER executes the registered React component on the JVM. Every
+declaration states an SSR policy, and in v1 a React host is client-only: the
+declaration chooses either explicit no-server content (`:ssr :client-only`) or a
+portable fallback (`:ssr {:fallback <markup>}`).
+
+Structural rendering emits a stable honest marker carrying the declared host
+identity and the permitted public evidence, never the opaque React
+implementation:
+
+```clojure
+{:rf.ui/host           :app.booking/date-picker
+ :rf.ui/host-ssr       :client-only
+ :rf.ui/host-children  1
+ :rf.ui/host-map-props true
+ :props                {:selected "2026-01-05"
+                        :onChange {:rf.ui/opaque :v/event}}
+ :children             []}
+```
+
+Three of those slots are chosen against a way the node could lie.
+
+- **`:children` is the SSR PROJECTION and nothing else** — the declared
+  fallback, or empty. It is the slot that folds to HTML, so it MUST carry only
+  what the server can honestly emit. It is retained when empty, like a fragment:
+  it is the node's discriminator.
+- **The caller's trailing children are COUNTED, not walked.** They cross into
+  the registered component's own React tree, and where that tree places them is
+  React's business, so a server tree that showed them would invite an assertion
+  on content the server never emits. This is the choice
+  [§Client-only subtrees](#client-only-subtrees) makes about its client arm,
+  for the same reason.
+- **`:props` are the AUTHORED ordinary props**, recorded through the same rule
+  every boundary uses: a declared carrier records as its opaque role marker, a
+  function as the generic opaque marker, and a non-data value at any depth is
+  refused. A `:map-props` adapter's OUTPUT is deliberately absent — the
+  adapter exists to build values a portable tree cannot print — and its
+  presence is reported instead, which states the loss without incurring it.
+
+Host values, React elements, functions, refs, and third-party instances MUST NOT
+be serialized.
+
+`v/render-static` REFUSES a tree carrying a host crossing, on the same law it
+refuses a `v/behavior` attachment: the static path emits no hydration payload,
+so no client ever replaces the host's SSR projection and the page would ship the
+stand-in as its final answer.
+
+#### Compiled mode
+
+The checker and the compiler MUST recognize the declared descriptor and its
+finite callback and children positions. A compiled parent MAY cross the host
+when lowering supports the same laws.
+
+Until it does, the exact build REFUSES the crossing with a stable id, a source
+location, an explanation, and a recovery. It MUST NOT accept the view and fail
+only at runtime, and it MUST NOT secretly invoke the interpreted walker: the
+first ships a view that compiles clean and hands React a Freehand value as an
+element type, and the second ships a compiled view whose manifest and
+diagnostics describe markup that is not what runs.
+
+#### The raw React-element escape
+
+Finished React elements remain legal opaque browser-only children where the
+owning tree contract permits them. Their callbacks are ordinary captured-frame
+closures. Freehand claims no site retirement, no structural inspection, no SSR
+portability, and no compiled visibility for their internals. `v/event` and
+`v/handler` are non-callable carriers and are therefore NOT legal raw
+`createElement` callbacks; use an ordinary captured-frame closure there, with
+none of the declared-site identity or retirement claims.
+
+This escape is deliberately weaker than `v/defhost`. It is not a second host
+API.
+
+**Conformance:**
+[FH-REACT-006](conformance/freehand/conformance-index.md#fh-react--react-bridges),
+FH-REACT-007, FH-REACT-008.
 
 ### Registered behaviors and commands
 
