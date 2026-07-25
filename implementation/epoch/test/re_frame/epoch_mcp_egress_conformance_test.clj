@@ -9,7 +9,12 @@
   Here we exercise the full off-box-forwarder pattern an MCP server runs:
 
     1. Build a realistic mixed ring (sensitive + large + bookkeeping-only
-       records, halted-destroy records, the empty case).
+       records, halted-destroy records, the empty case). `large` means BOTH
+       shapes a large value can arrive in: the app-db PATH declaration and
+       the whole-output `:large?` sub REGISTRATION stamp (rf2-isp3i). The
+       second is not app-db-rooted, so a fixture that declared only paths
+       left this gate's own claim — no raw large bytes ANYWHERE — scanning
+       a record the shape never appeared in.
     2. Run the ring through `projected-record` (per-record forwarder shape,
        e.g. `register-epoch-listener!` ship!) AND `projected-history` (bulk-egress
        shape, e.g. `watch-epochs` initial snapshot).
@@ -77,6 +82,21 @@
 (def ^:private secret-password "topsecret-do-not-leak")
 (def ^:private payload-size    25000)
 
+;; rf2-isp3i — the whole-output `:large?` SUB shape. A `:large?` stamp on a
+;; `reg-sub` is a REGISTRATION marker, not an app-db path declaration, so the
+;; app-db-rooted classification this fixture installs below structurally cannot
+;; reach it. Before this widening the fixture inhabited only the path shape, and
+;; the "no raw large bytes anywhere" scans below therefore ran over a record
+;; that had no sub-output slot in it at all — which is how rf2-irwsq shipped a
+;; 25000-char payload raw at `[:trace-events <i> :tags :rf.sub/value]` past this
+;; very gate.
+(def ^:private large-sub-id   :sub/whole-output-large)
+;; An UNMARKED sibling sub whose value rides the same two egress slots. It is
+;; the negative control: if the elision below ever became a blanket truncation
+;; (or the fixture stopped reading subs), this value would stop arriving raw.
+(def ^:private control-sub-id :sub/unmarked-control)
+(def ^:private control-note   "mcp-egress-unmarked-control")
+
 (defn- install-mcp-style-schemas!
   "A realistic mixed classification set: one sensitive path
   (`[:auth :password]`) and one large path (`[:blob :payload]`) against
@@ -113,6 +133,22 @@
     - :upload — writes the large path (large payload closed-over in the
                 handler for the same reason)
     - :inc — non-sensitive again
+    - :read-subs — reads a whole-output `:large?` sub and an unmarked
+                   control sub (rf2-isp3i). This is the SECOND large
+                   shape, and it is not app-db-rooted: the `:large?`
+                   stamp rides the sub's REGISTRATION, and the computed
+                   value reaches egress through two slots of the record
+                   the app-db walker never visits — the structured
+                   `:sub-runs` row (`:value` / `:prev-value`, projected by
+                   `elide-sub-run-row`) and the `:rf.sub/run` trace tag
+                   (`:rf.sub/value` / `:rf.sub/prev-value`, projected by
+                   `elide-large-sub-trace-values`). Both callers of the
+                   shared `elide-whole-output-large-slots` rule are
+                   therefore inhabited by one cascade.
+  Driven LAST so the existing index-addressed assertions (`(nth _ 1)` =
+  :login, `(nth _ 2)` = :upload) keep addressing the same cascades. Five
+  cascades against this suite's `:trace-events-keep 5` means every record
+  retains its `:trace-events`, so the tag slot is present on all of them.
   Returns the resulting `(epoch-history frame-id)` for direct comparison
   with `(projected-history frame-id)`."
   [frame-id]
@@ -120,11 +156,37 @@
   (rf/reg-event :login  (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret-password)}))
   (rf/reg-event :upload (fn [{:keys [db]} _] {:db (assoc-in db [:blob :payload] (big-string payload-size))}))
   (rf/reg-event :inc    (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-  (rf/dispatch-sync [:seed]   {:frame frame-id})
-  (rf/dispatch-sync [:login]  {:frame frame-id})
-  (rf/dispatch-sync [:upload] {:frame frame-id})
-  (rf/dispatch-sync [:inc]    {:frame frame-id})
+  (rf/reg-sub large-sub-id   {:large? true} (fn [_ _] (big-string payload-size)))
+  (rf/reg-sub control-sub-id                (fn [_ _] control-note))
+  (rf/reg-event :read-subs
+    (fn [_ _]
+      (rf/subscribe-once [large-sub-id]   {:frame frame-id})
+      (rf/subscribe-once [control-sub-id] {:frame frame-id})
+      {}))
+  (rf/dispatch-sync [:seed]      {:frame frame-id})
+  (rf/dispatch-sync [:login]     {:frame frame-id})
+  (rf/dispatch-sync [:upload]    {:frame frame-id})
+  (rf/dispatch-sync [:inc]       {:frame frame-id})
+  (rf/dispatch-sync [:read-subs] {:frame frame-id})
   (rf/epoch-history frame-id))
+
+(defn- sub-run-row
+  "The structured `:sub-runs` row for `sub-id` in `record` — the slot
+  `elide-sub-run-row` projects."
+  [record sub-id]
+  (->> (:sub-runs record) (filter #(= sub-id (:sub-id %))) first))
+
+(defn- sub-run-tags
+  "The `:rf.sub/run` trace-event tags for `sub-id` in `record` — the slot
+  `elide-large-sub-trace-values` projects. A DIFFERENT slot from the row
+  above carrying the SAME computed value; eliding only one is the leak
+  rf2-irwsq shipped."
+  [record sub-id]
+  (->> (:trace-events record)
+       (filter #(and (= :rf.sub/run (:operation %))
+                     (= sub-id (get-in % [:tags :rf.sub/id]))))
+       first
+       :tags))
 
 (defn- contains-secret?
   "Walk an arbitrary EDN value looking for the exact secret string. Used
@@ -184,7 +246,17 @@
             string — the wire-elision walker substitutes a
             :rf.size/large-elided marker (a map containing :path, :bytes,
             :digest), not the raw bytes. An MCP forwarder downstream of
-            the token-cap walker depends on this."
+            the token-cap walker depends on this.
+
+            rf2-isp3i — the scan below is cross-cutting, but it can only
+            catch what the fixture puts in front of it, and the fixture
+            used to inhabit ONE large shape: the app-db PATH `:upload`
+            writes. The fixture controls in the second `let` pin the
+            SECOND shape — a whole-output `:large?` sub, whose value is
+            not app-db-rooted at all — in both of the slots it egresses
+            through. Without them a future retention change (or a
+            registration that silently stopped stamping) would return
+            this gate to reporting green over ground it never covered."
     (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (let [shipped (atom [])]
@@ -200,7 +272,45 @@
         (is (zero? projected-leaf-count)
             "the projected output contains zero leaf strings of the
              large payload's size — the large path landed as a marker,
-             not as raw bytes")))))
+             not as raw bytes"))
+      ;; rf2-isp3i — the whole-output `:large?` SUB shape, in both slots.
+      (let [raw       (last (rf/epoch-history :test/mcp))
+            raw-row   (sub-run-row  raw large-sub-id)
+            raw-tags  (sub-run-tags raw large-sub-id)
+            proj      (last @shipped)
+            proj-row  (sub-run-row  proj large-sub-id)
+            proj-tags (sub-run-tags proj large-sub-id)]
+        ;; Fixture controls: the shape the scan above must be able to see.
+        (is (= payload-size (count (:value raw-row)))
+            "fixture: the raw `:sub-runs` row carries the sub's full computed
+             value — the slot `elide-sub-run-row` projects")
+        (is (= payload-size (count (:rf.sub/value raw-tags)))
+            "fixture: the raw `:rf.sub/run` trace tag carries the SAME value —
+             the slot `elide-large-sub-trace-values` projects. The emit
+             chokepoint deliberately leaves both raw so the on-box ring keeps
+             the exact value (Xray diff / restore-epoch! need it)")
+        (is (true? (:large? raw-tags))
+            "fixture: the emit chokepoint stamped the bare whole-output
+             `:large?` flag — a REGISTRATION marker, so the app-db-rooted
+             classification this fixture installs cannot reach it, and the flag
+             is the entire contract egress has to honour")
+        ;; Both callers of the shared rule, at egress.
+        (is (elision/marker? (:value proj-row))
+            "`elide-sub-run-row` substituted the marker in the structured row")
+        (is (elision/marker? (:rf.sub/value proj-tags))
+            "`elide-large-sub-trace-values` substituted the marker in the trace
+             tag — the slot whose omission was rf2-irwsq's leak")
+        (is (= (get-in (:value proj-row)          [:rf.size/large-elided :bytes])
+               (get-in (:rf.sub/value proj-tags)  [:rf.size/large-elided :bytes]))
+            "both markers agree on `:bytes` — the structural evidence that ONE
+             shared rule produced them, so the two projections cannot drift")
+        ;; Negative control: an UNMARKED sub's value rides through raw, so the
+        ;; elisions above are driven by the registration stamp and not by some
+        ;; blanket truncation on the way out.
+        (is (= control-note (:value (sub-run-row proj control-sub-id)))
+            "NEGATIVE CONTROL — the unmarked sub's row value survives raw")
+        (is (= control-note (:rf.sub/value (sub-run-tags proj control-sub-id)))
+            "NEGATIVE CONTROL — and so does its trace tag value")))))
 
 (deftest forwarder-projected-record-preserves-bookkeeping-slots
   (testing "MCP forwarder pattern: the projected record's bookkeeping
