@@ -11,19 +11,18 @@ set -euo pipefail
 #              own self-test where it has one);
 #   docs tier  the documentation-content gates, plus `mkdocs build --strict`
 #              — SOFT-SKIPPED when mkdocs is not on PATH;
-#   JVM tier   `implementation/core` and NOTHING ELSE.  Eighteen jobs in
-#              .github/workflows/test.yml gate on the very same
-#              `implementation_jvm` flag; this script runs ONE of them.  The
-#              other seventeen — ui, schemas, machines, routing, flows, http,
-#              ssr, security, ssr-ring, epoch, resources, freehand,
-#              spec-resource, the three conformance artefacts, and test-quiet
-#              — run in CI and NOT here, so a change under
-#              `implementation/routing/src` gets NONE of routing's several
-#              hundred JVM tests from this script.  (No count is quoted: a
-#              number in a comment is exactly the kind of claim that goes
-#              stale.)  Run `scripts/test-jvm-implementation.sh` for
-#              those (it is the whole set, and it is what CI's per-artefact
-#              jobs collectively cover);
+#   JVM tier   `implementation/core` PLUS the suite of every implementation
+#              artefact whose own tree the diff touched (rf2-uwszd).  Core runs
+#              whenever the tier runs — it is the substrate every artefact sits
+#              on, and its suite exercises the schema, machine, route and flow
+#              surfaces directly (see implementation/core/deps.edn).  The
+#              artefact suites are selected by matching the changed paths
+#              against the roster in `scripts/test-jvm-implementation.sh` —
+#              the same roster that script runs, read from the file that
+#              defines it, so a new artefact is picked up by construction and
+#              there is no second map here to drift.  Artefacts the diff did
+#              not touch still do NOT run: the PASS line names them, and
+#              `scripts/test-jvm-implementation.sh` is the whole set;
 #   node tier  the npm/CLJS `:node-test` build, the JS harness self-tests, and
 #              the per-namespace isolation gate.
 #
@@ -41,6 +40,9 @@ set -euo pipefail
 # What it DOES mirror is CI's *tiering* — which tiers run for a given diff —
 # because that decision is delegated wholesale to the classifier CI uses.  Tier
 # SELECTION is faithful; tier CONTENTS are the spine's own, narrower set above.
+# CI has no per-artefact selection to mirror: `implementation_jvm` arms every
+# per-artefact JVM job at once, so the spine's within-tier narrowing is strictly
+# a subset of what CI runs, never a divergence from it.
 #
 # HOW THE TIERING IS DECIDED — no second map.  The runtime tier is delegated
 # WHOLESALE to the very classifier CI uses,
@@ -117,10 +119,14 @@ Usage:
   $(basename "$0") [--all] [--with-docs|--no-docs] [--plan] [--repo-root DIR]
 
 Runtime tiers are gated on the SAME changed-surface classifier CI uses
-(.github/scripts/report-changed-surfaces.sh): the core JVM suite runs when
+(.github/scripts/report-changed-surfaces.sh): the JVM artefact suites run when
 implementation_jvm is set, and the npm/CLJS/JS-harness/isolation suites run
 when cljs_node_test is set.  The documentation gates run when the diff
 touches documentation content.  The cheap static/drift checks always run.
+
+Within the JVM tier the spine runs implementation/core plus the suite of every
+artefact whose own tree the diff touched, selected against the roster in
+scripts/test-jvm-implementation.sh.  `--plan` prints that selection.
 
 Flags:
   --all, -a     run the COMPLETE spine regardless of classification
@@ -321,21 +327,77 @@ case "$with_docs" in
   skip)  run_docs=false ;;
 esac
 
+# ---------------------------------------------------------------------------
+# WHICH JVM ARTEFACT SUITES — the roster is READ, never listed here (rf2-uwszd).
+#
+# `scripts/test-jvm-implementation.sh` already carries the canonical roster of
+# implementation JVM artefacts, and the spine's header already points workers at
+# it.  Parsing that array is therefore not a second surface map: it is the same
+# roster, from the file that owns it, so an artefact added there is armed here
+# without a second edit.  The alternative the bead sketched — eighteen new
+# per-artefact classifier keys — would have to be kept in step with test.yml by
+# hand, which is the staleness class this whole pair of beads is about.
+#
+# `implementation/core` runs whenever the tier runs even if the diff never
+# touched it: it is the substrate every other artefact sits on, and its suite
+# reaches the schema / machine / route / flow surfaces directly.  Everything
+# else is armed only by a change under its own tree.
+# ---------------------------------------------------------------------------
+jvm_artefact_roster() {
+  awk '
+    /^artefacts=\(/ { inside = 1; next }
+    inside && /^\)/  { inside = 0 }
+    inside {
+      sub(/#.*/, "")
+      gsub(/[ \t\r]/, "")
+      if (length($0)) print
+    }' "$spine_root/scripts/test-jvm-implementation.sh"
+}
+
+jvm_run_list=""
+jvm_skipped_list=""
+while IFS= read -r artefact; do
+  [ -z "$artefact" ] && continue
+  armed=false
+  if [ "$artefact" = "implementation/core" ]; then
+    armed=true
+  elif [ -n "$changed_files" ]; then
+    while IFS= read -r file; do
+      case "$file" in
+        "$artefact"/*) armed=true; break ;;
+      esac
+    done <<< "$changed_files"
+  fi
+  if [ "$armed" = true ]; then
+    jvm_run_list="$jvm_run_list $artefact"
+  else
+    jvm_skipped_list="$jvm_skipped_list $artefact"
+  fi
+done <<< "$(jvm_artefact_roster)"
+
+if [ -z "$jvm_run_list" ]; then
+  printf 'error: no JVM artefact roster found in scripts/test-jvm-implementation.sh\n' >&2
+  exit 2
+fi
+
 if [ "$plan_only" = true ]; then
   printf 'fast-pr plan\n'
   printf '  documentation gates: %s\n' "$([ "$run_docs" = true ] && echo run || echo skip)"
-  printf '  core JVM suite:      %s\n' "$([ "$run_jvm" = true ] && echo run || echo skip)"
+  printf '  JVM tier:            %s\n' "$([ "$run_jvm" = true ] && echo run || echo skip)"
   printf '  node/CLJS suite:     %s\n' "$([ "$run_node" = true ] && echo run || echo skip)"
   printf '  reason:              %s\n' "$plan_reason"
+  printf '  JVM artefact suites: %s\n' \
+    "$([ "$run_jvm" = true ] && echo "${jvm_run_list# }" || echo '(tier skipped)')"
   # The tier NAMES understate their contents; say so here too, so `--plan` is
-  # not read as a coverage claim (rf2-dgzaf).
-  printf '  note:                the JVM tier is implementation/core ONLY —'
-  printf ' 17 of the 18 implementation_jvm\n'
-  printf '                       artefact suites run in CI, not here'
-  printf ' (scripts/test-jvm-implementation.sh).\n'
+  # not read as a coverage claim (rf2-dgzaf, rf2-uwszd).
+  printf '  note:                the JVM tier is implementation/core PLUS the'
+  printf ' artefacts the diff touched —\n'
+  printf '                       every other artefact suite runs in CI, not'
+  printf ' here (scripts/test-jvm-implementation.sh).\n'
   printf '                       No browser, bundle, adapter, Xray, MCP or'
   printf ' tool-JVM gate is in any tier.\n'
   printf 'PLAN docs=%s jvm=%s node=%s\n' "$run_docs" "$run_jvm" "$run_node"
+  printf 'PLAN-JVM%s\n' "$([ "$run_jvm" = true ] && printf '%s' "$jvm_run_list")"
   exit 0
 fi
 
@@ -530,18 +592,24 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Core JVM suite — gated on implementation_jvm (test.yml's jvm-core).
+# JVM artefact suites — gated on implementation_jvm (test.yml's per-artefact
+# jobs).  Contents: core, plus every artefact the diff touched (rf2-uwszd).
 # ---------------------------------------------------------------------------
 if [ "$run_jvm" = true ]; then
-  run "core JVM" "cd implementation/core && clojure -M:test" \
-    bash -lc "cd '$spine_root/implementation/core' && clojure -M:test"
-  # Named even on the path that RUNS the tier: `implementation_jvm` armed
-  # eighteen CI jobs and this spine covered one of them.  A worker who changed
-  # routing, machines, resources … must see that its suite was not run here.
-  note_skipped "17 of 18 implementation_jvm artefact suites (only core ran; scripts/test-jvm-implementation.sh runs all)"
+  for artefact in $jvm_run_list; do
+    run "JVM $artefact" "cd $artefact && clojure -M:test" \
+      bash -lc "cd '$spine_root/$artefact' && clojure -M:test"
+  done
+  # Named even on the path that RUNS the tier: `implementation_jvm` arms every
+  # per-artefact CI job at once and this spine ran a subset.  A worker whose
+  # diff reached an artefact indirectly — through core, through a shared
+  # fixture — must see that the artefact's own suite was not run here.
+  if [ -n "$jvm_skipped_list" ]; then
+    note_skipped "JVM artefact suites the diff did not touch:${jvm_skipped_list} (scripts/test-jvm-implementation.sh runs all)"
+  fi
 else
-  printf '\n--- implementation_jvm surface unchanged → skipping core JVM (override with --all) ---\n'
-  note_skipped "core JVM (implementation_jvm surface unchanged; --all forces)"
+  printf '\n--- implementation_jvm surface unchanged → skipping JVM artefact suites (override with --all) ---\n'
+  note_skipped "all JVM artefact suites (implementation_jvm surface unchanged; --all forces)"
 fi
 
 # ---------------------------------------------------------------------------
