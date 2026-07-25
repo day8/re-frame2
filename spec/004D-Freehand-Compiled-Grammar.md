@@ -378,7 +378,7 @@ presence rather than having to tell a missing coordinate from a partial one.
 
 From the rosters follows the one thing compilation buys that interpretation
 cannot. A compiled view that carries **no reactive site** — no `sub`, no
-committed event handler, no `dispatch-fn`, and no `(frame)` read — never observes
+committed event handler, and no `dispatch-fn` — never observes
 frame context, so it needs neither a subscription bridge nor a committed event
 owner. Its reactive **ViewCell shell is omitted**, and the production lowering is
 a plain memoized component over its generated prop-slot comparator. The manifest
@@ -390,9 +390,14 @@ interpreted shell always observes context**, because the interpreted mode has no
 finite grammar and cannot prove a body sub-free, so it cannot safely drop the
 observation. **Compiled elision requires proof**, and the proof is the manifest:
 the shell is dropped only for a body the analyzer has shown carries none of the
-reactive four. A `local` or an `effect` alone is ordinary React machinery that
+reactive kinds. A `local` or an `effect` alone is ordinary React machinery that
 rides a plain component, not the reactive shell, so it does not force the ViewCell
 — only a genuine reactive read does.
+
+A fourth kind, the `(frame)` committed-frame read, was named here until the frame
+family was retired (rf2-h1ae3 — §The committed-frame ops bundle). The **verdict
+did not move**: that site bucket was provably always empty, so it could never
+decide an elision either way.
 
 The verdict is **deterministic** — a static function of the analyzed sites, never
 a timing measurement (EP-0036 D021). That is why the number of views that omit
@@ -1040,6 +1045,19 @@ per the merged amendment — the observation-port amendment landed with the S2 s
 this Spec owns only the call-site surface. `sub` never fetches (I-11).
 
 ## The committed-frame ops bundle — `frame`
+
+> **Donor contract, not a Freehand promise** (rf2-h1ae3). Read this section as the
+> **donor** `re-frame.ui/frame` — a live, published, runtime-verified var. The
+> Freehand compiled tier does **not** carry it: `v/frame` is interned on neither
+> host, so the analyzer arm that recognised it, its `:frame-ops` site bucket and
+> `FH-STRUCT-010` manifest roster row, its `:frame` capability bit,
+> `:rf.ui.compile/frame-in-loop`, and the emitter arms naming the phantom
+> `re-frame.freehand.frames` namespace are all gone. Nor is it pending a slice: a
+> general in-view frame bundle is not restored merely because the donor had it
+> (rf2-tb5yq), so nothing below is a claim about `v/*` under this Spec's
+> donor-spelling rule. A Freehand view binds its frame at the **root** instead —
+> the `:frame` preflight plan of §Roots and mounting — and holds one across
+> lifetimes with `rf/capture-frame`.
 
 `(frame)` returns the committed frame's **operation bundle** — the standard
 `{:frame :dispatch :dispatch-sync :subscribe}` map, exactly the shape `rf/capture-frame`
@@ -1778,8 +1796,9 @@ compile-time ids take no Spec 009 rows (above).
 ## Roots and mounting
 
 `(ui/mount root-form dom-node)` / `(ui/mount root-form dom-node opts)` is a **macro
-over a literal root form** — the compiler must see the root to keep the AST closed and
-to extract frame plans; a runtime-assembled vector is a compile error pointing at
+over a literal root form** — the compiler must see the root to keep the AST closed
+(and, on the donor, to extract its frame plans — the frame-plan bullet below);
+a runtime-assembled vector is a compile error pointing at
 `ui/view`/`ui/element`. The opts map carries **root identity** — `:root-id` (authored
 wins; a qualified keyword or a qualified-keyword-plus-scalar vector), `:disambiguator`,
 `:identifier-prefix`, all compile-time literals — plus the host error callbacks
@@ -1797,14 +1816,25 @@ locators, three-layer fail-loud duplicate/conflict detection, and the accepted
 `ui.test/render` root forms are owned by
 [004C-Roots-and-Mount.md](004C-Roots-and-Mount.md).
 
-- **Frames are created at host preflight, never from render (I-1).** The compiler
-  extracts **unconditional `frame-root` plans** from the root form; before React (or the
-  JVM renderer) is invoked, the host ensures the frames and drains `:initial-events` —
-  exactly once, unaffected by abandoned renders, StrictMode replay, HMR, or error
-  recovery. The emitted `frame-root` component then only **scopes** the already-live
-  frame. `frame-root` sites MUST sit in the top region of the root form (unconditional,
-  compile-extractable); conditional, reactive, or list-generated sites are compile
-  errors ("create frames in boot/event infrastructure; scope with `frame-provider`").
+- **Frames are created at host preflight, never from render (I-1).** Before React (or
+  the JVM renderer) is invoked, the host ensures the root's frames and drains
+  `:initial-events` — exactly once, unaffected by abandoned renders, StrictMode replay,
+  HMR, or error recovery. **Where the plan comes from is a donor/Freehand split**
+  (rf2-h1ae3). On the **donor** it is compile-extracted: the compiler scans the root
+  form for **unconditional `frame-root` plans**, and the emitted `frame-root` component
+  then only **scopes** the already-live frame — so `frame-root` sites MUST sit in the
+  top region of the root form (unconditional, compile-extractable), and conditional,
+  reactive, or list-generated sites are compile errors ("create frames in boot/event
+  infrastructure; scope with `frame-provider`"). On **Freehand** there is no such scan
+  and no such template marker: `v/frame-root` and `v/frame-provider` are interned on
+  neither host, so their analyzer arms and the compile-tier plan scan went with them,
+  and the plan is the root's own **`:frame` opt** — a frame-id keyword SCOPES a frame
+  something else owns, a `make-frame` opts map ENSUREs one the root owns — read at
+  runtime preflight, before React
+  ([004C §Preflight runs before React](004C-Roots-and-Mount.md#preflight-runs-before-react)),
+  which is also where the one-frame-one-plan law
+  (`:rf.error/frame-payload-conflict`) lives for that tier. A **subtree** scope below
+  a Freehand root is core's `rf/frame-provider`, not a compiled template form.
   Frame identity, ENSURE semantics, and `frame-provider` (SCOPE) are owned by
   [002](002-Frames.md) (the R-7 staged frame chain).
 - **Roots ≠ frames.** A root is one React DOM render/hydration unit; a frame is one
@@ -2252,7 +2282,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §Handlers — event vectors as structural data (manifest flags; JVM-tree `:events`) | **S1** | vectors/options-maps retained as data in tree + manifest; placeholder keywords retained as keywords |
 | §Handlers — committed behaviour (decision table, bare-fn law, dynamic classification, loops, refs, the synchrony door) | **S3** | decision-table fixtures; sync-door fixture (input-door predicate; G-8 real-browser matrix is the residual named gate); loop/ref diagnostics |
 | §Reactive reads — `sub` | **S2** | one-ViewCell binding; stabilization; conditional reads (the loop *rejection* is a compile error from S1) |
-| §The committed-frame ops bundle — `frame` | **S2** | the mounted committed-frame bind (dispatch-through-the-bundle repaints the mounted `sub`; cross-render bundle-identity stability); ambient `frame-provider` retarget; the same-id reincarnation race (the stale bundle fails loud, the replacement frame is untouched, a fresh read re-mints a new identity); stale-op `:rf.error/frame-destroyed` fencing; JVM live-ops (a real bundle during Tier-1 render, not a `jvm-host-op` stub); the always-on observability fan-out on every bundle failure (one record + one dev trace before the throw). The zero-arity, loop, deferred-callback, and root-expression *rejections* are compile-time — asserted with the form at S2 through the accept/reject analyzer fixtures (the form rides the S2 closed-macro expression grammar) |
+| §The committed-frame ops bundle — `frame` | **S2** — **DONOR ONLY** (rf2-h1ae3: the Freehand compiled tier carries no `v/frame`, so no Freehand fixture asserts this row) | the mounted committed-frame bind (dispatch-through-the-bundle repaints the mounted `sub`; cross-render bundle-identity stability); ambient `frame-provider` retarget; the same-id reincarnation race (the stale bundle fails loud, the replacement frame is untouched, a fresh read re-mints a new identity); stale-op `:rf.error/frame-destroyed` fencing; JVM live-ops (a real bundle during Tier-1 render, not a `jvm-host-op` stub); the always-on observability fan-out on every bundle failure (one record + one dev trace before the throw). The zero-arity, loop, deferred-callback, and root-expression *rejections* are compile-time — asserted with the form at S2 through the accept/reject analyzer fixtures (the form rides the S2 closed-macro expression grammar) |
 | §Process substrate — `ui/adapter` | **S2** | exact closed adapter map; canonical `:rf.adapter/ui` discriminator; copied-kind routing; dispose/re-init; watch re-arm; real provider/render/flush/dispose browser proof |
 | §Local state + the placement rule | **S3** | `local` semantics; narrow-law fixtures (same-view handler read conforming; forbidden-tier diagnostics) |
 | §Effects and `ui/dispatch-fn` | **S3** | `rf=` deps + cleanup + StrictMode replay; `:connect` semantics; loud non-connected failure |
@@ -2268,8 +2298,8 @@ a conflict is resolved in that order and is a defect in this table.
 | §Interop — `ui/->react` | **S6** | compat-boundary fixtures, both nesting directions (the compat-boundary contract) |
 | §The React interop tier — `re-frame.ui.react` | **S3** | the six wrappers' call shapes; the position law (finite-site analyzer extension — conditional/inside-fn rejection); the hook-signature-hash `:react` extension + the one-time remount wave; JVM host-render rows; HMR remount/preservation. Declared until then |
 | §Interop — `element` / `view` / `portal` / `re-frame.ui.data` | — | [WAVE-2]: no stage, no assertion, no v1 existence |
-| §Roots and mounting — mount grammar, root identity, Root Descriptor v1, client host fns, duplicate Layers 1+3, static frame-plan extraction | **S1** | the [004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §10 S1 row |
-| §Roots and mounting — frame preflight ENSURE (runtime) + `frame-root`/`frame-provider` scoping | **S2** | preflight-exactly-once, non-reseed, StrictMode/HMR-immune fixtures |
+| §Roots and mounting — mount grammar, root identity, Root Descriptor v1, client host fns, duplicate Layers 1+3, static frame-plan extraction (that last **donor only** — rf2-h1ae3) | **S1** | the [004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §10 S1 row |
+| §Roots and mounting — frame preflight ENSURE (runtime); the `frame-root` / `frame-provider` **template** scoping half is **donor only** (rf2-h1ae3 — a Freehand root scopes through its `:frame` opt, a Freehand subtree through core's `rf/frame-provider`) | **S2** | preflight-exactly-once, non-reseed, StrictMode/HMR-immune fixtures |
 | §Roots and mounting — hydration + Root Manifest v1 | **S5** | manifest extension keys; multi-root hydration + failed-root isolation |
 | `ui.test` surfaces this Spec references | **S1** core (render/find/find-all/text/attrs over Tier-1 trees; the frame-targeted synchronous `dispatch!` dispatch-and-drain, no mounted variant; `query` enforces the tier split) → **S2** mounted semantics (Promise-backed `with-root`; native-CSS `query`; Promise-backed zero/thunk `flush!` on CLJS, synchronous nil on JVM; platform APIs for already-host-owned DOM mechanics, no gesture DSL) → **S4** `flush-presence!` | selector-grammar fixtures; JVM-subset enforcement; real React mount/query/total-teardown/open-drain/forgotten-await/fixed-point fixtures. Compiled event-vector delivery through native events rides the S3 handler row, not the S2 mount surface |
 | §View identity and the instrumentation surface | **S3** → full evidence schema **S6** (rf2-vxgfnd.98.1) | manifests, instance records, cause vectors, Xray consumption (compile-time site anchors exist from S1; the **bounded evidence subset** asserts S3; the full per-commit committed-instance record + six-kind `:rf.view/causes` vector assert S6 under `re-frame.ui.tool/schema-version` 3, with `parent-render-key` + a singular record `frame-id` + five further cause kinds deferred-with-triggers per EP-0033 §S6 view-evidence delta); production erasure G-7/G-11 |
