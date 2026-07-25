@@ -112,6 +112,13 @@
                 ;; a moment earlier. It sits BELOW this namespace and takes
                 ;; nothing back from it.
                 :cljs [[re-frame.freehand.compiled-react]
+                       ;; Freehand's own reactive-substrate adapter. Browser-only
+                       ;; for the mount verbs' reason: it stands on the core
+                       ;; React spine and its lifecycle composition is about
+                       ;; React roots, neither of which a JVM structural render
+                       ;; has. It sits BELOW this door and takes nothing back
+                       ;; from it.
+                       [re-frame.freehand.adapter :as fh-adapter]
                        [re-frame.freehand.root :as root]
                        ;; The OUTWARD React bridge's runtime. Browser-only for
                        ;; the same reason `root` is: it answers with a React
@@ -713,6 +720,55 @@
   Per [Spec 006 §The subscription law](../../../../spec/006-ReactiveSubstrate.md#the-subscription-law)."
        :arglists '([query])}
   sub cell/observe!)
+
+;; ---------------------------------------------------------------------------
+;; Boot — `v/adapter`
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 006 §Adapter selection at boot. The reactive substrate is a separate
+;; contract from the view layer, and it has to be filled before the first frame
+;; exists — `make-state-container` raises `:rf.error/no-adapter-installed` until
+;; `rf/init!` has run. Freehand renders itself through `react-dom/client`, so
+;; what it needs from an adapter is the OBSERVATION half alone: a state
+;; container, and a derived value that says when it moved. It now owns one, so
+;; an interactive Freehand page no longer installs a wrapper library it never
+;; renders through. Browser-only, exactly like the mount verbs below: the value
+;; stands on the core React spine.
+
+#?(:cljs
+   (def ^{:doc "The Freehand reactive-substrate adapter — install it once, at
+  boot, before the first frame is minted.
+
+      (rf/init! v/adapter)
+
+  It is the closed substrate contract plus the canonical discriminator
+  `:kind :rf.adapter/freehand`, built on the core React spine
+  (`re-frame.substrate.spine`) that every React-shaped adapter shares. Freehand
+  supplies React's own hooks and takes no new dependency — it already requires
+  `react` and `react-dom/client`.
+
+  Installation is IDEMPOTENT across a hot reload and explicit always: there is
+  no default-adapter registry and no automatic selection. A second install
+  without an intervening `(rf/destroy-adapter!)` fails loud
+  (`:rf.error/adapter-already-installed`) — one adapter per process.
+
+  Two things it does that the shared spine does not. `(rf/destroy-adapter!)`
+  unmounts every live Freehand root FIRST — releasing their subscriptions,
+  disconnecting their ViewCells and releasing their frames — and disposes the
+  spine second, because the drain needs the containers the spine is about to
+  tear down. And its synchronous `flush-render!` returns with the Freehand DOM
+  SETTLED: the pending ViewCell window is closed inside React's commit boundary
+  and then converged, rather than left to the microtask a mark arms.
+
+  The wrapper adapters remain first-class: Reagent, UIx and reagent-slim are
+  independently supported RENDERER adapters, and this one competes with none of
+  them — it is the observation wiring of a substrate that renders itself.
+  Bring-your-own-adapter stays legitimate for a mixed application under the
+  single-adapter runtime; a Freehand root is still torn down with
+  [[unmount!]] before an external adapter is destroyed.
+
+  Per [Spec 006 §The adapter API contract](../../../../spec/006-ReactiveSubstrate.md)."}
+     adapter fh-adapter/adapter))
 
 ;; ---------------------------------------------------------------------------
 ;; Roots and mounting — `v/mount`
