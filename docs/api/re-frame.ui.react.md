@@ -48,9 +48,11 @@ deps ⇒ connect-only. Effects do not run on the JVM (capability metadata only).
 
 `(react/use-layout-effect setup)` / `(… setup deps)` → nil (`useLayoutEffect`, after DOM
 mutation, **before paint**) for measure-then-mutate work that would flicker under passive
-timing — the native component-library measure-before-paint door
-([recipe](../core/how-to/measure-before-paint.md)). Same setup/cleanup/`rf=`-value-deps
-contract as `use-effect`.
+timing — this tier's measure-before-paint door. Same setup/cleanup/`rf=`-value-deps
+contract as `use-effect`. The guide
+[recipe](../core/how-to/measure-before-paint.md) for that job is written against
+Freehand's `:layout`-timing behavior; this hook is the donor spelling of the same
+before-paint slot.
 
 ### `use-effect-event`
 
@@ -93,7 +95,7 @@ declared fallback (else nothing) and never invokes the thunk.
 
 ## See also
 
-- [Measure before paint](../core/how-to/measure-before-paint.md) — the sanctioned
-  `ui/ref` + `use-layout-effect` recipe for component-library geometry.
+- [Measure before paint](../core/how-to/measure-before-paint.md) — the
+  component-library geometry recipe, on Freehand's `:layout`-timing behavior.
 - [`re-frame.ui`](re-frame.ui.md) — the compiled-view surface these wrappers live inside.
 - Spec 004 §The React interop tier — the full normative contract.
