@@ -20,6 +20,7 @@
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.routing :as routing]
+            [re-frame.routing.registry :as registry]
             [re-frame.routing.resolve :as resolver]
             [re-frame.routing.subs :as routing-subs]
             [re-frame.routing.url-change :as url-change]
@@ -408,6 +409,87 @@
       (is (empty? @pushed)
           "no :rf.nav/push-url — the exact no-op terminated before history moved")
       (is (= :rf.route/not-found (current-id))))))
+
+;; ---- both URL-bearing doors share ONE reason vocabulary (rf2-teov0) --------
+;;
+;; `plan.cljc`'s not-found section states the invariant: "The reason vocabulary
+;; is SHARED across both entry points … a malformed percent-encoding stamps
+;; `:malformed-url` … Encoding the shape once keeps the two paths' fallback
+;; params byte-for-byte identical." It did not. The programmatic `{:url …}` door
+;; resolved its own URL — `match-url-fail-closed` called directly, the not-found
+;; shape re-derived inline — so it never ran the `malformed-url?` scan and
+;; hardcoded `:malformed? false` into the SHARED telemetry call. On the same
+;; malformed URL the URL-driven door stamped `:reason :malformed-url` and warned;
+;; the programmatic door stamped `{:url …}` and said nothing. That is the one
+;; door Spec 012 documents as taking user-supplied URLs, and `egress.cljc` names
+;; the unmatched URL as the class most likely to carry `?token=` — so the
+;; EP-0015 malformed-URL diagnostic was absent exactly where malformed input
+;; arrives.
+
+(defn- door-fallback
+  "Drive ONE not-found navigation and report what the two surfaces a consumer
+  reads actually say: the slice's `:route-id` + `:params`, and the fail-closed
+  warning operations the drain emitted."
+  [dispatch]
+  (with-trace-recorder! [traces {:pred #(contains? #{:rf.warning/malformed-url
+                                                     :rf.warning/no-not-found-route}
+                                                   (:operation %))}]
+    (rf/dispatch-sync dispatch)
+    {:route-id (current-id)
+     :params   (get-in (rdb) [:rf.runtime/routing :current :params])
+     :warnings (mapv :operation @traces)}))
+
+(deftest both-url-bearing-doors-stamp-the-same-not-found-reason
+  (routing/reg-route :route/home {} "/home")
+  (routing/reg-route :route/typed {:params [:map [:id :int]]} "/typed/:id")
+  (routing/reg-route :rf.route/not-found {} "/not-found")
+  (quiet-nav-fx!)
+  (testing "a BARE miss — the discriminator that already agreed"
+    (let [url-driven   (door-fallback [:rf.route/handle-url-change "/miss-a"])
+          programmatic (door-fallback [:rf.route/navigate {:url "/miss-b"}])]
+      (is (= :rf.route/not-found (:route-id url-driven) (:route-id programmatic)))
+      (is (= {:url "/miss-a"} (:params url-driven)))
+      (is (= {:url "/miss-b"} (:params programmatic)))
+      (is (= [] (:warnings url-driven) (:warnings programmatic))
+          "a well-formed miss is not a malformed URL")))
+  (testing "a MALFORMED percent-encoding — the discriminator that did NOT agree.
+            The programmatic door yielded {:url …} and emitted no warning at
+            all, so a per-route error UI branching on :reason (Spec 012) and the
+            EP-0015 malformed-URL diagnostic both went dark on the one door that
+            takes user-supplied URLs."
+    (let [url-driven   (door-fallback [:rf.route/handle-url-change "/miss-a/%zz"])
+          programmatic (door-fallback [:rf.route/navigate {:url "/miss-b/%zz"}])]
+      (is (= :rf.route/not-found (:route-id url-driven) (:route-id programmatic)))
+      (is (= :malformed-url (:reason (:params url-driven))))
+      (is (= :malformed-url (:reason (:params programmatic)))
+          "the two doors stamp the SAME :reason for the same class of URL")
+      (is (= [:rf.warning/malformed-url] (:warnings url-driven)))
+      (is (= [:rf.warning/malformed-url] (:warnings programmatic))
+          "EP-0015's malformed-URL diagnostic fires on BOTH doors")))
+  (testing "a match-url THROW — the second discriminator that already agreed,
+            pinned so the merge onto the shared extraction cannot lose it"
+    (with-redefs [registry/match-url
+                  (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
+      (let [url-driven   (door-fallback [:rf.route/handle-url-change "/throw-a"])
+            programmatic (door-fallback [:rf.route/navigate {:url "/throw-b"}])]
+        (is (= :rf.route/not-found (:route-id url-driven) (:route-id programmatic)))
+        (is (= {:url "/throw-a" :reason :match-error} (:params url-driven)))
+        (is (= {:url "/throw-b" :reason :match-error} (:params programmatic)))
+        (is (= [:rf.warning/malformed-url] (:warnings url-driven)))
+        (is (= [:rf.warning/malformed-url] (:warnings programmatic))))))
+  (testing "a VALIDATION miss is the RATIFIED asymmetry, not a defect: Spec 012's
+            resolve-target table and §Validation-error surfacing ratify
+            URL-driven-routes-to-not-found vs programmatic-caller-bug-rejects.
+            The merge preserves it exactly — the programmatic door takes the
+            MATCHED route-id, so `route-url` rejects the caller's bad params
+            rather than routing to not-found."
+    (let [url-driven (door-fallback [:rf.route/handle-url-change "/typed/not-an-int"])]
+      (is (= :rf.route/not-found (:route-id url-driven)))
+      (is (= {:url "/typed/not-an-int" :reason :validation} (:params url-driven))))
+    (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/typed/also-not-an-int"}])
+    (is (= :route/home (current-id))
+        "the programmatic door REJECTS a validation miss — slice unchanged")))
 
 ;; ---- the URL-change door reports WHICH of its three sub-doors fired --------
 

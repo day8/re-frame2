@@ -1395,8 +1395,14 @@
           (route-table))))))
 
 (defn match-url-fail-closed
-  "Fail-closed wrapper over `match-url` for the URL-driven and
-  programmatic nav entry points (`url-change-fx`, `navigate`). Returns
+  "Fail-closed wrapper over `match-url`, reached by every URL-bearing
+  navigation door through the ONE URL -> ResolvedTarget extraction
+  (`re-frame.routing.resolve/url-resolution`) — the URL-driven
+  `url-change-fx`, the link door's stage-3 target, and the programmatic
+  `{:url …}` escape hatch alike. It has no direct callers among the doors
+  (rf2-teov0: the programmatic door was the last one, and calling this
+  directly is exactly how it came to re-derive the not-found shape and lose
+  the `:malformed-url` discriminator). Returns
   `{:match <match-or-nil> :throw-reason <keyword-or-nil>}`.
 
   A generic navigation-resilience guard: any unexpected throw out of
