@@ -3476,30 +3476,54 @@
   the outcome's own `:status`, so one fn drives BOTH mutation settle handlers.
 
   `mutation-id` picks the owner, and the two owners are the two halves of the
-  mutation family's redaction story. `:m/save` declares NOTHING, so
-  `classification/redact-continuation-reply` substitutes nothing at the source
-  and any redaction observed on its reply came from the EGRESS projector.
+  mutation family's redaction story. `:m/save` declares nothing that can reach
+  `:error`, so `classification/redact-continuation-reply` substitutes nothing
+  into the failure envelope at the source and any redaction observed on it came
+  from the EGRESS projector.
   `:m/save-declared` names `[:value :email]` sensitive, so its result is
   redacted at the SOURCE, before the reply reaches a carrier at all — which is
   the only canary the SUCCESS settle has, there being no failure envelope on
   that branch and no arm of the egress projector that owns an undeclared
   mutation's `:value` (§rf2-xx4ty — the app's own continuation handler is
   entitled to it, and the coarse claim a resource would make has no mutation
-  counterpart)."
+  counterpart).
+
+  rf2-k8vyi — THE CALL SITE PLANTS THE FAMILY'S IDENTITY. `:scope` is a public
+  ScopeInput on the execute payload, and this drive used to pass none: every
+  scope it produced was `:rf.scope/global`, the one scope shape with nothing in
+  it to leak, so `:correlation :scope` carried no canary on either mutation
+  branch and the ninth leak (rf2-l6wjl) was invisible to the namespace built to
+  see it. `:params` is planted the same way and for the same reason — the
+  request fns below deliberately do not echo the slug into their URL, because a
+  resource's own request map is the FX family's data and rides untouched by
+  design (rf2-1kiuj), which would make the sweep red on a by-design slot.
+
+  Both owners therefore also declare `:sensitive [[:params :slug]]`. There is
+  no coarse `:sensitive?` root prop on `reg-mutation` (§rf2-xx4ty), so a
+  projection-relative params declaration is the ONLY spelling by which a
+  mutation can claim its own params — and without one a secret-bearing
+  `:params` would ride verbatim on the carrier, symmetrically with an
+  undeclared resource's (§rf2-rnsv2 drives `:plain/article` with a plain slug
+  for exactly that reason). Declaring it is what makes the mutation branches
+  carry the family's identity in `:params` at all, and it is the only proof
+  anywhere that a mutation's `[:params …]` declaration reaches a continuation
+  reply."
   [mutation-id {:keys [status] :as outcome}]
   (rf/configure! {:epoch-history {:trace-events-keep 80}})
   (let [captured (atom nil)]
     (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
     (rf/reg-event :app/save-replied (fn [_ _ev] {}))
     (rf/reg-mutation :m/save
-      {:params-schema [:map [:slug :string]]}
-      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (rf/reg-mutation :m/save-declared
-      {:sensitive     [[:data :email]]
+      {:sensitive     [[:params :slug]]
        :params-schema [:map [:slug :string]]}
-      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/b/" slug)}}))
+      (fn [_ _] {:request {:method :put :url "/a"}}))
+    (rf/reg-mutation :m/save-declared
+      {:sensitive     [[:data :email] [:params :slug]]
+       :params-schema [:map [:slug :string]]}
+      (fn [_ _] {:request {:method :put :url "/b"}}))
     (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation mutation-id :params {:slug plain-slug}
+                       {:mutation mutation-id :params reply-params
+                        :scope    session-scope
                         :instance :mf1 :reply-to mutation-reply-target}]
                       {:frame :test/rt})
     (rf/dispatch-sync (conj (get @captured (if (= :ok status) :on-success :on-failure))
@@ -3810,25 +3834,52 @@
                       {:frame :test/rt})
     (rf/epoch-history :test/rt)))
 
-(defn- drive-failing-feed-reply-to-read!
+(defn- drive-session-feed-reply-to!
   "Drive a REAL `[:rf.resource/ensure … :reply-to …]` against an INFINITE FEED
-  and fail its page-0 fetch. An infinite resource lowers its `:on-failure` to
-  `:rf.resource.internal/page-failed`, so this settles through
-  `page-failed-handler` — with its own first-load-vs-load-more split — rather
-  than `failed-handler`.
+  and settle its page-0 fetch with `outcome`, the canonical transport reply.
+  An infinite resource lowers into its OWN pair of settle events
+  (`:rf.resource.internal/page-succeeded` / `…/page-failed`, each with its own
+  first-load-vs-load-more split), so one fn drives both feed branches of the
+  inventory.
 
-  `:plain/feed` declares nothing and its params carry no secret, so the
-  envelope is the only canary and the sweep names exactly one datum."
-  [envelope]
+  rf2-k8vyi — THE FEED IS SESSION-SCOPED, registered here rather than taken
+  from the shared fixture. Every feed in that fixture scopes `:rf.scope/global`
+  because the sections that own them are about the `[:data …]` declaration axis,
+  and a global scope is a SCALAR: `:scope`, `:correlation`, `:resource/key` and
+  `:rf.reply/work-id` all carried nothing on the two feed branches. A
+  `{:from-db …}` resolver puts an identity MAP in all four, and the params carry
+  the canary too — so this drive plants the family's identity everywhere the
+  reply can hold it, which is the whole point of an inventory."
+  [outcome]
   (rf/configure! {:epoch-history {:trace-events-keep 80}})
   (let [captured (atom nil)]
     (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
     (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
+    (rf/reg-resource :derived/feed
+      {:scope           {:from-db :rt/session}
+       :infinite        true
+       :next-page-param (fn [_last _all] nil)
+       :page->items     :items
+       ;; the COARSE claim, as `:derived/profile` makes it on the scalar
+       ;; branches. A projection-relative `[[:data …]]` declaration would leave
+       ;; `row-owner-redacts?` false and the owner's scoped KEY riding verbatim
+       ;; — correct (rf2-1zc33 made only the FREE `:scope` tag unconditional;
+       ;; the key belongs to its owner) but it would make a whole-record sweep
+       ;; red on by-design egress. The `[:data …]` axis has its own coverage in
+       ;; §(rf2-zaopo); what the inventory needs from a feed is the branch.
+       :sensitive?      true
+       :params-schema   [:map [:slug :string]]}
+      (fn [_ _] {:request {:method :get :url "/i"}}))
+    (frame/swap-runtime-db! :test/rt
+      (fn [rt] (elision/apply-classification-effects
+                 rt {:sensitive [[:auth :user :username]]})))
+    (frame/swap-frame-db! :test/rt assoc-in [:auth :user :username] secret)
     (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :plain/feed :params {:filter :all}
-                        :owner    real-owner  :reply-to read-reply-target}]
+                       {:resource :derived/feed :params reply-params
+                        :owner    real-owner   :reply-to read-reply-target}]
                       {:frame :test/rt})
-    (rf/dispatch-sync (conj (:on-failure @captured) {:status :error :error envelope})
+    (rf/dispatch-sync (conj (get @captured (if (= :ok (:status outcome)) :on-success :on-failure))
+                            outcome)
                       {:frame :test/rt})
     (rf/epoch-history :test/rt)))
 
@@ -3860,6 +3911,18 @@
       ;; SETUP, and they legitimately fan out.
       (drop before (rf/epoch-history :test/rt)))))
 
+(def ^:private mutation-work-id-is-instance-keyed
+  "rf2-k8vyi §the canary set — the one reply slot a MUTATION drive cannot plant.
+  A resource's `:rf.reply/work-id` is `[:rf.work/resource <scoped-key>
+  <generation>]` and so embeds the resolved scope and the caller's params; a
+  mutation's is `[:rf.work/resource [:rf.mutation <instance-id>] <generation>]`
+  — three app-authored keywords and an integer, with no resolved-from-app-db
+  component for identity to enter through. Nothing the caller supplies reaches
+  it, so there is no canary to plant, and its absence is not a gap."
+  {:rf.reply/work-id
+   "a mutation work id is keyed by its INSTANCE, not by a scoped key — no
+    caller-supplied or resolver-derived value reaches it"})
+
 (def ^:private continuation-settle-drives
   "One entry per inventoried settle path, KEYED BY THE EVENT ID the inventory
   derives from source. The keys are asserted equal to the inventory, so this
@@ -3876,14 +3939,14 @@
           still carrying the abort under `:error`. `:status` is not the gate,
           which is exactly why both arms are driven"
     :drives [{:drive  #(record-carrying-reply
-                         (drive-failing-reply-to-read! :plain/article
-                                                       {:slug plain-slug}
+                         (drive-failing-reply-to-read! :derived/profile
+                                                       reply-params
                                                        failure-envelope)
                          false)
               :expect {:status :error :rf.reply/work-status :failed}}
              {:drive  #(record-carrying-reply
-                         (drive-failing-reply-to-read! :plain/article
-                                                       {:slug plain-slug}
+                         (drive-failing-reply-to-read! :derived/profile
+                                                       reply-params
                                                        abort-envelope)
                          false)
               :expect {:status :cancelled :rf.reply/work-status :cancelled}}]}
@@ -3893,20 +3956,34 @@
           envelope, so its canary is the owner data the reply carries beside
           it — which is why the sweep is whole-record and not `:error`-shaped"
     :drives [{:drive  #(record-carrying-reply (drive-aborted-event-reply-to-read! :derived/profile) false)
-              :expect {:status :cancelled :resource :derived/profile}}]}
+              :expect {:status :cancelled :resource :derived/profile}
+              ;; the ONE slot on the ONE branch no drive can reach. An
+              ;; exemption here is not the hand-list §(rf2-k8vyi) retired: the
+              ;; polarity is inverted — the derived union is the default and an
+              ;; exemption has to be written down with its reason, so a slot
+              ;; nobody thought about is COVERED rather than omitted.
+              :unplantable {:error "the legacy abort event SYNTHESISES its
+                                    `{:kind :rf.http/aborted :reason :aborted}`
+                                    envelope from nothing the caller supplies —
+                                    there is no input through which a drive
+                                    could plant a canary in it"}}]}
 
    :rf.resource.internal/page-succeeded
    {:why "the infinite feed's page settle. A DIFFERENT handler from the scalar
           success, with its own append-vs-replace split, delivering the MERGED
           item list under `:value`"
-    :drives [{:drive  #(record-carrying-reply (drive-feed-reply-to-read! :declared/feed) false)
-              :expect {:status :ok :resource :declared/feed}}]}
+    :drives [{:drive  #(record-carrying-reply
+                         (drive-session-feed-reply-to! {:status :ok :value declared-feed-page})
+                         false)
+              :expect {:status :ok :resource :derived/feed}}]}
 
    :rf.resource.internal/page-failed
    {:why "the infinite feed's page FAILURE — the family's third error channel,
           reached only through an `:infinite` resource's lowering"
-    :drives [{:drive  #(record-carrying-reply (drive-failing-feed-reply-to-read! failure-envelope) false)
-              :expect {:status :error :resource :plain/feed}}]}
+    :drives [{:drive  #(record-carrying-reply
+                         (drive-session-feed-reply-to! {:status :error :error failure-envelope})
+                         false)
+              :expect {:status :error :resource :derived/feed}}]}
 
    :rf.mutation.internal/succeeded
    {:why "the mutation WRITE settle — a fourth reply builder on a fourth
@@ -3919,7 +3996,8 @@
                          (drive-mutation-reply-to! :m/save-declared
                                                    {:status :ok :value mutation-value}))
               :expect {:status :ok :rf.reply/work-kind :mutation
-                       :mutation :m/save-declared}}]}
+                       :mutation :m/save-declared}
+              :unplantable mutation-work-id-is-instance-keyed}]}
 
    :rf.mutation.internal/failed
    {:why "the mutation failure settle, and — like its read sibling — its
@@ -3930,11 +4008,13 @@
     :drives [{:drive  #(record-with-family-reply
                          (drive-mutation-reply-to! :m/save
                                                    {:status :error :error failure-envelope}))
-              :expect {:status :error :rf.reply/work-kind :mutation}}
+              :expect {:status :error :rf.reply/work-kind :mutation}
+              :unplantable mutation-work-id-is-instance-keyed}
              {:drive  #(record-with-family-reply
                          (drive-mutation-reply-to! :m/save
                                                    {:status :error :error abort-envelope}))
-              :expect {:status :cancelled :rf.reply/work-kind :mutation}}]}
+              :expect {:status :cancelled :rf.reply/work-kind :mutation}
+              :unplantable mutation-work-id-is-instance-keyed}]}
 
    :rf.resource/ensure
    {:why "the SYNCHRONOUS fan-out: a fresh-skip cache hit has no work record
@@ -3998,3 +4078,155 @@
                       "the drive settled the branch it is filed under — the
                        record's own event id, not the drive's say-so")
                   (assert-branch-sweep! raw expect))))))))))
+
+;; ===========================================================================
+;; (rf2-k8vyi) the CANARY SET — derived from the family's own replies, because
+;; a sweep only ever finds what the drive PLANTED.
+;; ===========================================================================
+;;
+;; The inventory above generalises two of the three things a canary suite is
+;; made of. The DRIVE SET is read out of the family's source, so a settle branch
+;; joins it the moment its source is written. The HARVEST is a whole-record
+;; sweep, so whatever slot a continuation gains, `assert-branch-sweep!` sees it.
+;;
+;; THE CANARY SET WAS STILL A HAND LIST, and it was the gap the ninth leak
+;; (rf2-l6wjl) walked through. `drive-mutation-reply-to!` passed no `:scope` at
+;; all, so every scope it produced was `:rf.scope/global` — a SCALAR, the one
+;; scope shape with nothing in it to leak. `:correlation :scope` therefore
+;; carried no canary on either mutation branch, the sweep swept a slot that was
+;; empty by construction, and a leak this namespace exists to catch shipped
+;; green. The fixture assertion did not help: `(seq (secret-leak-paths raw))`
+;; only asks whether the record leaks SOMEWHERE, and the failure envelope alone
+;; satisfied it.
+;;
+;; SO THE CANARY SET IS DERIVED TOO, and it is derived from the same place the
+;; drive set is — the family's own behaviour rather than an author's memory:
+;;
+;;   1. THE FLOOR, which is not derived and does not need to be. Every drive
+;;      plants a resolved `[tier {identity}]` scope bearing the canary. One
+;;      assertion, no list, true of every branch: a `:rf.scope/global` reply is
+;;      a reply whose scope, correlation, resource key and work id are all
+;;      structurally incapable of leaking, and a suite of those proves nothing
+;;      about a projector.
+;;
+;;   2. THE PARITY, which is. `identity-bearing-reply-slots` is the union, over
+;;      every inventoried drive, of the reply slots that DEMONSTRABLY carry
+;;      identity — a slot bearing the canary, or bearing a redaction token
+;;      (which proves the SOURCE cleaned identity out of it before the carrier
+;;      saw it). Every drive is then held to that union: a slot in it, present
+;;      on this branch and barren, is a canary the drive forgot to plant.
+;;
+;; WHY PARITY IS THE RIGHT GENERALISATION. The ninth leak was not a slot nobody
+;; had thought about — `:correlation :scope` was canaried, cleaned and asserted
+;; on every READ branch at the time it shipped. It was the SAME slot, unplanted
+;; on a sibling branch, and no assertion in this namespace compared the two.
+;; The union does exactly that comparison, and it grows by itself: the day any
+;; drive plants a canary in a slot nobody had considered, every other branch
+;; carrying that slot owes one too, and reds until it has it.
+;;
+;; WHAT IT DOES NOT CLAIM. Parity is a consistency proof, not a completeness
+;; one. A slot that NO drive canaries stays out of the union — `:cause` and
+;; `:affected-keys` are barren on every branch today — so this cannot be the
+;; only thing standing between the family and its tenth leak. The floor is what
+;; keeps the union from collapsing: it pins the four scope-derived slots
+;; unconditionally, on every branch, whatever the rest of the suite does.
+
+(defn- carries-redaction-token?
+  "Whether `x` carries a redaction token anywhere — the `{:rf/redacted …}`
+  component the egress projector substitutes, or the bare `:rf/redacted`
+  keyword a SOURCE-side declaration leaves in place of a value. Either one is
+  proof that identity was in this slot and something took it out, which is what
+  makes the slot count as planted."
+  [x]
+  (let [found (volatile! false)]
+    (walk/postwalk (fn [v]
+                     (when (or (= :rf/redacted v) (redacted-component? v))
+                       (vreset! found true))
+                     v)
+                   x)
+    @found))
+
+(defn- reply-slot-facts
+  "Per-slot canary classification of every family continuation reply riding
+  `raw`'s carriers: `:canaried` (the drive's identity is in this slot raw),
+  `:redacted-at-source` (it was, and a declaration removed it), `:barren`
+  (nothing identity-bearing is in this slot at all)."
+  [raw]
+  (mapv (fn [reply]
+          (into {}
+                (map (fn [[k v]]
+                       [k (cond
+                            (contains-secret? v)         :canaried
+                            (carries-redaction-token? v) :redacted-at-source
+                            :else                        :barren)]))
+                reply))
+        (family-carrier-replies raw)))
+
+(defn- resolved-identity-scope?
+  "Whether `s` is a resolved `[tier {identity}]` scope — the only scope shape
+  with anything in it to leak."
+  [s]
+  (and (vector? s) (= 2 (count s)) (keyword? (first s)) (map? (second s))))
+
+(defn- observe-inventoried-drives!
+  "Run every inventoried drive once, each in its own runtime, and return what
+  each one PLANTED: the reply scopes and the per-slot canary facts. Read from
+  the RAW record only, so unlike the sweep it does not need the frame to still
+  be alive when it is judged."
+  []
+  (let [observed (atom [])]
+    (doseq [[settle-id {:keys [drives]}] continuation-settle-drives
+            [i {:keys [drive unplantable]}] (map-indexed vector drives)]
+      (in-an-isolated-runtime
+        (fn []
+          (let [raw (drive)]
+            (swap! observed conj
+                   {:settle-id   settle-id
+                    :arm         i
+                    :unplantable (set (keys unplantable))
+                    :scopes      (mapv :scope (family-carrier-replies raw))
+                    :facts       (reply-slot-facts raw)})))))
+    @observed))
+
+(deftest every-inventoried-drive-plants-an-identity-bearing-scope
+  (testing "rf2-k8vyi §the floor — a drive whose scope is `:rf.scope/global`
+            sweeps a `:scope`, a `:correlation`, a `:resource/key` and a
+            `:rf.reply/work-id` that are all scalars-all-the-way-down, and
+            proves nothing about the projector that would have to clean them.
+            Every inventoried drive plants a resolved `[tier {identity}]` scope
+            carrying the canary, so all four slots are live on every branch."
+    (doseq [{:keys [settle-id arm scopes]} (observe-inventoried-drives!)]
+      (testing (str settle-id " arm " arm)
+        (is (seq scopes) "the reply carries a `:scope` slot at all")
+        (doseq [s scopes]
+          (is (and (resolved-identity-scope? s) (contains-secret? (second s)))
+              (str "the drive planted an identity-bearing scope; got " (pr-str s))))))))
+
+(deftest every-inventoried-drive-canaries-every-slot-the-family-can-carry-identity-in
+  (testing "rf2-k8vyi §the parity — the canary set is the UNION of the slots
+            the drives themselves demonstrate can carry identity, and every
+            branch owes the whole union. The ninth leak was `:correlation
+            :scope` canaried on every read branch and unplanted on both
+            mutation ones; nothing compared them."
+    (let [observed         (observe-inventoried-drives!)
+          identity-bearing (into #{} (for [{:keys [facts]} observed
+                                           slots facts
+                                           [k classification] slots
+                                           :when (not= :barren classification)]
+                                       k))]
+      (testing "the derived canary set is not vacuously empty"
+        (is (seq identity-bearing)
+            "no inventoried drive planted identity in any reply slot — the
+             canary vocabulary was renamed and this whole section stopped
+             checking anything"))
+      (doseq [{:keys [settle-id arm unplantable facts]} observed]
+        (testing (str settle-id " arm " arm)
+          (doseq [slots facts]
+            (is (= #{} (into #{} (for [[k classification] slots
+                                       :when (and (= :barren classification)
+                                                  (identity-bearing k)
+                                                  (not (unplantable k)))]
+                                   k)))
+                "every slot this family is known to carry identity in is
+                 planted on this branch too — a barren one is a canary the
+                 drive forgot, and a sweep over it can only ever pass")))))))
