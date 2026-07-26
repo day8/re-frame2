@@ -78,6 +78,10 @@
                  (probe)
                  (catch Throwable t
                    {:probe-threw (str (class t) ": " (.getMessage t))}))]
-    (.print (System/out) (str result-marker (pr-str result) "\n"))
-    (.flush (System/out))
+    ;; `System/out` is a static FIELD — referenced without parens. Writing it
+    ;; and flushing explicitly (rather than `println`) is deliberate: the child
+    ;; calls `System/exit` immediately after, and an unflushed stdout buffer
+    ;; would lose the marker line the parent parses.
+    (.print System/out (str result-marker (pr-str result) "\n"))
+    (.flush System/out)
     (System/exit 0)))
