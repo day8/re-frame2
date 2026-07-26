@@ -25,7 +25,36 @@
   `annotated`, and the production-gate arm is reinstated at the new site.
 
   A keyword head is still NOT a view and still NOT annotated — it is a DOM
-  element, unchanged by this bead (`keyword-head-*` below)."
+  element, unchanged by this bead (`keyword-head-*` below).
+
+  ## Posture split (rf2-lwtlk)
+
+  The annotations this namespace is named for are DEV-ONLY BY DESIGN: the
+  wrapper `re-frame.views/jvm-source-coord-annotation` is installed at
+  `reg-view` REGISTRATION time behind `interop/debug-enabled?`, which the JVM
+  reads once at namespace-load time.  Under the real
+  `-Dre-frame.debug=false` gate no view is ever wrapped, so no server markup
+  carries `data-rf2-source-coord` or `data-rf-view`.  That is the elision
+  working, not a defect.
+
+  So every assertion ABOUT an annotation — present or absent — lives inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-lwtlk`, kept verbatim.
+  The negative ones travel with the positive ones deliberately: \"the outer
+  view did not stamp itself\", \"a fragment root is not annotated\", \"a
+  keyword head is not annotated\" all pass VACUOUSLY under the gate, where
+  nothing stamps anything, so leaving them outside the arm would report a
+  green that proved nothing.
+
+  What is posture-independent, and therefore what this namespace now
+  contributes to `scripts/test-ssr-prod-gate.sh`, is the RENDER: which
+  element each head shape resolves to and what it emits.  A Form-2 view's
+  inner output is the thing rendered; a fragment root emits its children
+  unwrapped; a keyword head is an element, not a view; a nested view-ref root
+  renders the inner view.  Those hold in both postures and are asserted
+  outside the arm.  `production-build-emits-no-annotation` gains a REAL-gate
+  arm (`when-not interop/debug-enabled?`) so the production posture is
+  witnessed by the gate itself rather than only by a `with-redefs` rebind,
+  which cannot reach a load-time gate (rf2-9c2jf)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -52,19 +81,34 @@
     (rf/reg-view ^{:rf/id :ssr-coord-test/banner} banner-view []
       [:h1 "hi"])
 
-    (testing "Var head"
-      (is (both-annotations? (ssr/render-to-string [banner-view] {}))))
+    ;; SEMANTIC, posture-independent (rf2-lwtlk): both head shapes resolve to
+    ;; the same registered view, and it renders ITS OWN root carrying ITS OWN
+    ;; content — the "not swallowed" property below, stated without reference
+    ;; to the dev attributes that happen to sit on that root in dev posture.
+    (testing "both head shapes render the registered view's own <h1> root"
+      (doseq [[label html] [["Var head"
+                             (ssr/render-to-string [banner-view] {})]
+                            ["`(rf/view :id)` head"
+                             (ssr/render-to-string
+                               [(rf/view :ssr-coord-test/banner)] {})]]]
+        (is (str/starts-with? html "<h1") label)
+        (is (str/ends-with? html ">hi</h1>") label)))
 
-    (testing "`(rf/view :id)` head"
-      (is (both-annotations?
-            (ssr/render-to-string [(rf/view :ssr-coord-test/banner)] {}))))
+    ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+    (when interop/debug-enabled?
+      (testing "Var head"
+        (is (both-annotations? (ssr/render-to-string [banner-view] {}))))
 
-    (testing "the data-rf-view value is `(str id)`"
-      (is (str/includes? (ssr/render-to-string [banner-view] {})
-                         "data-rf-view=\":ssr-coord-test/banner\"")))
+      (testing "`(rf/view :id)` head"
+        (is (both-annotations?
+              (ssr/render-to-string [(rf/view :ssr-coord-test/banner)] {}))))
 
-    (testing "the view genuinely rendered its own root — not swallowed"
-      (is (str/starts-with? (ssr/render-to-string [banner-view] {}) "<h1 ")))))
+      (testing "the data-rf-view value is `(str id)`"
+        (is (str/includes? (ssr/render-to-string [banner-view] {})
+                           "data-rf-view=\":ssr-coord-test/banner\"")))
+
+      (testing "the view genuinely rendered its own root — not swallowed"
+        (is (str/starts-with? (ssr/render-to-string [banner-view] {}) "<h1 "))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Exact byte shape for a programmatic (coordless) registration — degrade
@@ -76,11 +120,21 @@
             hosts match on the programmatic path too."
     (rf/reg-view* :ssr-coord-test/prog {} (fn [] [:div "prog"]))
     (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/prog)] {})]
-      (is (= (str "<div data-rf2-source-coord=\"ssr-coord-test:prog:?:?\""
-                  " data-rf-view=\":ssr-coord-test/prog\">prog</div>")
-             html)
-          (str "coordless degrade must produce exactly the client shape; got: "
-               (pr-str html))))))
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): a programmatic
+      ;; registration renders at all, and renders its own root and body.
+      ;; The gate removes the ATTRIBUTES, never the element.
+      (is (str/starts-with? html "<div") (pr-str html))
+      (is (str/ends-with? html ">prog</div>") (pr-str html))
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The exact
+      ;; byte shape of the `?:?` degrade is the whole point of this deftest
+      ;; and is a statement about the dev annotation dialect.
+      (when interop/debug-enabled?
+        (is (= (str "<div data-rf2-source-coord=\"ssr-coord-test:prog:?:?\""
+                    " data-rf-view=\":ssr-coord-test/prog\">prog</div>")
+               html)
+            (str "coordless degrade must produce exactly the client shape; got: "
+                 (pr-str html)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Author-supplied attribute values are PRESERVED
@@ -94,12 +148,24 @@
                   (fn [] [:div {:data-rf-view "author-owned"
                                 :id           "x"} "a"]))
     (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/authored)] {})]
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): the author's OWN attribute
+      ;; map is emitted whatever the posture — `data-rf-view` here is an
+      ;; author-owned attribute that merely shares a name with the framework's,
+      ;; and `:id` is an ordinary one. Neither is elided by the gate.
       (is (str/includes? html "data-rf-view=\"author-owned\"")
           "the author's data-rf-view value survives")
-      (is (not (str/includes? html "data-rf-view=\":ssr-coord-test/authored\""))
-          "the wrapper did not overwrite it")
-      (is (source-coord? html)
-          "the missing key IS still filled by the wrapper"))))
+      (is (str/includes? html "id=\"x\"")
+          "the author's other attributes survive alongside it")
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Both of these
+      ;; are about the WRAPPER: that it declined to overwrite, and that it
+      ;; filled the key the author left out. Under the gate no wrapper exists,
+      ;; so "did not overwrite" would pass vacuously.
+      (when interop/debug-enabled?
+        (is (not (str/includes? html "data-rf-view=\":ssr-coord-test/authored\""))
+            "the wrapper did not overwrite it")
+        (is (source-coord? html)
+            "the missing key IS still filled by the wrapper")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Form-2 views: the inner render fn's output is annotated
@@ -113,9 +179,19 @@
     (rf/reg-view* :ssr-coord-test/form2 {}
                   (fn [] (fn [] [:section "inner"])))
     (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/form2)] {})]
-      (is (both-annotations? html)
-          (str "Form-2 inner output must be annotated; got: " (pr-str html)))
-      (is (str/starts-with? html "<section ")))))
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): the emitter unwraps the
+      ;; outer fn and renders the INNER fn's hiccup. That is Form-2 support
+      ;; itself, and it holds with or without the annotation wrapper.
+      (is (str/starts-with? html "<section") (pr-str html))
+      (is (str/ends-with? html ">inner</section>") (pr-str html))
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The wrapper's
+      ;; Form-2 branch re-wraps so the INNER hiccup gets the attributes; the
+      ;; trailing space in "<section " is what proves an attribute landed.
+      (when interop/debug-enabled?
+        (is (both-annotations? html)
+            (str "Form-2 inner output must be annotated; got: " (pr-str html)))
+        (is (str/starts-with? html "<section "))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Non-DOM roots (fragment, nested view-ref head) skip — documented exemption
@@ -128,8 +204,17 @@
     (rf/reg-view* :ssr-coord-test/frag {}
                   (fn [] [:<> [:p "a"] [:p "b"]]))
     (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/frag)] {})]
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): a `:<>` root emits its
+      ;; children and nothing else — no wrapper element is invented for it.
       (is (= "<p>a</p><p>b</p>" html))
-      (is (not (both-annotations? html))))))
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). "not
+      ;; annotated" is vacuously true under the gate, where NOTHING is
+      ;; annotated; it only says something where the wrapper exists and
+      ;; deliberately skipped a non-DOM root. The `=` above already pins the
+      ;; byte shape in both postures.
+      (when interop/debug-enabled?
+        (is (not (both-annotations? html)))))))
 
 (deftest nested-view-ref-root-is-not-doubly-annotated
   (testing "rf2-8vi4q — a view whose root is ANOTHER view-ref (a callable
@@ -140,12 +225,25 @@
     (rf/reg-view* :ssr-coord-test/outer {}
                   (fn [] [(rf/view :ssr-coord-test/inner)]))
     (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/outer)] {})]
-      (is (str/includes? html "data-rf-view=\":ssr-coord-test/inner\"")
-          "the inner view annotated its own root")
-      (is (not (str/includes? html "data-rf-view=\":ssr-coord-test/outer\""))
-          "the outer view (callable-head root) did not stamp itself")
-      (is (= 1 (count (re-seq #"data-rf-view=" html)))
-          (str "exactly one annotated element; got: " (pr-str html))))))
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): a view whose root is
+      ;; another view-ref resolves through to the inner view and emits the
+      ;; inner view's element ONCE — no wrapper element, no duplication.
+      (is (str/starts-with? html "<span") (pr-str html))
+      (is (str/ends-with? html ">in</span>") (pr-str html))
+      (is (= 1 (count (re-seq #"<span" html)))
+          (str "the inner view rendered exactly once; got: " (pr-str html)))
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). All three
+      ;; original assertions are about WHICH element carries the stamp; under
+      ;; the gate no element does, so the two negatives pass vacuously and the
+      ;; count is trivially 0.
+      (when interop/debug-enabled?
+        (is (str/includes? html "data-rf-view=\":ssr-coord-test/inner\"")
+            "the inner view annotated its own root")
+        (is (not (str/includes? html "data-rf-view=\":ssr-coord-test/outer\""))
+            "the outer view (callable-head root) did not stamp itself")
+        (is (= 1 (count (re-seq #"data-rf-view=" html)))
+            (str "exactly one annotated element; got: " (pr-str html)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The streaming shell walker inherits annotation through the handler-fn
@@ -159,10 +257,26 @@
             worried about is gone: one wrapper, both paths."
     (rf/reg-view ^{:rf/id :ssr-coord-test/shell} shell-view []
       [:main "shell"])
-    (let [{:keys [shell-html]} (streaming/render-shell [shell-view])]
-      (is (both-annotations? shell-html)
-          (str "streamed shell must be annotated; got: " (pr-str shell-html)))
-      (is (str/includes? shell-html "data-rf-view=\":ssr-coord-test/shell\"")))))
+    (let [{:keys [shell-html]} (streaming/render-shell [shell-view])
+          sync-html            (ssr/render-to-string [shell-view] {})]
+      ;; SEMANTIC, posture-independent (rf2-lwtlk), and a STRONGER statement
+      ;; of this deftest's actual claim: the streaming walker carries no
+      ;; annotation logic of its own because it resolves callable heads
+      ;; through the same handler-fn as the sync path. Comparing the two
+      ;; renders proves "one wrapper, both paths" in EITHER posture — in dev
+      ;; both are annotated identically, under the gate both are bare.
+      (is (= sync-html shell-html)
+          (str "streamed shell must match the sync render byte for byte; got: "
+               (pr-str shell-html) " vs " (pr-str sync-html)))
+      (is (str/starts-with? shell-html "<main") (pr-str shell-html))
+      (is (str/ends-with? shell-html ">shell</main>") (pr-str shell-html))
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (both-annotations? shell-html)
+            (str "streamed shell must be annotated; got: " (pr-str shell-html)))
+        (is (str/includes? shell-html
+                           "data-rf-view=\":ssr-coord-test/shell\""))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A keyword head is an element, still NOT a view, still NOT annotated
@@ -174,12 +288,30 @@
             annotation even when a view of the same id is registered."
     (rf/reg-view* :coord-demo/card {} (fn [_] [:div.card "x"]))
     (let [html (ssr/render-to-string [:coord-demo/card :revenue] {})]
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): the keyword head is
+      ;; emitted as a CUSTOM ELEMENT with its argument as a child, and the
+      ;; identically-named registered view is NOT invoked (no `.card` div).
+      ;; That resolution rule is the load-bearing half and is posture-free;
+      ;; the `=` pins it exactly.
       (is (= "<card>revenue</card>" html))
-      (is (not (both-annotations? html))))))
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous under
+      ;; the gate, where nothing anywhere is annotated.
+      (when interop/debug-enabled?
+        (is (not (both-annotations? html)))))))
 
 (deftest plain-hiccup-not-annotated
   (testing "unchanged — ordinary tags were never annotated"
-    (is (not (both-annotations? (ssr/render-to-string [:div [:span "x"]] {}))))))
+    ;; SEMANTIC, posture-independent (rf2-lwtlk): ordinary hiccup emits
+    ;; exactly itself. Without this the deftest has no residue under the
+    ;; gate at all — `not annotated` is trivially true when the wrapper does
+    ;; not exist.
+    (is (= "<div><span>x</span></div>"
+           (ssr/render-to-string [:div [:span "x"]] {})))
+
+    ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+    (when interop/debug-enabled?
+      (is (not (both-annotations? (ssr/render-to-string [:div [:span "x"]] {})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Production gate (rf2-wtd8z finding 3) — reinstated at the new site
@@ -200,11 +332,15 @@
             symmetric with the CLJS :advanced + goog.DEBUG=false build that
             Closure DCEs the client walk. The dev arm annotates; the prod
             arm does not."
-    (testing "debug ON at registration — annotated (the load-bearing arm)"
-      (rf/reg-view* :ssr-coord-test/gated-dev {} (fn [] [:h2 "g"]))
-      (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/gated-dev)] {})]
-        (is (str/starts-with? html "<h2 "))
-        (is (both-annotations? html))))
+    ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Under the real
+    ;; `-Dre-frame.debug=false` gate there is no "debug ON at registration"
+    ;; to have: the flag was read before this namespace loaded.
+    (when interop/debug-enabled?
+      (testing "debug ON at registration — annotated (the load-bearing arm)"
+        (rf/reg-view* :ssr-coord-test/gated-dev {} (fn [] [:h2 "g"]))
+        (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/gated-dev)] {})]
+          (is (str/starts-with? html "<h2 "))
+          (is (both-annotations? html)))))
 
     (testing "debug OFF at registration — NOT annotated"
       (with-redefs [interop/debug-enabled? false]
@@ -213,7 +349,29 @@
       ;; at registration, so the markup is unannotated regardless.
       (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/gated-prod)] {})]
         (is (= "<h2>g</h2>" html))
-        (is (not (both-annotations? html)))))))
+        (is (not (both-annotations? html)))))
+
+    ;; rf2-lwtlk — the REAL-gate arm, and the reason this deftest is worth
+    ;; running in `scripts/test-ssr-prod-gate.sh` at all. The `with-redefs`
+    ;; above rebinds the Var AFTER the framework has loaded; a load-time gate
+    ;; is invisible to that (rf2-9c2jf), so it proves the wrapper's own
+    ;; branch and nothing about the documented production posture. This arm
+    ;; runs only when the JVM was actually started with
+    ;; `-Dre-frame.debug=false`, and registers under it for real.
+    (when-not interop/debug-enabled?
+      (testing "-Dre-frame.debug=false on the JVM — NOT annotated, for real"
+        (rf/reg-view* :ssr-coord-test/real-gate {} (fn [] [:h2 "g"]))
+        (let [html (ssr/render-to-string
+                     [(rf/view :ssr-coord-test/real-gate)] {})]
+          (is (= "<h2>g</h2>" html)
+              (str "the real production gate must elide both annotations; got: "
+                   (pr-str html))))
+        (rf/reg-view ^{:rf/id :ssr-coord-test/real-gate-macro} real-gate-macro []
+          [:h3 "m"])
+        (let [html (ssr/render-to-string [real-gate-macro] {})]
+          (is (= "<h3>m</h3>" html)
+              (str "…including on the macro path, which is where the coords "
+                   "would have come from; got: " (pr-str html))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The formatter unit itself degrades — belt-and-braces on the shared dialect
