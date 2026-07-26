@@ -85,9 +85,11 @@ caller's children cross into React's tree and are not walked here), and the
 authored `:props`, each carrier recorded as its opaque role marker. `t/attrs`
 reads that props map, so a crossing is assertable with no browser in sight.
 
-Where the head goes, and why forwarding a caller's remainder onto it uses
-`v/spread` rather than `v/spread-safe`, is worked through in
-[Composition](composition.md#worked-sketch--foreign-widget).
+Ordinary props pass **exactly**, so a caller's remainder is forwarded onto a
+host head with an ordinary `merge` — never `v/spread` or `v/spread-safe`, which
+are element forms and would rewrite `:className` into the `:class` slot on the
+way through. Where the head goes, and the shape of that merge, is worked through
+in [Composition](composition.md#worked-sketch--foreign-widget).
 
 ### A React element as a child
 
