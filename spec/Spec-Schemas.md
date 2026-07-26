@@ -921,6 +921,8 @@ Each error / warning category enumerated in [009 §Error event catalogue](009-In
 
 Which slots a catalogue ROW omits from its `:tags` cell — and why each is omitted — is stated once, in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) under *Reading the two right-hand columns*. This section does not restate it, and a schema is not a catalogue row: the schemas below are **standalone**, so each declares every key its category actually carries **under `:tags` on the wire** — including the ones the `:rf/error-event` envelope above already types (`:category`, `:failing-id`, `:reason`, `:frame`) and the ones `re-frame.trace/build-event` supplies rather than the emit site. One schema therefore validates a real tags map on its own, without being composed with the envelope. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
 
+A schema and its catalogue row are **co-edited**, and a conformance test holds them to it: the keys a schema below declares are diffed against the keys its row's `:tags` cell names, so adding a key here without naming it there fails the gate. Which side to change is a judgement — a key the category genuinely carries belongs in the row, a key it does not carry should leave the schema.
+
 ```clojure
 ;; --- runtime: handler / sub / fx / interceptor exceptions ---
 
