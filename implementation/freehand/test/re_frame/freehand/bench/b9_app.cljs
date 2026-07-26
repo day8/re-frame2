@@ -22,8 +22,13 @@
             [re-frame.freehand.bench.b6-rows :as rows]
             [re-frame.freehand.bench.b9-nc :as nc]))
 
-(def ^:private rounds 6)
-(def ^:private update-sampling {:warmup 4 :samples 12})
+(defn- q
+  "A query-string integer, or `default` — B7's own smoke seam. The
+  published run takes the defaults, which are B6's."
+  [k default]
+  (if-some [v (.get (js/URLSearchParams. (.-search js/location)) k)]
+    (js/parseInt v 10)
+    default))
 
 (defn- fail! [why]
   (set! (.-B6_ERROR js/window) (str why))
@@ -35,8 +40,36 @@
     (set! (.-B6_RESULTS js/window) acc)
     v))
 
+(defn- flag? [k]
+  (= "1" (.get (js/URLSearchParams. (.-search js/location)) k)))
+
+(defn- run-mount!
+  "B6's mount measurement over the W2 storm, with the two B9 rungs added.
+  Gated on B6's own canonical-DOM parity before a clock is read."
+  [rounds sampling reversed?]
+  (let [w                (nc/mount-witness reversed?)
+        {:keys [mounts agree? counts disagree]} (rows/mount-parity w (:props w))
+        problems (cond-> []
+                   (not agree?) (conj {:problem :canonical-dom :arms disagree})
+                   (not (every? #(= (:elements w) %) (vals counts)))
+                   (conj {:problem :element-count :expected (:elements w) :got counts}))]
+    (doseq [m mounts] (h/release! m))
+    (record! :mount-parity {:problems problems :ok? (empty? problems) :counts counts})
+    (if (seq problems)
+      (fail! (str "mount arms do not build the same page: " (pr-str problems)))
+      (record! :mount-storm (:record (rows/measure-mount! w rounds sampling))))))
+
 (defn- run-clock! []
-  (let [mounts (rows/mount-update-arms! (nc/make-update-arms))]
+  (let [rounds          (q "rounds" 6)
+        update-sampling {:warmup (q "warmup" 4) :samples (q "samples" 12)}
+        mount-sampling  {:warmup (q "warmup" 5) :samples (q "samples" 20)}
+        reversed?       (flag? "reverse")
+        ;; The mount row runs FIRST and on an otherwise empty page: the
+        ;; update grids would otherwise stand behind it, six roots of 300
+        ;; boundaries each, while a mount is timed.
+        _               (do (record! :arm-order (if reversed? :reversed :forward))
+                            (run-mount! rounds mount-sampling reversed?))
+        mounts          (rows/mount-update-arms! (nc/make-update-arms reversed?))]
     (-> (nc/sync-lane-probe!)
         (.then (fn [probe]
                  (record! :sync-lane-probe probe)
