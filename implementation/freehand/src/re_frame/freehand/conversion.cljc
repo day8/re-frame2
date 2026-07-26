@@ -45,14 +45,14 @@
 ;; Remembered projections
 ;; ---------------------------------------------------------------------------
 ;;
-;; Three of the rules below are pure projections of ONE authored keyword —
-;; the `.class#id` parse, the React prop name, the React handler name — and
-;; every one of them is asked the same question on every render. An
-;; author's markup site spells its tag and its attribute keys as lexical
-;; CONSTANTS, so a template of a thousand elements re-derives a thousand
-;; answers it already had. Measured on B1 and on the React emitter's own
-;; leaf calls, that re-derivation was the largest single cost in the
-;; interpreted walk.
+;; Four of the rules below are pure projections of ONE authored name — the
+;; `.class#id` parse, the React prop name, the React handler name, the React
+;; style-property name — and every one of them is asked the same question on
+;; every render. An author's markup site spells its tag, its attribute keys
+;; and its style properties as lexical CONSTANTS, so a template of a thousand
+;; elements re-derives a thousand answers it already had. Measured on B1 and
+;; on the React emitter's own leaf calls, that re-derivation was the largest
+;; single cost in the interpreted walk.
 ;;
 ;; The TECHNIQUE is `reagent2.impl.template`'s, which has cached both its
 ;; tag parse and its prop-name projection for years and is the reason a
@@ -63,12 +63,15 @@
 ;; if Freehand were willing to take a classpath edge onto an adapter. Two
 ;; differences from the donor are deliberate:
 ;;
-;;   - it is keyed on the KEYWORD, not on the keyword's `name`. A cache
-;;     keyed by name aliases `:svg/text` onto `:text` — one entry serving
-;;     two heads that parse differently — and an aliased parse cache fails
-;;     in the way that is hardest to see, because the wrong answer is a
-;;     perfectly well-formed one. (The donor had to patch that class of
-;;     collision twice.) A keyword is its own total key.
+;;   - a projection of an authored KEY is keyed on the KEYWORD, not on the
+;;     keyword's `name`. A cache keyed by name aliases `:svg/text` onto
+;;     `:text` — one entry serving two heads that parse differently — and
+;;     an aliased parse cache fails in the way that is hardest to see,
+;;     because the wrong answer is a perfectly well-formed one. (The donor
+;;     had to patch that class of collision twice.) A keyword is its own
+;;     total key. [[react-style-name]] is keyed on its STRING argument for
+;;     the same reason and not as an exception: a CSS property name IS the
+;;     string, so the string is that projection's own total key.
 ;;   - it is BOUNDED, because the key space belongs to the author. Tags
 ;;     and attribute keys are lexical constants in ordinary markup, so a
 ;;     live set is a few dozen; a caller that MINTS keywords per render
@@ -78,19 +81,53 @@
 ;;
 ;; A projection here always answers a map, a string, a keyword or a
 ;; boolean, never nil, so a miss and a remembered nil are not confusable.
+;;
+;; ## The store, and why it differs per host
+;;
+;; A cache read on every attribute of every element is itself on the hot
+;; path, and a persistent map in an atom is not a free place to read from:
+;; a CPU profile of the interpreted walk in a production browser put 3.04%
+;; of a W1 mount inside [[remembered]] alone, most of it walking a
+;; `PersistentArrayMap` (rf2-xu6rx, following rf2-lnecd). So on
+;; ClojureScript the store is the host's own `js/Map`, and on the JVM it
+;; stays a persistent map in an atom. The reader conditional is confined to
+;; [[remembered]] and its constructor; every projection above is written
+;; once and reads the same way on both hosts.
+;;
+;; ONE consequence is worth stating plainly, because it is invisible.
+;; `js/Map` compares STRINGS by value and everything else by IDENTITY, so a
+;; caller that mints `(keyword "class")` afresh on each render MISSES a
+;; cache the persistent map would have hit. Nothing becomes wrong — a
+;; projection here is pure, so a miss recomputes the same answer — but that
+;; caller pays what the projection always cost, and its keys fill the bound
+;; above. That is the bounded loss the previous point already describes,
+;; reached by a second route. Ordinary markup never reaches it: an
+;; attribute key written lexically is one interned constant per bundle.
 
 (def ^:private cache-limit
   "The most entries one remembered projection will hold."
   4096)
 
+(defn- new-cache
+  "A fresh store for one remembered projection — see §The store above."
+  []
+  #?(:cljs (js/Map.) :clj (atom {})))
+
 (defn- remembered
   "`(f k)`, answered from `cache` when it has been asked before."
   [cache k f]
-  (if-some [hit (get @cache k)]
-    hit
-    (let [v (f k)]
-      (swap! cache (fn [m] (if (< (count m) cache-limit) (assoc m k v) m)))
-      v)))
+  #?(:cljs
+     (if-some [hit (.get ^js cache k)]
+       hit
+       (let [v (f k)]
+         (when (< (.-size ^js cache) cache-limit) (.set ^js cache k v))
+         v))
+     :clj
+     (if-some [hit (get @cache k)]
+       hit
+       (let [v (f k)]
+         (swap! cache (fn [m] (if (< (count m) cache-limit) (assoc m k v) m)))
+         v))))
 
 ;; ---------------------------------------------------------------------------
 ;; Numbers — JS `ToString`, on both hosts
@@ -133,7 +170,7 @@
      :classes (into [] (keep (fn [[_ mark nm]] (when (= "." mark) nm))) toks)
      :id      (some (fn [[_ mark nm]] (when (= "#" mark) nm)) toks)}))
 
-(def ^:private tag-cache (atom {}))
+(def ^:private tag-cache (new-cache))
 
 (defn parse-tag
   "Split an authored element keyword into its tag and its `.class#id`
@@ -175,9 +212,13 @@
     (keyword? v)    [(name v)]
     (map? v)        (let [ns' (keep (fn [[k flag]] (when flag (class-name-str k))) v)]
                       (if (some #(= ::reject %) ns') ::reject (vec (sort ns'))))
+    ;; `reduce conj` and not `into`: a member contributes one or two class
+    ;; names, and `into` would make the accumulator TRANSIENT to add them —
+    ;; a 32-slot editable tail and a cloned root, per member, per element
+    ;; (rf2-xu6rx). Same value, same order, without the editable copy.
     (sequential? v) (reduce (fn [acc x]
                               (let [parts (class-parts x)]
-                                (if (= ::reject parts) (reduced ::reject) (into acc parts))))
+                                (if (= ::reject parts) (reduced ::reject) (reduce conj acc parts))))
                             [] v)
     :else           ::reject))
 
@@ -463,11 +504,7 @@
 (defn- upper-first [s]
   (if (seq s) (str (str/upper-case (subs s 0 1)) (subs s 1)) s))
 
-(defn react-style-name
-  "A CSS kebab property name as React spells it in a style object. Custom
-  properties pass verbatim (React routes them through `setProperty`);
-  vendor prefixes follow React's own casing."
-  [css-name]
+(defn- react-style-name* [css-name]
   (cond
     (custom-property? css-name)             css-name
     (str/starts-with? css-name "-webkit-")  (upper-first (camelize (subs css-name 1)))
@@ -475,9 +512,24 @@
     (str/starts-with? css-name "-ms-")      (camelize (subs css-name 1))
     :else                                   (camelize css-name)))
 
+(def ^:private style-name-cache (new-cache))
+
+(defn react-style-name
+  "A CSS kebab property name as React spells it in a style object. Custom
+  properties pass verbatim (React routes them through `setProperty`);
+  vendor prefixes follow React's own casing.
+
+  Remembered per property name — see §Remembered projections above. It is
+  a `str/replace` over a regex with a function replacement, the same
+  camelization [[react-prop-name]] and [[react-event-name]] are remembered
+  for, and the React emitter runs it on every property of every `:style`
+  map of every element."
+  [css-name]
+  (remembered style-name-cache css-name react-style-name*))
+
 (defn- react-prop-name* [k] (rules/react-prop-name (name k)))
 
-(def ^:private prop-name-cache (atom {}))
+(def ^:private prop-name-cache (new-cache))
 
 (defn react-prop-name
   "The author attribute keyword as the React emitter spells it — React's
@@ -512,7 +564,7 @@
 (defn- custom-element-property-name* [k]
   (rules/custom-element-property-name (name k)))
 
-(def ^:private property-name-cache (atom {}))
+(def ^:private property-name-cache (new-cache))
 
 (defn custom-element-property-name
   "A DECLARED custom-element property keyword as the client SETS it — the
@@ -643,7 +695,7 @@
                  replacement ". " by-emitted-name)
             ::no-refusal)))))
 
-(def ^:private refusal-cache (atom {}))
+(def ^:private refusal-cache (new-cache))
 
 (defn attr-key-refusal
   "Why the interpreted walk refuses attribute key `k`, as the sentence a
@@ -704,7 +756,7 @@
 ;; Attribute keys the grammar canonicalizes
 ;; ---------------------------------------------------------------------------
 
-(def ^:private attr-key-cache (atom {}))
+(def ^:private attr-key-cache (new-cache))
 
 (defn attr-key
   "The authored attribute key in the CANONICAL author spelling both walks
@@ -750,7 +802,7 @@
 (defn- id-slot-key?* [k]
   (= rules/sugar-id-slot (rules/caller-key-slot k)))
 
-(def ^:private id-slot-cache (atom {}))
+(def ^:private id-slot-cache (new-cache))
 
 (defn id-slot-key?
   "Does attribute key `k` project onto the slot the tag parser's `#id`
@@ -840,7 +892,7 @@
 (defn- react-event-name* [k]
   (str "on" (upper-first (camelize (subs (name k) 3)))))
 
-(def ^:private event-name-cache (atom {}))
+(def ^:private event-name-cache (new-cache))
 
 (defn react-event-name
   "The handler-position key as React spells the prop: `:on-click` becomes

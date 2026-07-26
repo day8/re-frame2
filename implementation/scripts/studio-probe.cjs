@@ -150,7 +150,14 @@ function selfTimeTable(profile) {
 
   if (PROFILE) {
     const { profile } = await session.send('Profiler.stop');
+    // rf2-xu6rx: keep the raw capture. Caller attribution is the instrument
+    // that matters here and one question per browser run is both slow and
+    // dishonest — every re-run is a different profile, so two frames compared
+    // across two runs are not compared at all.
+    const dest = path.join(ROOT, 'out', `${BUILD}-profile.json`);
+    fs.writeFileSync(dest, JSON.stringify(profile));
     console.error(`\n--- CPU self time, ${BUILD} (sampling 100us, whole run) ---`);
+    console.error(`raw profile: ${dest}`);
     for (const line of selfTimeTable(profile)) console.error(line);
   }
 

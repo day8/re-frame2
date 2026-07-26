@@ -231,6 +231,37 @@
                    (some (fn [[k _]] (= multiple-slot (prop-slot k))) entries))
                  sources)))
 
+(defn multiple-select-verdict
+  "The whole-element `<select multiple>` verdict, from the OWNED attribute
+  sources and the `v/spread-safe` caller — the EFFECTIVE-source reading of
+  [[multiple-declared?]] and [[multiple-select?]] together.
+
+  `owned` and `owned-dyn` are the element's own attributes (a compiled
+  element's arrive in two, what the compiler settled and what only the
+  render knows; an interpreted element passes nil for the second). `caller`
+  is the guarded spread-safe map, or nil.
+
+  It lives here rather than at each walk because it is ONE rule and both
+  walks were writing it out: the caller folds UNDER the owned props, so an
+  owned `:multiple` declaration decides even when it is false, and the
+  caller is consulted only when the owned props do not declare the slot at
+  all. ORing the sources shaped an owned nil `value` as the empty collection
+  under an owned-false element whose caller carried `:multiple true`
+  (rf2-sf9n5 #6847) — a rule with that history should have one reader.
+
+  The TAG gate leads, which is why this is worth being one function and not
+  two calls. Both arms end in [[multiple-select?]] and both are false for
+  anything but a `<select>`, so hoisting the test is exact — and it is what
+  spares every OTHER element the attribute scan [[multiple-declared?]] would
+  otherwise run to answer a question about `<select>`. A CPU profile of the
+  interpreted walk in a production browser put 1.75% of a W1 mount — which
+  contains no `<select>` at all — under that scan (rf2-xu6rx)."
+  [tag owned owned-dyn caller]
+  (and (= :select tag)
+       (if (multiple-declared? owned owned-dyn)
+         (multiple-select? tag owned owned-dyn)
+         (and (some? caller) (multiple-select? tag caller nil)))))
+
 (defn controlled-props?
   "Does this element's authored attribute key sequence make it controlled
   — do any of the keys normalize onto a [[controlled-slots]] slot?
