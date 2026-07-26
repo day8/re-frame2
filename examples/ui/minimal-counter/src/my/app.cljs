@@ -33,16 +33,15 @@
 ;; allocating a second one (docs/core/freehand/install.md §Two roots on one
 ;; page).
 ;;
-;; Nothing in this scaffold re-enters it. `run` is the module's `:init-fn`,
-;; which shadow calls once on initial load, and no after-load hook is wired
-;; here — so under `watch` an edited view shows up on the next page load.
-;; That is a choice about how small this directory should be, not a limit:
-;; `rf/init!` is a no-op once an adapter is installed, and re-mounting the
-;; same root under the same frame plan re-renders in place without reseeding
-;; `:initial-events`, so marking `run` with `^:dev/after-load` is the whole
-;; of what a state-preserving reload loop takes.
+;; `run` RE-ENTERS it on every hot reload, and `^:dev/after-load` is the
+;; whole of how. Shadow calls `run` once as the module's `:init-fn` and then
+;; again after each reload, and both calls are safe: `rf/init!` is a no-op
+;; once an adapter is installed, and re-mounting the same root under the
+;; same frame plan re-renders in place WITHOUT reseeding `:initial-events`
+;; — `:initial-events` are a seed, not a replay. So an edited view appears
+;; without a page load and the count it was showing is still on the screen.
 
-(defn ^:export run []
+(defn ^:export ^:dev/after-load run []
   (rf/init! v/adapter)
   (v/mount [counter {}]
            (js/document.getElementById "root")

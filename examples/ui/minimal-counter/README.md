@@ -66,6 +66,11 @@ npx shadow-cljs watch app    # dev loop + http://localhost:8280
 `npx` matters: shadow-cljs is a local devDependency, so a bare `shadow-cljs`
 is not on `PATH`.
 
+`watch` is a real dev loop. `my.app/run` carries `^:dev/after-load`, so every
+reload re-enters the mount: the edited view re-renders in place and the counter
+keeps the value it was showing, because an equal frame plan does not re-seed
+`:initial-events`. One metadata key, no reload framework.
+
 ## Why the coordinates are checkout-relative
 
 `deps.edn` resolves both framework artefacts with `:local/root` relative to
