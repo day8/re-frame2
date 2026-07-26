@@ -1127,17 +1127,16 @@
         ;; only after this verdict decides what an owned nil `value` means, so
         ;; the caller is a THIRD source settled here — before the fold, not
         ;; after it (rf2-sf9n5).
-        ;; EFFECTIVE-source precedence, not a union: `v/spread-safe` folds the
-        ;; caller UNDER the owned props (owned wins), so an owned `:multiple`
-        ;; declaration decides the verdict even when it is false — the caller
-        ;; is consulted only when the owned props do not declare the slot at
-        ;; all. ORing the two sources let a caller's `:multiple true` shape an
-        ;; owned nil `value` as the empty collection though the element's final
-        ;; `multiple` was owned-false (rf2-sf9n5 #6847 audit).
-        multi?     (if (controlled/multiple-declared? attrs dyn)
-                     (controlled/multiple-select? tag attrs dyn)
-                     (and (some? caller)
-                          (controlled/multiple-select? tag caller nil)))
+        ;; EFFECTIVE-source precedence, not a union — one rule, read from
+        ;; [[re-frame.freehand.controlled/multiple-select-verdict]], which the
+        ;; interpreted React walk reads too. `v/spread-safe` folds the caller
+        ;; UNDER the owned props (owned wins), so an owned `:multiple`
+        ;; declaration decides the verdict even when it is false, and the
+        ;; caller is consulted only when the owned props do not declare the
+        ;; slot at all. ORing the two sources let a caller's `:multiple true`
+        ;; shape an owned nil `value` as the empty collection though the
+        ;; element's final `multiple` was owned-false (rf2-sf9n5 #6847 audit).
+        multi?     (controlled/multiple-select-verdict tag attrs dyn caller)
         ;; `:class` and `:style` ride the accumulator because an ALIASED
         ;; spelling of either arrives through `:dyn` — the front end
         ;; discriminates on the exact keyword — and has to reach the one

@@ -187,7 +187,14 @@
                        "string, a keyword, a vector of them in order, or a flag map whose "
                        "truthy entries name classes.")
                   {:attr :class :value (shape raw)}))
-    (if-let [c (conv/class-string (into (vec sugar) parts))]
+    ;; A composition is one to three class names, and `into` reaches for a
+    ;; TRANSIENT to add them: `-as-transient` on a vector allocates a
+    ;; 32-slot editable tail and clones the root, per element, to hold two
+    ;; strings. `(vec nil)` pays the same on an EMPTY vector, which is what
+    ;; every caller with no `.class` sugar — `put-attr!` and the caller fold
+    ;; — was paying for nothing. Folding with `conj`, and not folding at all
+    ;; when there is no sugar, is the same value without either (rf2-xu6rx).
+    (if-let [c (conv/class-string (if (seq sugar) (reduce conj (vec sugar) parts) parts))]
       (gobj/set o "className" c)
       (gobj/remove o "className"))
     o))
@@ -315,8 +322,14 @@
 
   No namespace context is threaded in, because a canonical prop name does
   not depend on one — which is what stops a declared-view boundary from
-  changing which attribute reaches the DOM."
-  [cand tag sugar-classes sugar-id attrs caller]
+  changing which attribute reaches the DOM.
+
+  `controlled?` is the element's controlled-input door verdict, settled by
+  the caller for the whole element. It is a property of the ELEMENT, and
+  both writers of this element's props need it, so it is asked once and
+  handed to each rather than derived here and again beside the caller
+  fold — see [[element-node]]."
+  [cand tag sugar-classes sugar-id attrs caller controlled?]
   (let [o (js-obj)
         ;; The element's DECLARED custom-element property set, read once for
         ;; the whole map — nil, without a registry read, for every plain DOM
@@ -325,13 +338,6 @@
         ;; the declaration has to rank a `:on-*` name before the fork
         ;; commits it to the event grammar.
         declared    (conv/element-properties tag)
-        ;; The controlled-input door is a property of the WHOLE element,
-        ;; so its element half is settled once, before any handler site is
-        ;; recorded. Presence of a `value`/`checked` SLOT is the test —
-        ;; values are irrelevant (an explicit nil is still controlled), and
-        ;; the slot is what an alias resolves to, so `:x/value` counts
-        ;; exactly as `:value` does.
-        controlled? (controlled/controlled-props? (keys attrs))
         ;; The COLLECTION-shaped `value` verdict is a property of the
         ;; WHOLE element too, and settled here beside the door's for the
         ;; same reason: a native `<select multiple>`'s selection is a list
@@ -341,26 +347,32 @@
         ;; and it folds UNDER the owned props (`put-caller!`) only after the
         ;; owned nil `value` is normalized here — so the caller is settled
         ;; into this one verdict, before that normalization (rf2-sf9n5).
-        ;; EFFECTIVE source, not a union: an owned `:multiple` declaration
-        ;; wins even when false (owned wins), and the caller decides only when
-        ;; the owned props are silent on the slot. ORing them shaped an owned
-        ;; nil `value` as the empty collection under an owned-false element
-        ;; whose caller happened to carry `:multiple true` (rf2-sf9n5 #6847).
-        multi?      (if (controlled/multiple-declared? attrs)
-                      (controlled/multiple-select? tag attrs nil)
-                      (controlled/multiple-select? tag caller nil))
+        ;; EFFECTIVE source, not a union — the rule, and the tag gate that
+        ;; makes it free for every element that is not a `<select>`, are
+        ;; [[re-frame.freehand.controlled/multiple-select-verdict]]'s. Both
+        ;; walks asked it in four lines each; it is one question.
+        multi?      (controlled/multiple-select-verdict tag attrs nil caller)
         ;; The exact `:class` and any alias projecting onto the class slot
         ;; COMPOSE — sugar first, then the exact `:class`, then the aliases —
         ;; rather than the last one written winning. They are collected
         ;; exact-first and composed ONCE through the same class rule the sugar
         ;; uses, so `className` is written once and an alias never overwrites
         ;; the exact spelling (rf2-c9kus; .93's routing, one-map case).
-        class-forms (into (if (contains? attrs :class) [(:class attrs)] [])
-                          (keep (fn [[k raw]]
-                                  (when (and (not= :class k)
-                                             (= :class (conv/attr-key k)))
-                                    raw))
-                                attrs))
+        ;; Folded with `reduce-kv`, the traversal the rest of this file
+        ;; already uses over an attribute map. `(into … (keep …) attrs)`
+        ;; asked for three allocations an element that declares no alias —
+        ;; which is nearly every element — never needed: a key/value seq
+        ;; over the map, the lazy `keep` on top of it, and a TRANSIENT of
+        ;; the one-element target vector, whose editable tail is a 32-slot
+        ;; array. `reduce-kv` walks the map's own array and hands the key
+        ;; and the value straight to the fold (rf2-xu6rx).
+        class-forms (reduce-kv (fn [acc k raw]
+                                 (if (and (not= :class k)
+                                          (= :class (conv/attr-key k)))
+                                   (conj acc raw)
+                                   acc))
+                               (if (contains? attrs :class) [(:class attrs)] [])
+                               attrs)
         ;; The exact `:style` and any alias projecting onto the style slot
         ;; COMPOSE — the exact value first, then the aliases — merged property
         ;; by property rather than the last one written winning, exactly as
@@ -372,13 +384,14 @@
         ;; `:style (when …)` relies on, which the per-key walk applied before
         ;; this collection subsumed the slot), so nils are dropped here — an
         ;; all-nil slot writes no style at all, exactly as it did before.
-        style-forms (into (if (some? (:style attrs)) [(:style attrs)] [])
-                          (keep (fn [[k raw]]
-                                  (when (and (not= :style k)
-                                             (= :style (conv/attr-key k))
-                                             (some? raw))
-                                    raw))
-                                attrs))]
+        style-forms (reduce-kv (fn [acc k raw]
+                                 (if (and (some? raw)
+                                          (not= :style k)
+                                          (= :style (conv/attr-key k)))
+                                   (conj acc raw)
+                                   acc))
+                               (if (some? (:style attrs)) [(:style attrs)] [])
+                               attrs)]
     (when (or (seq sugar-classes) (seq class-forms))
       (put-class! o tag sugar-classes class-forms))
     (when (seq style-forms)
@@ -821,15 +834,30 @@
         [attrs
          caller]  (node/split-caller authored)
         kid-forms (if attrs? (rest args) args)
+        ;; The controlled-input door is a property of the WHOLE element:
+        ;; presence of a `value`/`checked` SLOT is the test — values are
+        ;; irrelevant (an explicit nil is still controlled), and the slot is
+        ;; what an alias resolves to, so `:x/value` counts exactly as
+        ;; `:value` does. BOTH writers of this element's props need the
+        ;; verdict, so it is settled once here.
+        ;;
+        ;; It used to be settled twice — once inside `react-props` and once
+        ;; beside the caller fold — and the second was paid by every element
+        ;; whether or not it had a caller at all, because the argument was
+        ;; built before `put-caller!` could decline it. A CPU profile of the
+        ;; interpreted walk in a production browser put 4.30% of a W1 mount
+        ;; under `controlled-props?`, split 2.29 / 2.01 between the two
+        ;; (rf2-xu6rx). One question per element, asked once.
+        controlled? (controlled/controlled-props? (keys attrs))
         ;; The DOM top layer's desired-state pair never reaches React as a
         ;; prop — an emitter drops the namespace that is the whole of its
         ;; meaning — so it is withheld from the props and installed as the
         ;; commit-time host call instead.
-        props     (top-layer/install! (react-props cand tag classes id (top-layer/without attrs) caller)
+        props     (top-layer/install! (react-props cand tag classes id (top-layer/without attrs)
+                                                   caller controlled?)
                                       tag attrs)
         props     (put-caller! props tag
-                               (let [controlled? (controlled/controlled-props? (keys attrs))]
-                                 (fn [slot raw] (handler-proxy cand tag controlled? slot raw)))
+                               (fn [slot raw] (handler-proxy cand tag controlled? slot raw))
                                caller)
         ;; `(v/html s)` is the element's CONTENT and reaches React as
         ;; `dangerouslySetInnerHTML`, so there are no positional children beside

@@ -2123,24 +2123,36 @@
 ;; key that is not nameable at all, and a cache that stored nil could not tell
 ;; a miss from a remembered nil; `caller-key-name` settles that question first,
 ;; and what is memoised is total over the strings it admits.
+;;
+;; The STORE is the host's own hash map, and on ClojureScript that is `js/Map`
+;; rather than a persistent map in an atom. A persistent map read on every
+;; attribute of every element is not free: a follow-up CPU profile of the
+;; interpreted walk in a production browser put 2.01% of a W1 mount under this
+;; one projection, most of it hashing the name and walking the map (rf2-xu6rx).
+;; The key here is a STRING, and `js/Map` compares strings by VALUE, so the
+;; store change is invisible — same key space, same answers, same bound.
 
 (def ^:private slot-cache-limit 4096)
 
-(def ^:private caller-key-slot-cache (atom {}))
+(def ^:private caller-key-slot-cache #?(:cljs (js/Map.) :clj (atom {})))
 
 (defn- caller-key-slot-by-name
   "The emitted slot for an author attribute NAME. Total over strings — an
   `on-*` name takes the handler projection, everything else the react-dom
   attribute table — so a remembered answer is never confusable with a miss."
   [n]
-  (if-some [hit (get @caller-key-slot-cache n)]
-    hit
-    (let [v (if (str/starts-with? n "on-")
-              (react-event-name n false)
-              (react-prop-name n))]
-      (swap! caller-key-slot-cache
-             (fn [m] (if (< (count m) slot-cache-limit) (assoc m n v) m)))
-      v)))
+  (let [hit #?(:cljs (.get ^js caller-key-slot-cache n)
+               :clj  (get @caller-key-slot-cache n))]
+    (if (some? hit)
+      hit
+      (let [v (if (str/starts-with? n "on-")
+                (react-event-name n false)
+                (react-prop-name n))]
+        #?(:cljs (when (< (.-size ^js caller-key-slot-cache) slot-cache-limit)
+                   (.set ^js caller-key-slot-cache n v))
+           :clj  (swap! caller-key-slot-cache
+                        (fn [m] (if (< (count m) slot-cache-limit) (assoc m n v) m))))
+        v))))
 
 (defn caller-key-slot
   "The React/DOM prop-name SLOT the host converters actually emit a
