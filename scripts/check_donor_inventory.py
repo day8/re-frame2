@@ -1157,6 +1157,7 @@ ESTABLISHED_ROWS = (
     "implementation/scripts/_g13-timing-evidence.test.cjs",
     "implementation/scripts/_release-ui-required-gate.test.cjs",
     "implementation/scripts/_ui-deps-edn-boundary.test.cjs",
+    "implementation/scripts/_changed-surfaces.test.cjs",
     ".github/scripts/verify-version-lockstep.sh",
     ".github/scripts/report-changed-surfaces.sh",
     ".github/workflows/test.yml",
