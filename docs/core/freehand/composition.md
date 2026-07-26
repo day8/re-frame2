@@ -220,7 +220,8 @@ as keyed declared children. No separate “region DSL” is required.
 Composition of **structure** uses the ladder above. Forwarding **attributes**
 uses two common-grammar forms. This section is the **canonical** explanation;
 [events](events-and-handlers.md) (controlled door) and
-[host boundaries](host-boundaries.md) (foreign `v/spread`) only point here.
+[host boundaries](host-boundaries.md) (forwarding onto a host head) only point
+here.
 
 Spreads do **not** replace children. Putting structure into a spread map is the
 wrong plane — use trailing children, compound regions, slots, or child views.
@@ -230,7 +231,15 @@ wrong plane — use trailing children, compound regions, slots, or child views.
 | Form | Where | Promise |
 |---|---|---|
 | **`v/spread-safe`** | internal DOM / library element that must keep controlled + identity invariants | caller attrs sit **under** owned literals; forbidden keys cannot clobber the contract; **preserves the controlled-input door** |
-| **`v/spread`** | **foreign** host head (open prop ABI) | later-arg-wins, so the owned literals go in the **overrides** position; the forwarded remainder is otherwise opaque — **does not** claim the door |
+| **`v/spread`** | an element you own, where the caller's whole remainder is welcome | later-arg-wins, so the owned literals go in the **overrides** position; the forwarded remainder is otherwise opaque — **does not** claim the door |
+
+**Both forms fold onto an element, and neither is legal at a `v/defhost` head.**
+Their whole content is the attribute grammar, and a host prop is not an
+attribute — it is an exact unqualified keyword handed shallowly to a foreign
+API. Send a remainder through a spread on the way to a host and `:className`,
+the name a React library actually wants, is rewritten into the `:class` slot and
+arrives as `class`, a prop the component does not read. Forward onto a host with
+an ordinary `merge`: [worked sketch](#worked-sketch--foreign-widget).
 
 Same meaning in interpreted and compiled mode. The classic “attrs-forwarding
 wrapper” (`labelled-field` → inner `input`) is ordinary vocabulary, not a
@@ -246,11 +255,12 @@ compiled-only trick.
    :on-input (conj on-change ::v/value)}
   caller-attrs)
 
-;; foreign host head — caller's remainder first, owned contract second so it wins
+;; an element of your own — caller's remainder first, owned literals second
+;; so they win
 (v/spread
-  (dissoc props :date :on-pick)
-  {:selected date
-   :onChange (v/event [js-date] [:picker/picked js-date])})
+  caller-attrs
+  {:data-part "root"
+   :disabled  submitting?})
 ```
 
 `v/spread` takes one or two arguments: `(v/spread base)` forwards a map alone, and
@@ -295,8 +305,10 @@ extra ARIA — onto that input.
 
 **`v/spread-safe` is the one dynamic-map form that keeps the door proof:** owned
 `:value`/`:checked` and the owned handler remain literal and eligible; the
-forwarded residue cannot rewrite them. Opaque `v/spread` at a foreign widget
-cannot claim that guarantee — foreign components own their own timing.
+forwarded residue cannot rewrite them. An opaque `v/spread` claims none of that,
+which is why it stays the visible-cost escape rather than the default — and a
+foreign component behind a `v/defhost` head is further out still, because it owns
+its own timing.
 
 ### Worked example — library field
 
@@ -343,9 +355,9 @@ the head, and it is the only thing that does:
 
 (v/defview date-field [{:keys [date on-pick] :as props}]
   [date-picker
-   (v/spread (dissoc props :date :on-pick)
-             {:selected date
-              :onChange (v/event [js-date] (conj on-pick js-date))})])
+   (merge (dissoc props :date :on-pick)
+          {:selected date
+           :onChange (v/event [js-date] (conj on-pick js-date))})])
 ```
 
 Three things about that call site are easy to get wrong.
@@ -354,11 +366,14 @@ Three things about that call site are easy to get wrong.
 the head raises `:rf.error/view-bad-head`, which names the three legal forms; the
 descriptor `v/defhost` binds is the third of them.
 
-**Use `v/spread`, not `spread-safe`, and put the owned literals second.** `v/spread`
-is later-arg-wins, so the forwarded remainder goes in the base position and the keys
-you own go in the overrides — reverse them and a caller's `:selected` silently
-replaces yours. `spread-safe` is the wrong tool here: its bound is a promise about a
-controlled element you own, and a foreign component owns its own timing.
+**Forward with an ordinary `merge`, not a spread.** Both spread forms are *element*
+forms — their content is the attribute grammar, and a host prop is not an attribute
+— so neither is legal here. It is not a matter of taste: a spread canonicalises
+every key onto the slot an element would write it into, so `:className` arrives at
+the component as `class`, a different React prop and the one a third-party library
+is most likely to read. `merge` is later-arg-wins just as `v/spread` is, so the
+shape is unchanged: the forwarded remainder is the base and the keys you own are
+second. Reverse them and a caller's `:selected` silently replaces yours.
 
 **Host prop names pass exactly.** `:onChange` reaches React as `onChange` — there is
 no camelisation on this path, so `:on-change` would arrive as `on-change` and the
@@ -373,7 +388,7 @@ prop is refused.
 |---|---|
 | Forwarding onto an **internal** `input` / DOM node / library leaf that is controlled | `v/spread-safe` |
 | Merging `:parts` attrs onto a declared `data-part` | `v/spread-safe` |
-| Forwarding remainder props onto a **declared `v/defhost` head** | `v/spread`, owned literals in the overrides position |
+| Forwarding remainder props onto a **declared `v/defhost` head** | ordinary `merge` — remainder as the base, owned props second; **neither spread form is legal there** |
 | Replacing a label, row body, or trigger structure | composition ladder — not a spread |
 | Hoping a dynamic map keeps the door without `spread-safe` | it won’t — fix the merge |
 

@@ -148,7 +148,7 @@
 ;; SHAPE of the two calls, and a function is the smallest thing that holds
 ;; the free names the page left in scope.
 (defn spread-forms
-  [{:keys [value on-change caller-attrs date props]}]
+  [{:keys [value on-change caller-attrs submitting?]}]
   [;; owned literals first, caller (or part) map second
    (v/spread-safe
      {:data-part "control"
@@ -156,11 +156,12 @@
       :on-input (conj on-change ::v/value)}
      caller-attrs)
 
-   ;; foreign host head — caller's remainder first, owned contract second so it wins
+   ;; an element of your own — caller's remainder first, owned literals second
+   ;; so they win
    (v/spread
-     (dissoc props :date :on-pick)
-     {:selected date
-      :onChange (v/event [js-date] [:picker/picked js-date])})])
+     caller-attrs
+     {:data-part "root"
+      :disabled  submitting?})])
 
 ;; composition.md blocks 9 and 12 — the worked library field. The two blocks
 ;; show the same declaration (block 9 with its caller, block 12 alone), so
@@ -205,9 +206,9 @@
 
 (v/defview date-field [{:keys [date on-pick] :as props}]
   [date-picker
-   (v/spread (dissoc props :date :on-pick)
-             {:selected date
-              :onChange (v/event [js-date] (conj on-pick js-date))})])
+   (merge (dissoc props :date :on-pick)
+          {:selected date
+           :onChange (v/event [js-date] (conj on-pick js-date))})])
 
 ;; composition.md block 13 — the caller reaching both parts.
 (def field-call-with-parts
@@ -323,11 +324,20 @@
             the head. `v/defhost` mints the third legal head, and the block
             is rendered here with a COLLIDING `:selected` because a merge-law
             assertion that never sees a collision asserts nothing: the owned
-            literal sits in `v/spread`'s overrides position, so it wins."
-    (let [tree (t/render [date-field {:date     "2026-01-05"
-                                      :on-pick  [:booking/date-picked]
-                                      :class    "wide"
-                                      :selected "caller-tries-to-clobber"}])
+            literal is `merge`'s later argument, so it wins.
+
+            The `:className` in the caller's remainder is the block's OTHER
+            claim, and the reason the page forwards with `merge` rather than
+            `v/spread`. A spread canonicalises every key onto the slot an
+            element would write it into, so `:className` would reach the
+            component as `class` — a different React prop, and the one a
+            third-party library is most likely to read. `merge` leaves the
+            name the caller wrote."
+    (let [tree (t/render [date-field {:date      "2026-01-05"
+                                      :on-pick   [:booking/date-picked]
+                                      :class     "wide"
+                                      :className "from-a-react-lib"
+                                      :selected  "caller-tries-to-clobber"}])
           host (t/find tree #(contains? % :rf.ui/host))]
       (is (some? host)
           "the crossing is a node in the tree, not an exception")
@@ -341,6 +351,8 @@
           "the owned literal won the collision")
       (is (= "wide" (:class (:props host)))
           "and the caller's remainder still forwarded underneath it")
+      (is (= "from-a-react-lib" (:className (:props host)))
+          "`:className` crossed under its own name — `merge` renames nothing")
       (is (= {:rf.ui/opaque :v/event} (:onChange (:props host)))
           "the declared callback records as its opaque role marker"))))
 
@@ -349,21 +361,21 @@
             argument ORDER, and that is the whole claim. `v/spread-safe`
             takes the owned map FIRST and denies the caller the controlled
             keys; `v/spread` is later-arg-wins, so the owned map goes SECOND
-            or the caller silently replaces it."
+            or the caller silently replaces it. Both fold onto an ELEMENT —
+            the host head takes an ordinary `merge`, which is block 10."
     (let [[safe general] (spread-forms {:value        "ada@example.com"
                                         :on-change    [:account/email-changed]
-                                        :caller-attrs {:class "wide-control"
-                                                       :selected "ignored-here"}
-                                        :date         "2026-01-05"
-                                        :props        {:date "2026-01-05"
-                                                       :on-pick [:picker/picked]
-                                                       :selected "caller-tries-to-clobber"
-                                                       :class "wide"}})]
+                                        :caller-attrs {:class     "wide-control"
+                                                       :disabled  false
+                                                       :data-part "caller-tries-to-clobber"}
+                                        :submitting?  true})]
       (is (= "ada@example.com" (:value safe))
           "spread-safe: the owned controlled value survives the caller map")
-      (is (= "2026-01-05" (:selected general))
+      (is (= true (:disabled general))
           "spread: the owned literal is the OVERRIDE, so it wins")
-      (is (= "wide" (:class general))
+      (is (= "root" (:data-part general))
+          "for every colliding key, not just the interesting one")
+      (is (= "wide-control" (:class general))
           "and the caller's remainder is otherwise forwarded whole"))))
 
 (deftest a-narrow-read-stays-at-the-boundary-that-needs-it

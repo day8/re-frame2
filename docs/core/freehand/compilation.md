@@ -224,7 +224,7 @@ There is **no** `v/interp` and no “compiled except this unknown subtree.”
 | `(sub …)` inside an unbounded loop | Reactive sites must be finite | Extract a keyed child view that subscribes for one row |
 | Event site capturing a **loop binding** as a closed-over value for many rows | One lexical committed slot cannot mean N instances | Keyed child whose **props** carry `id` / row data |
 | Hiding `sub` inside an unaudited macro or deep helper | Manifest would lie | Visible `v/sub` in the view, or value computed in a pure helper and passed in |
-| Wholly dynamic props map on an **internal** view | Per-slot memo / analysis need known keys | Literal props; `v/spread-safe` (internal/controlled) or `v/spread` (foreign) — [composition](composition.md#spreading-props-attribute-forwarding) |
+| Wholly dynamic props map on an **internal** view | Per-slot memo / analysis need known keys | Literal props; `v/spread-safe` (controlled) or `v/spread` (an open element) — [composition](composition.md#spreading-props-attribute-forwarding) |
 | Dynamic head registry — runtime choose among unknown views | Head must be finite | `case`/`cond` over known descriptors, or interpreted parent |
 | Bare fn on a **foreign** callback prop | Phase/identity unknown | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
 | Bare React component at a vector head | A component is not a descriptor | declare it with `v/defhost`, which mints one — or create the element and put it in a **child** position |
