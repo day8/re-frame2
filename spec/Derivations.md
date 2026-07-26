@@ -605,11 +605,11 @@ The split the [§Authority](#authority--the-remote-axis) section names is visibl
 ```clojure
 ;; SOURCE FORM
 (rf/reg-route :route/article
-  {:path "/articles/:slug"
-   :params [:map [:slug :string]]
+  {:params [:map [:slug :string]]
    :resources [{:resource :article/by-slug
                 :params   (fn [route] {:slug (get-in route [:params :slug])})
-                :blocking? true}]})
+                :blocking? true}]}
+  "/articles/:slug")
 ```
 
 ```clojure

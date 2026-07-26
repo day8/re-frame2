@@ -890,9 +890,9 @@ A route may declare a vector of events the runtime **fires-and-forgets** wheneve
 ```clojure
 (rf/reg-route :route/cart
   {:doc      "The cart page."
-   :path     "/cart"
    :on-match [[:analytics/viewed-cart]
-              [:cart/seed-ui-state]]})
+              [:cart/seed-ui-state]]}
+  "/cart")
 ```
 
 Its contract is fire-and-forget (EP-0037 §`:on-match` is activation work):
@@ -980,10 +980,10 @@ A prefetch never warms or attaches work in a **sibling frame** merely because th
 ```clojure
 (rf/reg-route :rf.route/not-found
   {:doc      "404 page."
-   :path     "/404"                     ;; required, but rarely matched directly — the runtime
-                                          ;; routes URL-driven misses here regardless of :path
    :on-match [[:analytics/log-404]]
-   :scroll   :top})
+   :scroll   :top}
+  "/404")                                ;; required, but rarely matched directly — the runtime
+                                         ;; routes URL-driven misses here regardless of the pattern
 ```
 
 Semantics:
@@ -1317,9 +1317,9 @@ The path syntax is the *primary* binding. Query strings are bound separately via
 
 ```clojure
 (rf/reg-route :route/search
-  {:path            "/search"
-   :query           [:map [:q :string] [:page {:optional true} :int]]
-   :query-defaults  {:page 1}})
+  {:query           [:map [:q :string] [:page {:optional true} :int]]
+   :query-defaults  {:page 1}}
+  "/search")
 
 ;; URL: /search?q=clojure&page=2
 ;; match-url yields:
@@ -1429,9 +1429,9 @@ Routes that declare **no** `:query` vocabulary at all (neither a `:query` schema
 ```clojure
 ;; safe enum allowlist for a keyword-typed query value.
 (rf/reg-route :route/sorted
-  {:path  "/items"
-   :query [:map
-           [:sort [:enum :asc :desc]]]})
+  {:query [:map
+           [:sort [:enum :asc :desc]]]}
+  "/items")
 
 ;; URL: /items?sort=desc       → :query {:sort :desc}     ;; declared enum value → interned
 ;; URL: /items?sort=hostile    → :query {:sort "hostile"} ;; outside enum → stays as string
