@@ -600,6 +600,25 @@
             8035 {:roots   ["../tools/xray/testbeds/managed_http"
                             "out/examples/managed-http"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
+            ;; Freehand-views testbed (rf2-6pohj) — the ONLY shipped Xray
+            ;; deck whose views are FREEHAND views, so the Views panel's
+            ;; Mounted Views + Declared View Sites sections render
+            ;; POPULATED. A mixed host by necessity: the Reagent adapter
+            ;; supplies observation + the ratom-family `:render` Xray's
+            ;; hiccup shell mounts through (rf2-qgfo4 refuses
+            ;; `:rf.adapter/freehand`), and every view on the page is
+            ;; Freehand. Same source-dir-first cascade as 8031-8035; the
+            ;; source dir resolves the hand-written index.html at `/`,
+            ;; compiled main.js falls through to
+            ;; out/testbeds/freehand-views. Port 8036 is the next free
+            ;; slot in the Xray 803x band (standard-epochs 8031,
+            ;; routes-epochs 8032, machine-epochs 8033, edn-inspector
+            ;; 8034, managed-http 8035); 8037 is NOT free — the
+            ;; xray-feature-gate's own http-server prefers it
+            ;; (XRAY_FEATURE_GATE_PORT).
+            8036 {:roots   ["../tools/xray/testbeds/freehand_views"
+                            "out/testbeds/freehand-views"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; --- Story showcases (rf2-xz4zn) -------------------------
             ;; The four Story-enabled builds, on the 804x band (the Xray
             ;; testbeds own 803x + 8765). Each is hash-routed: `/#/` is
@@ -1713,6 +1732,48 @@
                       {re-frame.testbed.config/checkout-root
                        #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn managed-http.core/run}}
+   :devtools         {:preloads [re-frame2-pair.runtime
+                                 day8.re-frame2-xray.preload]}}
+
+  ;; Freehand-views testbed (rf2-6pohj) — the ONLY shipped Xray deck whose
+  ;; views are FREEHAND views. Every other deck is Reagent-hosted, and a
+  ;; Reagent host connects no Freehand occurrence, so the browser lane could
+  ;; prove the Views panel's Mounted Views section RENDERS and nothing about
+  ;; what it renders: an empty section and a section emptied by a BROKEN read
+  ;; through `re-frame.freehand.tool` are the same DOM. This deck is what
+  ;; makes the populated arm assertable in a real browser.
+  ;;
+  ;; A MIXED host, deliberately and of necessity. `rf/init!` installs the
+  ;; REAGENT adapter — Xray's shell is hiccup, and `day8.re-frame2-xray.mount`
+  ;; refuses the React-element-shaped adapters including
+  ;; `:rf.adapter/freehand` (rf2-qgfo4), so on a host that installed
+  ;; `v/adapter` there is no Views panel to populate at all. The adapter
+  ;; supplies the OBSERVATION half a ViewCell's reads need (a watchable
+  ;; derived value) plus the `:render` slot the shell mounts through;
+  ;; Freehand renders itself through react-dom/client either way. That
+  ;; arrangement is blessed by the substrate contract itself
+  ;; (`re-frame.freehand.substrate`: bring-your-own adapter stays legitimate
+  ;; for a mixed application). Nothing on the page is Reagent-rendered.
+  ;;
+  ;; Three declared views over one `:rf/default` frame — a compiled reader, a
+  ;; compiled dispatcher, and an interpreted root — so the roster carries a
+  ;; lowering contrast and Declared View Sites carries BOTH the
+  ;; `:basis :static-proof` and the `:basis :opaque` arm. A TEST surface — no
+  ;; deliberate bugs, no teaching layers (feedback_testbeds_are_test_surfaces).
+  ;;
+  ;; Sources live under tools/xray/testbeds/freehand_views/; the Xray preload
+  ;; auto-mounts inline. Served at http://localhost:8036 via the top-level
+  ;; `:dev-http` map (the next free slot in the Xray 803x band).
+  :testbeds/freehand-views
+  {:target           :browser
+   :output-dir       "out/testbeds/freehand-views"
+   :asset-path       "."
+   ;; rf2-5dphw — build-env project-root for open-in-editor (see
+   ;; :examples/two-frame-isolation above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/checkout-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn freehand-views.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
