@@ -898,13 +898,16 @@ jobs:
   # because the lane's namespace roster is by construction a subset of what
   # already passes in dev posture, so a lost flag would otherwise be invisible.
   #
-  # SCOPE. Not the whole core suite yet: 78 of its 174 test namespaces are red
+  # SCOPE. Not the whole core suite yet: 91 of its 174 test namespaces are red
   # under the real gate, essentially all of them asserting dev instrumentation
   # (traces, the `:errors` sink, doc metadata, source coords) inline with
   # semantics. Those are legitimate dev-posture tests, not defects; the roster
-  # and the beads splitting them out live in `scripts/test-core-prod-gate.sh`.
-  # The roster is an EXCLUSION list, so a new namespace joins this lane by
-  # default and has to be excluded deliberately.
+  # and the beads splitting them out (rf2-r9bra, rf2-d2841) live in
+  # `scripts/test-core-prod-gate.sh`. What runs here today is 83 namespaces /
+  # 915 tests / 4257 assertions, green — against the zero suites that had ever
+  # executed under this posture before. The roster is an EXCLUSION list, so a
+  # new namespace joins this lane by default and has to be excluded
+  # deliberately.
   jvm-core-prod-gate:
     name: JVM core under the production gate (-Dre-frame.debug=false)
     # Same surface gate as jvm-core: it is the same artefact.
