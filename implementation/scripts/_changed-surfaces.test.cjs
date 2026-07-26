@@ -244,6 +244,126 @@ test('Xray CLJS src change runs cljs (node-test compiles tools/xray) (rf2-f79t8)
   assert.equal(result.cljs_node_test, 'true');
 });
 
+// rf2-1sd8h — the BROWSER half of the same two trees. Story/Xray
+// `*_dom_cljs_test.{cljs,cljc}` namespaces are selected by BOTH CLJS builds:
+// the consolidated `:node-test` (`cljs-test$` matches a `-dom-cljs-test`
+// suffix too) and `:browser-test` (`-dom-cljs-test$`). Only the second one
+// gives them a `document`; under Node they self-skip. The classifier fired
+// only cljs_node_test for these paths, so `cljs-browser` reported SKIPPED
+// while the decisive regression test ran nowhere but the author's laptop
+// (#7037's presence-flush proof, and the pre-existing sub-overrides suite
+// beside it). These assertions are the teeth on that arm.
+//
+// The two live namespaces named below are load-bearing, not illustrative:
+// they are the files the bead was filed about, and if either is renamed out
+// of the `-dom-cljs-test` convention this pins that the arm moved with it.
+
+test('Story DOM test change schedules cljs-browser (rf2-1sd8h)', () => {
+  const result = classify(
+    'tools/story/test/re_frame/story/play/presence_freehand_dom_cljs_test.cljs',
+  );
+  assert.equal(result.cljs_browser, 'true');
+  // Still the node lane too — the same namespace compiles there and its
+  // non-DOM assertions keep firing.
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('the pre-existing Story sub-overrides DOM test schedules cljs-browser (rf2-1sd8h)', () => {
+  const result = classify(
+    'tools/story/test/re_frame/story/sub_overrides_render_dom_cljs_test.cljs',
+  );
+  assert.equal(result.cljs_browser, 'true');
+});
+
+test('Xray DOM test change schedules cljs-browser (rf2-1sd8h)', () => {
+  const result = classify(
+    'tools/xray/test/day8/re_frame2_xray/views/view_walker_dom_cljs_test.cljs',
+  );
+  assert.equal(result.cljs_browser, 'true');
+});
+
+test('a .cljc DOM suite would schedule cljs-browser too (rf2-1sd8h)', () => {
+  // No `.cljc` DOM suite exists under these trees today; the arm covers the
+  // extension so that the first one to land is armed on arrival rather than
+  // on the audit that finds it.
+  const result = classify('tools/story/test/re_frame/story/hypothetical_dom_cljs_test.cljc');
+  assert.equal(result.cljs_browser, 'true');
+});
+
+test('Story runtime src change schedules cljs-browser (the DOM suites mount it) (rf2-1sd8h)', () => {
+  const result = classify('tools/story/src/re_frame/story/play/presence.cljc');
+  assert.equal(result.cljs_browser, 'true');
+});
+
+test('Xray runtime src change schedules cljs-browser (rf2-1sd8h)', () => {
+  const result = classify('tools/xray/src/day8/re_frame2_xray/core.cljs');
+  assert.equal(result.cljs_browser, 'true');
+});
+
+test('a JVM-only .clj test under Story does NOT schedule cljs-browser (rf2-1sd8h)', () => {
+  const result = classify('tools/story/test/some_test.clj');
+  assert.equal(result.cljs_browser, 'false');
+  // …and it keeps the JVM fan-out it already had, so this is a narrowing
+  // control, not a regression.
+  assert.equal(result.tools_jvm, 'true');
+});
+
+test('a non-DOM CLJS test under Story does NOT schedule cljs-browser (rf2-1sd8h)', () => {
+  const result = classify('tools/story/test/re_frame/story_cljs_test.cljs');
+  assert.equal(result.cljs_browser, 'false');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('Story spec-only .md does NOT schedule cljs-browser (rf2-1sd8h)', () => {
+  assert.equal(classify('tools/story/spec/Spec.md').cljs_browser, 'false');
+});
+
+test('Xray spec-only .md does NOT schedule cljs-browser (rf2-1sd8h)', () => {
+  assert.equal(
+    classify('tools/xray/spec/017-Test-Coverage-Matrix.md').cljs_browser,
+    'false',
+  );
+});
+
+test('a Story DOM-test change does NOT fire the Playwright testbed gate (rf2-1sd8h)', () => {
+  // The bead asks for the browser UNIT lane, narrowly — not the
+  // story-feature-load / xray-feature-gate Playwright runners, which the
+  // runtime-path predicate owns and which a test-tree edit cannot affect.
+  const result = classify(
+    'tools/story/test/re_frame/story/sub_overrides_render_dom_cljs_test.cljs',
+  );
+  assert.equal(result.story_xray_browser, 'false');
+});
+
+test('every Story/Xray DOM suite in the tree is armed by the classifier (rf2-1sd8h)', () => {
+  // Read off the tree rather than listed here: a new `*_dom_cljs_test` file
+  // that the arm misses makes this red on arrival. Counts drift; the walk
+  // does not.
+  const roots = [
+    path.join(REPO_ROOT, 'tools', 'story', 'test'),
+    path.join(REPO_ROOT, 'tools', 'xray', 'test'),
+  ];
+  const suites = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/_dom_cljs_test\.clj[sc]$/.test(entry.name)) {
+        suites.push(path.relative(REPO_ROOT, full).split(path.sep).join('/'));
+      }
+    }
+  };
+  roots.forEach(walk);
+  assert.ok(suites.length > 0, 'expected at least one Story/Xray DOM suite');
+  for (const suite of suites) {
+    assert.equal(
+      classify(suite).cljs_browser,
+      'true',
+      `${suite} declares itself a DOM suite but does not schedule cljs-browser`,
+    );
+  }
+});
+
 // rf2-z0cw6s — tools/machines-viz is a CLJS-only tool (day8/re-frame2-machines-viz):
 // its src+test are :source-paths of the consolidated :node-test AND :browser-test
 // builds, so a CLJS change fires cljs (node-test) + cljs-browser, and nothing else
@@ -402,14 +522,89 @@ test('the new tools JVM lanes arm on their artefact and nowhere else (rf2-wq17m)
         `${lane.armed} must NOT arm ${other.output}`,
       );
     }
-    // A core-only change is the control: these outputs are per-artefact, not a
-    // fan-out of the framework.
+    // The control is a surface with NO declared edge to either artefact.
+    // spec prose is the honest one: it changes no classpath either job reads.
+    // (A core change is deliberately NOT the control any more — see the
+    // dependency-edge assertions below, rf2-wq17m's audit reopen.)
     assert.equal(
-      classify('implementation/core/src/re_frame/core.cljc')[lane.output],
+      classify('spec/006-ReactiveSubstrate.md')[lane.output],
       'false',
-      `a core change must not fire ${lane.output}`,
+      `a spec-prose change must not fire ${lane.output}`,
     );
   }
+});
+
+// rf2-wq17m, audit reopen of #7005 — the DEPENDENCY side. Both new jobs run a
+// suite whose subject is code in implementation/, reached over a :local/root
+// declared in the artefact's own deps.edn, so a change on the framework side
+// must arm them. Before this, classifying implementation/machines/src/... or
+// implementation/core/src/... left both outputs false: an engine grammar
+// change could merge with the parity ratchet skipped, and a source-coords
+// change with the endpoint delegation suite skipped.
+//
+// The assertion above USED to pin `a core change must not fire ${lane.output}`
+// — the honest description of the classifier as #7005 left it, and the
+// tripwire that makes this reopen visible rather than silent. It is inverted
+// here deliberately, in the same PR that adds the edges.
+
+test('an engine change arms the machines-viz parity ratchet (rf2-wq17m)', () => {
+  const result = classify('implementation/machines/src/re_frame/machines.cljc');
+  assert.equal(result.tools_jvm_machines_viz, 'true');
+  // …and not the sibling lane: testbed-support declares no machines edge.
+  assert.equal(result.tools_jvm_testbed_support, 'false');
+  // The per-feature fan-out it already had is untouched.
+  assert.equal(result.implementation_jvm, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('a core change arms BOTH new tools JVM lanes (rf2-wq17m)', () => {
+  const result = classify('implementation/core/src/re_frame/core.cljc');
+  assert.equal(result.tools_jvm_machines_viz, 'true');
+  assert.equal(result.tools_jvm_testbed_support, 'true');
+  // tools_jvm still fires from core for its own four jobs — the new outputs
+  // are additional, not a replacement.
+  assert.equal(result.tools_jvm, 'true');
+});
+
+test('the source-coords resolver arms the testbed-support endpoint lane (rf2-wq17m)', () => {
+  // open_in_editor_server_test.clj verifies delegation to
+  // `re-frame.source-coords`; that file is the concrete subject of the edge.
+  const result = classify('implementation/core/src/re_frame/source_coords.cljc');
+  assert.equal(result.tools_jvm_testbed_support, 'true');
+});
+
+test('a sibling per-feature artefact does NOT arm the machines-viz lane (rf2-wq17m)', () => {
+  // The edge is machines-specific: flows/http/routing/ssr declare no
+  // :local/root into machines-viz's test classpath, so widening to the whole
+  // per-feature group would be a fan-out with no dependency behind it.
+  for (const file of [
+    'implementation/flows/src/re_frame/flows.cljc',
+    'implementation/routing/src/re_frame/routing.cljc',
+    'implementation/http/src/re_frame/http.cljc',
+  ]) {
+    assert.equal(
+      classify(file).tools_jvm_machines_viz,
+      'false',
+      `${file} has no declared edge into tools/machines-viz's test classpath`,
+    );
+  }
+});
+
+test('the declared :local/root edges these arms encode are still in the deps.edn files (rf2-wq17m)', () => {
+  // The arms above are only honest while the dependency they mirror exists.
+  // Read it off the artefact's own deps.edn rather than asserting from
+  // memory: drop the dep and this goes red beside the arm it justifies.
+  const vizDeps = fs.readFileSync(
+    path.join(REPO_ROOT, 'tools', 'machines-viz', 'deps.edn'),
+    'utf8',
+  );
+  assert.match(vizDeps, /"\.\.\/\.\.\/implementation\/machines"/);
+  assert.match(vizDeps, /"\.\.\/\.\.\/implementation\/core"/);
+  const supportDeps = fs.readFileSync(
+    path.join(REPO_ROOT, 'tools', 'testbed-support', 'deps.edn'),
+    'utf8',
+  );
+  assert.match(supportDeps, /"\.\.\/\.\.\/implementation\/core"/);
 });
 
 test('machines-viz spec-only .md does NOT fire its JVM lane (rf2-wq17m)', () => {

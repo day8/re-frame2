@@ -142,6 +142,63 @@ is_story_xray_node_test_path() {
   esac
 }
 
+# rf2-1sd8h — predicate: can `$1` change what the `:browser-test` build
+# (headless Chromium, `-dom-cljs-test$`) executes for Story/Xray? Returns
+# 0 (yes) / 1 (no).
+#
+# WHY IT IS SEPARATE FROM THE NODE-TEST PREDICATE ABOVE. Both trees ride
+# the SAME two builds — implementation/shadow-cljs.edn puts
+# tools/{story,xray}/{src,test} on :source-paths, and the `:node-test`
+# build's `cljs-test$` regex matches a `-dom-cljs-test` namespace just as
+# the `:browser-test` build's `-dom-cljs-test$` does. So a Story DOM suite
+# was already COMPILED at PR time — under Node, where it finds no
+# `document` and SKIPS rather than mounting. The classifier fired only
+# cljs_node_test for it, so the `cljs-browser` job — the one lane where
+# these files can actually execute — reported SKIPPED while the PR's
+# decisive regression test had run nowhere but the author's laptop
+# (#7037). Same false-green shape rf2-vxgfnd.90 closed for
+# implementation/ui and rf2-drpa3.70 for implementation/freehand, one tier
+# out.
+#
+# Two shapes, deliberately not the whole tree:
+#   * a DOM suite itself — tools/{story,xray}/test/**/*_dom_cljs_test.{cljs,cljc}.
+#     The filename suffix and the declared namespace suffix are the same
+#     token the `:browser-test` selector reads, so this arm cannot drift
+#     from what the build selects.
+#   * the runtime those suites mount — tools/{story,xray}/src/**.{cljs,cljc}.
+#     The DOM suites are the designated boundary for Story's mounted
+#     surfaces (presence flush, sub-override render, recorder DOM capture,
+#     shell/test-mode/viewport/xray-embed) and Xray's (epoch panel rounding,
+#     reactive data view, theme a11y, view walker); a src change reaches
+#     them transitively, and the conservative direction on a browser gate
+#     is to run it more, never to skip it.
+#
+# NOT the rest of the test tree: a `.clj` or a plain `.cljc` pure-data
+# suite there cannot change what React puts on a page. NOT the testbeds
+# either — they drive the Playwright gates (story_xray_browser), which the
+# runtime-extension predicate above already owns, and no
+# `-dom-cljs-test` namespace lives under them. A shared `.cljc` test
+# HELPER that a DOM suite requires is the one residual; the unconditional
+# nightly matrix is the honest superset for it.
+is_story_xray_dom_test_path() {
+  case "$1" in
+    tools/story/test/*_dom_cljs_test.cljs|tools/story/test/*_dom_cljs_test.cljc)
+      return 0 ;;
+    tools/xray/test/*_dom_cljs_test.cljs|tools/xray/test/*_dom_cljs_test.cljc)
+      return 0 ;;
+    tools/story/src/*|tools/xray/src/*)
+      case "$1" in
+        *.cljs|*.cljc)
+          return 0 ;;
+        *)
+          return 1 ;;
+      esac
+      ;;
+    *)
+      return 1 ;;
+  esac
+}
+
 if [ "$files" = "__ALL__" ]; then
   mark_all
 else
@@ -260,6 +317,28 @@ else
         # PRs precisely because a core change forced a bundle REBUILD + RECOMMIT,
         # which is exactly the write lock this bead retired.)
         playground=true
+        # rf2-wq17m (audit reopen of #7005) — the DEPENDENCY side of the two
+        # tools JVM lanes that PR created. Both artefacts resolve
+        # `day8/re-frame2` by :local/root onto implementation/core, and both
+        # carry a suite whose subject is CORE behaviour seen from the tool:
+        #   * tools/testbed-support — open_in_editor_server_test.clj verifies
+        #     the endpoint's delegation to `re-frame.source-coords`, which
+        #     lives in core. Change the resolver and this is the suite that
+        #     notices.
+        #   * tools/machines-viz — engine_grammar_parity_test.cljc feeds
+        #     representative definitions through BOTH the viz mirror and the
+        #     engine, and core is on that classpath under the mirror.
+        # `tools_jvm` above does NOT reach either job: it gates
+        # jvm-tools-xray / -story / -story-mcp / -mcp-base. So a core change
+        # armed four probes that do not run these artefacts and left both of
+        # the artefacts' own lanes skipped — the same hole the PR closed on
+        # the tools side, still open on the framework side.
+        #
+        # Two booleans on already-declared :local/root edges, not a
+        # dependency-graph engine and not mark_all: every other reverse edge
+        # in this file is spelled out the same way.
+        tools_jvm_machines_viz=true
+        tools_jvm_testbed_support=true
         ;;
       implementation/adapters/reagent-slim/*|examples/substrates/reagent_slim/counter/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
         # rf2-8cevm — the examples/ tree is test-free. counter_slim_and_fast
@@ -495,6 +574,21 @@ else
         # in the digest roster; it fires now.
         case "$file" in
           implementation/machines/*|implementation/flows/*) playground=true ;;
+        esac
+        # rf2-wq17m (audit reopen of #7005) — the engine half of the
+        # machines-viz parity ratchet. tools/machines-viz/deps.edn declares a
+        # TEST-ONLY :local/root on implementation/machines precisely so
+        # engine_grammar_parity_test.cljc can feed representative definitions
+        # through BOTH the viz mirror and the engine and assert equal output:
+        # catching ENGINE-side drift is the suite's reason to exist. Yet the
+        # only lane that runs it is jvm-tools-machines-viz — neither CLJS
+        # selector reaches the namespace (`-test`, not `cljs-test$` or
+        # `-dom-cljs-test$`) — and an engine-only diff left that output false.
+        # So a grammar change could merge with its designated drift gate
+        # skipped. Scoped to the one artefact on the other end of the declared
+        # edge; the sibling per-feature trees have no such consumer.
+        case "$file" in
+          implementation/machines/*) tools_jvm_machines_viz=true ;;
         esac
         ;;
       implementation/ui/*)
@@ -1311,6 +1405,15 @@ else
         # node-test and so does not fire it.
         if is_story_xray_node_test_path "$file"; then
           cljs_node_test=true
+        fi
+        # rf2-1sd8h — and the browser half. `cljs_node_test` alone
+        # COMPILES a `-dom-cljs-test` namespace under Node, where it finds
+        # no `document` and self-skips; `cljs_browser` is what schedules
+        # the headless-Chromium lane in which it actually mounts. See the
+        # predicate's own comment for why this is a separate, narrower arm
+        # rather than a widening of the node-test one.
+        if is_story_xray_dom_test_path "$file"; then
+          cljs_browser=true
         fi
         ;;
       tools/machines-viz/*)
