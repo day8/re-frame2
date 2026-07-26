@@ -1681,7 +1681,21 @@
 (defn- nav-slice
   "The current route slice for the default frame."
   []
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
+  (frame-slice :rf/default))
+
+(defn- gate-verdict
+  "The always-on structural gate's OWN verdict on `request` —
+  `re-frame.routing.address/classify`, the exact fn `navigate-handler` calls,
+  against the live current slice. Returns nil when well-formed, else
+  `{:reason … :keys …}`.
+
+  rf2-o5dbf: the handler's `:rf.error/navigate-bad-request` DIAGNOSTIC rides
+  `trace/emit-error!` and closes under `-Dre-frame.debug=false`; the gate that
+  produces it does not — a malformed request still leaves the slice untouched
+  and pushes no URL. This reads the same rule on the same input with no bus in
+  between: what the reject WOULD report."
+  [request]
+  (address/classify request (nav-slice)))
 
 (deftest routing-in-place-target-stays-on-current-route
   (testing "an in-place request patches the CURRENT route's query, holding id + path-params"
@@ -1826,10 +1840,17 @@
       (rf/unregister-listener! :trace ::qm-reject)
       (is (= :route/a (:route-id (nav-slice))) "the destination nav is rejected; slice unchanged")
       (is (empty? @pushed) "no URL is pushed")
-      (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-        (is (some? err) ":rf.error/navigate-bad-request emitted")
-        (is (= :query-merge-in-place-only (-> err :tags :reason))
-            ":reason names the query-merge-on-destination violation")))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the rule-4 violation is the
+      ;; always-on gate's own verdict, not something the diagnostic invents.
+      (is (= :query-merge-in-place-only
+             (:reason (gate-verdict {:to :route/b :query-merge {:page 3}})))
+          "the gate names the query-merge-on-destination violation")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+          (is (some? err) ":rf.error/navigate-bad-request emitted")
+          (is (= :query-merge-in-place-only (-> err :tags :reason))
+              ":reason names the query-merge-on-destination violation"))))))
 
 (deftest routing-in-place-before-first-nav-rejects
   (testing "an in-place request before any navigation fails closed (no current route)"
@@ -1845,16 +1866,23 @@
       (rf/register-listener! :trace ::inplace-reject
                              (fn [ev] (when (= :error (:op-type ev))
                                         (swap! errors conj ev))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the rule-7 violation is the
+      ;; always-on gate's own verdict, read BEFORE the dispatch — while there
+      ;; genuinely is no current route, which is the condition under test.
+      (is (= :no-current-route (:reason (gate-verdict {:query-merge {:page 1}})))
+          "the gate names the no-current-route violation")
       (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 1}}])
       (rf/unregister-listener! :trace ::inplace-reject)
       (is (empty? @pushed)
           "no URL is pushed for an in-place nav with no current route")
       (is (nil? (:route-id (nav-slice)))
           "the route slice stays empty (unchanged)")
-      (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-        (is (some? err) ":rf.error/navigate-bad-request emitted")
-        (is (= :no-current-route (-> err :tags :reason))
-            ":reason names the no-current-route violation")))))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+          (is (some? err) ":rf.error/navigate-bad-request emitted")
+          (is (= :no-current-route (-> err :tags :reason))
+              ":reason names the no-current-route violation"))))))
 
 (deftest routing-in-place-query-merge-no-op-when-unchanged
   (testing "in-place :query-merge to the SAME query is a rule-3 no-op"
@@ -1948,18 +1976,30 @@
                   "the slice is byte-for-byte identical except :fragment — :transition
                    / :error / :nav-token / :route-id / :params / :query preserved")
               ;; TEETH 4 — one fragment-changed, no allocation trace.
-              (let [frag (filter #(= :rf.route/fragment-changed (:operation %)) @traces)
-                    tags (-> frag first :tags)]
-                (is (= 1 (count frag))
-                    "exactly one :rf.route/fragment-changed emitted")
-                (is (= :route/docs (:route-id tags))      "fragment-changed carries :route-id")
-                (is (= "a" (:prev-fragment tags))         "fragment-changed carries :prev-fragment")
-                (is (= "b" (:next-fragment tags))         "fragment-changed carries :next-fragment")
-                (is (= :rf/default (:frame tags))         "fragment-changed carries :frame (rf2-n0851k parity)"))
-              (is (not-any? #(= :rf.route.nav-token/allocated (:operation %)) @traces)
-                  "NO :rf.route.nav-token/allocated on the fragment-only nav")
-              (is (not-any? #(= :rf.route/activated (:operation %)) @traces)
-                  "NO :rf.route/activated on the fragment-only nav (route stays active)")
+              ;;
+              ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). This
+              ;; whole block reads the trace bus, and its last two legs are
+              ;; NEGATIVES over the ring: green for free under the gate. Every
+              ;; claim in it has an always-on counterpart in TEETH 1-3 — the
+              ;; prev→next pair and the "exactly one" are the byte-for-byte
+              ;; `(= (assoc slice-before :fragment "b") slice-after)` above
+              ;; (one field moved, once), the nav-token denial is `(= "nav-1"
+              ;; (:nav-token slice-after))`, the activated denial is
+              ;; `(= 1 @on-match-calls)`, and the `:frame` tag is the fact that
+              ;; this default-frame nav moved the default frame's slice.
+              (when interop/debug-enabled?
+                (let [frag (filter #(= :rf.route/fragment-changed (:operation %)) @traces)
+                      tags (-> frag first :tags)]
+                  (is (= 1 (count frag))
+                      "exactly one :rf.route/fragment-changed emitted")
+                  (is (= :route/docs (:route-id tags))      "fragment-changed carries :route-id")
+                  (is (= "a" (:prev-fragment tags))         "fragment-changed carries :prev-fragment")
+                  (is (= "b" (:next-fragment tags))         "fragment-changed carries :next-fragment")
+                  (is (= :rf/default (:frame tags))         "fragment-changed carries :frame (rf2-n0851k parity)"))
+                (is (not-any? #(= :rf.route.nav-token/allocated (:operation %)) @traces)
+                    "NO :rf.route.nav-token/allocated on the fragment-only nav")
+                (is (not-any? #(= :rf.route/activated (:operation %)) @traces)
+                    "NO :rf.route/activated on the fragment-only nav (route stays active)"))
               ;; History: a push for the new fragment URL.
               (is (= ["/docs/routing#a" "/docs/routing#b"] @(:push fxs))
                   "the fragment-only nav pushed /docs/routing#b via :rf.nav/push-url")
@@ -2055,8 +2095,15 @@
         (is (= token-before (:nav-token (nav-slice))) "identical target: token unchanged")
         (is (empty? @(:push fxs))    "identical target: no push")
         (is (empty? @(:replace fxs)) "identical target: no replace even with :replace? true")
-        (is (not-any? #(= :rf.route/fragment-changed (:operation %)) @traces)
-            "identical target emits NO :rf.route/fragment-changed (it is a complete no-op)")))))
+        (is (= "a" (:fragment (nav-slice)))
+            "identical target: the fragment did not move, so there was nothing
+             for a fragment-changed to report")
+        ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). A NEGATIVE
+        ;; over the trace ring, green for free under the gate; the always-on
+        ;; legs above are what "complete no-op" means in runtime-db terms.
+        (when interop/debug-enabled?
+          (is (not-any? #(= :rf.route/fragment-changed (:operation %)) @traces)
+              "identical target emits NO :rf.route/fragment-changed (it is a complete no-op)"))))))
 
 (deftest navigate-fragment-only-does-not-replan-resources-rf2-k4exp1
   (testing "rf2-k4exp1: a fragment-only nav does NOT invoke the route-entry
@@ -2238,35 +2285,69 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :route/gate-a}])
     (reset! pushed [])
 
+    ;; rf2-o5dbf: the gate is ALWAYS-ON and so is its consequence — the two
+    ;; closing legs of this deftest run under `-Dre-frame.debug=false` and
+    ;; pass. What is dev-only is the `:rf.error/navigate-bad-request`
+    ;; DIAGNOSTIC each block reads. Every `:reason` / `:keys` claim therefore
+    ;; gets an always-on counterpart from `gate-verdict` — the same
+    ;; `address/classify` call the handler makes, on the same request, with no
+    ;; bus in between. Without it, the per-rule discrimination would go
+    ;; untested under the gate and only the coarse "nothing moved" pair below
+    ;; would survive.
+
     (testing "empty map rejects (:no-destination-or-change)"
+      (is (= :no-destination-or-change (:reason (gate-verdict {}))))
       (let [err (gate-reject {} pushed)]
-        (is (= :no-destination-or-change (-> err :tags :reason)))
-        (is (= :event (-> err :tags :where)))
+        (when interop/debug-enabled?
+          (is (= :no-destination-or-change (-> err :tags :reason)))
+          (is (= :event (-> err :tags :where))))
         (is (empty? @pushed))))
 
     (testing "pure-policy map rejects (:no-destination-or-change)"
-      (is (= :no-destination-or-change (-> (gate-reject {:replace? true} pushed) :tags :reason)))
+      (is (= :no-destination-or-change (:reason (gate-verdict {:replace? true}))))
+      (let [err (gate-reject {:replace? true} pushed)]
+        (when interop/debug-enabled?
+          (is (= :no-destination-or-change (-> err :tags :reason)))))
       (is (empty? @pushed)))
 
     (testing ":to + :url are mutually exclusive"
-      (is (= :to-url-exclusive (-> (gate-reject {:to :route/gate-b :url "/gate-b"} pushed) :tags :reason))))
+      (is (= :to-url-exclusive (:reason (gate-verdict {:to :route/gate-b :url "/gate-b"}))))
+      (let [err (gate-reject {:to :route/gate-b :url "/gate-b"} pushed)]
+        (when interop/debug-enabled?
+          (is (= :to-url-exclusive (-> err :tags :reason))))))
 
     (testing ":url excludes :params / :query / :query-merge"
-      (is (= :url-excludes-address (-> (gate-reject {:url "/gate-b" :query {:q "x"}} pushed) :tags :reason))))
+      (is (= :url-excludes-address (:reason (gate-verdict {:url "/gate-b" :query {:q "x"}}))))
+      (let [err (gate-reject {:url "/gate-b" :query {:q "x"}} pushed)]
+        (when interop/debug-enabled?
+          (is (= :url-excludes-address (-> err :tags :reason))))))
 
     (testing ":query + :query-merge are mutually exclusive"
-      (is (= :query-exclusive (-> (gate-reject {:query {:q "x"} :query-merge {:q "y"}} pushed) :tags :reason))))
+      (is (= :query-exclusive (:reason (gate-verdict {:query {:q "x"} :query-merge {:q "y"}}))))
+      (let [err (gate-reject {:query {:q "x"} :query-merge {:q "y"}} pushed)]
+        (when interop/debug-enabled?
+          (is (= :query-exclusive (-> err :tags :reason))))))
 
     (testing ":query-merge on a destination request rejects"
       (is (= :query-merge-in-place-only
-             (-> (gate-reject {:to :route/gate-b :query-merge {:q "x"}} pushed) :tags :reason))))
+             (:reason (gate-verdict {:to :route/gate-b :query-merge {:q "x"}}))))
+      (let [err (gate-reject {:to :route/gate-b :query-merge {:q "x"}} pushed)]
+        (when interop/debug-enabled?
+          (is (= :query-merge-in-place-only (-> err :tags :reason))))))
 
     (testing "unknown keys reject (namespaced INCLUDED)"
-      (is (= :unknown-keys (-> (gate-reject {:to :route/gate-b :bogus 1} pushed) :tags :reason)))
+      (is (= :unknown-keys (:reason (gate-verdict {:to :route/gate-b :bogus 1}))))
+      (let [err (gate-reject {:to :route/gate-b :bogus 1} pushed)]
+        (when interop/debug-enabled?
+          (is (= :unknown-keys (-> err :tags :reason)))))
+      (is (= {:reason :unknown-keys :keys [:my-app/replace?]}
+             (gate-verdict {:to :route/gate-b :my-app/replace? true}))
+          "a namespaced unknown key fails as loudly as a bare typo")
       (let [err (gate-reject {:to :route/gate-b :my-app/replace? true} pushed)]
-        (is (= :unknown-keys (-> err :tags :reason)))
-        (is (= [:my-app/replace?] (-> err :tags :keys))
-            "a namespaced unknown key fails as loudly as a bare typo")))
+        (when interop/debug-enabled?
+          (is (= :unknown-keys (-> err :tags :reason)))
+          (is (= [:my-app/replace?] (-> err :tags :keys))
+              "a namespaced unknown key fails as loudly as a bare typo"))))
 
     (is (= :route/gate-a (:route-id (slice)))
         "every rejected request left the slice on the original route (unchanged)")
@@ -2289,11 +2370,19 @@
       (is (nil? (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current])))
           "the malformed request navigated nowhere")
-      (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
-                              (= :unknown-keys (-> ev :tags :reason))
-                              (= [:rf.route/enter-attempts] (-> ev :tags :keys))))
-                @errors)
-          "the retired rider is rejected LOUD as an unknown request key"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): "the roster is CLOSED with
+      ;; no exemption" is a statement about the always-on gate, so read it
+      ;; there. The trace leg below is that same verdict's dev-only diagnostic.
+      (is (= {:reason :unknown-keys :keys [:rf.route/enter-attempts]}
+             (gate-verdict {:to :route/rider :rf.route/enter-attempts 2}))
+          "the retired rider is an ORDINARY unknown key to the closed roster")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
+                                (= :unknown-keys (-> ev :tags :reason))
+                                (= [:rf.route/enter-attempts] (-> ev :tags :keys))))
+                  @errors)
+            "the retired rider is rejected LOUD as an unknown request key")))))
 
 ;; ============================================================================
 ;; rf2-0zsvw — explicit :fragment override on an UNMATCHED raw-URL navigate
@@ -2386,17 +2475,26 @@
                                         (swap! errors conj ev))))
       ;; The reproduction: :params beside an in-place :fragment. Pre-fix this
       ;; emitted NO error and pushed /items/old#x with :params silently ignored.
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): rule 3 is the always-on
+      ;; gate's own verdict, `:keys` included — read it before the dispatch,
+      ;; from the very slice the handler will read.
+      (is (= {:reason :params-requires-destination :keys [:params]}
+             (gate-verdict {:params {:id "new"} :fragment "x"}))
+          "the gate names the params-without-destination violation and the
+           offending key")
       (rf/dispatch-sync [:rf.route/navigate {:params {:id "new"} :fragment "x"}])
       (rf/unregister-listener! :trace ::params-reject)
       (is (= {:id "old"} (:params (nav-slice)))
           "the slice params are UNCHANGED — the supplied :params did not sneak in")
       (is (empty? @pushed) "no URL is pushed for the rejected request")
-      (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-        (is (some? err) ":rf.error/navigate-bad-request emitted")
-        (is (= :params-requires-destination (-> err :tags :reason))
-            ":reason names the params-without-destination violation")
-        (is (= [:params] (-> err :tags :keys))
-            ":keys names the offending :params key")))))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+          (is (some? err) ":rf.error/navigate-bad-request emitted")
+          (is (= :params-requires-destination (-> err :tags :reason))
+              ":reason names the params-without-destination violation")
+          (is (= [:params] (-> err :tags :keys))
+              ":keys names the offending :params key"))))))
 
 (deftest navigate-non-map-payload-and-extra-element-reject
   (testing "a non-map payload and a third event element reject LOUD rather than
@@ -2419,21 +2517,43 @@
                              (fn [ev] (when (= :error (:op-type ev))
                                         (swap! errors conj ev))))
 
+      ;; rf2-o5dbf: the event-VECTOR shape gate is `navigate-handler`'s own
+      ;; first step and is always-on, so both rejections below survive
+      ;; `-Dre-frame.debug=false`; only their `:rf.error/navigate-bad-request`
+      ;; diagnostic is dev-only. Each block therefore keeps a
+      ;; posture-independent leg naming exactly what the pre-fix bug DID — a
+      ;; raw host throw, and a silently-dropped extra element.
+
       (testing "non-map payload rejects with :request-not-a-map (no raw throw)"
         (reset! errors [])
         ;; Pre-fix this reached `(dissoc \"/dest\" …)` and threw a host exception.
         (rf/dispatch-sync [:rf.route/navigate "/dest"])
-        (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-          (is (some? err) ":rf.error/navigate-bad-request emitted for a non-map payload")
-          (is (= :request-not-a-map (-> err :tags :reason)))))
+        ;; SEMANTIC, posture-independent (rf2-o5dbf): reaching this line at all
+        ;; is the "no raw throw" half — `dispatch-sync` propagates a handler
+        ;; throw — and the slice is the "rejected, not navigated" half.
+        (is (= :route/home (:route-id (nav-slice)))
+            "the non-map payload neither threw nor navigated")
+        ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+        (when interop/debug-enabled?
+          (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+            (is (some? err) ":rf.error/navigate-bad-request emitted for a non-map payload")
+            (is (= :request-not-a-map (-> err :tags :reason))))))
 
       (testing "extra event element rejects with :bad-event-arity (not dropped)"
         (reset! errors [])
         ;; Pre-fix this navigated to :route/dest while dropping {:replace? true}.
         (rf/dispatch-sync [:rf.route/navigate {:to :route/dest} {:replace? true}])
-        (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-          (is (some? err) ":rf.error/navigate-bad-request emitted for a 3-element event")
-          (is (= :bad-event-arity (-> err :tags :reason)))))
+        ;; SEMANTIC, posture-independent (rf2-o5dbf): TEETH — the pre-fix bug
+        ;; was a SILENT SUCCESS, so "still on :route/home" is the whole claim
+        ;; and it needs no bus.
+        (is (= :route/home (:route-id (nav-slice)))
+            "the 3-element event did NOT navigate to :route/dest — the extra
+             element was rejected, not dropped")
+        ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+        (when interop/debug-enabled?
+          (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+            (is (some? err) ":rf.error/navigate-bad-request emitted for a 3-element event")
+            (is (= :bad-event-arity (-> err :tags :reason))))))
 
       (rf/unregister-listener! :trace ::shape-reject)
       (is (= :route/home (:route-id (nav-slice)))
@@ -2457,12 +2577,25 @@
                                         (swap! errors conj ev))))
       ;; :a/b, "s", and 3 are all unknown keys of DIFFERENT kinds — a plain
       ;; `(sort #{:a/b "s" 3})` throws a ClassCastException on the JVM.
+      ;;
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the ORDERING is computed
+      ;; inside `address/classify`, which is where the raw `compare` throw
+      ;; would happen — so the always-on gate's verdict is the direct witness
+      ;; for both halves of this deftest's title, and it is the total order
+      ;; the diagnostic merely relays.
+      (is (= {:reason :unknown-keys
+              :keys   (vec (sort-by identity/canonical-bytes #{:a/b "s" 3}))}
+             (gate-verdict {:to :route/gate :a/b 1 "s" 2 3 4}))
+          "the gate orders the heterogeneous unknown keys canonically, with no
+           raw compare throw")
       (rf/dispatch-sync [:rf.route/navigate {:to :route/gate :a/b 1 "s" 2 3 4}])
       (rf/unregister-listener! :trace ::hetero)
-      (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
-        (is (some? err) ":rf.error/navigate-bad-request emitted (no raw compare throw)")
-        (is (= :unknown-keys (-> err :tags :reason)))
-        (is (= (vec (sort-by identity/canonical-bytes #{:a/b "s" 3}))
-               (-> err :tags :keys))
-            ":keys are the heterogeneous unknown keys in total canonical order"))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+          (is (some? err) ":rf.error/navigate-bad-request emitted (no raw compare throw)")
+          (is (= :unknown-keys (-> err :tags :reason)))
+          (is (= (vec (sort-by identity/canonical-bytes #{:a/b "s" 3}))
+                 (-> err :tags :keys))
+              ":keys are the heterogeneous unknown keys in total canonical order")))
       (is (empty? @pushed) "no URL is pushed for the rejected request"))))

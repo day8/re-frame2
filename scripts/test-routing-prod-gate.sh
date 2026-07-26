@@ -65,8 +65,12 @@
 # BY DEFAULT and has to be excluded deliberately, so a new suite that breaks
 # under the production gate reddens this job the day it lands.  An allowlist
 # would have the opposite failure mode — silently not covering the new thing.
-# The list shrinks as rf2-o5dbf lands; when it reaches zero, this script is one
-# line and the `-n` machinery goes away.
+#
+# THE ROSTER IS NOW EMPTY (rf2-o5dbf, 2026-07-27).  All 19 entries were triaged
+# and split; every one of this artefact's test namespaces runs under the gate.
+# The `-n` machinery STAYS: it is what makes the exclusion polarity above real,
+# so the next namespace that goes red under the gate has a documented place to
+# be rostered — with a bead — instead of quietly reddening the job forever.
 
 set -euo pipefail
 
@@ -166,8 +170,45 @@ known_red=(
   #    state that does execute.  Be clear-eyed about the trade: under the
   #    production gate this namespace contributes routing semantics, not the
   #    ownership contract it is named for.
-  re-frame.routing-navigation-test                # 64
-  re-frame.routing-plan-seam-test                 # 31
+  #    CLEARED 2026-07-27 (rf2-o5dbf, batch 8 — THE LAST TWO):
+  #    routing-navigation, routing-plan-seam.  With these the roster is
+  #    EMPTY: every one of this artefact's 37 test namespaces now runs under
+  #    `-Dre-frame.debug=false`, and the `-n` selector list is the whole set.
+  #
+  #    `routing-plan-seam` carried the sharpest vacuous pass the programme has
+  #    found.  `an-executed-navigations-plan-trace-is-not-a-carrier` asserts
+  #    `(is (not (re-find #"SECRET100" (pr-str tags))))` over a REAL
+  #    navigation's plan trace — and under the gate `tags` is nil, so it
+  #    certified that a secret stayed out of an egress copy the framework
+  #    never made.  Its `tok-99` fragment sibling is the same.  Both are
+  #    inside the posture arm now; outside it the suite asserts
+  #    `resolver/plan-trace-tags` — the PURE fn the emit site calls — over the
+  #    same address, which is the redaction itself with no bus in between.
+  #
+  #    `routing-navigation` is the artefact's LOUD-REJECTION verdict, and it
+  #    matches the four tripwires batch 1 read: EVERY rejection survives
+  #    production.  `address/classify` and the event-shape gate run
+  #    unconditionally and return `{}` from the handler, so a malformed
+  #    request leaves the slice untouched and pushes no URL under the gate
+  #    exactly as in dev — only the `:rf.error/navigate-bad-request`
+  #    diagnostic beside them goes quiet.  Because that diagnostic was the
+  #    only place the PER-RULE discrimination was read, the always-on
+  #    replacement is `address/classify` itself: same fn the handler calls,
+  #    same request, no gate between the call and the verdict.  The same
+  #    holds for the param-validation reject — slice unchanged in BOTH
+  #    postures — which is a DIFFERENT shape from the nav-fx-schemas note
+  #    below, where the verdict itself short-circuits to `true`.
+  #
+  #    Eight more negatives-over-an-empty-ring across the two: the only
+  #    assertion in `transitioned-well-formed-url-does-not-emit-malformed-
+  #    trace`, the two `(is (empty? (planned …)))` non-commit legs, three
+  #    nav-token/fragment-changed denials on the short-circuit paths, the
+  #    schema-validation denial on the unmatched-without-404 commit, and —
+  #    worst — `(is (empty? (filter …)))` in
+  #    `commit-traces-suppressed-from-trace-disabled-frame`, which IS that
+  #    deftest's point and would have certified a leak-suppression the
+  #    framework had no occasion to perform.
+  #
   #    CLEARED 2026-07-27 (rf2-o5dbf, batch 7): routing-nav-fx-schemas.
   #    READ THIS ONE BEFORE ASSUMING THE NEXT LOOK-ALIKE IS A DEFECT.  Its
   #    failures were `(is (false? (validate-through-hook …)))` returning
@@ -302,12 +343,14 @@ fi
 # green with `Ran 0 tests`.  Calibrated below the observed count with room for
 # ordinary churn; raise it when the roster grows materially.
 #
-# rf2-o5dbf raised this 85 -> 380.  The original 85 was calibrated against an
-# observed 98 (~87%); the lane now runs 438, so an 85 floor sat FIVE TIMES
-# below what it guards — a roster collapse to a fifth of the lane would still
-# have reported green.  380 restores the same ~87% ratio against the current
-# observation.  Raise it again the next time the roster shrinks materially.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-380}"
+# rf2-o5dbf raised this 85 -> 380 -> 455.  The original 85 was calibrated
+# against an observed 98 (~87%); by the time the roster was down to two entries
+# the lane ran 438, so an 85 floor sat FIVE TIMES below what it guards — a
+# roster collapse to a fifth of the lane would still have reported green.  With
+# the roster now EMPTY the lane runs 524, and 455 restores the same ~87% ratio.
+# That is also the floor's final job: with no exclusions left, this is the only
+# thing standing between a `-n` list that matched nothing and a green report.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-455}"
 
 args=()
 for ns in $runnable; do
