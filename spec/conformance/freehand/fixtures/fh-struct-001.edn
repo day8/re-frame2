@@ -1,9 +1,12 @@
 ;; FH-STRUCT-001 — the versioned node schema and its pinned discrimination.
 ;;
-;; Five node variants, a closed set, discriminated in ONE pinned order:
+;; A closed set of node variants, discriminated in ONE pinned order:
 ;; a string is text, a map with :tag is an element, else :view-id is a
-;; view boundary, else :html is trusted markup, else a map with :children
-;; is a fragment. `render` answers the ROOT node — always a map — carrying
+;; view boundary, else :html is trusted markup, else :rf.ui/host is a
+;; declared host crossing, else a map with :children is a fragment.
+;; Spec 004B §Node schema is the roster that enumerates them; this file
+;; recites the order, never a count.
+;; `render` answers the ROOT node — always a map — carrying
 ;; the schema version; interior nodes carry none and inherit their tree's.
 ;;
 ;; `:cases` are `{:form <hiccup> :tree <the whole expected root node>}`.
@@ -12,7 +15,7 @@
 ;; with a walk that emitted extra ones.
 {:fh/id "FH-STRUCT-001"
  :fh/law
- "The structural tree is plain serialisable data in five discriminated variants; the root node carries :rf.ui/tree-version and a value the node set cannot carry fails loud."
+ "The structural tree is plain serialisable data in a closed set of node variants — element, fragment, view-boundary, trusted-HTML, host, and bare text; the root node carries :rf.ui/tree-version and a value the node set cannot carry fails loud."
 
  :cases
  [{:note  "an element-rooted form roots in its element node"
