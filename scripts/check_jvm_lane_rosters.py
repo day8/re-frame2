@@ -47,13 +47,14 @@ script would be the staleness class the gate exists to catch.  The only listed
 thing is the baseline below, and every entry in it names the bead that clears
 it.
 
-THE BASELINE.  Two drifts predate this gate, both outside the fence of the
-change that added it (rf2-as6bg is a tools-roster bead; these are
-implementation-side and their surfaces were owned by other in-flight work).
-Same pattern as `check_skill_mcp_drift.py`'s `_BASELINE` — record the drift on
-main so the gate can land ahead of its companion fix, and trim entries as they
-are resolved.  A baselined pair is reported under `--verbose` so it stays
-visible rather than becoming permanent.
+THE BASELINE, now EMPTY (rf2-ftmh0).  Two drifts predated this gate, both
+outside the fence of the change that added it, and both were recorded rather
+than fixed so the gate could land ahead of its companion work — the same
+pattern as `check_skill_mcp_drift.py`'s `_BASELINE`.  Both are now repaired on
+main, so the rule the gate states is unqualified: every roster entry is
+required in CI and every required JVM job is rostered, with no exceptions.
+Re-populating `BASELINE` suppresses a real violation, so an entry must name the
+bead that clears it and be trimmed when that bead lands.
 """
 
 from __future__ import annotations
@@ -74,18 +75,17 @@ AGGREGATOR_JOB = "all-required-passed"
 JVM_RUNNER = "clojure -M:test"
 
 # artefact path -> why it is not yet a violation.  Trim on resolution.
-BASELINE = {
-    "implementation/adapters/test-react": (
-        "R1 -- on scripts/test-jvm-implementation.sh, no test.yml job. Adding "
-        "one adds a REQUIRED check on implementation/adapters/**; filed as "
-        "rf2-ftmh0 for that surface's owner."
-    ),
-    "implementation/freehand/scaffold-smoke": (
-        "R2 -- required job `ui-scaffold-smoke` runs it, no roster does. Its "
-        "local lane belongs with implementation/freehand/**; filed as "
-        "rf2-ftmh0."
-    ),
-}
+#
+# EMPTY, and meant to stay that way (rf2-ftmh0).  The two entries this gate
+# shipped with are both fixed on main: `implementation/adapters/test-react` now
+# has the required `jvm-adapters-test-react` job, and
+# `implementation/freehand/scaffold-smoke` is on
+# `scripts/test-jvm-implementation.sh`.  Adding an entry back is a deliberate
+# act -- it suppresses a real violation -- so it must name the bead that clears
+# it and be trimmed when that bead lands.  A baseline that never empties has
+# become a permanent exemption, which is the failure mode the repo already
+# fought over the Tags-column suppression set (rf2-zk1xu).
+BASELINE: dict[str, str] = {}
 
 ARRAY_OPEN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\(\s*$")
 JOB_ID = re.compile(r"^  ([A-Za-z0-9_][A-Za-z0-9_.-]*):\s*$")

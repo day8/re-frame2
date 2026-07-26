@@ -1368,6 +1368,61 @@ jobs:
       - name: Run JVM tests (uix artefact, classpath probe)
         run: clojure -M:test
 
+  jvm-adapters-test-react:
+    name: JVM test-react (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation/adapters/test-react
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-test-react-${{ hashFiles('implementation/adapters/test-react/deps.edn', 'implementation/core/deps.edn', 'implementation/test-quiet/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-test-react-
+            ${{ runner.os }}-clj-
+
+      # rf2-ftmh0 — the Test-React adapter sat on
+      # `scripts/test-jvm-implementation.sh` with NO test.yml job at all: 35
+      # deftests / 160 assertions whose only lane was somebody remembering to
+      # run the local sweep. That is the exact hole `check_jvm_lane_rosters.py`
+      # (rf2-as6bg) exists to name, and it was one of that gate's two baseline
+      # entries; this job clears half of it.
+      #
+      # NOT a skip-ok classpath probe, unlike `jvm-reagent` / `jvm-uix`. The
+      # adapter is pure CLJC — it simulates the React class-3 lifecycle with no
+      # React, no DOM and no jsdom precisely so it runs on the JVM — and both
+      # test namespaces are `.cljc` with `:clj` reader arms. So the JVM run is
+      # REAL coverage: the sync-unmount-during-render guard (the rf2-4l7t2
+      # class), the unbalanced subscribe/dispose ref-count guard, the
+      # double-render guard, and the `dispose-adapter!` sub-cache walk across
+      # multiple frames (rf2-ghfkkk). A non-zero exit is a genuine failure and
+      # MUST fail the step — no `|| echo` fallback.
+      #
+      # The artefact is LOCAL-TEST-ONLY (no Maven coordinate, absent from the
+      # lockstep array and the release deploy matrix); that governs PUBLISHING,
+      # not testing, and is orthogonal to whether its suite runs.
+      - name: Run JVM tests (test-react adapter)
+        run: clojure -M:test
+
   jvm-schemas:
     name: JVM schemas (clojure -M:test)
     needs: detect_changed_surfaces
@@ -4708,6 +4763,11 @@ jobs:
       - jvm-reagent
       - jvm-reagent-slim
       - jvm-uix
+      # rf2-ftmh0 — required, not advisory. The suite is REAL JVM coverage (35
+      # deftests / 160 assertions of adapter lifecycle contract), and a job
+      # absent from this list is advisory whatever its own gate says — which
+      # would reproduce the hole this bead closed in a new shape.
+      - jvm-adapters-test-react
       - jvm-schemas
       - jvm-machines
       - jvm-routing
