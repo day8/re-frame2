@@ -127,6 +127,26 @@
       (is (not (re-find #"SECRET-100" (pr-str data))))
       (is (not (re-find #"SECRET-100" (pr-str (:keys data))))))))
 
+(deftest the-reserved-not-found-route-is-the-one-exemption
+  ;; `:rf.route/not-found`'s slice `:params` are the framework's FACT record of
+  ;; the miss (`plan/not-found-params` → `{:url … :reason …}`), not path
+  ;; captures, so the fallback route's pattern has no say over their
+  ;; vocabulary. Without the exemption the address-bar restore after a
+  ;; URL-driven rejection (`decisions/current-slice->url`, which rebuilds the
+  ;; CURRENT slice through route-url) would silently stop rebuilding a
+  ;; registered not-found route's URL.
+  (register-routes!)
+  (routing/reg-route :rf.route/not-found {} "/404")
+  (is (= "/404" (registry/route-url {:to     :rf.route/not-found
+                                     :params {:url "/nope" :reason :malformed-url}}))
+      "the miss record rides through rather than rejecting")
+  (testing "and the exemption is scoped to that ONE reserved id — an ordinary
+            route with the same-shaped params still rejects"
+    (let [data (thrown-data #(registry/route-url {:to     :route/plain
+                                                  :params {:url "/nope"}}))]
+      (is (= :uncaptured-params (:reason data)))
+      (is (= [:url] (:keys data))))))
+
 ;; ===========================================================================
 ;; The two ACTIVATION doors agree
 ;; ===========================================================================

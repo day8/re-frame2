@@ -765,26 +765,58 @@
            (routing/route-url {:to :route/docs3 :params {:page "x"} :query {} :fragment "scroll-restoration"}))
         "safe characters (letters, digits, `-`) are not percent-encoded")))
 
-;; ---- route-url ignores path-params not named by the pattern --------------
+;; ---- route-url REJECTS path-params not named by the pattern --------------
 ;;
-;; route-url's emitter consumes only the `:`/`*` segments it walks in the
-;; pattern. Extra keys in path-params (a common call-site over-supply, e.g.
-;; passing the whole slice's :params back through) must be silently ignored,
-;; not leaked into the URL. Pinned here so a future emitter refactor can't
-;; start round-tripping stray keys into the path.
+;; FLIPPED from `route-url-ignores-extra-path-params` (rf2-0iuh3). This test
+;; used to pin the opposite answer — that route-url's emitter consumes only the
+;; `:`/`*` segments it walks, so extra keys in path-params are SILENTLY
+;; ignored — on the reasoning that a call site might over-supply by passing a
+;; whole slice's `:params` back through.
+;;
+;; That silence split the navigation doors. `/probe/:id` with
+;; `{:id "7" :extra "x"}` built `/probe/7`, so the programmatic door committed
+;; `:params {:id "7" :extra "x"}` (a slice its own address bar could not spell,
+;; and a page reload could not reproduce) while a route-link CLICK resolved
+;; through that URL and committed `{:id "7"}` — with `[:rf.route/prefetch …]`
+;; following the programmatic answer, so hovering a link warmed one resource
+;; identity and clicking the same link activated another. An uncaptured path
+;; param is a prism break, and route-url already fails closed on emission for
+;; every other one (the empty-string segment; the sequential-optional-group
+;; prefix chain). The over-supply case the old reasoning protected is real but
+;; narrow — a slice's params came FROM a match, so they are captured by
+;; construction — and the one framework instance of it, the reserved
+;; `:rf.route/not-found` slice's `{:url … :reason …}` fact record, is exempt.
+;;
+;; Cross-door coverage (both activation doors + prefetch + the optional-group
+;; typo the missing-param error can never catch) lives in
+;; `re-frame.routing-uncaptured-param-test`.
 
-(deftest route-url-ignores-extra-path-params
-  (testing "path-params keys not named by the route pattern are ignored"
+(deftest route-url-rejects-extra-path-params
+  (testing "path-params keys not named by the route pattern reject LOUD"
     (rf/reg-route :route/article {} "/articles/:id")
     (is (= "/articles/intro"
-           (routing/route-url {:to :route/article :params {:id "intro" :stray "ignored" :extra 99}}))
-        "only the pattern's :id segment is emitted; :stray / :extra are dropped"))
+           (routing/route-url {:to :route/article :params {:id "intro"}}))
+        "POSITIVE CONTROL — the captured param still emits its segment")
+    (let [data (try (routing/route-url {:to     :route/article
+                                        :params {:id "intro" :stray "x" :extra 99}})
+                    nil
+                    (catch Throwable ex (ex-data ex)))]
+      (is (= :rf.error/route-url-validation (:rf.error/id data))
+          ":stray / :extra are named, not dropped on the floor")
+      (is (= :uncaptured-params (:reason data)))
+      (is (= [:extra :stray] (:keys data))
+          "every uncaptured key, in the total canonical order")
+      (is (= :route/article (:route-id data)))))
 
-  (testing "a route with no path params ignores any supplied path-params"
+  (testing "a route with no path params rejects any supplied path-param"
     (rf/reg-route :route/home {} "/")
-    (is (= "/"
-           (routing/route-url {:to :route/home :params {:anything "here"}}))
-        "a param-less pattern emits its literal path regardless of supplied params")))
+    (is (= "/" (routing/route-url {:to :route/home :params {}}))
+        "POSITIVE CONTROL — a param-less pattern emits its literal path")
+    (let [data (try (routing/route-url {:to :route/home :params {:anything "here"}})
+                    nil
+                    (catch Throwable ex (ex-data ex)))]
+      (is (= :uncaptured-params (:reason data)))
+      (is (= [:anything] (:keys data))))))
 
 (deftest match-url-flags-validation-failure
   (testing "match-url surfaces :validation-failed? + :validation-error
