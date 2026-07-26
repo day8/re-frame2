@@ -144,6 +144,33 @@
   (leaf-entries [] values))
 
 ;; ---------------------------------------------------------------------------
+;; Overlap — when two leaf paths name the same data
+;; ---------------------------------------------------------------------------
+
+(defn- ancestor-or-self?
+  "Is the leaf path `a` the path `b`, or an ANCESTOR of it? A leaf path is
+  a vector, so the question is a prefix test."
+  [a b]
+  (and (<= (count a) (count b))
+       (= (vec a) (vec (take (count a) b)))))
+
+(defn- overlapping?
+  "Does the leaf path `path` OVERLAP any path in `paths` — as the same
+  leaf, as an ancestor of one, or as a descendant of one?
+
+  Set membership answers only the first, and the other two are the shape
+  change a late payload actually arrives in. `[:contact]` and `[:contact
+  :email]` are different paths naming overlapping data: an empty map or a
+  scalar at `[:contact]` is ONE leaf here (see [[leaf-entries]]), and
+  writing it erases everything beneath it — while `{:tags {:featured
+  true}}` reaches INSIDE a `[:tags]` that is a leaf on the other side and
+  overwrites it from below."
+  [paths path]
+  (boolean (some (fn [p] (or (ancestor-or-self? p path)
+                             (ancestor-or-self? path p)))
+                 paths)))
+
+;; ---------------------------------------------------------------------------
 ;; The empty form
 ;; ---------------------------------------------------------------------------
 
@@ -224,6 +251,16 @@
   - **Edited leaves survive.** A leaf in `:edited` keeps its draft AND
     keeps its baseline unmoved, so the user's work is neither displayed
     over nor silently re-based under.
+  - **And they survive a SHAPE CHANGE, in both directions.** A payload
+    leaf is skipped when it merely OVERLAPS an edited leaf, not only when
+    it is one. `{:contact {}}` is a single leaf at `[:contact]` — an
+    empty map stops the walk — so writing it would erase an edited
+    `[:contact :email]` from above; `{:tags {:featured true}}` reaches
+    INSIDE an edited `[:tags]` and would overwrite it from below. Either
+    would leave `:edited` naming data that is no longer there, and a
+    marker describing an absent leaf is its own defect. Both are held,
+    WHOLE: a partial write of a leaf is not a thing this model has, so
+    the overlapping payload leaf is declined rather than merged.
   - **Unrelated state survives.** A leaf `values` does not mention is
     untouched — including a leaf nested beside one that IS mentioned, and
     including a whole sub-tree the payload omits. Seeding a partial
@@ -241,7 +278,7 @@
   (let [edited (:edited form #{})]
     (reduce
       (fn [f [path value]]
-        (if (contains? edited path)
+        (if (overlapping? edited path)
           f
           (-> f
               (assoc-in (into [:baseline] path) value)

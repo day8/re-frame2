@@ -1259,6 +1259,18 @@ that they are **three and not one**.
   the payload omits, and MUST mark nothing visited or edited, because the server
   typing is not the user typing. A seeded leaf moves baseline and draft together
   and clears the error its old value carried.
+- **A payload leaf that OVERLAPS an edited leaf is held too, and held WHOLE.**
+  Two leaf paths overlap when one addresses data inside the other, which
+  membership of `:edited` does not answer: `{:contact {}}` is a single leaf at
+  `[:contact]` — an empty map, like a scalar, stops the walk — so writing it
+  would erase an edited `[:contact :email]` from *above*, while a payload leaf
+  `[:tags :featured]` reaches *below* an edited `[:tags]` and would overwrite it.
+  `seed` MUST therefore decline a payload leaf that is an ancestor **or** a
+  descendant of an edited leaf, entirely rather than partially — a partial write
+  of a leaf is not a thing this model has. The consequence is a second MUST that
+  holds over every seed: **no `seed` may leave an `:edited` path naming data that
+  is no longer there.** A marker describing an absent leaf is a defect on its own
+  terms, whatever the draft beside it looks like.
 - **`reset` is a REJECTION and advances the generation.** A caller refuses a
   draft by reasserting what it already had, so nothing derived from the value can
   observe the decision (§The generation fence). Advancing the leaf's revision is

@@ -1,5 +1,5 @@
 {:fh/id  "FH-CTRL-013"
- :fh/law "A late authoritative load SEEDS LEAFWISE: every leaf the user has edited keeps its draft AND its baseline, every leaf the payload does not mention is untouched — including a sibling of one that IS mentioned and a whole sub-tree the payload omits — and a leaf reached through a keyed row is addressed by its stable domain id rather than its index, so an insert, a delete and a re-sort leave the path meaning the same leaf. A seeded leaf moves baseline and draft together and clears the error the old value carried; nothing is marked visited or edited, because the server typing is not the user typing."
+ :fh/law "A late authoritative load SEEDS LEAFWISE: every leaf the user has edited keeps its draft AND its baseline — including where the payload OVERLAPS it rather than naming it, from above as an ancestor leaf and from below as a descendant — every leaf the payload does not mention is untouched — including a sibling of one that IS mentioned and a whole sub-tree the payload omits — and a leaf reached through a keyed row is addressed by its stable domain id rather than its index, so an insert, a delete and a re-sort leave the path meaning the same leaf. A seeded leaf moves baseline and draft together and clears the error the old value carried; nothing is marked visited or edited, because the server typing is not the user typing, and no seed leaves an `:edited` path naming data that is no longer there."
 
  ;; A form with a nested contact, a keyed row collection and a scalar. The
  ;; rows are keyed by STABLE DOMAIN ID — never by index — which is what the
@@ -65,4 +65,47 @@
                             "line-9" {:qty 80 :note "moved"}
                             "line-7" {:qty 70 :note "moved"}}}
  :qty-after-resort "99"
- :other-qty-after-resort 80}
+ :other-qty-after-resort 80
+
+ ;; ---------------------------------------------------------------------------
+ ;; OVERLAP — a shape change, in both directions
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; A payload leaf and an edited leaf can name the SAME data without being
+ ;; the SAME path, and exact-path protection is blind to both directions.
+ ;; Each witness pairs the held leaf with a leaf the payload DOES land on,
+ ;; so "held" cannot be green because the seed did nothing at all.
+
+ ;; FROM ABOVE — the payload's leaf is an ANCESTOR of the edited one. An
+ ;; empty map stops the leafwise walk, so `{:contact {}}` is ONE leaf at
+ ;; [:contact]: writing it erases the edited [:contact :email] beneath and
+ ;; leaves :edited naming a leaf that is no longer there.
+ :ancestor-baseline    {:contact {:email "base" :phone "555"} :title "Draft article"}
+ :ancestor-edited-path [:contact :email]
+ :ancestor-typed       "typed"
+ :ancestor-payload     {:contact {} :title "From the server"}
+
+ :ancestor-draft-after    {:contact {:email "typed" :phone "555"}
+                           :title   "From the server"}
+ :ancestor-baseline-after {:contact {:email "base" :phone "555"}
+                           :title   "From the server"}
+ :ancestor-edited-after   #{[:contact :email]}
+
+ ;; What exact-path protection produced: the sub-tree gone, and the mark
+ ;; left pointing at nothing.
+ :ancestor-clobbered-draft {:contact {} :title "From the server"}
+
+ ;; FROM BELOW — the payload's leaf is a DESCENDANT of the edited one. The
+ ;; user CLEARED the address, and `nil` is a leaf; the late load must not
+ ;; rebuild it one key at a time under them.
+ :descendant-baseline      {:address {:street "1 Main"} :title "Draft article"}
+ :descendant-edited-path   [:address]
+ :descendant-cleared-value nil
+ :descendant-payload       {:address {:street "9 Elm"} :title "From the server"}
+
+ :descendant-draft-after    {:address nil :title "From the server"}
+ :descendant-baseline-after {:address {:street "1 Main"} :title "From the server"}
+ :descendant-edited-after   #{[:address]}
+
+ ;; And what a descendant write produced: the cleared leaf re-populated.
+ :descendant-clobbered-draft {:address {:street "9 Elm"} :title "From the server"}}
