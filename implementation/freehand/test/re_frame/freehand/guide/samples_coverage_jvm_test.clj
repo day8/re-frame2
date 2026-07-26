@@ -187,7 +187,10 @@
    :host-boot     "a boot function needing a real `js/document` container"
    :foreign-npm   "an `ns` requiring an npm module that is on no classpath
                    here"
-   :build-config  "a `deps.edn` / `shadow-cljs.edn` fragment"})
+   :build-config  "a `deps.edn` / `shadow-cljs.edn` fragment"
+   :jvm-only-verb "a REPL transcript of a JVM-only door verb. `v/check` reads
+                   SOURCE on the JVM and does not exist in ClojureScript, so
+                   no cljs fixture can reach it"})
 
 ;; ---------------------------------------------------------------------------
 ;; Which fixture vars a test actually reaches
@@ -352,15 +355,16 @@
     [ 7 "54f01ca77513" :host-boot]
     [ 8 "6b6946d0b4bd" :app-scaffold]]
    "advanced/compilation.md"
-   [[ 1 "2ed0def9d890" compilation/people-list-promotion-recipe]
-    [ 2 "0e709b251a18" compilation/todo-row-compiled]
-    [ 3 "441eba0cabf9" :prose-shape]
-    [ 4 "baf0226b671c" compilation/people-list-interpreted]
-    [ 5 "8ed7b69a0185" compilation/item-row]
-    [ 6 "63ff086fcdd5" compilation/field-help]
-    [ 7 "0eb044ab4a85" compilation/markup-child]
-    [ 8 "6eca931fc482" compilation/data-table-compiled]
-    [ 9 "ab5df8171160" compilation/todo-row-with-props-schema]]
+   [[ 1 "1857a8e5a487" :jvm-only-verb]
+    [ 2 "2ed0def9d890" compilation/people-list-promotion-recipe]
+    [ 3 "0e709b251a18" compilation/todo-row-compiled]
+    [ 4 "441eba0cabf9" :prose-shape]
+    [ 5 "baf0226b671c" compilation/people-list-interpreted]
+    [ 6 "8ed7b69a0185" compilation/item-row]
+    [ 7 "63ff086fcdd5" compilation/field-help]
+    [ 8 "0eb044ab4a85" compilation/markup-child]
+    [ 9 "6eca931fc482" compilation/data-table-compiled]
+    [10 "ab5df8171160" compilation/todo-row-with-props-schema]]
    "authoring/composition.md"
    [[ 1 "6e08b04edd36" composition/panel]
     [ 2 "f1f241908c1f" composition/icon-button]
@@ -388,7 +392,7 @@
     [ 4 "6190439f02be" events/general-read-sites]
     [ 5 "32a862906cbe" events/submit-options-map]
     [ 6 "a23aaa2dace6" events/key-pressed-site]
-    [ 7 "3a02de0cc196" events/key-branch-site]
+    [ 7 "1e3897e97c0c" events/key-branch-site]
     [ 8 "782b6e3d7e3a" events/controlled-email-field]
     [ 9 "61dc3b641bbb" events/live-domain-field]
     [10 "6f9f23aedc3a" events/draft-then-commit-field]
@@ -400,9 +404,9 @@
    [[ 1 "76b9d90f3f40" :prose-shape]
     [ 2 "2b7b3b51b487" events/email-field]
     [ 3 "a6379d0556c8" events/register-field-error-sub!]
-    [ 4 "d6209ce60e2d" events/register-article-loaded!]
-    [ 5 "9654384295ab" events/register-editor-submit!]
-    [ 6 "5ec85f9349ea" events/editor-actions]
+    [ 4 "b498a339105e" events/register-article-loaded!]
+    [ 5 "b0c8d3e41a67" events/register-editor-submit!]
+    [ 6 "71b1cae5476c" events/editor-actions]
     [ 7 "cf8ffa56a3d3" events/register-temperature-dataflow!]
     [ 8 "67c6b1269513" events/temperature-inputs]
     [ 9 "a166f137df6a" :prose-shape]]
@@ -427,7 +431,7 @@
     [ 5 "ea8536be30aa" :build-config]]
    "host/js-libraries.md"
    [[ 1 "c27c0a28d420" host/toast-tray]
-    [ 2 "b9e89841da17" :foreign-npm]
+    [ 2 "c6757d76e47c" :foreign-npm]
     [ 3 "5b5d5da11d93" :foreign-npm]
     [ 4 "2248c34107cb" :foreign-npm]
     [ 5 "8e3bda770349" host/fade-panel]
@@ -468,7 +472,7 @@
     [11 "86f1f8b0a35b" controllers/the-controller-revision-is-the-callers-reset-key]
     [12 "6c7f63421374" controllers/the-generation-fence-is-total-and-safe-when-the-stamp-is-missing]
     [13 "dbe82da73aae" controllers/register-acme-buffered-text!]
-    [14 "51128afd8f00" controllers/buffered-field]]
+    [14 "55f9b104f75d" controllers/buffered-field]]
    "host/ssr.md"
    [[ 1 "7d7c6d77a52d" host/chart-client-only-sub]
     [ 2 "b0412ac0fb48" :host-boot]
