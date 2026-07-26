@@ -47,8 +47,8 @@
   A control whose size is asserted rather than checked has already been
   wrong twice on this surface (B7's `'x'.repeat(n)` string that read as six
   kilobytes; B8's `8 B/double` prediction that measured 16.002). So the
-  control here is read as a SLOPE across two decades, which cancels every
-  constant and every header:
+  control here is read as a SLOPE across sizes, which cancels every constant
+  and every header:
 
     `.slice()` of a PACKED double-element JS array of D elements allocates a
     `FixedDoubleArray` of D unboxed 8-byte slots plus a fixed header. V8
@@ -58,7 +58,22 @@
     (4 B/slot compressed, 8 uncompressed).
 
   Predicted and measured are both printed. If they disagree, suspect the
-  control first, and report the miss either way.
+  control first, and report the miss either way. Two misses are on record
+  and both are real:
+
+    * The SMALL double pair (D 100->200) lands, at +0.5%. The LARGE pair
+      (1000->10000) reads +9%, because the 8 B/element model omits V8's
+      page-tail filler — an 87 KB object wastes ~7% of a 256 KB page and
+      that filler is genuine used-heap. It is a LARGE-object effect and
+      every arm here allocates small ones, so the instrument is calibrated
+      in the regime it is used in.
+    * The SMI control reads 16.1 B/slot in forward arm order and 8.0027 in
+      REVERSED order — the difference being whether the 87 KB arm ran
+      immediately before it. A large-object arm inflates its successor,
+      reproducibly, and nothing in the method predicted that (rf2-88pie).
+      It is why every figure here is taken in both orders, and why the
+      pointer-compression regime is read off `process.config` rather than
+      off this control.
 
   ## The ladder
 
@@ -100,11 +115,22 @@
     P-MEMO    the whole shipped memo wrapper
               (`subs.memo/make-layer-1-memoised-body`) invoked with a
               CHANGED db — the sum of the four above plus its own frame
-    Q-SCHED   the epoch scheduler's queue bookkeeping — N `conj` onto the
-              `queued` PersistentHashSet + the `queue` PersistentVector,
-              then N `disj` as the drain consumes them
-    P-VALS    the app-db projection's fan-out — `run!` over `(vals ws)` of
-              an N-entry watcher map, the `case (count ws)` ≥2 branch
+    Q-SCHED   the epoch scheduler's queue bookkeeping in its RETIRED
+              spelling — N `conj` onto a PersistentHashSet + a
+              PersistentVector, then N `disj` as the drain consumes them
+    Q-SCHEDJS the same bookkeeping in the SHIPPED spelling — a `js/Set`
+              and a JS array, mutated in place (rf2-jr76s)
+    P-VALS    the app-db projection's fan-out in its RETIRED spelling —
+              `run!` over `(vals ws)` of an N-entry watcher map
+    P-RKV     the same fan-out in the SHIPPED spelling — `reduce-kv` over
+              the map, no seq (rf2-jr76s)
+
+  The last four are TWO PAIRED CONTROLS, both live in one process on the
+  same objects — the `RC-ATTACH` / `RC-CAND` discipline `read-attribution`
+  established. Keeping the retired expression measurable beside the shipped
+  one is what turns a rewrite's saving into a falsifiable prediction:
+  retired-minus-shipped must equal the drop in the per-subscription slope,
+  and when this landed it did, to 0.3%.
 
   Run it:
 
