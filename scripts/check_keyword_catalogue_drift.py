@@ -337,16 +337,41 @@ _CATALOGUE_ROW_RE = re.compile(
 )
 
 
+class CatalogueParseError(RuntimeError):
+    """The canonical catalogue section could not be read as a table of rows.
+
+    CHECK C's population IS the parse, so a parse that finds nothing is not a
+    clean run — it is a check that did not run. rf2-66czz: `catalogue_rows`
+    used to answer a renamed heading with two empty sets, `run_checks` read
+    that as "no active row lacks an emitter", and the gate exited 0 having
+    verified nothing. This is the ninth instance of the same shape in this
+    repo, so the parser fails CLOSED: a gate that can fail to RUN must exit
+    non-zero when it does not run."""
+
+
 def catalogue_rows(spec_009_text: str) -> tuple[set[str], set[str]]:
     """`(active, retired)` — the `:rf.error/*` / `:rf.warning/*` ids that have
     a ROW in the Spec 009 §Error event catalogue, split by the strikethrough
-    retire-in-place marker on the row's first cell."""
+    retire-in-place marker on the row's first cell.
+
+    Raises `CatalogueParseError` when the heading is absent or the section
+    yields ZERO active rows. Both are the same failure — the parser lost the
+    table — and neither can be reported as a finding, because a finding is
+    computed FROM the rows. The live corpus carries hundreds of active rows,
+    so zero is never a legitimate reading; a genuinely emptied catalogue would
+    be a contract event, not a routine edit. Retired-only is caught by the
+    same rule: a section of nothing but tombstones has lost its live table."""
     lines = spec_009_text.splitlines()
     start = next(
         (i for i, ln in enumerate(lines) if _CATALOGUE_HEADING_RE.match(ln)), None
     )
     if start is None:
-        return set(), set()
+        raise CatalogueParseError(
+            "no `### Error event catalogue` heading in spec/009-Instrumentation"
+            ".md — CHECK C's row population cannot be read, so the check cannot"
+            " run. Restore the heading, or update _CATALOGUE_HEADING_RE in this"
+            " script IN THE SAME PR that renames it."
+        )
     active: set[str] = set()
     retired: set[str] = set()
     for ln in lines[start + 1:]:
@@ -355,6 +380,14 @@ def catalogue_rows(spec_009_text: str) -> tuple[set[str], set[str]]:
         m = _CATALOGUE_ROW_RE.match(ln)
         if m:
             (retired if m.group(1) else active).add(m.group(2))
+    if not active:
+        raise CatalogueParseError(
+            "the `### Error event catalogue` section yielded ZERO active rows "
+            f"({len(retired)} retired) — the table shape no longer matches "
+            "_CATALOGUE_ROW_RE (a column reorder, a fenced/blockquoted table, "
+            "an indented first cell). CHECK C would report nothing and the gate"
+            " would exit 0 having verified nothing, so this fails closed."
+        )
     return active, retired
 
 
@@ -372,6 +405,50 @@ def catalogue_rows(spec_009_text: str) -> tuple[set[str], set[str]]:
 # stops being an active row, or that acquires a reference emitter, is REPORTED
 # (see `run_checks`) so it cannot rot into a silent suppression.
 _PORT_RELATIVE_CATEGORIES = frozenset({":rf.error/machine-grammar-not-in-v1"})
+
+
+def check_c_findings(
+    active_rows: set[str],
+    retired_rows: set[str],
+    emitted: set[str],
+    exempt: frozenset[str] = _PORT_RELATIVE_CATEGORIES,
+) -> list[str]:
+    """CHECK C's findings, PURE over its four inputs — so a self-test enters at
+    the layer that HOLDS the logic instead of under it. (The original CHECK C
+    self-tests did their set arithmetic inline, which is why leg 2 below could
+    be missing without a single case noticing.) Four legs:
+
+      1. an ACTIVE row nothing emits (rf2-d89rs — the original direction);
+      2. a RETIRED row something DOES emit (rf2-66czz). A struck row is exactly
+         the row that must not have an emitter, and neither sibling check can
+         see the breach: `catalogue_ids` reads ids from ANYWHERE in the doc,
+         struck rows included, so CHECK A reads a reintroduced emitter as
+         catalogued; leg 1 subtracts `emitted` from the ACTIVE rows and
+         discards the retired set entirely. Reintroducing the emitter behind a
+         tombstone therefore passed A, B and C;
+      3 + 4. the two ways the port-relative exemption goes stale — no longer an
+         active row, or having acquired an emitter — so the exemption cannot
+         rot into a silent suppression.
+    """
+    findings = sorted(active_rows - emitted - exempt)
+    findings += [
+        f"{kid} (RETIRED ROW REINTRODUCED: implementation source emits an id "
+        "whose catalogue row is STRUCK THROUGH. A struck row promises the "
+        "category is gone — un-strike the row if the emitter is deliberate, "
+        "or delete the emitter if the retirement stands)"
+        for kid in sorted(retired_rows & emitted)
+    ]
+    findings += [
+        f"{kid} (STALE EXEMPTION: no longer an active catalogue row — drop it "
+        "from _PORT_RELATIVE_CATEGORIES)"
+        for kid in sorted(exempt - active_rows)
+    ]
+    findings += [
+        f"{kid} (STALE EXEMPTION: implementation source now emits it — drop it "
+        "from _PORT_RELATIVE_CATEGORIES)"
+        for kid in sorted(exempt & emitted)
+    ]
+    return findings
 
 
 def _reserved_ns_table_region(conventions_text: str) -> str:
@@ -480,7 +557,7 @@ def run_checks(
     the sorted list of catalogue rows nothing emits."""
     spec_009 = (repo_root / _SPEC_009).read_text(encoding="utf-8")
     catalogue = catalogue_ids(spec_009)
-    active_rows, _retired_rows = catalogue_rows(spec_009)
+    active_rows, retired_rows = catalogue_rows(spec_009)
     reserved = reserved_namespaces(
         (repo_root / _SPEC_CONVENTIONS).read_text(encoding="utf-8")
     )
@@ -499,22 +576,9 @@ def run_checks(
             if ns not in reserved:
                 b_findings.setdefault(ns, set()).add(path)
 
-    # CHECK C — an ACTIVE row nothing emits (rf2-d89rs), plus the two ways the
-    # port-relative exemption can go stale: an entry that is no longer an
-    # active row, and one that has acquired a reference emitter. Reporting all
-    # three here keeps the exemption from becoming a silent suppression, and
-    # keeps the honesty legs out of a separate roster.
-    c_findings = sorted(active_rows - emitted - _PORT_RELATIVE_CATEGORIES)
-    c_findings += [
-        f"{kid} (STALE EXEMPTION: no longer an active catalogue row — drop it "
-        "from _PORT_RELATIVE_CATEGORIES)"
-        for kid in sorted(_PORT_RELATIVE_CATEGORIES - active_rows)
-    ]
-    c_findings += [
-        f"{kid} (STALE EXEMPTION: implementation source now emits it — drop it "
-        "from _PORT_RELATIVE_CATEGORIES)"
-        for kid in sorted(_PORT_RELATIVE_CATEGORIES & emitted)
-    ]
+    # CHECK C — all four legs, computed by the pure function above so the
+    # self-tests exercise the same code path this does.
+    c_findings = check_c_findings(active_rows, retired_rows, emitted)
 
     def rel(paths: set[Path]) -> list[str]:
         return sorted(
@@ -567,7 +631,12 @@ _FIX_C = (
     "      implementation is CONTRACTED not to emit the category (a port-relative\n"
     "      row whose own Trigger cell says so), add it to\n"
     "      `_PORT_RELATIVE_CATEGORIES` with that citation. A row nothing emits\n"
-    "      and nothing plans to emit is drift either way (rf2-d89rs)."
+    "      and nothing plans to emit is drift either way (rf2-d89rs).\n"
+    "  A RETIRED-ROW-REINTRODUCED line is the mirror image: the row is struck,\n"
+    "  so the catalogue promises the category is GONE, and implementation source\n"
+    "  emits it anyway. CHECK A cannot see that (it reads ids from anywhere in\n"
+    "  the doc, tombstones included), so it is reported here — un-strike the row\n"
+    "  if the emitter is deliberate, or delete the emitter (rf2-66czz)."
 )
 
 
@@ -590,8 +659,8 @@ def report(a: dict[str, list[str]], b: dict[str, list[str]], c: list[str]) -> No
         sys.stderr.write(f"\nFix:\n  {_FIX_B}\n")
     if c:
         sys.stderr.write(
-            f"\nCHECK C — {len(c)} ACTIVE Spec 009 catalogue row(s) that NO "
-            "implementation source emits:\n\n"
+            f"\nCHECK C — {len(c)} Spec 009 catalogue row(s) whose emitter state "
+            "contradicts the row (active with none, struck with one):\n\n"
         )
         for kid in c:
             sys.stderr.write(f"  {kid}\n")
@@ -644,12 +713,20 @@ def main(argv: list[str]) -> int:
             sys.stderr.write(f"error: expected {rel} under {repo_root}.\n")
             return 2
 
-    a, b, c = run_checks(repo_root)
-    if args.verbose:
-        n = sum(1 for _ in iter_impl_src(repo_root / _IMPL_DIR))
+    # A lost catalogue parse is a SETUP error, not a clean run (rf2-66czz).
+    # Exit 2 keeps it distinguishable from a drift finding while still failing
+    # CI, and it is raised BEFORE any check reports, so a gate that could not
+    # read its own population never gets to print a verdict.
+    try:
+        a, b, c = run_checks(repo_root)
         active, retired = catalogue_rows(
             (repo_root / _SPEC_009).read_text(encoding="utf-8")
         )
+    except CatalogueParseError as exc:
+        sys.stderr.write(f"error: {exc}\n")
+        return 2
+    if args.verbose:
+        n = sum(1 for _ in iter_impl_src(repo_root / _IMPL_DIR))
         sys.stderr.write(
             f"scanned {n} implementation source file(s); "
             f"{len(active)} active + {len(retired)} retired catalogue row(s); "
@@ -895,16 +972,28 @@ def _run_self_tests(verbose: bool = False) -> int:
     expect("C: a row after the next `###` heading is out of scope",
            ":rf.error/row-in-a-later-table" not in active_rows)
 
-    def c_fire(src: str, exempt: frozenset[str] = frozenset()) -> set[str]:
-        """The active rows CHECK C fires on, given an emitting source."""
-        return active_rows - emitted_err_warn_ids(mask(src)) - exempt
+    def c_fire(src: str,
+               exempt: frozenset[str] = frozenset(),
+               active: set[str] | None = None,
+               retired: set[str] | None = None) -> list[str]:
+        """CHECK C's findings for an emitting source — entered at
+        `check_c_findings`, the same function `run_checks` calls, NOT at the
+        set arithmetic beneath it. That entry point is the point: these cases
+        used to compute `active_rows - emitted` inline, so they could not have
+        noticed that the RETIRED set was never consulted (rf2-66czz). A case
+        that enters below the defect cannot see the defect."""
+        return check_c_findings(
+            active_rows if active is None else active,
+            retired_rows if retired is None else retired,
+            emitted_err_warn_ids(mask(src)),
+            exempt)
 
     live_src = ('(emit-error! :rf.error/handler-exception {})'
                 '(emit! :warning :rf.warning/plain-fn {})')
     expect("C: a row whose emitter exists passes",
-           c_fire(live_src + '(x :rf.error/emitter-was-deleted)') == set())
+           c_fire(live_src + '(x :rf.error/emitter-was-deleted)') == [])
     expect("C: a row with NO emitter FIRES (the rf2-d89rs defect)",
-           c_fire(live_src) == {":rf.error/emitter-was-deleted"})
+           c_fire(live_src) == [":rf.error/emitter-was-deleted"])
     # Striking the row is the documented fix, so it must actually work: after
     # the retire-in-place edit the same source greens, with no other change.
     struck_active, struck_retired = catalogue_rows(
@@ -913,17 +1002,89 @@ def _run_self_tests(verbose: bool = False) -> int:
             "| ~~`:rf.error/emitter-was-deleted`~~ | — | n/a (retired) | "
             "**RETIRED.** … | — | — |"))
     expect("C: striking the row silences it — the retire-in-place fix",
-           struck_active - emitted_err_warn_ids(mask(live_src)) == set()
+           c_fire(live_src, active=struck_active, retired=struck_retired) == []
            and ":rf.error/emitter-was-deleted" in struck_retired)
     # The exemption is precision, not a licence: it silences exactly its own
     # entry and nothing else.
     expect("C: the port-relative exemption silences only its own entry",
-           c_fire(live_src, frozenset({":rf.error/emitter-was-deleted"})) == set())
+           c_fire(live_src, frozenset({":rf.error/emitter-was-deleted"})) == [])
     # …and a mention in a COMMENT / DOCSTRING is not an emitter, so it must not
     # green a row (the masking that protects CHECK A protects CHECK C too).
     expect("C: a commented-out emitter does NOT green the row",
            c_fire(live_src + ';; (x :rf.error/emitter-was-deleted)')
-           == {":rf.error/emitter-was-deleted"})
+           == [":rf.error/emitter-was-deleted"])
+
+    # CHECK C leg 2 — RETIRED-ROW REINTRODUCTION (rf2-66czz) -----------------
+    #
+    # The bead's own pure probe first, verbatim: no active rows, one RETIRED
+    # row, and a source that emits it. Before the fix CHECK A reported nothing
+    # (the id is in the doc, so `catalogue_ids` covers it) and CHECK C reported
+    # nothing (it subtracted `emitted` from the ACTIVE rows and threw the
+    # retired set away) — while `retired & emitted` held the defect all along.
+    reintro = ":rf.error/retired-but-reintroduced"
+    probe = check_c_findings(set(), {reintro}, {reintro}, frozenset())
+    expect("C: the bead's pure probe — retired row + live emitter FIRES",
+           len(probe) == 1 and probe[0].startswith(reintro)
+           and "RETIRED ROW REINTRODUCED" in probe[0])
+    expect("C: a retired row with NO emitter stays silent (the normal case)",
+           check_c_findings(set(), {reintro}, set(), frozenset()) == [])
+
+    # …and through the real parser, on the real row shape. `:rf.error/properly
+    # -retired` is struck in `synthetic_009_rows`; give it an emitter.
+    reintroduced_src = live_src + ('(x :rf.error/emitter-was-deleted)'
+                                   '(throw-error! :rf.error/properly-retired {})')
+    expect("C: a struck row whose emitter reappears FIRES",
+           [f for f in c_fire(reintroduced_src)
+            if f.startswith(":rf.error/properly-retired")])
+    # CHECK A must not mask it: the struck row puts the id in the doc, so
+    # `catalogue_ids` covers it and CHECK A is silent BY DESIGN. Leg 2 is
+    # therefore the only arm that can see this breach — which is why it has to
+    # exist rather than being folded into A.
+    expect("C: CHECK A stays silent on the reintroduced id (so C must not)",
+           ":rf.error/properly-retired" in catalogue_ids(synthetic_009_rows))
+    expect("C: leg 1 alone would still miss it",
+           active_rows - emitted_err_warn_ids(mask(reintroduced_src)) == set())
+
+    # CHECK C — the parse FAILS CLOSED (rf2-66czz) ---------------------------
+    #
+    # `catalogue_rows` used to answer an unreadable section with two empty
+    # sets, which `run_checks` consumed as "nothing to report". A check whose
+    # population can silently collapse to zero is a check that can fail to RUN
+    # while exiting 0. Focused controls: valid / renamed / malformed /
+    # retired-only, so the rule is proven to fire on the three break shapes
+    # WITHOUT firing on the shape it must accept.
+    def parse_raises(text: str) -> bool:
+        try:
+            catalogue_rows(text)
+            return False
+        except CatalogueParseError:
+            return True
+
+    expect("C: the valid catalogue section parses (the control)",
+           not parse_raises(synthetic_009_rows))
+    renamed = synthetic_009_rows.replace(
+        "### Error event catalogue", "### Error and warning event catalogue")
+    expect("C: a RENAMED heading fails closed", parse_raises(renamed))
+    # The bead's own renamed-heading probe: CHECK A keeps reading ids from the
+    # whole document, so a renamed heading looks perfectly clean to it. Only
+    # the fail-closed parse turns the collapse into a non-zero exit.
+    expect("C: …while CHECK A still sees the id, so A cannot cover the collapse",
+           ":rf.error/emitter-was-deleted" in catalogue_ids(renamed))
+    expect("C: a MALFORMED table (an extra leading cell) fails closed",
+           parse_raises(synthetic_009_rows.replace("| `:rf.", "| x | `:rf.")))
+    expect("C: a section of nothing but tombstones fails closed",
+           parse_raises("### Error event catalogue\n"
+                        "\n"
+                        "| `:operation` | `:op-type` | Channel |\n"
+                        "|---|---|---|\n"
+                        "| ~~`:rf.error/properly-retired`~~ | — | n/a (retired) |\n"))
+    # …and the rule does not over-reach: an active-only section (no tombstones
+    # at all) is legitimate and must parse.
+    expect("C: an active-only section is legitimate and parses",
+           catalogue_rows("### Error event catalogue\n"
+                          "\n"
+                          "| `:rf.error/only-row` | `:error` | diagnostic |\n")
+           == ({":rf.error/only-row"}, set()))
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
