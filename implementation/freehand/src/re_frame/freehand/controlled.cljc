@@ -260,7 +260,7 @@
   (and (= :select tag)
        (if (multiple-declared? owned owned-dyn)
          (multiple-select? tag owned owned-dyn)
-         (and (some? caller) (multiple-select? tag caller nil)))))
+         (multiple-select? tag caller nil))))
 
 (defn controlled-props?
   "Does this element's authored attribute key sequence make it controlled
