@@ -1592,13 +1592,17 @@ Which slots a catalogue ROW omits from its `:tags` cell — and why each is omit
    [:shadowed-by :keyword]   ;; the existing route that wins the rule-6 tie
    [:rank        :any]])     ;; the tied rules-1-5 structural tuple (:rf/route-rank)
 
-(def StaleSuppressedTags
+(def RouteNavTokenStaleSuppressedTags
   ;; The NAV-TOKEN category (`:rf.route.nav-token/stale-suppressed`) and no
   ;; other. `:rf.http/stale-suppressed` shares the name part but not the
   ;; payload — it is an `:info` reply-family trace carrying the
   ;; `:rf.reply/*` vocabulary, and has no schema here. A name-derived
   ;; catalogue↔schema pairing must therefore key off the whole `:operation`,
-  ;; not its name half.
+  ;; not its name half — which is why this schema is named for its WHOLE
+  ;; operation rather than the shared `StaleSuppressed` half (rf2-ehy4l).
+  ;; Under the bare name the pairing was ambiguous, so it silently paired with
+  ;; neither row and the nav-token row's `:tags` column went unchecked; the
+  ;; qualified name is what the pairing reads to reach the owning row.
   ;;
   ;; `re-frame.routing.nav-token` stamps the correlation slot as
   ;; `:rf.trace/event-id` — the cross-cutting correlation spelling, per

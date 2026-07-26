@@ -759,21 +759,51 @@
 ;; all — `re-frame.error/thrown-ex-info` builds a FLAT ex-data map, and Spec 009
 ;; §The thrown-error shape already declares `:recovery` among four REQUIRED
 ;; slots on it — so they never derive a schema and the arm never reasons about
-;; them. 486 active rows, 88 paired — and the 88 are the trace-emitting ones,
+;; them. 486 active rows, 93 paired — and those are the trace-emitting ones,
 ;; which is why the trace-event-scoped exclusion rule below is the right one.
 ;;
-;; PAIRING KEYS OFF THE WHOLE `:operation`, NOT ITS NAME HALF. A schema name is
-;; derived by PascalCasing the category's name half
-;; (`:rf.error/resource-route-plan` → `ResourceRoutePlanTags`), but two distinct
-;; operations can share a name half: `:rf.http/stale-suppressed` and
-;; `:rf.route.nav-token/stale-suppressed` both derive `StaleSuppressedTags`,
-;; which belongs to the nav-token category alone (the schema's own comment in
-;; Spec-Schemas says so, and says a name-derived pairing must key off the whole
-;; `:operation`). A derived name claimed by MORE THAN ONE operation therefore
-;; identifies no operation and pairs with neither — the only way to key off the
-;; whole `:operation` without a hand-maintained alias table, which is the drift
-;; generator this repo keeps removing. Without this the http row sits in the
-;; ledger forever looking like debt when it is a false pair.
+;; PAIRING KEYS OFF THE WHOLE `:operation`, NOT ITS NAME HALF. Spec-Schemas
+;; names a schema in one of two ways, and `derived-schema-names` reads both:
+;; the category's NAME half (`:rf.error/resource-route-plan` →
+;; `ResourceRoutePlanTags`) or the WHOLE operation, namespace tail included
+;; (`:rf.fx/handled` → `FxHandledTags`). Two distinct operations can share a
+;; name half — `:rf.http/stale-suppressed` and
+;; `:rf.route.nav-token/stale-suppressed` both derive `StaleSuppressedTags` —
+;; and the schema belongs to the nav-token category alone. That is what the
+;; second spelling is for: the author disambiguates IN THE CORPUS by naming the
+;; schema for its owning namespace, and the derivation reads what they wrote.
+;; No alias table, which is the drift generator this repo keeps removing.
+;;
+;; AN AMBIGUOUS NAME IS REPORTED, NOT DROPPED (rf2-ehy4l). A derived name
+;; claimed by more than one operation still identifies no operation and is
+;; diffed against neither — pairing `StaleSuppressedTags` to the HTTP row would
+;; manufacture a false pair, not surface debt. But the arm used to drop it in
+;; silence, so the pairing quietly ran one row short while both count floors
+;; stayed green. `tags-column-ambiguities` reports every collision and
+;; `tags-column-pairing-is-live` asserts CLAIMED == PAIRED, so a schema the arm
+;; holds but never exercises cannot hide behind a floor. The live collision was
+;; resolved the way the report asks: `spec/Spec-Schemas.md` renamed
+;; `StaleSuppressedTags` → `RouteNavTokenStaleSuppressedTags`, which pairs the
+;; nav-token row on the whole-`:operation` spelling and leaves the HTTP row
+;; correctly unpaired.
+;;
+;; WHAT THIS ARM STILL CANNOT SEE, stated rather than papered over (rf2-ehy4l).
+;; Deleting or renaming a SCHEMA that pairs today — say `ResourceRoutePlanTags`
+;; — un-pairs its row without producing a finding, and an equal-count
+;; replacement evades every count-shaped guard by construction. Catching that
+;; needs a total, identity-preserving pairing, and the two corpora cannot
+;; derive one: 22 of the 111 `*Tags` schemas are legitimately claimed by NO
+;; catalogue row (`FxHandledTags`' siblings for non-error ops, and 12 whose
+;; operation 009 never names by any derivation), only 5 schema names are cited
+;; anywhere in 009, and nothing in `implementation/` references a schema name —
+;; so an orphaned schema is indistinguishable from a correctly-unpaired one
+;; without a third authority. Per the rf2-6tags ruling the answer is NOT a
+;; hand-maintained orphan roster; the ruling is being revisited (rf2-ehy4l
+;; follow-up) rather than the gap being closed with a widened baseline.
+;; The ROW half of the same mutation IS covered, by a sibling arm rather than
+;; here: deleting `:rf.error/resource-route-plan`'s row makes invariant #5's
+;; source scan (and `scripts/check_keyword_catalogue_drift.py` CHECK A) fire on
+;; the now-uncatalogued emitted category.
 ;;
 ;; The two ENVELOPE-level slots are excluded by the catalogue's own rule
 ;; (009 §Error event catalogue, *Reading the two right-hand columns*):
@@ -865,13 +895,51 @@
                        :tags-cell (str/trim (nth cells 6))})))))
         vec)))
 
-(defn- derived-schema-name
-  "`:rf.error/resource-route-plan` → `\"ResourceRoutePlanTags\"`."
+(defn- pascal
+  "`\"resource-route-plan\"` → `\"ResourceRoutePlan\"`."
+  [s]
+  (->> (str/split s #"[-.]") (map str/capitalize) (apply str)))
+
+(defn- derived-schema-names
+  "The canonical `*Tags` schema names an `:operation` may carry — BOTH
+  spellings Spec-Schemas actually uses, so the pairing keys off the whole
+  `:operation` rather than only its name half:
+
+    the NAME half alone   `:rf.error/resource-route-plan` → `ResourceRoutePlanTags`
+    the WHOLE operation   `:rf.fx/handled`                → `FxHandledTags`
+                          `:rf.http.interceptor/registered` → `HttpInterceptorRegisteredTags`
+                          `:rf.route.nav-token/stale-suppressed`
+                                            → `RouteNavTokenStaleSuppressedTags`
+
+  Reading both is what resolves a shared name half WITHOUT an alias table
+  (rf2-ehy4l): the author disambiguates in the corpus, by naming the schema
+  for its namespace, and the derivation simply reads what they wrote. Four
+  rows the name-half-only derivation could never reach — `:rf.fx/handled`,
+  `:rf.fx/skipped-on-platform`, `:rf.http.interceptor/registered` and
+  `:rf.http.interceptor/cleared` — pair on the second spelling."
   [category]
-  (str (->> (str/split (name category) #"[-.]")
-            (map str/capitalize)
-            (apply str))
-       "Tags"))
+  (let [nspace (namespace category)
+        tail   (when (str/starts-with? (str nspace) "rf.") (subs nspace 3))
+        nm     (pascal (name category))]
+    (cond-> [(str nm "Tags")]
+      tail (conj (str (pascal tail) nm "Tags")))))
+
+(defn- schema-claims
+  "`{\"SchemaName\" [row …]}` — every canonical schema an ACTIVE catalogue row
+  CLAIMS, by either spelling. A schema claimed by exactly ONE row is paired
+  and gets its keys diffed; a schema claimed by MORE THAN ONE identifies no
+  operation and is reported (see `tags-column-ambiguities`) rather than
+  dropped. Silently dropping it was the coverage the arm lost without saying
+  so."
+  [rows schemas]
+  (reduce (fn [acc row]
+            (reduce (fn [acc nm]
+                      (cond-> acc
+                        (contains? schemas nm) (update nm (fnil conj []) row)))
+                    acc
+                    (derived-schema-names (:category row))))
+          {}
+          rows))
 
 (def ^:private envelope-only-tag-keys
   "The two slots 009 excludes from every row's `:tags` cell BY RULE, so a
@@ -883,30 +951,46 @@
   cell omits a key its canonical schema declares. Pure over its two inputs so
   the non-vacuity proof can drive it with synthetic corpora."
   [rows schemas]
-  (let [by-derived (group-by (comp derived-schema-name :category) rows)]
-    (->> by-derived
-         (keep (fn [[schema-name group]]
-                 ;; A derived name claimed by more than one operation
-                 ;; identifies no operation — pair with neither.
-                 (when-let [row (and (= 1 (count group)) (first group))]
-                   (when-let [schema-keys (get schemas schema-name)]
-                     (let [missing (set/difference schema-keys
-                                                   envelope-only-tag-keys
-                                                   (cell-tag-keys (:tags-cell row)))]
-                       (when (seq missing)
-                         {:category (:category row)
-                          :schema   schema-name
-                          :missing  missing}))))))
-         (sort-by :category)
-         vec)))
+  (->> (schema-claims rows schemas)
+       (keep (fn [[schema-name group]]
+               (when (= 1 (count group))
+                 (let [row     (first group)
+                       missing (set/difference (get schemas schema-name)
+                                               envelope-only-tag-keys
+                                               (cell-tag-keys (:tags-cell row)))]
+                   (when (seq missing)
+                     {:category (:category row)
+                      :schema   schema-name
+                      :missing  missing})))))
+       (sort-by :category)
+       vec))
+
+(defn tags-column-ambiguities
+  "`[{:schema … :categories [… …]} …]` — every canonical schema whose name is
+  claimed by MORE THAN ONE active catalogue row. Such a schema identifies no
+  operation, so it cannot be diffed against any row — but that is a REPORTABLE
+  loss of coverage, not a quiet one (rf2-ehy4l). The corpus resolves it by
+  naming the schema for its owning namespace, which the second derivation
+  spelling then reads; until it does, the pairing is one row short and says
+  so. Pure over its two inputs."
+  [rows schemas]
+  (->> (schema-claims rows schemas)
+       (keep (fn [[schema-name group]]
+               (when (< 1 (count group))
+                 {:schema schema-name :categories (mapv :category group)})))
+       (sort-by :schema)
+       vec))
+
+(defn- claimed-count
+  "How many canonical schemas at least one active row claims."
+  [rows schemas]
+  (count (schema-claims rows schemas)))
 
 (defn- paired-count
-  "How many rows pair to a schema — the sanity floor's subject."
+  "How many claimed schemas resolve to exactly one row — the population the
+  keys-set diff actually reaches."
   [rows schemas]
-  (->> (group-by (comp derived-schema-name :category) rows)
-       (filter (fn [[schema-name group]]
-                 (and (= 1 (count group)) (contains? schemas schema-name))))
-       count))
+  (->> (schema-claims rows schemas) vals (filter #(= 1 (count %))) count))
 
 (def ^:private tags-column-shrink-only-baseline
   "SHRINK-ONLY. The rows that still red when the arm is armed — pre-existing
@@ -934,10 +1018,11 @@
 
 (deftest tags-column-pairing-is-live
   (testing "Sanity, in the shape the sibling scans use: the arm actually reaches
-            both corpora and pairs a substantial number of rows. A derivation
-            change, a Spec-Schemas fence rename, or a catalogue column reorder
-            would collapse the pairing to zero and every finding-based
-            invariant below would pass VACUOUSLY."
+            both corpora. A derivation change, a Spec-Schemas fence rename, or
+            a catalogue column reorder would collapse the pairing to zero and
+            every finding-based invariant below would pass VACUOUSLY. The
+            floors are COLLAPSE insurance and nothing more — the identity
+            below them is what guards pairing coverage (rf2-ehy4l)."
     (let [rows    (parse-catalogue-tag-rows)
           schemas (parse-tags-schemas)]
       (is (.exists spec-schemas-file)
@@ -949,9 +1034,47 @@
           (str "catalogue rows paired to a canonical schema (>= 80); found "
                (paired-count rows schemas)))
       ;; Anchor on a schema whose keys are non-trivial, so a parse that finds
-      ;; the def but reads an empty key set is caught.
+      ;; the def but reads an empty key set is caught…
       (is (contains? (get schemas "HandlerExceptionTags") :exception-message)
-          "HandlerExceptionTags parsed with its declared keys"))))
+          "HandlerExceptionTags parsed with its declared keys")
+      ;; …and generalise that anchor: EVERY parsed schema must have declared
+      ;; keys. One named schema proves the reader works on one shape; a schema
+      ;; that parses to `#{}` contributes a pair that can never produce a
+      ;; finding, which is coverage in name only.
+      (is (empty? (->> schemas (filter (comp empty? val)) (map key) sort))
+          (str "`*Tags` schemas that parsed with an EMPTY key set — the reader "
+               "found the def and lost its `[:map …]`: "
+               (pr-str (->> schemas (filter (comp empty? val)) (map key) sort))))
+      ;; THE RATCHET ON PAIRING IDENTITY. Every schema an active row claims
+      ;; must resolve to exactly one row and be diffed. Before rf2-ehy4l a
+      ;; collision was dropped silently: 89 schemas were claimed, 88 diffed,
+      ;; and the difference was invisible because both numbers sat above their
+      ;; floors. This is an identity, not a count — it holds at any corpus
+      ;; size, and it is what makes the ambiguity test below unmissable.
+      (is (= (claimed-count rows schemas) (paired-count rows schemas))
+          (str "canonical schemas CLAIMED by an active catalogue row: "
+               (claimed-count rows schemas) ", schemas actually PAIRED and "
+               "diffed: " (paired-count rows schemas) ". The difference is "
+               "coverage the arm holds and does not exercise — see "
+               "`tags-column-pairing-is-unambiguous` for the offenders.")))))
+
+(deftest tags-column-pairing-is-unambiguous
+  (testing "A canonical schema name claimed by two operations identifies
+            neither, so it can be diffed against neither — a real loss of
+            coverage that used to happen SILENTLY (rf2-ehy4l). The corpus
+            resolves it by naming the schema for its owning namespace, which
+            `derived-schema-names`' second spelling reads; reporting it is
+            what forces that resolution instead of letting the pairing quietly
+            run one row short."
+    (let [ambiguous (tags-column-ambiguities (parse-catalogue-tag-rows)
+                                             (parse-tags-schemas))]
+      (is (empty? ambiguous)
+          (str "canonical `*Tags` schemas claimed by more than one catalogue "
+               "row. Rename the schema for its owning operation "
+               "(`StaleSuppressedTags` → `RouteNavTokenStaleSuppressedTags` is "
+               "the worked example) so the whole-`:operation` spelling pairs "
+               "it, and leave the other row unpaired: "
+               (pr-str ambiguous))))))
 
 (deftest tags-column-keys-are-documented
   (testing "Per rf2-6tags: every key a canonical `*Tags` schema declares must
@@ -1051,12 +1174,12 @@
 
 (deftest tags-column-pairing-keys-off-the-whole-operation
   (testing "Two operations sharing a name half derive one schema name and so
-            identify no operation. `StaleSuppressedTags` belongs to
-            `:rf.route.nav-token/stale-suppressed` alone; pairing it to
+            identify no operation. Pairing `StaleSuppressedTags` to
             `:rf.http/stale-suppressed` — an `:info` reply-family trace with a
-            different payload entirely — manufactures a finding that is a false
-            pair, not debt. With BOTH rows present neither pairs; with only the
-            owning row present the pairing is unambiguous and the check runs."
+            different payload entirely — would manufacture a finding that is a
+            false pair, not debt. So the ambiguous name pairs with neither; but
+            per rf2-ehy4l it must SAY SO, because dropping it silently is a
+            pair of rows' worth of coverage vanishing behind a count floor."
     (let [schemas {"StaleSuppressedTags" #{:category :carried-token
                                            :current-token :rf.trace/event-id}}
           http-row (str "| `:rf.http/stale-suppressed` | `:info` | diagnostic "
@@ -1064,11 +1187,15 @@
                         "| `:rf.reply/status` |")
           nav-row  (str "| `:rf.route.nav-token/stale-suppressed` | `:error` "
                         "| diagnostic | A stale navigation result was suppressed. "
-                        "| `:dropped` | `:carried-token`, `:current-token` |")]
-      (is (empty? (tags-column-findings
-                    (parse-catalogue-tag-rows (catalogue-fixture http-row nav-row))
-                    schemas))
-          "an ambiguous derived name pairs with neither operation")
+                        "| `:dropped` | `:carried-token`, `:current-token` |")
+          both     (parse-catalogue-tag-rows (catalogue-fixture http-row nav-row))]
+      (is (empty? (tags-column-findings both schemas))
+          "an ambiguous derived name is diffed against neither operation")
+      (is (= [{:schema     "StaleSuppressedTags"
+               :categories [:rf.http/stale-suppressed
+                            :rf.route.nav-token/stale-suppressed]}]
+             (tags-column-ambiguities both schemas))
+          "…and the collision is REPORTED rather than silently costing the pair")
       (is (= [{:category :rf.route.nav-token/stale-suppressed
                :schema   "StaleSuppressedTags"
                :missing  #{:rf.trace/event-id}}]
@@ -1077,6 +1204,50 @@
                schemas))
           "…and the owning row alone still pairs, so ambiguity costs coverage
            only where the corpus is genuinely ambiguous"))))
+
+(deftest tags-column-collision-resolves-by-naming-the-owning-operation
+  (testing "The corpus fix for a collision, exercised end to end — this is what
+            `spec/Spec-Schemas.md` did to `StaleSuppressedTags` (rf2-ehy4l).
+            Naming the schema for its owning operation makes the WHOLE-
+            `:operation` spelling pair it, leaves the unrelated row unpaired,
+            and needs no alias table: the derivation reads the name the author
+            wrote."
+    (let [schemas  {"RouteNavTokenStaleSuppressedTags"
+                    #{:category :carried-token :current-token :rf.trace/event-id}}
+          http-row (str "| `:rf.http/stale-suppressed` | `:info` | diagnostic "
+                        "| A stale HTTP reply was suppressed. | `:dropped` "
+                        "| `:rf.reply/status` |")
+          nav-row  (str "| `:rf.route.nav-token/stale-suppressed` | `:error` "
+                        "| diagnostic | A stale navigation result was suppressed. "
+                        "| `:dropped` | `:carried-token`, `:current-token` |")
+          both     (parse-catalogue-tag-rows (catalogue-fixture http-row nav-row))]
+      (is (empty? (tags-column-ambiguities both schemas))
+          "the renamed schema is claimed by one operation only")
+      (is (= [{:category :rf.route.nav-token/stale-suppressed
+               :schema   "RouteNavTokenStaleSuppressedTags"
+               :missing  #{:rf.trace/event-id}}]
+             (tags-column-findings both schemas))
+          "the owning row is paired and diffed; the HTTP row stays unpaired")
+      (is (= 1 (paired-count both schemas) (claimed-count both schemas))
+          "claimed == paired: nothing is held and left unexercised"))))
+
+(deftest tags-column-claimed-equals-paired-catches-the-silent-drop
+  (testing "The identity `tags-column-pairing-is-live` asserts, driven at the
+            mutation it exists for. A collision holds a schema (claimed) that
+            no diff reaches (unpaired), and BOTH counts stay above the broad
+            floors — which is exactly how the loss used to hide."
+    (let [schemas  {"StaleSuppressedTags" #{:category :carried-token}}
+          http-row (str "| `:rf.http/stale-suppressed` | `:info` | diagnostic "
+                        "| … | `:dropped` | `:rf.reply/status` |")
+          nav-row  (str "| `:rf.route.nav-token/stale-suppressed` | `:error` "
+                        "| diagnostic | … | `:dropped` | `:carried-token` |")
+          one      (parse-catalogue-tag-rows (catalogue-fixture nav-row))
+          both     (parse-catalogue-tag-rows (catalogue-fixture http-row nav-row))]
+      (is (= 1 (claimed-count one schemas) (paired-count one schemas))
+          "unambiguous: claimed == paired")
+      (is (= [1 0] [(claimed-count both schemas) (paired-count both schemas)])
+          "ambiguous: the schema is claimed but never diffed — the identity
+           reds where a `>= 80` floor would not have moved"))))
 
 (deftest tags-column-arm-ignores-retired-rows
   (testing "A struck-through row documents a category the runtime no longer
