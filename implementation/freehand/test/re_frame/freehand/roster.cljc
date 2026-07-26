@@ -91,8 +91,17 @@
 (def record-keys
   "The closed key set of `:fh/record`. A key outside it is a defect rather
   than ignored data — an unknown key is almost always a typo for a real
-  one, and silently dropping it is how a record stops describing its law."
-  #{:source :structural :mounted :ssr :evidence :prose})
+  one, and silently dropping it is how a record stops describing its law.
+
+  `:open` is the one that is not about what a law proves. It records a
+  boundary of the law that is NOT settled, keyed by the bead that owns the
+  question — and it earns a slot because the alternative is worse. A
+  rostered expectation is a digest-pinned expectation: the moment a
+  projection asserts today's behaviour at an unsettled boundary, whoever
+  settles it has to fight the roster to land the fix. Naming the question
+  in the record makes the gap VISIBLE to a reader and to a checker, and
+  leaves the answer to the bead that owns it."
+  #{:source :structural :mounted :ssr :evidence :open :prose})
 
 (def ^:private required-record-keys
   "Every record names its canonical source and its prose status. The tier
@@ -187,7 +196,7 @@
       [(defect nil :fh/id (str "a roster record carries its :fh/id; got " (pr-str id)))]
 
       :else
-      (let [{:keys [source prose evidence] :as rec} (:fh/record record)
+      (let [{:keys [source prose evidence open] :as rec} (:fh/record record)
             present (set (keys rec))
             named   (select-keys rec tiers)]
         (cond-> []
@@ -229,6 +238,19 @@
           (conj (defect id :evidence
                         (str "states its evidence expectation as a non-empty map; got "
                              (pr-str evidence))))
+
+          ;; An `:open` entry is keyed by the bead that owns the question,
+          ;; because "unsettled" without an owner is a shrug. The key is a
+          ;; symbol so it survives EDN as one token and reads as the bead
+          ;; id it is.
+          (and (map? rec) (contains? present :open)
+               (not (and (map? open)
+                         (seq open)
+                         (every? symbol? (keys open))
+                         (every? (every-pred string? seq) (vals open)))))
+          (conj (defect id :open
+                        (str "records each unsettled boundary as <owning-bead-symbol> "
+                             "-> one line stating the question; got " (pr-str open))))
 
           (and (map? rec) (empty? named))
           (conj (defect id :fh/record
