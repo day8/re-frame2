@@ -53,6 +53,7 @@
   this file's job is the smoke surface + the registered-fx isolation
   + the cross-panel slots no single panel test owns."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -1187,6 +1188,191 @@
                    (:show-unchanged? @(rf/subscribe [:rf.xray/reactive-data]))))
           "the replaced four-input sub resolves show-unchanged? through the
            reactive axis — the stale two-input reaction was evicted"))))
+
+;; ---- schema 4: the donor cutover's live upgrade (rf2-7gth0) -------------
+;;
+;; Merged-PR audit #7038 reopened rf2-7gth0 on this seam. The cutover deleted
+;; the donor ownership plane from SOURCE, but deleting a namespace does not
+;; execute teardown in a process that already loaded it. A schema-3 process
+;; that hot-reloads into schema-4 code carries two distinct residues:
+;;
+;;   1. FIVE registrar entries — four subs + one event — installed by a fn
+;;      that no longer exists. Nothing re-registers or replaces them, so the
+;;      umbrella cannot notice, and they resolve forever as phantom ids.
+;;   2. The donor `re-frame.ui.tool.evidence` projection, still OWNED by
+;;      `:rf.xray/viewcell-evidence`, sink armed, entries retained, and
+;;      refusing the slot to any other tool.
+;;
+;; (1) is Xray's own and migrates live. (2) is not: releasing it means
+;; calling the donor tier's `uninstall!`, and `re-frame.ui` is off this
+;; artefact's classpath — deliberately and permanently, since dropping that
+;; coordinate IS the cutover. So schema 4 is reload-required whenever (2) is
+;; present, and the seam must say so instead of stamping the process current.
+;;
+;; The fixture below reproduces both residues as faithfully as an artefact
+;; without the donor can. (1) is exact: the same five ids in the registrar,
+;; with the same input topology; only the handler BODIES are stand-ins,
+;; because the donor reads they closed over are precisely what is
+;; unreachable. (2) is reproduced through its observable — the byte-identical
+;; `js/globalThis` key the deleted `viewcell_evidence.cljs` wrote on a
+;; successful acquire (`sync-sentinel!`, commit 46577c549a^). That key is
+;; spelled out as a literal here rather than read off `registry`, so a
+;; rename on the production side fails this test instead of silently
+;; agreeing with it.
+
+(def ^:private donor-ownership-marker-key
+  "The literal `js/globalThis` key `viewcell_evidence.cljs` used, pinned
+  independently of the production constant. See the block comment above."
+  "__day8_re_frame2_xray_viewcell_evidence")
+
+(def ^:private schema-3-donor-sub-ids
+  [:rf.xray/viewcell-evidence
+   :rf.xray/viewcell-evidence-version
+   :rf.xray/view-evidence-sites
+   :rf.xray/viewcell-evidence-ownership])
+
+(def ^:private schema-3-donor-event-id
+  :rf.xray/viewcell-evidence-ownership-changed)
+
+(def ^:private schema-4-sub-ids
+  [:rf.xray/mounted-views
+   :rf.xray/mounted-views-schema
+   :rf.xray/mounted-view-sites])
+
+(defn- pose-schema-3-registry!
+  "Turn the just-booted current registry into the REGISTRAR image a schema-3
+  process carries: the three Freehand reads absent (schema 3 never had them)
+  and the five donor-era ids present, with the ownership sub reading the
+  app-db key its deleted event handler wrote. Poses the registrar only —
+  `simulate-registration-at-schema!` poses the sentinels."
+  []
+  (run! rf/clear-sub schema-4-sub-ids)
+  (rf/reg-event schema-3-donor-event-id
+    {:rf.trace/no-emit? true}
+    (fn [{:keys [db]} [_ revision]]
+      {:db (assoc db :viewcell-evidence-ownership-rev revision)}))
+  (rf/reg-sub :rf.xray/viewcell-evidence-ownership
+    (fn [db _query]
+      (get db :viewcell-evidence-ownership-rev 0)))
+  (rf/reg-sub :rf.xray/viewcell-evidence
+    :<- [:rf.xray/epoch-history]
+    :<- [:rf.xray/viewcell-evidence-ownership]
+    (fn [[_history _rev] _query] []))
+  (rf/reg-sub :rf.xray/viewcell-evidence-version
+    :<- [:rf.xray/epoch-history]
+    :<- [:rf.xray/viewcell-evidence-ownership]
+    (fn [[_history _rev] _query] {:status :supported}))
+  (rf/reg-sub :rf.xray/view-evidence-sites
+    :<- [:rf.xray/viewcell-evidence]
+    (fn [_rows _query] {}))
+  nil)
+
+(defn- registered-ids
+  "The subset of `ids` under `kind` the registrar currently resolves."
+  [kind ids]
+  (into #{} (filter #(some? (registrar/handler kind %))) ids))
+
+(defn- pose-donor-ownership-marker! []
+  (gobj/set js/globalThis donor-ownership-marker-key
+            (js-obj "owner" ":rf.xray/viewcell-evidence"
+                    "installed" (.now js/Date))))
+
+(deftest schema-4-migrates-the-registrar-half-of-the-donor-cutover-rf2-7gth0
+  (testing "rf2-7gth0 — a schema-3 process that never claimed the donor
+            projection upgrades fully in place: the three Freehand reads
+            arrive, the five donor-era ids go, and the process is stamped
+            current"
+    (setup-xray-frame!)
+    (pose-schema-3-registry!)
+    (registry/simulate-registration-at-schema! 3)
+
+    (testing "PRECONDITION — the posed process is a schema-3 registrar"
+      (is (= (set schema-3-donor-sub-ids)
+             (registered-ids :sub schema-3-donor-sub-ids))
+          "all four donor-era subs are registered")
+      (is (some? (registrar/handler :event schema-3-donor-event-id))
+          "the donor-era ownership event is registered")
+      (is (= #{} (registered-ids :sub schema-4-sub-ids))
+          "none of the three Freehand reads exists yet"))
+
+    ;; The live upgrade: `:after-load` re-runs `register-xray-handlers!`.
+    (registry/register-xray-handlers!)
+
+    (testing "the three Freehand reads installed and resolve"
+      (is (= (set schema-4-sub-ids) (registered-ids :sub schema-4-sub-ids)))
+      (rf/with-frame :rf/xray
+        (doseq [q-v schema-4-sub-ids]
+          (is (some? (rf/subscribe [q-v]))
+              (str q-v " must resolve after the schema-4 migration")))))
+    (testing "the five donor-era registrations are GONE — nothing else in the
+              process would ever remove them"
+      (is (= #{} (registered-ids :sub schema-3-donor-sub-ids)))
+      (is (nil? (registrar/handler :event schema-3-donor-event-id))))
+    (testing "and the process is stamped current — no donor claim was held,
+              so there is nothing a reload would add"
+      (is (= registry/schema-version (registry/installed-schema-version))))))
+
+(deftest schema-4-refuses-to-stamp-a-donor-resident-process-rf2-7gth0
+  (testing "rf2-7gth0 (audit #7038) — a schema-3 process that DID claim the
+            donor evidence projection migrates its registrar half, is told
+            once and loudly to reload, and is NOT stamped current"
+    (setup-xray-frame!)
+    (pose-schema-3-registry!)
+    (pose-donor-ownership-marker!)
+    (registry/simulate-registration-at-schema! 3)
+
+    (let [prior-console js/console
+          warns         (atom [])]
+      (set! js/console (js-obj "warn" (fn [& args] (swap! warns conj (apply str args)) nil)
+                               "error" (fn [& _args] nil)
+                               "log"   (fn [& _args] nil)))
+      (try
+        ;; The live upgrade.
+        (registry/register-xray-handlers!)
+
+        (testing "the registrar half migrated anyway — the panel is left as
+                  current as a live process can be"
+          (is (= (set schema-4-sub-ids) (registered-ids :sub schema-4-sub-ids))
+              "the three Freehand reads installed")
+          (is (= #{} (registered-ids :sub schema-3-donor-sub-ids))
+              "the four donor-era subs were cleared")
+          (is (nil? (registrar/handler :event schema-3-donor-event-id))
+              "the donor-era ownership event was cleared"))
+
+        (testing "the process is NOT stamped current — the donor projection
+                  it still owns cannot be released by this build, and a
+                  registry that stamped 4 here would be asserting an upgrade
+                  that did not finish (audit #7038)"
+          (is (= 3 (registry/installed-schema-version)))
+          (is (not= registry/schema-version (registry/installed-schema-version))))
+
+        (testing "one warning for the attempt, and it names the reload and
+                  the ownership it cannot drop"
+          (is (= 1 (count @warns)) "exactly one console.warn per attempt")
+          (let [msg (first @warns)]
+            (is (re-find #"(?i)reload" msg) "the message names the reload")
+            (is (re-find #"re-frame\.ui" msg)
+                "the message names the tier still owned")
+            (is (re-find #":rf\.xray/viewcell-evidence" msg)
+                "the message names the owner id holding the slot")))
+
+        (testing "a second `:after-load` still refuses and says so again —
+                  the residue is still resident, so the refusal is a stable
+                  fact about the process, not a one-shot the developer can
+                  miss by saving a file"
+          (registry/register-xray-handlers!)
+          (is (= 3 (registry/installed-schema-version)))
+          (is (= 2 (count @warns))))
+
+        (testing "the residue is the ONLY thing holding the stamp back: drop
+                  the marker (what a real page reload does to the whole
+                  module registry) and the very next call stamps current"
+          (gobj/remove js/globalThis donor-ownership-marker-key)
+          (registry/register-xray-handlers!)
+          (is (= registry/schema-version (registry/installed-schema-version))))
+        (finally
+          (set! js/console prior-console)
+          (gobj/remove js/globalThis donor-ownership-marker-key))))))
 
 ;; ---- schema-delta governance pin (rf2-sa8j3) ----------------------------
 ;;
