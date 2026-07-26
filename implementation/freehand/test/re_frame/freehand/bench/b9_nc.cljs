@@ -600,6 +600,58 @@
 ;; 8. The sync-lane probe — the claim in the docstring, measured
 ;; ===========================================================================
 
+(defn tear-probe!
+  "WHAT THE GUARANTEE BUYS, measured on a WATCHABLE host — the browser,
+  where a retained dependency has a change watch and the headless
+  argument for invariant 5 does not apply.
+
+  Two cases, each run through both commits, each moving the source in the
+  render→commit gap:
+
+  - **retained** — the site was committed once already, so its handle
+    carries a watch installed at the FIRST commit. The move therefore
+    marks the cell through the ordinary channel as well.
+  - **staged** — a FIRST commit of that site. `obs/acquire!` installs the
+    watch DURING this commit, which is after the move already happened,
+    so the watch has nothing to fire about.
+
+  Answers, per case per commit: `:revision-delta` (did invariant 5
+  correct?), `:dirty?` (is the ordinary notification channel going to
+  correct it at the next window?) and `:published` (what value the
+  committed bundle carries).
+
+  This is the difference between reporting a bug class and asserting one."
+  []
+  (let [fid :b9-tear/frame
+        q   [:b6/cell 0]
+        run (fn [commit! retained?]
+              (when (nil? (frame/frame fid)) (rf/make-frame {:id fid}))
+              (frame/replace-app-db! fid {:cells [:v0]})
+              (let [c (cell/cell :b9/tear)]
+                (when retained?
+                  ;; One earlier commit, so the site's handle — and its
+                  ;; change watch — already exist when the move happens.
+                  (let [cand0 (cell/candidate c fid)]
+                    (cell/with-capture cand0 (fn [] (cell/observe! q)))
+                    (commit! cand0)))
+                (let [cand   (cell/candidate c fid)
+                      _      (cell/with-capture cand (fn [] (cell/observe! q)))
+                      before (cell/revision c)
+                      ;; THE GAP: the source moves after the render probed
+                      ;; it and before the commit publishes it.
+                      _      (frame/replace-app-db! fid {:cells [:v1]})
+                      result (commit! cand)
+                      out    {:commit         result
+                              :revision-delta (- (cell/revision c) before)
+                              :dirty?         (cell/dirty? c)
+                              :published      (str (:value (first (:observations (cell/evidence c)))))}]
+                  (cell/disconnect! c)
+                  out)))]
+    {:retained {:shipped  (run cell/commit! true)
+                :ablated  (run nc-commit!   true)}
+     :staged   {:shipped  (run cell/commit! false)
+                :ablated  (run nc-commit!   false)}}))
+
 (defn sync-lane-probe!
   "Does a boundary WITHOUT `useSyncExternalStore` repaint inside an empty
   `react-dom/flushSync`, the way `rf2-w2m25`'s synchronous commit door
