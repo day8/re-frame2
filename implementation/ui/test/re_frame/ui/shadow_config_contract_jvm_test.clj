@@ -38,7 +38,8 @@
   the note below already said of the published page. So the scaffold stopped
   being a holder of THIS rule rather than drifting from it, and comparing it
   here would assert a setting it is correct not to carry; its own gate
-  (`implementation/ui/scaffold-smoke`) pins the absence and the reason for it.
+  (`implementation/freehand/scaffold-smoke`, relocated out of this tree by
+  rf2-kbzqn) pins the absence and the reason for it.
   The scaffold's `deps.edn` is still read below, for the one comparison that
   survives the cut-over: it remains a REAL shadow-cljs pin.
 

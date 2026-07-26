@@ -1,10 +1,18 @@
 ;; scaffold-smoke — the CI teeth for examples/ui/minimal-counter.
 ;;
 ;; A focused JVM smoke, deliberately its OWN tiny project so it does not
-;; ride (or slow) the implementation/ui suite. It carries no SHIPPING framework
-;; dep — it materializes the scaffold's documented files into a temp directory
-;; and shells out to `npm install` + `npx shadow-cljs compile app` — and its
-;; one test-only dep is the shared quiet runner (see the `:test` alias).
+;; ride (or slow) the Freehand suite it sits beside. It carries no SHIPPING
+;; framework dep — it materializes the scaffold's documented files into a
+;; temp directory and shells out to `npm install` + `npx shadow-cljs compile
+;; app` — and its one test-only dep is the shared quiet runner (see the
+;; `:test` alias).
+;;
+;; It lives under `implementation/freehand/` because the scaffold it proves is
+;; a FREEHAND scaffold: the tree it compiles resolves `day8/re-frame2-freehand`
+;; by :local/root, and `.github/scripts/report-changed-surfaces.sh` already
+;; fires the `examples_compile` surface for `implementation/freehand/*` — so a
+;; change to this lane fires the job that runs it. Moving it elsewhere under
+;; `implementation/` costs that, which is the reason to leave it here.
 ;;
 ;;   clojure -M:test        — structural checks only (fast, no Node needed)
 ;;   RF2_UI_SCAFFOLD_COMPILE=1 clojure -M:test

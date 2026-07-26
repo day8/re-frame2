@@ -326,7 +326,7 @@ const BUILD_OUTPUTS = new Set(['main.js']);
 // "the tree you would have created yourself"). It links none of _shared — nor
 // should it, a minimal user-facing scaffold is not a gallery showcase — and its
 // host-page contract is owned end-to-end by its own scaffold smoke
-// (implementation/ui/scaffold-smoke). Enumerating it here would force the
+// (implementation/freehand/scaffold-smoke). Enumerating it here would force the
 // gallery chrome onto a page that must stay minimal, so a project root bearing
 // its own shadow-cljs.edn is pruned from this walk (any future standalone
 // scaffold under examples/ is excluded by the same marker, no per-path list).

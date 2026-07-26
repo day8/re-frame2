@@ -2294,15 +2294,16 @@ jobs:
     # itself, the framework core/freehand it compiles against, and the build
     # config. (The job id and the env-var name still read "ui" — renaming them
     # is a required-check rename plus a `needs:` edge, so they are deliberately
-    # left alone; the lane's home under implementation/ui/scaffold-smoke moves
-    # with donor-inventory row 284, not here.)
+    # left alone. The lane's HOME has moved: rf2-kbzqn relocated it out of the
+    # donor tree to implementation/freehand/scaffold-smoke, which is the
+    # examples_compile surface it was already gated on.)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.examples_compile == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
       run:
-        working-directory: implementation/ui/scaffold-smoke
+        working-directory: implementation/freehand/scaffold-smoke
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
