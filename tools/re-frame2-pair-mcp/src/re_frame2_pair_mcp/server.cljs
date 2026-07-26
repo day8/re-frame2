@@ -531,31 +531,59 @@
   values). Shared by the connected path (`handle-call*`) and the
   closed-world pre-connection path (`handle-call-local`).
 
-  ## RELAY 1 of two — this one keeps the MESSAGE
+  ## RELAY 1 of two — and it carries BOTH halves of the exception
 
   pair-mcp has exactly two consumer-facing error relays, and WHERE in a
   tool body a throw fires decides which one it meets. This one is
   reached by anything thrown while the tool body BUILDS its request,
   before the nREPL round-trip; `probe/err->result` (relay 2) is reached
   by anything thrown from an `eval-after-runtime!` `on-value` callback,
-  i.e. all response shaping after it. So a throw site's ex-message is
-  load-bearing HERE and its ex-data is dropped — the reverse of what a
-  reader who has only seen relay 2 would assume.
+  i.e. all response shaping after it.
 
-  That asymmetry is a known wart, half-fixed: relay 2 now carries both
-  halves (rf2-6tzm5), while this relay still drops `(ex-data err)` —
-  including the `:rf.error/id` an agent would rather branch on than
-  regex out of the message. rf2-qoih4 tracks closing it. Until then,
-  a throw site reached from here MUST put its actionable content in the
-  message; `tools/eval_form.cljs` `emit-name` is the live example, and
-  `error_boundary_test` pins both relays at the real MCP boundary."
+  The two relays used to keep OPPOSITE halves — this one the message,
+  relay 2 the ex-data — so wherever a throw fired, half of what its
+  author wrote for the agent was discarded. Relay 2 closed its half in
+  rf2-6tzm5; this is the other (rf2-qoih4). `(ex-data err)` now merges
+  into the envelope, so the `:rf.error/id` an agent BRANCHES on arrives
+  as a keyword slot instead of a token the agent has to regex out of
+  prose, and the actionable slots beside it (`:where`, `:recovery`, and
+  whatever the site carries) arrive at all.
+
+  ## Precedence runs the OPPOSITE way from relay 2
+
+  ex-data merges UNDER `:reason` and `:message`, not over them. At relay
+  2 the ex-data's `:reason` IS the payload's discriminator, so it wins
+  there. Here `:reason :handler-threw` is the ENVELOPE's discriminator —
+  it is how an agent knows the tool body threw before reaching the
+  runtime at all — and a site's own `:reason` (`eval_form`'s `emit-name`
+  carries one) must not silently replace it. The site's discriminator
+  has its own uncontested slot in `:rf.error/id`. Likewise `:message`:
+  the relayed ex-message is the Spec 009 canonical sentence, and no
+  in-repo ex-data carries a competing `:message` key.
+
+  ## A relayed throw's ex-data is WIRE DATA
+
+  True of relay 2 all along, and true here now: every value in an
+  ex-data map that can reach a relay MUST be EDN-round-trippable. The
+  envelope's canonical slot is `(pr-str v)` and the consumer's agent
+  reads it back with an EDN reader, so ONE unreadable value does not
+  merely go missing — it reds the read of the WHOLE envelope
+  (`No reader function for tag object`) and costs the agent the message
+  as well. `emit-name` carried exactly such a value (`(type n)`, a JS
+  constructor) for as long as this relay dropped ex-data and nobody
+  could tell; promoting ex-data to the wire is what made it matter, and
+  `error_boundary_test`'s relay-1 rows are what would have said so.
+
+  `error_boundary_test` pins both relays at the real MCP boundary,
+  including this precedence rule."
   [conn name args extra]
   (-> (tools/invoke conn name args extra)
       (.catch (fn [err]
                 (log! "handler threw for" name "—" (.-message err))
-                (wire/result {:ok?     false
-                              :reason  :handler-threw
-                              :message (.-message err)}
+                (wire/result (merge {:ok? false}
+                                    (ex-data err)
+                                    {:reason  :handler-threw
+                                     :message (.-message err)})
                              true)))))
 
 (defn- handle-call-local
