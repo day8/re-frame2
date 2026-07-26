@@ -12,11 +12,17 @@
  *      sentinel survives, dead-code elimination has failed somewhere
  *      and the elision contract is broken.
  *
- *   2. The :elision-probe-control bundle (goog.DEBUG=true), if present,
- *      DOES contain those sentinels. This confirms the grep
- *      methodology has signal — without the control, a refactor that
- *      moved the strings somewhere else would silently turn the
- *      negative assertion into a vacuous pass.
+ *   2. The :elision-probe-control bundle (goog.DEBUG=true) DOES contain
+ *      those sentinels. This confirms the grep methodology has signal —
+ *      without the control, a refactor that moved the strings somewhere
+ *      else would silently turn the negative assertion into a vacuous
+ *      pass. The control is therefore REQUIRED, not optional: a missing
+ *      control bundle is a FAILURE (rf2-udro3). `npm run test:elision`
+ *      — the only wired entry point — builds both bundles in one
+ *      command, so its absence means the build did not run, not that a
+ *      lane cannot produce one. A local production-arm-only run says so
+ *      explicitly with `--no-control`, and the PASS line then names how
+ *      many absence assertions went unproven.
  *
  * Strategy: grep, not parse. The closure compiler may rename symbols
  * but does not rewrite string literals.  String literals from a
@@ -868,19 +874,34 @@ function main() {
     ep23 = { ok: surviving.ok && absent.ok, surviving, absent };
   }
 
-  // Control bundle: dev-only sentinels MUST be present (if compiled).
-  let control = { ok: true, skipped: true };
+  // Control bundle: dev-only sentinels MUST be present. The control IS the
+  // methodology (rf2-udro3) — the production arm is a pure absence assertion,
+  // and a sentinel that was renamed, moved out of its gated branch, or whose
+  // rooting probe was deleted is absent for the WRONG reason and passes. So a
+  // missing control bundle is a VIOLATED precondition, not an honest skip: the
+  // one wired entry point (`npm run test:elision`) builds both in a single
+  // command. Fail closed, matching the sibling present-but-empty floor above.
+  // `--no-control` is the explicit opt-out for a local production-arm-only run,
+  // and it still says out loud how many assertions it left unproven.
+  const allowMissingControl = process.argv.slice(2).includes('--no-control');
+  let control;
   if (fs.existsSync(controlDir)) {
     control = checkBundle('control    (goog.DEBUG=true) ', controlDir, true);
+  } else if (allowMissingControl) {
+    control = { ok: true, skipped: true, checked: 0, passed: 0 };
+    console.error(
+      `[elision] --no-control: methodology check SKIPPED — the ` +
+      `${DEV_ONLY_SENTINELS.length} production sentinel ABSENCES below are ` +
+      `UNPROVEN (an absent sentinel may be absent for the wrong reason).`
+    );
   } else {
-    report.detail('[elision] control bundle not built — skipping methodology check.');
-    report.detail('          Run "npx shadow-cljs release elision-probe-control"');
-    report.detail('          to enable the methodology assertion.');
+    control = { ok: false, skipped: true, missingControl: true, checked: 0, passed: 0 };
   }
 
   if (prod.ok && ep23.ok && control.ok) {
     const controlSummary = control.skipped
-      ? 'control skipped'
+      ? `control SKIPPED (--no-control) — 0/${DEV_ONLY_SENTINELS.length} ` +
+        'methodology assertions run, production absences UNPROVEN'
       : `control ${control.passed}/${control.checked} present (${control.bytes} chars)`;
     report.pass(
       'elision',
@@ -910,7 +931,15 @@ function main() {
       console.error('    probe does not root make-frame/assemble. If present, an');
       console.error('    assembly fn became reachable from an always-run path.');
     }
-    if (!control.ok) {
+    if (control.missingControl) {
+      console.error('Control bundle not built — the methodology check did NOT run,');
+      console.error(`so all ${DEV_ONLY_SENTINELS.length} production sentinel ABSENCES above are`);
+      console.error('UNPROVEN: a renamed / relocated / no-longer-rooted sentinel is');
+      console.error('absent for the wrong reason and passes.  A skip is not a pass.');
+      console.error(`  Build it:  npx shadow-cljs release elision-probe-control`);
+      console.error('  or simply: npm run test:elision   (builds both bundles)');
+      console.error('To run the production arm ALONE, pass --no-control explicitly.');
+    } else if (!control.ok) {
       console.error('Control bundle missing dev-only sentinels — the grep test');
       console.error('would be vacuous.  A sentinel string was likely renamed,');
       console.error('moved out of a gated branch, or removed.  Update');
