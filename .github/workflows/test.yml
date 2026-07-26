@@ -1546,6 +1546,81 @@ jobs:
       - name: Run JVM tests (routing artefact)
         run: clojure -M:test
 
+  # rf2-hnrwo — the routing suite under the REAL production gate.
+  #
+  # WHAT WAS MISSING. rf2-f8x2i closed this hole for `implementation/core` and
+  # for that artefact only: `SECURITY.md` documents `-Dre-frame.debug=false` as
+  # the JVM/SSR production setting, `re-frame.interop/debug-enabled?` reads it
+  # ONCE at namespace-load time, and until `jvm-core-prod-gate` nothing in this
+  # file had ever set it. Every OTHER artefact was still executed by no suite
+  # under the documented production configuration. rf2-u2x6w then established
+  # that sub-classification — a PRIVACY invariant — genuinely egresses in
+  # production from routing's `:routing/route-sub-egress-path`, wrote the
+  # always-on witness for it, and found the witness had nowhere to run.
+  #
+  # WHY IT IS A SEPARATE JOB AND NOT A FLAG ON `jvm-routing`. The two lanes
+  # make different claims and neither substitutes for the other: `jvm-routing`
+  # proves the artefact's behaviour WITH its dev instrumentation, this job
+  # proves the semantics that must survive WITHOUT it. Same artefact, same
+  # classpath (the `:prod-gate` alias is a modifier composed onto `:test`),
+  # same cache key — only the JVM posture differs.
+  #
+  # THE JOB CANNOT PASS VACUOUSLY. `re-frame.routing-prod-gate-lane-pin-test`
+  # runs inside the lane and asserts unconditionally that `re-frame.debug`
+  # reads `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it.
+  # If the property ever stops arriving, this job goes RED rather than
+  # green-on-the-wrong-posture — which matters more here than anywhere else,
+  # because the lane's namespace roster is by construction a subset of what
+  # already passes in dev posture, so a lost flag would otherwise be invisible.
+  #
+  # SCOPE. Not the whole routing suite yet: 19 of its 36 test namespaces are
+  # red under the real gate (293 failures / 9 errors), essentially all of them
+  # asserting dev instrumentation — a `:rf.route/*` trace fired, the `:errors`
+  # sink received, `:doc` / `:source` retained on a route-algebra node — inline
+  # with semantics. Those are legitimate dev-posture tests, not defects; the
+  # roster and the bead splitting them out (rf2-o5dbf) live in
+  # `scripts/test-routing-prod-gate.sh`. What runs here today is 18 namespaces
+  # / 98 tests / 613 assertions, green. The roster is an EXCLUSION list, so a
+  # new namespace joins this lane by default and has to be excluded
+  # deliberately.
+  jvm-routing-prod-gate:
+    name: JVM routing under the production gate (-Dre-frame.debug=false)
+    # Same surface gate as jvm-routing: it is the same artefact.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      # Deliberately the SAME cache key as jvm-routing — identical classpath,
+      # so the two jobs warm one cache instead of competing for two.
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-routing-${{ hashFiles('implementation/routing/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-routing-
+            ${{ runner.os }}-clj-
+
+      # The script prints the property, the pin, the roster size and the
+      # excluded count before it runs anything, so the job's own log carries
+      # the evidence of which posture it ran in.
+      - name: Run the routing suite under -Dre-frame.debug=false
+        run: bash scripts/test-routing-prod-gate.sh
+
   jvm-flows:
     name: JVM flows (clojure -M:test)
     needs: detect_changed_surfaces
@@ -1661,6 +1736,85 @@ jobs:
       # core's full-corpus runner.
       - name: Run JVM tests (ssr artefact)
         run: clojure -M:test
+
+  # rf2-hnrwo — the ssr suite under the REAL production gate.
+  #
+  # WHAT WAS MISSING, and why SSR is the sharpest case. `SECURITY.md` documents
+  # `-Dre-frame.debug=false` as the JVM/SSR production setting and
+  # `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
+  # This is the artefact that actually RUNS on a JVM in production, under
+  # exactly that property — and until this job no suite had ever executed it
+  # that way. rf2-f8x2i closed the same hole for `implementation/core` and for
+  # that artefact only. rf2-u2x6w then established that sub-classification — a
+  # PRIVACY invariant — genuinely reaches
+  # `re-frame.ssr.payload-policy/project-routing-egress` in production, the
+  # code deciding what leaves the server inside a hydration payload, wrote the
+  # always-on witness for it, and found the witness had nowhere to run.
+  #
+  # WHY IT IS A SEPARATE JOB AND NOT A FLAG ON `jvm-ssr`. The two lanes make
+  # different claims and neither substitutes for the other: `jvm-ssr` proves
+  # the artefact's behaviour WITH its dev instrumentation, this job proves the
+  # semantics that must survive WITHOUT it. Same artefact, same classpath (the
+  # `:prod-gate` alias is a modifier composed onto `:test`), same cache key —
+  # only the JVM posture differs.
+  #
+  # THE JOB CANNOT PASS VACUOUSLY. `re-frame.ssr-prod-gate-lane-pin-test` runs
+  # inside the lane and asserts unconditionally that `re-frame.debug` reads
+  # `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it. If the
+  # property ever stops arriving, this job goes RED rather than
+  # green-on-the-wrong-posture — which matters more here than anywhere else,
+  # because the lane's namespace roster is by construction a subset of what
+  # already passes in dev posture, so a lost flag would otherwise be invisible.
+  #
+  # SCOPE. Not the whole ssr suite yet: 21 of its 48 test namespaces are red
+  # under the real gate (217 failures / 1 error) in three shapes —
+  # dev-instrumentation assertions written inline with semantics,
+  # `data-rf2-source-coord` / `data-rf-view` annotations that are prod-elided
+  # at the core `reg-view` boundary, and the error-projection cluster whose
+  # status codes depend on the development trace listener (a documented design
+  # choice with a real production consequence, held under rf2-rqje9). The
+  # roster and the triage bead (rf2-lwtlk) live in
+  # `scripts/test-ssr-prod-gate.sh`. What runs here today is 28 namespaces /
+  # 247 tests / 1379 assertions, green. The roster is an EXCLUSION list, so a
+  # new namespace joins this lane by default and has to be excluded
+  # deliberately.
+  jvm-ssr-prod-gate:
+    name: JVM ssr under the production gate (-Dre-frame.debug=false)
+    # Same surface gate as jvm-ssr: it is the same artefact.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      # Deliberately the SAME cache key as jvm-ssr — identical classpath, so
+      # the two jobs warm one cache instead of competing for two.
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-ssr-${{ hashFiles('implementation/ssr/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-ssr-
+            ${{ runner.os }}-clj-
+
+      # The script prints the property, the pin, the roster size and the
+      # excluded count before it runs anything, so the job's own log carries
+      # the evidence of which posture it ran in.
+      - name: Run the ssr suite under -Dre-frame.debug=false
+        run: bash scripts/test-ssr-prod-gate.sh
 
   jvm-security:
     name: JVM security (clojure -M:test)
@@ -4797,9 +4951,22 @@ jobs:
       - jvm-schemas
       - jvm-machines
       - jvm-routing
+      # rf2-hnrwo — required for the same reason `jvm-core-prod-gate` is, and
+      # for a claim core's lane cannot make: routing's
+      # `:routing/route-sub-egress-path` is a sub-classification egress that
+      # runs in PRODUCTION (rf2-u2x6w), i.e. a privacy invariant. Advisory
+      # would reproduce the original hole in a new shape — a gate nobody's
+      # merge waits on.
+      - jvm-routing-prod-gate
       - jvm-flows
       - jvm-http
       - jvm-ssr
+      # rf2-hnrwo — required. SSR is the artefact that actually runs on a JVM
+      # under `-Dre-frame.debug=false` in production, and
+      # `payload-policy/project-routing-egress` decides what leaves the server
+      # inside a hydration payload. A merge that never ran this lane must not
+      # be possible.
+      - jvm-ssr-prod-gate
       - jvm-security
       - jvm-ssr-ring
       - jvm-epoch
