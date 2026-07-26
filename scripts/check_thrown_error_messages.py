@@ -88,7 +88,10 @@ A CONFORMANT message (does not fire) is one of:
     so it hand-rolls the human sentence + token inline); or
   - a bare LOCAL SYMBOL whose binding in the innermost enclosing `let` is
     itself conformant by the two rules above (rf2-u3otj) — the token lives on
-    the bound form, one hop from the `ex-info`.
+    the bound form, one hop from the `ex-info` — AND ONLY when that `let` is
+    provably the binding in scope at the call. A binder in between (an `fn`
+    parameter, a `catch` name, a destructured inner `let`) shadows the name,
+    so the resolution fails closed and the finding stands.
 
 A DELIBERATE exemption — a message pinned to bare prose downstream (the
 conformance-DSL `:throw` / `:count` ops re-emit it as `:exception-message`,
@@ -509,7 +512,57 @@ _EX_INFO_OPEN_RE = re.compile(r"\(\s*ex-info\b")
 # `let` only. `loop` rebinds through `recur`, and `if-let`'s else branch does
 # not see the binding — resolving either could green a site the reader cannot
 # verify, which is the direction this gate must never move.
+#
+# …AND THE RESOLUTION MUST PROVE THE BINDING IS THE ONE IN SCOPE (rf2-u3otj,
+# the #7045 audit). Finding an enclosing `let` that binds the name is not the
+# same as finding the binding the reader would see at the call. Any binder
+# BETWEEN the two shadows it:
+#
+#   (let [msg (str "outer conformant [:rf.error/outer]")]
+#     (fn [msg]                               ; ← the parameter shadows it
+#       (throw (ex-info msg {:rf.error/id :rf.error/inner-bypass …}))))
+#
+# `msg` at the throw is the tokenless parameter, so the site IS a bypass; a
+# resolver that only searches enclosing `let`s finds the outer one and greens
+# it — the false GREEN this gate must never emit. Every lexical binder does it
+# (`fn`, `loop`, `if-let`, `doseq`, `for`, `catch`, `letfn`, `as->`, a
+# DESTRUCTURED inner `let` the binding-name match cannot see, …), so the fix is
+# not a longer list of binders to look for.
+#
+# It is the opposite: `_scope_is_provable` crosses only forms it can prove
+# introduce nothing, and FAILS CLOSED on everything else. A crossed form is
+# transparent when its head is ordinary control flow (`_TRANSPARENT_HEADS`), or
+# when it binds through a leading vector (`_VECTOR_BINDER_HEADS`) that does not
+# mention the symbol. An unrecognised head — a binding macro this gate has never
+# heard of, an `fn` arity list, a `catch` — is not proven, so the finding stands.
+# A whitelist is what makes the analysis SOUND: an unknown binder can only cost
+# a false red, never buy a false green.
 _LET_OPEN_RE = re.compile(r"\(\s*let\b")
+
+# Heads that introduce no bindings at all — the ordinary control flow that sits
+# between a `let` and the `throw` it guards. Crossing one cannot change what a
+# symbol means. Deliberately short: every addition is a promise about a macro's
+# binding behaviour, and the cost of leaving one out is one honest red.
+_TRANSPARENT_HEADS = frozenset({
+    "do", "throw", "if", "if-not", "when", "when-not", "cond", "condp", "case",
+    "try", "finally", "and", "or", "not", "->", "->>", "some->", "some->>",
+    "doto",
+})
+
+# Heads that bind through a LEADING vector. Crossing one is proven safe exactly
+# when that vector does not mention the symbol. The whole vector is checked, not
+# just its name positions: `for`/`doseq` interleave `:let`/`:when` modifiers and
+# `let` names can be destructuring forms, so "mentioned anywhere in the binding
+# vector" is the reading that cannot miss a binder. A value-position mention
+# costs a red, which is the safe direction.
+_VECTOR_BINDER_HEADS = frozenset({
+    "let", "loop", "fn", "if-let", "when-let", "if-some", "when-some",
+    "when-first", "doseq", "for", "dotimes", "with-open", "with-local-vars",
+    "with-redefs", "binding", "letfn",
+})
+
+# The head token of a `(head …)` form.
+_FORM_HEAD_RE = re.compile(r"\(\s*([^\s()\[\]{}\"'`~@^;,]+)")
 
 # A bare local symbol as the WHOLE message argument: no parens, no quotes, no
 # `/` (a namespaced var is not a local binding), not a keyword, not a number.
@@ -559,16 +612,111 @@ def _split_forms(body: str) -> list[str]:
     return forms
 
 
+def _mentions_symbol(text: str, sym: str) -> bool:
+    """Does `sym` occur in `text` as a standalone symbol token? The boundary
+    classes keep `msg` out of `:msg`, `'msg`, `msg-2`, `ns/msg` and `a.msg`,
+    while letting it match inside a destructuring form (`{:keys [msg]}`)."""
+    return bool(
+        re.search(
+            r"(?<![\w*+!?<>=./:'#-])" + re.escape(sym) + r"(?![\w*+!?<>=./-])",
+            text,
+        )
+    )
+
+
+def _enclosing_openers(masked: str, start: int, offset: int) -> list[int]:
+    """The indices of the delimiters still OPEN at `offset`, among those opened
+    at or after `start` — outermost first. String-aware, same convention as
+    `_balanced_extent` (the caller passes comment-masked text)."""
+    stack: list[int] = []
+    i = start
+    in_string = False
+    while i < offset:
+        c = masked[i]
+        if in_string:
+            if c == "\\":
+                i += 2
+                continue
+            if c == '"':
+                in_string = False
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+        elif c in "([{":
+            stack.append(i)
+        elif c in ")]}":
+            if stack:
+                stack.pop()
+        i += 1
+    return stack
+
+
+def _first_child_vector(masked: str, open_idx: int, offset: int) -> str | None:
+    """The first DIRECT-CHILD vector of the form opened at `open_idx`, as text,
+    or None. Only the text before `offset` is read — every binding vector
+    precedes the body the `ex-info` sits in, and the trailing child is the
+    (truncated) one we are descending into, which `_split_forms` returns whole
+    and we ignore."""
+    for form in _split_forms(masked[open_idx + 1:offset]):
+        if form.startswith("["):
+            return form
+    return None
+
+
+def _crossing_is_transparent(masked: str, open_idx: int, offset: int, sym: str) -> bool:
+    """Can the form opened at `open_idx` be PROVEN not to rebind `sym`?
+
+    Fail-closed: anything this gate does not recognise answers False, so an
+    unknown binding macro costs an honest red rather than a silent green."""
+    if masked[open_idx] != "(":
+        return True  # a vector / map / set literal binds nothing
+    # A reader conditional (`#?(:clj …)` / `#?@(…)`) is a branch selector, not a
+    # binder; its head is a platform keyword, so it needs saying explicitly.
+    if masked[max(0, open_idx - 2):open_idx].endswith("#?") or \
+       masked[max(0, open_idx - 3):open_idx].endswith("#?@"):
+        return True
+    m = _FORM_HEAD_RE.match(masked, open_idx)
+    if not m:
+        return False
+    head = m.group(1)
+    if head in _TRANSPARENT_HEADS:
+        return True
+    if head in _VECTOR_BINDER_HEADS:
+        vec = _first_child_vector(masked, open_idx, offset)
+        # A binder whose binding vector we cannot see (an `fn` written as arity
+        # lists, a malformed form) proves nothing.
+        return vec is not None and not _mentions_symbol(vec, sym)
+    return False
+
+
+def _scope_is_provable(masked: str, let_open: int, offset: int, sym: str) -> bool:
+    """Is the `let` at `let_open` PROVABLY the binding of `sym` in scope at
+    `offset` — i.e. does every form crossed on the way down introduce nothing
+    named `sym`?"""
+    return all(
+        _crossing_is_transparent(masked, d, offset, sym)
+        for d in _enclosing_openers(masked, let_open, offset)
+        if d != let_open
+    )
+
+
 def _resolve_let_binding(masked: str, offset: int, sym: str) -> str | None:
     """The form `sym` is bound to by the innermost `let` whose form ENCLOSES
-    `offset`, or None if no enclosing `let` binds it.
+    `offset`, or None if no enclosing `let` binds it — or if some binder
+    between that `let` and `offset` may shadow it.
 
     Shadowing resolves the way Clojure resolves it: among enclosing `let`s the
     innermost wins (they nest, so the latest start offset is the innermost),
     and within one binding vector the LAST binding of the symbol wins. A
     symbol bound only inside a destructuring form resolves nothing — the
-    binding NAME must be exactly `sym`."""
+    binding NAME must be exactly `sym`.
+
+    A NON-`let` binder in between (an `fn` parameter, a `catch` name, a
+    destructured inner `let`, …) makes the resolution unsound, so it returns
+    None and the caller keeps the finding (rf2-u3otj / the #7045 audit)."""
     bound: str | None = None
+    bound_at: int | None = None
     for m in _LET_OPEN_RE.finditer(masked, 0, offset):
         end = _balanced_extent(masked, m.start())
         if end is None or end <= offset:
@@ -585,6 +733,13 @@ def _resolve_let_binding(masked: str, offset: int, sym: str) -> str | None:
         for name, value in zip(forms[0::2], forms[1::2]):
             if name == sym:
                 bound = value
+                bound_at = m.start()
+    if bound_at is None:
+        return None
+    # The innermost `let` binding the name is the only candidate; if it cannot
+    # be proven to be the one in scope, nothing further out can be either.
+    if not _scope_is_provable(masked, bound_at, offset, sym):
+        return None
     return bound
 
 # The inline opt-out marker for a DELIBERATE, sanctioned builder-bypass — a
@@ -1000,6 +1155,11 @@ def _run_self_tests(verbose: bool = False) -> int:
         #     (non-enclosing) scope, an inner binding that shadows a
         #     token-bearing outer one, and a destructured name all still fire.
         ("positive/bypass_let_bound_no_token.cljc",      6),
+        # --- positives for the SCOPE PROOF (rf2-u3otj / the #7045 audit): a
+        #     binder between the conformant outer `let` and the `ex-info`
+        #     shadows the name, and every binder family must still fire —
+        #     the audit's nested-`fn`-parameter witness first.
+        ("positive/bypass_let_bound_shadowed.cljc",      9),
         # --- negatives: every conformant counterpart must stay GREEN ---
         ("negative/human_message_builder.cljc",      0),
         ("negative/throw_error_bang.cljc",           0),
@@ -1017,6 +1177,11 @@ def _run_self_tests(verbose: bool = False) -> int:
         # --- negative for the let-binding resolution (rf2-u3otj): a conformant
         #     message bound one hop from the `ex-info` must stay GREEN.
         ("negative/bypass_let_bound_token.cljc",         0),
+        # --- negative for the SCOPE PROOF: crossing ordinary control flow (the
+        #     `when` guard `re-frame.story/configure!` writes, an if/do/cond
+        #     chain, a nested `let` binding another name, a reader conditional)
+        #     introduces nothing, so the resolution still holds.
+        ("negative/bypass_let_bound_guarded.cljc",       0),
     ]
 
     failures = 0
