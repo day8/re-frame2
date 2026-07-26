@@ -35,7 +35,29 @@
   valid) or catch throws the handlers already handle. Their tests seam
   the one producer each path trusts — `story/recording->script-body`,
   `story/variant->edn` — so the throw, the relay, the encoder and
-  `handle-frame!` are all the real thing while the trigger is forced."
+  `handle-frame!` are all the real thing while the trigger is forced.
+
+  ## The second contract on this boundary: the message a consumer AI READS
+
+  Encodability is necessary but not sufficient. rf2-jquiy established
+  that the SAME relays ship `(ex-message e)` verbatim to an MCP client —
+  an AI agent acting on the text — so the message itself is a consumer
+  contract, not tool-internal prose. A bare `(str error-kw)` shipped that
+  agent `:rf.error/variant-id-shape` and discarded the human sentence
+  sitting in `:reason`. Every throw reachable here must therefore carry
+  the canonical Spec 009 shape: a human sentence PLUS a trailing
+  `[:rf.error/<id>]` greppability token.
+
+  That contract is what the token assertions below pin. It was previously
+  proven only for the two REGISTRAR families (`variant-shape` via
+  `register-variant`, `unknown-tag` via the tag-membership check), which
+  left the other consumer-reachable producer — `re-frame.story.plan/fail!`,
+  seventeen call sites reached through `explain-variant` — with no
+  regression at all: reverting any of its messages to a bare `(str id)`
+  was a green change. The plan-failure table at the foot of this ns closes
+  that gap. `tools/` is bundle-isolated and MUST NOT `:require
+  re-frame.error`, so these messages are hand-rolled at each throw and a
+  shared builder cannot enforce them — only a boundary assertion can."
   (:require [cheshire.core :as cheshire]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -346,6 +368,100 @@
       (is (string? (cheshire/generate-string
                      (result/wire-safe-ex-data d)))
           (str "wire-safe-ex-data output must encode: " label)))))
+
+;; ---- plan failures: the message contract, driven end to end ---------------
+;;
+;; rf2-jquiy. `re-frame.story.plan/fail!` is the second consumer-reachable
+;; throw producer on this surface, and until now the ONLY thing standing
+;; behind its messages was a docstring. These rows drive `explain-variant`
+;; through the real `run-loop!` — no `with-redefs`, no seam: the trigger is
+;; an ordinary variant registration whose `:extends` cannot resolve, which
+;; is exactly what a consumer AI does by hand when it mistypes a parent id.
+;;
+;; `reg-variant*` stores the raw body with `:extends` INTACT and resolves
+;; nothing (the plan compiler is the single merge authority — spec/017
+;; §8.4), so registration SUCCEEDS and the failure surfaces later, at
+;; explain time, through the wire-pipeline's generic catch. That split is
+;; why a registration-time test could never have covered this.
+
+(defn- explain-frame
+  "Register `bodies` (a map of variant-id → body), then drive the real
+  `explain-variant` boundary for `target` and return the decoded frame."
+  [bodies target]
+  (doseq [[id body] bodies]
+    (story/reg-variant* id body))
+  (second (call-tool "explain-variant"
+                     (str "{\"variant-id\":\"" (subs (str target) 1) "\"}"))))
+
+(deftest plan-failure-messages-are-consumer-readable-at-the-wire
+  ;; ONE table, three families, three assertions each — the shape the
+  ;; rf2-jquiy audit asked for. A mutation of any of these messages back to
+  ;; a bare `(str id)` reds the `human` row; dropping the trailing token
+  ;; reds the `token` row; a regression that turns the tool error back into
+  ;; a protocol fault reds `tool-error?` on every row at once.
+  (doseq [{:keys [label bodies target human token]}
+          [{:label  "an :extends naming an unregistered parent"
+            :bodies {:story.button/orphan {:doc "child" :extends :story.button/ghost}}
+            :target :story.button/orphan
+            :human  #":extends references unregistered variant"
+            :token  "[:rf.error/story-extends-unknown]"}
+
+           {:label  "an :extends cycle"
+            :bodies {:story.button/loop-a {:doc "a" :extends :story.button/loop-b}
+                     :story.button/loop-b {:doc "b" :extends :story.button/loop-a}}
+            :target :story.button/loop-a
+            :human  #":extends cycle through"
+            :token  "[:rf.error/story-extends-cycle]"}
+
+           ;; A THIRD producer, deliberately not an `:extends` one: the two
+           ;; above share `resolve-source-chain`, so on their own they would
+           ;; pin one function rather than the family. `:compose` fails in a
+           ;; different arm of the compiler and reaches `fail!` independently.
+           {:label  "a :compose naming an unregistered fragment"
+            :bodies {:story.button/nofrag {:doc "c" :compose [:fragment.button/ghost]}}
+            :target :story.button/nofrag
+            :human  #":compose on .* references unregistered fragment/check"
+            :token  "[:rf.error/story-compose-unknown]"}]]
+    (testing label
+      (let [frame (explain-frame bodies target)
+            text  (result-text frame)]
+        (is (tool-error? frame)
+            (str label ": a plan failure is a tool error, not a -32603 protocol fault"))
+        (is (re-find human text)
+            (str label ": the message carries the human sentence, not just a keyword\n"
+                 "  got: " (pr-str text)))
+        (is (str/includes? text token)
+            (str label ": the canonical [:rf.error/…] token rides the message\n"
+                 "  got: " (pr-str text)))))))
+
+(deftest plan-failure-ex-data-still-carries-the-machine-id
+  ;; The message is for the agent to READ; `:rf.error/id` is for it to
+  ;; BRANCH on. Both, or the shape is half-delivered.
+  (testing "the generic catch relays the discriminator alongside the prose"
+    (let [frame (explain-frame
+                  {:story.button/orphan2 {:doc "child" :extends :story.button/ghost2}}
+                  :story.button/orphan2)]
+      (is (tool-error? frame))
+      (is (= "rf.error/story-extends-unknown"
+             (:rf.error (:data (structured frame))))
+          "the plan's :rf.error/id survives wire-safe-ex-data into :data")
+      (is (= "story.button/ghost2" (:parent (:data (structured frame))))
+          "and the actionable slot — WHICH parent is missing — rides with it"))))
+
+(deftest explain-variant-happy-path-is-unaffected
+  ;; The two-sided control, matching `register-variant-valid-body-still-registers`
+  ;; above: an error-path change that broke ordinary explains would otherwise
+  ;; look identical to a pass.
+  (testing "a resolvable :extends chain still explains"
+    (let [frame (explain-frame
+                  {:story.button/base  {:doc "base"}
+                   :story.button/child {:doc "child" :extends :story.button/base}}
+                  :story.button/child)]
+      (is (nil? (:error frame)))
+      (is (nil? (get-in frame [:result :isError]))
+          "the success envelope carries no isError flag")
+      (is (some? (structured frame))
+          "and the explain projection really is returned"))))
 
 (deftest wire-safe-ex-data-cannot-itself-throw
   ;; The projection runs INSIDE the caller's catch, so a throw here would be
