@@ -2900,18 +2900,24 @@
           ;; exact ownership around the callback and then derive generation
           ;; from the still-A record. Never let the generic bare-id resolver
           ;; redirect this already-dequeued envelope into same-id B.
-          (when interop/debug-enabled?
-            (when (frame/event-owner-live? (:frame envelope))
-              (when-let [flush! (late-bind/get-fn-cached
-                                  :live-frame/flush-projection!)]
-                (try
-                  (flush!)
-                  (catch #?(:clj Throwable :cljs :default) e
-                    ;; The projection callback is framework-owned. Preserve a
-                    ;; real failure while A owns the event; a destroy+throw is
-                    ;; inert with the rest of A's abandoned tail.
-                    (when (frame/event-owner-live? (:frame envelope))
-                      (throw e)))))))
+          ;; rf2-9c2jf: NOT gated on `interop/debug-enabled?`. The generation
+          ;; this cascade resolves through is sealed unconditionally by
+          ;; `make-frame`, so a skipped flush froze the frame's view of the
+          ;; registration pool in production and every later-registered handler
+          ;; dispatched as `:rf.error/no-such-handler`. The consult is by
+          ;; late-bind KEYWORD and its publisher is rooted from `make-frame`,
+          ;; so a bundle that never constructs a frame still DCEs the graph.
+          (when (frame/event-owner-live? (:frame envelope))
+            (when-let [flush! (late-bind/get-fn-cached
+                                :live-frame/flush-projection!)]
+              (try
+                (flush!)
+                (catch #?(:clj Throwable :cljs :default) e
+                  ;; The projection callback is framework-owned. Preserve a
+                  ;; real failure while A owns the event; a destroy+throw is
+                  ;; inert with the rest of A's abandoned tail.
+                  (when (frame/event-owner-live? (:frame envelope))
+                    (throw e))))))
           (when (frame/event-owner-live? (:frame envelope))
             (let [active-record (frame/frame (:frame envelope))]
               (when (and active-record

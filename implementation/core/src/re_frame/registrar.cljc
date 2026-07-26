@@ -693,10 +693,13 @@
     ;; projection dirty (late-bound; the register side rides the registration
     ;; hook, removals ride this) so default-image frames drop the cleared
     ;; handler at their next resolution rather than resolving a stale sealed
-    ;; generation. Dev-only (production stops mutating the registrar).
-    (when interop/debug-enabled?
-      (when-let [mark-dirty! (late-bind/get-fn :live-frame/mark-projection-dirty!)]
-        (mark-dirty!)))
+    ;; generation. rf2-9c2jf: NOT gated on `interop/debug-enabled?` — the
+    ;; sealed generation is produced unconditionally by `make-frame`, so
+    ;; skipping the dirty mark in production left a cleared handler resolving
+    ;; forever out of a store that no longer backs it. Late-bound by keyword;
+    ;; unpublished (no frame ever constructed) means no-op.
+    (when-let [mark-dirty! (late-bind/get-fn :live-frame/mark-projection-dirty!)]
+      (mark-dirty!))
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires on explicit removal so hot-reload tools can update their
     ;; views. Only emit when something was actually present.
@@ -731,10 +734,10 @@
     ;; source-store generation) to HIT and return a stale generation that still
     ;; resolves the just-cleared `(kind, id)`s.
     (source-store/clear-kind! kind)
-    ;; rf2-h1vqa4: same removal dirty-mark as `unregister!` (see there).
-    (when interop/debug-enabled?
-      (when-let [mark-dirty! (late-bind/get-fn :live-frame/mark-projection-dirty!)]
-        (mark-dirty!)))
+    ;; rf2-h1vqa4 / rf2-9c2jf: same ungated removal dirty-mark as
+    ;; `unregister!` (see there).
+    (when-let [mark-dirty! (late-bind/get-fn :live-frame/mark-projection-dirty!)]
+      (mark-dirty!))
     (swap! missing-doc-warned clear-kind)
     (swap! collision-warned   clear-kind)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
@@ -771,10 +774,10 @@
   ;; namespace-string pool) in lockstep with the process-default resolver map,
   ;; so a test fixture starts each case from a clean state on both surfaces.
   (source-store/clear-all!)
-  ;; rf2-h1vqa4: same removal dirty-mark as `unregister!` (see there).
-  (when interop/debug-enabled?
-    (when-let [mark-dirty! (late-bind/get-fn :live-frame/mark-projection-dirty!)]
-      (mark-dirty!)))
+  ;; rf2-h1vqa4 / rf2-9c2jf: same ungated removal dirty-mark as `unregister!`
+  ;; (see there).
+  (when-let [mark-dirty! (late-bind/get-fn :live-frame/mark-projection-dirty!)]
+    (mark-dirty!))
   ;; Also clear the always-on error-coord parallel registry
   ;; so test cases start from a clean state on both surfaces.
   (source-coords/forget-error-coords!)
