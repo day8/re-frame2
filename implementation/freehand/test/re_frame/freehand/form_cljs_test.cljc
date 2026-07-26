@@ -373,6 +373,100 @@
           "non-vacuous: the two generations differ, so a shared counter would
            have been visible"))))
 
+(deftest fh-ctrl-014-a-scoped-reset-restores-ABSENT-where-the-baseline-has-no-key
+  (testing "Per FH-CTRL-014: `reset` discards back to the baseline, and where
+            the baseline has NO KEY that means back to ABSENT. `get-in`
+            answers nil for a missing key and for a key holding nil alike,
+            and `assoc-in` materialises whichever it is handed — so the
+            value after the reset is nil in BOTH cases below and presence is
+            the only thing that separates them. Every case here pins the
+            whole draft and its presence; an assertion about the value alone
+            is green against the bug."
+    (let [{:keys [draft-only-baseline draft-only-path draft-only-typed
+                  draft-only-draft-after-edit draft-only-draft-after-reset
+                  draft-only-present-after-edit? draft-only-present-after-reset?
+                  draft-only-value-after-reset draft-only-reset-key-after
+                  draft-only-materialised-draft]} ctrl-014
+          edited (-> (form/init draft-only-baseline)
+                     (form/edit draft-only-path draft-only-typed))
+          r      (form/reset edited draft-only-path)]
+      (is (= draft-only-draft-after-edit (:draft edited))
+          "non-vacuous: the user really did type into a leaf the baseline never had")
+      (is (= draft-only-present-after-edit? (leaf-present? (:draft edited) draft-only-path))
+          "and the edit really did materialise the key")
+      (is (= draft-only-draft-after-reset (:draft r))
+          "the whole draft is the baseline again — the leaf is GONE, not nil")
+      (is (= draft-only-present-after-reset? (leaf-present? (:draft r) draft-only-path))
+          "there is no key there")
+      (is (= draft-only-value-after-reset (get-in (:draft r) draft-only-path))
+          "and reading it answers nil, exactly as reading a baseline nil would")
+      (is (= draft-only-reset-key-after (form/reset-key r draft-only-path))
+          "the generation advanced all the same — the caller asked")
+      (is (not= draft-only-materialised-draft draft-only-draft-after-reset)
+          "non-vacuous: the fixture's two outcomes really differ")
+      (is (= (get-in draft-only-materialised-draft draft-only-path)
+             (get-in draft-only-draft-after-reset draft-only-path))
+          "and they differ in PRESENCE ONLY — the same read answers nil on both,
+           which is why an assertion about the value cannot see this defect"))
+
+    (testing "the same law two levels down, where the removal also empties the
+              map the edit created on the way in — and the scoped arity lands
+              exactly where the whole-form arity does, which simply takes the
+              baseline"
+      (let [{:keys [draft-only-baseline draft-only-typed nested-path
+                    nested-draft-after-edit nested-draft-after-reset
+                    nested-materialised-draft nested-husk-draft]} ctrl-014
+            edited (-> (form/init draft-only-baseline)
+                       (form/edit nested-path draft-only-typed))
+            r      (form/reset edited nested-path)]
+        (is (= nested-draft-after-edit (:draft edited))
+            "non-vacuous: the edit built the sub-tree")
+        (is (= nested-draft-after-reset (:draft r)))
+        (is (false? (leaf-present? (:draft r) nested-path)) "the leaf is gone")
+        (is (= (:draft (form/reset edited)) (:draft r))
+            "and the two arities agree — a scoped reset of a draft-only leaf
+             converges on the baseline rather than on a husk")
+        (is (not= nested-materialised-draft nested-draft-after-reset)
+            "non-vacuous: a written nil really would have been a different draft")
+        (is (not= nested-husk-draft nested-draft-after-reset)
+            "and so would an empty map the baseline never held")))
+
+    (testing "…while the pruning STOPS at the first ancestor the baseline does
+              have a key for — an empty baseline map is a value too"
+      (let [{:keys [kept-parent-baseline nested-path draft-only-typed
+                    kept-parent-draft-after-reset]} ctrl-014
+            edited (-> (form/init kept-parent-baseline)
+                       (form/edit nested-path draft-only-typed))
+            r      (form/reset edited nested-path)]
+        (is (= kept-parent-draft-after-reset (:draft r)))
+        (is (= (:draft (form/reset edited)) (:draft r))
+            "the two arities agree here as well")))
+
+    (testing "and THE OTHER CASE, which is what makes the first mean anything:
+              a baseline nil is a value the domain accepted, so the reset
+              restores it and the key STAYS"
+      (let [{:keys [baseline-nil draft-only-path draft-only-typed
+                    baseline-nil-draft-after-reset baseline-nil-present-after-reset?
+                    baseline-nil-value-after-reset draft-only-value-after-reset
+                    nested-baseline-nil nested-path
+                    nested-baseline-nil-draft-after-reset]} ctrl-014
+            r (-> (form/init baseline-nil)
+                  (form/edit draft-only-path draft-only-typed)
+                  (form/reset draft-only-path))]
+        (is (= baseline-nil-draft-after-reset (:draft r)) "the whole draft")
+        (is (= baseline-nil-present-after-reset? (leaf-present? (:draft r) draft-only-path))
+            "the key is still there, holding the nil the domain accepted")
+        (is (= baseline-nil-value-after-reset draft-only-value-after-reset)
+            "non-vacuous: the two cases read IDENTICALLY through the value, so
+             presence is the whole of what this law says")
+
+        (let [nested-r (-> (form/init nested-baseline-nil)
+                           (form/edit nested-path draft-only-typed)
+                           (form/reset nested-path))]
+          (is (= nested-baseline-nil-draft-after-reset (:draft nested-r))
+              "and nested, a baseline nil is restored rather than removed")
+          (is (true? (leaf-present? (:draft nested-r) nested-path))))))))
+
 (deftest fh-ctrl-014-rebase-moves-the-baseline-under-a-live-draft
   (testing "Per FH-CTRL-014: rebase is a save landing, not a rejection.
             The baseline moves, the draft STANDS — including on the very
