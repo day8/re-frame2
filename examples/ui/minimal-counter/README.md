@@ -86,7 +86,7 @@ coords at your own checkout. Nothing else in the tree is checkout-relative.
 
 ## What the CI gate proves
 
-[`scaffold_smoke_test.clj`](../../../implementation/ui/scaffold-smoke/test/scaffold_smoke_test.clj)
+[`scaffold_smoke_test.clj`](../../../implementation/freehand/scaffold-smoke/test/scaffold_smoke_test.clj)
 copies exactly the manifest above into a temporary directory, runs a real
 `npm install`, and runs `npx shadow-cljs compile app` there. Then the omission
 matrix: the manifest minus each file in turn, each expected to stop building.

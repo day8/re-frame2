@@ -184,11 +184,14 @@ Adding the build id fixes both files at once, which is why one alternative
 covers a two-file finding.
 
 Two files that sweep listed are deliberately NOT rowed.
-`examples/scripts/check-examples-assets.cjs` names `implementation/ui/scaffold-smoke`
+`examples/scripts/check-examples-assets.cjs` named `implementation/ui/scaffold-smoke`
 only in a comment explaining WHY it prunes standalone scaffolds; the prune
 itself is marker-based (a project root bearing its own `shadow-cljs.edn`, "no
-per-path list"), so it reads no donor path and measured `rc 0 → 0` with the
-donor tree absent. Its unit test
+per-path list"), so it read no donor path and measured `rc 0 → 0` with the
+donor tree absent. That comment now names
+`implementation/freehand/scaffold-smoke` — rf2-kbzqn moved the lane — so the
+file carries no donor spelling at all and the non-rowing is no longer even a
+judgement call. Its unit test
 `implementation/scripts/check-examples-assets.test.cjs` couples to
 `examples/ui/minimal-counter/`, which lives under `examples/` and already has a
 row. Both are the historical-mention exclusion in substance rather than by name.
@@ -378,7 +381,7 @@ re-proved against the Freehand contract rather than ported line by line.
 | `implementation/ui/g8/*` | the input-latency evidence fixture | MOVE | F6 | pending |
 | `implementation/ui/g13/*` | the mass-mount evidence fixture, dev and production arms | MOVE | F6 | pending |
 | `implementation/ui/proof-pack/*` | the elision proof pack: a library, a single-view consumer, and the all-views positive control | MOVE | F3 | pending |
-| `implementation/ui/scaffold-smoke/*` | the compile-and-omission smoke over the minimal scaffold example | MOVE | F6 | pending |
+| `implementation/ui/scaffold-smoke/*` | the compile-and-omission smoke over the minimal scaffold example. **Disposed by rf2-kbzqn:** relocated verbatim to `implementation/freehand/scaffold-smoke/`, the tree whose `examples_compile` surface already gated the job that runs it. The row keeps its donor path — it is the audit record of a donor thing, not a pointer at live code | MOVE | F6 | done |
 | `implementation/ui/testbed/*` | the browser smoke testbed: host page, spec, and counter app | MOVE | F1 | pending |
 
 ## Donor artifact and build wiring
