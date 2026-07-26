@@ -127,6 +127,10 @@
         (is (nil? (:explain (structured frame)))
             "the raw, un-encodable :explain slot must not be relayed"))
 
+      (testing "the machine-readable error id crosses the wire (rf2-2nbck)"
+        (is (= "rf.error/variant-shape" (:rf.error (structured frame)))
+            "the registrar's :rf.error/id populates the wire's :rf.error slot"))
+
       (testing "the variant is not registered"
         (is (nil? (story/variant->edn :story.button/x)))))))
 
@@ -169,7 +173,12 @@
       (is (str/includes? (result-text frame) "unregistered tag(s)"))
       (is (str/includes? (result-text frame) "[:rf.error/unknown-tag]"))
       (is (nil? (:explain-humanized (structured frame)))
-          "no :explain in the ex-data ⇒ no :explain-humanized on the wire"))))
+          "no :explain in the ex-data ⇒ no :explain-humanized on the wire")
+      ;; rf2-2nbck: the discriminator must ALSO ride the structured slot,
+      ;; not only the message. A keyword value JSON-encodes to a plain
+      ;; string, so this is the wire spelling, not the EDN one.
+      (is (= "rf.error/unknown-tag" (:rf.error (structured frame)))
+          "the registrar's :rf.error/id populates the wire's :rf.error slot"))))
 
 ;; ---- record-as-variant: the sibling relay ---------------------------------
 
@@ -194,7 +203,10 @@
         (is (= {:script ["invalid type" "invalid type"]}
                (:explain-humanized (structured frame))))
         (is (false? (:written-back? (structured frame)))
-            "the recorder payload still rides alongside the projection")))))
+            "the recorder payload still rides alongside the projection")
+        ;; rf2-2nbck: the sibling relay carries the same slot.
+        (is (= "rf.error/variant-shape" (:rf.error (structured frame)))
+            "the registrar's :rf.error/id populates the wire's :rf.error slot")))))
 
 ;; ---- wire-pipeline: the generic arm ---------------------------------------
 

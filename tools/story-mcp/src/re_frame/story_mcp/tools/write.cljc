@@ -274,10 +274,13 @@
       ;; humanized projection. Without it a schema-violating body took
       ;; the encoder down and the client got a `-32603` server fault
       ;; naming a malli class instead of this error result (rf2-2z9u3).
+      ;; It also renames the thrown `:rf.error/id` to the wire's bare
+      ;; `:rf.error`; harvesting `:rf.error` here instead was reading a
+      ;; key no throw sets, so the id slot never populated (rf2-2nbck).
       (result/error-result (str "Registration failed: " (ex-message e))
                       (merge {:variant-id vk}
                              (result/wire-safe-ex-data
-                               (select-keys (ex-data e) [:rf.error :explain])))))))
+                               (select-keys (ex-data e) [:rf.error/id :explain])))))))
 
 (defn tool-register-variant
   "Write: programmatically register a variant. Gated behind
