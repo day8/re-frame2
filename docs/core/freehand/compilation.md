@@ -227,7 +227,7 @@ There is **no** `v/interp` and no “compiled except this unknown subtree.”
 | Wholly dynamic props map on an **internal** view | Per-slot memo / analysis need known keys | Literal props; `v/spread-safe` (internal/controlled) or `v/spread` (foreign) — [composition](composition.md#spreading-props-attribute-forwarding) |
 | Dynamic head registry — runtime choose among unknown views | Head must be finite | `case`/`cond` over known descriptors, or interpreted parent |
 | Bare fn on a **foreign** callback prop | Phase/identity unknown | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
-| Bare React component at a vector head | A component is not a descriptor | create the element and put it in a **child** position |
+| Bare React component at a vector head | A component is not a descriptor | declare it with `v/defhost`, which mints one — or create the element and put it in a **child** position |
 | Inline interpreter fallback for “this bit of runtime Hiccup” | Unpredictable cost and false manifests | `[v/markup {:value hiccup}]` or keep parent interpreted |
 | View-local cells, neutral hooks, refs or effects in the view body | One state system; host work is explicit | re-frame state or [host boundaries](host-boundaries.md) |
 | Author `:reads […]` block (v1) | Not in the grammar | Inline `(v/sub …)` only |
