@@ -1594,3 +1594,383 @@
       (is (= args (:rf.fx/args (:tags (first (:trace-events projected)))))
           "and so does the rest of the payload it sits in"))))
 
+;; ===========================================================================
+;; (rf2-xx4ty) the SAME two carriers, a DIFFERENT map: the READ COMPLETION
+;; CONTINUATION reply, whose `:value` is the DECODED RESPONSE BODY.
+;; ===========================================================================
+;;
+;; §(rf2-425mm) above closed the resolved `:scope` inside the TRANSPORT
+;; continuation payload. This is a different map on the same carriers, and it
+;; is the most sensitive datum the family puts there.
+;;
+;; An `ensure` / `refetch` MAY carry a call-site `:reply-to` (EP-0016 D1 →
+;; reads, rf2-p1yri7; Spec 016 §Read completion continuations). When the read
+;; settles — or is served immediately by a fresh-skip cache hit —
+;; `events/read-continuation-reply` augments the canonical reply with the
+;; top-level read facts and `re-frame.reply/complete` APPENDS the whole map as
+;; the final argument of the target event vector, which the runtime dispatches
+;; through `[:dispatch <ev>]`. So this rides `:rf.fx/args` and `:rf.event/fx`:
+;;
+;;   {:status       :ok
+;;    :value        <DECODED RESPONSE BODY>      ← the leak
+;;    :params       <canonical params>           ← the leak
+;;    :scope        <resolved scope>             ← closed by rf2-425mm
+;;    :resource/key <scoped-key>                 ← closed by rf2-1kiuj
+;;    :resource     <resource-id>
+;;    :cache-hit?   <bool>
+;;    :rf.reply/work-id …, :correlation {…}, …}
+;;
+;; `project-embedded-keys` recognised the `:resource/key`, the key embedded in
+;; the `:rf.reply/work-id`, the `:correlation`'s `:rf.reply/resource-key`, and
+;; (rf2-425mm) the free `:scope`. `:value` and `:params` are ordinary maps, so
+;; the walk descended them and let the owner's decoded body through in the
+;; clear — one slot from the `:resource/key` that had just redacted the very
+;; same params.
+;;
+;; WHY THIS ONE IS OWNER-CONDITIONAL AND `:scope` IS NOT. The `:scope` arm
+;; §(rf2-425mm) added fires unconditionally, because the family's own rows
+;; classify a free `:scope` unconditionally (rf2-1zc33) and the two carriers of
+;; one scope must agree. `:value` and `:params` are the opposite case twice
+;; over. They belong to a NAMED owner whose `:resource/key` sits one slot away,
+;; and the family's own rows tokenize that owner's params IFF
+;; `whole-entry-disposition` is non-`:serialize` — so an unconditional arm would
+;; redact a PLAIN resource's reply, the over-redaction rf2-1kiuj rejected. And
+;; `:params` / `:value` are words the FX FAMILY uses for its own data: an app's
+;; managed-HTTP args carry `{:request {… :params {…}}}` and
+;; `[:rf.resource/commit-generation {:value 1}]` rides the same effect vector,
+;; neither of which the resource family may touch. The sibling `:resource/key`
+;; is what makes the two names safe to read — it says the map is a resource
+;; reply and names whose. `row-owner-redacts?` (the load-more cursor's read,
+;; rf2-3tysyj) already answers exactly that question, one carrier out.
+;;
+;; READS AND MUTATIONS DIFFER HERE, and the difference is the reason this arm
+;; keys on the sibling where rf2-425mm's could not. The mutation `:reply-to`
+;; (`mutation_events/continuation-reply`) carries `:params` / `:value` with NO
+;; `:resource/key` beside them, so this arm does not fire on it. It does not
+;; need to: both mutation settle sites wrap their reply in
+;; `classification/redact-continuation-reply`, which applies the mutation's own
+;; projection-relative `:sensitive` / `:large` declarations at the SOURCE,
+;; before the reply reaches any carrier (rf2-825mzj). The read reply has no
+;; such source-side redaction and must not: the coarse `:sensitive?` claim
+;; governs OFF-BOX egress, not in-process delivery — the app's own continuation
+;; handler is entitled to the decoded body, and `:include-sensitive?` must still
+;; show it. Hence the egress projector, and hence the owner gate.
+
+(def ^:private reply-params
+  "The canonical params of the read whose continuation leaks — SECRET-bearing,
+  because `:params` is one of the two slots this section owns. Safe to carry
+  the secret: `:derived/profile`'s request fn does not echo its params into the
+  request map (the app's own request is the FX family's data and rides
+  untouched by design — rf2-1kiuj)."
+  {:slug secret})
+
+(def ^:private reply-value
+  "The DECODED RESPONSE BODY the read delivers under `:value`. The most
+  sensitive datum this family puts on a foreign carrier: not a key, not a
+  scope, not an identity map — payload."
+  {:email (str secret "@example.com")})
+
+(def ^:private read-reply-target
+  "The call-site `:reply-to` — an ordinary app event vector. `reply/complete`
+  APPENDS the reply map after it, so the dispatched vector is
+  `[:app/read-loaded <reply>]` and the reply sits at index 1 of `:rf.fx/args`."
+  [:app/read-loaded])
+
+(defn- carrier-replies
+  "Every READ CONTINUATION REPLY map riding a `:rf.fx/args` / `:rf.event/fx`
+  carrier of `record`'s trace rows. Found by walking for the reply's OWN marker
+  (`:rf.reply/work-kind :resource`) rather than by index, so no assertion here
+  encodes the cascade's fx order or the reply's position in the event vector."
+  [record]
+  (let [found (atom [])
+        walk  (fn walk [v]
+                (cond
+                  (map? v)  (do (when (= :resource (:rf.reply/work-kind v))
+                                  (swap! found conj v))
+                                (run! walk (vals v)))
+                  (coll? v) (run! walk v)))]
+    (doseq [tags (map :tags (:trace-events record))
+            slot [:rf.fx/args :rf.event/fx]
+            :when (contains? tags slot)]
+      (walk (get tags slot)))
+    @found))
+
+(defn- record-carrying-reply
+  "The settled record whose fx carriers carry a read-continuation reply with
+  the given `:cache-hit?` disposition — the ASYNC SETTLE (`false`, the accepted
+  terminal reply fanning out to the recorded target) or the FRESH-SKIP
+  immediate dispatch (`true`). Selected by the reply's own fact rather than by
+  record index, because the two settle through different branches of
+  `events.cljc` and only the reply says which is which."
+  [records cache-hit?]
+  (first (filter (fn [r] (some #(= cache-hit? (:cache-hit? %)) (carrier-replies r)))
+                 records)))
+
+(defn- drive-reply-to-read!
+  "Drive a REAL `[:rf.resource/ensure …]` carrying a call-site `:reply-to`
+  against the `:sensitive?` `{:from-db :rt/session}` resource, settle its reply,
+  and then drive a SECOND ensure that finds the entry fresh — so one call
+  produces BOTH continuation paths: the async accepted-reply fan-out
+  (`:cache-hit? false`) and the fresh-skip immediate dispatch
+  (`:cache-hit? true`). Returns the epoch records.
+
+  The managed-HTTP fx is a CAPTURING stub (`fx/reg-fx`, the plain fn — see
+  `drive-real-cascade!` for why the macro would break default-image
+  reprojection) and the reply is replayed through the real internal reply
+  event, so the settle path and its `[:dispatch …]` continuation fx are the
+  runtime's own. The session identity is written straight into the frame's
+  app-db partition and CLASSIFIED `:sensitive` there, so the app-db axis can
+  never be what the scans below catch."
+  [resource-id]
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)]
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
+    (frame/swap-runtime-db! :test/rt
+      (fn [rt] (elision/apply-classification-effects
+                 rt {:sensitive [[:auth :user :username]]})))
+    (frame/swap-frame-db! :test/rt assoc-in [:auth :user :username] secret)
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource resource-id :params reply-params
+                        :owner    real-owner  :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/dispatch-sync (conj (:on-success @captured) {:status :ok :value reply-value})
+                      {:frame :test/rt})
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource resource-id :params reply-params
+                        :owner    [:app :reader 2] :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/epoch-history :test/rt)))
+
+;; ---------------------------------------------------------------------------
+;; (1) THE ACCEPTANCE ARM — a REAL reply-to read, both continuation paths
+;; ---------------------------------------------------------------------------
+
+(deftest real-reply-to-read-leaks-no-decoded-body-into-fx-carriers
+  (testing "rf2-xx4ty — `projected-record` over the records a REAL
+            `[:rf.resource/ensure … :reply-to …]` settles for a `:sensitive?`
+            resource must carry the decoded response body and the canonical
+            params at ZERO paths, on BOTH continuation paths. Before the repair
+            each carried them at four: `:value` and `:params` under
+            `:rf.fx/args`, and again under `:rf.event/fx`."
+    (let [records (drive-reply-to-read! :derived/profile)]
+      (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
+        (testing label
+          (let [raw       (record-carrying-reply records cache-hit?)
+                projected (epoch/projected-record raw)]
+
+            (testing "FIXTURE — the producer really put a decoded body on the fx
+                      carriers, so the assertions below are not passing over an
+                      empty set"
+              (is (some? raw) "the continuation reached an fx carrier at all")
+              (is (seq (carrier-replies raw)) "and the reply map is findable on it")
+              (is (every? #(and (= reply-value (:value %))
+                                (= reply-params (:params %)))
+                          (carrier-replies raw))
+                  "every carrier's reply carries the RAW decoded body + params")
+              (is (seq (secret-leak-paths raw))
+                  "the unprojected record leaks — the projector's input is the
+                   runtime's own output, not an invented tag map"))
+
+            (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
+                      record"
+              (is (= [] (secret-leak-paths projected))
+                  "every leaking path is named here; before the repair this
+                   printed the [:trace-events n :tags :rf.fx/args 1 :value :email]
+                   and :params :slug shapes, once per carrier"))
+
+            (testing "and each reply's payload is TOKENIZED, not merely absent"
+              (is (= (count (carrier-replies raw)) (count (carrier-replies projected)))
+                  "projection neither drops nor invents a carrier reply")
+              (is (every? #(and (redacted-component? (:value %))
+                                (redacted-component? (:params %)))
+                          (carrier-replies projected))
+                  "both slots are opaque content-addressed tokens"))
+
+            (testing "the whole reply still reads as a reply — attribution and
+                      the sibling slots the earlier repairs own"
+              (let [r (first (carrier-replies projected))]
+                (is (= :derived/profile (:resource r))
+                    "the resource id rides verbatim")
+                (is (= cache-hit? (:cache-hit? r))
+                    "and the cache-hit disposition, so a tool still reads how it settled")
+                (is (= :ok (:status r)) "and the status")
+                (is (redacted-component? (first (:resource/key r)))
+                    "rf2-1kiuj — the sibling key's scope component is still tokenized")
+                (is (= :derived/profile (second (:resource/key r)))
+                    "with its resource-id intact for attribution")
+                (is (tokenized-scope? (:scope r))
+                    "rf2-425mm — and the free :scope beside it")))))))))
+
+;; ---------------------------------------------------------------------------
+;; (2) the same shape assembled — deterministic, and it names the four paths
+;; ---------------------------------------------------------------------------
+
+(defn- read-reply
+  "The continuation reply map `events/read-continuation-reply` builds — the
+  canonical reply (`resources.reply/success-reply`) plus the top-level read
+  facts it layers on."
+  [scoped-key scope value]
+  (let [[_ resource-id params] scoped-key]
+    {:status               :ok
+     :value                value
+     :rf.reply/work-id     [:rf.work/resource scoped-key 1]
+     :rf.reply/work-kind   :resource
+     :rf.reply/work-status :completed
+     :rf.frame/id          :test/rt
+     :completed-at         0
+     :correlation          {:scope scope :generation 1
+                            :rf.reply/resource-key scoped-key}
+     :resource             resource-id
+     :params               params
+     :scope                scope
+     :resource/key         scoped-key
+     :cache-hit?           false}))
+
+(defn- reply-carrier-record
+  "A record carrying the continuation's TWO fx carriers of one reply — the
+  `:rf.fx/handled` row's `:rf.fx/args` (the dispatched event vector) and the
+  `:rf.fx/do-fx` row's `:rf.event/fx` (the whole effect vector).
+
+  The effect vector deliberately also carries
+  `[:rf.resource/commit-generation {:value 1}]` — a FOREIGN map with a `:value`
+  and no `:resource/key`. It is the control that a name-only arm would fail:
+  the runtime's generation counter must ride verbatim while the reply's
+  `:value` two slots away tokenizes."
+  [reply]
+  (let [ev (conj read-reply-target reply)]
+    (record-with
+      [(event :rf.fx/handled
+              {:rf.frame/id :test/rt :frame :test/rt
+               :rf.fx/id :dispatch :rf.fx/args ev})
+       (event :rf.fx/do-fx
+              {:rf.frame/id :test/rt :frame :test/rt
+               :rf.event/fx [[:rf.resource/commit-generation {:value 1}]
+                             [:dispatch ev]]})])))
+
+(deftest fx-carrier-reply-payload-tokenizes-on-both-carriers
+  (testing "rf2-xx4ty — the projector, over the exact reply the runtime builds.
+            Two payload slots across two carriers, every one of them tokenized;
+            and the foreign `:value` on the same effect vector rides untouched,
+            because the resource family speaks only for what it planted."
+    (let [k1        (sk session-scope :derived/profile reply-params)
+          reply     (read-reply k1 session-scope reply-value)
+          projected (epoch/projected-record (reply-carrier-record reply))
+          replies   (carrier-replies projected)
+          [handled do-fx] (:trace-events projected)]
+      (is (= 2 (count replies))
+          "one reply per carrier — the two the bead named, four paths in all")
+      (is (every? #(and (redacted-component? (:value %))
+                        (redacted-component? (:params %)))
+                  replies)
+          "each carrier tokenizes both payload slots")
+      (is (= [] (secret-leak-paths projected))
+          "and nothing raw survives anywhere in the record")
+      (testing "the FOREIGN :value on the same effect vector is untouched"
+        (is (= [:rf.resource/commit-generation {:value 1}]
+               (first (:rf.event/fx (:tags do-fx))))
+            "a map with a :value and no :resource/key is nobody's business here")
+        (is (= :dispatch (:rf.fx/id (:tags handled)))
+            "and the fx id rides verbatim")
+        (is (= :app/read-loaded (first (:rf.fx/args (:tags handled))))
+            "as does the continuation TARGET — a tool still reads which event ran")
+        (is (true? (:sensitive? (:tags handled)))
+            "but the row IS stamped :sensitive?")))))
+
+;; ---------------------------------------------------------------------------
+;; (3) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
+;; ---------------------------------------------------------------------------
+
+(deftest fx-carrier-keeps-plain-owners-reply-payload-verbatim
+  (testing "rf2-xx4ty guard — a PLAIN owner's read continuation reply must ride
+            BYTE-IDENTICAL through both carriers and must not stamp the row
+            sensitive. This is the side that proves the arm reads the ROW'S
+            OWNER rather than the two slot names: the same `:value` and
+            `:params` that tokenize for `:derived/profile` are fully readable
+            here, which is what keeps a plain resource debuggable off-box."
+    (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
+          reply     (read-reply k1 :rf.scope/global {:title "hello"})
+          record    (reply-carrier-record reply)
+          projected (epoch/projected-record record)
+          [handled do-fx] (:trace-events projected)]
+      (is (= (conj read-reply-target reply) (:rf.fx/args (:tags handled)))
+          "the whole dispatched event vector rides verbatim — reply :value,
+           :params, :scope and scoped key included")
+      (is (= (:rf.event/fx (:tags (second (:trace-events record))))
+             (:rf.event/fx (:tags do-fx)))
+          "and so does the whole effect vector on the other carrier")
+      (is (not (:sensitive? (:tags handled)))
+          "a plain-owner reply row is NOT stamped sensitive")
+      (is (not (:sensitive? (:tags do-fx)))
+          "on either carrier"))))
+
+(deftest fx-carrier-leaves-the-fx-familys-own-params-verbatim
+  (testing "rf2-xx4ty guard — the OTHER half of the over-redaction control, and
+            the sharper one: on a record carrying BOTH a `:sensitive?` owner's
+            reply AND the app's own managed-HTTP args, the reply's `:params`
+            tokenizes while the app's `:request` `:params` — a map under the
+            identical key, with no `:resource/key` beside it — rides verbatim.
+            An arm keyed on the slot NAME could not tell these apart."
+    (let [k1     (sk session-scope :derived/profile reply-params)
+          reply  (read-reply k1 session-scope reply-value)
+          req    {:method :get :url "/z" :params {:slug plain-slug}}
+          record (record-with
+                   [(event :rf.fx/handled
+                           {:rf.frame/id :test/rt :frame :test/rt
+                            :rf.fx/id :dispatch
+                            :rf.fx/args (conj read-reply-target reply)})
+                    (event :rf.fx/handled
+                           {:rf.frame/id :test/rt :frame :test/rt
+                            :rf.fx/id :rf.http/managed
+                            :rf.fx/args {:request req}})])
+          projected (epoch/projected-record record)
+          [reply-row req-row] (:trace-events projected)]
+      (is (redacted-component? (:params (first (carrier-replies projected))))
+          "the reply's :params — a named owner's, read through that owner")
+      (is (= {:request req} (:rf.fx/args (:tags req-row)))
+          "the app's request :params — the FX family's, untouched")
+      (is (true? (:sensitive? (:tags reply-row)))
+          "only the reply row is stamped sensitive")
+      (is (not (:sensitive? (:tags req-row)))
+          "the request row is not"))))
+
+(deftest fx-carrier-reply-tokens-stay-distinct-per-value
+  (testing "rf2-xx4ty — distinct bodies must keep DISTINCT digests, so an Xray
+            effect graph can still tell two reads' completions apart after the
+            payload tokenizes"
+    (let [proj  (fn [params value]
+                  (let [k (sk session-scope :derived/profile params)]
+                    (-> (reply-carrier-record (read-reply k session-scope value))
+                        epoch/projected-record
+                        carrier-replies
+                        first)))
+          r1    (proj reply-params reply-value)
+          r2    (proj {:slug (str secret "-2")} {:email "other@example.com"})]
+      (is (not= (:value r1) (:value r2))
+          "two distinct bodies keep two distinct digests")
+      (is (not= (:params r1) (:params r2))
+          "and so do two distinct params maps"))))
+
+;; ---------------------------------------------------------------------------
+;; (4) the trusted-local boundary — the redaction is the off-box DEFAULT
+;; ---------------------------------------------------------------------------
+
+(deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-reply
+  (testing "rf2-xx4ty — the trusted-local `:include-sensitive?` opt-in keeps the
+            raw reply payload (the local-raw boundary — the tokenization is the
+            off-box default, not a strip). This is load-bearing beyond the
+            pattern: a `:reply-to` continuation is how a workflow reads a
+            resource, so a local tool that could not see `:value` could not
+            debug the workflow at all."
+    (let [k1        (sk session-scope :derived/profile reply-params)
+          reply     (read-reply k1 session-scope reply-value)
+          projected (epoch/projected-record (reply-carrier-record reply)
+                                            {:include-sensitive? true})]
+      (is (= [reply-value reply-value] (mapv :value (carrier-replies projected)))
+          "every carrier's raw :value rides with :include-sensitive?")
+      (is (= [reply-params reply-params] (mapv :params (carrier-replies projected)))
+          "and its :params")
+      (is (= (conj read-reply-target reply)
+             (:rf.fx/args (:tags (first (:trace-events projected)))))
+          "and so does the rest of the event vector it sits in"))))
+

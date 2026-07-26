@@ -72,7 +72,7 @@
   opt-in lifts it at the epoch consumer (the `local-raw` boundary — the same
   switch the app-db / HTTP-body / scope-resolved redactions honour).
 
-  ## The family's keys also ride FOREIGN rows (rf2-1kiuj, rf2-425mm)
+  ## The family's keys also ride FOREIGN rows (rf2-1kiuj, rf2-425mm, rf2-xx4ty)
 
   Everything above is routed by the epoch tool-pair on the row's OPERATION
   namespace. But an `ensure` lowers into EFFECTS, and those effects address the
@@ -84,7 +84,10 @@
   row but the keys — and, since rf2-425mm, the resolved `:scope` the runtime
   writes into that same continuation payload, projected by the SAME rule the
   family's own rows give it (`project-unknown-slot-value`), so the two carriers
-  of one scope agree the way the two carriers of one key already did."
+  of one scope agree the way the two carriers of one key already did; and, since
+  rf2-xx4ty, the `:value` + `:params` a READ COMPLETION CONTINUATION reply
+  carries beside its `:resource/key`, tokenized through that key's OWNER exactly
+  as the load-more cursor is through its row's."
   (:require [re-frame.resources.registry :as registry]
             [re-frame.resources.ssr :as ssr]))
 
@@ -245,11 +248,40 @@
   rides verbatim (no over-redaction)."
   #{:page-param :next-page-param})
 
+(def ^:private reply-payload-slot
+  "Slots of a READ COMPLETION CONTINUATION reply map that carry the resource
+  owner's own data as FREE entries beside its `:resource/key` (rf2-xx4ty):
+  `:value` — the DECODED RESPONSE BODY — and `:params` — the canonical params.
+
+  `re-frame.resources.events/read-continuation-reply` builds that map for an
+  `ensure` / `refetch` carrying a call-site `:reply-to` (EP-0016 D1, Spec 016
+  §Read completion continuations) and `re-frame.reply/complete` APPENDS it as
+  the final argument of the target event vector, which the runtime dispatches
+  through `[:dispatch <ev>]` — so it rides `:rf.fx/args` and `:rf.event/fx`,
+  the same two foreign carriers rf2-1kiuj and rf2-425mm addressed. Neither
+  reached these two: `:value` and `:params` are ordinary maps, not scoped keys,
+  so the carrier walk descended them and let the owner's data through in the
+  clear one slot from the `:resource/key` that had just redacted the very same
+  params.
+
+  OWNER-CONDITIONAL, and that is the whole design (see `project-embedded-keys`
+  §rf2-xx4ty): these two are read through the ROW's owner exactly as
+  `cursor-slot` is, never unconditionally. `:params` and `:value` are ordinary
+  English words the FX family uses for its own data — an app's managed-HTTP
+  args carry `{:request {… :params {…}}}`, and
+  `[:rf.resource/commit-generation {:value 1}]` rides the same effect vector —
+  so a name-only arm would redact a plain owner's request map and the runtime's
+  own generation counter. The sibling `:resource/key` is what makes the name
+  safe to read: it says the map is a RESOURCE reply and names whose."
+  #{:params :value})
+
 (defn- row-owner-redacts?
   "Whether the resource OWNER named by this trace row's `:resource/key`
   classifies non-`:serialize` (sensitive / large, or UNREGISTERED →
   fail-closed) — i.e. whether the row's
-  owner-local identity-bearing FREE tags (the load-more cursor) must tokenize.
+  owner-local identity-bearing FREE tags (the load-more cursor; and, inside an
+  fx carrier, a read continuation reply's `reply-payload-slot` entries) must
+  tokenize.
   Reuses the SAME owner classification the scoped-key projection uses
   (`disposition+project-key`), with the trace-egress fail-closed default for an
   unregistered / unreadable owner (`project-trace-scoped-key`'s nil-spec arm).
@@ -440,7 +472,64 @@
   payload itself, so the family owns the value by construction rather than by a
   guess about shape (a resolved scope is arbitrary EDN — there is no shape to
   read). Everything else in the carrier is still the fx family's and still rides
-  through untouched. Pure."
+  through untouched.
+
+  ## …AND a read continuation reply's `:value` + `:params` (rf2-xx4ty)
+
+  The transport payload is not the only map the family plants in a foreign
+  carrier. An `ensure` / `refetch` MAY carry a call-site `:reply-to`; when the
+  read settles, `events/read-continuation-reply` augments the canonical reply
+  with the top-level read facts and `re-frame.reply/complete` appends the whole
+  map as the target event's final argument, dispatched via `[:dispatch <ev>]`.
+  So `{:status :ok :value <DECODED RESPONSE BODY> :params <canonical params>
+  :scope … :resource/key <scoped-key> :cache-hit? …}` rides the same two
+  carriers. The `:resource/key` projected (scoped-key-shaped) and the `:scope`
+  took the arm above, but `:value` and `:params` are ordinary maps: the walk
+  descended them and the owner's decoded body egressed in the clear one slot
+  from the key that had just redacted its params.
+
+  ### Why this one is OWNER-CONDITIONAL where `:scope` is unconditional
+
+  Not a style choice — the two would DISAGREE for a plain owner if it were, and
+  each way round is wrong for the other datum.
+
+  `:scope` is unconditional because the family's own rows classify a free
+  `:scope` unconditionally (rf2-1zc33) and the two carriers of one scope must
+  agree; and because it is safe to be — `:scope` inside an fx carrier is a word
+  only the resource runtime writes.
+
+  `:value` and `:params` are neither. They belong to a NAMED owner whose
+  `:resource/key` sits one slot over, and the family's own rows tokenize that
+  owner's params IFF `whole-entry-disposition` is non-`:serialize`, so
+  unconditional tokenization would redact a PLAIN resource's reply — the
+  over-redaction rf2-1kiuj rejected, and the reason this walk descends maps at
+  all. Worse, `:params` and `:value` are words the FX family uses for its own
+  data: an app's managed-HTTP args carry `{:request {… :params {…}}}`, and
+  `[:rf.resource/commit-generation {:value 1}]` rides the same effect vector, so
+  a name-only arm would tokenize a plain app's request params and the runtime's
+  generation counter. The grain is therefore `cursor-slot`'s, one carrier out —
+  `row-owner-redacts?` on the map's OWN `:resource/key`, the same read that
+  governs the load-more cursor (rf2-3tysyj) and the same
+  `whole-entry-disposition` that governs the key beside it.
+
+  ### Reads and mutations differ here, and the difference is already handled
+
+  The mutation `:reply-to` (`mutation_events/continuation-reply`) is the sibling
+  shape and carries `:params` / `:value` with NO `:resource/key` beside them
+  (its owner is named by `:mutation` / `:instance`), so this arm does not fire
+  on it — deliberately. The mutation half is closed one layer EARLIER, at the
+  source: both settle sites wrap the reply in
+  `classification/redact-continuation-reply`, which redacts the mutation's own
+  projection-relative `:sensitive` / `:large` declarations before the reply ever
+  reaches a carrier (rf2-825mzj). A coarse `:sensitive?` ROOT prop is not part
+  of `reg-mutation`'s declaration surface and is inert at every mutation egress
+  boundary, not merely this one.
+
+  The read reply has no such source-side redaction, and MUST NOT: the coarse
+  `:sensitive?` claim governs OFF-BOX egress, not in-process delivery — the
+  app's own continuation handler is entitled to the decoded body, and the
+  trusted-local `:include-sensitive?` opt-in must still show it. So the read
+  half belongs exactly here, at the egress projector. Pure."
   [v frame-id]
   (cond
     (redacted-token? v)   [v true]
@@ -452,14 +541,29 @@
           proj   (fn [x]
                    (let [[pv s] (project-embedded-keys x frame-id)]
                      (note! s pv)))
+          ;; rf2-xx4ty — a read continuation reply names its resource OWNER in
+          ;; the `:resource/key` one slot over. Read ONCE per map, exactly as
+          ;; `project-tags*` reads it once per row for the cursor; nil (no
+          ;; usable key) means this map is not a reply and its `:params` /
+          ;; `:value` are somebody else's.
+          owner-redacts? (and (map? v) (row-owner-redacts? v frame-id))
           ;; the family's own resolved scope, planted in a foreign payload by
           ;; the runtime — projected by the FAMILY rule so the carrier cannot
           ;; drift from the row (rf2-425mm). Every other entry takes the walk.
           entry  (fn [k x]
-                   (if (= :scope k)
+                   (cond
+                     (= :scope k)
                      (let [[pv s] (project-unknown-slot-value x frame-id)]
                        (note! s pv))
-                     (proj x)))]
+
+                     ;; the owner's own reply data (rf2-xx4ty) — tokenized
+                     ;; content-addressed iff THIS map's owner redacts, so a
+                     ;; plain resource's reply stays fully readable. Idempotent
+                     ;; (an opaque token stays sensitive and is not re-digested).
+                     (and owner-redacts? (reply-payload-slot k) (some? x))
+                     (note! true (if (redacted-token? x) x (ssr/redact-value x)))
+
+                     :else (proj x)))]
       [(cond
          (map? v)    (reduce-kv (fn [m k x] (assoc m (proj k) (entry k x))) {} v)
          (set? v)    (into #{} (map proj) v)
@@ -692,7 +796,10 @@
   transport continuation payload carries beside them, which is a
   `[tier {identity}]` TUPLE rather than a scoped key and so was descended into
   and let through in the clear one slot from the `:resource/key` that had just
-  redacted the same bytes. A tags map carrying NEITHER slot rides through reference-preserved —
+  redacted the same bytes, and (rf2-xx4ty) the `:value` + `:params` a READ
+  CONTINUATION reply carries beside its own `:resource/key`, tokenized iff that
+  key's OWNER redacts so a plain resource's reply stays readable.
+  A tags map carrying NEITHER slot rides through reference-preserved —
   which is what lets the epoch consumer apply this to every row and keep no row
   predicate of its own, so a family key riding a carrier on some future op is
   covered without anyone widening a roster.
