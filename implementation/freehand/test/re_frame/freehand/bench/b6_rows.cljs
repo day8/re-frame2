@@ -243,7 +243,11 @@
                        (fn [] (.render ^js @rt (floor/u-grid @state)))))
      :unmount (fn [r] (react-dom/flushSync (fn [] (.unmount r))))}))
 
-(defn- freehand-update-arm [id view]
+(defn freehand-update-arm
+  "Public so the PROFILING entry can build an ablation arm through the
+  SAME constructor the published rows use — a second, near-copy arm
+  builder would be a second place for the measured window to drift."
+  [id view]
   (let [fid (keyword "b6-update" (name id))]
     {:id      id
      :mount   (fn [container]
