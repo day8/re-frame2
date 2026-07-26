@@ -199,6 +199,95 @@
       (is (not= errors-before errors-after)
           "non-vacuous: the seed really removed one of them"))))
 
+(defn- leaf-present?
+  "Does the nested map `m` actually HAVE a key at leaf path `path`?
+
+  `get-in` cannot answer this — it says `nil` for a missing key and for a
+  key holding `nil` alike — and the question is what makes the
+  edited-marker law below assert something. A `:edited` path that names
+  no leaf is a marker describing data that is not there."
+  [m path]
+  (let [parent (get-in m (vec (butlast path)))]
+    (boolean (and (associative? parent) (contains? parent (last path))))))
+
+(deftest fh-ctrl-013-an-edited-leaf-survives-a-payload-that-OVERLAPS-it
+  (testing "Per FH-CTRL-013: the payload's leaf and the user's leaf can name
+            the same data without being the same path, and protecting only
+            EXACT path membership is blind to both directions.
+
+            FROM ABOVE: an empty map stops the leafwise walk, so
+            `{:contact {}}` is one leaf at `[:contact]` — writing it erases
+            the edited `[:contact :email]` beneath it. FROM BELOW: the user
+            cleared `[:address]` to `nil`, which is a leaf, and a payload
+            carrying `[:address :street]` reaches inside it.
+
+            Each payload also carries a leaf the seed MUST land on, so
+            'held' cannot be green because the seed declined everything."
+    (let [{:keys [ancestor-baseline ancestor-edited-path ancestor-typed
+                  ancestor-payload ancestor-draft-after ancestor-baseline-after
+                  ancestor-edited-after ancestor-clobbered-draft]} ctrl-013
+          f      (-> (form/init ancestor-baseline)
+                     (form/edit ancestor-edited-path ancestor-typed))
+          seeded (form/seed f ancestor-payload)]
+      (is (= ancestor-draft-after (:draft seeded))
+          "the whole draft: the edited leaf AND its unedited sibling held, the
+           leaf the payload really does address seeded")
+      (is (= ancestor-baseline-after (:baseline seeded))
+          "and the whole baseline — an edited leaf is not re-based from above either")
+      (is (= ancestor-edited-after (:edited seeded)) "the mark stands")
+      (is (not= ancestor-draft-after ancestor-clobbered-draft)
+          "non-vacuous: the fixture's two outcomes really differ")
+      (is (not= (get-in ancestor-draft-after ancestor-edited-path)
+                (get-in ancestor-clobbered-draft ancestor-edited-path))
+          "at the very leaf the user was typing in")
+      (is (not (leaf-present? ancestor-clobbered-draft ancestor-edited-path))
+          "non-vacuous: under exact-path protection the mark named NOTHING —
+           the second defect, and the one a draft comparison alone misses"))
+
+    (let [{:keys [descendant-baseline descendant-edited-path descendant-cleared-value
+                  descendant-payload descendant-draft-after descendant-baseline-after
+                  descendant-edited-after descendant-clobbered-draft]} ctrl-013
+          f      (-> (form/init descendant-baseline)
+                     (form/edit descendant-edited-path descendant-cleared-value))
+          seeded (form/seed f descendant-payload)]
+      (is (= descendant-draft-after (:draft seeded))
+          "the cleared leaf stays cleared, and the unrelated leaf is seeded")
+      (is (= descendant-baseline-after (:baseline seeded))
+          "with the edited leaf's baseline unmoved")
+      (is (= descendant-edited-after (:edited seeded)) "and the mark stands")
+      (is (not= descendant-draft-after descendant-clobbered-draft)
+          "non-vacuous: a descendant write really would have rebuilt it")
+      (is (leaf-present? descendant-draft-after descendant-edited-path)
+          "the cleared leaf is PRESENT holding nil, which is what the user asked for"))
+
+    (testing "and — the law behind both — no seed leaves an `:edited` path
+              naming data that is not there. Asserted over every witness in
+              this fixture at once, because the failure is never 'the leaf I
+              looked at moved', it is 'a marker outlived its leaf'."
+      (let [{:keys [baseline email-path qty-path typed-email typed-qty payload
+                    ancestor-baseline ancestor-edited-path ancestor-typed
+                    ancestor-payload descendant-baseline descendant-edited-path
+                    descendant-cleared-value descendant-payload]} ctrl-013
+            witnesses [(form/seed (-> (form/init baseline)
+                                      (form/edit email-path typed-email)
+                                      (form/edit qty-path typed-qty))
+                                  payload)
+                       (form/seed (-> (form/init ancestor-baseline)
+                                      (form/edit ancestor-edited-path ancestor-typed))
+                                  ancestor-payload)
+                       (form/seed (-> (form/init descendant-baseline)
+                                      (form/edit descendant-edited-path
+                                                 descendant-cleared-value))
+                                  descendant-payload)]]
+        (is (= 3 (count witnesses)) "non-vacuous: three seeds are under the law")
+        (doseq [seeded witnesses]
+          (is (seq (:edited seeded)) "non-vacuous: there are marks to check")
+          (doseq [path (:edited seeded)]
+            (is (leaf-present? (:draft seeded) path)
+                (str "the edited path " (pr-str path) " still names a draft leaf"))
+            (is (leaf-present? (:baseline seeded) path)
+                (str "and " (pr-str path) " still names the baseline leaf it held"))))))))
+
 (deftest fh-ctrl-013-a-keyed-row-keeps-its-identity-across-a-re-sort
   (testing "Per FH-CTRL-013: rows are addressed by their STABLE DOMAIN ID.
             The payload returns them in the opposite order with a new row
