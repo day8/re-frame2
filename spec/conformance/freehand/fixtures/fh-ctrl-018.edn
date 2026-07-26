@@ -73,9 +73,17 @@
   ;; the DOM node actually held, and the count of commits that reached
   ;; dispatch. Both are read off the substrate rather than off the test's
   ;; own bookkeeping.
+  ;; `:residue :unasserted`, and it is the truthful answer rather than a
+  ;; placeholder. The suite tears its root down — `.unmount` then
+  ;; `.remove` — but asserts NOTHING about what survived: no book is read
+  ;; empty afterwards, and a root that failed to unmount would go
+  ;; unnoticed here and contaminate every later suite in the same process.
+  ;; Earning `:residue :none` is rf2-drpa3.182.7 acceptance 3's remaining
+  ;; work, and it wants the shared mounted-lifecycle facade rather than a
+  ;; fourth hand-rolled teardown.
   :evidence
   {:reads    [:dom/value :dom/selection-start]
    :counts   [:form/commits :form/attempts]
-   :residue  :none}
+   :residue  :unasserted}
 
   :prose :executable}}

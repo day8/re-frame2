@@ -158,10 +158,15 @@
   ;; perfectly and breaks every memoised consumer downstream, so the
   ;; recorded object is what a run leaves and `identical?` is what reads
   ;; it.
+  ;; `:residue :unasserted`. The mounted suite resets the host registry and
+  ;; the boundary table in its per-test `:init-fn`, which cleans up BEFORE
+  ;; each test rather than asserting anything AFTER one — so a crossing that
+  ;; retained a boundary would be masked by the next test's reset instead of
+  ;; reported. Earning `:residue :none` is acceptance 3's remaining work.
   :evidence
   {:reads   [:host/props :host/callback-identity]
    :counts  [:host/commits]
-   :residue :none}
+   :residue :unasserted}
 
   ;; The `:map-props` key-set boundary was recorded OPEN here (rf2-drpa3.182.3,
   ;; from the merged-PR audit of #7081) rather than pinned to the behaviour

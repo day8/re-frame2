@@ -113,6 +113,26 @@
   sketch as a contract."
   #{:executable :expected-failure :illustrative})
 
+(def residue-statuses
+  "What a record claims about what a mounted run LEAVES BEHIND — rf2-drpa3.182.7
+  acceptance 3. Closed:
+
+    `:none`        the mounted suites assert the absence: after teardown the
+                   substrate's own books read empty, as an exact zero rather
+                   than a threshold.
+    `:unasserted`  the suites tear their roots down but assert nothing about
+                   residue. An honest gap, and countable.
+
+  There is no third value, and in particular no way to say 'probably
+  clean'. The distinction matters more than it looks: a leaked React root
+  contaminates every later suite sharing the process, and this corpus has
+  seen one leak produce failures across dozens of unrelated suites. A
+  record that claimed `:none` because its teardown *looked* thorough would
+  be the most expensive kind of green — so `:none` is a claim a checker
+  can refuse, and `:unasserted` is what a suite says until it earns the
+  other one."
+  #{:none :unasserted})
+
 (def tiers
   "The tiers a record may name a proof site in. Each is a real lane, not a
   label: `:structural` runs headlessly on both hosts through
@@ -288,6 +308,16 @@
           (conj (defect id :evidence
                         (str "states its evidence expectation as a non-empty map; got "
                              (pr-str evidence))))
+
+          ;; Guarded on a NON-EMPTY evidence map: an empty one is already
+          ;; reported just above, and a shape error that produced two
+          ;; defects would say the same thing twice.
+          (and (map? rec) (map? evidence) (seq evidence)
+               (not (contains? residue-statuses (:residue evidence))))
+          (conj (defect id :evidence
+                        (str "declares what a mounted run leaves behind as one of "
+                             (pr-str (sort residue-statuses)) "; got "
+                             (pr-str (:residue evidence)))))
 
           ;; An `:open` entry is keyed by the bead that owns the question,
           ;; because "unsettled" without an owner is a shrug.
