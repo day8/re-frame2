@@ -352,11 +352,21 @@
 
 (defn- trivial-store [] #js {:revision 0 :listeners #js {}})
 
-(defn- trivial-subscribe [st]
+(defn- trivial-subscribe
+  "The trivial store's subscribe. NULL-SAFE on unsubscribe, and that is
+  not defensive noise: React runs a layout effect's cleanup BEFORE the
+  passive cleanup `useSyncExternalStore` unsubscribes through, so a
+  lifecycle effect that cleared the listener table left the later
+  unsubscribe dereferencing `null`. `rf2-oob3g`'s ladder carried the same
+  shape and threw on every unmount of this rung; it is fixed here rather
+  than reproduced."
+  [st]
   (fn [listener]
     (let [k (js-obj)]
       (aset (.-listeners st) k listener)
-      (fn unsubscribe [] (js-delete (.-listeners st) k) nil))))
+      (fn unsubscribe []
+        (when-some [ls (.-listeners st)] (js-delete ls k))
+        nil))))
 
 (defn- hooks-leaf-ref
   "The shell's exact six hooks over a trivial store — `rf2-oob3g`'s L2."
@@ -395,10 +405,14 @@
 ;; ===========================================================================
 
 (def frame-id
-  "The one frame behind every reactive B9 root — B7's own, so the reactive
-  rungs sit on the identical store the published `reactive/freehand` arm
-  sits on."
-  heap/shared-frame-id)
+  "The one frame behind every reactive B9 root. Deliberately NOT B7's
+  `:b7/grid`: that id is ensured CONFIG-BEARING by the published
+  `reactive/freehand` arm's root 0, and a second config-bearing ensure of
+  one id is refused by design (Spec 004C §7). One frame per arm against
+  3,000 held boundaries is 1/3000 of a reading, so a separate id costs the
+  comparison nothing and removes an ordering coupling between two arms
+  that must be free to run in either order."
+  :b9/grid)
 
 (defn- storm-of [leaf]
   (el "div" #js {:className "storm"}
