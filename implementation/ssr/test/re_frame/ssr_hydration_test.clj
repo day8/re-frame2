@@ -43,10 +43,63 @@
   are pure DOM-mount probes — the Migration-Audit classifies them (C);
   per the rf2-pxb7t bead the whole `spec.cjs` is dropped and those
   two assertions retire alongside (substrate mount is already covered
-  by the 3 adapter smokes per the audit's §Drop-or-keep recommendation)."
+  by the 3 adapter smokes per the audit's §Drop-or-keep recommendation).
+
+  ## Posture split (rf2-lwtlk)
+
+  The hydration CONTRACT is production-real throughout and is asserted here
+  without a posture guard: which slice replaces app-db, which is rejected,
+  that a rejected payload leaves BOTH partitions untouched and stashes no
+  metadata, that the retired plain `:app-db` alias stays dead, that
+  `hydrate!` establishes frame scope for its `:render-tree-fn`. None of that
+  needed changing — it was already green under `-Dre-frame.debug=false`.
+
+  What kept the namespace off `scripts/test-ssr-prod-gate.sh` is the
+  DIAGNOSTIC that accompanies each rejection. `:rf.error/malformed-hydration-
+  payload`, `:rf.error/hydration-frame-id-mismatch`,
+  `:rf.ssr/hydration-mismatch` and the `:rf.ssr/version-mismatch` family all
+  emit behind `interop/debug-enabled?`, read once at namespace-load time, so
+  under the gate the framework announces none of it. Fail-CLOSED is the
+  contract; the trace is how a developer hears about it. Every such assertion
+  is kept VERBATIM inside a `(when interop/debug-enabled? …)` arm marked
+  `rf2-lwtlk`.
+
+  The larger half of this split is the NEGATIVE trace assertions, none of
+  which were failing — which is exactly why they had to move. A dozen
+  `(is (not-any? … @traces))` / `(is (empty? (filter … @traces)))` forms say,
+  variously, that the well-formed payload did NOT trip the malformed
+  diagnostic, that matching hashes produced no mismatch, that the server-side
+  gate emitted no skipped-on-platform warning. Under the gate the ring is
+  empty for every input, so each is satisfied without distinguishing the case
+  it exists to distinguish. They sit in the dev arms with their positive
+  counterparts.
+
+  Three claims were observable ONLY through the trace and got a
+  production-visible witness instead of being guarded away (the rf2-7vk3z
+  shape):
+
+    - whether the `:rf.ssr/check-*` fxs were ENQUEUED. Both the server-side
+      skip and the client-side counter-test now re-register the two fx ids
+      with a recording stub and read the recorded dispatches directly. That
+      is a stronger statement than either the absence of a
+      `:rf.fx/skipped-on-platform` warning or the presence of a
+      `:rf.ssr/version-mismatch`, and it holds in both postures.
+    - whether `verify-hydration!` SHORT-CIRCUITS on a nil server hash, and
+      whether `hydrate!`'s verify step RUNS at all. Both drive the same
+      condition on a frame carrying `:ssr {:on-mismatch :hard-error}`, where
+      a detected mismatch escalates to a throw — an always-on channel, since
+      `hydrate.cljc` builds one shared payload for the trace and the throw
+      alike. A nil server hash must not throw; a divergent hash must.
+
+  `b5-...` at the foot of the namespace was already posture-correct: it reads
+  the ALWAYS-ON `:errors` axis and guards its dev-trace half with
+  `(when dev-trace …)`. It is the shape the rest of this file now follows."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
+            [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.payload-policy :as payload-policy]
@@ -54,6 +107,33 @@
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
+
+;; rf2-lwtlk — a production-visible probe for "were the compatibility-check
+;; fxs ENQUEUED?".  Re-registers the two `:rf.ssr/check-*` fx ids with a
+;; DECORATOR that records the dispatch and then delegates to the real
+;; handler-fn, so the observation is additive: the checks still run and still
+;; emit their dev traces, and the deftests' dev arms keep asserting them.  The
+;; `tf/reset-runtime` fixture restores the untouched registrations between
+;; deftests.
+;;
+;; The point is that the handler's platform gate is a statement about the
+;; EFFECT QUEUE, and this reads the queue.  Inferring it from the presence or
+;; absence of a `:rf.fx/skipped-on-platform` / `:rf.ssr/version-mismatch`
+;; trace cannot tell "never enqueued" from "warning elided", which is
+;; precisely the distinction that disappears under `-Dre-frame.debug=false`.
+;;
+;; Returns the recording atom: a vector of `[fx-id value]`.
+(defn- record-check-fx-dispatches! []
+  (let [seen (atom [])]
+    (doseq [id [:rf.ssr/check-version :rf.ssr/check-schema-digest]]
+      (let [slot (registrar/lookup :fx id)
+            real (:handler-fn slot)]
+        (fx/reg-fx id
+                   (select-keys slot [:platforms :schema])
+                   (fn [frame-id v]
+                     (swap! seen conj [id v])
+                     (when real (real frame-id v))))))
+    seen))
 
 ;; The payload the testbed's `<script id=\"__rf_payload\">` bakes verbatim
 ;; (testbeds/ssr_basic/index.html lines 58-73). Pinning the literal here
@@ -236,11 +316,15 @@
           payload      (materialise-response baseline-payload)]
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-        (is (empty? (filter #(= :rf.ssr/compatibility-check-skipped (:operation %)) @traces))
-            (str "version check resolves via the SSR constant → never skipped; "
-                 "saw operations: " (pr-str (mapv :operation @traces))))
-        (is (empty? (filter #(= :rf.ssr/version-mismatch (:operation %)) @traces))
-            "payload :rf/version == the SSR constant → silent match")))))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). BOTH are
+        ;; negatives over the trace ring: vacuous under the gate, where a
+        ;; skewed version would look identical to a matching one.
+        (when interop/debug-enabled?
+          (is (empty? (filter #(= :rf.ssr/compatibility-check-skipped (:operation %)) @traces))
+              (str "version check resolves via the SSR constant → never skipped; "
+                   "saw operations: " (pr-str (mapv :operation @traces))))
+          (is (empty? (filter #(= :rf.ssr/version-mismatch (:operation %)) @traces))
+              "payload :rf/version == the SSR constant → silent match"))))))
 
 ;; ===========================================================================
 ;; spec.cjs §(7) → NO mismatch trace on the baseline
@@ -269,23 +353,33 @@
           payload      (-> baseline-payload
                            (assoc :rf/schema-digest "test-digest-abc")
                            materialise-response)]
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [:rf/hydrate payload] {:frame server-frame})
-        (let [skipped-checks
-              (filter (fn [ev]
-                        (and (= :rf.fx/skipped-on-platform (:operation ev))
-                             (#{:rf.ssr/check-version :rf.ssr/check-schema-digest}
-                              (-> ev :tags :rf.fx/id))))
-                      @traces)]
-          (is (empty? skipped-checks)
-              (str "expected zero :rf.fx/skipped-on-platform traces for the two "
-                   ":rf.ssr/check-* fxs on a :server-platform :rf/hydrate; saw: "
-                   (pr-str (mapv (juxt :operation #(-> % :tags :rf.fx/id))
-                                 skipped-checks))))
+      (let [dispatched (record-check-fx-dispatches!)]
+        (with-trace-recorder! [traces]
+          (rf/dispatch-sync [:rf/hydrate payload] {:frame server-frame})
+          ;; SEMANTIC, posture-independent (rf2-lwtlk): the handler-level gate
+          ;; is a statement about the EFFECT QUEUE, so read the queue. The
+          ;; original assertion inferred it from the absence of a dev warning,
+          ;; which cannot tell "never enqueued" from "warning elided".
+          (is (= [] @dispatched)
+              (str "the handler enqueued NEITHER :rf.ssr/check-* fx on a "
+                   ":server-platform :rf/hydrate; saw: " (pr-str @dispatched)))
           ;; Sanity: the handler still landed the app-db swap + metadata —
           ;; the gate skipped only the check-fx dispatches, not the rest.
           (is (= 7 (rf/subscribe-once [:count] {:frame server-frame}))
-              ":rf/app-db still applied on the server-side run"))))))
+              ":rf/app-db still applied on the server-side run")
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+          (when interop/debug-enabled?
+            (let [skipped-checks
+                  (filter (fn [ev]
+                            (and (= :rf.fx/skipped-on-platform (:operation ev))
+                                 (#{:rf.ssr/check-version :rf.ssr/check-schema-digest}
+                                  (-> ev :tags :rf.fx/id))))
+                          @traces)]
+              (is (empty? skipped-checks)
+                  (str "expected zero :rf.fx/skipped-on-platform traces for the two "
+                       ":rf.ssr/check-* fxs on a :server-platform :rf/hydrate; saw: "
+                       (pr-str (mapv (juxt :operation #(-> % :tags :rf.fx/id))
+                                     skipped-checks)))))))))))
 
 (deftest hydration-on-client-platform-still-dispatches-check-fxs
   (testing "Per rf2-7bcn0 (counter-test to the server-side skip): on a
@@ -306,13 +400,27 @@
           payload      (-> baseline-payload
                            (assoc :rf/version (inc payload-policy/pattern-protocol-version))
                            materialise-response)]
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-        (let [mismatch (filter #(= :rf.ssr/version-mismatch (:operation %)) @traces)]
-          (is (seq mismatch)
-              (str "on :client the :rf.ssr/check-version fx still fires and "
-                   "emits :rf.ssr/version-mismatch on a skewed :rf/version; "
-                   "saw operations: " (pr-str (mapv :operation @traces)))))))))
+      (let [dispatched (record-check-fx-dispatches!)]
+        (with-trace-recorder! [traces]
+          (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+          ;; SEMANTIC, posture-independent (rf2-lwtlk): the counter-test's
+          ;; claim is that the rf2-7bcn0 server-side gate did NOT over-skip on
+          ;; :client — i.e. the fx was ENQUEUED. Read the effect queue, which
+          ;; says so directly and in both postures; the mismatch trace was
+          ;; only ever a proxy for it.
+          (is (contains? (set (map first @dispatched)) :rf.ssr/check-version)
+              (str "on :client the handler still enqueued :rf.ssr/check-version; "
+                   "saw: " (pr-str @dispatched)))
+          (is (= (inc payload-policy/pattern-protocol-version)
+                 (some (fn [[id v]] (when (= :rf.ssr/check-version id) v)) @dispatched))
+              "…carrying the payload's skewed :rf/version as its argument")
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+          (when interop/debug-enabled?
+            (let [mismatch (filter #(= :rf.ssr/version-mismatch (:operation %)) @traces)]
+              (is (seq mismatch)
+                  (str "on :client the :rf.ssr/check-version fx still fires and "
+                       "emits :rf.ssr/version-mismatch on a skewed :rf/version; "
+                       "saw operations: " (pr-str (mapv :operation @traces)))))))))))
 
 (deftest hydration-baseline-no-mismatch-trace-when-server-hash-nil
   (testing "Migrated from testbeds/ssr_basic/spec.cjs assertion #13.
@@ -337,10 +445,30 @@
         ;; value (Spec 011 — `(when (and server-hash
         ;; client-hash ...) ...)` short-circuits).
         (ssr/verify-hydration! client-frame "abcdef01")
-        (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
-            (str "no :rf.ssr/hydration-mismatch on the baseline (server-"
-                 "hash was nil); saw: "
-                 (pr-str (mapv :operation @traces))))))))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). A NEGATIVE
+        ;; over the trace ring, and this deftest's ONLY assertion: under the
+        ;; gate it would have passed without the short-circuit existing.
+        (when interop/debug-enabled?
+          (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
+              (str "no :rf.ssr/hydration-mismatch on the baseline (server-"
+                   "hash was nil); saw: "
+                   (pr-str (mapv :operation @traces))))))
+
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): drive the SAME nil-server-
+      ;; hash condition on a frame that asks for `:ssr {:on-mismatch
+      ;; :hard-error}`. A detected mismatch escalates to a throw — always-on,
+      ;; since hydrate.cljc builds one shared payload for the trace and the
+      ;; throw alike. Nothing thrown means the comparison genuinely
+      ;; short-circuited rather than merely failing to announce itself.
+      (let [strict-frame (frame/make-anon-frame-record!
+                           {:doc      "nil-server-hash strict frame"
+                            :platform :client
+                            :ssr      {:on-mismatch :hard-error}})]
+        (rf/dispatch-sync [:rf/hydrate (materialise-response baseline-payload)]
+                          {:frame strict-frame})
+        (is (nil? (ssr/verify-hydration! strict-frame "abcdef01"))
+            "a nil server-hash short-circuits BEFORE the comparison — even
+             :on-mismatch :hard-error has nothing to escalate")))))
 
 ;; ===========================================================================
 ;; rf2-gro94 — fail CLOSED on a malformed / untrusted hydration payload
@@ -387,10 +515,15 @@
           (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
               (str (pr-str bad-payload)
                    " must NOT stash hydration metadata (rejected, not applied)"))
-          (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
-              (str (pr-str bad-payload)
-                   " must emit :rf.error/malformed-hydration-payload; saw: "
-                   (pr-str (mapv :operation @traces)))))))))
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). FAIL
+          ;; CLOSED is the contract and is pinned by the three assertions
+          ;; above, all posture-independent; the diagnostic is how a
+          ;; developer learns which payload was rejected and why.
+          (when interop/debug-enabled?
+            (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+                (str (pr-str bad-payload)
+                     " must emit :rf.error/malformed-hydration-payload; saw: "
+                     (pr-str (mapv :operation @traces))))))))))
 
 (deftest wellformed-hydration-payload-still-applies-through-router
   (testing "rf2-gro94 — the fail-closed guard is precise: a well-formed
@@ -406,8 +539,12 @@
                           {:frame client-frame})
         (is (= 7 (rf/subscribe-once [:count] {:frame client-frame})) "server slice installed")
         (is (= "seeded" (rf/subscribe-once [:title] {:frame client-frame})))
-        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
-            "no malformed diagnostic on a well-formed payload")))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+        ;; under the gate; the PRECISION this deftest is for — the payload
+        ;; was accepted — is pinned by the installed slice above.
+        (when interop/debug-enabled?
+          (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+              "no malformed diagnostic on a well-formed payload"))))
     ;; (b) map payload with no app-db slice → existing client data survives.
     (let [client-frame (frame/make-anon-frame-record! {:doc "client frame b" :platform :client})]
       (rf/dispatch-sync [::set-title "kept"] {:frame client-frame})
@@ -415,8 +552,11 @@
         (rf/dispatch-sync [:rf/hydrate {:rf/version 1}] {:frame client-frame})
         (is (= "kept" (rf/subscribe-once [:title] {:frame client-frame}))
             "no-slice payload preserves the existing client slice")
-        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
-            "a no-slice map payload is the legitimate client-only fallback, not malformed")))))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+        ;; under the gate.
+        (when interop/debug-enabled?
+          (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+              "a no-slice map payload is the legitimate client-only fallback, not malformed"))))))
 
 ;; ===========================================================================
 ;; rf2-g00l2t — fail CLOSED on a present-but-non-map :rf/runtime-db slice
@@ -486,18 +626,25 @@
             (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
                 (str (pr-str bad-rt)
                      " must NOT stash hydration metadata (rejected, not applied)"))
-            ;; the malformed diagnostic fires.
-            (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
-                (str (pr-str bad-rt)
-                     " must emit :rf.error/malformed-hydration-payload; saw: "
-                     (pr-str (mapv :operation @traces))))
-            ;; no compatibility-check fxs fire on the rejected path.
-            (is (not-any? #(#{:rf.ssr/version-mismatch
-                              :rf.ssr/schema-digest-mismatch
-                              :rf.ssr/compatibility-check-skipped}
-                            (:operation %)) @traces)
-                (str (pr-str bad-rt)
-                     " must NOT fire compatibility-check fxs on the rejected path"))))))))
+            ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Both
+            ;; halves belong here: the malformed diagnostic FAILS under the
+            ;; gate, and "no compatibility-check fxs on the rejected path" is
+            ;; a negative over the same empty ring, so it would have PASSED
+            ;; without the rejection short-circuit existing. The rejection
+            ;; itself is pinned by the four partition assertions above.
+            (when interop/debug-enabled?
+              ;; the malformed diagnostic fires.
+              (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+                  (str (pr-str bad-rt)
+                       " must emit :rf.error/malformed-hydration-payload; saw: "
+                       (pr-str (mapv :operation @traces))))
+              ;; no compatibility-check fxs fire on the rejected path.
+              (is (not-any? #(#{:rf.ssr/version-mismatch
+                                :rf.ssr/schema-digest-mismatch
+                                :rf.ssr/compatibility-check-skipped}
+                              (:operation %)) @traces)
+                  (str (pr-str bad-rt)
+                       " must NOT fire compatibility-check fxs on the rejected path")))))))))
 
 (deftest wellformed-runtime-db-slice-still-installs-through-router
   (testing "rf2-g00l2t — the runtime-db guard is precise: a well-formed map
@@ -516,15 +663,21 @@
         (is (= 7 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
         (is (= {:route-id :home} (rf/subscribe-once [:route-current] {:frame client-frame}))
             "the runtime-db route slice rode the payload and installed")
-        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
-            "no malformed diagnostic on a well-formed two-partition payload")))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+        ;; under the gate; the installed route slice above is the acceptance.
+        (when interop/debug-enabled?
+          (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+              "no malformed diagnostic on a well-formed two-partition payload"))))
     ;; (b) wholly-absent :rf/runtime-db key → no-server-runtime fallback.
     (let [client-frame (frame/make-anon-frame-record! {:doc "rt-absent client frame" :platform :client})]
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 3}}] {:frame client-frame})
         (is (= 3 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
-        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
-            "an absent :rf/runtime-db key is the no-server-runtime fallback, not malformed")))))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+        ;; under the gate.
+        (when interop/debug-enabled?
+          (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+              "an absent :rf/runtime-db key is the no-server-runtime fallback, not malformed"))))))
 
 ;; ===========================================================================
 ;; rf2-1qem4q — the retired plain :app-db hydration alias stays DEAD
@@ -568,10 +721,14 @@
         (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
             "no hydration metadata stashed — the :rf/render-hash / :rf/version
              keys are absent, so the no-slice payload installs no metadata")
-        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
-            (str "a {:app-db {…}} payload is a map with no :rf/app-db key — the "
-                 "legitimate client-only no-slice fallback, NOT malformed; saw: "
-                 (pr-str (mapv :operation @traces))))))))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+        ;; under the gate; the alias-stays-dead claim is pinned by the three
+        ;; posture-independent assertions above.
+        (when interop/debug-enabled?
+          (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+              (str "a {:app-db {…}} payload is a map with no :rf/app-db key — the "
+                   "legitimate client-only no-slice fallback, NOT malformed; saw: "
+                   (pr-str (mapv :operation @traces)))))))))
 
 ;; ===========================================================================
 ;; rf2-lq2ou — client-side hydration boot helper (ssr/hydrate!)
@@ -675,10 +832,44 @@
           {:frame          client-frame
            :payload        payload
            :render-tree-fn (fn [] [:div.app [:span "client-render"]])})
-        (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
-            (str "verify step fired a :rf.ssr/hydration-mismatch (server hash "
-                 "'server00' != client render-tree hash); saw: "
-                 (pr-str (mapv :operation @traces))))))))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+        (when interop/debug-enabled?
+          (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
+              (str "verify step fired a :rf.ssr/hydration-mismatch (server hash "
+                   "'server00' != client render-tree hash); saw: "
+                   (pr-str (mapv :operation @traces))))))
+
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): "the boot helper wires
+      ;; mismatch detection" is the claim, and it has an always-on channel.
+      ;; Run the SAME divergent-hash boot on a frame carrying
+      ;; `:ssr {:on-mismatch :hard-error}`: hydrate! must escalate, and the
+      ;; ex-data must name the server hash the payload carried and the hash of
+      ;; the tree `:render-tree-fn` actually returned. Nothing else in this
+      ;; deftest proves the verify step ran.
+      (let [strict-frame (frame/make-anon-frame-record!
+                           {:doc      "boot-helper verify strict frame"
+                            :platform :client
+                            :ssr      {:detect-mismatch? true
+                                       :on-mismatch      :hard-error}})
+            client-tree  [:div.app [:span "client-render"]]
+            strict-pl    (build-server-payload
+                           strict-frame {:count 7 :title "seeded"}
+                           "server00"
+                           {:version 1 :payload [:count :title]})
+            thrown       (try (ssr/hydrate!
+                                {:frame          strict-frame
+                                 :payload        strict-pl
+                                 :render-tree-fn (fn [] client-tree)})
+                              nil
+                              (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? thrown)
+            "hydrate!'s verify step ran and escalated the divergent hash")
+        (is (= :rf.ssr/hydration-mismatch (:rf.error/id (ex-data thrown))))
+        (is (= "server00" (:server-hash (ex-data thrown)))
+            "the payload's server hash reached the comparison")
+        (is (= (ssr/render-tree-hash client-tree) (:client-hash (ex-data thrown)))
+            "…and it was compared against the hash of the tree
+             :render-tree-fn returned, so the verify step really rendered")))))
 
 (deftest boot-hydrate-verify-step-silent-on-matching-render
   (testing "rf2-lq2ou: when the client render-tree hash MATCHES the server
@@ -703,12 +894,35 @@
           {:frame          client-frame
            :payload        payload
            :render-tree-fn (fn [] client-tree)})
-        (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
-            (str "matching hashes → no :rf.ssr/hydration-mismatch; saw: "
-                 (pr-str (mapv :operation @traces))))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). A NEGATIVE
+        ;; over the trace ring: vacuous under the gate, where a DIVERGENT
+        ;; render would look identical to a matching one.
+        (when interop/debug-enabled?
+          (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
+              (str "matching hashes → no :rf.ssr/hydration-mismatch; saw: "
+                   (pr-str (mapv :operation @traces)))))
         ;; Sanity: the seed still landed (the verify step doesn't gate hydrate).
         (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
-            ":rf/hydrate still applied the seeded slice")))))
+            ":rf/hydrate still applied the seeded slice"))
+
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): the false-positive guard
+      ;; this deftest exists to be needs an always-on channel too. Same
+      ;; matching-hash boot on an `:on-mismatch :hard-error` frame: it must
+      ;; NOT throw, which the divergent case above proves it would.
+      (let [strict-frame (frame/make-anon-frame-record!
+                           {:doc      "boot-helper verify-match strict frame"
+                            :platform :client
+                            :ssr      {:detect-mismatch? true
+                                       :on-mismatch      :hard-error}})
+            strict-pl    (build-server-payload
+                           strict-frame {:count 7 :title "seeded"}
+                           matched-hash
+                           {:version 1 :payload [:count :title]})]
+        (is (some? (ssr/hydrate! {:frame          strict-frame
+                                  :payload        strict-pl
+                                  :render-tree-fn (fn [] client-tree)}))
+            "matching hashes do not escalate even under :on-mismatch
+             :hard-error — the verify step is not a false-positive generator")))))
 
 (deftest boot-hydrate-scopes-render-tree-fn-to-target-frame
   (testing "rf2-0vk7b: hydrate! calls :render-tree-fn UNDER the target frame's
@@ -737,7 +951,13 @@
           ;; The unwrapped idiom, distilled: reads an AMBIENT frame-scoped
           ;; subscription (exactly what a reg-view's injected `subscribe` does),
           ;; so it can ONLY succeed if hydrate! provides the frame scope.
-          render-tree-fn (fn [] [:div.app [:span (rf/subscribe-once [:count])]])]
+          ;; rf2-lwtlk — count the invocations so "it ran under frame scope"
+          ;; is witnessed positively rather than inferred from the absence of
+          ;; a throw.
+          render-tree-fn-calls (atom 0)
+          render-tree-fn (fn []
+                           (swap! render-tree-fn-calls inc)
+                           [:div.app [:span (rf/subscribe-once [:count])]])]
       (with-trace-recorder! [traces]
         ;; Simulate the BROWSER's client-boot condition: no ambient frame. The
         ;; ssr test fixture otherwise pins `*current-frame*` to `:rf/default`
@@ -754,10 +974,20 @@
                 "hydrate! completed — the subscribing render-tree-fn did NOT
                  raise :rf.error/no-frame-context (it ran under the target frame
                  scope hydrate! established)")
-            (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
-                (str "verify ran the subscribing render-tree-fn under frame scope "
-                     "(server hash 'server00' != client render-tree hash); saw: "
-                     (pr-str (mapv :operation @traces))))))))))
+            ;; SEMANTIC, posture-independent (rf2-lwtlk): the render-tree-fn
+            ;; was actually INVOKED. `(some? returned)` alone would also hold
+            ;; if hydrate! had skipped the verify step entirely and so never
+            ;; needed a frame scope — the exact regression this deftest
+            ;; guards against.
+            (is (= 1 @render-tree-fn-calls)
+                "hydrate! invoked :render-tree-fn exactly once, under the
+                 target frame's scope")
+            ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+            (when interop/debug-enabled?
+              (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
+                  (str "verify ran the subscribing render-tree-fn under frame scope "
+                       "(server hash 'server00' != client render-tree hash); saw: "
+                       (pr-str (mapv :operation @traces)))))))))))
 
 ;; ===========================================================================
 ;; rf2-acjknb — EP-0002: hydrate! requires :frame; payload :rf/frame-id is
@@ -864,18 +1094,25 @@
           (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
                             [:rf.runtime/machines :snapshots]))
               "the payload's runtime-db slice did NOT land — runtime-db untouched")
-          ;; the structured mismatch surfaced, carrying the two frames.
-          (let [mismatch (first (filter #(= :rf.error/hydration-frame-id-mismatch
-                                            (:operation %))
-                                        @traces))]
-            (is (some? mismatch)
-                (str "must emit :rf.error/hydration-frame-id-mismatch; saw: "
-                     (pr-str (mapv :operation @traces))))
-            (when mismatch
-              (is (= client-frame (-> mismatch :tags :target-frame))
-                  ":target-frame is the dispatch target frame")
-              (is (= :some/other-frame (-> mismatch :tags :payload-frame-id))
-                  ":payload-frame-id is the payload's (server) frame stamp"))))))))
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+          ;; BYPASS this deftest names — a direct dispatch reaching only the
+          ;; handler — is closed by the four partition assertions above, all
+          ;; posture-independent. The always-on fan-out of this same category
+          ;; is pinned on the `:errors` axis by the b5- deftest below, which
+          ;; has been green under the gate throughout.
+          (when interop/debug-enabled?
+            ;; the structured mismatch surfaced, carrying the two frames.
+            (let [mismatch (first (filter #(= :rf.error/hydration-frame-id-mismatch
+                                              (:operation %))
+                                          @traces))]
+              (is (some? mismatch)
+                  (str "must emit :rf.error/hydration-frame-id-mismatch; saw: "
+                       (pr-str (mapv :operation @traces))))
+              (when mismatch
+                (is (= client-frame (-> mismatch :tags :target-frame))
+                    ":target-frame is the dispatch target frame")
+                (is (= :some/other-frame (-> mismatch :tags :payload-frame-id))
+                    ":payload-frame-id is the payload's (server) frame stamp")))))))))
 
 ;; ===========================================================================
 ;; rf2-7qbxbm / rf2-mrtis6 census B5 — the always-on corpus leg of the
