@@ -107,7 +107,7 @@ the frame **if this root ensured it** — a frame it merely scoped is left alone
 It is guarded rather than throwing: unmounting twice, or unmounting a root a newer
 root has superseded, is a no-op.
 
-## Day-one checklist
+## Recap
 
 - `[re-frame.freehand :as v]` in the namespace
 - One `(rf/init! v/adapter)` at boot, before any frame is minted
@@ -161,7 +161,7 @@ loudly rather than degrading if that artefact is absent:
 `re-frame.freehand` takes no compile-time require on either, so a namespace that
 requires only Freehand still compiles.
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|

@@ -179,11 +179,12 @@ over a full-Clojure interpreted body: a compiled view's read sites are proven
 statically, an interpreted view's are the reads a committed render actually made,
 and a host interior is opaque. Those are labels on one grid, not separate modes.
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | `(v/manifest view)` is `nil` | the declaration is interpreted — that is the honest answer, not a failure |
+| Unsure before promoting | `(v/check "src/…")` — same analyzer as the build; see [Compilation](compilation.md) |
 | `(v/active-connections)` is empty in a JVM test | it is browser-only; a structural render connects nothing |
 | A command did nothing | check `(v/command-log)` for a `:refused` row and the `:target` it named |
 | Whole list re-renders on one edit | per-id subscriptions and keyed row boundaries |

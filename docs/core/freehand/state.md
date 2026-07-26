@@ -10,9 +10,9 @@ state stays in re-frame; host ephemera stay behind explicit host boundaries.
 |---|---|
 | Shared application state? | `(v/sub [:query …])` |
 | Given by my parent? | props (one map) |
-| Reusable multi-event protocol? | optional library controller + `:control` (not day one) |
+| Reusable multi-event protocol? | optional library controller + `:control` (when earned) |
 
-> **Day one is `sub` + props. Controllers are packaging, not a requirement.**
+> **Default is `sub` + props. Controllers are packaging, not a requirement.**
 
 ## Shared state: `sub`
 
@@ -129,7 +129,7 @@ also see application state — see
 You own the app-db keys and the cleanup. Freehand does not invent a second store
 for you, and unmount does not magically clear your draft.
 
-## Day-one checklist
+## Recap
 
 Stop when you can:
 
@@ -138,7 +138,7 @@ Stop when you can:
 - wire a live field (A) or an app-owned draft (B) without a controller  
 - keep DOM nodes and third-party instances off app-db  
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Fix |
 |---|---|

@@ -92,7 +92,7 @@ a fresh tree; to test a derivation, unit-test the subscription.
 3. One root form per `render` — wrap multi-view compositions in one `defview`.
 4. These should run in a JVM watch loop in milliseconds.
 
-## Day-one checklist
+## Recap
 
 - Assert event vectors and visible structure with `t/render`.  
 - Wrap any view that subscribes in `t/with-render`.  

@@ -12,18 +12,20 @@ When a library needs a tiny React component of your own (for example so *you* ca
 call hooks), that component is still registered as a Freehand **host leaf** — a
 local interop file, not a second app architecture.
 
-Host **contracts** (leaf, behavior, wrapper, `->react`, error-boundary) are the
-law; this page is the **recipe** companion.
+Host **contracts** live on [Host boundaries](host-boundaries.md): **`v/defhost`**
+(paved React in), a finished React element as a weaker child escape, registered
+behaviors, and `v/->react` outward. This page is the **recipe** companion.
 
 ## First decision: what kind of library is it?
 
 | Library shape | Freehand approach | Examples (illustrative) |
 |---|---|---|
 | **Only enter/exit retention** | **`v/presence` + CSS** first | toasts, simple panel fade |
-| **React component**: values in, callbacks out (hooks only *inside* the lib) | **Qualified host leaf** | date pickers, many charts, **Framer `motion.*` / `AnimatePresence`** |
+| **React component**: values in, Freehand intents out | **`v/defhost`** (paved) | date pickers, many charts |
+| **React element you already built** | child `createElement` + plain closures | ad-hoc islands when you skip a declaration |
 | **Imperative DOM owner**: `new X(el)`, dispose | **Registered behavior** | Vega View, Mapbox GL, GSAP on a node |
 | **Imperative owner you must *await***: construction answers a Promise | **Registered behavior** whose `:connect` returns a **cell** | `vegaEmbed(el, spec)`, a Maps `loader.load()`, a workbook `.ready` |
-| **Your code must call React hooks** (or similar) | a **small React component** of your own, entered as a child | `useMotionValue`, custom scroll-linked motion |
+| **Your code must call React hooks** (or similar) | small React component of your own, then **`v/defhost`** or a child element | `useMotionValue`, custom scroll-linked motion |
 
 The fence is **hooks in your Freehand view body**, not “any JS library.” A foreign
 React component that uses hooks **internally** is fine as a child. If *you* need
@@ -77,56 +79,58 @@ animates. Full guide: [Presence](presence.md).
 Reach for GSAP or Framer when you need choreography, springs, shared layout,
 gestures, or motion that CSS and presence cannot express cleanly.
 
-## Pattern B — React leaf (values in, callbacks out)
+## Pattern B — React via `v/defhost` (paved)
 
-Use this when the library (or its React wrapper) is basically props and callbacks.
-Create the React **element** and put it in a child position — a bare React
-component at a vector head is not a Freehand descriptor.
+Use this when the library (or its React wrapper) is props and callbacks. Declare
+the component once with **`v/defhost`**, mount the descriptor at a vector head,
+and use the escape roster at declared callback positions. That is the paved path
+in [Host boundaries](host-boundaries.md#declared-hosts-vdefhost).
 
 ```clojure
 (ns app.ui.chart
-  (:require ["react" :as react]
-            ["react-sparkline" :default Sparkline]
-            [re-frame.core :as rf]
+  (:require ["react-sparkline" :default Sparkline]
             [re-frame.freehand :as v]))
 
+(v/defhost sparkline
+  Sparkline
+  {:callbacks {:onSelect :event}
+   :children  :none
+   :ssr       :client-only})
+
 (v/defview trend-sparkline [_]
-  (let [{:keys [dispatch]} (rf/capture-frame)]
-    (v/client-only
-     {:fallback [:div.sparkline-placeholder "…"]}
-     [:div.sparkline
-      (react/createElement
-        Sparkline
-        #js {:data     (clj->js (v/sub [:metrics/sparkline]))
-             :onSelect (fn [point]
-                         (dispatch [:metrics/point-selected
-                                    (js->clj point :keywordize-keys true)]))})])))
+  (v/client-only
+   {:fallback [:div.sparkline-placeholder "…"]}
+   [sparkline
+    {:data     (clj->js (v/sub [:metrics/sparkline]))
+     :onSelect (v/event [point]
+                 [:metrics/point-selected
+                  (js->clj point :keywordize-keys true)])}]))
 ```
 
 Notes:
 
-- **A callback in `#js` props is an ordinary closure**, because those props are the
-  library's own ABI and Freehand never walks them. The escape roster (`v/event`,
-  `v/handler`, …) belongs at positions Freehand owns — a native `:on-*` prop, a
-  declared view's props, a `v/slot`; a roster carrier handed to a `createElement`
-  prop reaches the library as a non-callable marker.
-  See [Events — escape roster](events-and-handlers.md#the-escape-roster).  
-- **Capture the frame, don't rely on the ambient one.** The render scope is gone by
-  the time the library calls back, so close over `(rf/capture-frame)`'s `:dispatch`
-  rather than calling `rf/dispatch` — which would raise
-  `:rf.error/no-frame-context`.  
-- The JVM structural renderer accepts no React elements, so a server-rendered root
-  needs `v/client-only` around the child.  
-- Props on the foreign element are the library's own ABI — JS objects and all.
-  That is not the rule for Freehand's own DOM nodes, which take keyword props.  
+- **`v/event` is legal here** — Freehand owns the callback site and materializes a
+  committed proxy. That is the opposite of a raw `createElement` `#js` prop.  
+- Prop names on the host pass **exactly** (`:onSelect` → `onSelect`).  
+- Server-side: `:ssr :client-only` on the declaration (or wrap with `v/client-only`).  
 
-## Pattern C — Framer Motion as Freehand host leaves
+### Weaker escape: a finished React element as a child
+
+When you already hold an element and do not want a declaration, put
+`react/createElement` in a **child** position. Freehand does **not** walk those
+`#js` props — use a plain closure over `(rf/capture-frame)`'s `:dispatch`, never
+a roster carrier. Details:
+[Host boundaries — element as child](host-boundaries.md#a-react-element-as-a-child).
+
+## Pattern C — Framer Motion (compound React children)
 
 **You stay on Freehand for the app.** Framer’s **component** API (`motion.div`,
-`AnimatePresence`, `motion.button`, …) enters a Freehand tree as **React elements
-in child positions**: values in, callbacks out, one shared React tree. Hooks that
-live *inside* those Framer components are Framer’s business — you are not calling
-them from a `v/defview`.
+`AnimatePresence`, `motion.button`, …) often needs **finished React elements as
+children** (especially `AnimatePresence`, which filters with `isValidElement`).
+That is the weaker child-element escape, not `v/defhost`: values and closures in
+`#js` props, Freehand views exported with `v/->react` then **created as elements**.
+Hooks *inside* Framer stay Framer’s business — you are not calling them from a
+`v/defview`.
 
 ### Sketch (interpreted Freehand)
 
