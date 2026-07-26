@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # verify-version-lockstep.sh (rf2-ace2; substrate-paths updated rf2-zha9;
-# adapters/ rename rf2-0imy; tools/ coverage rf2-lwtke)
+# adapters/ rename rf2-0imy; tools/ coverage rf2-lwtke; coordinate-inventory
+# completeness rf2-7fxf8)
 #
 # Asserts the lockstep-version contract documented in spec/Conventions.md
 # §Packaging conventions: every published artefact picks up its version
@@ -169,6 +170,98 @@ check_version_and_no_mvn_literal() {
   fi
 }
 
+# ---- rf2-7fxf8: the inventory must be COMPLETE, not merely correct -------
+#
+# Every check in this script asks one direction of the question: "is the
+# coordinate this script expects present in deps.edn?". Nothing asked the
+# converse — "is every coordinate deps.edn declares present in this
+# script?" — and the converse is the direction the gate actually drifted.
+# tools/xray/deps.edn grew from one in-repo `:local/root` coordinate to TEN
+# (core, epoch, routing, flows, schemas, resources, machines, freehand,
+# machines-viz, reagent-slim) while TOOLS_LOCAL_ROOTS below kept listing
+# one; tools/story-mcp/deps.edn grew a second (mcp-base) while its entry
+# kept listing one. Throughout, the gate printed "PASSED — all 18
+# artefacts" while blind to ten of the eighteen in-repo coordinates the
+# release workflows have to rewrite. A one-directional roster cannot report
+# on what it does not list, so its green is an ACTIVE false assurance
+# rather than a merely missing check.
+#
+# Every roster entry is therefore cross-checked against the set DERIVED
+# from the committed deps.edn. Same principle as
+# .github/scripts/preflight-xray-package.sh (rf2-5dut1), which derives its
+# required set instead of hand-listing it for exactly this reason — with a
+# different vehicle: the preflight is the tag-push arm and runs where
+# clojure is installed, whereas this gate is the ORDINARY-CI arm (test.yml
+# runs it on a bare `actions/checkout` with no JDK), so it reads EDN
+# through the same node authority the inventory guard above uses
+# (implementation/scripts/lib/edn.cjs, rf2-zef0e). Structure, never a text
+# grep: a reformatted deps.edn, or a coordinate quoted in a `;;` comment or
+# inside a `#_` discard, must not be able to produce the false PASS this
+# check exists to prevent.
+EDN_READER="${REPO_ROOT}/implementation/scripts/lib/edn.cjs"
+
+# Every in-repo coordinate the deps.edn at $1 declares, one rendered
+# `lib {:local/root "path"}` line each, in declaration order. Alias
+# :extra-deps are out of scope by design: they are build-time (clein,
+# test-runner, test-quiet) and never reach a published pom — the same
+# main-:deps scoping check_no_git_coords_in_runtime_deps uses.
+local_root_coords() {
+  node -e '
+    const fs = require("fs");
+    const { readEdn, isMap, mapGetKeyword } = require(process.argv[1]);
+    const top = readEdn(fs.readFileSync(process.argv[2], "utf8"));
+    if (!isMap(top)) throw new Error("top-level form is not a map");
+    const deps = mapGetKeyword(top, "deps");
+    if (deps === undefined) process.exit(0);
+    if (!isMap(deps)) throw new Error(":deps is not a map");
+    for (const [lib, coord] of deps.entries) {
+      if (!isMap(coord)) continue;
+      const root = mapGetKeyword(coord, "local/root");
+      if (root === undefined) continue;
+      if (root === null || root.edn !== "string") {
+        throw new Error(":local/root value is not a string literal");
+      }
+      process.stdout.write(lib.name + " {:local/root \"" + root.value + "\"}\n");
+    }
+  ' "${EDN_READER}" "$1"
+}
+
+# The "and nothing else" half of the contract: every coordinate $1 declares
+# must appear verbatim in the newline-separated expected set $3, which the
+# checks below ACCUMULATE as they run — so the set means precisely "the
+# coordinates this script asserted", and a coordinate added to deps.edn
+# without a matching roster line fails here.
+#
+# Fail-closed on an unreadable deps.edn (exit, not a counted drift): a
+# reader that could not enumerate the coordinates cannot be the basis for
+# reporting that they are all inventoried.
+coords_checked=0
+assert_local_roots_inventoried() {
+  local deps_file="$1"
+  local rel_label="$2"
+  local expected="$3"
+  local derived coord
+
+  if ! derived="$(local_root_coords "${deps_file}")"; then
+    echo "::error file=${rel_label}::failed to read this deps.edn's :local/root coordinates structurally via implementation/scripts/lib/edn.cjs (is node on PATH? is the EDN well-formed?) — refusing to report an inventory this script could not verify"
+    exit 2
+  fi
+
+  while IFS= read -r coord; do
+    [[ -z "${coord}" ]] && continue
+    coords_checked=$((coords_checked + 1))
+    if ! grep -qxF "${coord}" <<< "${expected}"; then
+      echo "::error file=${rel_label}::in-repo coordinate '${coord}' is declared at :local/root but is NOT in this script's inventory, so NOTHING asserts the release workflow rewrites it to :mvn/version. 'clein pom' SKIPS :local/root coordinates silently, so the published pom would omit this runtime dependency and Clojars has no yank (rf2-7fxf8). Add it to this script AND to the rewrite step of the artefact's release workflow, in the same PR."
+      errors=$((errors + 1))
+    fi
+  done <<< "${derived}"
+}
+
+# Populated by the :local/root presence checks below, then consumed by the
+# completeness pass. Keyed by artefact name; value is a newline-separated
+# list of rendered coordinates.
+declare -A IMPL_EXPECTED_LOCAL_ROOTS=()
+
 for artefact in "${ARTEFACTS[@]}"; do
   subpath="${ARTEFACT_PATHS[$artefact]}"
   deps_file="${REPO_ROOT}/implementation/${subpath}/deps.edn"
@@ -219,6 +312,7 @@ for artefact in "${NON_CORE[@]}"; do
     echo "::error file=${rel_label}::expected '${expected_local_root}' (lockstep contract; the release workflow rewrites this to :mvn/version at deploy time)"
     errors=$((errors + 1))
   fi
+  IMPL_EXPECTED_LOCAL_ROOTS["${artefact}"]+="${expected_local_root}"$'\n'
 done
 
 # rf2-qmhysc — ssr-ring is the one implementation artefact whose
@@ -236,7 +330,23 @@ if [[ -f "${SSR_RING_DEPS}" ]]; then
     echo "::error file=implementation/ssr-ring/deps.edn::expected 'day8/re-frame2-ssr {:local/root \"../ssr\"}' (lockstep contract; ssr-ring depends on ssr and the release workflow rewrites this to :mvn/version at deploy time)"
     errors=$((errors + 1))
   fi
+  IMPL_EXPECTED_LOCAL_ROOTS[ssr-ring]+='day8/re-frame2-ssr {:local/root "../ssr"}'$'\n'
 fi
+
+# rf2-7fxf8 — and the converse, for every implementation artefact including
+# core (whose expected set is empty: core is the lockstep root and must
+# stay dependency-free within the repo). release.yml's rewrite is a
+# hand-written matrix of one `local-root` value per leaf — ssr-ring is off
+# that matrix precisely because it has a SECOND coordinate — so an in-repo
+# edge nobody inventoried here is an edge nobody rewrites there.
+for artefact in "${ARTEFACTS[@]}"; do
+  deps_file="${REPO_ROOT}/implementation/${ARTEFACT_PATHS[$artefact]}/deps.edn"
+  [[ -f "${deps_file}" ]] || continue
+  assert_local_roots_inventoried \
+    "${deps_file}" \
+    "implementation/${ARTEFACT_PATHS[$artefact]}/deps.edn" \
+    "${IMPL_EXPECTED_LOCAL_ROOTS[$artefact]:-}"
+done
 
 # rf2-qmhysc — inventory drift guard. The whole risk this script exists
 # to close is "a publishable artefact ships at a stale version / broken
@@ -324,8 +434,34 @@ declare -A TOOLS_PATHS=(
 # would need to rewrite to :mvn/version at deploy time. A bash
 # associative array can't carry multi-valued entries cleanly, so we use
 # a single multi-line string and split on `|`.
+#
+# rf2-7fxf8 — Xray's entry listed ONE of its ten in-repo coordinates and
+# story-mcp's listed one of its two, so ten of the eighteen coordinates the
+# release workflows must rewrite were asserted by nothing at all. The
+# completeness pass at the end of the tools loop now derives the true set
+# from each deps.edn, so this list cannot silently fall behind again.
+#
+# Xray's `day8/re-frame2-freehand` line asserts ONLY what the loop below
+# asserts of every entry: that the coordinate is declared at `:local/root`
+# in the committed deps.edn, which is true today and green. It does NOT
+# assert that freehand is publishable — implementation/freehand/deps.edn
+# deliberately carries no `:clein/build` (publication is EP-0036 F6
+# territory), so `day8/re-frame2-freehand` cannot be rewritten to any
+# `:mvn/version`. Whether Xray is publishable before Freehand ships is an
+# OPEN OPERATOR DECISION (rf2-5dut1) that this gate neither makes nor
+# routes around; preflight-xray-package.sh is where it comes due, by
+# refusing the deploy.
 TOOLS_LOCAL_ROOTS=$(cat <<'EOF'
 xray|day8/re-frame2 {:local/root "../../implementation/core"}
+xray|day8/re-frame2-epoch {:local/root "../../implementation/epoch"}
+xray|day8/re-frame2-routing {:local/root "../../implementation/routing"}
+xray|day8/re-frame2-flows {:local/root "../../implementation/flows"}
+xray|day8/re-frame2-schemas {:local/root "../../implementation/schemas"}
+xray|day8/re-frame2-resources {:local/root "../../implementation/resources"}
+xray|day8/re-frame2-machines {:local/root "../../implementation/machines"}
+xray|day8/re-frame2-freehand {:local/root "../../implementation/freehand"}
+xray|day8/re-frame2-machines-viz {:local/root "../machines-viz"}
+xray|day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
 story|day8/re-frame2 {:local/root "../../implementation/core"}
 story|day8/re-frame2-reagent {:local/root "../../implementation/adapters/reagent"}
 story|day8/re-frame2-machines {:local/root "../../implementation/machines"}
@@ -337,6 +473,7 @@ story|day8/re-frame2-machines {:local/root "../../implementation/machines"}
 story|day8/re-frame2-http {:local/root "../../implementation/http"}
 story|day8/re-frame2-xray {:local/root "../xray"}
 story-mcp|day8/re-frame2-story {:local/root "../story"}
+story-mcp|day8/re-frame2-mcp-base {:local/root "../mcp-base"}
 machines-viz|day8/re-frame2 {:local/root "../../implementation/core"}
 EOF
 )
@@ -440,6 +577,7 @@ for tool in "${TOOLS[@]}"; do
   # (`day8/re-frame2          {:local/root …}`) so we collapse all
   # runs of whitespace to a single space before matching.
   normalised="$(tr -s '[:space:]' ' ' < "${deps_file}")"
+  tool_expected=""
   while IFS='|' read -r entry_tool entry_local_root; do
     [[ -z "${entry_tool}" ]] && continue
     [[ "${entry_tool}" == "${tool}" ]] || continue
@@ -447,7 +585,12 @@ for tool in "${TOOLS[@]}"; do
       echo "::error file=${rel_label}::expected '${entry_local_root}' (lockstep contract; the release workflow rewrites this to :mvn/version at deploy time)"
       errors=$((errors + 1))
     fi
+    tool_expected+="${entry_local_root}"$'\n'
   done <<< "${TOOLS_LOCAL_ROOTS}"
+
+  # rf2-7fxf8 — and the converse. This is the direction that was missing,
+  # and the direction Xray drifted in.
+  assert_local_roots_inventoried "${deps_file}" "${rel_label}" "${tool_expected}"
 done
 
 if [[ "${errors}" -gt 0 ]]; then
@@ -457,4 +600,9 @@ fi
 
 total_count=$((${#ARTEFACTS[@]} + ${#TOOLS[@]}))
 echo "lockstep version verification PASSED — all ${total_count} artefacts (${#ARTEFACTS[@]} implementation/ + ${#TOOLS[@]} tools/) pinned to repo-root VERSION ${VERSION}"
+# rf2-7fxf8 — report what was actually SEEN, not merely what was listed.
+# The line above was printed unchanged while ten in-repo coordinates were
+# outside the inventory entirely; this one is derived from the committed
+# deps.edn files, so it cannot overstate the gate's reach.
+echo "lockstep coordinate inventory COMPLETE — ${coords_checked} in-repo :local/root coordinate(s) declared across those artefacts, every one of them inventoried here"
 exit 0
