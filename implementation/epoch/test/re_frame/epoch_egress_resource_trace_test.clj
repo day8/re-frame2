@@ -147,6 +147,25 @@
                    :page->items     :items
                    :params-schema   [:map [:filter :keyword]]}
                   (fn [_ _] {:request {:method :get :url "/f"}}))
+                ;; rf2-wd9im (merged-PR audit #7013) — a :sensitive? owner whose
+                ;; REQUIRED :params-schema legally admits NON-MAP canonical
+                ;; params. Nothing exotic: `[:vector :string]` is an ordinary
+                ;; schema, and the resource registrar validates + canonicalizes
+                ;; against whatever the owner declared. Its scoped key wears the
+                ;; positional skeleton of every other key but has no MAP at
+                ;; position 2, which is the only proof the shape read used to
+                ;; take.
+                (rf/reg-resource :secret/vector-params
+                  {:scope         :rf.scope/global
+                   :sensitive?    true
+                   :params-schema [:vector :string]}
+                  (fn [_ _] {:request {:method :get :url "/g"}}))
+                ;; …and its over-redaction control: same params SHAPE, no
+                ;; coarse claim, so its key must ride verbatim.
+                (rf/reg-resource :plain/vector-params
+                  {:scope         :rf.scope/global
+                   :params-schema [:vector :string]}
+                  (fn [_ _] {:request {:method :get :url "/h"}}))
                 ;; a PLAIN resource under a CONCRETE (non-global) scope — the
                 ;; over-redaction control for the FREE `:scope` tag (rf2-1zc33).
                 ;; Its scoped KEY must keep scope AND params verbatim, which is
@@ -2750,3 +2769,197 @@
       (is (= [declared-feed-items declared-feed-items]
              (mapv :value (carrier-replies projected)))
           "every carrier's raw merged item list rides with :include-sensitive?"))))
+
+;; ===========================================================================
+;; (rf2-wd9im audit #7013, and with it rf2-xx4ty's own carrier) NON-MAP
+;; CANONICAL PARAMS — the shape read under-recognised a legal scoped key.
+;; ===========================================================================
+;;
+;; rf2-wd9im replaced the projector's slot-NAME roster with a shape read, so a
+;; scoped key sitting in a slot nobody had enumerated (`:blocking` /
+;; `:identities`, an embedded `:work/id`) projects through its owner exactly as
+;; a named slot's keys do. The shape it read was
+;; `[<scope> <resource-id keyword> <params MAP>]`, and the `map?` at position 2
+;; was the whole discrimination: `:owner [:app :l 1]` and
+;; `:cause [:mutation :m/save 7]` wear the same skeleton and MUST ride verbatim.
+;;
+;; But `:params-schema` is REQUIRED and free. `[:vector :string]` is an ordinary
+;; schema, and the registrar validates + canonicalizes params against whatever
+;; the owner declared — so a REGISTERED owner's canonical params are legally a
+;; vector, a scalar, or nil. Such a key wore the skeleton and failed the only
+;; proof, so it fell through the recursive walk as a bag of structural scalars:
+;; owner-aware projection never ran, the row was NOT stamped `:sensitive?`, and
+;; a `:sensitive?` owner's resolved scope + canonical params egressed RAW —
+;; under `:blocking` / `:identities`, inside every `:work/id`, and (the
+;; rf2-xx4ty surface) inside a `:reply-to` read continuation riding
+;; `:rf.fx/args` / `:rf.event/fx`, one slot from the `:value` and `:params` that
+;; DID tokenize because the reply's owner read never needed the params shape.
+;;
+;; THE SECOND PROOF is the resource REGISTRY — the family's own authority
+;; answering "is this one of mine?", which `carrier-family-value?` already read
+;; one carrier out for exactly this question. It is not a roster and cannot rot,
+;; and it says nothing about `:owner`'s `:l` or `:cause`'s `:m/save`: a MUTATION
+;; id is not in the RESOURCE registrar. The controls below assert that
+;; explicitly, including on a `:branch` of THREE route ids — the structural
+;; 3-vector a bare "redact any vector-of-vectors" guard could never have kept.
+
+(def ^:private vector-secret
+  "The secret carried by a NON-MAP canonical params value. Distinct from
+  `secret` so a failing path names which class leaked."
+  (str secret "-vector"))
+
+(def ^:private vector-params
+  "Canonical params of a `[:vector :string]` owner — a legal params value with
+  no MAP anywhere in it, which is exactly what the old shape read could not
+  recognise."
+  [vector-secret])
+
+;; ---------------------------------------------------------------------------
+;; (1) family rows — the unnamed plan-membership slots and the embedded work-id
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-redacts-non-map-param-keys-in-unnamed-plan-slots
+  (testing "rf2-wd9im audit #7013 — a :rf.resource/route-plan row's :blocking /
+            :identities carrying a :sensitive? owner's key whose canonical
+            params are a VECTOR must tokenize per key. Before the repair the key
+            failed the params `map?` proof, fell through the recursive walk as
+            structural scalars, and the raw scope + params rode out with the row
+            unstamped."
+    (let [k1        (sk :rf.scope/global :secret/vector-params vector-params)
+          k2        (sk :rf.scope/global :secret/vector-params
+                        [(str vector-secret "-2")])
+          record    (record-with
+                      [(event :rf.resource/route-plan (route-plan-tags [k1] [k1 k2]))])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))
+          [bscope brid bparams] (first (:blocking tags))]
+      (testing ":blocking tokenizes per key"
+        (is (= :secret/vector-params brid) "the resource-id (position 1) survives")
+        (is (redacted-component? bscope) "the scope is tokenized")
+        (is (redacted-component? bparams) "the VECTOR params are tokenized"))
+      (testing ":identities keeps per-key DISTINCTNESS so a tool's joins survive"
+        (is (= 2 (count (:identities tags))))
+        (is (every? #(redacted-component? (nth % 2)) (:identities tags)))
+        (is (apply not= (map #(nth % 2) (:identities tags)))
+            "two distinct vector-params keys keep two distinct digests"))
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the plan's structural attribution still rides verbatim"
+        (is (= [:r/root :r/article] (:branch tags)))
+        (is (= 1 (:removed tags)) "the INT count is untouched"))
+      (testing "NO raw secret survives anywhere in the projected record"
+        (is (= [] (secret-leak-paths projected)))))))
+
+(deftest unnamed-slot-non-map-params-projects-identically-to-named-slot
+  (testing "rf2-wd9im audit #7013 anti-drift — the SAME vector-params keys under
+            a NAMED slot (:matched, projected BY POSITION and therefore never
+            affected by the params shape) and under the UNNAMED :blocking /
+            :identities must project IDENTICALLY. This is the assertion that
+            reds hardest before the repair: the named slot tokenized while the
+            unnamed one rode raw, on one row, for one key."
+    (let [ks        [(sk :rf.scope/global :secret/vector-params vector-params)
+                     (sk :rf.scope/global :secret/vector-params [(str vector-secret "-2")])]
+          record    (record-with
+                      [(event :rf.resource/route-plan
+                              {:rf.frame/id :test/rt
+                               :matched     ks     ; NAMED   -> position arm
+                               :blocking    ks     ; UNNAMED -> shape arm
+                               :identities  ks})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= (:matched tags) (:blocking tags))
+          ":blocking projects exactly as the NAMED :matched does")
+      (is (= (:matched tags) (:identities tags))
+          ":identities projects exactly as the NAMED :matched does")
+      (is (= [] (secret-leak-paths projected))))))
+
+(deftest off-box-redacts-non-map-param-key-embedded-in-resource-work-id
+  (testing "rf2-wd9im audit #7013 — the embedded work-id key is the SHARED path
+            the audit names: `[:rf.work/resource <scoped-key> <generation>]`
+            rides the majority of rows in the family and no roster names
+            :work/id, so a vector-params key one level down inside it egressed
+            raw on every one of them."
+    (let [scoped-key (sk :rf.scope/global :secret/vector-params vector-params)
+          work-id    (work-ledger/resource-work-id scoped-key 3)
+          record     (record-with
+                       [(event :rf.resource/work-started
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :generation 3 :work/id work-id
+                                :status :running :cause :ensure})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))
+          [marker embedded generation] (:work/id tags)]
+      (is (= :rf.work/resource marker) "the work-kind marker rides verbatim")
+      (is (= 3 generation) "the generation rides verbatim")
+      (is (= :secret/vector-params (second embedded)) "the resource-id survives")
+      (is (redacted-component? (first embedded)) "the embedded scope is tokenized")
+      (is (redacted-component? (nth embedded 2)) "the embedded VECTOR params are tokenized")
+      (is (= (:resource/key tags) embedded)
+          "the embedded key projects exactly as the row's own :resource/key —
+           the NAMED slot that was already right, which is what makes the
+           mismatch the bug rather than a preference")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (is (= [] (secret-leak-paths projected))))))
+
+;; ---------------------------------------------------------------------------
+;; (2) the two-sided controls — the registry proof must not over-redact
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-keeps-plain-owner-non-map-param-plan-membership-verbatim
+  (testing "rf2-wd9im audit #7013 guard — a PLAIN owner's vector-params keys
+            ride VERBATIM. The widened recognition routes through the OWNER
+            classification exactly as the map-params keys do, so recognising
+            more keys buys no extra redaction."
+    (let [k1        (sk :rf.scope/global :plain/vector-params ["welcome"])
+          record    (record-with
+                      [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= [k1] (:blocking tags)) "a plain owner's :blocking rides verbatim")
+      (is (= [k1] (:identities tags)) "a plain owner's :identities rides verbatim")
+      (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
+
+(deftest off-box-keeps-structural-three-vectors-verbatim-under-unnamed-slots
+  (testing "rf2-wd9im audit #7013 guard — the NEGATIVE control the audit names.
+            The family's other 3-element vectors wear the same positional
+            skeleton as a scoped key and MUST ride verbatim: `:owner` (a view
+            path), `:cause` (a mutation attribution triple), and a `:branch` of
+            THREE route ids — the case a bare 'redact any 3-vector' or
+            'redact any vector-of-vectors' guard could not have kept. None of
+            their position-1 keywords is in the RESOURCE registrar (a MUTATION
+            id is registered in a different registrar), which is precisely why
+            the registry is a safe second proof."
+    (let [record    (record-with
+                      [(event :rf.resource/route-plan
+                              {:rf.frame/id :test/rt
+                               :owner       [:app :l 1]
+                               :cause       [:mutation :m/save 7]
+                               :branch      [:r/root :r/article :r/comments]
+                               :nav-token   7})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= [:app :l 1] (:owner tags)) "a view path rides verbatim")
+      (is (= [:mutation :m/save 7] (:cause tags))
+          "a mutation attribution triple rides verbatim")
+      (is (= [:r/root :r/article :r/comments] (:branch tags))
+          "a THREE-id route branch rides verbatim")
+      (is (= 7 (:nav-token tags)))
+      (is (not (:sensitive? tags))
+          "a row of purely structural vectors is NOT stamped sensitive"))))
+
+(deftest trusted-local-include-sensitive-keeps-raw-non-map-param-keys
+  (testing "rf2-wd9im audit #7013 — the redaction is the off-box DEFAULT, not an
+            unconditional strip: the trusted-local :include-sensitive? opt-in
+            keeps the raw vector-params plan membership and the raw embedded
+            work-id key."
+    (let [k1        (sk :rf.scope/global :secret/vector-params vector-params)
+          work-id   (work-ledger/resource-work-id k1 3)
+          record    (record-with
+                      [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))
+                       (event :rf.resource/work-started
+                              {:rf.frame/id :test/rt :work/id work-id})])
+          projected (epoch/projected-record record {:include-sensitive? true})
+          [plan work] (:trace-events projected)]
+      (is (= [k1] (:blocking (:tags plan))) "raw :blocking rides")
+      (is (= [k1] (:identities (:tags plan))) "raw :identities rides")
+      (is (= work-id (:work/id (:tags work))) "raw embedded work-id key rides"))))
+
