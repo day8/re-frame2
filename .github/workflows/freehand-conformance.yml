@@ -65,22 +65,26 @@ name: freehand-conformance
 # branch ruleset requires, and renaming it would silently drop the requirement.
 
 on:
+  # BOTH triggers are intentionally UNFILTERED. The PR one for the
+  # REQUIRED-CHECK SHAPE above; the push one because neither checker has a
+  # filterable read universe (rf2-kx06s).
+  #
+  # `check_freehand_conformance_index.py` scans every `spec/**/*.md` for `FH-*`
+  # citations and resolves each index citation against its target canonical
+  # spec file, so deleting a cited anchor anywhere under `spec/` can red it.
+  # `check_donor_inventory.py` is worse: it runs `git ls-files` and censuses
+  # tracked text across the WHOLE working tree for `re-frame.ui` libspecs and
+  # `day8/re-frame2-ui` coordinates — a donor consumer added at any tracked
+  # path is precisely what it is looking for (this file said so in the DONOR
+  # INVENTORY paragraph below while the push trigger still carried a filter).
+  # An inclusive filter over those two universes is the whole repository, so
+  # the honest spelling of it is no filter at all: a direct push to main that
+  # can change either checker's result always schedules the job. It is one
+  # ~30-second Python job and it already runs unfiltered on every PR, so
+  # dropping the filter costs main pushes nothing they were not already paying
+  # one merge earlier.
   push:
     branches: [main]
-    paths:
-      - 'spec/conformance/freehand/**'
-      - 'implementation/freehand/test/**'   # the fixture tree the index cites
-      - 'scripts/check_freehand_conformance_index.py'
-      - 'scripts/check_donor_inventory.py'
-      - 'scripts/check_doc_slugs.py'   # supplies the shared slug index
-      # The census DERIVES its two CLJS lane selectors rather than listing
-      # them (rf2-k41ph), so the file that defines the lanes and the reader
-      # that parses it are inputs to this job exactly as the checkers are.
-      - 'implementation/shadow-cljs.edn'
-      - 'scripts/check_test_lane_bijection.py'
-      - 'requirements.txt'
-      - '.github/workflows/freehand-conformance.yml'
-  # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE above).
   pull_request:
     branches: [main]
   workflow_dispatch:
