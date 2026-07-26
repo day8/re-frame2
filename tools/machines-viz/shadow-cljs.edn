@@ -53,7 +53,10 @@
 ;; `:cljs-test`, not `:test`: shadow-cljs resolves a `:deps {:aliases [...]}`
 ;; classpath by shelling out to `clojure -A:<alias>`, which INHERITS the
 ;; alias's `:main-opts` and then hands shadow's own arguments to cognitect's
-;; test-runner. The two aliases carry the same paths; see deps.edn.
+;; test-runner. The two aliases carry the same test-only deps; `:cljs-test`
+;; additionally carries the `page` root, which holds the viewer page entry
+;; `viewer_cljs_test.cljs` requires and which the published jar does not ship
+;; (rf2-k7l2o). See deps.edn.
 {:deps {:aliases [:cljs-test]}
 
  ;; The repo installs exactly one node_modules (implementation/). Pointing at

@@ -159,14 +159,16 @@
   ;; this file for why the lane is declared HERE rather than borrowed onto the
   ;; consolidated one).
   ;;
-  ;; It carries the SAME paths and the SAME test-only deps as `:test` above and
-  ;; differs in exactly one respect: no `:main-opts`. shadow-cljs resolves a
+  ;; It carries the SAME test-only deps as `:test` above and differs in exactly
+  ;; two respects. First, no `:main-opts`: shadow-cljs resolves a
   ;; `:deps {:aliases [...]}` classpath by shelling out to `clojure -A:<alias>`,
   ;; which INHERITS the alias's `:main-opts` and then hands shadow's own
   ;; arguments to cognitect's test-runner instead of to shadow. Pointing the
-  ;; build at `:test` therefore fails before it compiles anything. A
-  ;; :main-opts-free alias is the whole difference; keeping the deps in lockstep
-  ;; is what makes the two runtimes see one classpath.
+  ;; build at `:test` therefore fails before it compiles anything, so a
+  ;; :main-opts-free alias is unavoidable; keeping the deps in lockstep is what
+  ;; makes the two runtimes see one classpath. Second, the `page` path — see
+  ;; below; `:test` does not carry it because the page is `.cljs` and the JVM
+  ;; lane never loads it.
   ;; `thheller/shadow-cljs` is pinned here for the same reason
   ;; tools/mcp-base/deps.edn and tools/re-frame2-pair-mcp/deps.edn pin it: the
   ;; artefact has no npm surface, so the shadow-cljs launcher cannot inject its
