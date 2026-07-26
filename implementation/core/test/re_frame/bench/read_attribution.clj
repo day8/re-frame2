@@ -85,6 +85,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.live-frame :as live-frame]
+            [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]
             [re-frame.substrate.observation :as obs]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -187,6 +188,45 @@
     (dotimes [k n]
       (vreset! sink (if (get-in db [:items k]) 1 0)))))
 
+;; INSIDE `probe`, so the port's own share can be attributed rather than
+;; guessed. Both arms below re-walk `probe`'s live branch through PUBLIC
+;; functions only, and each is a strict prefix of the next:
+;;
+;;   PRELUDE  resolve, frame lookup, the frame-resolution scope, the
+;;            registry lookup, the cache get. Everything before the node
+;;            is touched.
+;;   PRENODE  + the node deref itself.
+;;
+;; PORT - PRENODE is then the tail: `validate-target!`, the node-record
+;; advance, and the evidence map. If these do not bracket PORT they are
+;; not tracking `probe` and must not be quoted.
+(defn- arm-probe-prelude [n]
+  (let [{:keys [qs cache]} @rig]
+    (dotimes [k n]
+      (let [target (obs/resolve-target {:query-v (nth qs k)})
+            fid*   (:frame-id target)
+            query  (:query target)]
+        (when (nil? (frame/frame fid*)) (throw (ex-info "no frame" {})))
+        (live-frame/call-with-frame-resolution
+          (live-frame/frame-resolution-target fid*)
+          (fn []
+            (registrar/lookup :sub (first query))
+            (vreset! sink (if (:reaction (get @cache query)) 1 0))))))))
+
+(defn- arm-probe-prenode [n]
+  (let [{:keys [qs cache]} @rig]
+    (dotimes [k n]
+      (let [target (obs/resolve-target {:query-v (nth qs k)})
+            fid*   (:frame-id target)
+            query  (:query target)]
+        (when (nil? (frame/frame fid*)) (throw (ex-info "no frame" {})))
+        (live-frame/call-with-frame-resolution
+          (live-frame/frame-resolution-target fid*)
+          (fn []
+            (registrar/lookup :sub (first query))
+            (let [r (:reaction (get @cache query))]
+              (vreset! sink (if (deref r) 1 0)))))))))
+
 ;; ---------------------------------------------------------------------------
 
 (defn- census
@@ -279,7 +319,8 @@
                   ["PORT"     arm-port]     ["CACHEGET" arm-cacheget]
                   ["DEREF"    arm-deref]    ["RGSUB"    arm-rgsub]
                   ["RGREAD"   arm-rgread]   ["RAWREACT" arm-rawreact]
-                  ["GETIN"    arm-getin]]
+                  ["GETIN"    arm-getin]   ["PRELUDE"  arm-probe-prelude]
+                  ["PRENODE"  arm-probe-prenode]]
             res  (reduce (fn [acc [l f]] (assoc acc l (measure l f)))
                          {}
                          (if reverse-order? (reverse plan) plan))
@@ -296,7 +337,7 @@
         (println ";;")
         (println (format ";; NOOP fixed per-pass overhead %10.0f B" noop))
         (doseq [l ["GETIN" "RAWREACT" "DEREF" "RGSUB" "RGREAD"
-                   "RESOLVE" "CACHEGET" "PORT"]]
+                   "RESOLVE" "CACHEGET" "PRELUDE" "PRENODE" "PORT"]]
           (println (format ";; %-9s raw %11.0f B   net %11.0f B   %9.1f B/read"
                            l (b l) (net l) (per l))))
         (println ";;")
@@ -314,6 +355,12 @@
         (doseq [[lbl v] [["application work    (GETIN)"           (net "GETIN")]
                          ["host reaction shell (RAWREACT-GETIN)"  (- (net "RAWREACT") (net "GETIN"))]
                          ["re-frame sub graph  (DEREF-RAWREACT)"  (- (net "DEREF") (net "RAWREACT"))]]]
+          (println (format ";;   %-38s %8.1f B/read  %5.1f%% of PORT"
+                           lbl (/ v (double n)) (* 100.0 (/ v (net "PORT"))))))
+        (println ";; INSIDE probe (public-fn re-walk of its live branch):")
+        (doseq [[lbl v] [["resolve + lookups   (PRELUDE)"          (net "PRELUDE")]
+                         ["the node deref      (PRENODE-PRELUDE)"  (- (net "PRENODE") (net "PRELUDE"))]
+                         ["validate+record+evidence (PORT-PRENODE)" (- (net "PORT") (net "PRENODE"))]]]
           (println (format ";;   %-38s %8.1f B/read  %5.1f%% of PORT"
                            lbl (/ v (double n)) (* 100.0 (/ v (net "PORT"))))))
         (println ";; then ONE of:")
