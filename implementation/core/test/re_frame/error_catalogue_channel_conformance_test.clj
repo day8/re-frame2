@@ -93,6 +93,13 @@
        WHOLE `:operation` and the diff is a set difference. See the
        section comment above `spec-schemas-file` for what falls out of
        the pairing by construction and why.
+    7. PAIRING COVERAGE LEDGER (rf2-23qsg) — invariant 6 can only diff
+       the rows it PAIRS, so losing a pairing loses coverage silently.
+       `tags-column-paired-floor` records how many schemas the diff
+       reaches; it reds when that drops, which is what a deleted or
+       renamed-away schema does and what `CLAIMED == PAIRED` can never
+       see (both numbers move together). One integer, so it enumerates
+       no members and stays inside the rf2-6tags no-roster ruling.
 
   JVM-only (`.clj`, NOT `*-cljs-test`): it `slurp`s repo markdown + source
   files, which only the JVM `clojure -M:test` runner can do. The exercise
@@ -787,23 +794,40 @@
 ;; nav-token row on the whole-`:operation` spelling and leaves the HTTP row
 ;; correctly unpaired.
 ;;
-;; WHAT THIS ARM STILL CANNOT SEE, stated rather than papered over (rf2-ehy4l).
-;; Deleting or renaming a SCHEMA that pairs today — say `ResourceRoutePlanTags`
-;; — un-pairs its row without producing a finding, and an equal-count
-;; replacement evades every count-shaped guard by construction. Catching that
-;; needs a total, identity-preserving pairing, and the two corpora cannot
-;; derive one: 22 of the 111 `*Tags` schemas are legitimately claimed by NO
-;; catalogue row (`FxHandledTags`' siblings for non-error ops, and 12 whose
-;; operation 009 never names by any derivation), only 5 schema names are cited
-;; anywhere in 009, and nothing in `implementation/` references a schema name —
-;; so an orphaned schema is indistinguishable from a correctly-unpaired one
-;; without a third authority. Per the rf2-6tags ruling the answer is NOT a
-;; hand-maintained orphan roster; the ruling is being revisited (rf2-ehy4l
-;; follow-up) rather than the gap being closed with a widened baseline.
-;; The ROW half of the same mutation IS covered, by a sibling arm rather than
-;; here: deleting `:rf.error/resource-route-plan`'s row makes invariant #5's
-;; source scan (and `scripts/check_keyword_catalogue_drift.py` CHECK A) fire on
-;; the now-uncatalogued emitted category.
+;; THE SCHEMA-DELETION MUTATION, AND WHY THE IDENTITY COULD NEVER CATCH IT
+;; (rf2-23qsg, the revised rf2-6tags ruling). Deleting a SCHEMA that pairs today
+;; — say `ResourceRoutePlanTags` — un-pairs its row; renaming it to something no
+;; row claims does the same at an unchanged schema count. `CLAIMED == PAIRED` is
+;; powerless against both, because it is an IDENTITY BETWEEN TWO NUMBERS THAT
+;; MOVE TOGETHER: the deletion takes claimed 93 → 92 and paired 93 → 92, and the
+;; equal-count rename does exactly the same. The assertion is true in every
+;; mutated world, so it can never red on this class — which is not a gap in the
+;; assertion but the wrong KIND of assertion for a coverage question.
+;;
+;; Catching it BY NAME would need a total, identity-preserving pairing, and the
+;; two corpora cannot derive one: 22 of the 111 `*Tags` schemas are legitimately
+;; claimed by NO catalogue row (`FxHandledTags`' siblings for non-error ops, and
+;; 12 whose operation 009 never names by any derivation), only 5 schema names
+;; are cited anywhere in 009, and nothing in `implementation/` references a
+;; schema name — so an orphaned schema is indistinguishable from a correctly-
+;; unpaired one without a third authority. The rf2-6tags no-roster ruling
+;; therefore STANDS rather than needing an exception: no orphan allow-list, and
+;; no reading of `implementation/` to discover schema names.
+;;
+;; The answer is the mechanism the ROW side already ships, applied to the
+;; pairing itself. `tags-column-paired-floor` records the paired COUNT, so a
+;; drop reds without the arm ever knowing WHICH schema went. One integer, not 22
+;; entries: it names no member, so it cannot rot into the hand-maintained roster
+;; the ruling forbids, and the only edit it admits is a deliberate lowering in
+;; the same commit that removes a pairing.
+;;
+;; The ROW half of the same mutation is covered separately: deleting
+;; `:rf.error/resource-route-plan`'s row makes invariant #5's source scan fire on
+;; the now-uncatalogued emitted category. `scripts/check_keyword_catalogue_drift.py`
+;; CHECK A does NOT also fire — `catalogue_ids` scans the WHOLE document and the
+;; id survives in 009's prose — so invariant #5 is the whole of that coverage.
+;; (This comment previously claimed both; rf2-23qsg's mutation proof corrected
+;; it, and an overstated cross-gate claim is how a real gap gets left alone.)
 ;;
 ;; The two ENVELOPE-level slots are excluded by the catalogue's own rule
 ;; (009 §Error event catalogue, *Reading the two right-hand columns*):
@@ -992,6 +1016,30 @@
   [rows schemas]
   (->> (schema-claims rows schemas) vals (filter #(= 1 (count %))) count))
 
+(def ^:private tags-column-paired-floor
+  "THE PAIRING COVERAGE LEDGER — one integer, and the whole answer to rf2-23qsg.
+
+  How many canonical schemas the keys-set diff reaches today. Re-derive with
+  `(paired-count (parse-catalogue-tag-rows) (parse-tags-schemas))`.
+
+  WHY A COUNT AND NOT A ROSTER. Deleting a paired schema, or renaming one to a
+  name no row claims, un-pairs a row silently: `CLAIMED == PAIRED` holds in both
+  mutated worlds because both numbers move together, and the old slack `>= 80`
+  never noticed. Identifying the missing schema BY NAME is not derivable from
+  the two corpora (see the section comment above), and the rf2-6tags ruling bars
+  the hand-maintained orphan list that would fake it. A count needs no names: it
+  drops, and it reds.
+
+  SHRINK-ONLY, in the sense its sibling `tags-column-shrink-only-baseline` is —
+  the number may not move by accident in EITHER direction. Removing a pairing
+  reds `tags-column-pairing-is-live`, and the fix is to lower this integer in
+  the SAME commit, with the removal in the diff next to it. Adding one reds
+  `tags-column-baseline-stays-honest`, because a floor left below the coverage
+  the corpus already achieves has rotted: it would sit there absorbing the next
+  deletion in silence, which is the drift this ledger exists to make impossible.
+  Either way the edit is deliberate, reviewable, and one line."
+  93)
+
 (def ^:private tags-column-shrink-only-baseline
   "SHRINK-ONLY. The rows that still red when the arm is armed — pre-existing
   debt the arm did not create, held so the arm can ship rather than waiting on
@@ -1021,8 +1069,10 @@
             both corpora. A derivation change, a Spec-Schemas fence rename, or
             a catalogue column reorder would collapse the pairing to zero and
             every finding-based invariant below would pass VACUOUSLY. The
-            floors are COLLAPSE insurance and nothing more — the identity
-            below them is what guards pairing coverage (rf2-ehy4l)."
+            schema-count floor is COLLAPSE insurance; the PAIRED floor is the
+            coverage ledger (rf2-23qsg) — it is the only assertion here that
+            moves when a paired schema is deleted or renamed away, because the
+            CLAIMED == PAIRED identity below it holds in both mutated worlds."
     (let [rows    (parse-catalogue-tag-rows)
           schemas (parse-tags-schemas)]
       (is (.exists spec-schemas-file)
@@ -1030,9 +1080,17 @@
       (is (>= (count schemas) 100)
           (str "Spec-Schemas.md yielded the per-category tags schemas "
                "(>= 100), not a partial parse; found " (count schemas)))
-      (is (>= (paired-count rows schemas) 80)
-          (str "catalogue rows paired to a canonical schema (>= 80); found "
-               (paired-count rows schemas)))
+      ;; THE COVERAGE LEDGER (rf2-23qsg). Not collapse insurance: this is the
+      ;; assertion that reds when a paired schema is DELETED or renamed to a
+      ;; name no row claims. Both mutations drop the paired count by one and
+      ;; leave every other guard here green.
+      (is (>= (paired-count rows schemas) tags-column-paired-floor)
+          (str "canonical schemas PAIRED and diffed: "
+               (paired-count rows schemas) ", below the recorded floor of "
+               tags-column-paired-floor ". A pairing was lost — a `*Tags` "
+               "schema deleted, or renamed to a name no catalogue row derives. "
+               "Restore the pairing, or lower `tags-column-paired-floor` IN "
+               "THIS COMMIT, with the removal in the diff beside it."))
       ;; Anchor on a schema whose keys are non-trivial, so a parse that finds
       ;; the def but reads an empty key set is caught…
       (is (contains? (get schemas "HandlerExceptionTags") :exception-message)
@@ -1106,7 +1164,18 @@
       (is (empty? stale)
           (str "tags-column-shrink-only-baseline entries that no longer red — "
                "drop them from the set in this file (rf2-6tags / rf2-zk1xu): "
-               (pr-str (sort stale)))))))
+               (pr-str (sort stale))))))
+  (testing "…and so does the paired-count ledger, in the other direction
+            (rf2-23qsg). A floor left BELOW the coverage the corpus already
+            achieves is stale, and stale in the dangerous way: it silently
+            absorbs the next lost pairing. Recording the gain is the same
+            one-line edit that lowering it would be."
+    (let [paired (paired-count (parse-catalogue-tag-rows) (parse-tags-schemas))]
+      (is (<= paired tags-column-paired-floor)
+          (str "the pairing now reaches " paired " canonical schemas but "
+               "`tags-column-paired-floor` still records "
+               tags-column-paired-floor ". Raise it to " paired " in this PR: "
+               "a floor below live coverage protects nothing above itself.")))))
 
 ;; --- non-vacuity ------------------------------------------------------------
 ;;
@@ -1248,6 +1317,41 @@
       (is (= [1 0] [(claimed-count both schemas) (paired-count both schemas)])
           "ambiguous: the schema is claimed but never diffed — the identity
            reds where a `>= 80` floor would not have moved"))))
+
+(deftest tags-column-paired-floor-reds-on-a-lost-pairing
+  (testing "Non-vacuity for the coverage ledger (rf2-23qsg), on the two
+            mutations the bead recorded — driven against the REAL corpora, with
+            the mutation applied to the parsed schema map so the proof stays
+            runnable without editing `spec/Spec-Schemas.md`. Both are invisible
+            to every other assertion in this arm: the schema count survives the
+            rename, the finding set is unchanged, and CLAIMED == PAIRED holds
+            throughout because both numbers move together. Only the floor moves."
+    (let [rows    (parse-catalogue-tag-rows)
+          schemas (parse-tags-schemas)
+          victim  "ResourceRoutePlanTags"
+          ;; MUTATION 1 — delete the schema outright.
+          deleted (dissoc schemas victim)
+          ;; MUTATION 2 — rename it to a name no catalogue row derives. The
+          ;; schema COUNT is unchanged, which is what defeats a count-shaped
+          ;; guard placed on the schemas rather than on the pairing.
+          renamed (-> schemas
+                      (dissoc victim)
+                      (assoc "SomeUnrelatedThingTags" (get schemas victim)))]
+      (is (contains? schemas victim)
+          (str "the witness schema " victim " is still in spec/Spec-Schemas.md; "
+               "if it was legitimately renamed, name the new one here"))
+      (is (= tags-column-paired-floor (paired-count rows schemas))
+          "the floor is the live paired count, so the drops below are one apiece")
+      (is (< (paired-count rows deleted) tags-column-paired-floor)
+          "MUTATION 1: deleting a paired schema drops the count under the floor")
+      (is (= (claimed-count rows deleted) (paired-count rows deleted))
+          "…while CLAIMED == PAIRED still holds — the identity cannot see it")
+      (is (= (count schemas) (count renamed))
+          "MUTATION 2 is equal-count by construction")
+      (is (< (paired-count rows renamed) tags-column-paired-floor)
+          "MUTATION 2: an equal-count rename drops the count under the floor too")
+      (is (= (claimed-count rows renamed) (paired-count rows renamed))
+          "…and here too the identity holds, in the mutated world"))))
 
 (deftest tags-column-arm-ignores-retired-rows
   (testing "A struck-through row documents a category the runtime no longer
