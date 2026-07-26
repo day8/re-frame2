@@ -2,10 +2,40 @@
   "Navigation-token stale-result-suppression + `:on-match` loader tests
   for re-frame.routing (nav-token allocation, the `:rf.route/nav-token` cofx, the
   `:rf.route/with-nav-token` fx, and multi-loader `:on-match` ordering /
-  error precedence). Split from routing_test.clj per rf2-u8qe7y finding 3."
+  error precedence). Split from routing_test.clj per rf2-u8qe7y finding 3.
+
+  ## Posture split (rf2-o5dbf)
+
+  STALE-RESULT SUPPRESSION is production-real and carries no posture guard.
+  Suppression is enforcement, not advice: a superseded completion's app
+  `:rf/reply-to` target is never dispatched, so app-db and runtime-db are
+  provably unchanged, and the fresh completion still commits. Every deftest
+  here asserts that outside any arm, so it runs in the ordinary
+  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
+  `-Dre-frame.debug=false` lane). The `:rf.route/nav-token` /
+  `:rf.route/route-id` cofx values are likewise real — they are read straight
+  out of the capturing handler.
+
+  What is dev-only is the `:rf.route.nav-token/stale-suppressed` TRACE and
+  everything spelled on it: the carried / current token pair, the canonical
+  `:rf.trace/event-id` tag, `:completed-at`, the `:rf.reply/work-id` join key
+  and the EP-0011 `:rf.reply/status` / `:rf.reply/work-status` /
+  `:rf.reply/stale-reason` envelope vocabulary. All of it rides `trace/emit!`,
+  gated on `interop/debug-enabled?` and read once at load time, so under the
+  real gate there is no trace to carry it. Those assertions are kept VERBATIM
+  inside `(when interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+
+  Four are NEGATIVE over the trace and would pass vacuously under the gate —
+  `(not (contains? (:tags stale) :event-id))`, `(not (contains? (:tags stale)
+  :completed-at))`, the `not-any?` mis-attribution guard, and the `not-any?
+  :rf.error/fx-handler-exception` leg. They are inside the arm. The three
+  `:completed-at` deftests had NO non-trace assertion at all, so each gained
+  the production witness the suppression actually is: the stale payload never
+  reached app-db. Nothing was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -61,7 +91,11 @@
              (:article (rf/app-db-value :rf/default)))
           "only B's payload committed; A's was suppressed")
 
-      (is (some (fn [ev]
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; SUPPRESSION itself is pinned by the app-db assertion above, which is
+      ;; posture-independent: A's payload never landed.
+      (when interop/debug-enabled?
+       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= "nav-1" (-> ev :tags :carried-token))
                        (= "nav-2" (-> ev :tags :current-token))
@@ -96,7 +130,7 @@
                        (= [:rf.work/route :route/article "nav-1" :article/loaded]
                           (-> ev :tags :rf.reply/work-id))))
                 @traces)
-          "the stale-suppressed trace is joined to the route :work/id (the carried nav-token rides in the tuple)"))))
+          "the stale-suppressed trace is joined to the route :work/id (the carried nav-token rides in the tuple)")))))
 
 (deftest cross-route-stale-uses-captured-route-id-not-live-route
   (testing "rf2-azcmd3 — when route A's stale completion arrives AFTER navigating to a DIFFERENT route B, the work-id carries route A's CAPTURED id, never route B's live id"
@@ -139,18 +173,23 @@
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "route A's stale loader was suppressed; nothing committed")
 
-      ;; The work-id carries route A's CAPTURED id, NOT route B's live id.
-      (is (some (fn [ev]
-                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
-                       (= [:rf.work/route :route/article "nav-1" :article/loaded]
-                          (-> ev :tags :rf.reply/work-id))))
-                @traces)
-          "the stale work-id uses the CAPTURED route id (:route/article), not the live route (:route/profile)")
-      (is (not-any? (fn [ev]
-                      (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
-                           (= :route/profile (first (rest (-> ev :tags :rf.reply/work-id))))))
-                    @traces)
-          "no stale work-id is mis-attributed to the live route B (:route/profile)"))))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The work-id
+      ;; is a trace-only correlation key, and the second leg is NEGATIVE over
+      ;; the ring. The suppression they annotate is pinned by the app-db
+      ;; assertion above, posture-independently.
+      (when interop/debug-enabled?
+        ;; The work-id carries route A's CAPTURED id, NOT route B's live id.
+        (is (some (fn [ev]
+                    (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
+                         (= [:rf.work/route :route/article "nav-1" :article/loaded]
+                            (-> ev :tags :rf.reply/work-id))))
+                  @traces)
+            "the stale work-id uses the CAPTURED route id (:route/article), not the live route (:route/profile)")
+        (is (not-any? (fn [ev]
+                        (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
+                             (= :route/profile (first (rest (-> ev :tags :rf.reply/work-id))))))
+                      @traces)
+            "no stale work-id is mis-attributed to the live route B (:route/profile)")))))
 
 (deftest with-nav-token-fx-suppresses-stale-reply-to-and-commits-fresh
   (testing ":rf.route/with-nav-token fx: stale `:rf/reply-to` is suppressed; fresh `:rf/reply-to` runs"
@@ -230,6 +269,10 @@
              (:article (rf/app-db-value :rf/default)))
           "fresh :rf/reply-to ran end-to-end; stale :rf/reply-to was suppressed before commit")
 
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). Everything
+      ;; from here to the end of this deftest is spelled ON the trace; the
+      ;; enforcement it annotates is pinned by the app-db assertion above.
+      (when interop/debug-enabled?
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= "nav-1" (-> ev :tags :carried-token))
@@ -291,7 +334,7 @@
                                 (= :rf.route.nav-token/stale-suppressed
                                    (:operation ev)))
                               @traces)))
-          "exactly one stale-suppressed trace fired — the fresh :rf/reply-to did NOT trip the validation"))))
+          "exactly one stale-suppressed trace fired — the fresh :rf/reply-to did NOT trip the validation")))))
 
 ;; ---- rf2-ux8sgg — stale route reply preserves the completion time ---------
 ;;
@@ -345,14 +388,21 @@
 
       (rf/unregister-listener! :trace ::completed-at-fx)
 
-      (let [stale (some (fn [ev]
-                          (when (= :rf.route.nav-token/stale-suppressed
-                                   (:operation ev))
-                            ev))
-                        @traces)]
-        (is (some? stale) "a production stale-suppressed trace fired")
-        (is (= completion-ts (-> stale :tags :completed-at))
-            "the stale trace carries the threaded reply completion time (pre-fix: dropped)")))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the suppression this
+      ;; deftest annotates really happened — A's stale payload never reached
+      ;; app-db. Without it this deftest would execute nothing under the gate.
+      (is (nil? (:article (rf/app-db-value :rf/default)))
+          "the stale completion was suppressed — no app-db write")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [stale (some (fn [ev]
+                            (when (= :rf.route.nav-token/stale-suppressed
+                                     (:operation ev))
+                              ev))
+                          @traces)]
+          (is (some? stale) "a production stale-suppressed trace fired")
+          (is (= completion-ts (-> stale :tags :completed-at))
+              "the stale trace carries the threaded reply completion time (pre-fix: dropped)"))))))
 
 (deftest with-nav-token-fx-stale-omits-completed-at-when-absent
   (testing "rf2-ux8sgg — when no completion time is threaded, the stale trace
@@ -379,14 +429,22 @@
                           :id               "A"
                           :payload          "A-payload"}])
       (rf/unregister-listener! :trace ::no-completed-at)
-      (let [stale (some (fn [ev]
-                          (when (= :rf.route.nav-token/stale-suppressed
-                                   (:operation ev))
-                            ev))
-                        @traces)]
-        (is (some? stale) "a stale-suppressed trace fired")
-        (is (not (contains? (:tags stale) :completed-at))
-            "no :completed-at tag when none was sourced (slot is optional)")))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the suppression really
+      ;; happened. Without it this deftest would execute nothing under the
+      ;; gate — and its second leg below is NEGATIVE over the ring, so with a
+      ;; nil `stale` it would pass vacuously.
+      (is (nil? (:article (rf/app-db-value :rf/default)))
+          "the stale completion was suppressed — no app-db write")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [stale (some (fn [ev]
+                            (when (= :rf.route.nav-token/stale-suppressed
+                                     (:operation ev))
+                              ev))
+                          @traces)]
+          (is (some? stale) "a stale-suppressed trace fired")
+          (is (not (contains? (:tags stale) :completed-at))
+              "no :completed-at tag when none was sourced (slot is optional)"))))))
 
 (deftest simulate-http-resolution-stale-preserves-completed-at
   (testing "rf2-ux8sgg — the test fixture `:rf.test/simulate-http-resolution`
@@ -409,14 +467,20 @@
                           :carried-route-id     :route/article
                           :carried-completed-at completion-ts}])
       (rf/unregister-listener! :trace ::fixture-completed-at)
-      (let [stale (some (fn [ev]
-                          (when (= :rf.route.nav-token/stale-suppressed
-                                   (:operation ev))
-                            ev))
-                        @traces)]
-        (is (some? stale) "the fixture stale-suppressed trace fired")
-        (is (= completion-ts (-> stale :tags :completed-at))
-            "the fixture stale trace carries the captured reply completion time")))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the fixture mirrors the
+      ;; production lane, so it must suppress the same way — no app-db write.
+      (is (nil? (:article (rf/app-db-value :rf/default)))
+          "the fixture's stale completion was suppressed — no app-db write")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [stale (some (fn [ev]
+                            (when (= :rf.route.nav-token/stale-suppressed
+                                     (:operation ev))
+                              ev))
+                          @traces)]
+          (is (some? stale) "the fixture stale-suppressed trace fired")
+          (is (= completion-ts (-> stale :tags :completed-at))
+              "the fixture stale trace carries the captured reply completion time"))))))
 
 ;; ---- Spec 012 §Navigation tokens step 2 — the `:rf.route/nav-token` cofx ----------
 ;;
@@ -519,15 +583,19 @@
       (is (= {:id "B" :payload "B-payload"}
              (:article (rf/app-db-value :rf/default)))
           "only B committed — A's stale completion was suppressed via the cofx-captured token")
-      (is (some (fn [ev]
-                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
-                       (= :article/loaded (-> ev :tags :rf.trace/event-id))))
-                @traces)
-          "A's stale completion produced :rf.route.nav-token/stale-suppressed")
-      (is (= 1 (count (filter #(= :rf.route.nav-token/stale-suppressed
-                                  (:operation %))
-                              @traces)))
-          "exactly one suppression — B's fresh completion applied cleanly"))))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; documented stale/fresh outcome is pinned by the app-db assertion
+      ;; above, posture-independently: only B committed.
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
+                         (= :article/loaded (-> ev :tags :rf.trace/event-id))))
+                  @traces)
+            "A's stale completion produced :rf.route.nav-token/stale-suppressed")
+        (is (= 1 (count (filter #(= :rf.route.nav-token/stale-suppressed
+                                    (:operation %))
+                                @traces)))
+            "exactly one suppression — B's fresh completion applied cleanly")))))
 
 ;; ---- rf2-ph1grf — the documented path captures a COMPLETE route work-id -----
 ;;
@@ -591,16 +659,24 @@
                           :payload          "A-payload"}])
       (rf/unregister-listener! :trace ::ph1grf)
 
-      (let [stale (some (fn [ev]
-                          (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
-                        @traces)]
-        (is (some? stale) "A's stale completion produced a suppression trace")
-        (let [wid (-> stale :tags :rf.reply/work-id)]
-          (is (= [:rf.work/route :route/article "nav-1" :article/loaded] wid)
-              "the work-id carries the COMPLETE captured tuple — route-id is NOT nil")
-          (is (not (nil? (second wid)))
-              "rf2-ph1grf — the route-id component is non-nil (the documented path
-               cannot emit a nil-route route work-id)"))))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the documented capture
+      ;; path really suppressed A. The work-id below is a trace-only
+      ;; correlation key, so without this the deftest executes nothing under
+      ;; the gate.
+      (is (nil? (:article (rf/app-db-value :rf/default)))
+          "A's stale completion was suppressed — no app-db write")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [stale (some (fn [ev]
+                            (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
+                          @traces)]
+          (is (some? stale) "A's stale completion produced a suppression trace")
+          (let [wid (-> stale :tags :rf.reply/work-id)]
+            (is (= [:rf.work/route :route/article "nav-1" :article/loaded] wid)
+                "the work-id carries the COMPLETE captured tuple — route-id is NOT nil")
+            (is (not (nil? (second wid)))
+                "rf2-ph1grf — the route-id component is non-nil (the documented path
+                 cannot emit a nil-route route work-id)")))))))
 
 ;; ---- rf2-2avo53 / rf2-068eo5 — with-nav-token continuations lower through :rf/reply-to ----
 ;;
@@ -685,15 +761,19 @@
 
       (is (nil? (:replied (rf/app-db-value :rf/default)))
           "the app :rf/reply-to target was suppressed — no app-db write on a stale completion")
-      (let [stale (some (fn [ev]
-                          (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
-                        @traces)]
-        (is (some? stale) "a stale-suppressed trace fired for the suppressed reply-to completion")
-        (is (= [:rf.work/route :route/article "nav-1" :article/load-replied]
-               (-> stale :tags :rf.reply/work-id))
-            "the suppression is joined to the route :work/id (loader-id = target event-id)")
-        (is (= :stale (-> stale :tags :rf.reply/status)))
-        (is (= :suppressed (-> stale :tags :rf.reply/work-status)))))))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; enforcement — the app target did NOT run — is pinned by the app-db
+      ;; assertion above, posture-independently.
+      (when interop/debug-enabled?
+        (let [stale (some (fn [ev]
+                            (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
+                          @traces)]
+          (is (some? stale) "a stale-suppressed trace fired for the suppressed reply-to completion")
+          (is (= [:rf.work/route :route/article "nav-1" :article/load-replied]
+                 (-> stale :tags :rf.reply/work-id))
+              "the suppression is joined to the route :work/id (loader-id = target event-id)")
+          (is (= :stale (-> stale :tags :rf.reply/status)))
+          (is (= :suppressed (-> stale :tags :rf.reply/work-status))))))))
 
 (deftest with-nav-token-never-delivers-stale-to-any-target
   (testing "rf2-j538f7.14 — PRODUCTION-PATH regression (AC4): NO app :rf/reply-to
@@ -744,11 +824,17 @@
           ;; The suppression trace still fires (the only effect of a stale
           ;; completion); no fx-handler exception is raised — suppress no longer
           ;; throws, it silently declines to deliver.
-          (is (some (fn [ev] (= :rf.route.nav-token/stale-suppressed (:operation ev))) @traces)
-              (str "a stale-suppressed trace fired for " (pr-str target)))
-          (is (not-any? (fn [ev] (= :rf.error/fx-handler-exception (:operation ev))) @traces)
-              (str "no fx-handler exception — suppression is silent non-delivery for "
-                   (pr-str target))))))))
+          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The three
+          ;; assertions above — target never ran, app-db unchanged, runtime-db
+          ;; unchanged — are the AC4 property itself and are
+          ;; posture-independent. The second leg here is NEGATIVE over the
+          ;; ring, so outside the arm it would pass vacuously.
+          (when interop/debug-enabled?
+            (is (some (fn [ev] (= :rf.route.nav-token/stale-suppressed (:operation ev))) @traces)
+                (str "a stale-suppressed trace fired for " (pr-str target)))
+            (is (not-any? (fn [ev] (= :rf.error/fx-handler-exception (:operation ev))) @traces)
+                (str "no fx-handler exception — suppression is silent non-delivery for "
+                     (pr-str target)))))))))
 
 ;; ============================================================================
 ;; EP-0037 R1 — :on-match is fire-and-forget; a throw does not flip readiness

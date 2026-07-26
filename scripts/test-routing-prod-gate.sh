@@ -167,9 +167,19 @@ known_red=(
   #    production gate this namespace contributes routing semantics, not the
   #    ownership contract it is named for.
   re-frame.routing-nav-fx-schemas-test            # 32
-  re-frame.routing-nav-token-test                 # 32
   re-frame.routing-navigation-test                # 64
   re-frame.routing-plan-seam-test                 # 31
+  #    CLEARED 2026-07-27 (rf2-o5dbf, batch 6): routing-nav-token.  Stale
+  #    suppression is ENFORCEMENT, not advice — the superseded completion's
+  #    app `:rf/reply-to` target is never dispatched, so app-db and
+  #    runtime-db are provably unchanged in either posture.  Everything
+  #    SPELLED on the `:rf.route.nav-token/stale-suppressed` trace (the
+  #    carried/current token pair, `:completed-at`, the `:rf.reply/work-id`
+  #    join key, the EP-0011 envelope vocabulary) is dev-only.  Three
+  #    `:completed-at` deftests had NO non-trace assertion at all and would
+  #    have executed nothing; each gained the app-db witness the suppression
+  #    actually is.
+  #
   #    CLEARED 2026-07-27 (rf2-o5dbf, batch 5): routing-prefetch.  Its
   #    `@calls` atom is the stubbed `:routing/on-route-prefetch` warm hook —
   #    a late-bound fn, NOT a trace — so "did prefetch reach planning, and
