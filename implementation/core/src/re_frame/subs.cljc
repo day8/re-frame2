@@ -1744,10 +1744,21 @@
    ;; than silently reading the wrong frame's app-db. The `extra` threads
    ;; the sub-id into the error payload's `:event-id` slot so a frameless
    ;; subscribe's error is attributed to the query it carried.
-   (subscribe-in-frame (frame/require-current-frame!
-                         :subscribe
-                         {:where    're-frame.subs/subscribe
-                          :event-id (first query-v)})
+   ;;
+   ;; rf2-a8bw0: the reader FIRST, then the require — which is what
+   ;; `require-current-frame!` does internally, written out here so the
+   ;; `extra` payload is built only on the path that reads it. The error is
+   ;; unchanged: when the reader finds nothing, `require-current-frame!`
+   ;; runs with the same `extra` and emits + throws the same
+   ;; `:rf.error/no-frame-context`. `subscribe`'s 1-arity is the framework's
+   ;; per-read path — one call per reactive read per render — and it is the
+   ;; only 1-arity spelled this way; `subscribe-once` / `unsubscribe` run
+   ;; once per slot and keep the plain call. Do NOT collapse this back.
+   (subscribe-in-frame (or (frame/resolve-current-frame)
+                           (frame/require-current-frame!
+                             :subscribe
+                             {:where    're-frame.subs/subscribe
+                              :event-id (first query-v)}))
                        query-v))
   ([query-v opts]
    ;; API-shrink #1 (rf2-csbbwu): the 2-arity is `[query-v opts]` ONLY — no
