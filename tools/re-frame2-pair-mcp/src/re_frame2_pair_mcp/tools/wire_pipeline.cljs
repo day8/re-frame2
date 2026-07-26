@@ -267,11 +267,19 @@
           :scalar-value (run-scalar-value payload opts)
           ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape:
           ;; the human sentence + a trailing `[:rf.error/<id>]` token IS the
-          ;; ex-message. Load-bearing here (rf2-jquiy) — `server.cljs`'s
-          ;; `invoke-and-guard` relays `(.-message err)` into the
-          ;; `:handler-threw` envelope, so this text is what the agent on the
-          ;; other end of the MCP wire reads. Hand-rolled inline: `tools/`
-          ;; MUST NOT `:require re-frame.*`.
+          ;; ex-message. Load-bearing here (rf2-jquiy), but via RELAY 2, not
+          ;; relay 1: all five `run-wire-pipeline` call sites sit inside an
+          ;; `eval-after-runtime!` `on-value`, so this throw fires during
+          ;; response shaping and meets `probe/err->result` — NOT
+          ;; `server.cljs`'s `invoke-and-guard`, which only catches throws
+          ;; raised before the nREPL round-trip. The two relays keep opposite
+          ;; halves of the exception; `err->result` merges both since
+          ;; rf2-6tzm5, which is what makes this message reach the agent at
+          ;; all (before it, only the ex-data below did, and this text was
+          ;; dead prose). The ex-data therefore carries the agent's branchable
+          ;; slots — `:rf.error/id`, `:kind`, `:valid` — and the message
+          ;; carries the sentence; `error_boundary_test` pins both.
+          ;; Hand-rolled inline: `tools/` MUST NOT `:require re-frame.*`.
           (throw (ex-info (str "run-wire-pipeline got an unknown :kind "
                                (pr-str kind)
                                " — expected one of :snapshot-map, :epoch-vector, "

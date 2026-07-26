@@ -746,11 +746,40 @@
   `wire/err-text` (not `wire/ok-text`) is what makes that true: the host
   surfaces the failure to the LLM as an error rather than a success-shaped
   value, AND the response cache (which bypasses `:isError` results) can no
-  longer cache a transient failure and mask a later successful read."
+  longer cache a transient failure and mask a later successful read.
+
+  ## RELAY 2 of two — and it carries BOTH halves of the exception
+
+  pair-mcp has exactly two consumer-facing error relays, and WHERE in a
+  tool body a throw fires decides which one it meets:
+
+    - `server.cljs` `invoke-and-guard` (relay 1) — reached by anything
+      thrown while the tool body BUILDS its request, before the nREPL
+      round-trip. Keeps the message; drops the ex-data (rf2-qoih4).
+    - this fn (relay 2) — reached by anything thrown from an
+      `eval-after-runtime!` / `eval-after-runtime-signalled!`
+      `on-value` callback, i.e. ALL response shaping, after the
+      round-trip.
+
+  Relay 2 used to keep only the ex-data, dropping `(ex-message err)`
+  entirely — so a Spec 009 canonical message composed at a
+  response-shaping throw site (`wire-pipeline`'s unknown-`:kind` being
+  the live example) reached NO consumer, and any future author writing
+  one there would silently waste it (rf2-6tzm5). It now merges the
+  message in alongside, matching `result_envelope/envelope->result`,
+  which already ships `:reason` + `:message` + `:ex-data` together on
+  this same eval-path error surface.
+
+  `data` merges OVER the derived `:message`, so an ex-data map that
+  deliberately carries its own `:message` still wins. A blank/absent
+  ex-message adds no slot rather than shipping `:message nil`."
   [fallback-reason err]
-  (if-let [data (ex-data err)]
-    (wire/err-text (merge {:ok? false} data))
-    (wire/err-text {:ok? false :reason fallback-reason :message (.-message err)})))
+  (let [msg (.-message err)]
+    (if-let [data (ex-data err)]
+      (wire/err-text (merge (cond-> {:ok? false}
+                              (not-empty msg) (assoc :message msg))
+                            data))
+      (wire/err-text {:ok? false :reason fallback-reason :message msg}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared eval-prelude.
