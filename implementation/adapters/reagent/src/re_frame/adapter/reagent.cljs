@@ -89,9 +89,13 @@
      ;; ALREADY capturing, so re-running it would recompute a live node for
      ;; nothing; skipping keeps activation idempotent across the second and
      ;; subsequent ViewCells that acquire the same cached node.
+     ;; `^clj` on the field read: `watching` is a CLJS deftype field, not a
+     ;; JS-object property, so externs inference must not be asked to
+     ;; reason about it (an inferred extern would also defeat the very
+     ;; renaming that keeps the read correct under `:advanced`).
      :activate-reaction! (fn [rx]
                            (when (and (satisfies? ratom/IRunnable rx)
-                                      (nil? (.-watching rx)))
+                                      (nil? (.-watching ^clj rx)))
                              (ratom/run rx))
                            nil)
      :disposable?       (fn [a] (satisfies? ratom/IDisposable a))
