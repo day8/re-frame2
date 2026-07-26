@@ -15,6 +15,25 @@
   substrate already carries, writes the one recipe they imply, and mounts it
   against a DETERMINISTIC surrogate host so the answer is reproducible:
 
+  ## The law this file proves — FH-BEHAVIOR-005
+
+  Adding no law means having none of its own, and for a while that left
+  this file with no identity: it was reachable from the guide and from the
+  bead that commissioned it, and from no ledger. It is rostered
+  (rf2-drpa3.182.7) as the SECOND mounted projection of `FH-BEHAVIOR-005` —
+  teardown releases a behavior totally, `:disconnect` exactly once per
+  committed connection, both substrate books empty afterwards — because
+  that is precisely the law the cases below stress. `behaviors-dom-cljs-test`
+  proves it on the ordinary synchronous path; this file proves the same law
+  where it is hardest, with the handle arriving from a Promise after the
+  owner may already be gone.
+
+  Minting a `FH-…` id of its own was considered and declined: a second id
+  for one law splits the identity the roster exists to keep single, and an
+  id must resolve to a paragraph of normative spec — which a recipe that
+  adds no contract does not have.
+  See `spec/conformance/freehand/fixtures/fh-behavior-005.edn`.
+
     THE MEMORY LAW (rf2-wj1ao)  `:connect` ESTABLISHES the connection's
                                 private memory and nothing else ever writes
                                 it. So when the handle is not ready yet,
