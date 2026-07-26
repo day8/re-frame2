@@ -33,10 +33,17 @@
    ;; `:init-fn` runs ONCE, on initial load: shadow appends the call to the
    ;; module's own output (shadow.build.targets.browser/merge-init-fn), and a
    ;; hot reload re-evaluates the changed namespace files, not the module
-   ;; wrapper. This scaffold wires no `:devtools :after-load` and marks
-   ;; nothing `^:dev/after-load`, so `watch` prints shadow's own
-   ;; "reloading code but no :after-load hooks are configured!" and an edited
-   ;; view is picked up on the next page load. That is the smallest thing
-   ;; that runs, not a limit of the mount — `v/mount` is idempotent per root,
-   ;; so re-entering it is the supported reload path when you want one.
+   ;; wrapper. So the dev loop is not the `:init-fn` — it is the
+   ;; `^:dev/after-load` on `my.app/run`, which is the one metadata key this
+   ;; scaffold spends on reloading. `watch` re-enters the mount after every
+   ;; reload, the root re-renders with the edited view, and the frame keeps
+   ;; its state because an equal frame plan does not re-seed
+   ;; `:initial-events`.
+   ;;
+   ;; Note that a bare Freehand app is never hook-less: `re-frame.freehand.rules`
+   ;; declares `^:dev/before-load notify-reload!` and `^:dev/after-load
+   ;; commit-reload!`, so shadow's "no :after-load hooks are configured!"
+   ;; notice never appears here whether or not `run` is marked. What the key
+   ;; adds is not a hook where there were none — it is the one hook that
+   ;; re-renders your view.
    :modules    {:main {:init-fn my.app/run}}}}}
