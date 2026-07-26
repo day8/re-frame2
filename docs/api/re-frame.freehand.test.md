@@ -180,8 +180,11 @@ raw leaves.
   attribute read. For an **element**, `:attrs` merged with `:events` (collision-free
   by construction: the compiler routes `:on-*` to `:events`, and handler slots carry
   event vectors, options maps or opaque markers **as data**). For a **view
-  boundary**, the `:props` map. For a **fragment** or **trusted-HTML** node, `{}` —
-  total, not an error. `nil` → `nil`, so a missed traversal threads through.
+  boundary**, the `:props` map. For a **declared host** — the node a `v/defhost`
+  crossing emits — the `:props` map too: the authored ordinary props, with each
+  filled callback position recorded as its opaque role marker. For a **fragment**
+  or **trusted-HTML** node, `{}` — total, not an error. `nil` → `nil`, so a missed
+  traversal threads through.
 
   A keyword lookup on a node reads its **fields**, never its attributes:
   `(:on-click node)` is a field miss. Intent assertion is therefore an equality check

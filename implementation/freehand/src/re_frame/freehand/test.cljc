@@ -221,30 +221,43 @@
 
 (defn- node-kind
   "Discriminate a MAP node per the pinned order: `:tag` → element, else
-  `:view-id` → view boundary, else `:html` → trusted-HTML, else `:children`
-  → fragment. More than one primary discriminating field, or none of the
-  four, is malformed — a projection over a malformed node fails loud rather
-  than reading a plausible answer off a broken tree."
+  `:view-id` → view boundary, else `:html` → trusted-HTML, else
+  `:rf.ui/host` → a declared host crossing, else `:children` → fragment.
+  More than one primary discriminating field, or none of the five, is
+  malformed — a projection over a malformed node fails loud rather than
+  reading a plausible answer off a broken tree.
+
+  The host arm is NOT decoration. A `v/defhost` crossing carries `:props`
+  and `:children` and no `:tag`, so without its own arm it reaches the
+  FRAGMENT arm and every projection answers a fragment's total, harmless,
+  wrong answer — silently, because the fragment arm is documented total
+  rather than an error (rf2-c20nr). `:rf.ui/presence` and `:rf.ui/boundary`
+  are deliberately absent here: those genuinely ARE fragments carrying
+  diagnostic metadata (004B §Reserved `:rf.ui/*` keys), so the fragment arm
+  is their right answer and their metadata is an ordinary field read."
   [m]
   (let [primaries (cond-> 0
-                    (contains? m :tag)     inc
-                    (contains? m :view-id) inc
-                    (contains? m :html)    inc)]
+                    (contains? m :tag)         inc
+                    (contains? m :view-id)     inc
+                    (contains? m :html)        inc
+                    (contains? m :rf.ui/host)  inc)]
     (when (> primaries 1)
       (malformed!
         (str "malformed tree node — a map may carry only ONE of :tag / "
-             ":view-id / :html (the closed five-variant node set); got "
-             (pr-str (select-keys m [:tag :view-id :html])))
+             ":view-id / :html / :rf.ui/host (the closed node set); got "
+             (pr-str (select-keys m [:tag :view-id :html :rf.ui/host])))
         {:value m}))
     (cond
-      (contains? m :tag)      :element
-      (contains? m :view-id)  :view-boundary
-      (contains? m :html)     :html
-      (contains? m :children) :fragment
+      (contains? m :tag)        :element
+      (contains? m :view-id)    :view-boundary
+      (contains? m :html)       :html
+      (contains? m :rf.ui/host) :host
+      (contains? m :children)   :fragment
       :else
       (malformed!
         (str "malformed tree node — a map node needs a discriminating field "
-             "(:tag / :view-id / :html / :children); got " (pr-str m))
+             "(:tag / :view-id / :html / :rf.ui/host / :children); got "
+             (pr-str m))
         {:value m}))))
 
 (defn- not-a-node!
@@ -268,12 +281,17 @@
                      handler slots carry event vectors / options maps / an
                      opaque marker AS DATA)
     view-boundary  → the `:props` map
+    host           → the `:props` map — the AUTHORED ordinary props of a
+                     `v/defhost` crossing, with each filled callback
+                     position recorded as its opaque role marker
     fragment/html  → `{}` (no attributes exist; total, not an error)
     nil            → nil (nil-punning threads through a missed traversal)
 
   A keyword lookup on a node reads its FIELDS, never its attributes:
   `(:on-click node)` is a field miss. Intent assertion is an equality check
-  `(is (= [:cart/add 42] (:on-click (t/attrs node))))`."
+  `(is (= [:cart/add 42] (:on-click (t/attrs node))))`. The host node's own
+  fields — `:rf.ui/host`, `:rf.ui/host-ssr`, `:rf.ui/host-children`,
+  `:rf.ui/host-map-props` — are field reads by the same rule."
   [node]
   (cond
     (nil? node)    nil
@@ -282,9 +300,9 @@
                           "nodes; read text with t/text on the PARENT node")
                      {:value node})
     (map? node)    (case (node-kind node)
-                     :element          (merge {} (:attrs node) (:events node))
-                     :view-boundary    (or (:props node) {})
-                     (:fragment :html) {})
+                     :element              (merge {} (:attrs node) (:events node))
+                     (:view-boundary :host) (or (:props node) {})
+                     (:fragment :html)     {})
     :else          (not-a-node! node)))
 
 (defn- text*
