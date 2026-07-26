@@ -1321,11 +1321,13 @@
     (pose-donor-ownership-marker!)
     (registry/simulate-registration-at-schema! 3)
 
-    (let [prior-console js/console
-          warns         (atom [])]
-      (set! js/console (js-obj "warn" (fn [& args] (swap! warns conj (apply str args)) nil)
-                               "error" (fn [& _args] nil)
-                               "log"   (fn [& _args] nil)))
+    ;; Capture ONLY `.warn`, on the real console object. Swapping the whole
+    ;; console out would also swallow `println`, and with it every failure
+    ;; this deftest exists to report.
+    (let [prior-warn (.-warn js/console)
+          warns      (atom [])]
+      (set! (.-warn js/console)
+            (fn [& args] (swap! warns conj (apply str args)) nil))
       (try
         ;; The live upgrade.
         (registry/register-xray-handlers!)
@@ -1371,7 +1373,7 @@
           (registry/register-xray-handlers!)
           (is (= registry/schema-version (registry/installed-schema-version))))
         (finally
-          (set! js/console prior-console)
+          (set! (.-warn js/console) prior-warn)
           (gobj/remove js/globalThis donor-ownership-marker-key))))))
 
 ;; ---- schema-delta governance pin (rf2-sa8j3) ----------------------------
