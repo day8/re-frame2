@@ -3514,3 +3514,177 @@
           (is (= :mf1 (:instance r)))
           (is (= [:mutation :m/save :mf1] (:cause r))
               "the causal explanation rides verbatim"))))))
+
+;; ===========================================================================
+;; (rf2-uufoe) the DRIVE matrix — every settle branch that fans out a
+;; continuation, not just the one that succeeds.
+;; ===========================================================================
+;;
+;; Six leaks in this family were found by workers and none by a gate, and for
+;; the sixth the blindness was structural rather than inattentive. Every
+;; producer-driven assertion about a `:reply-to` continuation reaching off-box
+;; egress lived in §(rf2-xx4ty) above, and every one of those drives replayed a
+;; SUCCESS reply. The sibling conformance fixture
+;; (`epoch_mcp_egress_conformance_test`) drives no `:reply-to` at all and points
+;; here as the home of that coverage — so the coverage it points at existed for
+;; one branch out of five.
+;;
+;; FIVE settle branches fan out a continuation reply, and each builds it
+;; through a DIFFERENT handler:
+;;
+;;   events/succeeded-handler     — the success settle    §(rf2-xx4ty)
+;;   events/failed-handler        — the failure settle    §(rf2-rnsv2)(1)
+;;   events/failed-handler        — its ABORT branch      here
+;;   events/aborted-handler       — the legacy abort event here
+;;   events/page-failed-handler   — the infinite-feed page failure   here
+;;   mutation_events (failure settle)                     §(rf2-rnsv2)(6) + here
+;;
+;; THE UNIT OF COVERAGE IS THE BRANCH, NOT THE SLOT. Each drive below is one
+;; canary sweep over the whole projected record — zero secret paths — plus the
+;; FIXTURE assertion that the unprojected record does leak. That catches the
+;; CLASS: whatever slot a future continuation gains, on any of these branches,
+;; the sweep sees it. One assertion per named slot would only ever catch the
+;; instance somebody already found, which is how five of them got here.
+;;
+;; THE STANDING RULE THIS ENCODES: a new settle branch that fans out a
+;; continuation reply gets a canary drive here, in the same PR that adds it.
+;; A branch with no drive is not "untested" in the ordinary sense — it is
+;; INVISIBLE to every assertion in this namespace, because they all read what a
+;; drive produced.
+
+(defn- record-with-family-reply
+  "The first record of `records` whose fx carriers carry ANY family
+  continuation reply — read or mutation. The failure / cancel branches settle
+  through different handlers and different cascades, so selecting by record
+  index would encode each branch's fx order; selecting by the reply's own
+  marker does not."
+  [records]
+  (first (filter #(seq (family-carrier-replies %)) records)))
+
+(defn- assert-branch-sweep!
+  "The canary sweep every branch drive below runs: the unprojected record must
+  LEAK (so the sweep is not passing over an empty set) and the projected record
+  must leak at ZERO paths. `expect` is the reply facts that name the branch, so
+  a drive that silently stopped reaching the branch it names fails loudly
+  instead of passing vacuously."
+  [raw expect]
+  (is (some? raw) "the continuation reached an fx carrier at all")
+  (is (seq (family-carrier-replies raw)) "and the reply map is findable on it")
+  (doseq [[k v] expect]
+    (is (every? #(= v (k %)) (family-carrier-replies raw))
+        (str "the drive really settled the named branch — " k " = " v)))
+  (is (seq (secret-leak-paths raw))
+      "FIXTURE — the unprojected record leaks, so the sweep below is real")
+  (is (= [] (secret-leak-paths (epoch/projected-record raw)))
+      "ACCEPTANCE — the canary survives at zero paths of the projected record"))
+
+;; ---------------------------------------------------------------------------
+;; (1) `failed-handler`'s ABORT branch — a transport `:rf.http/aborted`
+;; ---------------------------------------------------------------------------
+
+(deftest real-transport-abort-reply-to-read-leaks-nothing-into-fx-carriers
+  (testing "rf2-uufoe — the production abort arrives as an `:rf.http/aborted`
+            FAILURE through `failed-handler`, which lowers it to
+            `:status :cancelled` and still carries the envelope under `:error`.
+            A separate branch of a handler whose error branch §(rf2-rnsv2)(1)
+            covers — and the branch on which `:status` would have been the wrong
+            gate."
+    (let [records (drive-failing-reply-to-read! :plain/article {:slug plain-slug}
+                                                abort-envelope)]
+      (assert-branch-sweep! (record-carrying-reply records false)
+                            {:status :cancelled
+                             :rf.reply/work-status :cancelled}))))
+
+;; ---------------------------------------------------------------------------
+;; (2) `aborted-handler` — the legacy `:rf.resource.internal/aborted` event
+;; ---------------------------------------------------------------------------
+
+(defn- drive-aborted-event-reply-to-read!
+  "Drive a REAL `[:rf.resource/ensure … :reply-to …]` and settle it through the
+  LEGACY `:rf.resource.internal/aborted` event rather than a transport failure.
+  That handler synthesises its own `{:kind :rf.http/aborted :reason :aborted}`
+  envelope, so the canary here is not the envelope but the OWNER'S data the
+  continuation reply carries beside it — `:params`, the resolved `:scope`, the
+  `:resource/key`. Which is the point of a whole-record sweep: the branch is
+  covered whatever slot the leak would land in."
+  [resource-id]
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)]
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
+    (frame/swap-runtime-db! :test/rt
+      (fn [rt] (elision/apply-classification-effects
+                 rt {:sensitive [[:auth :user :username]]})))
+    (frame/swap-frame-db! :test/rt assoc-in [:auth :user :username] secret)
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource resource-id :params reply-params
+                        :owner    real-owner  :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    ;; the verification payload the lowering stamped — the second element of the
+    ;; `:on-failure` target, which the legacy abort event takes as its only arg.
+    (rf/dispatch-sync [:rf.resource.internal/aborted (second (:on-failure @captured))]
+                      {:frame :test/rt})
+    (rf/epoch-history :test/rt)))
+
+(deftest real-aborted-event-reply-to-read-leaks-nothing-into-fx-carriers
+  (testing "rf2-uufoe — `aborted-handler`'s accepted-cancellation fan-out. A
+            THIRD handler building a continuation reply, reached by no drive in
+            this namespace before now."
+    (let [records (drive-aborted-event-reply-to-read! :derived/profile)]
+      (assert-branch-sweep! (record-carrying-reply records false)
+                            {:status :cancelled
+                             :resource :derived/profile}))))
+
+;; ---------------------------------------------------------------------------
+;; (3) `page-failed-handler` — the infinite feed's page fetch
+;; ---------------------------------------------------------------------------
+
+(defn- drive-failing-feed-reply-to-read!
+  "Drive a REAL `[:rf.resource/ensure … :reply-to …]` against an INFINITE FEED
+  and fail its page-0 fetch. An infinite resource lowers its `:on-failure` to
+  `:rf.resource.internal/page-failed`, so this settles through
+  `page-failed-handler` — a fourth handler, with its own first-load-vs-load-more
+  split — rather than `failed-handler`.
+
+  `:plain/feed` declares nothing and its params carry no secret, so the envelope
+  is the only canary and the sweep names exactly one datum.
+
+  Returns `[records on-failure-id]` — the id is the runtime's own proof of which
+  handler this drive reached, asserted below rather than assumed."
+  [envelope]
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)]
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :plain/feed :params {:filter :all}
+                        :owner    real-owner  :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/dispatch-sync (conj (:on-failure @captured) {:status :error :error envelope})
+                      {:frame :test/rt})
+    [(rf/epoch-history :test/rt) (first (:on-failure @captured))]))
+
+(deftest real-failing-feed-reply-to-read-leaks-nothing-into-fx-carriers
+  (testing "rf2-uufoe — `page-failed-handler`'s continuation fan-out, driven
+            through a real infinite-feed page-0 failure."
+    (let [[records on-failure-id] (drive-failing-feed-reply-to-read! failure-envelope)]
+      (is (= :rf.resource.internal/page-failed on-failure-id)
+          "the feed really lowered to the page-failure reply event — this drive
+           reaches `page-failed-handler` and not `failed-handler`")
+      (assert-branch-sweep! (record-carrying-reply records false)
+                            {:status :error :resource :plain/feed}))))
+
+;; ---------------------------------------------------------------------------
+;; (4) the MUTATION cancel settle — the sibling of §(rf2-rnsv2)(6)
+;; ---------------------------------------------------------------------------
+
+(deftest real-cancelled-mutation-reply-to-leaks-nothing-into-fx-carriers
+  (testing "rf2-uufoe — the mutation failure settle also lowers an
+            `:rf.http/aborted` envelope to `:status :cancelled`, and an accepted
+            terminal cancellation fans out its `:reply-to` too. §(rf2-rnsv2)(6)
+            drove the `:error` half of that settle; this is the cancel half."
+    (let [records (drive-failing-mutation-reply-to! abort-envelope)]
+      (assert-branch-sweep! (record-with-family-reply records)
+                            {:status :cancelled
+                             :rf.reply/work-kind :mutation
+                             :mutation :m/save}))))
