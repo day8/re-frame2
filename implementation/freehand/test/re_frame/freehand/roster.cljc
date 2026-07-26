@@ -155,7 +155,7 @@
   [id field detail]
   {:fh/id id :field field :detail detail})
 
-(defn- tier-defects
+(defn- entry-defects
   [id tier entry]
   (let [{:keys [ns law]} entry]
     (cond-> []
@@ -174,6 +174,24 @@
       (conj (defect id tier (str "carries a key outside #{:ns :law}: "
                                  (pr-str (sort (set/difference (set (keys entry))
                                                                #{:ns :law})))))))))
+
+(defn- tier-defects
+  "A tier's value is always a NON-EMPTY VECTOR of entries, never a bare
+  entry. One projection is the common case and two is not exotic — the
+  deferred foreign-handle surrogate is a second mounted projection of the
+  same total-release law — so the shape that admits both without a special
+  case is the vector, uniformly. A bare map would make the reader ask which
+  shape they were looking at every time."
+  [id tier entries]
+  (if-not (and (vector? entries) (seq entries))
+    [(defect id tier (str "a tier is a NON-EMPTY VECTOR of {:ns … :law …} "
+                          "entries — one per projection that proves this law "
+                          "at this tier; got " (pr-str entries)))]
+    (into (vec (mapcat #(entry-defects id tier %) entries))
+          (let [nss (map :ns entries)]
+            (when (not= (count nss) (count (distinct nss)))
+              [(defect id tier (str "names the same namespace twice: "
+                                    (pr-str (vec nss))))])))))
 
 (defn defects
   "Every defect in `record`, as a vector — empty when the record is sound.
@@ -257,7 +275,7 @@
                              "nowhere is prose.")))
 
           :always
-          (into (mapcat (fn [[tier entry]] (tier-defects id tier entry)) named)))))))
+          (into (mapcat (fn [[tier entries]] (tier-defects id tier entries)) named)))))))
 
 (def ^:private tier-hosts
   "The hosts a proof tier can possibly run on. A tier claim is checked
@@ -441,7 +459,20 @@
      (first (filter #(= id (:fh/id %)) records)))))
 
 (defn tier
-  "The `{:ns … :law …}` entry `record` declares for `tier`, or nil when the
-  record names no proof at that tier."
+  "The vector of `{:ns … :law …}` entries `record` declares for `tier` —
+  empty when the record names no proof at that tier.
+
+  Empty rather than nil, so a caller folds over the result without asking
+  whether the tier was declared. `(seq (tier record :mounted))` is the
+  question 'is this law proven in a browser at all'."
   [record tier]
-  (get-in record [:fh/record tier]))
+  (get-in record [:fh/record tier] []))
+
+(defn proofs
+  "Every proof `record` declares, as `{:tier … :ns … :law …}` maps in tier
+  order. The projection a checker folds over when the question is about
+  proofs rather than about one tier."
+  [record]
+  (for [t    [:structural :mounted :ssr]
+        e    (tier record t)]
+    (assoc e :tier t)))

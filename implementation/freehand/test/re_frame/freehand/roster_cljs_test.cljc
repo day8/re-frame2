@@ -79,25 +79,55 @@
 ;; The spine members' own shapes — what each vertical actually claims
 ;; ---------------------------------------------------------------------------
 
-(deftest each-spine-member-names-the-tier-its-vertical-lives-on
+(deftest each-spine-member-names-the-proofs-its-vertical-lives-on
   (testing "Per rf2-drpa3.182.7 acceptance 2: the three verticals run
             through the SAME roster rather than three pasted arrangements,
-            which is only meaningful if each names its tiers as data. Every
-            spine member declares both a headless structural entry and a
-            mounted browser entry, and each entry states the law THAT TIER
-            proves — the two are different claims and a record that gave
-            them one sentence would be describing neither."
+            which is only meaningful if each names its proofs as data. Every
+            spine member declares at least one, every proof states the law
+            it carries, and no two proofs of one law state the SAME law — a
+            record that gave two projections one sentence would be
+            describing neither."
     (doseq [{:keys [fh/id] :as record} roster/spine]
-      (doseq [t [:structural :mounted]]
-        (let [{:keys [ns law]} (roster/tier record t)]
-          (is (symbol? ns)
-              (str id " names its " (name t) " proof namespace"))
-          (is (seq law)
-              (str id " states what its " (name t) " tier proves"))))
-      (is (not= (:law (roster/tier record :structural))
-                (:law (roster/tier record :mounted)))
-          (str id " states DIFFERENT laws for its two tiers — a headless "
-               "walk and a real commit do not prove the same thing")))))
+      (let [ps (roster/proofs record)]
+        (is (seq ps) (str id " names at least one proof"))
+        (doseq [{:keys [tier ns law]} ps]
+          (is (symbol? ns) (str id " names its " (name tier) " proof namespace"))
+          (is (seq law)    (str id " states what " ns " proves")))
+        (is (= (count ps) (count (distinct (map :law ps))))
+            (str id " states a DIFFERENT law for each projection"))))))
+
+(deftest a-browser-only-law-declares-no-structural-proof
+  (testing "Per rf2-drpa3.182.7 acceptance 1: a record describes what is
+            there. FH-CTRL-018 opens 'In a real browser' and FH-BEHAVIOR-005
+            is only observable where a connection actually happened, so
+            neither has a structural tier — and the honest record is the one
+            that omits it. The kit's pure transitions and a behavior's inert
+            structural marker are both proven headlessly, but under
+            FH-CTRL-012..017 and FH-BEHAVIOR-003: different laws with their
+            own ids. A record that named those suites here would claim a
+            structural proof they never offer, which is the shape the JVM
+            resolution gate caught when this roster first ran."
+    (is (empty? (roster/tier (roster/by-id :FH-CTRL-018) :structural)))
+    (is (empty? (roster/tier (roster/by-id :FH-BEHAVIOR-005) :structural)))
+    (is (seq (roster/tier (roster/by-id :FH-REACT-007) :structural))
+        "while the three-plane split IS a headless claim, and says so")))
+
+(deftest one-law-may-carry-more-than-one-mounted-projection
+  (testing "Per rf2-drpa3.182.7 §INITIAL SPINE and its terminology note: the
+            deferred foreign-handle surrogate models a Promise-returning
+            third-party initializer, adds no verb, no runtime, no scheduling
+            policy and no contract — so it has no law of its own to address.
+            It is the SECOND mounted projection of the total-release law,
+            reached by the hardest route. A roster that could hold only one
+            projection per tier would have forced it to mint an id, and
+            splitting one law across two ids is exactly what this roster
+            exists to prevent."
+    (let [mounted (roster/tier (roster/by-id :FH-BEHAVIOR-005) :mounted)]
+      (is (= 2 (count mounted)))
+      (is (= '[re-frame.freehand.behaviors-dom-cljs-test
+               re-frame.freehand.behavior-async-dom-cljs-test]
+             (mapv :ns mounted))
+          "the ordinary synchronous path, then the same law under a Promise"))))
 
 (deftest a-browser-only-law-does-not-claim-the-jvm
   (testing "Per the index's applicability grammar: the modes and hosts on a
@@ -181,7 +211,7 @@
    :fh/law    "a probe law"
    :index/law "a probe law"
    :fh/record {:source     '[re-frame.freehand.probe]
-               :structural {:ns 're-frame.freehand.probe-cljs-test :law "headlessly"}
+               :structural [{:ns 're-frame.freehand.probe-cljs-test :law "headlessly"}]
                :prose      :executable}})
 
 (defn- one-defect
@@ -227,12 +257,20 @@
               (assoc-in sound [:fh/record :open] {:rf2-abc ""})             :open]
              ["no proof tier at all — a law that executes nowhere is prose"
               (update sound :fh/record dissoc :structural)                  :fh/record]
+             ["a tier given a bare entry rather than a vector of them"
+              (assoc-in sound [:fh/record :structural]
+                        {:ns 're-frame.freehand.probe-cljs-test :law "x"})  :structural]
+             ["a tier declared and left empty"
+              (assoc-in sound [:fh/record :structural] [])                  :structural]
              ["a tier naming its namespace as a string"
-              (assoc-in sound [:fh/record :structural :ns] "re-frame.x")    :structural]
-             ["a tier that states no law"
-              (update-in sound [:fh/record :structural] dissoc :law)        :structural]
-             ["a tier carrying a key outside #{:ns :law}"
-              (assoc-in sound [:fh/record :structural :when] :tuesdays)     :structural]]]
+              (assoc-in sound [:fh/record :structural 0 :ns] "re-frame.x")  :structural]
+             ["a tier entry that states no law"
+              (update-in sound [:fh/record :structural 0] dissoc :law)      :structural]
+             ["a tier entry carrying a key outside #{:ns :law}"
+              (assoc-in sound [:fh/record :structural 0 :when] :tuesdays)   :structural]
+             ["one tier naming the same namespace twice"
+              (update-in sound [:fh/record :structural]
+                         #(conj % (first %)))                               :structural]]]
       (let [d (one-defect broken)]
         (is (= "FH-PROBE-001" (:fh/id d)) (str note " — names the law"))
         (is (= field (:field d))          (str note " — names the field"))
@@ -274,8 +312,8 @@
             the corpus never held."
     (let [jvm-only (assoc sound :hosts #{:jvm}
                                :fh/record (assoc (:fh/record sound)
-                                            :mounted {:ns 're-frame.freehand.probe-dom-cljs-test
-                                                      :law "in a browser"}))
+                                            :mounted [{:ns 're-frame.freehand.probe-dom-cljs-test
+                                                       :law "in a browser"}]))
           ds       (roster/roster-defects [jvm-only])]
       (is (= 1 (count ds)))
       (is (= "FH-PROBE-001" (:fh/id (first ds))) "the tier defect names the law")
@@ -286,12 +324,12 @@
       (is (= [] (roster/roster-defects
                   [(assoc sound :hosts #{:browser}
                           :fh/record (assoc (:fh/record sound)
-                                       :mounted {:ns 're-frame.freehand.probe-dom-cljs-test
-                                                 :law "in a browser"}))]))))
+                                       :mounted [{:ns 're-frame.freehand.probe-dom-cljs-test
+                                                  :law "in a browser"}]))]))))
     (testing "an :ssr tier on a row that names no SSR host"
       (is (= [:ssr] (mapv :field
                           (roster/roster-defects
                             [(assoc sound :hosts #{:jvm :browser}
                                     :fh/record (assoc (:fh/record sound)
-                                                 :ssr {:ns 're-frame.freehand.probe-ssr-jvm-test
-                                                       :law "to HTML"}))])))))))
+                                                 :ssr [{:ns 're-frame.freehand.probe-ssr-jvm-test
+                                                        :law "to HTML"}]))])))))))

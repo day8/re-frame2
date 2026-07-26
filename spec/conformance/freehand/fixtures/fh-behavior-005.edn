@@ -65,13 +65,21 @@
  :fh/record
  {:source [re-frame.freehand.behaviors re-frame.freehand.refs]
 
-  :structural
-  {:ns  re-frame.freehand.behaviors-cljs-test
-   :law "On the structural host a behavior is an inert marker and connects nothing, so the teardown claim has a control: a tier that never connected cannot be the tier that proves a release."}
-
+  ;; NO structural tier. A release is only observable where a connection
+  ;; happened, and on the structural host a behavior is an inert marker
+  ;; that connects nothing — which is FH-BEHAVIOR-003's law, not this
+  ;; one. The index binds this row to `interpreted browser` for exactly
+  ;; that reason.
+  ;;
+  ;; TWO mounted projections, and the second is the point of the vector.
+  ;; They are the same law — total release, exactly once — reached by two
+  ;; different routes, and a roster that could hold only one would have
+  ;; forced the surrogate to invent an id and split the identity.
   :mounted
-  {:ns  re-frame.freehand.behavior-async-dom-cljs-test
-   :law "Against a Promise-returning third-party initializer, an unmount BEFORE the acquisition resolves leaves nothing behind — the late handle is released by the continuation rather than retained, the owner is already fenced when the library is asked, the library is asked EXACTLY once, and a finalizer that FAILS leaves a host-only leak with both framework books still empty rather than a half-released connection."}
+  [{:ns  re-frame.freehand.behaviors-dom-cljs-test
+    :law "On the ordinary synchronous path `:disconnect` runs exactly once per committed connection and both substrate books read the exact integer zero afterwards — measured against a control mount of the same markup that attached no behavior, so React's own bookkeeping cannot masquerade as the substrate's."}
+   {:ns  re-frame.freehand.behavior-async-dom-cljs-test
+    :law "Under a Promise-returning third-party initializer the same release holds where it is hardest: an unmount BEFORE the acquisition resolves leaves nothing behind — the late handle is released by the continuation rather than retained, the owner is already fenced when the library is asked, the library is asked EXACTLY once, and a finalizer that FAILS leaves a host-only leak with both framework books still empty rather than a half-released connection."}]
 
   ;; What a run must leave, and what it must not. The two books are the
   ;; substrate's own — a count, not a threshold — and `:residue :none` is

@@ -57,15 +57,17 @@
  :fh/record
  {:source [re-frame.freehand.form re-frame.freehand.controls]
 
-  ;; The pure transitions are host-neutral and run headlessly on both
-  ;; hosts; the browser tier is the half only a real caret can answer.
-  :structural
-  {:ns  re-frame.freehand.controls-kit-cljs-test
-   :law "The kit's transitions are pure and cross-host: a field edit, a buffered draft, a commit and a caller reset are values computed from values, with no host object and no clock anywhere in them."}
-
+  ;; NO structural tier, and that is the law rather than an omission. This
+  ;; row opens "In a real browser" and the index binds it to `interpreted
+  ;; browser`: a caret position, a live IME composition and a still-focused
+  ;; node are facts a headless walk cannot reach. The kit's PURE
+  ;; transitions are proven headlessly, but by FH-CTRL-012..017 — a
+  ;; different set of laws with their own ids. Naming
+  ;; `controls-kit-cljs-test` here would have made this row claim a
+  ;; structural proof that suite never offers.
   :mounted
-  {:ns  re-frame.freehand.controls-kit-dom-cljs-test
-   :law "Against real key events in Chromium the caret follows the user rather than jumping to either end, a plain Enter commits through the ordinary batched path while an Enter carrying a live IME composition commits nothing and discards nothing, and a caller's reset restores the baseline on the SAME still-focused node rather than by remounting it."}
+  [{:ns  re-frame.freehand.controls-kit-dom-cljs-test
+    :law "Against real key events in Chromium the caret follows the user rather than jumping to either end, a plain Enter commits through the ordinary batched path while an Enter carrying a live IME composition commits nothing and discards nothing, and a caller's reset restores the baseline on the SAME still-focused node rather than by remounting it."}]
 
   ;; A control kit's evidence is what a run leaves for a reader: the value
   ;; the DOM node actually held, and the count of commits that reached

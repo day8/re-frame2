@@ -114,12 +114,12 @@
            re-frame.freehand.to-react]
 
   :structural
-  {:ns  re-frame.freehand.host-door-cljs-test
-   :law "The three planes split ONCE, host-neutrally: the same declaration yields the same ordinary props, the same filled callback positions and the same children on the JVM and in ClojureScript, and every refusal above is a typed diagnostic rather than a coercion."}
+  [{:ns  re-frame.freehand.host-door-cljs-test
+    :law "The three planes split ONCE, host-neutrally: the same declaration yields the same ordinary props, the same filled callback positions and the same children on the JVM and in ClojureScript, and every refusal above is a typed diagnostic rather than a coercion."}]
 
   :mounted
-  {:ns  re-frame.freehand.host-mounted-dom-cljs-test
-   :law "Against a real react-dom/client commit the contract the declaration advertises is the contract the registered component receives — measured on the EXACT function object React was handed, through two implementations that could not be less alike (a value/callback leaf and a hook-owning wrapper) declared the same way."}
+  [{:ns  re-frame.freehand.host-mounted-dom-cljs-test
+    :law "Against a real react-dom/client commit the contract the declaration advertises is the contract the registered component receives — measured on the EXACT function object React was handed, through two implementations that could not be less alike (a value/callback leaf and a hook-owning wrapper) declared the same way."}]
 
   ;; The evidence a host crossing owes is about IDENTITY, not shape: a
   ;; callback prop that is a fresh function on every commit renders
