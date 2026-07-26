@@ -255,6 +255,8 @@ nav:
     # opens one is not misled. Same reason as the (donor) labels below, whose
     # marker style this follows (rf2-8jbpe).
     - "re-frame.freehand (pre-alpha)": api/re-frame.freehand.md
+    - "re-frame.freehand.form (pre-alpha)": api/re-frame.freehand.form.md
+    - "re-frame.freehand.controls (pre-alpha)": api/re-frame.freehand.controls.md
     # The compiled-view substrate is DONOR code with no published Maven
     # coordinate (docs/release-process.md §Policy). The nav says so, matching
     # the Skills entry "re-frame2-ui (donor compiled views)" — a reader must not

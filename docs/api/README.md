@@ -16,13 +16,15 @@ pages — [`re-frame.ui`](re-frame.ui.md), [`re-frame.ui.react`](re-frame.ui.rea
 and [`re-frame.ui.test`](re-frame.ui.test.md) — document the **donor** compiled-view
 substrate, which has no published Maven coordinate and never will
 ([release process](../release-process.md#policy)). They are the contract record for
-code an app already carries. The two **Freehand** pages —
-[`re-frame.freehand`](re-frame.freehand.md) and
+code an app already carries. The four **Freehand** pages —
+[`re-frame.freehand`](re-frame.freehand.md),
+[`re-frame.freehand.form`](re-frame.freehand.form.md),
+[`re-frame.freehand.controls`](re-frame.freehand.controls.md) and
 [`re-frame.freehand.test`](re-frame.freehand.test.md) — are unpublished for the other
 reason: `day8/re-frame2-freehand` is **pre-alpha**, ships inside the monorepo, and
 has no date at which it will be published either. Freehand is not donor code — it is
 where new view work starts — and you resolve it with `:local/root` from a checkout
-([Install](../core/freehand/install.md)). All five pages open with a banner saying
+([Install](../core/freehand/install.md)). All seven pages open with a banner saying
 so. Every other page on this list describes an artefact the release workflow deploys.
 
 ## How to read these pages
@@ -31,6 +33,7 @@ so. Every other page on this list describes an artefact the release workflow dep
 |---|---|
 | Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
 | Freehand views (`defview`, callbacks, event intent) | [`re-frame.freehand`](re-frame.freehand.md) — **pre-alpha, not published** |
+| Freehand forms and controls | [`re-frame.freehand.form`](re-frame.freehand.form.md), [`re-frame.freehand.controls`](re-frame.freehand.controls.md) — **pre-alpha, not published** |
 | Compiled views (`defview`, `mount`, `sub`) | [`re-frame.ui`](re-frame.ui.md) — **donor, not published** |
 | Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
 | Substrate adapters | `re-frame.adapter.{reagent,uix}` — first-class and permanent |
@@ -66,6 +69,8 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 |---|---|
 | [re-frame.core](re-frame.core.md) | Registration, dispatch, subscribe, views (`reg-view`), frames, boot, interceptors, feature re-exports |
 | [re-frame.freehand](re-frame.freehand.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** Freehand view substrate (EP-0036): `defview`, descriptor inspection, callback and event-intent forms |
+| [re-frame.freehand.form](re-frame.freehand.form.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** Pure form transitions over ordinary data: `init` / `edit` / `visit` / `seed` / `reset` / `rebase` / `set-errors` / `attempt-submit`, and the narrow per-leaf `field` read |
+| [re-frame.freehand.controls](re-frame.freehand.controls.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** The first-party control kit: `field`, `buffered-field`, the causal owner's `release`, and the composing-Enter law |
 | [re-frame.ui](re-frame.ui.md) | **Donor, not published.** Compiled-view substrate: `defview`, `sub`, `mount`, `frame-root`, interop forms |
 
 ### Optional capabilities
