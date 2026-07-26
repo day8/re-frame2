@@ -118,6 +118,50 @@ five files the census could not see, coupled to the donor by a build id and a
 path, none of them rowed. They are rowed now. When a build id turns out to be
 unrowed, sweep for the others that name it before closing the finding.
 
+The third pass took the family one directory up, to the GATES themselves
+(rf2-ddu3i). Ten scripts under `scripts/`, `implementation/scripts/`, and
+`.github/scripts/` name donor source paths or scan for donor bodies, and not one
+of them can raise either signal: they are `.py`, `.sh`, and `.cjs`. They are
+rowed above, and the reason each row carries its own measured exit code is that
+they are **three different outcomes, not one**, and the difference decides
+whether the row needs a Freehand successor:
+
+* **BREAK** — `check_ui_root_lifecycle_drift.py` reads
+  `implementation/ui/src/re_frame/ui/client.cljs` by name and exits 2 before it
+  compares a single anchor; `check-bundle-isolation.test.cjs` asserts
+  `implementation/ui/deps.edn` exists. Both red on `main` the moment the tree
+  goes. Loud, and the least dangerous.
+* **GO VACUOUS** — `check-elision.cjs` asserts eight donor sentinels are ABSENT
+  from a production bundle. With the bodies gone they are absent for the wrong
+  reason, and the assertion stops meaning anything while still passing.
+* **BECOME FALSE** — `check_adapter_disposition.py` neither breaks nor goes
+  quiet. It reads no donor path, its population does not move, and it goes on
+  demanding that an active authority state the status of a deleted substrate.
+
+Three things the next sweep should inherit. First, an exit code cannot tell a
+real pass from a vacuous one, so count what the gate checked before and after:
+`0 of 0` passing and `47 of 47` passing are the same zero. Second, moving
+`implementation/ui/` aside does **not** simulate deleting it for any gate that
+reads `git ls-files` — this checker included, which stayed green through the
+whole move and only reported its 73 stale rows once the deletion was staged in
+the index. Third, MOVE / REPLACE / DELETE turns on whether the donor's POSITION
+is vacated, not on whether its code crosses:
+`.github/scripts/preflight-story-package.sh` looks like a DELETE (a
+never-publishes assertion about an artifact that is never published) and is a
+REPLACE, because `day8/re-frame2-freehand` occupies the same test-only
+`:local/root` position in `tools/story/deps.edn` and carries no `:clein/build`
+either.
+
+Two files that sweep listed are deliberately NOT rowed.
+`examples/scripts/check-examples-assets.cjs` names `implementation/ui/scaffold-smoke`
+only in a comment explaining WHY it prunes standalone scaffolds; the prune
+itself is marker-based (a project root bearing its own `shadow-cljs.edn`, "no
+per-path list"), so it reads no donor path and measured `rc 0 → 0` with the
+donor tree absent. Its unit test
+`implementation/scripts/check-examples-assets.test.cjs` couples to
+`examples/ui/minimal-counter/`, which lives under `examples/` and already has a
+row. Both are the historical-mention exclusion in substance rather than by name.
+
 ## How coverage is enforced
 
 ```
@@ -344,6 +388,16 @@ release train have no Freehand successor and are DELETEd outright.
 | `implementation/adapters/scripts/run-adapter-smokes.cjs` | the Playwright half: it drives the donor substrate spec and reconciles the manifest against the spec files actually on disk, so a declared-but-absent donor spec reds the run rather than being silently skipped | REPLACE | F6 | pending |
 | `implementation/scripts/_adapter-smoke-filter.test.cjs` | the manifest's own unit tests. Its donor arms pin the exact three-build set including `ui/testbed`, that every declared `specPath` exists on disk, and that both `ui/testbed` and `ui-testbed` filter shapes select the substrate smoke while `adapters/` deliberately excludes it. Takes its subject's disposition | REPLACE | F6 | pending |
 | `implementation/scripts/_reagent-slim-smoke-policy.test.cjs` | the slim-adapter smoke policy. Its donor arm is a second `deepStrictEqual` over the same three-build set — including `ui/testbed` — pinning that no slim entry can hide behind manifest growth. Takes the manifest's disposition, as its subject | REPLACE | F6 | pending |
+| `scripts/check_ui_root_lifecycle_drift.py` | the Root-settlement drift gate: 32 literal anchors across runtime, spec, and docs. ELEVEN of them are donor source paths — four in `ui/client.cljs`, four in `ui/frames.cljc`, two in `ui/reactive.cljc`, one in the donor's `adapter_public_root_disposal` browser fixture — and `load_texts` raises on the FIRST missing file, so the whole gate exits before a single anchor is compared. The sharpest break in this family and the loudest: measured `rc 0 → 2`, `required lifecycle surface missing: implementation/ui/src/re_frame/ui/client.cljs`. The other twenty anchors (004C, 006, 009) are donor-independent and stay, which is why the gate is re-declared against `re-frame.freehand.root` rather than retired | REPLACE | F6 | pending |
+| `scripts/check_skill_implementor_partition_drift.py` | the implementor-skill control-surface guard. Rules 1–6 are donor-free; Rule 7's L5 arm is a CAUSAL source assertion over `ui/client.cljs` (each host render preceded by its OWN live `run-preflight!`, plus the one-shot `pre → create → render` triple) and a three-token presence assertion over `ui/frames.cljc`. Measured `rc 0 → 1`, but the failure is two SETUP lines, not a contract failure: `find_lifecycle_drift` reports each missing file and passes `None` on, so the causal assertion is never evaluated. That is the trap this row exists to name — deleting the two `*_FILE` constants to clear the SETUP error retires the preflight-before-render assertion outright, and nothing is left to notice | REPLACE | F6 | pending |
+| `scripts/test-fast-pr.sh` | the fast pre-checkin spine, which runs the Root-lifecycle drift gate twice (`--self-test`, then `--ci`). `run()` returns 1 on ANY non-zero rc and the spine is `set -euo pipefail`, so the gate's `rc=2` aborts it | REPLACE | F6 | pending |
+| `scripts/test-jvm-implementation.sh` | the JVM artefact roster, which carries `implementation/ui` as one of twenty-two entries. Measured with a stub `clojure` on PATH so the loop's own control flow is what is under test: `rc 0 → 1`, `cd: implementation/ui: No such file or directory`, `FAIL JVM implementation/ui`. `implementation/freehand` is already the sibling entry two lines down, so the roster survives the deletion and only the donor line goes | REPLACE | F6 | pending |
+| `implementation/scripts/check-bundle-isolation.cjs` | the counter-bundle isolation gate. Its donor arm is the `ui` ARTEFACTS entry — one sentinel, `rf.error/ui-tree-malformed` — plus its `onModule: 'ui'` positive control over the dedicated control release. NOT the vacuous outcome the family's shape suggests: `checkPositiveControl` returns `ok: false` with "cannot prove sentinels present (would be vacuous)" when the module is absent, so the gate is fail-closed on exactly this. Population 23 artefacts / 39 internal sentinels / 23 positive controls, of which the donor is one of each | REPLACE | F6 | pending |
+| `implementation/scripts/check-bundle-isolation.test.cjs` | the gate's own unit test — the second hard break in this family, and the one the sweep that found the others did not list. `NON_PUBLISHABLE_GENERIC` holds exactly `ui`, and the generic-coverage loop then asserts `fs.existsSync(implementation/ui/deps.edn)` by name. Measured `rc 0 → 1`: "generic-coverage relPath 'ui' must be a real implementation/ artefact directory". Takes its subject's disposition | REPLACE | F6 | pending |
+| `implementation/scripts/check-elision.cjs` | the production-elision verifier. EIGHT of its sixty `DEV_ONLY_SENTINELS` are donor bodies — four Fast Refresh slots, the bare-view-alias diagnostic, three `cross-frame-carried-op` fragments. Its production arm asserts ABSENCE, so those eight go VACUOUS the instant the bodies stop existing: absent because there is nothing to elide, not because DCE worked. Two things keep it honest and both must be understood before the donor goes. The control arm asserts the same eight are PRESENT under `goog.DEBUG=true` — but only `if (fs.existsSync(controlDir))`, an unannounced skip. Ahead of it, `implementation/core/test/re_frame/elision_probe.cljs` `:require`s `re-frame.ui`, `re-frame.ui.reactive`, and `re-frame.ui.frames` to root those sentinels, so `npm run test:elision` fails at `shadow-cljs release elision-probe elision-probe-control` before the checker runs at all. The vacuity is therefore a property of a careless REPAIR — strip the probe's requires, keep the eight table rows — not of the deletion | REPLACE | F6 | pending |
+| `scripts/check_adapter_disposition.py` | the adapter-disposition authority guard. It reads no donor path and its checked population does not move: measured `rc 0 → 0` with the donor tree absent, seven rostered authorities and four EP-0030 positive assertions before and after. Three of its thirteen superseded-status patterns are donor-named (`only-taught view layer`, `replaces the adapter trio`, `defaults to re-frame.ui`) and one positive assertion requires EP-0030 to carry the word `experimental` — so after the deletion the gate goes on DEMANDING that an active authority state the status of a substrate that no longer exists. Not broken and not vacuous: FALSE. The adapter half of the ruling (Reagent, reagent-slim, and UIx first-class; only Helix removed) is donor-independent and stays | REPLACE | F6 | pending |
+| `.github/scripts/preflight-story-package.sh` | Story's package-boundary preflight. `("day8", "re-frame2-ui")` is NOT in its `EXPECTED` set — it is one of three `EXTRA_HINT` entries, the message attached to an "UNEXPECTED DIRECT dependency" error — so the checked population is eight coordinates before and after and nothing goes vacuous. What dies is the claim: "re-frame2-ui NEVER PUBLISHES — it is in-tree donor code". REPLACE rather than DELETE, and the distinction is load-bearing here: `day8/re-frame2-freehand {:local/root …}` sits in the SAME `:test` alias of `tools/story/deps.edn` and carries no `:clein/build` either, so the never-publishes hint has a Freehand successor to be re-declared for. Publication wiring is DELETE only where the donor's position is vacated, and this position is not | REPLACE | F6 | pending |
+| `implementation/scripts/_preflight-story-package.test.cjs` | the preflight's own unit test, whose donor arm builds a synthetic pom declaring `day8/re-frame2-ui` and asserts the hint fires. It reads nothing on disk — measured `rc 0 → 0` — and it is what makes the dead hint sticky: strip the entry from the shell script alone and this test reds. Takes its subject's disposition | REPLACE | F6 | pending |
 | `.github/scripts/verify-version-lockstep.sh` | the release inventory's assertion that the donor artifact is publishable; the surrounding inventory serves other artifacts and stays | DELETE | F6 | done |
 | `.github/scripts/report-changed-surfaces.sh` | the changed-surface router that maps donor paths to gates | REPLACE | F6 | pending |
 | `.github/workflows/test.yml` | the donor-suite jobs on the pull-request train | REPLACE | F6 | pending |
