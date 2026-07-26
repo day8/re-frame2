@@ -33,6 +33,24 @@
 # release does not republish Machines-Viz, and this tag does not touch
 # `implementation/`.
 #
+# # What this workflow does NOT do: it does not deploy the viewer page
+#
+# This workflow publishes the JAR. It does not build
+# `tools/machines-viz/page/.../viewer.cljs`, does not stage
+# `tools/machines-viz/public/viewer.html` anywhere, and does not deploy
+# either — and no other workflow in this repository does. There is no
+# hosted viewer instance, by design (DESIGN-RATIONALE Lock #7): the page
+# is a static asset the CONSUMER hosts, built with `shadow-cljs release
+# machines-viz-viewer` from `implementation/` and served beside
+# `viewer.html`. See tools/machines-viz/README.md §Building and hosting
+# the viewer page.
+#
+# This is stated here because the inference is easy to make and was made:
+# `share/encode-share-url` used to default its `:host` to
+# `https://day8.github.io/re-frame2-machines-viz/viewer.html`, which 404s
+# and names a repository that does not exist. Publishing the jar deploys
+# nothing (rf2-8m344).
+#
 # # Lockstep versioning
 #
 # Per spec/Conventions.md §Packaging conventions (rf2-w05l) every

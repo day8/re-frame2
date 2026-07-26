@@ -60,6 +60,10 @@
             [day8.re-frame2-machines-viz.export :as export]
             [day8.re-frame2-machines-viz.share :as share]))
 
+;; `share-url` has no default host (rf2-8m344) — every caller names the
+;; viewer page it hosts, tests included.
+(def ^:private test-host "https://x/viewer.html")
+
 ;; ---- sample machine -----------------------------------------------------
 
 (def ^:private idle-loading-done
@@ -396,7 +400,7 @@
         (fn [node]
           (let [root (chart-root-of node "rf-mv-chart")]
             ;; share-url from the live chart root round-trips.
-            (let [url (export/share-url root)
+            (let [url (export/share-url root {:host test-host})
                   cs  (:rf.machines-viz.share/chart (share/decode-share-url url))]
               (is (str/includes? url "#machine=") "share-url is a machine fragment")
               (is (= :test/flow (:machine-id cs)) "share-url carries the machine-id")
@@ -405,7 +409,7 @@
               (is (= {:state :loading} (:snapshot cs))
                   "share-url carries the active-state name (no :data)"))
             ;; share-url from the WRAPPER resolves the same root.
-            (is (str/includes? (export/share-url node) "#machine=")
+            (is (str/includes? (export/share-url node {:host test-host}) "#machine=")
                 "share-url resolves from a wrapper via the seam too")
             ;; Mermaid lane still emits a fenced stateDiagram from the seam.
             (let [md (export/chart-as-mermaid root)]

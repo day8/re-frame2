@@ -26,6 +26,19 @@
             [day8.re-frame2-machines-viz.share :as share]))
 
 ;; ---------------------------------------------------------------------------
+;; The viewer host these tests encode against. `encode-share-url` has NO
+;; default host (rf2-8m344) — the one it used to carry named a repository
+;; that does not exist — so every producer of a share-URL names its own
+;; viewer, tests included.
+
+(def ^:private test-host "https://x/viewer.html")
+
+(defn- encode
+  "`share/encode-share-url` against `test-host`."
+  [chart-state]
+  (share/encode-share-url chart-state {:host test-host}))
+
+;; ---------------------------------------------------------------------------
 ;; Test helper — craft a raw share-URL fragment from an arbitrary
 ;; envelope (so we can build a future-version / missing-envelope payload
 ;; the public encoder would never emit). Mirrors the encoder's
@@ -38,7 +51,7 @@
                 (str/replace "+" "-")
                 (str/replace "/" "_")
                 (str/replace "=" ""))]
-    (str "https://x/viewer.html#machine=" b64)))
+    (str test-host "#machine=" b64)))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -79,7 +92,7 @@
 
 (deftest round-trip-preserves-chart-state
   (testing "encode → decode recovers the ChartState exactly"
-    (let [url (share/encode-share-url chart-state)
+    (let [url (encode chart-state)
           env (share/decode-share-url url)
           back (:rf.machines-viz.share/chart env)]
       (is (= :auth/login-flow (:machine-id back)))
@@ -92,7 +105,7 @@
 (deftest round-trip-parallel
   (testing "parallel definitions round-trip"
     (let [back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (share/encode-share-url parallel-state)))]
+                 (share/decode-share-url (encode parallel-state)))]
       (is (= (:definition parallel-state) (:definition back)))
       (is (= :editor/flow (:machine-id back))))))
 
@@ -100,7 +113,7 @@
   (testing "a ChartState with no :snapshot round-trips without one"
     (let [cs   (dissoc chart-state :snapshot)
           back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (share/encode-share-url cs)))]
+                 (share/decode-share-url (encode cs)))]
       (is (not (contains? back :snapshot)))
       (is (= idle-loading-success (:definition back))))))
 
@@ -114,7 +127,7 @@
   (testing "a FLAT keyword :state round-trips"
     (let [cs   (assoc chart-state :snapshot {:state :loading})
           back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (share/encode-share-url cs)))]
+                 (share/decode-share-url (encode cs)))]
       (is (= {:state :loading} (:snapshot back)))
       (is (keyword? (get-in back [:snapshot :state]))))))
 
@@ -125,7 +138,7 @@
                 :definition compound-definition
                 :snapshot   {:state [:authenticated :cart :browsing]}}
           back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (share/encode-share-url cs)))]
+                 (share/decode-share-url (encode cs)))]
       (is (= {:state [:authenticated :cart :browsing]} (:snapshot back)))
       (is (vector? (get-in back [:snapshot :state]))))))
 
@@ -133,14 +146,14 @@
   (testing "a PARALLEL region-map :state round-trips (was rejected pre-9l8h8)"
     (let [cs   (assoc parallel-state :snapshot {:state {:data :dirty :form :busy}})
           back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (share/encode-share-url cs)))]
+                 (share/decode-share-url (encode cs)))]
       (is (= {:state {:data :dirty :form :busy}} (:snapshot back)))
       (is (map? (get-in back [:snapshot :state])))))
   (testing "a PARALLEL region-map whose region value is itself a compound path"
     (let [cs   (assoc parallel-state
                       :snapshot {:state {:data :dirty :form [:edit :touched]}})
           back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (share/encode-share-url cs)))]
+                 (share/decode-share-url (encode cs)))]
       (is (= {:state {:data :dirty :form [:edit :touched]}} (:snapshot back))))))
 
 (deftest malformed-state-rejected-at-encode
@@ -153,7 +166,7 @@
                        {:data "loading"}               ;; non-keyword/path region value
                        {"data" :loading}]]             ;; non-keyword region name
       (let [cs (assoc chart-state :snapshot {:state bad-state})
-            d  (try (share/encode-share-url cs)
+            d  (try (encode cs)
                     (catch :default e (ex-data e)))]
         (is (= :invalid-chart-state (:reason d))
             (str "encode must reject malformed :state " (pr-str bad-state)))
@@ -168,7 +181,7 @@
       (let [cs  (assoc chart-state
                        :definition compound-definition
                        :snapshot {:state state})
-            url (share/encode-share-url cs)
+            url (encode cs)
             ;; decode-share-url-safe never throws — an undecodable URL
             ;; (the pre-9l8h8 bug) would surface as {:error ...}.
             r   (share/decode-share-url-safe url)]
@@ -178,9 +191,9 @@
 
 (deftest url-shape
   (testing "encoded URL carries the #machine= fragment + uses base64url alphabet"
-    (let [url (share/encode-share-url chart-state)
+    (let [url (encode chart-state)
           frag (subs url (inc (str/index-of url "#")))]
-      (is (str/starts-with? url share/default-host))
+      (is (str/starts-with? url test-host))
       (is (str/starts-with? frag "machine="))
       (let [payload (subs frag (count "machine="))]
         ;; base64url: no +, /, or = padding
@@ -188,10 +201,25 @@
         (is (not (str/includes? payload "/")))
         (is (not (str/includes? payload "=")))))))
 
-(deftest host-override
-  (testing "{:host ...} swaps the viewer base"
+(deftest host-selects-the-viewer-base
+  (testing "{:host ...} names the viewer the URL points at"
     (let [url (share/encode-share-url chart-state {:host "https://acme.example.com/v.html"})]
       (is (str/starts-with? url "https://acme.example.com/v.html#machine=")))))
+
+(deftest no-host-is-refused
+  (testing "rf2-8m344 — there is no default host, and a missing one is refused
+            rather than filled in with a URL that 404s"
+    (doseq [opts [nil {} {:host nil} {:host ""} {:host "   "}]]
+      (let [d (try (share/encode-share-url chart-state opts)
+                   (catch :default e (ex-data e)))]
+        (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d))
+            (str "refused for opts " (pr-str opts)))
+        (is (= :no-host (:reason d))
+            (str "reason is :no-host for opts " (pr-str opts)))
+        (is (string? (:message d)) "carries a human message"))))
+  (testing "a blank host never yields a URL"
+    (is (not (string? (try (share/encode-share-url chart-state {:host "  "})
+                           (catch :default _ nil)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Canonicalisation / reproducibility
@@ -220,7 +248,7 @@
       (is (= a b) "fixtures are value-equal")
       (frozen-now
         (fn []
-          (is (= (share/encode-share-url a) (share/encode-share-url b))
+          (is (= (encode a) (encode b))
               "and therefore encode byte-for-byte identically (created frozen)"))))))
 
 (deftest reproducible-with-sets
@@ -233,9 +261,9 @@
                           :states {:s1 {:tags #{:c :a :b}}}}}]
       (frozen-now
         (fn []
-          (is (= (share/encode-share-url a) (share/encode-share-url b)))))
+          (is (= (encode a) (encode b)))))
       (let [back (:rf.machines-viz.share/chart
-                   (share/decode-share-url (share/encode-share-url a)))]
+                   (share/decode-share-url (encode a)))]
         (is (= #{:a :b :c} (get-in back [:definition :states :s1 :tags])))))))
 
 ;; ---------------------------------------------------------------------------
@@ -247,19 +275,19 @@
                                               :data  {:token "secret-abc"
                                                       :form  {:password "hunter2"}}})
           back  (:rf.machines-viz.share/chart
-                  (share/decode-share-url (share/encode-share-url leaky)))]
+                  (share/decode-share-url (encode leaky)))]
       (is (= {:state :loading} (:snapshot back)))
       (is (not (contains? (:snapshot back) :data)))
-      (is (not (str/includes? (share/encode-share-url leaky) "hunter2"))
+      (is (not (str/includes? (encode leaky) "hunter2"))
           "the secret never reaches the encoded bytes"))))
 
 (deftest source-coords-are-dropped
   (testing ":source-coords passed by the caller never reach the payload"
     (let [leaky (assoc chart-state :source-coords {:file "/Users/mike/secret/x.cljs"})
           back  (:rf.machines-viz.share/chart
-                  (share/decode-share-url (share/encode-share-url leaky)))]
+                  (share/decode-share-url (encode leaky)))]
       (is (not (contains? back :source-coords)))
-      (is (not (str/includes? (share/encode-share-url leaky) "secret"))))))
+      (is (not (str/includes? (encode leaky) "secret"))))))
 
 (deftest definition-metadata-is-stripped
   (testing "macro-captured source-coord meta on the definition does not propagate"
@@ -267,7 +295,7 @@
                                     {:rf/source-coord {:file "/Users/mike/proj/m.cljs"
                                                        :line 42}})
           cs   (assoc chart-state :definition defn-with-meta)
-          url  (share/encode-share-url cs)
+          url  (encode cs)
           back (:rf.machines-viz.share/chart (share/decode-share-url url))]
       (is (nil? (meta (:definition back))) "no meta survives")
       (is (not (str/includes? url "proj")) "the file path never reaches the bytes"))))
@@ -311,7 +339,7 @@
   (testing "rf2-m285a — nested :source-coords / :source-code on :states /
             :guards / :actions are stripped before Transit (no local path leak)"
     (let [cs   (assoc chart-state :definition macro-stamped-like-definition)
-          url  (share/encode-share-url cs)
+          url  (encode cs)
           back (:rf.machines-viz.share/chart (share/decode-share-url url))
           dfn  (:definition back)]
       ;; The encoded BYTES carry no local-filesystem path / source snippet.
@@ -337,7 +365,7 @@
             action encode successfully (instead of crashing Transit) — the
             executable body is dropped / labelled, not serialised"
     (let [cs  (assoc chart-state :definition macro-stamped-like-definition)
-          url (share/encode-share-url cs)
+          url (encode cs)
           dfn (:definition
                 (:rf.machines-viz.share/chart (share/decode-share-url url)))]
       (is (string? url) "encoding succeeds")
@@ -377,7 +405,7 @@
   (testing "rf2-skhlw2.1 — a share URL PRESERVES safe :rf.cofx/requires
             metadata while still dropping the executable :fn"
     (let [cs   (assoc chart-state :definition cofx-requires-definition)
-          url  (share/encode-share-url cs)
+          url  (encode cs)
           dfn  (:definition
                  (:rf.machines-viz.share/chart (share/decode-share-url url)))]
       ;; the requires vectors survive intact (safe topology metadata)
@@ -410,7 +438,7 @@
             preserved through share encode/decode (not dropped as if it were
             an executable function slot)"
     (let [cs   (assoc chart-state :definition fn-id-definition)
-          url  (share/encode-share-url cs)
+          url  (encode cs)
           dfn  (:definition
                  (:rf.machines-viz.share/chart (share/decode-share-url url)))]
       (is (string? url) "encoding succeeds")
@@ -432,7 +460,7 @@
                 :regions {:fn {:initial :one :states {:one {:on {:go :two}} :two {}}}
                           :b  {:initial :p   :states {:p {} :q {}}}}}
           cs   (assoc chart-state :definition defn)
-          url  (share/encode-share-url cs)
+          url  (encode cs)
           dfn  (:definition
                  (:rf.machines-viz.share/chart (share/decode-share-url url)))]
       (is (string? url) "encoding succeeds")
@@ -451,7 +479,7 @@
                 :states  {:fn {:on {:go {:target :done :guard :ready?}}}
                           :done {:final? true}}}
           cs   (assoc chart-state :definition defn)
-          url  (share/encode-share-url cs)
+          url  (encode cs)
           dfn  (:definition
                  (:rf.machines-viz.share/chart (share/decode-share-url url)))]
       (is (string? url) "encoding succeeds (the live fn did not crash Transit)")
@@ -480,7 +508,7 @@
 (deftest frame-id-is-optional
   (testing "a ChartState with no :frame-id encodes + round-trips (v2 / EP-0023)"
     (let [cs   (dissoc chart-state :frame-id)
-          url  (share/encode-share-url cs)
+          url  (encode cs)
           back (:rf.machines-viz.share/chart (share/decode-share-url url))]
       (is (not (contains? back :frame-id))
           "no fabricated :frame-id rides the payload when none was supplied")
@@ -490,7 +518,7 @@
 
 (deftest frame-id-when-present-must-be-keyword
   (testing "a non-keyword :frame-id is rejected at encode with :invalid-chart-state"
-    (let [d (try (share/encode-share-url (assoc chart-state :frame-id "not-a-keyword"))
+    (let [d (try (encode (assoc chart-state :frame-id "not-a-keyword"))
                  (catch :default e (ex-data e)))]
       (is (= :invalid-chart-state (:reason d))))))
 
@@ -640,7 +668,7 @@
             (encode/decode stay symmetric — the encoder never emits a payload
             the decoder would reject)"
     (doseq [[label definition] malformed-definitions]
-      (let [d (try (share/encode-share-url {:machine-id :demo :definition definition})
+      (let [d (try (encode {:machine-id :demo :definition definition})
                    (catch :default e (ex-data e)))]
         (is (= :invalid-chart-state (:reason d))
             (str "malformed definition " label " must be rejected at encode"))
@@ -654,7 +682,7 @@
     (doseq [[label definition] valid-definitions]
       (let [cs   {:machine-id :demo :definition definition}
             back (:rf.machines-viz.share/chart
-                   (share/decode-share-url (share/encode-share-url cs)))]
+                   (share/decode-share-url (encode cs)))]
         (is (= definition (:definition back))
             (str label " definition round-trips UNCHANGED (authored form preserved)"))))))
 
@@ -708,7 +736,7 @@
   (testing "rf2-j538f7.18 — the encoder rejects the same recursively-malformed
             definitions (encode/decode stay symmetric)"
     (doseq [[label definition] recursively-malformed-definitions]
-      (let [d (try (share/encode-share-url {:machine-id :demo :definition definition})
+      (let [d (try (encode {:machine-id :demo :definition definition})
                    (catch :default e (ex-data e)))]
         (is (= :invalid-chart-state (:reason d))
             (str "recursively-malformed " label " must be rejected at encode"))
@@ -803,7 +831,7 @@
 
 (deftest valid-chart-state-with-exact-keys-still-decodes
   (testing "guard against over-tightening — a legitimate ChartState (no extra keys) still round-trips"
-    (let [url  (share/encode-share-url chart-state)
+    (let [url  (encode chart-state)
           back (:rf.machines-viz.share/chart (share/decode-share-url url))]
       (is (= :auth/login-flow (:machine-id back)))
       (is (= {:state :loading} (:snapshot back)))
@@ -834,8 +862,8 @@
     ;; through the encoder is blocked by the encoder's own validation.
     ;; So assert the encoder rejects an invalid ChartState up front.
     (is (thrown? :default
-          (share/encode-share-url {:machine-id :x :frame-id :y :definition {}})))
-    (let [d (try (share/encode-share-url {:machine-id "not-a-kw"
+          (encode {:machine-id :x :frame-id :y :definition {}})))
+    (let [d (try (encode {:machine-id "not-a-kw"
                                           :frame-id :y
                                           :definition idle-loading-success})
                  (catch :default e (ex-data e)))]
@@ -847,7 +875,7 @@
       (is (= :malformed-fragment (get-in r [:error :reason])))
       (is (nil? (:ok r))))
     (testing "and {:ok envelope} on success"
-      (let [r (share/decode-share-url-safe (share/encode-share-url chart-state))]
+      (let [r (share/decode-share-url-safe (encode chart-state))]
         (is (some? (:ok r)))
         (is (nil? (:error r)))))))
 
@@ -856,7 +884,7 @@
 
 (deftest chart-state->props-projection
   (testing "envelope → MachineChart props (read-only, current-state from snapshot)"
-    (let [env   (share/decode-share-url (share/encode-share-url chart-state))
+    (let [env   (share/decode-share-url (encode chart-state))
           props (share/chart-state->props env)]
       (is (= :auth/login-flow (:machine-id props)))
       (is (= idle-loading-success (:definition props)))
@@ -864,7 +892,7 @@
       (is (true? (:read-only? props)))
       (is (not (contains? props :frame-id)) "frame-id is provenance, not a prop")))
   (testing "no snapshot → no :current-state"
-    (let [env   (share/decode-share-url (share/encode-share-url (dissoc chart-state :snapshot)))
+    (let [env   (share/decode-share-url (encode (dissoc chart-state :snapshot)))
           props (share/chart-state->props env)]
       (is (not (contains? props :current-state)))
       (is (true? (:read-only? props)))))
@@ -872,11 +900,11 @@
     (let [cs    {:machine-id :shop/store :frame-id :app/main
                  :definition compound-definition
                  :snapshot   {:state [:authenticated :cart :browsing]}}
-          props (share/chart-state->props (share/decode-share-url (share/encode-share-url cs)))]
+          props (share/chart-state->props (share/decode-share-url (encode cs)))]
       (is (= [:authenticated :cart :browsing] (:current-state props)))))
   (testing "parallel region-map snapshot projects :current-state verbatim"
     (let [cs    (assoc parallel-state :snapshot {:state {:data :dirty :form :busy}})
-          props (share/chart-state->props (share/decode-share-url (share/encode-share-url cs)))]
+          props (share/chart-state->props (share/decode-share-url (encode cs)))]
       (is (= {:data :dirty :form :busy} (:current-state props))))))
 
 ;; ---------------------------------------------------------------------------
@@ -908,7 +936,7 @@
                   :definition idle-loading-success
                   :snapshot   {:state "not-an-arm"        ;; rejected
                                :data  {:password secret}}}
-          d      (try (share/encode-share-url leaky)
+          d      (try (encode leaky)
                       (catch :default e (ex-data e)))]
       (is (= :invalid-chart-state (:reason d)) "reason/category preserved")
       (is (not (contains? d :chart-state)) "no raw chart-state slot")

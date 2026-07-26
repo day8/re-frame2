@@ -17,6 +17,10 @@
             [day8.re-frame2-machines-viz.export :as export]
             [day8.re-frame2-machines-viz.share :as share]))
 
+;; `share-url` has no default host (rf2-8m344) — every caller names the
+;; viewer page it hosts, tests included.
+(def ^:private test-host "https://x/viewer.html")
+
 (def definition
   {:initial :idle
    :states  {:idle    {:on {:start :loading}}
@@ -45,7 +49,7 @@
 (deftest share-url-from-seam
   (testing "share-url derives an encodable ChartState off the DOM seam"
     (let [el  (stub-element seam)
-          url (export/share-url el)
+          url (export/share-url el {:host test-host})
           env (share/decode-share-url url)
           cs  (:rf.machines-viz.share/chart env)]
       (is (str/includes? url "#machine="))
@@ -72,7 +76,7 @@
     (let [el  (stub-element (assoc seam
                                    :definition compound-definition
                                    :current-state [:authenticated :cart :browsing]))
-          cs  (:rf.machines-viz.share/chart (share/decode-share-url (export/share-url el)))]
+          cs  (:rf.machines-viz.share/chart (share/decode-share-url (export/share-url el {:host test-host})))]
       (is (= {:state [:authenticated :cart :browsing]} (:snapshot cs))))))
 
 (deftest share-url-parallel-current-state-rides-through
@@ -81,7 +85,7 @@
                                    :definition parallel-definition
                                    :region-count 2
                                    :current-state {:data :dirty :form :busy}))
-          cs  (:rf.machines-viz.share/chart (share/decode-share-url (export/share-url el)))]
+          cs  (:rf.machines-viz.share/chart (share/decode-share-url (export/share-url el {:host test-host})))]
       (is (= {:state {:data :dirty :form :busy}} (:snapshot cs))))))
 
 (deftest share-url-honours-host-and-frame
@@ -96,7 +100,7 @@
   (testing "no :current-state on the seam → no snapshot in the payload"
     (let [el  (stub-element (dissoc seam :current-state))
           cs  (:rf.machines-viz.share/chart
-                (share/decode-share-url (export/share-url el)))]
+                (share/decode-share-url (export/share-url el {:host test-host})))]
       (is (not (contains? cs :snapshot))))))
 
 (deftest mermaid-from-seam
@@ -113,7 +117,7 @@
 
 (deftest no-seam-throws
   (testing "an element that is not a rendered MachineChart throws :no-chart-state"
-    (let [d (try (export/share-url #js {})
+    (let [d (try (export/share-url #js {} {:host test-host})
                  (catch :default e (ex-data e)))]
       ;; rf2-vvixub / rf2-s6rzia — branch on the canonical :rf.error/id, and
       ;; the :reason names the PUBLIC concept (a rendered MachineChart

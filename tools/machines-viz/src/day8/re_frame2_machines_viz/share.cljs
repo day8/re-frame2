@@ -71,11 +71,20 @@
   mis-decoding."
   "2")
 
-(def default-host
-  "The canonical hosted viewer instance. Per Lock #7 this is a
-  convenience, not a contract — every consumer may self-host and pass
-  `{:host ...}` to `encode-share-url`."
-  "https://day8.github.io/re-frame2-machines-viz/viewer.html")
+;; THERE IS NO DEFAULT HOST, and that is the contract rather than an
+;; omission (rf2-8m344). This var used to read
+;; `"https://day8.github.io/re-frame2-machines-viz/viewer.html"`, so
+;; `(encode-share-url chart-state)` handed back a link that 404s: no
+;; `day8/re-frame2-machines-viz` repository exists — machines-viz ships out
+;; of the re-frame2 monorepo — and no workflow deploys the page anywhere.
+;; A default that names a host nobody serves is worse than no default,
+;; because the resulting URL looks correct and fails only for the person
+;; you sent it to.
+;;
+;; Per DESIGN-RATIONALE Lock #7 the viewer is STATICALLY HOSTABLE and the
+;; consumer hosts it. `:host` is therefore the one thing this library
+;; cannot know and the caller always can, so it is required — see
+;; `encode-share-url`.
 
 (def fragment-key
   "The URL-fragment key the viewer reads off `location.hash`."
@@ -492,12 +501,15 @@
   "Encode a `chart-state` map into a share-URL string.
 
   ```clojure
-  (encode-share-url chart-state)
-  ;; => \"https://day8.github.io/re-frame2-machines-viz/viewer.html#machine=...\"
-
   (encode-share-url chart-state {:host \"https://acme.example.com/viewer.html\"})
   ;; => \"https://acme.example.com/viewer.html#machine=...\"
   ```
+
+  `:host` is REQUIRED — the absolute URL of the viewer page YOU host (see
+  `tools/machines-viz/README.md` §Building and hosting the viewer page).
+  There is no default and no Day8-hosted instance; the arity that used to
+  supply one emitted a URL that 404s (rf2-8m344). Calling without a
+  non-blank `:host` throws `:reason :no-host` rather than guessing.
 
   `chart-state` is a `ChartState` map (per `API.md` §Share-URL payload
   schema):
@@ -524,40 +536,57 @@
   versioned envelope, (5) transit-writes (json) → base64url-encodes,
   (6) wraps the fragment into `:host`.
 
-  Throws `:rf.machines-viz.share/encode-failed` (an ex-info with
-  `:reason :invalid-chart-state`) when the chart state does not validate
-  — including a `:snapshot` `:state` that is none of the three allowed
-  configuration arms (a malformed `:state` would yield an undecodable
-  URL, so it is rejected at encode)."
-  ([chart-state] (encode-share-url chart-state nil))
-  ([chart-state {:keys [host] :or {host default-host}}]
-   (let [allowlisted (allowlist-chart-state chart-state)]
-     (when-not (valid-chart-state? allowlisted)
-       ;; rf2-vvixub — the ex-message is the human sentence + the
-       ;; [:rf.machines-viz.share/encode-failed] token; the fine `:reason`
-       ;; keyword stays the documented tool-classification slot (API.md).
-       (let [msg (str "cannot encode a share-URL: the chart state does not "
-                      "validate against the share schema (a :machine-id or "
-                      ":definition is missing/malformed, :frame-id (optional) "
-                      "is non-keyword, or :snapshot :state is malformed). Pass "
-                      "a valid ChartState.")]
-         (throw (ex-info (error/human-message :rf.machines-viz.share/encode-failed msg)
-                         {:rf.error/id :rf.machines-viz.share/encode-failed
-                          :where       'machines-viz.share/encode-share-url
-                          :recovery    :supply-a-valid-chart-state
-                          :reason      :invalid-chart-state
-                          :message     msg
-                          ;; rf2-8nzxib — value-FREE summary, NOT the raw
-                          ;; chart-state (which can carry runtime :data).
-                          :chart-state-summary (value-free-summary chart-state)}))))
-     (let [envelope    (canonicalise
-                         {:rf.machines-viz.share/v       current-version
-                          :rf.machines-viz.share/chart   allowlisted
-                          :rf.machines-viz.share/created (js/Date.now)})
-           writer      (transit/writer :json)
-           transit-str (transit/write writer envelope)
-           fragment    (bytes->base64url transit-str)]
-       (str host "#" fragment-key "=" fragment)))))
+  Throws `:rf.machines-viz.share/encode-failed` (an ex-info) with:
+
+  | `:reason`              | Meaning |
+  |---|---|
+  | `:no-host`             | No non-blank `:host` was supplied. |
+  | `:invalid-chart-state` | The chart state does not validate — including a `:snapshot` `:state` that is none of the three allowed configuration arms (a malformed `:state` would yield an undecodable URL, so it is rejected at encode). |"
+  [chart-state {:keys [host]}]
+  (let [host (when (string? host) (str/trim host))]
+    (when (str/blank? host)
+      ;; rf2-8m344 — fail loud rather than fabricate. The library cannot
+      ;; know where the caller's viewer page is served from, and the
+      ;; hosted instance this used to default to never existed.
+      (let [msg (str "cannot encode a share-URL: no :host was supplied, and "
+                     "there is no default viewer host. A share-URL must name "
+                     "the viewer page you host. Build it with `shadow-cljs "
+                     "release machines-viz-viewer`, serve viewer.html + "
+                     "viewer.js as static files, and pass "
+                     "{:host \"https://your.example.com/viewer.html\"}.")]
+        (throw (ex-info (error/human-message :rf.machines-viz.share/encode-failed msg)
+                        {:rf.error/id :rf.machines-viz.share/encode-failed
+                         :where       'machines-viz.share/encode-share-url
+                         :recovery    :supply-the-url-of-a-viewer-page-you-host
+                         :reason      :no-host
+                         :message     msg}))))
+    (let [allowlisted (allowlist-chart-state chart-state)]
+      (when-not (valid-chart-state? allowlisted)
+        ;; rf2-vvixub — the ex-message is the human sentence + the
+        ;; [:rf.machines-viz.share/encode-failed] token; the fine `:reason`
+        ;; keyword stays the documented tool-classification slot (API.md).
+        (let [msg (str "cannot encode a share-URL: the chart state does not "
+                       "validate against the share schema (a :machine-id or "
+                       ":definition is missing/malformed, :frame-id (optional) "
+                       "is non-keyword, or :snapshot :state is malformed). Pass "
+                       "a valid ChartState.")]
+          (throw (ex-info (error/human-message :rf.machines-viz.share/encode-failed msg)
+                          {:rf.error/id :rf.machines-viz.share/encode-failed
+                           :where       'machines-viz.share/encode-share-url
+                           :recovery    :supply-a-valid-chart-state
+                           :reason      :invalid-chart-state
+                           :message     msg
+                           ;; rf2-8nzxib — value-FREE summary, NOT the raw
+                           ;; chart-state (which can carry runtime :data).
+                           :chart-state-summary (value-free-summary chart-state)}))))
+      (let [envelope    (canonicalise
+                          {:rf.machines-viz.share/v       current-version
+                           :rf.machines-viz.share/chart   allowlisted
+                           :rf.machines-viz.share/created (js/Date.now)})
+            writer      (transit/writer :json)
+            transit-str (transit/write writer envelope)
+            fragment    (bytes->base64url transit-str)]
+        (str host "#" fragment-key "=" fragment)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Decoder

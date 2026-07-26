@@ -103,7 +103,8 @@ exports:
 2. **The read-only viewer page.** A statically hostable HTML page plus
    compiled viewer bundle (`public/viewer.html` + `viewer.js`) that
    decodes a `#machine=<base64url-transit>` URL fragment and renders the
-   chart with callbacks disabled and no runtime connection.
+   chart with callbacks disabled and no runtime connection. The consumer
+   hosts it; there is no Day8-hosted instance (Lock #7, rf2-8m344).
 3. **The share-URL encoding rules.** EDN-shaped data → transit-write →
    base64url, with a `:rf.machines-viz.share/v1` envelope keying the
    encoding version. Roundtrips: `(encode-share-url chart-state)`
@@ -694,7 +695,10 @@ implementation-state list.
   **shipped** (`src/.../chart.cljs`; xyflow + elkjs).
 - Read-only viewer page (per [`API.md`](./API.md) §Read-only viewer) —
   **shipped** (`public/viewer.html` + `page/.../viewer.cljs`, rf2-8d7w1;
-  the page root is not packaged in the jar, rf2-k7l2o).
+  the page root is not packaged in the jar, rf2-k7l2o). "Shipped" here
+  means *written, tested, and buildable* — `shadow-cljs release
+  machines-viz-viewer` emits the bundle. It does not mean *deployed*: no
+  workflow serves the page and there is no hosted instance (rf2-8m344).
 - Share-URL encoding (per [`API.md`](./API.md) §Share-URL encoding) —
   **shipped** (`src/.../share.cljs`, rf2-8d7w1).
 - PNG + SVG exporters — **shipped** (`src/.../export.cljs`, rf2-8d7w1;

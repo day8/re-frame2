@@ -126,7 +126,9 @@ wired into the build, and consumers can use it today.
   elkjs in-page renderer: nested compound states, parallel regions,
   `:spawn-all` join + cancellation-cascade overlays, `:after` countdown
   rings, a UIx adapter) plus a read-only share-URL **viewer page**
-  (`public/viewer.html` + `viewer.cljs`). Also ships the pure-data
+  (`public/viewer.html` + `viewer.cljs`, built by the
+  `machines-viz-viewer` Shadow build and hosted by the consumer — nothing
+  in this repository deploys it, rf2-8m344). Also ships the pure-data
   Mermaid `stateDiagram-v2` emitter (relocated out of the runtime
   `machines` artefact per rf2-sqhqu so the engine stays pure), SCXML
   import/export round-trip, an AI-generate-a-machine seam, and PNG / SVG

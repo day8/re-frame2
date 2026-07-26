@@ -33,7 +33,7 @@
 
 (deftest decode-location-ok
   (testing "a valid share-URL decodes to :ok with MachineChart props"
-    (let [url (share/encode-share-url chart-state)
+    (let [url (share/encode-share-url chart-state {:host "https://x/viewer.html"})
           vm  (viewer/decode-location url)]
       (is (= :ok (:status vm)))
       (is (= :auth/login-flow (get-in vm [:props :machine-id])))

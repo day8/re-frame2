@@ -485,24 +485,41 @@ How does the read-only viewer page get to a user?
 
 ### Pick
 
-**Statically hostable; the canonical hosted instance lives at
-`day8.github.io/re-frame2-machines-viz/` (or equivalent docs URL)
-but is **not load-bearing** — every consumer can self-host.**
+**Statically hostable; the consumer hosts the page.** There is no
+Day8-hosted instance.
 
 ### Why
 
 - **No Day8-side service to operate.** The page is a static
-  asset; if `day8.github.io` goes down, every self-hoster keeps
-  working.
-- **Privacy holds maximally.** Even the canonical hosted page
-  decodes client-side; the URL fragment is never transmitted.
+  asset; there is nothing for Day8 to keep up, and no consumer
+  depends on Day8 keeping anything up.
+- **Privacy holds maximally.** The page decodes client-side; the
+  URL fragment is never transmitted.
 - **Embed in docs without iframe gymnastics.** The viewer page
   can be loaded by a `<script>` tag in the consumer's own docs
   site; the consumer chooses where it lives.
-- **The canonical instance is a convenience, not a contract.**
-  Users sharing a URL with the canonical viewer get one-click
-  rendering; users who don't trust day8.github.io can self-host
-  the page and point share-URLs at their own instance.
+
+### Amendment, 2026-07-26 (rf2-8m344)
+
+As originally written this Pick added "the canonical hosted instance
+lives at `day8.github.io/re-frame2-machines-viz/` (or equivalent docs
+URL) but is not load-bearing", and `share/default-host` made that URL
+the encoder's default.
+
+**It was load-bearing, and it was never real.** The URL returns 404 and
+always did — there is no `day8/re-frame2-machines-viz` repository
+(machines-viz ships out of the re-frame2 monorepo), and no workflow here
+builds or deploys the page. "Not load-bearing" described the hosting
+posture correctly and then a default argument quietly contradicted it:
+the zero-`:host` call was the ergonomic path, so the common case emitted
+a link that 404s for the recipient and looks fine to the sender.
+
+The third option in the list above is now the whole Pick, with nothing
+bolted on: **the consumer hosts the page, and `encode-share-url` requires
+`:host`**. A hosted convenience instance may be added later — it needs a
+real host, a workflow that stages `viewer.html` beside a freshly compiled
+`viewer.js`, and a smoke check that loads the page. Until all three
+exist, naming one is a promise the repository does not keep.
 
 ---
 

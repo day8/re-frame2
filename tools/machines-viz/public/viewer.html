@@ -15,10 +15,13 @@
     requests). Per spec/API.md §Read-only viewer + DESIGN-RATIONALE
     Lock #6 / Lock #7.
 
-    Canonical hosted instance:
-      https://day8.github.io/re-frame2-machines-viz/viewer.html
-    is a convenience, not a contract — consumers may self-host this file
-    alongside their own `viewer.js` bundle and point share-URLs at it.
+    There is NO hosted instance (rf2-8m344). You host this page: build
+    the bundle with `shadow-cljs release machines-viz-viewer` from
+    `implementation/`, put the emitted `viewer.js` beside this file, and
+    serve the pair as static assets. `share/encode-share-url` has no
+    default host for the same reason — it takes `{:host …}` naming YOUR
+    copy of this page. See tools/machines-viz/README.md §Building and
+    hosting the viewer page.
   -->
   <style>
     html, body { margin: 0; height: 100%; background: #1a1d23; }
