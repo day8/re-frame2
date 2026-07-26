@@ -91,6 +91,33 @@
 ;; host-boundaries.md — behaviors, commands, client-only, error boundaries
 ;; ---------------------------------------------------------------------------
 
+;; host-boundaries.md block 1 — the declared host, which is the sole inward
+;; React door and the only verb that mints the third legal vector head.
+;; `DatePicker` stands in for whatever npm component the consumer imported: on
+;; the JVM a `v/defhost` expansion carries its component only in
+;; ClojureScript, which is what lets one `.cljc` declaration answer a
+;; structural render here and a real mount in the browser.
+(def DatePicker "some-date-picker/DatePicker")
+
+(defn- from-js-date
+  "The page names this helper without showing it — converting the library's
+  own date value is the application's host work."
+  [d]
+  (str d))
+
+(v/defhost date-picker
+  "A third-party date picker."
+  DatePicker
+  {:callbacks {:onChange :event}
+   :children  :none
+   :ssr       :client-only})
+
+(v/defview booking-date [{:keys [date]}]
+  [date-picker
+   {:selected date
+    :onChange (v/event [js-date]
+                [:booking/date-picked (from-js-date js-date)])}])
+
 (defn- fit!
   "The page names this helper without showing it — measuring and resizing a
   textarea is the application's host work, not the substrate's."
@@ -104,7 +131,7 @@
   [_node _config]
   nil)
 
-;; host-boundaries.md block 3 — the ONE sanctioned way to own a DOM node,
+;; host-boundaries.md block 4 — the ONE sanctioned way to own a DOM node,
 ;; and the use site that attaches it as data.
 (v/defbehavior autosize
   "Grow the textarea to fit its content."
@@ -122,7 +149,7 @@
                :config {:max-rows 8}}
    [:textarea.composer {:value draft :on-input [:composer/typed ::v/value]}]])
 
-;; host-boundaries.md block 4 — a command reaches a connection through an
+;; host-boundaries.md block 5 — a command reaches a connection through an
 ;; ordinary effect, addressed by the semantic `:target`.
 (defn register-refit-requested!
   []
@@ -134,14 +161,14 @@
 (v/defview chart-host [{:keys [spec]}]
   [:div.chart {:data-spec (str spec)}])
 
-;; host-boundaries.md block 2 — a browser-only subtree, and the
+;; host-boundaries.md block 3 — a browser-only subtree, and the
 ;; capability-free markup that stands in for it everywhere else.
 (v/defview chart-client-only [{:keys [spec]}]
   (v/client-only
    {:fallback [:div.chart-placeholder "Chart loads in the browser"]}
    [chart-host {:spec spec}]))
 
-;; host-boundaries.md block 6 — the DOM top layer: desired OPEN state, with
+;; host-boundaries.md block 7 — the DOM top layer: desired OPEN state, with
 ;; the `::web/` qualification that says these are browser facts.
 (v/defview top-layer-sites [{:keys [open? on-open-change]}]
   [:<>
@@ -158,7 +185,7 @@
 (v/defview workspace-page [{:keys [workspace-id]}]
   [:main.workspace (str "workspace " workspace-id)])
 
-;; host-boundaries.md block 7 — the boundary, its reset key, and the bounded
+;; host-boundaries.md block 8 — the boundary, its reset key, and the bounded
 ;; diagnostic that leaves by `:on-error`.
 (v/defview workspace-error-boundary [{:keys [route-revision workspace-id]}]
   [v/error-boundary
@@ -167,7 +194,7 @@
     :on-error  [:telemetry/ui-render-failed]}
    [workspace-page {:workspace-id workspace-id}]])
 
-;; host-boundaries.md block 8 — prefer the platform; reach for a behavior
+;; host-boundaries.md block 9 — prefer the platform; reach for a behavior
 ;; only when you must call the node.
 (v/defview autofocus-input [_]
   ;; Often enough — platform autofocus when the node mounts with the tree
@@ -332,7 +359,7 @@
   #?(:cljs {:cellRenderer (v/->react person-cell)}
      :clj  ::browser-only))
 
-;; host-boundaries.md block 5 — the same bridge, plus the ONE named
+;; host-boundaries.md block 6 — the same bridge, plus the ONE named
 ;; projection a foreign parameter object earns.
 (defn person-cell-react
   []
@@ -407,7 +434,7 @@
           "both children render, in first-appearance order"))))
 
 (deftest a-behavior-is-an-inert-marker-on-the-jvm
-  (testing "host-boundaries.md block 3 — the use site records the behavior
+  (testing "host-boundaries.md block 4 — the use site records the behavior
             id, the target and the public config as DATA; the code stays in
             the registry, and the JVM connects nothing."
     (is (= ::autosize autosize)
@@ -432,7 +459,7 @@
         "and its synchronous sibling is registered the same way — one door")))
 
 (deftest client-only-renders-its-mandatory-fallback-on-the-structural-host
-  (testing "host-boundaries.md block 2 and ssr.md block 1 — the structural
+  (testing "host-boundaries.md block 3 and ssr.md block 1 — the structural
             render is `:server` phase, so it produces the fallback and never
             enters the client subtree."
     (let [tree (t/render [chart-client-only {:spec {:kind :line}}])]
@@ -443,7 +470,7 @@
            (t/text (t/with-render (t/render [chart-client-only-sub {}])))))))
 
 (deftest the-error-boundary-guards-a-child-and-carries-a-reset-key
-  (testing "host-boundaries.md block 7 — the guarded child arrives as
+  (testing "host-boundaries.md block 8 — the guarded child arrives as
             children, and the options roster is closed."
     (let [tree (t/render [workspace-error-boundary {:route-revision 3
                                                     :workspace-id 42}])]
@@ -451,7 +478,7 @@
           "the guarded child renders when nothing has failed"))))
 
 (deftest the-top-layer-keys-are-qualified-browser-facts
-  (testing "host-boundaries.md block 6 — `::web/` says, at the use site,
+  (testing "host-boundaries.md block 7 — `::web/` says, at the use site,
             that these are DOM-platform desired state and not neutral
             substrate grammar."
     (let [tree (t/render [top-layer-sites {:open? true
@@ -516,7 +543,7 @@
        (is (sequential? (command-log-read))))))
 
 (deftest the-platform-attribute-is-preferred-before-any-behavior
-  (testing "host-boundaries.md block 8 — the page's advice is `:auto-focus`
+  (testing "host-boundaries.md block 9 — the page's advice is `:auto-focus`
             first, and the block is a plain controlled input. Rendering it is
             the claim; declaring it is not (rf2-kem4o)."
     (seed! {:draft "Ada"})
@@ -527,7 +554,7 @@
       (is (= [:rename/drafted ::v/value] (:on-input attrs))))))
 
 (deftest a-command-request-leaves-as-an-ordinary-effect
-  (testing "host-boundaries.md block 4 — the block's whole claim is that
+  (testing "host-boundaries.md block 5 — the block's whole claim is that
             reaching a live connection is an fx addressed by the semantic
             `:target`, which only running the handler shows."
     (let [sent (atom [])]
@@ -550,3 +577,22 @@
        (is (= ::browser-only (mount-panels! ::left ::right)))
        (is (= ::browser-only (mount-two-roots! ::left ::right ::frame)))
        (is (= ::browser-only (person-cell-renderer-props))))))
+
+(deftest the-declared-host-is-a-node-in-the-tree-not-an-exception
+  (testing "host-boundaries.md block 1 — the page's inward door. The head is
+            the DECLARATION, so the crossing renders to an honest marker
+            carrying the declared identity, the SSR policy, and the authored
+            props with the callback recorded as its opaque role marker.
+            Rendering it is the claim: putting the imported component at the
+            head instead is `:rf.error/view-bad-head`."
+    (let [host (t/find (t/render [booking-date {:date "2026-01-05"}])
+                       #(contains? % :rf.ui/host))]
+      (is (some? host))
+      (is (= ::date-picker (:rf.ui/host host))
+          "recorded under the declaration's own qualified id")
+      (is (= :client-only (:rf.ui/host-ssr host)))
+      (is (= [] (:children host))
+          "`:client-only` projects no server content, and the slot is retained")
+      (is (= {:selected "2026-01-05" :onChange {:rf.ui/opaque :v/event}}
+             (t/attrs host))
+          "and `t/attrs` reaches the crossing's props (rf2-c20nr)"))))

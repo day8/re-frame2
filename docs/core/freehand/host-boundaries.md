@@ -11,23 +11,90 @@ There is no general “neutral hooks / refs / effects” language in ordinary vi
 
 > **Qualify the host edge. Keep application truth in re-frame.**
 
-## Three host shapes
+## Four host shapes
 
 | Shape | Use when |
 |---|---|
-| **A React element in a child position** | a third-party React component that is mostly values in and callbacks out |
+| **`v/defhost`** | the paved inward door: a React component **declared** as a Freehand host and mounted at a vector head |
+| **A React element in a child position** | the weaker escape: you already hold a created element, and can do without the declared door's guarantees |
 | **Registered behavior** | one DOM node owned by an imperative library (`connect` / `update` / `disconnect`, optional commands) |
 | **`v/->react`** | pointing outward: a library asks for a *component value* and you hand it a declared view |
 
-A bare React **component** at a vector head is not a legal Freehand descriptor. A
-created React **element** in a child position is — and that is the whole inward
-boundary.
+A bare React **component** at a vector head is not a legal Freehand descriptor.
+`v/defhost` mints the descriptor that is, and it is the only thing that does. A
+created React **element** in a child position is legal too, and deliberately
+weaker — those two are the whole inward boundary.
+
+### Declared hosts (`v/defhost`)
+
+`v/defhost` declares a React component as a Freehand **host**. It is the sole
+public inward React boundary, and the only way to mint the third legal vector head.
+
+```clojure
+(v/defhost date-picker
+  "A third-party date picker."
+  DatePicker                                  ; the imported React component
+  {:callbacks {:onChange :event}
+   :children  :none
+   :ssr       :client-only})
+
+(v/defview booking-date [{:keys [date]}]
+  [date-picker
+   {:selected date
+    :onChange (v/event [js-date]
+                [:booking/date-picked (from-js-date js-date)])}])
+```
+
+The var holds a **non-callable descriptor**: it is mounted, never invoked, and
+`(date-picker {…})` reports rather than answering `nil` the way a map's lookup
+would. That is the silent failure the boundary exists to remove, at exactly the
+place a hand arriving from React is most likely to call by habit.
+
+There is **one** descriptor kind. "Leaf" and "wrapper" describe the registered
+React implementation — which may itself use hooks, context, refs, effects,
+Suspense or a compound protocol — not two ABIs to keep in step.
+
+| Option | Meaning |
+|---|---|
+| `:callbacks` | a finite map from **exact** prop names to `:event` or `:handler`; never inferred from an `on*` name |
+| `:children` | **required** — `:none` / `:optional` / `:required`, the same roster an internal boundary uses |
+| `:ssr` | **required** — `:client-only`, or `{:fallback <markup>}` when there is honest server content |
+| `:map-props` | optional: one adapter over the whole ordinary plane, browser-only |
+| `:props` | optional props-contract evidence |
+
+`:children` and `:ssr` carry **no default**, and the roster is closed. Freehand
+never executes the registered component on the JVM, so a default would be the
+substrate choosing a server behaviour silently.
+
+Three planes cross, and they stay disjoint:
+
+- **Ordinary props pass shallowly and exactly.** `:selected` reaches React as
+  `selected` — no camelisation, no deep Clojure-to-JavaScript walk, no per-prop
+  conversion language. A function in an ordinary slot is refused.
+- **Declared callbacks** take the carrier their role names, and get everything a
+  roster site gets: stable identity per site, the latest committed body and frame,
+  silence for abandoned renders, retirement after unmount. A bare event vector at a
+  foreign callback position is refused rather than converted — the library may
+  itself want a vector there.
+- **Children** become ordinary React children in the registered component's own
+  tree, under the declared policy.
+
+A structural render emits an honest marker rather than the React implementation:
+`:rf.ui/host`, `:rf.ui/host-ssr`, `:rf.ui/host-children` (a **count** — the
+caller's children cross into React's tree and are not walked here), and the
+authored `:props`, each carrier recorded as its opaque role marker. `t/attrs`
+reads that props map, so a crossing is assertable with no browser in sight.
+
+Where the head goes, and why forwarding a caller's remainder onto it uses
+`v/spread` rather than `v/spread-safe`, is worked through in
+[Composition](composition.md#worked-sketch--foreign-widget).
 
 ### A React element as a child
 
-There is no verb for entering Freehand from React-world, and that absence is not a
-vacancy. A finished React element is already an ordinary browser child value, so a
-third-party component enters a Freehand tree through the existing child fold:
+A finished React element is already an ordinary browser child value, so one can
+enter a Freehand tree through the existing child fold without a declaration. This
+is deliberately **weaker** than a declared host — reach for it when the element is
+what you already hold:
 
 ```clojure
 (ns app.booking
@@ -57,9 +124,10 @@ back through it, and synchronous teardown.
 - **The `#js` props are the library's own ABI, and Freehand never walks them.**
   A callback there is an ordinary closure — the escape roster
   (`v/event` / `v/handler` / …) belongs at positions Freehand OWNS: a native
-  `:on-*` prop, a declared view's props, a `v/slot`. Hand a roster carrier to a
-  `createElement` prop and the library receives a non-callable marker object,
-  because nothing on this path materializes it.
+  `:on-*` prop, a declared view's props, a declared host's `:callbacks`
+  position, a `v/slot`. Hand a roster carrier to a `createElement` prop and the
+  library receives a non-callable marker object, because nothing on this path
+  materializes it.
 - **Close over `rf/capture-frame`, not over `rf/dispatch`.** The render scope has
   unwound by the time the library calls back, so an ambient `rf/dispatch` raises
   `:rf.error/no-frame-context`. The captured bundle is fenced to the exact frame
@@ -67,9 +135,11 @@ back through it, and synchronous teardown.
   than dispatching into a same-id successor.
 - **What you give up** relative to a roster site: Freehand promises nothing about
   the closure's identity (it is fresh per render, so a library that memoises on
-  callback identity sees a changed prop), and the closure is not retired with the
-  view. When either matters, own the node with a behavior and mint the callback
-  once in `:connect` — see [Registered behaviors](#registered-behaviors) below.
+  callback identity sees a changed prop), the closure is not retired with the
+  view, and the crossing has no structural marker for a test or a tool to read.
+  A declared host gives back all three. When identity is the problem specifically,
+  own the node with a behavior and mint the callback once in `:connect` — see
+  [Registered behaviors](#registered-behaviors) below.
 - The JVM structural renderer accepts **no** React elements. The child path is
   browser-only, like the mount verbs, so wrap it in `v/client-only` if the root is
   ever server-rendered.
@@ -210,8 +280,10 @@ the imperative call stays inside the behavior:
 
 When the integration needs React's real protocol surface — hooks, context,
 portals, ref merging, `asChild`, Suspense — write that component in React-world
-and enter it through the child fold above. Freehand does not emulate those in
-neutral Hiccup and does not intend to.
+and bring it in at one of the [inward shapes](#four-host-shapes) above. Freehand
+does not emulate those in neutral Hiccup and does not intend to, and a component
+that uses them internally is still an ordinary registered implementation behind a
+declaration: that is exactly why there is one descriptor kind and not two.
 
 Keep the component's **public props and outward intents** ordinary Freehand
 values, so the structural tree still shows what crosses the boundary, and treat
@@ -386,7 +458,7 @@ views. Host ephemera stay at explicit boundaries.
 | Focus after a **semantic** open (dialog, rename) | top-layer / open state + CSS or browser dialog focus | small **behavior** that `.focus()`s on connect |
 | Measure layout / position before paint | CSS anchors where possible | registered behavior with `:layout` timing |
 | Scroll lock, trap, restore focus | native dialog patterns | a React focus library, entered as a child |
-| Third-party “needs a ref callback” | qualified leaf / wrapper owns the ref | never a bare ref prop on a Freehand view as app state |
+| Third-party “needs a ref callback” | the registered component behind a declared host owns the ref | never a bare ref prop on a Freehand view as app state |
 
 ```clojure
 ;; Often enough — platform autofocus when the node mounts with the tree
@@ -416,9 +488,10 @@ general on-mount API; prefer `:auto-focus` unless you need an imperative call.
 
 | Need | Shape |
 |---|---|
-| DatePicker value + callback | a React element in a child position; the callback is a closure over `rf/capture-frame` |
+| DatePicker value + callback | a declared host (`v/defhost`), with the callback at a position the declaration names |
+| A React element you already hold | a child position; the callback is a closure over `rf/capture-frame` |
 | Vega/Mapbox owns a DOM node | registered behavior |
-| Radix / hooks / portals | a React component, entered through the child fold |
+| Radix / hooks / portals | a React component of your own, entered at an inward shape above |
 | Grid wants a React component prop | `v/->react` |
 | Render failure UI | `v/error-boundary` (above) |
 | Exit animation after close | presence (+ top-layer for open) |
@@ -430,7 +503,7 @@ general on-mount API; prefer `:auto-focus` unless you need an imperative call.
 
 | Symptom | Fix |
 |---|---|
-| Bare React component at a vector head | create the element and put it in a **child** position |
+| Bare React component at a vector head | declare it with `v/defhost` and mount the descriptor — or create the element and put it in a **child** position |
 | Instance / DOM node in app-db | keep private memory in the behavior; config is data only |
 | Command “for later when it mounts” | commands hit the **live** connection only — no queue |
 | Error boundary never resets | change `:reset-key` — no imperative reset handle |
