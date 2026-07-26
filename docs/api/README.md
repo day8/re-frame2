@@ -24,7 +24,7 @@ code an app already carries. The four **Freehand** pages —
 reason: `day8/re-frame2-freehand` is **pre-alpha**, ships inside the monorepo, and
 has no date at which it will be published either. Freehand is not donor code — it is
 where new view work starts — and you resolve it with `:local/root` from a checkout
-([Install](../core/freehand/install.md)). All seven pages open with a banner saying
+([Install](../core/freehand/get-running/install.md)). All seven pages open with a banner saying
 so. Every other page on this list describes an artefact the release workflow deploys.
 
 ## How to read these pages

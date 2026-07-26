@@ -78,7 +78,7 @@ boundary.
 
 Props schemas are optional for ordinary application views. They become mandatory
 by policy for shipped library/catalogue surfaces and for generative parity claims.
-See [Compilation — props schemas](compilation.md#props-schemas).
+See [Compilation — props schemas](../advanced/compilation.md#props-schemas).
 
 ## Interaction state — the A / B / C ladder
 
@@ -132,8 +132,8 @@ for you, and unmount does not magically clear your draft.
 
 ## When not
 
-- Reusable multi-step field protocol shared across screens — [Semantic controllers](semantic-controllers.md).
-- Imperative host state — [Host boundaries](host-boundaries.md).
+- Reusable multi-step field protocol shared across screens — [Semantic controllers](../advanced/semantic-controllers.md).
+- Imperative host state — [Host boundaries](../host/host-boundaries.md).
 
 ## Recap
 

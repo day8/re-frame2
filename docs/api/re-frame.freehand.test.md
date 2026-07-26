@@ -5,7 +5,7 @@
     Freehand ships inside the re-frame2 monorepo and is **not published to
     Clojars**, and there is no date at which it will be. You resolve it with
     `:local/root` from a checkout — see
-    [Install](../core/freehand/install.md). The public surface is deliberately
+    [Install](../core/freehand/get-running/install.md). The public surface is deliberately
     still open: verbs can change while we learn from real apps.
 
 `re-frame.freehand.test` is the **structural test surface** of the Freehand view

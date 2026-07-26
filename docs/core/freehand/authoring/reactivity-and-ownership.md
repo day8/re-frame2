@@ -159,7 +159,7 @@ visible ids from a subscription (or a host virtualizer for true virtual scroll):
 | Approach | When |
 |---|---|
 | Sub that returns a **window of ids** | Most SPA tables; keeps Freehand trees small |
-| Purpose-built host grid / virtualizer | Huge grids, spreadsheet UX — [JS libraries](js-libraries.md) |
+| Purpose-built host grid / virtualizer | Huge grids, spreadsheet UX — [JS libraries](../host/js-libraries.md) |
 | Compile every row | After windowing still shows interpretation cost on hot templates |
 
 Do not expect `{:compiled true}` to make an unwindowed 10k-row tree cheap.

@@ -168,7 +168,7 @@ will reintroduce the clobber bug.
 - A single live field with no multi-field seed/validation story —
   [Events](events-and-handlers.md) is enough.  
 - A reusable commit/cancel/reject protocol shared across screens —
-  [Semantic controllers](semantic-controllers.md).  
+  [Semantic controllers](../advanced/semantic-controllers.md).  
 - Zero per-keystroke re-frame traffic — uncontrolled input on
   [Events](events-and-handlers.md#uncontrolled-inputs-deliberate-escape).
 

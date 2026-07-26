@@ -170,7 +170,7 @@ a clock, not a transition listener — so reduced motion loses the animation wit
 losing the removal.
 
 Broader a11y (names, native elements, top-layer focus, test lanes):
-**[Accessibility](accessibility.md)**.
+**[Accessibility](../authoring/accessibility.md)**.
 
 ## What presence never does
 
@@ -180,7 +180,7 @@ Presence phases are **presentation**. They never:
 |---|---|
 | Dispatch domain mount/unmount events | you don’t — don’t invent them |
 | Fetch, seed, or cancel resources | routes, resources, machines |
-| Clear controller / domain state | [semantic transitions / owners](semantic-controllers.md) |
+| Clear controller / domain state | [semantic transitions / owners](../advanced/semantic-controllers.md) |
 | Focus traps, scroll lock, “modal UX” | top-layer + your a11y patterns / host |
 | Positioning / measurement | CSS anchors or a [behavior](host-boundaries.md) |
 | Springs, timeline choreography | foreign animation lib behind a host boundary |
@@ -208,7 +208,7 @@ start at `:mounting` and flip to `:present`.
 | Real CSS / reduced motion | a real browser suite |
 
 The structural tier has no presence clock and no fake one — see
-[Testing](testing.md). Do not assert wall-clock animation frames in unit tests.
+[Testing](../operate/testing.md). Do not assert wall-clock animation frames in unit tests.
 
 ## Troubleshooting
 

@@ -48,7 +48,7 @@ Contract details that bite people:
 | `:key` | sibling identity only; **stripped** before the body sees props |
 | Children policy | descriptor metadata **`:children-policy`** (`:none` / `:optional` / `:required`) — a view can refuse children |
 | Equality | internal props use re-frame value equality for memoisation |
-| Host mutables | refs, instances, foreign handles → [host boundary](host-boundaries.md), not neutral props |
+| Host mutables | refs, instances, foreign handles → [host boundary](../host/host-boundaries.md), not neutral props |
 
 Optional props schemas (Malli vector form, closed by default) document and check
 what a library leaf accepts. `:key` stays outside the schema; children policy is
@@ -174,7 +174,7 @@ That is not trailing children (the parent owns the loop) and not a full child vi
 
 **Interpreted** mode may also accept an ordinary pure function for the same job.
 **Compiled** mode needs a **lexically visible** `v/render-fn` / `v/slot` so the
-analyzer can see the body (see [Compilation](compilation.md)).
+analyzer can see the body (see [Compilation](../advanced/compilation.md)).
 
 When the row needs a subscription, its own events, or stable occurrence identity,
 extract a **declared child**:
@@ -220,8 +220,8 @@ as keyed declared children. No separate “region DSL” is required.
 Composition of **structure** uses the ladder above. Forwarding **attributes**
 uses two common-grammar forms. This section is the **canonical** explanation;
 [events](events-and-handlers.md) (controlled door) and
-[host boundaries](host-boundaries.md) (forwarding onto a host head) only point
-here.
+[host boundaries](../host/host-boundaries.md) (forwarding onto a host head) only
+point here.
 
 Spreads do **not** replace children. Putting structure into a spread map is the
 wrong plane — use trailing children, compound regions, slots, or child views.
@@ -405,7 +405,7 @@ The taxonomy is **common** to both modes:
 | Cross-mode children | fine | statically named interpreted children of a compiled parent are explicit; no hidden walker |
 
 Call sites stay `[view props]`. Structural tests should not care which mode produced
-the tree for the common subset. See [Compilation — seam laws](compilation.md#crossing-modes-and-seam-laws-author-facing).
+the tree for the common subset. See [Compilation — seam laws](../advanced/compilation.md#crossing-modes-and-seam-laws-author-facing).
 
 ## What is not composition
 

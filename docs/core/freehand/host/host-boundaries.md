@@ -89,7 +89,7 @@ Ordinary props pass **exactly**, so a caller's remainder is forwarded onto a
 host head with an ordinary `merge` — never `v/spread` or `v/spread-safe`, which
 are element forms and would rewrite `:className` into the `:class` slot on the
 way through. Where the head goes, and the shape of that merge, is worked through
-in [Composition](composition.md#worked-sketch--foreign-widget).
+in [Composition](../authoring/composition.md#worked-sketch--foreign-widget).
 
 ### A React element as a child
 
@@ -274,7 +274,7 @@ the imperative call stays inside the behavior:
 |---|---|
 | `:target` | the caller-authored semantic id from the use site — not a DOM path or “last mounted” |
 | Timing | only the **currently committed** connection; never queued for a future mount |
-| Outcome | the channel records `:delivered` or `:refused` in [`v/command-log`](debugging.md#the-behavior-tool-plane) |
+| Outcome | the channel records `:delivered` or `:refused` in [`v/command-log`](../operate/debugging.md#the-behavior-tool-plane) |
 | Return | **ignored** — a command returns no handle and does not replace the memory; a result the domain needs comes back as an event the behavior dispatches |
 | Steady state | still flows through `:config` and `:update`; commands are the narrow one-shot escape |
 

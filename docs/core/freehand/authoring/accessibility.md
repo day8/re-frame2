@@ -103,7 +103,7 @@ Development checks should warn when retained interactive content lacks `inert`
 timeout still removes the node without motion.
 
 Presence never owns focus traps or modal UX — only presentation overrides during
-retention. Details: [Presence — accessibility](presence.md#accessibility).
+retention. Details: [Presence — accessibility](../host/presence.md#accessibility).
 
 ## Top layer and overlays
 
@@ -160,7 +160,7 @@ Those stay **unknown** in static reports — not “green.”
 | Top-layer nesting and background inertness | mounted browser |
 | Third-party (Radix, grid) keyboard | real primitive + disconnect cleanup |
 
-See [Testing](testing.md). Presence exit motion may use a fake clock for
+See [Testing](../operate/testing.md). Presence exit motion may use a fake clock for
 retention timing and a real browser for CSS/a11y.
 
 ## Diagnostics product rule

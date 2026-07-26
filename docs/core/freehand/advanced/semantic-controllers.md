@@ -39,7 +39,7 @@ Use the same event on blur and Enter (commit). Use a **different** event on
 `on-input` (draft) — keystroke is draft; commit is accept. A handler slot holds
 **one** handler form, so the Enter/Escape branch is `v/event` at the site or
 `[:lines/draft-key id ::v/key]` into a handler that branches — see
-[Events](events-and-handlers.md#keyboard-branching).
+[Events](../authoring/events-and-handlers.md#keyboard-branching).
 
 A semantic controller is only worth it when that protocol must be **correct and
 shared** across many call sites — for example stale blur after cancel, a required
@@ -477,7 +477,7 @@ buffering perfectly until the first rejection.
 2. **First keystroke** — `edited` writes `{reset-key, draft}` under the
    controller key.
 3. **Further keys** — update draft; controlled input rides Freehand’s
-   [sync door](events-and-handlers.md#controlled-inputs).
+   [sync door](../authoring/events-and-handlers.md#controlled-inputs).
 4. **Enter / blur** — `committed` checks generation, clears record, dispatches
    caller `on-commit` + draft.
 5. **Escape** — `cancelled` clears record; a later blur no-ops (generation check).
@@ -507,7 +507,7 @@ build these protocols in v1.
 | Single domain fact, simple event | props-only controlled control |
 | Keystroke = domain write | controlled input + domain event |
 | Commit / cancel / reject / shared field UX | semantic controller + library control |
-| High-rate or opaque editor | a [registered behavior](host-boundaries.md), not a pretend local cell |
+| High-rate or opaque editor | a [registered behavior](../host/host-boundaries.md), not a pretend local cell |
 
 ## Troubleshooting
 
@@ -523,7 +523,7 @@ build these protocols in v1.
 ## When not
 
 - Ordinary live field or one-off blur/Enter draft — stay on
-  [Events](events-and-handlers.md) and [Forms](forms.md); skip this page.  
+  [Events](../authoring/events-and-handlers.md) and [Forms](../authoring/forms.md); skip this page.  
 - Product truth every other view must see — domain events and subs, not a
   field controller.  
 - Imperative host state (DOM node, third-party instance) — behavior, not a

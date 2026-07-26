@@ -24,7 +24,7 @@ this button do?” is a value you can assert on the JVM.
 
     Freehand ships inside the re-frame2 monorepo and is **not published to
     Clojars**. You resolve it with `:local/root` from a checkout — see
-    [Install](install.md). The public surface is deliberately still open: verbs
+    [Install](get-running/install.md). The public surface is deliberately still open: verbs
     can change while we learn from real apps.
 
 New to re-frame2? Learn events, app-db, subscriptions, and frames first. Freehand
@@ -91,8 +91,8 @@ Reagent and UIx remain first-class. Prefer them when:
 
 Choosing another layer is a supported choice, not a failure. Freehand is the
 **re-frame-native** bet when you want the UI inside that architecture. Incremental
-landing next to an existing app is under [Adoption](adoption.md); a Reagent delta
-map is under [Coming from Reagent](vs-reagent.md).
+landing next to an existing app is under [Adoption](operate/adoption.md); a Reagent delta
+map is under [Coming from Reagent](operate/vs-reagent.md).
 
 ## Shape at a glance
 

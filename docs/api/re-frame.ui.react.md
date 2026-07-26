@@ -13,7 +13,7 @@
     carries on the substrate — the audience of the
     [`re-frame2-ui` skill](../skills/re-frame2-ui.md). New view work starts at
     [Freehand](../core/freehand/index.md); its host-interop story is
-    [Freehand host boundaries](../core/freehand/host-boundaries.md).
+    [Freehand host boundaries](../core/freehand/host/host-boundaries.md).
 
 `re-frame.ui.react` is the **frozen React-interop tier** of the compiled-view
 substrate — a deliberately tiny, closed set of

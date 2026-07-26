@@ -215,7 +215,7 @@ presence metadata, host markers). When you promote a view with `{:compiled true}
 
 For generative parity of library leaves, props schemas and a prop/branch corpus
 support interpreted-vs-compiled equality (see
-[Compilation — schemas](compilation.md#props-schemas)).
+[Compilation — schemas](../advanced/compilation.md#props-schemas)).
 
 ## What not to test in the view layer
 

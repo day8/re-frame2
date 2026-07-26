@@ -68,7 +68,7 @@ At fire time Freehand fills every matching **top-level** marker, then ordinary
 One function does all of it, and it is public: `v/materialize-event`. Literals,
 forwarded `conj`s, options maps, `v/event` bodies, interpreted and compiled,
 production and test all run through it, which is why general `rf/dispatch` needs
-no payload arity. Tests call it directly ([Testing](testing.md)) rather than
+no payload arity. Tests call it directly ([Testing](../operate/testing.md)) rather than
 growing a second splice path.
 
 ## Options maps
@@ -217,7 +217,7 @@ cancel, required reset generation, many call sites. The call site looks like a
 `buffered-field` with a `:control` address.
 
 That control is **not** core Freehand. See
-[Semantic controllers](semantic-controllers.md).
+[Semantic controllers](../advanced/semantic-controllers.md).
 
 ### Choosing quickly
 
@@ -348,7 +348,7 @@ When a vector is not enough, pick the form that matches the job:
 | Callback invoked **while rendering** | `(v/render-fn [x] …)` | pure; no dispatch or app state |
 | Identity-as-protocol APIs | `(v/raw-fn f)` | identity passes through unchanged |
 | React hooks / portals / context | a React component, entered through the child fold | not neutral Freehand |
-| Owning a DOM node imperatively | `v/defbehavior` + `[v/behavior …]` | [Host boundaries](host-boundaries.md) |
+| Owning a DOM node imperatively | `v/defbehavior` + `[v/behavior …]` | [Host boundaries](../host/host-boundaries.md) |
 | A callback in a foreign element's raw `#js` props | a plain closure over `(rf/capture-frame)`'s `:dispatch` | those props are the library's ABI — see below |
 
 **Phase rule:** event handlers see **committed** values — what the user actually

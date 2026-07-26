@@ -59,7 +59,7 @@ leaving you to assume it does not.
 
 ## The behavior tool plane
 
-A [registered behavior](host-boundaries.md#registered-behaviors) is the one place
+A [registered behavior](../host/host-boundaries.md#registered-behaviors) is the one place
 in the substrate where opaque host state lives, so it is the one place you most
 need to see into. Two read-only projections sit on the public door, so a tool never
 has to depend on an implementation namespace.
@@ -134,7 +134,7 @@ Work in this order:
 3. **Choose the boundary.** Keyed child views for rows that change independently;
    plain `defn` helpers for pure structure you are happy to re-run with the parent.
 4. **Window large lists.** Do not mount what the user cannot see — see
-   [Reactivity](reactivity-and-ownership.md#window-large-lists-before-you-compile).
+   [Reactivity](../authoring/reactivity-and-ownership.md#window-large-lists-before-you-compile).
 5. **Measure again.**
 6. **Only then** promote a remaining hot boundary with `{:compiled true}`, or a
    library leaf that needs static proof.
@@ -156,7 +156,7 @@ Two things worth knowing while reading a trace of a typing session:
 
 - **Each keystroke on a controlled field is its own event.** Typing `hello` is
   about five dispatches. The stream looking busy is expected, not a defect — see
-  [Events](events-and-handlers.md#each-keystroke-is-an-event).
+  [Events](../authoring/events-and-handlers.md#each-keystroke-is-an-event).
 - **A render-failure summary is bounded on purpose.** `v/error-boundary`'s
   `:on-error` carries a stable diagnostic id, the failing view id, phase,
   fingerprint and evidence — never the exception, props, app-db or event payloads.
@@ -165,7 +165,7 @@ Two things worth knowing while reading a trace of a typing session:
 
 ## Xray
 
-[Xray](../../xray/index.md) is the panel over all of this: the trace stream,
+[Xray](../../../xray/index.md) is the panel over all of this: the trace stream,
 time-travel scrubbing, the derivation graph, and — in development builds — the
 per-occurrence view evidence the door does not publish.
 
@@ -190,10 +190,10 @@ and a host interior is opaque. Those are labels on one grid, not separate modes.
 | Symptom | Fix |
 |---|---|
 | `(v/manifest view)` is `nil` | the declaration is interpreted — that is the honest answer, not a failure |
-| Unsure before promoting | `(v/check "src/…")` on the JVM — same analyzer as the build; see [Compilation](compilation.md) |
+| Unsure before promoting | `(v/check "src/…")` on the JVM — same analyzer as the build; see [Compilation](../advanced/compilation.md) |
 | `(v/active-connections)` is empty in a JVM test | browser-only; a structural render connects nothing |
 | A command did nothing | `(v/command-log)` for a `:refused` row and the `:target` it named |
 | Whole list re-renders on one edit | per-id subscriptions and keyed row boundaries |
 | High churn, identical output | props rebuilt inline every parent render, or an over-broad subscription |
-| Typing feels slow, Xray busy | expected per-keystroke events; narrow subs; see [Events](events-and-handlers.md#each-keystroke-is-an-event) |
+| Typing feels slow, Xray busy | expected per-keystroke events; narrow subs; see [Events](../authoring/events-and-handlers.md#each-keystroke-is-an-event) |
 | Reaching for a render-history verb | none on the door — use Xray |
