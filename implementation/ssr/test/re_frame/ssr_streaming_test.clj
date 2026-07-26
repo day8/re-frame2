@@ -1,11 +1,33 @@
 (ns re-frame.ssr-streaming-test
   "Streaming SSR — `:rf/suspense-boundary` walker, continuation drain,
   failure semantics, per-subtree hydration delta. Per Spec 011 §Streaming
-  SSR (rf2-ojakd / rf2-olb64 (a))."
+  SSR (rf2-ojakd / rf2-olb64 (a)).
+
+  ## Posture split (rf2-lwtlk)
+
+  The streaming SEMANTICS are production-real and are asserted here without a
+  posture guard: which continuations survive dedup, which registration
+  last-write-wins keeps, that a failed subtree materialises its declared
+  fallback rather than empty html, and what the wire attributes carry.
+
+  The `:rf.ssr/suspense-boundary-failed` and
+  `:rf.error/suspense-boundary-duplicate-id` TRACES are not. Both are emitted
+  behind `interop/debug-enabled?`, read once at namespace-load time, so under
+  `-Dre-frame.debug=false` neither fires — a duplicate boundary id is a
+  programmer error the framework announces in dev and silently applies
+  last-write-wins to in production. Those assertions are kept verbatim inside
+  `(when interop/debug-enabled? …)` arms marked `rf2-lwtlk`.
+
+  `distinct-wire-ids-are-not-deduped`'s no-duplicate-id-trace assertion is a
+  NEGATIVE over the trace ring and moves into the arm with them: under the gate the
+  ring is empty for colliding and distinct ids alike, so it would have passed
+  without distinguishing the two. Its posture-independent half — that both
+  continuations survive — already sits outside."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.html-helpers :as html]
@@ -197,9 +219,13 @@
           (is (nil? (:delta result)) "delta omitted on failure")
           (is (= "<p>Loading…</p>" (:html result))
               "declared fallback hiccup materialised in place (not empty)")
-          (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
-                    @captured)
-              ":rf.ssr/suspense-boundary-failed trace emitted"))))))
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+          ;; failure's production face is `:failed?` + the materialised
+          ;; fallback above; this is how a developer hears about it.
+          (when interop/debug-enabled?
+            (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
+                      @captured)
+                ":rf.ssr/suspense-boundary-failed trace emitted")))))))
 
 (deftest duplicate-id-emits-trace-and-keeps-last
   (testing "Two boundaries with the same :id emit :rf.error/suspense-boundary-duplicate-id"
@@ -209,9 +235,16 @@
       (with-trace-recorder! [captured]
         (let [{:keys [continuations]} (streaming/render-shell tree)]
           (is (= 1 (count continuations)) "only one continuation survives dedup")
-          (is (some #(= :rf.error/suspense-boundary-duplicate-id (:operation %))
-                    @captured)
-              ":rf.error/suspense-boundary-duplicate-id trace emitted"))))))
+          ;; SEMANTIC, posture-independent (rf2-lwtlk): last-write-wins is the
+          ;; recovery the trace merely NAMES, and it applies in both postures.
+          ;; Without this the surviving continuation could be either one.
+          (is (= [:p "second"] (:fallback (first continuations)))
+              "the surviving continuation is the LAST registration")
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+          (when interop/debug-enabled?
+            (is (some #(= :rf.error/suspense-boundary-duplicate-id (:operation %))
+                      @captured)
+                ":rf.error/suspense-boundary-duplicate-id trace emitted")))))))
 
 ;; ===========================================================================
 ;; rf2-yvc0t7 — duplicate detection keys on the WIRE id, not the raw :id
@@ -254,22 +287,27 @@
               "last-write-wins keeps the LAST registration (the string id)")
           (is (= [:p "second"] (:fallback (first continuations)))
               "the surviving entry carries the last registration's :fallback")
-          ;; The documented programmer-error trace fires.
-          (let [dup-traces (filterv #(= :rf.error/suspense-boundary-duplicate-id
-                                        (:operation %))
-                                    @captured)]
-            (is (= 1 (count dup-traces))
-                ":rf.error/suspense-boundary-duplicate-id fires once for the
-                 colliding pair")
-            (when-let [ev (first dup-traces)]
-              (is (= ":a" (get-in ev [:tags :id]))
-                  "the trace reports the colliding WIRE id")
-              (is (= 2 (get-in ev [:tags :count]))
-                  ":count reports the colliding cardinality")
-              (is (= [:a ":a"] (get-in ev [:tags :raw-ids]))
-                  ":raw-ids surfaces the distinct raw ids that collided")
-              (is (= :last-write-wins (:recovery ev))
-                  ":recovery names the applied policy"))))))))
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+          ;; documented programmer-error trace fires in dev only; the
+          ;; COLLISION and the last-write-wins recovery it names are pinned
+          ;; posture-independently above, on the wire attributes and the
+          ;; surviving entry.
+          (when interop/debug-enabled?
+            (let [dup-traces (filterv #(= :rf.error/suspense-boundary-duplicate-id
+                                          (:operation %))
+                                      @captured)]
+              (is (= 1 (count dup-traces))
+                  ":rf.error/suspense-boundary-duplicate-id fires once for the
+                   colliding pair")
+              (when-let [ev (first dup-traces)]
+                (is (= ":a" (get-in ev [:tags :id]))
+                    "the trace reports the colliding WIRE id")
+                (is (= 2 (get-in ev [:tags :count]))
+                    ":count reports the colliding cardinality")
+                (is (= [:a ":a"] (get-in ev [:tags :raw-ids]))
+                    ":raw-ids surfaces the distinct raw ids that collided")
+                (is (= :last-write-wins (:recovery ev))
+                    ":recovery names the applied policy")))))))))
 
 (deftest distinct-wire-ids-are-not-deduped
   (testing "rf2-yvc0t7 guard: boundaries with genuinely distinct wire ids
@@ -281,10 +319,14 @@
         (let [{:keys [continuations]} (streaming/render-shell tree)]
           (is (= 2 (count continuations))
               "distinct wire ids both survive — no false collapse")
-          (is (empty? (filterv #(= :rf.error/suspense-boundary-duplicate-id
-                                   (:operation %))
-                               @captured))
-              "no duplicate-id trace for distinct ids"))))))
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). A
+          ;; NEGATIVE over the trace ring: vacuous under the gate, where the
+          ;; ring is empty for colliding and distinct ids alike.
+          (when interop/debug-enabled?
+            (is (empty? (filterv #(= :rf.error/suspense-boundary-duplicate-id
+                                     (:operation %))
+                                 @captured))
+                "no duplicate-id trace for distinct ids")))))))
 
 (deftest build-final-payload-shape
   (testing "Final payload carries the canonical :rf/hydration-payload shape"

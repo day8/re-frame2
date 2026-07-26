@@ -139,10 +139,7 @@ known_red=(
   #    posture guard.
   re-frame.flows-integration-test                 #  14
   re-frame.ssr-conformance-test                   #   1
-  re-frame.ssr-hydration-mismatch-test            #   7
   re-frame.ssr-hydration-test                     #  15
-  re-frame.ssr-streaming-corner-test              #   3
-  re-frame.ssr-streaming-test                     #   3
 
   # ── rf2-lwtlk — the PAYLOAD-POLICY suite.  CLEARED, and the roster note
   #    that asked for verification rather than assumption was answered:

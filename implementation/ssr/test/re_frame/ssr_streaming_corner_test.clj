@@ -20,11 +20,31 @@
   sibling ns'.
 
   All tests are JVM-only — streaming SSR is JVM-only by design (Ring is
-  Clojure-on-the-JVM)."
+  Clojure-on-the-JVM).
+
+  ## Posture split (rf2-lwtlk)
+
+  Every composition corner pinned here is production-real and is asserted
+  without a posture guard. Two assertions were not: the
+  `:rf.error/suspense-boundary-duplicate-id` trace in the N=3 dedup corner,
+  and the `:rf.ssr/suspense-boundary-failed` trace in the double-throw
+  corner. Both emit behind `interop/debug-enabled?`, read once at
+  namespace-load time, so under `-Dre-frame.debug=false` neither fires — a
+  duplicate boundary id is a programmer error the framework announces in dev
+  and silently applies last-write-wins to in production. Both are kept
+  verbatim inside `(when interop/debug-enabled? …)` arms.
+
+  What each corner is actually FOR survives outside the arms and now runs in
+  `scripts/test-ssr-prod-gate.sh`: N=3 dedup keeps the third registration's
+  `:fallback` AND drains the third body, and the double-throw continuation
+  returns `:failed? true` with empty `:html` instead of escaping — which is
+  the MUST-NOT-ESCAPE contract, and the one that would matter most in
+  production."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.ssr.streaming :as streaming]
             [re-frame.ssr.test-fixture :as tf]
             [re-frame.test-support :refer [with-trace-recorder!]]))
@@ -344,24 +364,30 @@
              the first or middle. Per Spec 011 §Boundary nesting and
              recursion: 'the second registration overwrites the first'
              generalises to N-deep — every-but-last is dropped."))
-      (is (some #(= :rf.error/suspense-boundary-duplicate-id (:operation %))
-                captured-traces)
-          "the duplicate-id trace still fires across N=3 duplicates")
-      (let [dup-traces (filterv #(= :rf.error/suspense-boundary-duplicate-id
-                                    (:operation %))
-                                captured-traces)]
-        (is (= 1 (count dup-traces))
-            "one trace, not three — dedup groups all duplicates of
-             the same id into a single trace event")
-        (when (seq dup-traces)
-          (let [ev   (first dup-traces)
-                tags (:tags ev)]
-            (is (= 3 (:count tags))
-                ":count tag reports the duplicate cardinality (3)")
-            (is (= :last-write-wins (:recovery ev))
-                ":recovery is hoisted to top-level of the trace
-                 envelope per Spec 009 §Error event shape — names the
-                 policy applied")))))))
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+      ;; N=3 last-write-wins SEMANTICS are pinned above by the surviving
+      ;; entry's `:fallback` and the drained chunk's body, both
+      ;; posture-independent; a duplicate boundary id is a programmer error
+      ;; the framework ANNOUNCES in dev and silently applies in production.
+      (when interop/debug-enabled?
+        (is (some #(= :rf.error/suspense-boundary-duplicate-id (:operation %))
+                  captured-traces)
+            "the duplicate-id trace still fires across N=3 duplicates")
+        (let [dup-traces (filterv #(= :rf.error/suspense-boundary-duplicate-id
+                                      (:operation %))
+                                  captured-traces)]
+          (is (= 1 (count dup-traces))
+              "one trace, not three — dedup groups all duplicates of
+               the same id into a single trace event")
+          (when (seq dup-traces)
+            (let [ev   (first dup-traces)
+                  tags (:tags ev)]
+              (is (= 3 (:count tags))
+                  ":count tag reports the duplicate cardinality (3)")
+              (is (= :last-write-wins (:recovery ev))
+                  ":recovery is hoisted to top-level of the trace
+                   envelope per Spec 009 §Error event shape — names the
+                   policy applied"))))))))
 
 ;; ===========================================================================
 ;; render-continuation — fallback-render throw + delta + stale frame
@@ -397,12 +423,18 @@
                throw)")
           (is (nil? (:delta result))
               "delta still omitted on failure")
-          (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
-                    @captured)
-              "the suspense-boundary-failed trace still fires for the
-               subtree throw — even though the fallback also failed
-               (the trace describes the SUBTREE failure, which is what
-               the client cares about)"))))))
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+          ;; MUST-NOT-ESCAPE contract this deftest exists for is pinned
+          ;; posture-independently above: `render-continuation` returned at
+          ;; all, with `:failed? true` and empty `:html`, despite BOTH the
+          ;; subtree and the fallback throwing.
+          (when interop/debug-enabled?
+            (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
+                      @captured)
+                "the suspense-boundary-failed trace still fires for the
+                 subtree throw — even though the fallback also failed
+                 (the trace describes the SUBTREE failure, which is what
+                 the client cares about)")))))))
 
 (deftest render-continuation-delta-captures-app-db-change-during-render
   (testing "rf2-u91hb: render-continuation snapshots app-db before
