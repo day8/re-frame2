@@ -53,10 +53,15 @@ Four findings, and the third is the one that changes what to do about it.
    same write leg.** The 15× is mostly a re-frame-versus-bare-ratom
    result wearing a Freehand-versus-Reagent label, and the honest
    Freehand-specific number is much smaller.
-4. **Where Freehand's view layer really is slower is bulk re-render.** On
-   the broad write, render is ~72% of Freehand's cost and Freehand's
-   render leg is **4.0–5.4 ms against Reagent's 0.6–0.7 ms** — a genuine
-   **≈7–8× on re-rendering 300 boundaries**, which no accounting moves.
+4. **Where Freehand's view layer really is slower, on the clock, is bulk
+   re-render.** On the broad write, render is ~72% of Freehand's cost and
+   Freehand's render leg is **4.0–5.4 ms against Reagent's 0.6–0.7 ms** —
+   a genuine **≈7–8× on re-rendering 300 boundaries**, which no accounting
+   moves. But this report used to call that leg *squarely Freehand's own*,
+   without qualification, and on the **allocation** axis that has been
+   measured and is false: 95%+ of what a dependency read costs in bytes is
+   paid by any reader of a re-frame subscription, whatever substrate
+   surrounds it. See §2a.
 
 And one property that is not a number: **Freehand could not commit a
 state change synchronously.** A write made inside `react-dom/flushSync`
@@ -71,7 +76,12 @@ below was taken before the fix, through the window it forced.
 ratoms, and it does not say the compiled tier is vindicated. The mount
 advantage is real but small; the update deficit is real and large; and
 the largest single term in the update deficit is owned by `re-frame`
-rather than by either view substrate.
+rather than by either view substrate. Nor does it say these rows isolate
+the view substrate: the Freehand arm reads a re-frame subscription and
+the Reagent arm reads a bare `reagent.core/atom`, so **every
+cross-substrate row below compares a substrate difference confounded with
+a reactive-system difference**, on both legs and not only on the write.
+§2 and §3 say how far that reaches.
 
 ---
 
@@ -290,6 +300,21 @@ required. **NARROW** is one write one cell reads. It prices localisation.
 | **broad** — 300 cells repaint | 27.78 [21.33–35.00] | 24.83 [19.00–30.50] | **2.639** [2.000–3.500] |
 | **narrow** — 1 cell repaints | 8.802 [7.636–9.954] | 8.194 [7.000–9.636] | **0.587** [0.565–0.609] |
 
+> **The two arms do not read the same way, and this is the row where that
+> costs most.** Freehand's cell reads a re-frame subscription; Reagent's
+> derefs an `r/cursor` over a bare `reagent.core/atom` and never calls
+> `subscribe` at all. Each is its own substrate's idiom, which is why
+> these rows are comparable to one another — but it means **neither row
+> is a view-substrate comparison with the reactive system held fixed.**
+> On the allocation axis that difference has been measured and it is
+> large: 95%+ of what a single dependency read costs is paid by any
+> reader of a re-frame subscription, whatever substrate surrounds it
+> (§2a). No browser clock stands behind that measurement, so **no ratio
+> in this table moves because of it** — but read both rows as a substrate
+> difference *plus* an unquantified reactive-system difference, until a
+> B6 arm exists that holds the reactive system fixed (`rf2-mapni`,
+> `rf2-m7xs7`).
+
 Ratios to the in-run floor, as everywhere else — but **the update floor
 is a plain top-down React re-render and is NOT a lower bound.** A
 fine-grained substrate can and should beat it on a narrow write, and
@@ -344,12 +369,46 @@ write path, which a Reagent application reading re-frame subscriptions
 would pay too. The honest Freehand-specific narrow-update number is
 therefore roughly parity, not 15×.
 
-**On a broad write, rendering *is* the problem.** 4.7 ms of a 6.5 ms
-sample is React render and commit, against Reagent's 0.6 ms — **≈7–8×**
-on re-rendering 300 boundaries, with the write leg only 1.5 ms.
-Compiling moves it a little (4.7 → 4.1 ms) and does not close it. This is
-the one number in the update section that is squarely Freehand's own, and
-it is the one to act on.
+**On a broad write, rendering *is* the problem — on the clock.** 4.7 ms
+of a 6.5 ms sample is React render and commit, against Reagent's 0.6 ms —
+**≈7–8×** on re-rendering 300 boundaries, with the write leg only 1.5 ms.
+Compiling moves it a little (4.7 → 4.1 ms) and does not close it. It is
+the largest clock gap in the update section and it is the one to act on.
+
+**"Squarely Freehand's own" is retired as an unqualified claim, because
+the allocation axis says otherwise.** `rf2-mvqwe` (PR #7151) priced one
+dependency read on the JVM against a substrate-free reader — no view
+layer at all — in the same process, against the same subscription cache
+and the same 300 live nodes, over nine rounds. An idiomatic view body
+reading `@(subscribe q)` allocates **95.3%–97.4%** of what Freehand's
+observation port allocates, in every one of the nine, with a paired
+per-round difference of **100–172 B/read** that is never negative. A
+Reagent form-2 component that holds its reaction still pays 48%.
+**Freehand's own share of a read is under 5%.** The bytes this leg burns
+are therefore overwhelmingly re-frame's, paid by every substrate that
+reads a subscription — and paid by our Reagent arm not at all, because it
+reads a ratom.
+
+**No ratio in this report changes on that finding, and the refusal is
+deliberate.** It is an allocation result, taken on the JVM. There is no
+browser clock and no ClojureScript figure behind it, and revising a clock
+number on the strength of an allocation one would be exactly the error
+this correction exists to undo, only pointing the other way. What changes
+is the claim, not the number: the ≈7–8× stands as measured, and stands
+unqualified **only as a clock reading**.
+
+> **Two caveats travel with those bytes.** The absolutes above are JVM
+> bytes, and the largest single term inside `subscribe`'s cost — ≈760 B,
+> 41% of it — is the JVM's dynamic `binding`, which has no ClojureScript
+> counterpart at all (`rf2-j8ls2`). Absolute per-call figures from a JVM
+> run may therefore mis-rank for a browser. The *attribution* is the
+> sturdier half, because both readers pay the JVM-only terms alike:
+> strip the JVM adapter's recompute-on-every-deref out of both and the
+> shared share moves only from 97.4% to 94.9%. Second, `rf2-j8ls2` has
+> since taken ~230 B off every `subscribe` cache hit, and a single
+> post-fix round read the shared share at 89.7%. One round is not a
+> range; nothing here is restated on it, and a nine-round re-run is what
+> would move the figure.
 
 **The microtask yield costs nothing, and the control is in situ.** The
 floor and Reagent arms — which do not need it — report `gap` of exactly
