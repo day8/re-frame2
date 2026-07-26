@@ -196,12 +196,25 @@ DONOR_EVIDENCE_RE = re.compile(
     r"|re-frame2-ui"     # the artifact coordinate
     r"|re_frame2_ui"     # the munged coordinate
     r"|implementation/ui"  # the donor tree
-    # The donor build ids and npm entry points. A runner can couple to the donor
-    # entirely through its BUILD ID and never spell `re-frame.ui` at all — that is
-    # how `implementation/scripts/run-ui-g8.cjs` came to carry no recognised donor
-    # material while its `:ui-g13` sibling passed on an incidental prose mention
-    # (rf2-vfv8r). The donor-owned ids are enumerated in `implementation/deps.edn`
-    # and `implementation/shadow-cljs.edn`; keep this alternation in step with them.
+    # DONOR-COUPLED BUILD IDS and npm entry points. A runner can couple to the
+    # donor entirely through its BUILD ID and never spell `re-frame.ui` at all —
+    # that is how `implementation/scripts/run-ui-g8.cjs` came to carry no
+    # recognised donor material while its `:ui-g13` sibling passed on an
+    # incidental prose mention (rf2-vfv8r).
+    #
+    # The test an id has to pass to belong here is COUPLING, not ownership: the
+    # build cannot compile once `implementation/ui/` is gone. Every id below
+    # meets it, and `examples/realworld-resources-ui` meets it from outside the
+    # donor's own trees (rf2-vuylw) — the build's sources are
+    # `examples/real-apps/realworld_resources/ui_*`, which `:require`
+    # `re-frame.ui`, so the id names the donor as surely as `ui-g8` does. An
+    # `examples/` build id is therefore admissible; an id that merely reads
+    # `…-ui` is not. Note the `-ui` suffix carries the whole distinction here:
+    # the sibling `examples/realworld-resources` is the Reagent arm and is NOT
+    # donor-coupled, so the alternative must be the full `realworld-resources-ui`.
+    #
+    # The ids live in `implementation/deps.edn` and
+    # `implementation/shadow-cljs.edn`; keep this alternation in step with them.
     r"|node-test-ui"
     r"|ui-bench"
     r"|ui-g8"
@@ -209,6 +222,7 @@ DONOR_EVIDENCE_RE = re.compile(
     r"|check-ui-"
     r"|run-ui-"
     r"|test:ui"
+    r"|realworld-resources-ui"
 )
 
 
@@ -1163,6 +1177,8 @@ ESTABLISHED_ROWS = (
     "implementation/adapters/scripts/run-adapter-smokes.cjs",
     "implementation/scripts/_adapter-smoke-filter.test.cjs",
     "implementation/scripts/_reagent-slim-smoke-policy.test.cjs",
+    "examples/scripts/examples-asset-manifest.cjs",
+    "implementation/scripts/_examples-staging.test.cjs",
     "scripts/check_ui_root_lifecycle_drift.py",
     "scripts/check_skill_implementor_partition_drift.py",
     "scripts/test-fast-pr.sh",
