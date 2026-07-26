@@ -138,7 +138,14 @@
   [frame-id]
   (frame/swap-runtime-db! frame-id
     (fn [rt] (elision/apply-classification-effects rt
-               {:sensitive [[:auth :password]]
+               {:sensitive [[:auth :password]
+                            ;; rf2-0t7o8 — the SESSION IDENTITY the named scope
+                            ;; resolver reads (`install-resource-family!`).
+                            ;; Classified here so the app-db axis is never what
+                            ;; the resource-family scans catch: any surviving
+                            ;; copy of the secret came off a resource TRACE tag,
+                            ;; which is the axis those scans own.
+                            [:auth :user :username]]
                 :large     [[:blob :payload]]})))
   nil)
 
@@ -350,13 +357,27 @@
 (def ^:private plain-slug            "mcp-egress-plain-control")
 (def ^:private resource-owner        [:app :reader 1])
 
+;; rf2-0t7o8 — the SESSION axis. A `reg-resource-scope` resolver derives an
+;; identity-bearing `[tier {identity}]` scope from an app-db read, which is the
+;; scope SHAPE the free `:scope` tag leaked; `:rf.scope/global` (every other
+;; owner here) is a SCALAR and rides verbatim, so it could never have shown the
+;; defect. The identity IS this suite's secret, so a scope that egresses raw is
+;; caught by the same whole-record scans the rest of the family answers to.
+(def ^:private session-scope-id      :mcp/session)
+(def ^:private session-cause         [:logout :session])
+(def ^:private global-cause          [:logout :global])
+(def ^:private invalidation-tag      :mcp/article)
+
 (defn- install-resource-family!
   "Register the two resource owners the family scans need: one `:sensitive?`
   (its scoped key's scope + params MUST tokenize off-box) and one PLAIN (its key
   MUST ride verbatim — the two-sided over-redaction control, so redacting
-  everything fails as loudly as leaking). Plus a no-op managed-HTTP fx so
-  `ensure` writes its `:loading` entry and emits its lifecycle rows without a
-  request leaving the box.
+  everything fails as loudly as leaking). Plus the NAMED SCOPE RESOLVER whose
+  `{:from-db …}` reference gives the cascade an identity-bearing `[tier
+  {identity}]` scope (rf2-0t7o8) rather than the bare `:rf.scope/global` scalar
+  both owners carry, and a no-op managed-HTTP fx so `ensure` writes its
+  `:loading` entry and emits its lifecycle rows without a request leaving the
+  box.
 
   `fx/reg-fx`, NOT `rf/reg-fx`, and the difference is load-bearing. `rf/reg-fx`
   is a macro that stamps the calling namespace as the registration's provenance,
@@ -370,9 +391,28 @@
   cascade, off the global registrar) cheerfully reports the resource present. The
   plain fn carries no provenance, so it REPLACES the artefact's own slot and the
   reprojection keeps working. The resources artefact's own suites hit the same
-  seam and resolve it the same way."
-  []
+  seam and resolve it the same way.
+
+  rf2-0t7o8, two fixture preconditions worth stating out loud:
+
+  - the SESSION IDENTITY is seeded straight into the app-db partition, the
+    symmetric sibling of the runtime-db write `install-mcp-style-schemas!`
+    makes. A `dispatch` would settle another epoch record for a value that is
+    pure setup, and the cascade's record count is read below.
+  - `:trace-events-keep` is pinned to the shipped default. The suite-wide
+    `:init-fn` sets 5 for `drive-mixed-ring!`'s five cascades; this cascade
+    settles more than five and EVERY record is read for its `:trace-events`, so
+    inheriting that cap would silently elide the FIRST record's rows and return
+    the fx-carrier scans to reporting green over ground they no longer cover.
+    Pinning it here is what stops the cascade's LENGTH from being load-bearing."
+  [frame-id]
+  (rf/configure! {:epoch-history {:trace-events-keep 50}})
+  (frame/swap-frame-db! frame-id assoc-in [:auth :user :username] secret-password)
   (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf/reg-resource-scope session-scope-id
+    {:inputs {:username [:db [:auth :user :username]]}}
+    (fn [{:keys [username]} _ctx]
+      (when username [:rf.scope/session {:username username}])))
   (rf/reg-resource sensitive-resource-id
     {:scope         :rf.scope/global
      :sensitive?    true
@@ -406,11 +446,47 @@
   work-id vector — each present twice over, once for a sensitive owner and once
   for a plain one.
 
+  THEN two `invalidate-tags`, and they are the other axis (rf2-0t7o8). Every
+  operation above carries its scope INSIDE a scoped key, where the family's
+  own key projection owns it. `invalidate-tags` is the first operation here that
+  stamps the resolved CONCRETE scope as a FREE `:scope` tag, which is a slot
+  NOTHING owned: the sibling `:rf.resource/scope-resolved` projector is applied
+  by the epoch tool-pair under `(= :rf.resource/scope-resolved (:operation ev))`
+  — ONE operation — while the family projector runs on all of them, so a
+  pass-through here classified `:scope` by nobody and the resolver's identity
+  map egressed raw (rf2-1zc33, five row types). One dispatch resolves its scope
+  through the named resolver (the identity-bearing `[tier {identity}]` TUPLE,
+  the shape that leaked); the other names `:rf.scope/global` (a SCALAR, the
+  shape that must still ride verbatim). Same slot, same row type, two shapes —
+  which is what makes the pair a control rather than two assertions.
+
+  NOT driven, and deliberately, two things:
+
+  - `:rf.resource/refetch-decision`. It fires once per entry an invalidation
+    MATCHES, and an entry acquires its `:tags` at SETTLE — so reaching it means
+    an HTTP reply round-trip the `ensure` path does not need, i.e. real
+    machinery inside a conformance fixture. Its `:scope` is
+    `(first resource-key)`, the same value the `:resource/key` beside it carries
+    and the same free-tag slot `:rf.resource/invalidated` proves below, so the
+    marginal coverage is a second INSTANCE of an exercised mechanism. Same
+    judgement, and for the same reason, as the standing ruling against adding
+    `:rf.mutation/*` rows here.
+  - an `ensure` of a SESSION-SCOPED owner. That shape reds today, on a leak this
+    widening found and which is NOT this fixture's to fix (rf2-425mm): an
+    `ensure` stamps the resolved `:scope` into its `:on-success` / `:on-failure`
+    continuation arg maps, those ride `:rf.fx/args` / `:rf.event/fx`, and the
+    fx-args projector deliberately speaks only for SCOPED KEYS inside a carrier
+    — so a `[tier {identity}]` scope sitting in a free `:scope` slot there is
+    reached by nobody and the resolver's identity map egresses raw at four paths
+    of the `ensure` record. The identity-bearing scope therefore enters this
+    cascade through `invalidate-tags`, which stamps it as a free tag WITHOUT
+    lowering into fx. When rf2-425mm lands, add the `ensure` here: it is the
+    same shape one carrier further out.
+
   The rows are harvested off the trace bus rather than read out of the settled
-  epoch records because ONE record is one dequeued event: this cascade is three
-  dispatches, so its 7 family rows are spread across 3 records (the sensitive
-  `ensure`'s, the plain `ensure`'s, the `release-owner`'s). Every scan below
-  wants them together, which `record-carrying-resource-rows` assembles.
+  epoch records because ONE record is one dequeued event: this cascade is five
+  dispatches, so its family rows are spread across five records. Every scan
+  below wants them together, which `record-carrying-resource-rows` assembles.
 
   They used also to be harvested here because epoch capture DROPPED them
   outright — `capture-event!` resolved an event's frame from `[:tags :frame]`
@@ -438,8 +514,35 @@
                         {:frame frame-id})
       (rf/dispatch-sync [:rf.resource/release-owner {:owner resource-owner}]
                         {:frame frame-id})
+      ;; rf2-0t7o8 — the free `:scope` tag, in both of its shapes. Driven AFTER
+      ;; `release-owner` on purpose: an invalidation refetches every matched
+      ;; entry that still has an active owner, and a refetch storm would settle
+      ;; records this fixture neither needs nor addresses.
+      (rf/dispatch-sync [:rf.resource/invalidate-tags
+                         {:scope {:from-db session-scope-id}
+                          :tags  #{invalidation-tag}
+                          :cause session-cause}]
+                        {:frame frame-id})
+      (rf/dispatch-sync [:rf.resource/invalidate-tags
+                         {:scope :rf.scope/global
+                          :tags  #{invalidation-tag}
+                          :cause global-cause}]
+                        {:frame frame-id})
       (finally (trace-tooling/unregister-listener! k)))
     @rows))
+
+(defn- invalidated-row
+  "The tags of the `:rf.resource/invalidated` row in `rows` carrying `cause`.
+  The cascade drives one invalidation per scope SHAPE and labels each with its
+  own cause, so the cause names the row on raw and projected rows alike — a
+  cause is a vector of keywords, i.e. structural attribution, so it rides
+  verbatim through the projection."
+  [rows cause]
+  (->> rows
+       (filter #(and (= :rf.resource/invalidated (:operation %))
+                     (= cause (:cause (:tags %)))))
+       first
+       :tags))
 
 (defn- record-carrying-resource-rows
   "The frame's last REAL epoch record with the cascade's WHOLE set of family
@@ -1194,10 +1297,12 @@
             params in ANY representation — not as the raw params map, and not
             hidden inside a reversible CEDN-1 `key-id` string. The two leaks
             this gate could not see (rf2-wd9im's embedded work-id key,
-            rf2-5o52l's plaintext key-id) both land in the rows below."
+            rf2-5o52l's plaintext key-id) both land in the rows below, and so
+            does the third (rf2-1zc33's free `:scope` tag, reached by driving an
+            operation that stamps one)."
     (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
-    (install-resource-family!)
+    (install-resource-family! :test/mcp)
     (let [rows      (drive-resource-family! :test/mcp)
           raw-hist  (rf/epoch-history :test/mcp)
           record    (record-carrying-resource-rows :test/mcp rows)
@@ -1241,7 +1346,15 @@
                no slot-addressed lookup reaches it")
           (is (some #(contains-secret? (:tags %)) (mapcat fx-carrier-rows raw-hist))
               "carrying the secret itself — so a green scan below is the
-               projector's doing, not an absent shape")))
+               projector's doing, not an absent shape"))
+        (is (every? (comp seq :trace-events) raw-hist)
+            "FIXTURE — EVERY record the cascade settled retained its
+             `:trace-events`. The suite's `:trace-events-keep` elides the
+             oldest records' rows once a cascade outgrows the cap, and the scans
+             below would then read a record whose family + fx rows are simply
+             gone — green over ground they no longer cover. Pinned in
+             `install-resource-family!`; asserted here so the pin cannot rot
+             silently"))
 
       ;; ---- the claim this gate owns ---------------------------------------
       (testing "ACCEPTANCE — no raw sensitive bytes anywhere in the projected
@@ -1252,9 +1365,9 @@
         (is (empty? (mapcat secret-leak-paths proj-hist))
             "and from every leaf of every REAL record the cascade settled,
              projected as a forwarder ships it — the assembled record above
-             carries the family rows of all three cascades but only the LAST
-             one's fx rows, so the `ensure` record's carriers are only seen
-             here (rf2-1kiuj)")
+             carries the family rows of every cascade but only the LAST one's
+             fx rows, so the `ensure` records' carriers are only seen here
+             (rf2-1kiuj)")
         (is (empty? (cedn-tokens projected))
             "and no CEDN-1 key-id egresses under ANY tag of the WHOLE record —
              a key-id would disclose the same scope + params in the clear while
@@ -1306,6 +1419,58 @@
           (is (some? aborted) "the sensitive owner's work-id rode under :aborted")
           (is (= released aborted)))
         (is (true? (:sensitive? tags)) "the release row is stamped :sensitive?"))
+
+      ;; ---- the FREE `:scope` tag (rf2-0t7o8 / rf2-1zc33) --------------------
+      ;;
+      ;; Every slot above carries its scope INSIDE a scoped key. `:scope` is a
+      ;; tag in its own right, on a row type no other operation in this cascade
+      ;; emits, and it was owned by NOBODY: the sibling scope-resolved projector
+      ;; runs on ONE operation, the family projector runs on all of them and
+      ;; passed the slot through. It is now the SHAPE-driven default's, which is
+      ;; why the pair of shapes below is one control and not two assertions.
+      (let [raw-tags  (invalidated-row rows      session-cause)
+            proj-tags (invalidated-row proj-rows session-cause)
+            pscope    (:scope proj-tags)]
+        (testing "FIXTURE — the session invalidation resolved a real
+                  identity-bearing scope and stamped it as a FREE tag"
+          (is (= [:rf.scope/session {:username secret-password}] (:scope raw-tags))
+              "FIXTURE — the RAW row carries the resolver's identity map one
+               level OUTSIDE any scoped key. Both other owners here are
+               `:rf.scope/global`, a SCALAR — the value that correctly rides
+               verbatim — so before this operation the tuple shape did not occur
+               anywhere in the fixture and a row carrying `:scope` would have
+               proven nothing")
+          (is (= #{invalidation-tag} (set (:tags raw-tags)))))
+        (testing "the TIER survives and the IDENTITY tokenizes — the two halves
+                  of the shape rule, on one value"
+          (is (vector? pscope)
+              "the projected scope is still the 2-tuple a tool reads")
+          (is (= :rf.scope/session (first pscope))
+              "the tier keyword rides verbatim — a tool still shows
+               \"session scope\"")
+          (is (redacted-token? (second pscope))
+              "and the resolver's identity MAP tokenizes, distinct scopes
+               keeping distinct digests so per-scope joins survive")
+          (is (= #{invalidation-tag} (set (:tags proj-tags)))
+              "the invalidated tag set rides verbatim beside it — the default
+               tokenizes app payloads, not the structural attribution")))
+
+      (testing "and the SIBLING's own row is untouched by that change — it had
+                already substituted its scalar `:rf/redacted` SENTINEL, which
+                the shape-driven default rides verbatim, so dropping `:scope`
+                from the sibling-owned set cost the scope-resolved row nothing"
+        (let [tags (family-row proj-rows :rf.resource/scope-resolved nil)]
+          (is (some? tags)
+              "FIXTURE — the `{:from-db …}` reference emitted a causal
+               scope-resolved row")
+          (is (= :rf/redacted (:scope tags)))
+          (is (= :rf/redacted (:input-values tags))
+              "`:input-values` is STILL sibling-owned — it has no shape rule of
+               its own and must not be reached by the default")
+          (is (= session-scope-id (:resource-id tags))
+              "the resolver id survives for attribution")
+          (is (= [:username] (:inputs tags))
+              "and so do the declared input NAMES — only the VALUES redact")))
 
       ;; ---- the FX-ARGS carriers, per slot (rf2-1kiuj) -----------------------
       (let [ensure-rec (first proj-hist)
@@ -1387,10 +1552,12 @@
             VERBATIM off-box, in the SAME rows that tokenize the sensitive
             owner's. Without this half, the acceptance test above could be
             satisfied by redacting everything, which would destroy the
-            attribution every resource tool is built on."
+            attribution every resource tool is built on. rf2-0t7o8 adds the
+            same control on the free `:scope` tag, where the un-redacted side
+            is the `:rf.scope/global` SCALAR."
     (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
-    (install-resource-family!)
+    (install-resource-family! :test/mcp)
     (let [rows      (drive-resource-family! :test/mcp)
           proj-hist (mapv epoch/projected-record (rf/epoch-history :test/mcp))
           projected (epoch/projected-record
@@ -1418,6 +1585,23 @@
       (testing "the plain owner's params are the real map, not a token"
         (is (= {:slug plain-slug} (nth (:resource/key tags) 2)))
         (is (not (redacted-token? (nth (:resource/key tags) 2)))))
+
+      ;; ---- the free `:scope` tag's un-redacted side (rf2-0t7o8) ------------
+      (testing "a `:rf.scope/global` scope is a SCALAR and rides the FREE
+                `:scope` tag verbatim, on the same row type and in the same slot
+                whose identity-bearing tuple tokenizes in the acceptance test
+                above. Without this half the shape rule could be a blanket
+                strip, and every tool's scope column would read `:rf/redacted`
+                for the ordinary case"
+        (let [tags (invalidated-row proj-rows global-cause)]
+          (is (some? tags) "FIXTURE — the global invalidation row is present")
+          (is (= :rf.scope/global (:scope tags))
+              "the global scope rides verbatim")
+          (is (= #{invalidation-tag} (set (:tags tags)))
+              "and so does the invalidated tag set beside it")
+          (is (empty? (cedn-tokens tags)))
+          (is (not (:sensitive? tags))
+              "a row that redacted nothing is NOT stamped :sensitive?")))
 
       ;; ---- and the same control on the FX-ARGS carriers (rf2-1kiuj) --------
       (let [plain-rec (second proj-hist)          ; the PLAIN owner's `ensure`
