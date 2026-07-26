@@ -34,7 +34,9 @@ Two findings carry that, and either one alone would be enough:
 
 The honest limit on this result is stated in [What would change the
 answer](#what-would-change-the-answer). It is not a small limit, and it is
-narrower than the question.
+narrower than the question — [ER-01's acceptance, arm by
+arm](#er-01s-acceptance-arm-by-arm) prices exactly how much narrower, and what
+closing the gap would cost.
 
 ## What was measured, and why that metric
 
@@ -292,6 +294,75 @@ None of these is a reason to hold the recommendation. ER-01's deferred choice is
 evidence gathered it does not: the performance case is empty at matched
 semantics, and the ergonomic case is paid for in the evidence plane the setpoint
 requires preserved.
+
+## ER-01's acceptance, arm by arm
+
+A recommendation that outran its own acceptance criteria would be the same
+defect this report keeps warning about, so here is the reconciliation in the
+form a reader can check. ER-01's five acceptance items, against what was
+actually run:
+
+| # | ER-01 asks for | Status |
+|---|---|---|
+| 1 | one fixture and workload identical across all arms | **met** — one virtual table, 40×8 and 200×8, four arms, interleaved |
+| 2 | structural/DOM output **and callback behavior** deterministic-equal before timing | **partly** — structural equality gated every run on both hosts; **no DOM assertion and no callback fixture** |
+| 3 | evidence separating interpreter/lowering, **React/host work**, allocations, **commits**, **bundle reachability**, and **p50/p95/p99** | **partly** — see the four rows below |
+| 4 | implementation complexity, error quality, AI editability, migration cost | **met** — [What it would cost to change](#what-it-would-cost-to-change-if-the-answer-were-different) |
+| 5 | an explicit keep/change recommendation, no architecture mutation | **met** — keep `v/$` a non-goal; the scaffolding was reverted before merge |
+
+Item 3 splits four ways, and two of its four are answerable off the evidence
+already here:
+
+- **Interpreter/lowering work and allocations — met.** That is the whole of
+  [Allocation](#allocation), and it is the axis the arms differ on.
+- **`p50/p95/p99` — met for allocation, and refused for wall clock.** The
+  allocation distribution is *degenerate*: across 40–60 samples the minimum,
+  median and maximum reading were the same number in every arm of every run bar
+  one, where a single arm moved by 0.01%. When min equals max, p95 and p99 are
+  p50 — quoting them as three columns would suggest a spread that is not there,
+  and the one exception is two orders of magnitude below the 1.1% effect. Wall
+  clock is the opposite case and is reported as a direction precisely because
+  its p50 already moved more than the effect; its p95 and p99 would be worse,
+  not better, and are not quoted for the same reason.
+- **Bundle reachability — settled, but by set membership rather than by
+  measurement.** Every symbol in the `$` expansion (`node/element`,
+  `node/children`) is already reachable from every compiled view, so the `$` arm
+  adds zero reachable runtime. Bundle *size* was not measured, and
+  [What it would cost](#what-it-would-cost-to-change-if-the-answer-were-different)
+  says why: the only saving available is deleting the compiler, which is a
+  consequence of the decision rather than evidence for it.
+- **React/host work and commits — not measured.** No `$` counterpart to
+  `emit-react` was built. This is the same gap item 2's DOM arm names, and
+  [What would change the answer](#what-would-change-the-answer) §1 is its honest
+  statement.
+
+**Why the unmet arms cannot move the recommendation.** They all bear on the
+*performance* half, and the performance half is not what decides this. The
+recommendation rests on two independent findings and says either alone would be
+enough; the second is structural rather than numeric. The compiled analyzer
+**refuses** a `$` body, so `{:compiled true}` and `$` cannot appear on one
+declaration — the two front ends are disjoint, not two settings of a dial. A
+React-host number, however large, would be a number about an arm that forfeits
+the manifest, the elided ViewCell, `v/check` and the build-time refusal that
+ER-01's own preservation clause requires kept. No measurement crosses a
+build-time refusal.
+
+**What that leaves is an acceptance question, not a recommendation question**,
+and it is the operator's:
+
+- **Narrow ER-01's acceptance to the structural verdict.** Its numeric arms were
+  specified before it was known that the analyzer refuses `$`; they cannot
+  change the answer, and the report says so above with the reasoning exposed.
+  This is the recommended close.
+- **Or reopen and complete them.** The bill: a `$` counterpart to `emit-react`;
+  a keyed callback fixture asserting DOM equality and handler behaviour across
+  arms; commit counting through a profiler build; and a pinned release worker
+  for percentiles that mean something (D021). That is a second spike of about
+  the size of the first, and its ceiling is a number that still loses to a
+  refusal.
+
+Recording the choice matters more than which way it goes: an acceptance left
+half-open reads later as a result that was quietly dropped.
 
 ## Provenance
 
