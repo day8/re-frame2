@@ -14,11 +14,60 @@
   the commit hop resolve one URL to ONE target, and that the URL-change door
   reports which of its three sub-doors fired. A test that only loops
   `resolver/causes` against the pure constructor cannot fail when a door passes
-  the wrong cause or resolves its own target."
+  the wrong cause or resolves its own target.
+
+  ## Posture split (rf2-o5dbf)
+
+  The SEAM ITSELF is production-real and carries no posture guard. Every pure
+  constructor test — `resolved-target`, the nil-query strip, the fragment
+  collapse, `:query-defaults`, `route-plan`, the fail-loud `:branch` walk,
+  `leaf-plan-of`, `plan-projection`, `plan-trace-tags` and `url-resolution` —
+  runs in the ordinary `clojure -M:test` suite AND in
+  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane). So
+  do the door-wiring tests at the foot: the link/commit agreement, the exact
+  no-op, the shared not-found `:reason` vocabulary and `url-change-cause`.
+
+  What IS dev-only is the `:rf.route/planned` TRACE — the one bus the R0
+  projection rides — and the two `:rf.warning/*` fail-closed advisories. All
+  three go through `trace/emit!` / `trace/emit-error!`, gated on
+  `interop/debug-enabled?` and read once at load time. Their assertions are
+  kept VERBATIM inside `(when interop/debug-enabled? …)` arms marked
+  `rf2-o5dbf`.
+
+  EIGHT assertions in this namespace would have passed VACUOUSLY the moment
+  the roster line came off, because under the gate the trace ring is empty and
+  `(:tags (first ts))` is nil:
+
+    * `(is (empty? (planned …)))` twice — the two NON-commit branches. A
+      negative over an empty ring is green whether or not the door plans.
+    * `(is (= [] (:warnings url-driven) (:warnings programmatic)))` — the
+      well-formed miss's advisory-quiet leg.
+    * three legs of `planned-traces-branch-agrees-with-the-activation`:
+      `not-any? #{:route/nowhere}` over a nil `:branch`, `(not (contains?
+      tags :branch-error))` over a nil tag map, and the `:branch-error`
+      metadata scan over `(pr-str nil)`.
+    * and the sharpest pair, in
+      `an-executed-navigations-plan-trace-is-not-a-carrier`:
+      `(is (not (re-find #\"SECRET100\" (pr-str tags))))` and its `tok-99`
+      sibling would have certified that a real navigation's secret query
+      value and fragment stayed out of an egress copy THAT WAS NEVER MADE.
+
+  PRODUCTION WITNESSES were added rather than assertions dropped. The
+  projection is a PURE function (`resolver/plan-trace-tags`, pinned
+  posture-independently above), so the redaction the trace relies on is
+  checkable with no gate between the call and the verdict — read it as \"what
+  the bus WOULD carry if the emit were running\". The commits themselves are
+  runtime-db facts: the slice moves, the `:on-match` leaf plan really
+  dispatches, the nav-token really does NOT move on a no-op, and the
+  `:routing/on-route-entry` late-bind hook — a FN, not a trace — really does
+  receive the fail-loud `:branch-error` the activation composes over. Nothing
+  was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
             [re-frame.routing.events :as routing-events]
@@ -391,6 +440,34 @@
         (is (= [] (:leaf-plan-ids bare)))
         (is (= "/section" (:url bare)) "a bare path is not a carrier — verbatim")))))
 
+;; ---- the runtime-db facts a door commit leaves behind ---------------------
+;;
+;; rf2-o5dbf: these are what the `:rf.route/planned` trace ANNOUNCES, and
+;; unlike the trace they survive `-Dre-frame.debug=false`. The door-wiring
+;; section at the foot reads the same slice through the same helpers.
+
+(defn- rdb [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
+(defn- nav-slice [] (get-in (rdb) [:rf.runtime/routing :current]))
+(defn- current-id [] (:route-id (nav-slice)))
+
+(defn- with-route-entry-spy!
+  "Install a spy on the `:routing/on-route-entry` late-bind hook — the FN
+  `commit-navigation` hands the resolved `:branch` (contributors) and
+  `:branch-error` to — run `f`, restore the prior binding, and return the
+  recorded contexts.
+
+  rf2-o5dbf: this is the production-visible counterpart of the
+  `:rf.route/planned` trace's `:branch` / `:branch-error` tags. A late-bound fn
+  is not a trace, so the activation's copy of the fail-loud walk arrives under
+  `-Dre-frame.debug=false` exactly as it does in dev."
+  [f]
+  (let [seen  (atom [])
+        prior (late-bind/get-fn :routing/on-route-entry)]
+    (late-bind/set-fn! :routing/on-route-entry (fn [ctx] (swap! seen conj ctx) {}))
+    (try (f)
+         (finally (late-bind/set-fn! :routing/on-route-entry prior)))
+    @seen))
+
 (defn- quiet-nav-fx!
   "No-op the host navigation fx so a JVM navigation commits without reaching a
   browser-only handler."
@@ -411,43 +488,108 @@
   (routing/reg-route :route/home {} "/")
   (routing/reg-route :route/article {:on-match [[:article/load]]} "/articles/:slug")
   (quiet-nav-fx!)
-  (testing "the PROGRAMMATIC door — the projection is now reachable from an
-            executed navigation, which is the whole completeness obligation"
-    (let [ts (planned (rf/dispatch-sync [:rf.route/navigate {:to :route/article
-                                                             :params {:slug "a"}}]))]
-      (is (= 1 (count ts)) "exactly one plan trace per commit")
-      (let [{:keys [cause route-id branch leaf-plan-ids frame]} (:tags (first ts))]
-        (is (= :navigate cause))
-        (is (= :route/article route-id))
-        (is (= [:route/article] branch))
-        (is (= [:article/load] leaf-plan-ids))
-        (is (= :rf/default frame)
-            "frame-stamped — epoch capture admits only frame-tagged traces"))))
-  (testing "the URL-driven door reports which of its four sub-doors fired"
-    (doseq [[cause dispatch] {:link     [:rf.route/transitioned "/articles/b"]
-                              :popstate [:rf.route/handle-url-change "/articles/c"
-                                         {:rf.route/cause :popstate}]
-                              :initial  [:rf.route/handle-url-change "/articles/d"]}]
-      (let [ts (planned (rf/dispatch-sync dispatch))]
-        (is (= 1 (count ts)) (str cause " emitted exactly one plan trace"))
-        (is (= cause (:cause (:tags (first ts))))
-            (str "a door that hardcoded one cause for four sub-doors fails here"))
-        (is (= :rf/default (:frame (:tags (first ts))))))))
-  (testing "the SSR feed reports :ssr off the frame's :platform"
-    (let [f  (frame/make-anon-frame-record! {:platform :server})
-          ts (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/e"]
-                                        {:frame f}))]
-      (is (= 1 (count ts)))
-      (is (= :ssr (:cause (:tags (first ts)))))
-      (is (= f (:frame (:tags (first ts))))
-          "attributed to the SERVER frame, not the ambient :rf/default")))
-  (testing "the NON-commit branches emit none — an exact no-op and a
-            fragment-only anchor change are not plan commits"
-    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/f"])
-    (is (empty? (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/f"])))
-        "an exact no-op plans nothing")
-    (is (empty? (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/f#anchor"])))
-        "a fragment-only transition plans nothing (no nav-token, no re-plan)")))
+  ;; rf2-o5dbf — the LEAF PLAN made production-visible. `:leaf-plan-ids` on the
+  ;; trace names the loaders the plan carries; registering that loader turns
+  ;; "which ids ride the tag" into "which loaders actually dispatched" — the
+  ;; same claim, with no bus between the door and the verdict.
+  (let [loaded (atom [])]
+    (rf/reg-event :article/load
+                  (fn [{:keys [db]} _]
+                    (swap! loaded conj (:slug (:params (nav-slice))))
+                    {:db db}))
+
+    (testing "the PROGRAMMATIC door — the projection is now reachable from an
+              executed navigation, which is the whole completeness obligation"
+      (let [ts (planned (rf/dispatch-sync [:rf.route/navigate {:to :route/article
+                                                               :params {:slug "a"}}]))]
+        ;; SEMANTIC, posture-independent (rf2-o5dbf): the door COMMITTED, and
+        ;; the leaf plan the projection names really ran. Without these the
+        ;; whole deftest is a statement about a bus production does not run.
+        (is (= :route/article (current-id)) "the programmatic door committed its target")
+        (is (= {:slug "a"} (:params (nav-slice))))
+        (is (= ["a"] @loaded) "the :leaf-plan the projection names really dispatched")
+        ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+        (when interop/debug-enabled?
+          (is (= 1 (count ts)) "exactly one plan trace per commit")
+          (let [{:keys [cause route-id branch leaf-plan-ids frame]} (:tags (first ts))]
+            (is (= :navigate cause))
+            (is (= :route/article route-id))
+            (is (= [:route/article] branch))
+            (is (= [:article/load] leaf-plan-ids))
+            (is (= :rf/default frame)
+                "frame-stamped — epoch capture admits only frame-tagged traces")))))
+    (testing "the URL-driven door reports which of its four sub-doors fired"
+      ;; A VECTOR of triples, not a map — the slug pairs positionally with the
+      ;; cause, and the iteration order is then the written order.
+      (doseq [[cause dispatch slug] [[:link     [:rf.route/transitioned "/articles/b"] "b"]
+                                     [:popstate [:rf.route/handle-url-change "/articles/c"
+                                                 {:rf.route/cause :popstate}] "c"]
+                                     [:initial  [:rf.route/handle-url-change "/articles/d"] "d"]]]
+        (let [ts (planned (rf/dispatch-sync dispatch))]
+          ;; SEMANTIC, posture-independent (rf2-o5dbf): every sub-door really
+          ;; commits and really re-runs the leaf plan. Which CAUSE each reports
+          ;; has its own always-on witness in
+          ;; `executed-url-change-navigation-carries-its-true-cause` below,
+          ;; where the cause rides an application `:rf.route/entry-denied`
+          ;; payload rather than the trace bus.
+          (is (= {:slug slug} (:params (nav-slice)))
+              (str cause " committed /articles/" slug))
+          (is (= slug (last @loaded))
+              (str cause " re-ran the leaf plan for /articles/" slug))
+          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+          (when interop/debug-enabled?
+            (is (= 1 (count ts)) (str cause " emitted exactly one plan trace"))
+            (is (= cause (:cause (:tags (first ts))))
+                (str "a door that hardcoded one cause for four sub-doors fails here"))
+            (is (= :rf/default (:frame (:tags (first ts)))))))))
+    (testing "the SSR feed reports :ssr off the frame's :platform"
+      (let [f  (frame/make-anon-frame-record! {:platform :server})
+            ts (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/e"]
+                                          {:frame f}))]
+        ;; SEMANTIC, posture-independent (rf2-o5dbf): the ATTRIBUTION the
+        ;; `:frame` tag claims is a frame-state fact — the server frame's own
+        ;; slice moved and the ambient `:rf/default` one did not.
+        (is (= {:slug "e"}
+               (get-in (:rf.db/runtime (rf/frame-state-value f))
+                       [:rf.runtime/routing :current :params]))
+            "the SSR door committed into the SERVER frame")
+        (is (= {:slug "d"} (:params (nav-slice)))
+            "…and left the ambient :rf/default frame's slice alone")
+        ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+        (when interop/debug-enabled?
+          (is (= 1 (count ts)))
+          (is (= :ssr (:cause (:tags (first ts)))))
+          (is (= f (:frame (:tags (first ts))))
+              "attributed to the SERVER frame, not the ambient :rf/default"))))
+    (testing "the NON-commit branches emit none — an exact no-op and a
+              fragment-only anchor change are not plan commits"
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/f"])
+      (let [token (:nav-token (nav-slice))
+            loads (count @loaded)]
+        ;; SEMANTIC, posture-independent (rf2-o5dbf): "plans nothing" is a
+        ;; runtime-db claim before it is a trace claim. Both `(is (empty? …))`
+        ;; legs below are NEGATIVES over the trace ring, which the gate empties
+        ;; by design — they would have gone green the moment the roster line
+        ;; came off, whatever the door did. What a plan commit WOULD leave
+        ;; behind is a fresh nav-token and a re-fired leaf plan, so that is
+        ;; what the always-on legs deny.
+        (let [ts (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/f"]))]
+          (is (= token (:nav-token (nav-slice)))
+              "an exact no-op allocates no fresh nav-token")
+          (is (= loads (count @loaded))
+              "an exact no-op re-fires no loader")
+          (when interop/debug-enabled?
+            (is (empty? ts) "an exact no-op plans nothing")))
+        (let [ts (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/f#anchor"]))]
+          (is (= "anchor" (:fragment (nav-slice)))
+              "the fragment-only change DID land — the door ran, it just did not plan")
+          (is (= token (:nav-token (nav-slice)))
+              "…with no fresh nav-token")
+          (is (= loads (count @loaded))
+              "…and no leaf-plan re-fire")
+          (when interop/debug-enabled?
+            (is (empty? ts)
+                "a fragment-only transition plans nothing (no nav-token, no re-plan)")))))))
 
 (deftest an-executed-navigations-plan-trace-is-not-a-carrier
   (routing/reg-route :route/home {} "/")
@@ -456,20 +598,56 @@
   (testing "a real navigation carrying a secret in its query and fragment emits a
             plan trace that reproduces NEITHER — the projection became reachable
             without becoming a carrier"
-    (let [ts (planned
-               (rf/dispatch-sync [:rf.route/navigate
-                                  {:to       :route/invite
-                                   :params   {:id "acct-42"}
-                                   :query    {:invite "SECRET100"}
-                                   :fragment "tok-99"}]))
-          tags (:tags (first ts))]
-      (is (= 1 (count ts)))
-      (is (= [:id] (:param-keys tags)))
-      (is (= [:invite] (:query-keys tags)))
-      (is (not (re-find #"SECRET100" (pr-str tags))))
-      (is (not (re-find #"tok-99" (pr-str tags))))
-      (is (= "/invite/acct-42?invite=rf/redacted#rf/redacted" (:url tags))
-          "the structured PATH survives — it is what a consumer branches on"))))
+    (let [request {:to       :route/invite
+                   :params   {:id "acct-42"}
+                   :query    {:invite "SECRET100"}
+                   :fragment "tok-99"}
+          ts   (planned (rf/dispatch-sync [:rf.route/navigate request]))
+          tags (:tags (first ts))
+          ;; rf2-o5dbf — WHAT THE BUS WOULD CARRY. The two `re-find` legs in
+          ;; the arm below are the sharpest vacuous pass in this artefact:
+          ;; under `-Dre-frame.debug=false` `ts` is empty, so `tags` is nil,
+          ;; `(pr-str nil)` is "nil", and both would certify that a real
+          ;; navigation's secret query value and fragment stayed out of an
+          ;; egress copy the framework NEVER MADE. `plan-trace-tags` is a pure
+          ;; fn the emit site calls, though — pinned posture-independently in
+          ;; `plan-trace-tags-carries-the-projection-without-the-carriers` —
+          ;; so the redaction is checkable with no gate in between.
+          would-carry (resolver/plan-trace-tags
+                        (resolver/route-plan
+                          {:cause  :navigate
+                           :source request
+                           :target (resolver/resolved-target
+                                     {:route-id :route/invite
+                                      :params   {:id "acct-42"}
+                                      :query    {:invite "SECRET100"}
+                                      :fragment "tok-99"
+                                      :url      "/invite/acct-42?invite=SECRET100#tok-99"})}))]
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the navigation really
+      ;; happened, and the projection over its address really does redact.
+      (is (= :route/invite (current-id)) "the navigation committed")
+      (is (= {:invite "SECRET100"} (:query (nav-slice)))
+          "IN PROCESS the carrier rides raw — redaction is an egress rule, not
+           a storage rule (the same distinction routing_egress_test pins)")
+      (is (= "tok-99" (:fragment (nav-slice))))
+      (is (= [:id] (:param-keys would-carry)))
+      (is (= [:invite] (:query-keys would-carry)))
+      (is (not (re-find #"SECRET100" (pr-str would-carry)))
+          "the projection the emit site consults reproduces no query VALUE")
+      (is (not (re-find #"tok-99" (pr-str would-carry)))
+          "…and no fragment")
+      (is (= "/invite/acct-42?invite=rf/redacted#rf/redacted" (:url would-carry))
+          "the structured PATH survives — it is what a consumer branches on")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring): the same
+      ;; guarantees, read off the bus that actually carried them.
+      (when interop/debug-enabled?
+        (is (= 1 (count ts)))
+        (is (= [:id] (:param-keys tags)))
+        (is (= [:invite] (:query-keys tags)))
+        (is (not (re-find #"SECRET100" (pr-str tags))))
+        (is (not (re-find #"tok-99" (pr-str tags))))
+        (is (= "/invite/acct-42?invite=rf/redacted#rf/redacted" (:url tags))
+            "the structured PATH survives — it is what a consumer branches on")))))
 
 (deftest planned-traces-branch-agrees-with-the-activation-rf2-cqyq2
   (routing/reg-route :route/home {} "/")
@@ -482,35 +660,80 @@
             :branch [:route/nowhere :route/leaf] — a plausible two-segment
             branch naming a route that does not exist — with no hint that
             planning had failed on that very chain."
-    (let [ts   (planned (rf/dispatch-sync [:rf.route/navigate {:to :route/leaf}]))
-          tags (:tags (first ts))]
-      (is (= 1 (count ts)))
-      (is (= [] (:branch tags)))
-      (is (not-any? #{:route/nowhere} (:branch tags))
-          "a tool reading the trace is not told a route exists that does not")
-      (is (= (select-keys (:branch-error (routing-events/resolve-branch :route/leaf))
-                          [:kind :route-id*])
-             (:branch-error tags))
-          "the trace's failure signal IS the activation's")))
+    (let [entries (atom [])
+          ts      (planned
+                    (reset! entries
+                            (with-route-entry-spy!
+                              #(rf/dispatch-sync [:rf.route/navigate {:to :route/leaf}]))))
+          tags    (:tags (first ts))]
+      ;; SEMANTIC, posture-independent (rf2-o5dbf). The trace's whole claim is
+      ;; "the failure signal a TOOL reads is the one the ACTIVATION composes
+      ;; over", and the activation's copy arrives through the
+      ;; `:routing/on-route-entry` late-bind hook — a fn, not a trace. Without
+      ;; this half, `not-any? #{:route/nowhere}` over a nil `:branch` is a
+      ;; negative over nothing and passes under the gate for free.
+      (is (= 1 (count @entries)) "the activation ran its route-entry plan once")
+      (is (= [] (:branch (first @entries)))
+          "the activation composes over NO branch — not a plausible two-segment
+           one naming :route/nowhere")
+      (is (= {:kind :unknown-parent :route-id* :route/nowhere}
+             (select-keys (:branch-error (first @entries)) [:kind :route-id*]))
+          "…and carries the fail-loud error itself")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count ts)))
+        (is (= [] (:branch tags)))
+        (is (not-any? #{:route/nowhere} (:branch tags))
+            "a tool reading the trace is not told a route exists that does not")
+        (is (= (select-keys (:branch-error (routing-events/resolve-branch :route/leaf))
+                            [:kind :route-id*])
+               (:branch-error tags))
+            "the trace's failure signal IS the activation's"))))
   (testing "and a well-formed branch carries no :branch-error at all — the tag is
             a failure signal, not a slot that is always present"
     (routing/reg-route :route/shell {} "/shell")
     (routing/reg-route :route/child {:parent :route/shell} "/shell/child")
-    (let [tags (:tags (first (planned (rf/dispatch-sync
-                                        [:rf.route/navigate {:to :route/child}]))))]
-      (is (= [:route/shell :route/child] (:branch tags)))
-      (is (not (contains? tags :branch-error)))))
+    (let [entries (atom [])
+          tags    (:tags (first (planned
+                                  (reset! entries
+                                          (with-route-entry-spy!
+                                            #(rf/dispatch-sync
+                                               [:rf.route/navigate {:to :route/child}]))))))]
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): `(not (contains? tags
+      ;; :branch-error))` is true of ANY nil tag map, so the fact that the
+      ;; well-formed case genuinely has no error needs its own witness.
+      (is (= [:route/shell :route/child] (mapv :route-id (:branch (first @entries))))
+          "the activation composes over the parent-to-leaf branch")
+      (is (nil? (:branch-error (first @entries)))
+          "…and the well-formed walk really produced no error to report")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= [:route/shell :route/child] (:branch tags)))
+        (is (not (contains? tags :branch-error))))))
   (testing "the :branch-error tag carries only registration-time identifiers —
             a kind and a route id, never a route-meta map (a cycle's :chain
             rides on the plan value, not on the trace bus)"
     (routing/reg-route :route/ping {:parent :route/pong} "/ping")
     (routing/reg-route :route/pong {:parent :route/ping} "/pong")
     (rf/dispatch-sync [:rf.route/handle-url-change "/"])
-    (let [tags (:tags (first (planned (rf/dispatch-sync
-                                        [:rf.route/navigate {:to :route/ping}]))))]
-      (is (= {:kind :parent-cycle :route-id* :route/ping} (:branch-error tags)))
-      (is (not (re-find #":path|:rf.route/compiled|:chain" (pr-str (:branch-error tags))))
-          "no route metadata and no meta-bearing :chain reaches the trace"))))
+    (let [entries (atom [])
+          tags    (:tags (first (planned
+                                  (reset! entries
+                                          (with-route-entry-spy!
+                                            #(rf/dispatch-sync
+                                               [:rf.route/navigate {:to :route/ping}]))))))]
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the cycle really is what
+      ;; the activation is handed. The trace's REDACTION of it to two keys is
+      ;; the dev-only half — and the `(not (re-find …))` scan over
+      ;; `(pr-str nil)` would pass under the gate whatever rode the bus.
+      (is (= :parent-cycle (:kind (:branch-error (first @entries))))
+          "the activation is handed the cycle, not a silently truncated chain")
+      (is (= :route/ping (:route-id* (:branch-error (first @entries)))))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= {:kind :parent-cycle :route-id* :route/ping} (:branch-error tags)))
+        (is (not (re-find #":path|:rf.route/compiled|:chain" (pr-str (:branch-error tags))))
+            "no route metadata and no meta-bearing :chain reaches the trace")))))
 
 ;; ---- the URL -> ResolvedTarget extraction (ONE definition) ----------------
 
@@ -551,9 +774,6 @@
 ;; ===========================================================================
 ;; Door wiring — the doors REACH the seam
 ;; ===========================================================================
-
-(defn- rdb [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- current-id [] (get-in (rdb) [:rf.runtime/routing :current :route-id]))
 
 (defn- register-denying-not-found!
   "A `:home` route plus a registered `:rf.route/not-found` whose `:can-enter`
@@ -654,8 +874,18 @@
       (is (= :rf.route/not-found (:route-id url-driven) (:route-id programmatic)))
       (is (= {:url "/miss-a"} (:params url-driven)))
       (is (= {:url "/miss-b"} (:params programmatic)))
-      (is (= [] (:warnings url-driven) (:warnings programmatic))
-          "a well-formed miss is not a malformed URL")))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): "not a malformed URL" is
+      ;; spelled on the SLICE as the ABSENCE of a `:reason` — and the two
+      ;; `{:url …}` equalities above already say exactly that, key-for-key.
+      ;; The `(= [] …)` leg below is a negative over the trace ring, which the
+      ;; gate empties by design, so it is inside the arm.
+      (is (not (contains? (:params url-driven) :reason))
+          "a well-formed miss stamps no :reason on the slice")
+      (is (not (contains? (:params programmatic) :reason)))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= [] (:warnings url-driven) (:warnings programmatic))
+            "a well-formed miss is not a malformed URL"))))
   (testing "a MALFORMED percent-encoding — the discriminator that did NOT agree.
             The programmatic door yielded {:url …} and emitted no warning at
             all, so a per-route error UI branching on :reason (Spec 012) and the
@@ -667,9 +897,13 @@
       (is (= :malformed-url (:reason (:params url-driven))))
       (is (= :malformed-url (:reason (:params programmatic)))
           "the two doors stamp the SAME :reason for the same class of URL")
-      (is (= [:rf.warning/malformed-url] (:warnings url-driven)))
-      (is (= [:rf.warning/malformed-url] (:warnings programmatic))
-          "EP-0015's malformed-URL diagnostic fires on BOTH doors")))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; per-route error UI branches on the always-on `:reason` above; the
+      ;; EP-0015 DIAGNOSTIC rides `trace/emit!` and is dev-only.
+      (when interop/debug-enabled?
+        (is (= [:rf.warning/malformed-url] (:warnings url-driven)))
+        (is (= [:rf.warning/malformed-url] (:warnings programmatic))
+            "EP-0015's malformed-URL diagnostic fires on BOTH doors"))))
   (testing "a match-url THROW — the second discriminator that already agreed,
             pinned so the merge onto the shared extraction cannot lose it"
     (with-redefs [registry/match-url
@@ -679,8 +913,10 @@
         (is (= :rf.route/not-found (:route-id url-driven) (:route-id programmatic)))
         (is (= {:url "/throw-a" :reason :match-error} (:params url-driven)))
         (is (= {:url "/throw-b" :reason :match-error} (:params programmatic)))
-        (is (= [:rf.warning/malformed-url] (:warnings url-driven)))
-        (is (= [:rf.warning/malformed-url] (:warnings programmatic))))))
+        ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+        (when interop/debug-enabled?
+          (is (= [:rf.warning/malformed-url] (:warnings url-driven)))
+          (is (= [:rf.warning/malformed-url] (:warnings programmatic)))))))
   (testing "a VALIDATION miss is the RATIFIED asymmetry, not a defect: Spec 012's
             resolve-target table and §Validation-error surfacing ratify
             URL-driven-routes-to-not-found vs programmatic-caller-bug-rejects.
