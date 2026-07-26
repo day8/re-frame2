@@ -563,6 +563,25 @@ be host-native and need not themselves be serialisable.**
   semantic nodes — tag/ns, attribute names + values, child order, escaping, keyed order,
   void/boolean handling, fragments, fallbacks — fingerprinted and generatively tested
   (per [008](008-Testing.md)). Byte-identical HTML is NOT the contract.
+
+  **Attribute *emission order* is the concrete divergence that permits, and it is
+  ACCEPTED rather than a defect.** For an element mixing literal and runtime attributes
+  the two emitters classify them differently and therefore write them in different
+  orders — the interpreted walk puts a sugar `.class` first where the compiled emitter
+  writes it last. Nothing that carries meaning can see it. Attribute order is not HTML
+  semantics; `getAttribute` and selector matching are name-keyed; the structural tree's
+  `:attrs` map is compared with `=`, which is order-insensitive; the SSR seam emits a
+  **pinned total order** sorted by attribute name, so the served markup is byte-identical
+  across the two modes ([004B §Emission is
+  pure](004B-UI-Tree-and-Conversion.md#emission-is-pure-deterministic-and-jvm-runnable));
+  and the hydration render-hash canonicalises attribute maps in sorted-key order
+  ([011 §Hydration equivalence rule](011-SSR.md#hydration-equivalence-rule-canonical)).
+  The one surface that observes it at all is the browser DOM's own iteration order, so
+  `outerHTML` and `Element.attributes` differ across modes and whole-string equality is a
+  false negative there. A cross-mode test therefore compares the attribute **SET** plus
+  the content verbatim, never the serialised element as one string. The emitters MUST NOT
+  be normalized onto a shared order to make that comparison possible: it would add work to
+  every render on both paths to satisfy something no consumer can observe.
 - **Serialisation boundary.** The template AST's structure — tags, nesting, non-function
   attribute values, and literal event vectors — is fully serialisable and survives a
   print/read round-trip; event vectors are retained *as data* in the compiler manifest
