@@ -150,7 +150,7 @@
     (install-sensitive! :rf/default [[:password]])
     (let [err (-> (record-always-on-errors
                     #(try (rf/dispatch-sync [:auth/missing {:password "shh"}])
-                          (catch #?(:clj Throwable :cljs :default) _ nil)))
+                          (catch Throwable _ nil)))
                   (record-of :rf.error/no-such-handler))]
       (is (some? err) "the always-on record fired for the chainless category")
       (is (= :rf/redacted (get-in err [:event 1 :password]))
