@@ -152,6 +152,37 @@ REPLACE, because `day8/re-frame2-freehand` occupies the same test-only
 `:local/root` position in `tools/story/deps.edn` and carries no `:clein/build`
 either.
 
+The fourth pass took the family sideways, into the EXAMPLE build ids
+(rf2-vuylw). `examples/scripts/examples-asset-manifest.cjs` declares a bespoke
+staging entry for build `examples/realworld-resources-ui`, and
+`implementation/scripts/_examples-staging.test.cjs` hard-codes that same id in
+a five-build non-vacuity list. Neither was rowed, for the `run-ui-g8.cjs`
+reason: the coupling is a build id and both files are `.cjs`, so neither census
+signal can reach them. Neither breaks when `implementation/ui/` is deleted —
+the build simply stops compiling, because its sources are
+`examples/real-apps/realworld_resources/ui_*`.
+
+Rowing the second of them needed a decision rather than a paste, and the
+decision is worth stating because the next build id will need it too.
+`DONOR_EVIDENCE_RE` — the "has this row's subject still got donor material in
+it?" test — enumerated build ids owned by the donor's OWN artifact (`ui-g8`,
+`ui-bench`, `node-test-ui`). `examples/realworld-resources-ui` is an example's
+id, not the donor's, so on an ownership reading it did not belong and a pending
+row for the staging test would have tripped the stale-row check. **The test is
+coupling, not ownership**: the id names a build that cannot compile once the
+donor is gone, which is exactly what every other id in that alternation
+already means in substance. It is in the alternation now. Note that
+`realworld-resources-ui` must be spelled in full — the sibling
+`examples/realworld-resources` is the Reagent arm and is not donor-coupled.
+
+The manifest is a second lesson in the same paragraph. It passes the evidence
+test today, but only through the words `re-frame.ui` inside one entry's prose
+`reason` string — the identical incidental-mention accident that let
+`run-ui-g13.cjs` pass while `run-ui-g8.cjs` failed. Reword that sentence and
+the row goes stale-red for a reason that has nothing to do with the donor.
+Adding the build id fixes both files at once, which is why one alternative
+covers a two-file finding.
+
 Two files that sweep listed are deliberately NOT rowed.
 `examples/scripts/check-examples-assets.cjs` names `implementation/ui/scaffold-smoke`
 only in a comment explaining WHY it prunes standalone scaffolds; the prune
@@ -388,6 +419,8 @@ release train have no Freehand successor and are DELETEd outright.
 | `implementation/adapters/scripts/run-adapter-smokes.cjs` | the Playwright half: it drives the donor substrate spec and reconciles the manifest against the spec files actually on disk, so a declared-but-absent donor spec reds the run rather than being silently skipped | REPLACE | F6 | pending |
 | `implementation/scripts/_adapter-smoke-filter.test.cjs` | the manifest's own unit tests. Its donor arms pin the exact three-build set including `ui/testbed`, that every declared `specPath` exists on disk, and that both `ui/testbed` and `ui-testbed` filter shapes select the substrate smoke while `adapters/` deliberately excludes it. Takes its subject's disposition | REPLACE | F6 | pending |
 | `implementation/scripts/_reagent-slim-smoke-policy.test.cjs` | the slim-adapter smoke policy. Its donor arm is a second `deepStrictEqual` over the same three-build set — including `ui/testbed` — pinning that no slim entry can hide behind manifest growth. Takes the manifest's disposition, as its subject | REPLACE | F6 | pending |
+| `examples/scripts/examples-asset-manifest.cjs` | the shared per-example asset manifest. Its donor arm is the bespoke fifth `EXAMPLE_ASSET_MANIFEST` entry — build id `examples/realworld-resources-ui`, staging `default-avatar.svg` for the RealWorld example's donor arm out of the same colocated source folder the Reagent arm uses. Shared build wiring, so the section rule applies exactly as it does for `adapter-smoke-filter.cjs`: the manifest still has to exist and it serves the other four builds either way, but the donor entry is re-declared against Freehand rather than carried across. Neither census signal can reach it — the coupling is a BUILD ID, and the require detector reads only `.clj`, `.cljs`, `.cljc` and `.edn` | REPLACE | F6 | pending |
+| `implementation/scripts/_examples-staging.test.cjs` | the staging helpers' own unit tests. Its donor arm is the non-vacuity assertion in `the LIVE staging PER_EXAMPLE_ASSETS IS the real manifest projection`, which hard-codes `examples/realworld-resources-ui` in a five-build list and asserts each declares staged assets — so dropping the manifest entry reds this test rather than silently narrowing it. Takes its subject's disposition, the way every other `_*.test.cjs` row here does. This is the file that forced the `DONOR_EVIDENCE_RE` decision (rf2-vuylw): it named NO donor material in any spelling the gate recognised, so rowing it as `pending` would have tripped the stale-row check until `realworld-resources-ui` joined the build-id alternation | REPLACE | F6 | pending |
 | `scripts/check_ui_root_lifecycle_drift.py` | the Root-settlement drift gate: 32 literal anchors across runtime, spec, and docs. ELEVEN of them are donor source paths — four in `ui/client.cljs`, four in `ui/frames.cljc`, two in `ui/reactive.cljc`, one in the donor's `adapter_public_root_disposal` browser fixture — and `load_texts` raises on the FIRST missing file, so the whole gate exits before a single anchor is compared. The sharpest break in this family and the loudest: measured `rc 0 → 2`, `required lifecycle surface missing: implementation/ui/src/re_frame/ui/client.cljs`. The other twenty anchors (004C, 006, 009) are donor-independent and stay, which is why the gate is re-declared against `re-frame.freehand.root` rather than retired | REPLACE | F6 | pending |
 | `scripts/check_skill_implementor_partition_drift.py` | the implementor-skill control-surface guard. Rules 1–6 are donor-free; Rule 7's L5 arm is a CAUSAL source assertion over `ui/client.cljs` (each host render preceded by its OWN live `run-preflight!`, plus the one-shot `pre → create → render` triple) and a three-token presence assertion over `ui/frames.cljc`. Measured `rc 0 → 1`, but the failure is two SETUP lines, not a contract failure: `find_lifecycle_drift` reports each missing file and passes `None` on, so the causal assertion is never evaluated. That is the trap this row exists to name — deleting the two `*_FILE` constants to clear the SETUP error retires the preflight-before-render assertion outright, and nothing is left to notice | REPLACE | F6 | pending |
 | `scripts/test-fast-pr.sh` | the fast pre-checkin spine, which runs the Root-lifecycle drift gate twice (`--self-test`, then `--ci`). `run()` returns 1 on ANY non-zero rc and the spine is `set -euo pipefail`, so the gate's `rc=2` aborts it | REPLACE | F6 | pending |
