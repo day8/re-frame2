@@ -205,7 +205,8 @@ So a route carrying a token in its query string (`?reset_token=…`) classifies 
 
 ```clojure
 (rf/reg-route :password-reset
-  {:path "/reset" :sensitive [[:query :reset-token]]})
+  {:sensitive [[:query :reset-token]]}
+  "/reset")
 
 (rf/reg-resource :user-profile
   {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]})

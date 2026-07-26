@@ -1236,8 +1236,7 @@ Invalidation can be batched: a single event may carry many tags, but it emits on
 ```clojure
 (rf/reg-route
   :route/article
-  {:path "/articles/:slug"
-   :params [:map [:slug :string]]
+  {:params [:map [:slug :string]]
    :resources
    [{:resource  :article/by-slug
      :params    (fn [route] {:slug (get-in route [:params :slug])})
@@ -1248,7 +1247,8 @@ Invalidation can be batched: a single event may carry many tags, but it emits on
      :params    (fn [route] {:slug (get-in route [:params :slug])})
      :when      (fn [route _ctx] (some? (get-in route [:params :slug])))
      :blocking? false
-     :keep-previous? true}]})
+     :keep-previous? true}]}
+  "/articles/:slug")
 ```
 
 The route entry's `:scope` is a named-resolver reference `{:from-db :realworld/session}` — the **one** scope-resolution currency ([§Named resource-scope resolvers](#named-resource-scope-resolvers-reg-resource-scope)), resolved against the route-entry app-db coeffect at use time. It is **not** an anonymous `(fn [_route ctx] …)` that reads viewer identity out of the planning `ctx`: the route-planning `ctx` is the reserved trailing context (currently the empty map, [§The `ctx` argument is reserved across resource/mutation fn surfaces](#the-ctx-argument-is-reserved-across-resourcemutation-fn-surfaces)), so reading session scope from it would hide the dependency, defeat tooling naming, and resolve nil (fail-closed). The named resolver is the recommended form everywhere viewer identity decides resource identity; the `(fn [route ctx] …)` resolver tier exists for route facts available on the `route` argument (e.g. a path-segment param), not for db-derived viewer scope.
@@ -1715,13 +1715,13 @@ The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.r
 
 (rf/reg-route
   :route/article
-  {:path "/articles/:slug"
-   :params [:map [:slug :string]]
+  {:params [:map [:slug :string]]
    :resources
    [{:resource  :article/by-slug
      :params    (fn [route] {:slug (get-in route [:params :slug])})
      :scope     {:from-db :realworld/session}
-     :blocking? true}]})
+     :blocking? true}]}
+  "/articles/:slug")
 
 (rf/reg-view article-page []
   (let [slug  (:slug @(rf/subscribe [:rf.route/params]))
