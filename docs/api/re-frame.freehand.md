@@ -553,6 +553,87 @@ elements — the child path is browser-only, like the mount verbs.
   is the honest answer, not an omission. See
   [spec/004D-Freehand-Compiled-Grammar.md](../../spec/004D-Freehand-Compiled-Grammar.md#manifests-mark-the-crossing).
 
+## The compiled tier's preflight
+
+The compiled tier is a **specialised** offering. Interpreted Hiccup is the paved
+path and the right answer for ordinary application views; `{:compiled true}`
+serves a performance requirement that a particular *shape* earns — a sub-free
+boundary whose reactive ViewCell the analysis can prove away. `check` is how you
+find out whether a declaration is even eligible, before you touch it.
+
+### `check`
+
+- **Kind**: function (JVM only)
+- **Signature**:
+  ```clojure
+  (check path) → [report …]
+  ```
+- **Description**: check the `v/defview` declarations in a source file against the
+  compiled grammar — **without compiling them** — and answer one report per
+  declaration, in declaration order.
+
+  ```clojure
+  (v/check "src/app/people.cljc")
+  ;; => [{:view-id           :app.people/people-list
+  ;;      :source            {:file "src/app/people.cljc" :line 42 :column 1}
+  ;;      :current-lowering  :interpreted
+  ;;      :target-grammar    :re-frame.freehand/v1
+  ;;      :compile-eligible? false
+  ;;      :findings
+  ;;      [{:id       :rf.ui.compile/markup-returning-map
+  ;;        :source   {:line 47 :column 5}
+  ;;        :form     (map person-item people)
+  ;;        :reason   :markup-hidden-from-analyzer
+  ;;        :recovery [:make-template-visible
+  ;;                   :extract-declared-child
+  ;;                   :keep-interpreted]}]}]
+  ```
+
+  `{:compiled true}` looks like a one-line change, which makes it a tempting thing
+  to try and see. Trying and seeing is a poor way to learn a finite language: the
+  build stops at the first form outside the grammar, so an author who reached that
+  failure by editing has already changed the declaration in order to find out
+  whether the change was available. `check` inverts the order — it runs the **same
+  analyzer the build runs** — so editing becomes the final step rather than the
+  discovery mechanism. The `:recovery` ladder is the payload; its last rung is
+  always `:keep-interpreted`, because declining to compile is a first-class answer.
+
+  **It recommends nothing.** On an ordinary reactive form the two modes are close
+  enough to be inseparable, so an eligible report is not an argument for promoting
+  anything. There is no score, no percentage and no "compile the hot 5%": whether
+  compiling an eligible view is *worth* it is a measurement, and this verb has none.
+
+- **What it does not check**:
+    - **Nothing about correctness.** Eligible means the body is inside
+      `:re-frame.freehand/v1`. It says nothing about whether the view renders what
+      you meant, whether the subscriptions it reads are registered, whether the
+      events it dispatches exist, or whether a caller's props satisfy a declared
+      `:props` schema.
+    - **Nothing outside this file.** One file, its own declarations. A view it
+      mounts from another namespace is answered by pointing `check` at that file.
+    - **Nothing that is not a `defview`.** A `v/defbehavior`, a `v/defhost` or a
+      plain helper in the same file is read past, not reported on.
+    - **One finding per declaration.** The analyzer is fail-fast — it stops at the
+      first form outside the grammar, exactly where the build would — so a refusal
+      names one thing to fix, never a list. Take a rung and re-run.
+    - **A pure `.cljs` source is refused, not approximated.** Heads are classified
+      by resolution and there is no build context to resolve through. A `.cljc`
+      declaration is checked for **both** reader-conditional branches, which is how
+      a CLJS-target question is answered.
+    - **The source and the resolution can disagree.** `check` reads the file from
+      disk but resolves heads through the **loaded** namespace, so a helper added
+      but not reloaded reports `:rf.ui.compile/unresolved-head` and one deleted but
+      still loaded resolves anyway. Reload the namespace, then check.
+
+- **Read-only**, as a law rather than an intention: no source is opened for
+  writing, no emitter runs, no registry is contributed to, and nothing is printed.
+- **JVM only**, and honestly *absent* in ClojureScript rather than
+  present-and-throwing — head classification is resolution, resolution happens on
+  the JVM for both compilation targets, and a browser runtime has no source file to
+  read. The file's namespace must be **loaded**; an unloaded one is refused loudly
+  rather than reported as a wall of unresolved heads. See
+  [spec/004D-Freehand-Compiled-Grammar.md](../../spec/004D-Freehand-Compiled-Grammar.md#the-read-only-checker).
+
 ## Subscriptions
 
 ### `sub`

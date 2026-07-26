@@ -1383,6 +1383,45 @@
   ;; crossing manifest as plain data (nil for an interpreted one). Tooling
   ;; data alongside `describe`, so it shares its tier.
   ["re-frame.freehand" "manifest"]          {:tier :tooling     :owner "004" :status "EP-0036"}
+  ;; `check` (rf2-drpa3.182.6) is the read-only compile checker's PUBLISHED
+  ;; name — the door's one SOURCE-level read, where every other verb here
+  ;; answers about a value the caller already holds. It runs the build's own
+  ;; analyzer over a file's `defview` declarations WITHOUT compiling them and
+  ;; answers one report per declaration; the analysis, the report vocabulary
+  ;; and the recovery ladders all live in the internal
+  ;; `re-frame.freehand.compiler.check`, which is NOT rowed — `check` is the
+  ;; published projection of it, deliberately thin, because a second judgment
+  ;; on this surface would be a second grammar to keep in step.
+  ;;
+  ;; TOOLING, and the tier is a statement rather than a default. `check` is
+  ;; not application logic and cannot be: it reads a source file on the JVM,
+  ;; so nothing in a running application is in a position to call it. Its
+  ;; callers are a REPL, a build, an editor/CLI projection or an agent doing
+  ;; preflight — the "dev / inspection surfaces … not for application logic"
+  ;; row of the Tier taxonomy exactly. It also sits with the two inspection
+  ;; reads it belongs beside (`describe` / `manifest`), and the
+  ;; restrictive-by-default rule settles the remaining doubt against
+  ;; `:advanced`.
+  ;;
+  ;; JVM-ONLY, and rowed HERE in :classification rather than under
+  ;; :cljs-only — the same placement `render-static` takes below and for the
+  ;; same mechanical reason: it is a `#?(:clj (defn …))` on the `.cljc` door,
+  ;; so the JVM generator owns its existence and `:kind` via `ns-publics`.
+  ;; Unlike `render-static` it has no CLJS arm at all (it is not a macro and
+  ;; is not `:require-macros`-referred): head classification is resolution,
+  ;; resolution is JVM for both compilation targets, and a browser runtime
+  ;; has no source file to read — so the verb is honestly ABSENT on the host
+  ;; that cannot support it rather than present-and-throwing, which is the
+  ;; policy `->react` and the behavior tool plane state in the other
+  ;; direction. That absence is machine-guarded from the CLJS side too: the
+  ;; drpa3.63 probe carries `re-frame.freehand` fully-rowed, so a `check`
+  ;; that ever became a live CLJS var would appear unrowed and turn it RED.
+  ;;
+  ;; Owner 004D, not 004: the checker's laws, its report and its finding are
+  ;; owned by 004D §The read-only checker (009 §The compile checker report
+  ;; records only where the finding ids come from), exactly as
+  ;; `custom-element` above names 004D for the grammar that owns it.
+  ["re-frame.freehand" "check"]             {:tier :tooling     :owner "004D" :status "EP-0036"}
   ;; `render-static` (rf2-drpa3.112, EP-0036 F5) is the Freehand server render
   ;; verb: `(v/render-static [view {…}])` compiles the LITERAL root form to the
   ;; versioned JVM structural tree and folds it to an inert HTML string through
