@@ -39,6 +39,10 @@
           ;; instrument, on the same object, so the two can be compared.
           "hold"      (fn [k] (b8/control-hold! k))
           "unhold"    (fn [] (b8/control-release!))
+          ;; The decisive self-test: the same loop with the control's
+          ;; copies kept and with them dropped.
+          "keep"      (fn [b] (b8/control-keep! b))
+          "kept"      (fn [] (b8/control-kept-count))
           ;; One window: `n` writes on one arm, counter read at every leg
           ;; boundary. The driver collects before and reads after.
           "run"       (fn [arm kind n]

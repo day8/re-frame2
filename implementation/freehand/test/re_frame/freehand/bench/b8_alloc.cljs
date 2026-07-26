@@ -239,8 +239,36 @@
   (vreset! ctl-template (when (pos? d) (.fill (js/Array. d) 0.5)))
   (vreset! ctl-sink 0.0))
 
+(defonce ^:private ctl-keep (volatile! nil))
+
+(defn control-keep!
+  "Switch the control between DROPPING each copy and KEEPING it.
+
+  This is the instrument's decisive self-test and the reason it exists.
+  The allocation instrument and the retention instrument disagree about
+  the same object — allocation reads about 12 B/double where retention
+  reads 16.00 — and there are two possible explanations with opposite
+  consequences:
+
+  either the used-heap counter reads ALL allocation at a scale of its own
+  (in which case absolute figures need that scale and ratios between arms
+  are untouched), or it reads DROPPED objects less completely than kept
+  ones (in which case it is partly a retention instrument too, which is
+  the exact fault that disqualified the sampler and would disqualify this).
+
+  Running the identical loop with the copies kept and with them dropped
+  separates the two. If both read the same per copy, the counter does not
+  care whether an object survives and the discrepancy is a scale. If
+  keeping reads higher, transient garbage is partly invisible and no
+  allocation figure here may be quoted as absolute."
+  [keep?]
+  (vreset! ctl-keep (when keep? (array))))
+
+(defn control-kept-count [] (if-some [k @ctl-keep] (alength k) 0))
+
 (defn control-alloc!
-  "Allocate 8·D bytes of immediate garbage.
+  "Allocate one control copy — a piece of garbage whose size the retention
+  pass measures independently.
 
   The slot read into a live sink is not decoration: Closure is entitled
   to delete an expression whose value nothing reads, and this surface has
@@ -250,7 +278,8 @@
   []
   (when-some [t @ctl-template]
     (let [c (.slice t)]
-      (vreset! ctl-sink (+ @ctl-sink (aget c 0))))))
+      (vreset! ctl-sink (+ @ctl-sink (aget c 0)))
+      (when-some [k @ctl-keep] (.push k c)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Arms
