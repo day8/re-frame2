@@ -301,7 +301,13 @@ fi
 # renamed directory, an `-n` list that matched nothing — cannot report itself
 # green with `Ran 0 tests`.  Calibrated below the observed count with room for
 # ordinary churn; raise it when the roster grows materially.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-85}"
+#
+# rf2-o5dbf raised this 85 -> 380.  The original 85 was calibrated against an
+# observed 98 (~87%); the lane now runs 438, so an 85 floor sat FIVE TIMES
+# below what it guards — a roster collapse to a fifth of the lane would still
+# have reported green.  380 restores the same ~87% ratio against the current
+# observation.  Raise it again the next time the roster shrinks materially.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-380}"
 
 args=()
 for ns in $runnable; do
