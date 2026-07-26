@@ -123,11 +123,17 @@
             splitting one law across two ids is exactly what this roster
             exists to prevent."
     (let [mounted (roster/tier (roster/by-id :FH-BEHAVIOR-005) :mounted)]
-      (is (= 2 (count mounted)))
+      ;; Both messages NAME the law, and that is not decoration here: a
+      ;; deliberate break of this record reported a bare vector inequality
+      ;; and left a reader to decode which law it was about, which is
+      ;; precisely the failure acceptance 1 forbids. Found by breaking it.
+      (is (= 2 (count mounted))
+          "FH-BEHAVIOR-005 carries two mounted projections")
       (is (= '[re-frame.freehand.behaviors-dom-cljs-test
                re-frame.freehand.behavior-async-dom-cljs-test]
              (mapv :ns mounted))
-          "the ordinary synchronous path, then the same law under a Promise"))))
+          (str "FH-BEHAVIOR-005 — the ordinary synchronous path, then the "
+               "same law under a Promise")))))
 
 (deftest a-browser-only-law-does-not-claim-the-jvm
   (testing "Per the index's applicability grammar: the modes and hosts on a
