@@ -2963,3 +2963,121 @@
       (is (= [k1] (:identities (:tags plan))) "raw :identities rides")
       (is (= work-id (:work/id (:tags work))) "raw embedded work-id key rides"))))
 
+
+;; ---------------------------------------------------------------------------
+;; (3) the FOREIGN CARRIER — rf2-xx4ty's own surface, one params shape over
+;; ---------------------------------------------------------------------------
+
+(deftest fx-carrier-non-map-param-key-projects-under-a-family-named-slot
+  (testing "rf2-xx4ty / rf2-wd9im audit #7013 — inside an fx carrier the
+            reply's `:value` / `:params` tokenized (the owner read never needed
+            the params SHAPE), while the `:resource/key` beside them and the key
+            embedded in `:rf.reply/work-id` rode RAW — the redact-and-leak-the-
+            same-bytes shape this family keeps regressing into, now with the two
+            halves inside ONE map."
+    (let [k1        (sk :rf.scope/global :secret/vector-params vector-params)
+          reply     (read-reply k1 :rf.scope/global {:email (str vector-secret "@example.com")})
+          projected (epoch/projected-record (reply-carrier-record reply))
+          replies   (carrier-replies projected)]
+      (is (= 2 (count replies)) "one reply per carrier")
+      (doseq [r replies]
+        (is (redacted-component? (:value r)) "the decoded body tokenizes")
+        (is (redacted-component? (:params r)) "the VECTOR params slot tokenizes")
+        (is (= :secret/vector-params (second (:resource/key r)))
+            "the sibling key's resource-id survives")
+        (is (redacted-component? (nth (:resource/key r) 2))
+            "and its VECTOR params component tokenizes")
+        (is (redacted-component? (nth (second (:rf.reply/work-id r)) 2))
+            "as does the key embedded in the reply's own work-id")
+        (is (redacted-component?
+              (nth (:rf.reply/resource-key (:correlation r)) 2))
+            "as does the reply envelope's correlation key"))
+      (is (= [] (secret-leak-paths projected))
+          "nothing raw survives anywhere in the record"))))
+
+(deftest fx-carrier-named-slot-fails-closed-for-an-unregistered-non-map-params-owner
+  (testing "rf2-wd9im audit #7013 — `named?` exists so the fail-closed arm stays
+            reachable for a genuine key whose owner was cleared or hot-reloaded
+            away. Requiring a params `map?` on top of `named?` took that away:
+            an UNREGISTERED owner's vector-params key under the family's own
+            reserved `:resource/key` rode a carrier verbatim, which is the one
+            case the projector is least entitled to trust."
+    (let [gone      [:rf.scope/global :gone/vector-params [vector-secret]]
+          reply     (assoc (read-reply gone :rf.scope/global {:ok true})
+                           :resource :gone/vector-params)
+          projected (epoch/projected-record (reply-carrier-record reply))
+          replies   (carrier-replies projected)]
+      (is (= 2 (count replies)))
+      (doseq [r replies]
+        (is (= :gone/vector-params (second (:resource/key r)))
+            "attribution survives — the resource-id always rides")
+        (is (redacted-component? (nth (:resource/key r) 2))
+            "an unreadable owner's params FAIL CLOSED rather than riding raw"))
+      (is (= [] (secret-leak-paths projected))))))
+
+;; ---------------------------------------------------------------------------
+;; (4) the acceptance arm — a REAL reply-to read over a vector-params owner
+;; ---------------------------------------------------------------------------
+
+(def ^:private vector-reply-value
+  "The decoded body of the vector-params read. Carries the secret so the scan
+  below cannot pass by finding nothing to find."
+  {:email (str vector-secret "@example.com")})
+
+(defn- drive-vector-params-reply-to-read!
+  "`drive-reply-to-read!` against the `[:vector :string]` params owner: one REAL
+  `[:rf.resource/ensure … :reply-to …]`, its terminal reply replayed through the
+  runtime's own internal reply event, then a SECOND ensure that finds the entry
+  fresh — so one call produces both the async accepted fan-out
+  (`:cache-hit? false`) and the fresh-skip immediate dispatch
+  (`:cache-hit? true`). `:secret/vector-params` is `:rf.scope/global`, so nothing
+  here reaches the app-db axis and any surviving copy came off a trace carrier."
+  []
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)]
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :secret/vector-params :params vector-params
+                        :owner    real-owner :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/dispatch-sync (conj (:on-success @captured) {:status :ok :value vector-reply-value})
+                      {:frame :test/rt})
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :secret/vector-params :params vector-params
+                        :owner    [:app :reader 2] :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/epoch-history :test/rt)))
+
+(deftest real-vector-params-reply-to-read-leaks-nothing-into-fx-carriers
+  (testing "rf2-xx4ty / rf2-wd9im audit #7013 ACCEPTANCE — `projected-record`
+            over the records a REAL `[:rf.resource/ensure … :reply-to …]`
+            settles for a `:sensitive?` owner with NON-MAP canonical params must
+            carry the raw params at ZERO paths of its trace carriers, on BOTH
+            continuation paths. This is the public-path reproduction the audit
+            specified, driven through the runtime rather than assembled."
+    (let [records (drive-vector-params-reply-to-read!)]
+      (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
+        (testing label
+          (let [raw       (record-carrying-reply records cache-hit?)
+                projected (epoch/projected-record raw)]
+            (testing "FIXTURE — the producer really put the vector params on the
+                      fx carriers"
+              (is (some? raw) "the continuation reached an fx carrier at all")
+              (is (every? #(= vector-params (:params %)) (carrier-replies raw))
+                  "every carrier's reply carries the RAW vector params")
+              (is (seq (secret-leak-paths (mapv :tags (:trace-events raw))))
+                  "the unprojected carriers leak — the projector's input is the
+                   runtime's own output, not an invented tag map"))
+            (testing "ACCEPTANCE — nothing raw survives on any trace carrier"
+              (is (= [] (secret-leak-paths (mapv :tags (:trace-events projected))))
+                  "every leaking path is named here; before the repair this
+                   printed the [… :rf.fx/args 1 :resource/key 2 0] shape, and
+                   the same key again inside :rf.reply/work-id, :correlation
+                   and :rf.event/fx"))
+            (testing "and the row still reads as a resource row"
+              (doseq [r (carrier-replies projected)]
+                (is (= :secret/vector-params (:resource r))
+                    "the resource id rides verbatim")
+                (is (= cache-hit? (:cache-hit? r)))
+                (is (= :ok (:status r)))))))))))
