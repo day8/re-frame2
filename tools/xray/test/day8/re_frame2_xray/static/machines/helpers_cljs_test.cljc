@@ -1,7 +1,7 @@
-(ns day8.re-frame2-xray.static.machines.helpers-test
+(ns day8.re-frame2-xray.static.machines.helpers-cljs-test
   "Pure-data unit tests for the Static Machines projection helpers
-  (rf2-o5f5f.2). JVM-runnable so the projection contract is covered
-  without a CLJS runtime."
+  (rf2-o5f5f.2). Dual-runtime so the projection contract is covered on
+  the JVM and in the `:node-test` bundle alike (rf2-odlm3)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.static.machines.helpers :as h]))

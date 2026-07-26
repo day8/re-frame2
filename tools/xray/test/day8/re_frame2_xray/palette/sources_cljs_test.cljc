@@ -1,4 +1,4 @@
-(ns day8.re-frame2-xray.palette.sources-test
+(ns day8.re-frame2-xray.palette.sources-cljs-test
   "Tests for the palette source aggregator (rf2-wm7z4).
 
   Pure-data CLJC. Covers:
@@ -8,7 +8,8 @@
   - rank scoring: boost + recency-bonus add to fuzzy score; cap order
   - popoutable? gate
   - empty-query mode keeps every item and orders by boost+recency"
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.palette.sources :as sources]))
 
 ;; ---- fixture inputs -----------------------------------------------------

@@ -69,20 +69,43 @@
   #{\- \_ \/ \. \: \space \tab \> \<})
 
 (defn- separator?
-  [^Character ch]
+  ;; No `^Character` hint: `contains?` needs none, and the tag was a
+  ;; JVM-only claim about a value that is a one-character STRING under
+  ;; CLJS — see `char-code`. The set lookup itself is already portable,
+  ;; because `\-` reads as that same one-character string.
+  [ch]
   (contains? separators ch))
+
+(defn- char-code
+  "`ch`'s code unit, on either host (rf2-odlm3).
+
+  `(nth some-string idx)` hands back a `Character` on the JVM and a
+  ONE-CHARACTER STRING in ClojureScript. `int` reads the code point of
+  the former, but `cljs.core/int` is `(bit-or x 0)` — and JavaScript
+  coerces a non-numeric string to 0 in a bitwise op. So both range
+  checks below answered FALSE for every character under CLJS, the
+  camelCase and word-start bonuses never fired in the browser, and the
+  palette ranked its results by a scorer missing two of its four
+  bonuses precisely where it is the only thing that runs.
+
+  Nothing caught it because this namespace's suite was JVM-only until
+  rf2-odlm3 armed it on the `:node-test` lane, at which point
+  `camelcase-boundary-bonus` failed on its first CLJS run."
+  [ch]
+  #?(:clj  (int ch)
+     :cljs (.charCodeAt ^string ch 0)))
 
 (defn- upper?
   "True when `ch` is an ASCII uppercase letter. Cheap predicate over a
   char range; avoids the platform-coupled `Character/isUpperCase` so
-  the scorer stays CLJC-clean (CLJS has the same range check)."
+  the scorer stays CLJC-clean."
   [ch]
-  (let [n (int ch)]
+  (let [n (char-code ch)]
     (and (>= n 65) (<= n 90))))
 
 (defn- lower?
   [ch]
-  (let [n (int ch)]
+  (let [n (char-code ch)]
     (and (>= n 97) (<= n 122))))
 
 (defn- word-start?

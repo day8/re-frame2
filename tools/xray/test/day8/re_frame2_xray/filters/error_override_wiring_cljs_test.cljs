@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.filters.error-override-wiring-cljs-test
   "Sub-level wiring for the error-override filter bypass (rf2-jqqsh9).
 
-  The pure algebra lives in `error_override_test.cljc`; this drives the
+  The pure algebra lives in `error_override_cljs_test.cljc`; this drives the
   PRODUCTION `:rf.xray/filtered-event-bundles` sub end-to-end so the
   integration is proven: the config plumbs through `configure!` → the
   `:rf.xray/filters-auto-hide-error-overrides?` sub → the filtered-event-bundle

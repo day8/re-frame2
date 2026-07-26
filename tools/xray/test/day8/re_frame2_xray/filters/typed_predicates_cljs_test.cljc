@@ -1,8 +1,8 @@
-(ns day8.re-frame2-xray.filters.typed-predicates-test
+(ns day8.re-frame2-xray.filters.typed-predicates-cljs-test
   "Pure-data tests for the typed-predicate filter matchers (rf2-piye4).
 
-  CLJC so the JVM corpus exercises every kind without a CLJS runtime
-  — the matcher is pure data, no atoms, no I/O. Spec/020 §2 catalogues
+  CLJC so BOTH corpora exercise every kind — the matcher is pure
+  data, no atoms, no I/O (rf2-odlm3). Spec/020 §2 catalogues
   the four kinds; this file pins one composition test per kind +
   legacy back-compat + mixed-bucket composition.
 
@@ -10,7 +10,8 @@
   `re-frame.trace.projection/group-by-event` emits (`:handler`, `:fx`,
   `:effects`, `:subs`, `:renders`, `:other`) so the matcher walks the
   same shape it'll see in production."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.filters.typed-predicates :as typed]))
 
 ;; ---- helpers -------------------------------------------------------------

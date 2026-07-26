@@ -1,4 +1,4 @@
-(ns day8.re-frame2-xray.palette.fuzzy-test
+(ns day8.re-frame2-xray.palette.fuzzy-cljs-test
   "Tests for the palette's fuzzy subsequence scorer (rf2-wm7z4).
 
   Pure-data CLJC: every assertion runs equally under JVM clojure.test
@@ -6,7 +6,8 @@
   quality lever for the whole palette — these tests pin its scoring
   rules so a future tweak can be challenged against concrete
   examples rather than vibes."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.palette.fuzzy :as fuzzy]))
 
 (deftest empty-query-matches-everything-with-tiny-score

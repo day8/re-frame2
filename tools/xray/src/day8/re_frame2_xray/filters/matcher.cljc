@@ -36,7 +36,7 @@
   ## Why CLJC
 
   The matcher is pure data; JVM tests in
-  `tools/xray/test/.../filters/matcher_test.cljc` exercise the shape
+  `tools/xray/test/.../filters/matcher_cljs_test.cljc` exercise the shape
   without a CLJS runtime. The CLJS pill view + filtered-event-bundles sub
   compose against this ns at render-time."
   (:require [clojure.string :as str]))
