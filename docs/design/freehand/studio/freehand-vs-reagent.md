@@ -357,7 +357,8 @@ not add; the totals column is the measured figure the ratios use.
 | **narrow** FH compiled (20) | **19.2** | 0.1 | 1.1 | 21.7 |
 | **narrow** Reagent (20) | 0.0 | 0.0 | 1.3 | 1.4 |
 
-Three things fall straight out.
+Three things fall straight out, and the second has since had a correction
+attached to it.
 
 **On a narrow write, Freehand's rendering is not the problem — the write
 is.** The write leg is **19.8 ms** against a render leg of **1.4 ms**:
@@ -382,8 +383,8 @@ layer at all — in the same process, against the same subscription cache
 and the same 300 live nodes, over nine rounds. An idiomatic view body
 reading `@(subscribe q)` allocates **95.3%–97.4%** of what Freehand's
 observation port allocates, in every one of the nine, with a paired
-per-round difference of **100–172 B/read** that is never negative. A
-Reagent form-2 component that holds its reaction still pays 48%.
+per-round difference of **100–172 B/read** that is never negative. Even a
+Reagent form-2 component that holds its reaction pays **48–49%**.
 **Freehand's own share of a read is under 5%.** The bytes this leg burns
 are therefore overwhelmingly re-frame's, paid by every substrate that
 reads a subscription — and paid by our Reagent arm not at all, because it
@@ -405,7 +406,7 @@ unqualified **only as a clock reading**.
 > sturdier half, because both readers pay the JVM-only terms alike:
 > strip the JVM adapter's recompute-on-every-deref out of both and the
 > shared share moves only from 97.4% to 94.9%. Second, `rf2-j8ls2` has
-> since taken ~230 B off every `subscribe` cache hit, and a single
+> since taken 224–248 B off every `subscribe` cache hit, and a single
 > post-fix round read the shared share at 89.7%. One round is not a
 > range; nothing here is restated on it, and a nine-round re-run is what
 > would move the figure.
@@ -471,21 +472,34 @@ Stated plainly, because the omissions are load-bearing.
   costs Freehand 2,430 bytes of standing heap against Reagent's 410 and
   UIx's 251 — **5.93×** and **9.67×** — and a boundary reading its own
   signal costs 4,346 against Reagent's 1,037, **4.19×**. Two independent
-  readers agree to within 1% and every range is disjoint. Crucially the
-  §2a rebuttal below does *not* apply: the widest gap is on the witness
-  with no reactivity and no `app-db` on either side, so the larger term
-  is the ViewCell wrapper rather than re-frame's write path. Heap *under
-  update* is still unmeasured and is the one memory question left with an
-  argument in it.
+  readers agree to within 1% and every range is disjoint. Crucially
+  **neither half of §2a's rebuttal applies here** — not the write leg and
+  not the render leg. The widest gap is on the witness with no reactivity
+  and no `app-db` on either side, so the larger term is the ViewCell
+  wrapper rather than any part of re-frame. That wrapper has since been
+  decomposed (`rf2-oob3g`): ~51% of the per-boundary cost is the ViewCell
+  itself and **42% is React's own six hooks**, so a ViewCell driven all
+  the way to zero would still leave **2.80×** Reagent on standing heap.
+  Heap *under* update has since been measured too, and also went against
+  Freehand:
+  [`freehand-vs-reagent-allocation.md`](freehand-vs-reagent-allocation.md).
 - **Reagent reading re-frame.** The Reagent arm reads a bare
-  `reagent.core/atom`, which is Reagent's own idiom but is *less
-  framework* than the Freehand arm carries. §2a bounds the effect rather
-  than removing it: the write leg is measured separately so a reader can
-  see how much of the gap a re-frame-shaped Reagent app would also have
-  paid. A direct Freehand-vs-Reagent-vs-re-frame row is not possible in
-  one page today — Freehand's `v/sub` is inert under a ratom adapter
-  (`rf2-8cnxg`, `rf2-jt8vz`) — and would need two adapter phases bridged
-  by the floor.
+  `reagent.core/atom` and **never calls `subscribe` at all**, which is
+  Reagent's own idiom but is *less framework* than the Freehand arm
+  carries — so it has not been paying what a real re-frame **plus**
+  Reagent application pays, down to the ~1.8 KB a cache-*hitting*
+  `subscribe` costs on the JVM (`rf2-j8ls2`). This once read as a
+  write-leg caveat, and §2a bounds that half by measuring the write leg
+  separately, so a reader can see how much of the gap a re-frame-shaped
+  Reagent app would also have paid. **It was never confined to the write
+  leg.** The render leg carries a shared re-frame cost too, one per
+  dependency read, and 95%+ of it is shared — which is why **every
+  cross-substrate row on this page is a substrate difference confounded
+  with a reactive-system difference**, and will stay one until a B6 arm
+  holds the reactive system fixed (`rf2-mapni`, `rf2-m7xs7`). A direct
+  Freehand-vs-Reagent-vs-re-frame row is not possible in one page today —
+  Freehand's `v/sub` is inert under a ratom adapter (`rf2-8cnxg`,
+  `rf2-jt8vz`) — and would need two adapter phases bridged by the floor.
 - **The event leg.** Every arm is driven by a direct state install.
   `dispatch` and the event queue are excluded, identically, from all of
   them.
@@ -512,10 +526,15 @@ Stated plainly, because the omissions are load-bearing.
    where inside `commit-frame-transition!` plus the signal graph the
    ≈0.85 ms goes is a small, high-leverage spike.
 2. **Cheapen bulk re-render of boundaries.** The ≈7–8× on 300 repainting
-   boundaries is Freehand's own, and compiling barely moves it, which
-   suggests the cost is in the ViewCell wrapper rather than in the
+   boundaries is Freehand's own *on the clock*, and compiling barely
+   moves it, which pointed at the ViewCell wrapper rather than at the
    markup walk — the same term §1a of the predecessor report priced at
-   2,348 bytes of standing heap per kept ViewCell.
+   2,348 bytes of standing heap per kept ViewCell. Two later measurements
+   sharpen that target and also cap it. On allocation the leg is 95%+
+   shared re-frame cost (§2a), so bytes shed here are mostly not
+   Freehand's to shed. And on standing heap the wrapper is only about
+   half the boundary (`rf2-oob3g`) — React's six hooks are 42% — which
+   bounds what any work confined to `cell.cljc` can return.
 3. **~~A synchronous commit door.~~ DONE — `rf2-w2m25`.** Re-take the
    update row without the microtask yield, which would tighten every
    figure in §2. Note that the fix arms one extra React commit per render

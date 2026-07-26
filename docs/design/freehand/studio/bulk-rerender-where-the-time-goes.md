@@ -1,10 +1,17 @@
 # Where does Freehand's bulk re-render time go?
 
 Seat: PROFILE SPIKE. Answering the one row
-[`freehand-vs-reagent.md`](freehand-vs-reagent.md) identified as squarely
-Freehand's own — **the broad update, ≈10× Reagent on repainting 300
-boundaries** — and the operator's standard of 2026-07-27, verbatim:
-*"Freehand can't be used if it is slower than Reagent."*
+[`freehand-vs-reagent.md`](freehand-vs-reagent.md) identified as
+Freehand's own on the clock — **the broad update, ≈10× Reagent on
+repainting 300 boundaries** — and the operator's standard of 2026-07-27,
+verbatim: *"Freehand can't be used if it is slower than Reagent."*
+
+That report has since narrowed the claim it made about this leg: it is
+Freehand's own on the **clock**, but 95%+ of what the leg *allocates* per
+dependency read is shared re-frame cost that any substrate reading a
+subscription would pay (`rf2-9f2w4`). This page is a clock profile and is
+unaffected by the correction — but §5's candidates should be read knowing
+that bytes shed on this path are mostly not Freehand's to shed.
 
 Measured 2026-07-27 against `main` at `2b02616db0`. Reagent **2.0.1**,
 React **19.2.0**, headless Chromium 147 via Playwright, `:advanced` with
