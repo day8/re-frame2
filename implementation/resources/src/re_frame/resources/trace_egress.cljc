@@ -72,7 +72,8 @@
   opt-in lifts it at the epoch consumer (the `local-raw` boundary — the same
   switch the app-db / HTTP-body / scope-resolved redactions honour).
 
-  ## The family's keys also ride FOREIGN rows (rf2-1kiuj, rf2-425mm, rf2-xx4ty)
+  ## The family's keys also ride FOREIGN rows (rf2-1kiuj, rf2-425mm, rf2-xx4ty,
+  ## rf2-ko5lm)
 
   Everything above is routed by the epoch tool-pair on the row's OPERATION
   namespace. But an `ensure` lowers into EFFECTS, and those effects address the
@@ -87,8 +88,12 @@
   of one scope agree the way the two carriers of one key already did; and, since
   rf2-xx4ty, the `:value` + `:params` a READ COMPLETION CONTINUATION reply
   carries beside its `:resource/key`, tokenized through that key's OWNER exactly
-  as the load-more cursor is through its row's."
-  (:require [re-frame.resources.registry :as registry]
+  as the load-more cursor is through its row's; and, since rf2-ko5lm, that same
+  reply's owner-DECLARED projection-relative slots, which the coarse owner read
+  is blind to, substituted through the same `redact-continuation-reply` the
+  mutation reply uses at its source."
+  (:require [re-frame.resources.classification :as classification]
+            [re-frame.resources.registry :as registry]
             [re-frame.resources.reply :as resources-reply]
             [re-frame.resources.ssr :as ssr]))
 
@@ -475,6 +480,63 @@
   [m]
   (= resources-reply/work-kind-resource (:rf.reply/work-kind m)))
 
+(defn- redact-reply-declarations
+  "The READ-CONTINUATION analogue of the mutation's source-side
+  `classification/redact-continuation-reply` (rf2-ko5lm) — literally that
+  function, reached at the egress projector instead of at the source.
+
+  `row-owner-redacts?` above reads the COARSE root-prop claim
+  (`whole-entry-disposition`). That is the whole of a `:sensitive?` owner's
+  declaration and the right grain for tokenizing a WHOLE reply slot, but it is
+  not the only claim a resource can make. A spec that declares
+  `{:sensitive [[:data :email]]}` and no coarse prop classifies `:serialize`,
+  so the coarse arm never fires — and the decoded body carrying that declared
+  slot rode the fx carriers VERBATIM, while the very same bytes, landed in the
+  durable entry, redact off-box because `reconcile-registry` lowered the
+  declaration to the entry's absolute runtime path and the epoch walk reads
+  that registry. One value, two carriers, one rule applied: the rf2-irwsq shape
+  between the durable entry and the continuation echo of it.
+
+  The mutation half has never had this hole — both settle sites wrap their
+  reply in `redact-continuation-reply`, which derives the paths from the spec's
+  own projection-relative declaration (rf2-825mzj). The READ reply's carrier
+  shape IS the mutation reply's carrier shape — `:value` beside `:params`
+  beside `:scope` — so the counterpart is that same function over the read
+  owner's spec: a `:data`-rooted / bare decl redacts the reply's `:value`, a
+  `:params`-rooted decl its `:params`, a `:scope`-rooted decl its `:scope`.
+  Never a second classification language, and nothing new to keep in step.
+
+  ## Grain: DECLARATION-conditional
+
+  This arm fires on the paths the owner DECLARED and on nothing else — not
+  unconditionally (an owner that declares nothing rides verbatim) and not
+  coarse-owner-conditionally (that read is exactly what misses a `:serialize`
+  owner's declaration). The declaration is the thing whose two carriers must
+  agree, so its own grain is what makes them agree: the durable entry redacts
+  `[:data :email]` and so now does the reply's `:value`. It COMPOSES with the
+  coarse arm rather than replacing it — the caller applies this only when
+  `row-owner-redacts?` is false, so a coarse owner still tokenizes the whole
+  slot and the digests that arm produces are untouched.
+
+  ## Why at egress and not at the source, where the mutation does it
+
+  The coarse `:sensitive?` claim governs OFF-BOX egress, not in-process
+  delivery: the app's own `:reply-to` handler is entitled to the decoded body,
+  and the trusted-local `:include-sensitive?` opt-in must still show it. A
+  source-side redaction would take both away.
+
+  A reply naming an UNREGISTERED owner rides unchanged here and needs no
+  fail-closed arm of its own: a nil spec makes `project-trace-scoped-key`'s
+  nil-spec branch redact, so `row-owner-redacts?` is already true and the
+  caller has tokenized the whole payload before reaching this. Reference-
+  preserving when the spec declares neither axis. Pure."
+  [reply]
+  (let [rid  (second (:resource/key reply))
+        spec (when (keyword? rid) (registry/resource-meta rid))]
+    (if spec
+      (classification/redact-continuation-reply reply spec)
+      reply)))
+
 (defn- carrier-family-value?
   "Whether a value sitting in a FOREIGN carrier is a resource scoped key the
   family may speak for. Scoped-key SHAPE is necessary and not sufficient here,
@@ -679,7 +741,21 @@
   `:sensitive?` claim governs OFF-BOX egress, not in-process delivery — the
   app's own continuation handler is entitled to the decoded body, and the
   trusted-local `:include-sensitive?` opt-in must still show it. So the read
-  half belongs exactly here, at the egress projector. Pure."
+  half belongs exactly here, at the egress projector.
+
+  ## …AND the owner's DECLARED paths, when it makes no coarse claim (rf2-ko5lm)
+
+  The owner read above is `whole-entry-disposition` — the COARSE root prop. A
+  spec that declares `{:sensitive [[:data :email]]}` and no coarse prop
+  classifies `:serialize`, so that read says nothing and the reply rode
+  verbatim — while the same bytes in the durable entry redact, because the
+  declaration was lowered into the frame's elision registry and the epoch walk
+  reads it. `redact-reply-declarations` closes that half by applying the
+  mutation's own `classification/redact-continuation-reply` over the read
+  owner's spec, and the two arms compose by grain rather than overlap: coarse
+  claim ⇒ the whole `:value` / `:params` tokenize; declaration only ⇒ the
+  declared paths substitute in place and their undeclared siblings ride;
+  neither ⇒ the reply is byte-identical. Pure."
   [v frame-id named?]
   (cond
     (redacted-token? v) [v true]
@@ -694,6 +770,27 @@
           proj     (fn [x named?]
                      (let [[pv s] (project-embedded-keys x frame-id named?)]
                        (note! s pv)))
+          ;; rf2-xx4ty — a read continuation reply's `:value` / `:params`, read
+          ;; through the owner its own `:resource/key` names (ONCE per map,
+          ;; exactly as `project-tags*` reads it once per row for the cursor).
+          ;; Gated on the canonical reply MARKER (audit #7059), not on the mere
+          ;; presence of a sibling key.
+          owner-redacts? (and (map? v)
+                              (resource-reply? v)
+                              (row-owner-redacts? v frame-id))
+          ;; rf2-ko5lm — …and, when that COARSE read says nothing (a
+          ;; `:serialize` owner, which is what a spec declaring only
+          ;; projection-relative paths classifies as), the owner's DECLARED
+          ;; paths, substituted through the mutation reply's own
+          ;; `redact-continuation-reply`. Applied to the whole reply BEFORE the
+          ;; walk, so the walk descends the already-substituted map and the
+          ;; `:rf/redacted` / size-marker sentinels ride out as the scalars they
+          ;; are. Reference-preserving — and stamp-precise: a declaration that
+          ;; matched nothing in THIS reply leaves the row unstamped.
+          v        (if (and (map? v) (not owner-redacts?) (resource-reply? v))
+                     (let [v' (redact-reply-declarations v)]
+                       (if (= v' v) v (note! true v')))
+                     v)
           ;; position 1 of a `[:rf.work/resource …]` vector is family-planted by
           ;; construction, so the key there is NAMED however unregistered its
           ;; resource-id has become.
@@ -703,14 +800,6 @@
           ;; cannot drift from the row. Gated on the payload being provably the
           ;; runtime's (audit #7054): `:scope` is a word apps use too.
           payload? (and (map? v) (carrier-family-payload? v))
-          ;; rf2-xx4ty — a read continuation reply's `:value` / `:params`, read
-          ;; through the owner its own `:resource/key` names (ONCE per map,
-          ;; exactly as `project-tags*` reads it once per row for the cursor).
-          ;; Gated on the canonical reply MARKER (audit #7059), not on the mere
-          ;; presence of a sibling key.
-          owner-redacts? (and (map? v)
-                              (resource-reply? v)
-                              (row-owner-redacts? v frame-id))
           entry    (fn [k x]
                      (cond
                        (and payload? (= :scope k))
@@ -962,7 +1051,11 @@
   and let through in the clear one slot from the `:resource/key` that had just
   redacted the same bytes, and (rf2-xx4ty) the `:value` + `:params` a READ
   CONTINUATION reply carries beside its own `:resource/key`, tokenized iff that
-  key's OWNER redacts so a plain resource's reply stays readable.
+  key's OWNER redacts so a plain resource's reply stays readable — and
+  (rf2-ko5lm) that same reply's owner-DECLARED projection-relative paths, which
+  a coarse-only owner read cannot see, substituted through the mutation half's
+  own `redact-continuation-reply` so the continuation echo classifies exactly
+  as the durable entry it echoes.
 
   \"Speaks only for the data it planted\" is enforced, not merely intended:
   each of those three arms fires on PROOF that the runtime planted the value —
