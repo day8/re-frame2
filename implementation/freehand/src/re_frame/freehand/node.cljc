@@ -935,8 +935,18 @@
      ;; Gated on `sugar-id`, so the interpreted public seam (which passes none)
      ;; is untouched, and its own element fold still owns the interpreted id
      ;; (rf2-ll1ah).
-     (cond-> merged
-       sugar-id (assoc :id sugar-id)))))
+     ;;
+     ;; Marked as an ELEMENT forwarding result on the way out. A spread answers
+     ;; a plain map, so the `v/defhost` boundary — the one place the form is
+     ;; illegal (004 §Props forwarding) — would otherwise have no way to know
+     ;; what it is holding, and the canonicalization above would have already
+     ;; renamed the caller's `:className` to `:class` behind its back
+     ;; (rf2-n4by4). Inert everywhere else, which is everywhere the form is
+     ;; legal.
+     (rules/mark-element-forward
+       (cond-> merged
+         sugar-id (assoc :id sugar-id))
+       'v/spread))))
 
 (defn- owned-handler-keys
   "The `on-*` keys of a `v/spread-safe` OWNED props map — the handler families
@@ -1040,8 +1050,13 @@
            "author-space props map (or nil), not a " (type-name owned) ".")
       {:value (shape owned)}))
   (let [caller* (safe-caller-attrs caller (owned-handler-keys owned))]
-    (cond-> (or owned {})
-      (some? caller*) (assoc caller-attrs-key (carry-caller caller*)))))
+    ;; Marked for the same reason `spread-attrs`' result is: this is an ELEMENT
+    ;; form, and at a `v/defhost` head the carried caller has no fold at all —
+    ;; the consumer's whole map would simply not arrive (rf2-n4by4).
+    (rules/mark-element-forward
+      (cond-> (or owned {})
+        (some? caller*) (assoc caller-attrs-key (carry-caller caller*)))
+      'v/spread-safe)))
 
 (defn- fold-caller
   "Fold a guarded `v/spread-safe` caller map UNDER the element's already-final

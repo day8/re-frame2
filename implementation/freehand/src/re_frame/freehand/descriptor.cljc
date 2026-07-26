@@ -32,6 +32,7 @@
   (:require [re-frame.error :as error]
             [re-frame.freehand.events :as events]
             [re-frame.freehand.props-schema :as props-schema]
+            [re-frame.freehand.rules :as rules]
             [re-frame.interop :as interop])
   #?(:cljs (:require-macros [re-frame.freehand.descriptor :refer [def-descriptor-type]])))
 
@@ -734,6 +735,10 @@
     inside it is rejected — the same two laws [[normalize-call]] enforces
     for an internal boundary, because they are the boundary CALL ABI and
     not a per-kind rule;
+  - **an ELEMENT forwarding form is refused** — `v/spread` and
+    `v/spread-safe` fold onto an element and a host head is not one, and
+    this is checked before the exactness law below because a spread has
+    already rewritten the very names that law reads;
   - **every prop name is EXACT** — an unqualified keyword, checked FIRST so
     that every law below can be enforced by name (see
     [[inexact-host-prop-names]]);
@@ -764,9 +769,39 @@
              "needs no props.")
         :supply-one-props-map
         {:props (error/diag-value-summary props)}))
-    ;; FIRST, because every check after it reads a NAME. A key with two
-    ;; spellings would reach React under the reserved name while passing the
-    ;; check that looked for the keyword.
+    ;; BEFORE the exactness check, because a spread has already rewritten the
+    ;; names that check reads — `:className` arrives spelled `:class` and a
+    ;; string `"class"` arrives laundered into a keyword, so the exactness law
+    ;; would report a clean call and the corruption would be the answer.
+    (when-some [form (rules/element-forward-form props)]
+      (bad-host-props-error!
+        host-id
+        (str "(" form " …) folds a runtime map onto an ELEMENT, and " host-id
+             " is a v/defhost head. The entire content of a forwarding form is "
+             "the attribute grammar — the slot canonicalization, the .class#id "
+             "sugar, the controlled door — and a host prop is none of those: it "
+             "is an exact unqualified keyword handed shallowly to a foreign API, "
+             "so running one through the element rule is wrong in both "
+             "directions at once. It ADMITS what this head refuses, because an "
+             "alias of a slot-owning key is rewritten on the way through — "
+             ":className, the name a React library actually reads, arrives as "
+             ":class, a prop the component does not read, and the string "
+             "\"class\" walks past the exactness law below under the same "
+             "rewrite. And it REFUSES what this head accepts, because "
+             ":class-name, a mixed-case data-* and :key name nothing on a "
+             "foreign prop ABI that the attribute table is entitled to judge. "
+             "(v/spread-safe fails the other way: its guarded caller map rides "
+             "under a carrier key that only an element fold reads, so at a host "
+             "head the consumer's props do not arrive at all.) Forward to a host "
+             "with an ordinary map instead — (merge caller-remainder {…the props "
+             "you own}), the caller's remainder as the base and the props you own "
+             "second — and the host's own naming law then judges every key that "
+             "arrives, which is the only law that was ever true here.")
+        :forward-to-a-host-with-an-ordinary-map
+        {:form form}))
+    ;; FIRST among the NAME laws, because every check after it reads a NAME. A
+    ;; key with two spellings would reach React under the reserved name while
+    ;; passing the check that looked for the keyword.
     (let [inexact (inexact-host-prop-names props)]
       (when (seq inexact)
         (bad-host-props-error!
