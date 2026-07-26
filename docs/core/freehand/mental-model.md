@@ -153,6 +153,13 @@ automatically “where does my draft live in app-db?”
 Host machinery — DOM nodes, third-party widgets, layout measurement, React-only
 protocols — lives behind explicit host boundaries.
 
+## When not
+
+- You need a published Clojars view layer today — adapters (Reagent/UIx), not
+  Freehand pre-alpha.  
+- The product is almost entirely React protocol composition — UIx (or similar)
+  for that region; Freehand as islands.
+
 ## Recap
 
 You can write ordinary Freehand screens when you can:

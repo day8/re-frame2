@@ -210,16 +210,16 @@ start at `:mounting` and flip to `:present`.
 The structural tier has no presence clock and no fake one — see
 [Testing](testing.md). Do not assert wall-clock animation frames in unit tests.
 
-## Common mistakes
+## Troubleshooting
 
-| Mistake | What goes wrong | Fix |
-|---|---|---|
-| Missing `:timeout-ms` | illegal / stuck retention | always a positive literal duration |
-| Unkeyed children | identity broken; compile error when compiled | stable `{:key …}` per child |
-| Timeout shorter than CSS exit | snap remove mid-fade | timeout ≥ transition |
-| No `inert` / `aria-hidden` on exit | focusable ghosts | the child sets them while `(= :unmounting (v/presence-phase))` |
-| Domain “unmount” events for cleanup | lifetime coupled to animation | owner/route cleanup; presence is visual only |
-| Wrapping every list “just in case” | cost and complexity | only when design needs enter/exit |
+| Symptom | Fix |
+|---|---|
+| Missing / illegal `:timeout-ms` | always a positive duration (required) |
+| Unkeyed children / compile refusal | stable `{:key …}` per child |
+| Snap remove mid-fade | timeout ≥ CSS exit duration |
+| Focusable ghosts during exit | `inert` / `aria-hidden` while `(= :unmounting (v/presence-phase))` |
+| Domain cleanup tied to animation | owner/route cleanup — presence is visual only |
+| Wrapping every list “just in case” | only when enter/exit is a real design need |
 
 ## Pairing with top layer and host UI
 

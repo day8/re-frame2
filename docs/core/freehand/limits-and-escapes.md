@@ -51,8 +51,19 @@ Compilation is not a cure-all. If cost is:
 
 - **over-broad subscriptions** → narrow the graph
 - **collection size** → window
-- **foreign widget** → qualified leaf / behavior; do not invent another Hiccup compiler
-- **interpretation of a hot template** → compile that boundary after measurement
+- **foreign widget** → `v/defhost` or a registered behavior; do not invent another
+  Hiccup compiler  
+- **interpretation of a hot template** → compile that boundary after measurement  
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `:rf.error/view-called-directly` | mount with `[view props]`, do not call the var |
+| `:rf.error/view-read-outside-render` / forked capture | `v/sub` only during a declared render on the render thread |
+| `:rf.error/view-bad-head` | keyword element, `defview` descriptor, or `defhost` descriptor |
+| Want hooks / local state in the view body | React component behind `defhost` / child element, or re-frame state |
+| Compile refuses opaque helper markup | extract child, stay interpreted, or make template visible |
 
 ## When Freehand is the wrong tool
 
@@ -68,8 +79,8 @@ re-frame-native peer, not a mandate that erases the others.
 
 ## Deliberate non-goals (full map)
 
-These are product exclusions from the design spine, not temporary TODOs. Prefer
-the named recovery column.
+These are product exclusions, not temporary TODOs. Prefer the named recovery
+column.
 
 | Non-goal | Recovery / reality |
 |---|---|

@@ -129,6 +129,12 @@ also see application state — see
 You own the app-db keys and the cleanup. Freehand does not invent a second store
 for you, and unmount does not magically clear your draft.
 
+
+## When not
+
+- Reusable multi-step field protocol shared across screens — [Semantic controllers](semantic-controllers.md).
+- Imperative host state — [Host boundaries](host-boundaries.md).
+
 ## Recap
 
 Stop when you can:

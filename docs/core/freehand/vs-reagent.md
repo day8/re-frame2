@@ -27,7 +27,7 @@ can drift into a second state and handler model.
 
 ## What stays comfortable
 
-You will not feel lost on day one.
+You will not feel lost on the paved path.
 
 - **Hiccup** — tags, props maps, children, the usual shapes.  
 - **Props** — one map into the view is the Freehand norm (similar to many modern
@@ -147,7 +147,7 @@ tricks.
 Freehand’s growth path is: write freely interpreted → measure → optionally mark
 `{:compiled true}` on the **same** `defview`. Call sites and
 tests stay the same. That is different from both “always interpret” and from
-re-frame.ui’s compile-first day-one feel.
+re-frame.ui’s compile-first default feel.
 
 ### 8. A key is a prop, never metadata
 

@@ -532,6 +532,13 @@ Do not design a library theme that requires interpreting compiled output at
 runtime. Arbitrary late tree→tree transforms may exist as **interpreted/test
 tooling** only — never as the portable Freehand theme contract.
 
+## When not
+
+- Forwarding attrs onto a controlled input without `v/spread-safe` — you forfeit
+  the sync door.  
+- Putting children inside a spread map — wrong plane; use trailing children /
+  slots / child views.
+
 ## Recap
 
 1. Start with **props**; add trailing children only for a real default region.  

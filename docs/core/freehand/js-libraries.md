@@ -432,30 +432,33 @@ leak instead of wished away. A real third-party witness is still outstanding.
 and pass a flag through props or `:config`. Freehand does not invent a global
 motion bus.
 
-## Common mistakes
+## Troubleshooting
 
-| Mistake | Better |
+| Symptom | Fix |
 |---|---|
-| “Framer means leave Freehand for another UI stack” | a Freehand page with Framer elements as children |
-| Store the GSAP/Framer instance in app-db | Host memory only |
-| Domain “unmount” events to own lifetime | re-frame owns whether the fact exists; motion is presentation |
-| Bare React component at a vector head | create the element; put it in a child position |
-| `v/event` in a foreign element's `#js` props | a plain closure over `rf/capture-frame` — Freehand does not walk those props, so the carrier arrives non-callable |
-| A callback closing over `rf/dispatch` | close over `(rf/capture-frame)`'s `:dispatch`; the render scope is gone when the library calls |
-| `v/->react`'s **component** value handed over as a child | `react/createElement` it first — React retains elements and drops a function child |
-| An unkeyed list of children under `AnimatePresence` | one stable `key` per child; an exit is tracked by key |
-| Assume AnimatePresence exit works untested | mounted pilot before you depend on it |
-| Return the acquisition Promise from `:connect` | return a **cell**; `:disconnect` must have something to release |
-| Let a late handle install into a torn-down connection | `:disconnect` fences first; the continuation checks `:closed` and finalises |
-| Full motion library for one opacity fade | presence + CSS |
+| Bare React component at a vector head | `v/defhost` and mount the descriptor, or createElement in a **child** position |
+| `v/event` in `#js` props does nothing when the library calls it | Freehand does not walk those props — use `v/defhost` for roster callbacks, or a plain closure over `rf/capture-frame` |
+| `:rf.error/no-frame-context` from a library callback | close over `(rf/capture-frame)`'s `:dispatch` during render |
+| `AnimatePresence` shows nothing | pass **elements** (`createElement` of `v/->react` views), not component values; key each child |
+| Instance / View object in app-db | host memory only — config and domain facts in re-frame |
+| Promise from `:connect`, then disconnect races | return a **cell**; fence on disconnect; late success must not install |
+| Full motion library for one opacity fade | `v/presence` + CSS first |
+
+## When not
+
+- **Headless** cores (TanStack Table core, etc.) — state in re-frame; Freehand
+  markup; no host shape.  
+- **Heavy Radix / `asChild` product shell** — UIx (or similar) for that region;
+  Freehand as islands.  
+- **Fade/slide only** — presence + CSS before any motion library.
 
 ## Other libraries, same shapes
 
 | Library class | Pattern |
 |---|---|
-| Date picker / select (React) | a React element in a child position; callbacks close over `rf/capture-frame` |
+| Date picker / select (React) | **`v/defhost`** (paved); or child element + `rf/capture-frame` closures |
 | Mapbox GL, a Vega `View` you construct yourself | behavior (+ commands if needed) |
 | Vega Embed, a Maps `loader.load()`, a workbook `.ready` | behavior whose `:connect` returns a cell — [Pattern E](#pattern-e--the-handle-arrives-later-promise-acquired-hosts) |
-| Props-only React kits | qualified leaf |
-| Hook APIs *you* call | small React component as host leaf |
+| Props-only React kits | `v/defhost` |
+| Hook APIs *you* call | small React component, then `v/defhost` or child element |
 | Freehand view inside a React grid cell | `v/->react` + live frame |

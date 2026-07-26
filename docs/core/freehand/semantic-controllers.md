@@ -458,10 +458,11 @@ the view asks for its key and its generation, and both boundaries ask
       :on-input    [:fh.buffer/edited k revision ::v/value]
       :on-blur     [:fh.buffer/committed k revision on-commit]
       :on-key-down (v/event [e]
-                     (case (.-key e)
-                       "Enter"  [:fh.buffer/committed k revision on-commit]
-                       "Escape" [:fh.buffer/cancelled k revision]
-                       nil))}]))
+                     (when-not (.-isComposing e)
+                       (case (.-key e)
+                         "Enter"  [:fh.buffer/committed k revision on-commit]
+                         "Escape" [:fh.buffer/cancelled k revision]
+                         nil)))}]))
 ```
 
 The view never destructures `:control` or `:reset-key` itself. That is the point:
@@ -506,3 +507,23 @@ build these protocols in v1.
 | Keystroke = domain write | controlled input + domain event |
 | Commit / cancel / reject / shared field UX | semantic controller + library control |
 | High-rate or opaque editor | a [registered behavior](host-boundaries.md), not a pretend local cell |
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Two fields share one draft silently | distinct caller-authored `:control` addresses |
+| Reject same value after “bad” edit does nothing | bump `:reset-key` (generation), not only `:value` |
+| Escape then blur commits anyway | generation fence on commit — superseded stamp is a no-op |
+| Enter commits mid-IME | `(when-not (.-isComposing e) …)` on the key handler |
+| Records pile up after navigation | owner `clear-under` on route leave — unmount does **not** clear controllers |
+| “Need `local` / a ratom for the draft” | no — controller record in app-db, or keep the draft in domain state |
+
+## When not
+
+- Ordinary live field or one-off blur/Enter draft — stay on
+  [Events](events-and-handlers.md) and [Forms](forms.md); skip this page.  
+- Product truth every other view must see — domain events and subs, not a
+  field controller.  
+- Imperative host state (DOM node, third-party instance) — behavior, not a
+  controller record.

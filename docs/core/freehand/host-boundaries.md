@@ -501,11 +501,20 @@ general on-mount API; prefer `:auto-focus` unless you need an imperative call.
 | Autofocus / measure / `.focus()` | the native attribute first; a registered behavior when you truly need the call |
 | Structure, spreads, theming | not host shapes — composition plane |
 
+
+## When not
+
+- Ordinary DOM and Freehand views — no host boundary needed.
+- Product state and drafts — re-frame, not behavior memory.
+- Hooks in the view body — put them in a small React component; enter via
+  `v/defhost` or a child element.
+
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| Bare React component at a vector head | declare it with `v/defhost` and mount the descriptor — or create the element and put it in a **child** position |
+| Bare React component at a vector head (`:rf.error/view-bad-head`) | `v/defhost` + mount the descriptor, or createElement in a **child** position |
+| `v/event` on a raw element’s `#js` prop | not a Freehand site — use `defhost` callbacks, or a closure over `rf/capture-frame` |
 | Instance / DOM node in app-db | keep private memory in the behavior; config is data only |
 | Command “for later when it mounts” | commands hit the **live** connection only — no queue |
 | Error boundary never resets | change `:reset-key` — no imperative reset handle |

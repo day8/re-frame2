@@ -28,7 +28,7 @@ semantics.
 |---|---|---|
 | Button | `:button` or `:input {:type "submit"}` | clickable `:div` + role |
 | Navigation | real `:a` with `href` (route-link laws) | `div` + click only |
-| Modal | top-layer / native dialog semantics | hand-rolled focus trap on day one |
+| Modal | top-layer / native dialog semantics | hand-rolled focus trap as a first cut |
 | Anchored popover | native popover / top-layer desired state | portal soup without focus policy |
 | Expand/collapse | `aria-expanded` on a real button + controlled region | mystery disclosure without name |
 | Form field | labelled control (`:label` wrapping or `aria-labelledby`) | placeholder-as-only-label |
@@ -182,3 +182,12 @@ That rule is a fitness-harness obligation, not a suggestion. A CI check that
 5. Wire form errors as **text in the tree**, not only style.  
 6. Assert **provable** facts in structural tests; mount for focus and composites.  
 7. Never treat static “unknown” as pass.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Interactive control with no name | label, `aria-label`, or labelled-by; structural tree can assert names |
+| Modal without focus management | prefer native `<dialog>` / top-layer; do not invent a trap first |
+| Enter commits mid-IME | guard key handlers with `isComposing` — see [Events](events-and-handlers.md) |
+

@@ -101,15 +101,18 @@ Or branch synchronously at the site with `v/event`, when the browser mechanics
 
 ```clojure
 [:input {:on-key-down (v/event [e]
-                        (case (.-key e)
-                          "Enter"  [:picker/accept]
-                          "Escape" [:picker/close]
-                          nil))}]
+                        ;; IME: do not treat Enter as accept mid-composition
+                        (when-not (.-isComposing e)
+                          (case (.-key e)
+                            "Enter"  [:picker/accept]
+                            "Escape" [:picker/close]
+                            nil)))}]
 ```
 
-Prefer the first. It keeps the intent as data — visible to tools, assertable on a
-structural tree — and puts the decision in the handler, against the committed
-frame, rather than in the view.
+Prefer the first (data vector + handler branch) when you can. It stays visible to
+tools and decides against the committed frame. When you must branch in the view
+for browser mechanics (`preventDefault`, IME), keep the body tiny — and **skip
+Enter while `isComposing`** so partial IME text is never accepted as a commit.
 
 ## One event per user action
 
@@ -224,6 +227,15 @@ That control is **not** core Freehand. See
 | Draft then commit, app-specific | **B** |
 | Same hard protocol everywhere | **C** (library) |
 
+## When not this path
+
+- **Uncontrolled** (`:default-value`, no `:value`) when you deliberately want zero
+  per-keystroke re-frame traffic — see [below](#uncontrolled-inputs-deliberate-escape).  
+- **`v/handler` / bare fn** on a controlled input when you need the sync door —
+  you forfeit caret/IME protection. Prefer a vector or `v/event` → vector/`nil`.  
+- **Raw `createElement` props** for Freehand intent — use `v/defhost` for roster
+  callbacks, or a closure over `rf/capture-frame` on the escape path.
+
 ## Recap
 
 Stop when you can:
@@ -240,10 +252,12 @@ Stop when you can:
 |---|---|
 | Vector of vectors on one click | one semantic event; effects do the rest |
 | Nested `::v/value` “did nothing” | markers only at **top-level** event args |
-| Caret/IME broken while typing | controlled door: `:value`/`:checked` + `:on-input`/`:on-change` |
+| Caret/IME broken while typing | controlled door: `:value`/`:checked` + `:on-input`/`:on-change` as a vector or `v/event` → vector |
+| Enter commits mid-IME composition | guard with `(.-isComposing e)` (or skip Enter until `compositionend`) |
 | Stale “still open?” in a callback | decide in the re-frame handler at fire time |
 | Bare fn at a prop position Freehand WALKS | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
-| `v/event` in a raw `createElement` `#js` prop | a plain closure over `rf/capture-frame` — see [the roster's reach](#where-the-roster-reaches) |
+| `v/event` in a raw `createElement` `#js` prop | plain closure over `rf/capture-frame`, or declare `v/defhost` |
+| `:rf.error/no-frame-context` from a library callback | close over `(rf/capture-frame)`'s `:dispatch` during render |
 
 ## Each keystroke is an event
 
