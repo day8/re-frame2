@@ -235,8 +235,9 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
   testbed-support/             Shared testbed helpers (re-frame.testbed.config project-root resolver
                                + re-frame.testbed.story-host hash-toggle host); consumed by the
                                framework testbed builds
-  mcp-base/                    Shared CLJC library for the MCP servers (arg parsing, redaction,
-                               cap, overflow); bundle-isolated boundary helpers
+  mcp-base/                    day8/re-frame2-mcp-base — shared CLJC library for the MCP servers
+                               (arg parsing, redaction, cap, overflow); bundle-isolated boundary
+                               helpers
   mcp-conformance/             Cross-server MCP conformance harness — gates wire-vocabulary parity
                                in CI
 skills/                        Claude skills
