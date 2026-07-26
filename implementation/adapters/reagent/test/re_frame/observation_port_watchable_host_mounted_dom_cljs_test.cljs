@@ -26,6 +26,10 @@
       `:kind`; there is no adapter-kind gate on the mount path, and sibling
       suites already mount compiled roots under `:kind :custom` adapters.
     - Reagent does NOT keep a compiled view away from the observation port.
+      (This file used to stand a `ratom/run!` driver alongside the mount, on
+      the same false rationale the headless sibling records — rf2-8cnxg. The
+      mount is now the only consumer, which is what makes the mounted counts
+      below attributable to the port rather than to a hand-run reaction.)
       That conflates WHICH ADAPTER SUPPLIES THE WATCHABLE HOST with WHICH
       RENDERER DRIVES THE VIEW; they are independent. A compiled `defview`
       always reads its subs through the observation port into a ViewCell —
@@ -125,13 +129,6 @@
                    (swap! hits inc))))
     [hits (fn remove! [] (remove-watch reaction k))]))
 
-;; The eager consumer that keeps the (lazy) Reagent reaction on the push path,
-;; exactly as the headless sibling stands one: an auto-running reaction that
-;; derefs the sub so a value movement re-runs the node and fires the port's
-;; watch. It renders NOTHING, so it cannot contribute to the mounted render or
-;; commit counts below — those come solely from the compiled view and React.
-(defn- make-driver [] (ratom/run! (deref (rf/subscribe [:obs/n]))))
-
 (defn- nan-commit-profiler
   "Plain React Profiler wrapper — `onRender` fires once per COMMIT of the
   mounted subtree, giving commit-level attribution alongside the compiled
@@ -174,8 +171,8 @@
     (do
       (register!)
       (rf/dispatch-sync [:obs/set-n ##NaN])
-      (let [driver (make-driver)]
-        (ratom/flush!)                       ;; settle: node warm + active at NaN
+      (do
+        (ratom/flush!)                       ;; settle any pending queue first
         (let [baseline (reactive/current-live-cells)
               renders  (atom 0)
               commits  (atom 0)
@@ -184,8 +181,7 @@
               nan-rm*  (atom nil)
               cleanup! (fn []
                          (when-let [rm @nan-rm*] (rm))
-                         (when-let [p @probe*] (obs/release! p))
-                         (ratom/dispose! driver))]
+                         (when-let [p @probe*] (obs/release! p)))]
           (async done
             (->
              (uit/with-root

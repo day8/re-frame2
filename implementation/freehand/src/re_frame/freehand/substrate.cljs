@@ -11,13 +11,24 @@
   Freehand shipped only the first: an interactive Freehand application had to
   install UIx or Reagent to obtain the second.
 
-  The gap was one interface. `re-frame.substrate.plain-atom`'s CLJS derived
-  value reifies `IDeref` but NOT `IWatchable`, and the observation port installs
-  its watch only when the reaction is watchable — so on plain-atom a moving
-  subscription raises no notification at all, and its `:render` slot throws
+  The gap was NOTIFICATION, and `IWatchable` is only half of it.
+  `re-frame.substrate.plain-atom`'s CLJS derived value reifies `IDeref` but NOT
+  `IWatchable`, and the observation port installs its watch only when the
+  reaction is watchable — so on plain-atom a moving subscription raises no
+  notification at all, and its `:render` slot throws
   `:rf.error/render-on-headless-adapter`. `re-frame.substrate.spine`'s derived
-  value DOES reify `IWatchable`. That single difference is the whole reason a
-  Freehand page needed a wrapper library it never rendered through.
+  value DOES reify `IWatchable`, and — the half that matters just as much — it
+  is PUSH-BASED FROM BIRTH: it wires one watch per source at construction, so a
+  watch installed on it genuinely fires.
+
+  Being watchable is necessary and not sufficient, and reading it as sufficient
+  cost a P1 (rf2-8cnxg). A `reagent.ratom/Reaction` is `IWatchable` too, yet it
+  learns its sources only through `deref-capture` — which a ViewCell, not being
+  a Reagent component, never performs — so it satisfied the letter of the test
+  above while notifying nobody. The port now asks the substrate to ACTIVATE a
+  derived value (`re-frame.interop/activate-derived-value!`) rather than
+  assuming a watch suffices; a Freehand cell repaints on the ratom family
+  because of that, not because `Reaction` reifies an interface.
 
   So the spine is what this namespace stands on, and the spine lives in CORE
   (`re-frame.substrate.spine`) — shared by every React-shaped adapter,

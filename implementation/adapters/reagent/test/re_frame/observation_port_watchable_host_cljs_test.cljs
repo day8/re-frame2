@@ -13,24 +13,31 @@
   (`reagent.ratom/Reaction`), so an observed value MOVEMENT actually fires the
   port's watch — the real trigger the reactive-tear gates (.40 / .65) depend on.
 
-  THE EAGER-CONSUMER REQUIREMENT (why we stand a `ratom/run!` driver). The port
-  watch is a PASSIVE observer: it `add-watch`es the node but does not itself
-  keep the (lazy) Reagent reaction on the push path. In production the ViewCell
-  render is the ACTIVE consumer that re-derefs the node every flush, so a value
-  movement re-runs the node and fires the port's watch. A test with only a
-  passive port watch never re-runs the node (a lazy deref pulls once — the same
-  methodological point the standard-epochs diamond fixture makes), so each
-  fixture stands a `reagent.ratom/run!` driver — an auto-running reaction that
-  eagerly derefs the sub, standing in for the mounted ViewCell render. It
-  warms + activates the node BEFORE the handle's baseline observe (mirroring
-  render-then-commit: no first-run priming notification on the measured handle),
-  and keeps it on the push path so the genuine value MOVEMENT fires the watch.
+  THE DRIVER THAT USED TO STAND HERE, AND WHY IT IS GONE (rf2-8cnxg). Every
+  fixture below used to stand a `reagent.ratom/run!` DRIVER — an auto-running
+  reaction that eagerly derefs the sub — explained as \"the port watch is a
+  passive observer; in production the ViewCell render is the active consumer
+  that keeps the lazy reaction on the push path\". BOTH HALVES OF THAT WERE
+  WRONG, and the second one was a live P1 bug wearing a test convenience as a
+  disguise. A ViewCell is not a Reagent component: it never derefs the node
+  inside `*ratom-context*`, so it never supplied the capture the sentence
+  credited it with. The reaction stayed uncaptured, `_handle-change` was never
+  called, and every Freehand / re-frame.ui cell over a Reagent-hosted
+  subscription rendered ONCE and never again. The driver was not standing in
+  for a render — it was hand-supplying a runtime step that did not exist.
 
-  The push path: a `dispatch-sync` MOVES the sub's value; `reagent.ratom/flush!`
-  re-runs the driver (and through it the node), and — the value changed — the
-  node notifies the port watch, which advances the node record with the
-  DELIVERED value (no recompute, I-5) and fans `{:cause :subscription …}` to the
-  handle's own `on-change`.
+  It exists now: `build-node-handle!` calls
+  `re-frame.interop/activate-derived-value!` before installing its watch, so
+  ACQUIRE ALONE puts the node on the push path. The drivers are therefore
+  deleted rather than kept: with one in place these fixtures would stay green
+  against a regression of that fix. `re-frame.observation-port-activates-
+  ratom-node-cljs-test` pins the activation itself.
+
+  The push path: a `dispatch-sync` MOVES the sub's value; the source
+  notification reaches the (now capturing) node, `reagent.ratom/flush!` drains
+  the recompute, and — the value changed — the node notifies the port watch,
+  which advances the node record with the DELIVERED value (no recompute, I-5)
+  and fans `{:cause :subscription …}` to the handle's own `on-change`.
 
   CLJS-only (Reagent is CLJS); ns ends in `-cljs-test` so the consolidated
   shadow-cljs `:node-test` build (`npm run test:cljs`, whose source-paths carry
@@ -97,10 +104,6 @@
   (rf/reg-sub :obs/n (fn [db _] (:n db)))
   (rf/reg-event :obs/set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)})))
 
-;; The eager consumer standing in for a mounted ViewCell render: an
-;; auto-running reaction that derefs the sub, keeping the node warm + on the
-;; push path so a value movement re-runs it (and fires the port's watch).
-(defn- make-driver [] (ratom/run! (deref (rf/subscribe [:obs/n]))))
 
 ;; --- rf2-r09qj NaN-stability helpers ---------------------------------------
 
@@ -146,8 +149,8 @@
             the make-watch-handler channel the plain-atom suites cannot reach"
     (register!)
     (rf/dispatch-sync [:obs/set-n 1])
-    (let [driver (make-driver)]
-      (ratom/flush!)                       ;; settle: node warm + active
+    (do
+      (ratom/flush!)                       ;; settle any pending queue first
       (let [notes  (atom [])
             target (obs/resolve-target {:frame fid :query-v [:obs/n]})
             handle  (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
@@ -186,8 +189,7 @@
                 (is (int? (:frame-epoch ev)))
                 (is (int? (:registry-epoch ev))))))
           (finally
-            (obs/release! handle)
-            (ratom/dispose! driver)))))))
+            (obs/release! handle)))))))
 
 (deftest watchable-host-idempotent-move-does-not-fan-cause-value
   (testing "a commit that leaves the sub value UNMOVED does not fire the
@@ -195,7 +197,7 @@
             node-record's rf= version hold) mean an equal re-commit is silent"
     (register!)
     (rf/dispatch-sync [:obs/set-n 7])
-    (let [driver (make-driver)]
+    (do
       (ratom/flush!)
       (let [notes  (atom [])
             target (obs/resolve-target {:frame fid :query-v [:obs/n]})
@@ -212,8 +214,7 @@
             (is (= v0 (:version (handle-last handle)))
                 "the node-version did not advance for an equal re-commit"))
           (finally
-            (obs/release! handle)
-            (ratom/dispose! driver)))))))
+            (obs/release! handle)))))))
 
 ;; ===========================================================================
 ;; the reentrancy guard on the value-movement fan-out
@@ -226,7 +227,7 @@
             the guard the plain-atom suites cannot reach"
     (register!)
     (rf/dispatch-sync [:obs/set-n 1])
-    (let [driver (make-driver)]
+    (do
       (ratom/flush!)
       (let [target  (obs/resolve-target {:frame fid :query-v [:obs/n]})
             outcome (atom :guard-not-fired)
@@ -250,8 +251,7 @@
           (is (= :live (:status (handle-state @handle)))
               "the guard threw BEFORE any teardown — the handle is untouched")
           (finally
-            (obs/release! @handle)
-            (ratom/dispose! driver)))))))
+            (obs/release! @handle)))))))
 
 ;; ===========================================================================
 ;; rf2-r09qj — NaN moves NaN-STABLY through the PUBLIC acquire path
@@ -266,8 +266,8 @@
             natively) would spuriously fan a phantom value movement."
     (register!)
     (rf/dispatch-sync [:obs/set-n ##NaN])
-    (let [driver (make-driver)]
-      (ratom/flush!)                         ;; settle: node warm + active at NaN
+    (do
+      (ratom/flush!)                         ;; settle any pending queue first
       (let [notes            (atom [])
             target           (obs/resolve-target {:frame fid :query-v [:obs/n]})
             handle            (obs/acquire! target (fn [ev] (swap! notes conj ev)))
@@ -310,8 +310,7 @@
                   "the real value movement advanced the node version EXACTLY once")))
           (finally
             (nan-rm)
-            (obs/release! handle)
-            (ratom/dispose! driver)))))))
+            (obs/release! handle)))))))
 
 ;; ===========================================================================
 ;; rf2-r09qj — NaN moves NaN-STABLY through an integrated ViewCell
@@ -383,7 +382,7 @@
             cannot reach."
     (register!)
     (rf/dispatch-sync [:obs/set-n ##NaN])
-    (let [driver (make-driver)]
+    (do
       (ratom/flush!)
       (let [cell    (reactive/make-cell ::nan-host)
             renders (atom 0)]
@@ -437,5 +436,4 @@
                   "the real move fired exactly one render (listener notification)"))
             (finally
               (nan-rm)
-              (unsub)
-              (ratom/dispose! driver))))))))
+              (unsub))))))))
