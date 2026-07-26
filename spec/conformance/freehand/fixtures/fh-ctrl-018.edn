@@ -44,4 +44,36 @@
  ;; is blind to.
  :reasserted-value "10"
  :next-reset-key 1
- :value-after-reset "10"}
+ :value-after-reset "10"
+
+ ;; ---------------------------------------------------------------------------
+ ;; The roster record (rf2-drpa3.182.7)
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; `re-frame.freehand.roster` joins this with the row that addresses the
+ ;; id and answers ONE value naming source, tiers, evidence and prose. The
+ ;; fields the index already carries — modes, hosts, status, paragraph —
+ ;; are deliberately absent: they are read from the row, not restated.
+ :fh/record
+ {:source [re-frame.freehand.form re-frame.freehand.controls]
+
+  ;; The pure transitions are host-neutral and run headlessly on both
+  ;; hosts; the browser tier is the half only a real caret can answer.
+  :structural
+  {:ns  re-frame.freehand.controls-kit-cljs-test
+   :law "The kit's transitions are pure and cross-host: a field edit, a buffered draft, a commit and a caller reset are values computed from values, with no host object and no clock anywhere in them."}
+
+  :mounted
+  {:ns  re-frame.freehand.controls-kit-dom-cljs-test
+   :law "Against real key events in Chromium the caret follows the user rather than jumping to either end, a plain Enter commits through the ordinary batched path while an Enter carrying a live IME composition commits nothing and discards nothing, and a caller's reset restores the baseline on the SAME still-focused node rather than by remounting it."}
+
+  ;; A control kit's evidence is what a run leaves for a reader: the value
+  ;; the DOM node actually held, and the count of commits that reached
+  ;; dispatch. Both are read off the substrate rather than off the test's
+  ;; own bookkeeping.
+  :evidence
+  {:reads    [:dom/value :dom/selection-start]
+   :counts   [:form/commits :form/attempts]
+   :residue  :none}
+
+  :prose :executable}}

@@ -104,4 +104,51 @@
  ;; and it is reported through the same diagnostic.
  :children-policy
  {:none-with-children     {:error-id :rf.error/view-children-policy}
-  :required-without-any   {:error-id :rf.error/view-children-policy}}}
+  :required-without-any   {:error-id :rf.error/view-children-policy}}
+
+ ;; ---------------------------------------------------------------------------
+ ;; The roster record (rf2-drpa3.182.7)
+ ;; ---------------------------------------------------------------------------
+ :fh/record
+ {:source [re-frame.freehand.descriptor re-frame.freehand.props-schema
+           re-frame.freehand.to-react]
+
+  :structural
+  {:ns  re-frame.freehand.host-door-cljs-test
+   :law "The three planes split ONCE, host-neutrally: the same declaration yields the same ordinary props, the same filled callback positions and the same children on the JVM and in ClojureScript, and every refusal above is a typed diagnostic rather than a coercion."}
+
+  :mounted
+  {:ns  re-frame.freehand.host-mounted-dom-cljs-test
+   :law "Against a real react-dom/client commit the contract the declaration advertises is the contract the registered component receives — measured on the EXACT function object React was handed, through two implementations that could not be less alike (a value/callback leaf and a hook-owning wrapper) declared the same way."}
+
+  ;; The evidence a host crossing owes is about IDENTITY, not shape: a
+  ;; callback prop that is a fresh function on every commit renders
+  ;; perfectly and breaks every memoised consumer downstream, so the
+  ;; recorded object is what a run leaves and `identical?` is what reads
+  ;; it.
+  :evidence
+  {:reads   [:host/props :host/callback-identity]
+   :counts  [:host/commits]
+   :residue :none}
+
+  ;; OPEN, and recorded as open rather than pinned (rf2-drpa3.182.3, from
+  ;; the merged-PR audit of #7081). Spec 004, the public docstring and the
+  ;; browser test all say a `:map-props` adapter owns VALUES and may not
+  ;; rename, but the landed check only runs the inexactness filter over the
+  ;; adapter's OUTPUT — so an authored `{:spec x}` returned as
+  ;; `{:chartSpec x}` passes both checks and reaches React under a name the
+  ;; caller never supplied. The question is whether the law is key-set
+  ;; EQUALITY or output SUBSET, and it has to be settled at `host-element`,
+  ;; where the authored props and the mapper output both exist.
+  ;;
+  ;; The roster names the question and asserts nothing about the answer.
+  ;; Freezing today's behaviour into a rostered expectation would leave
+  ;; whoever settles .182.3 fighting this file to land the fix, which is
+  ;; the mutually-invalidating-test problem written in advance. When it is
+  ;; settled, the answer belongs in `:prop-names` above — where the rows
+  ;; that already run live — and this note goes.
+  :open
+  {:rf2-drpa3.182.3
+   "the :map-props key-set law — equality or output subset — is unsettled; an unqualified rename is currently unchecked and no rostered projection asserts either answer"}
+
+  :prose :executable}}

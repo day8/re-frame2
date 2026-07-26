@@ -47,4 +47,39 @@
  ;; Two live connections, then one leaves: the remaining claim is untouched.
  :partial-teardown
  {:connections 1
-  :targets     [:probe/one]}}
+  :targets     [:probe/one]}
+
+ ;; ---------------------------------------------------------------------------
+ ;; The roster record (rf2-drpa3.182.7)
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; This row carries the DEFERRED FOREIGN-HANDLE surrogate as its mounted
+ ;; tier, and it is rostered here rather than under an id of its own on
+ ;; purpose. The recipe adds no verb, no runtime, no scheduling policy and
+ ;; no contract — the re-frame pass stays one complete synchronous pass,
+ ;; and a later foreign completion dispatches an ordinary new event rather
+ ;; than resuming the original. So there is no new law to address. What
+ ;; there is, is this law — total release, exactly once — under the shape
+ ;; where the handle arrives from a Promise and the owner may already be
+ ;; gone when it does. Minting a second id would have split one identity.
+ :fh/record
+ {:source [re-frame.freehand.behaviors re-frame.freehand.refs]
+
+  :structural
+  {:ns  re-frame.freehand.behaviors-cljs-test
+   :law "On the structural host a behavior is an inert marker and connects nothing, so the teardown claim has a control: a tier that never connected cannot be the tier that proves a release."}
+
+  :mounted
+  {:ns  re-frame.freehand.behavior-async-dom-cljs-test
+   :law "Against a Promise-returning third-party initializer, an unmount BEFORE the acquisition resolves leaves nothing behind — the late handle is released by the continuation rather than retained, the owner is already fenced when the library is asked, the library is asked EXACTLY once, and a finalizer that FAILS leaves a host-only leak with both framework books still empty rather than a half-released connection."}
+
+  ;; What a run must leave, and what it must not. The two books are the
+  ;; substrate's own — a count, not a threshold — and `:residue :none` is
+  ;; the assertion, not the aspiration: a leaked root contaminates every
+  ;; later suite sharing the process.
+  :evidence
+  {:reads   [:behaviors/connections :behaviors/targets]
+   :counts  [:behavior/connect :behavior/disconnect]
+   :residue :none}
+
+  :prose :executable}}
