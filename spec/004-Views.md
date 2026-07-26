@@ -1778,9 +1778,9 @@ callbacks; use an ordinary captured-frame closure there, with none of the
 declared-site identity or retirement claims. A carrier MUST implement its host's
 call protocol solely in order to throw, on the same terms
 [§A declared view cannot be called](#a-declared-view-cannot-be-called) sets for
-the descriptor, and the diagnostic MUST name the roster form, this position and
-that recovery — a raw host call failure names none of them, and this is the one
-position that produces it.
+the descriptor, and **wherever that protocol carries the call** the diagnostic MUST
+name the roster form, this position and that recovery — a raw host call failure
+names none of them, and this is the one position that produces it.
 
 **That diagnostic reaches as far as the host's call protocol and no further, which
 is why the closure is the contract and the message is a courtesy.** On the JVM
