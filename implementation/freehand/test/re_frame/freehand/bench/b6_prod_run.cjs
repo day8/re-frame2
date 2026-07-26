@@ -20,15 +20,23 @@ const http = require('node:http');
 const path = require('node:path');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
-const OUT = path.join(IMPL, 'out', 'b6-prod');
+// `B6_INIT_FN` / `B6_OUT_DIR` point this driver at a different entry —
+// the seam an ABLATION LADDER rides so that it reuses this window rather
+// than growing a second one. With both unset the file is byte-for-byte
+// the published instrument.
+const OUT_DIR = process.env.B6_OUT_DIR || 'out/b6-prod';
+const INIT_FN = process.env.B6_INIT_FN || 're-frame.freehand.bench.b6-prod-app/-main';
+
+const OUT = path.join(IMPL, OUT_DIR);
 const PORT = Number(process.env.B6_PORT || 8127);
+const QUERY = process.env.B6_QUERY || '';
 
 // ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
 // whitespace when the EDN contains a newline, and reports
 // `EOF while reading` from a fragment. Keep it on one line.
 const CONFIG_MERGE =
-  '{:output-dir "out/b6-prod" :asset-path "." ' +
-  ':modules {:main {:init-fn re-frame.freehand.bench.b6-prod-app/-main}}}';
+  `{:output-dir "${OUT_DIR}" :asset-path "." ` +
+  `:modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
   console.error('[b6] building :advanced bundle ...');
@@ -78,7 +86,7 @@ async function run() {
     if (t.startsWith(';; B6')) console.log(t);
   });
   page.on('pageerror', (e) => console.error('[b6] page error:', e.message));
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
+  await page.goto(`http://127.0.0.1:${PORT}/${QUERY}`, { waitUntil: 'load' });
   await page.waitForFunction('window.B6_DONE === true || window.B6_ERROR', null, {
     timeout: 15 * 60 * 1000,
   });
