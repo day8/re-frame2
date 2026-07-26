@@ -72,7 +72,7 @@
   opt-in lifts it at the epoch consumer (the `local-raw` boundary — the same
   switch the app-db / HTTP-body / scope-resolved redactions honour).
 
-  ## The family's keys also ride FOREIGN rows (rf2-1kiuj)
+  ## The family's keys also ride FOREIGN rows (rf2-1kiuj, rf2-425mm)
 
   Everything above is routed by the epoch tool-pair on the row's OPERATION
   namespace. But an `ensure` lowers into EFFECTS, and those effects address the
@@ -81,7 +81,10 @@
   does not own — where the namespace routing never looks. `project-fx-args-egress`
   (bottom of this ns) closes that: the SAME `project-trace-scoped-key` owner
   classification, reached by SLOT instead of by op, and touching nothing on the
-  row but the keys."
+  row but the keys — and, since rf2-425mm, the resolved `:scope` the runtime
+  writes into that same continuation payload, projected by the SAME rule the
+  family's own rows give it (`project-unknown-slot-value`), so the two carriers
+  of one scope agree the way the two carriers of one key already did."
   (:require [re-frame.resources.registry :as registry]
             [re-frame.resources.ssr :as ssr]))
 
@@ -383,15 +386,16 @@
   #{:rf.fx/args :rf.event/fx})
 
 (defn- project-embedded-keys
-  "Project every resource SCOPED KEY embedded anywhere in `v`, leaving every
-  non-key value UNTOUCHED. Returns `[projected sensitive?]`.
+  "Project every resource SCOPED KEY — and every resolved `:scope` — embedded
+  anywhere in `v`, leaving every other value UNTOUCHED. Returns
+  `[projected sensitive?]`.
 
   The FOREIGN-CARRIER counterpart of `project-unknown-slot-value`, and it differs
   from it in exactly one arm, deliberately: a MAP is DESCENDED INTO rather than
   tokenized. The fail-closed map arm is right for an unnamed slot on a row the
   resource family OWNS (the value there is presumed owner payload — rf2-7qbxbm);
   it is wrong here, because an fx-args payload is the FX family's, and the only
-  thing in it the resource family may speak for is its own keys. Tokenizing the
+  thing in it the resource family may speak for is its own data. Tokenizing the
   whole payload would redact a PLAIN owner's request map as readily as a sensitive
   one's — over-redaction, which for the resource tools is as much a defect as the
   leak.
@@ -402,7 +406,41 @@
   carriers of one key cannot drift; any other collection is walked through,
   preserving its KIND (scoped-key identity is kind-sensitive — rf2-wgutc2) and
   walking a map's KEYS as well as its values (a key can be map-keyed by scoped
-  key); every other scalar rides verbatim. Pure."
+  key); every other scalar rides verbatim.
+
+  ## …AND the resolved `:scope` beside them (rf2-425mm)
+
+  A scoped key is not the only family datum the family PUTS in a foreign carrier.
+  The continuation payload every `ensure` / `refetch` / `load-more` / mutation
+  `execute` builds for its transport
+  (`transport.http/build-managed-args`) is the runtime's stale-suppression
+  verification identity — `{:work/id … :resource/key <scoped-key> :scope <resolved
+  scope> :generation … :rf.frame/id …}` — and it rides `:on-success` /
+  `:on-failure` INSIDE the fx args. The `:resource/key` there projects (it is
+  scoped-key-shaped) and so does the key embedded in the `:work/id`; the free
+  `:scope` beside them is a `[tier {identity}]` TUPLE, not a scoped key, so the
+  walk descended it, found a plain map of app values, and let the resolver's
+  IDENTITY MAP through in the clear — one slot from the `:resource/key` that had
+  just redacted the very same bytes. The rf2-irwsq shape again, now inside a
+  single map.
+
+  A value under a `:scope` key is therefore projected by the FAMILY rule
+  (`project-unknown-slot-value`) rather than by the carrier walk, which is what
+  makes the two carriers of one scope agree by construction: `:rf.scope/global`
+  is a SCALAR and rides verbatim, a `[tier {identity}]` tuple keeps its TIER
+  keyword (a tool still reads \"session scope\") while the identity map
+  tokenizes to a content-addressed `{:rf/redacted <digest>}` — distinct scopes
+  keeping distinct digests, so per-scope joins survive — and an unresolved
+  `{:from-db …}` reference tokenizes whole. Exactly what rf2-1zc33 settled for
+  the same slot on the family's OWN rows; this is that ruling reaching the
+  carrier the family projector never runs on.
+
+  `:scope` is the ONE key named here and this is not the beginning of a roster:
+  the arm exists because the resource runtime writes that key into a foreign
+  payload itself, so the family owns the value by construction rather than by a
+  guess about shape (a resolved scope is arbitrary EDN — there is no shape to
+  read). Everything else in the carrier is still the fx family's and still rides
+  through untouched. Pure."
   [v frame-id]
   (cond
     (redacted-token? v)   [v true]
@@ -410,12 +448,20 @@
 
     (coll? v)
     (let [sens?* (volatile! false)
+          note!  (fn [s pv] (when s (vreset! sens?* true)) pv)
           proj   (fn [x]
                    (let [[pv s] (project-embedded-keys x frame-id)]
-                     (when s (vreset! sens?* true))
-                     pv))]
+                     (note! s pv)))
+          ;; the family's own resolved scope, planted in a foreign payload by
+          ;; the runtime — projected by the FAMILY rule so the carrier cannot
+          ;; drift from the row (rf2-425mm). Every other entry takes the walk.
+          entry  (fn [k x]
+                   (if (= :scope k)
+                     (let [[pv s] (project-unknown-slot-value x frame-id)]
+                       (note! s pv))
+                     (proj x)))]
       [(cond
-         (map? v)    (reduce-kv (fn [m k x] (assoc m (proj k) (proj x))) {} v)
+         (map? v)    (reduce-kv (fn [m k x] (assoc m (proj k) (entry k x))) {} v)
          (set? v)    (into #{} (map proj) v)
          (vector? v) (mapv proj v)
          (seq? v)    (apply list (map proj v))
@@ -641,8 +687,12 @@
   Given a row's `tags` + the `frame-id`, walks `:rf.fx/args` / `:rf.event/fx` by
   SHAPE (`project-embedded-keys`) and stamps `:sensitive? true` when a key
   redacted. Everything else on the row rides UNTOUCHED, whatever its shape: the
-  row belongs to the fx family, and the resource family speaks only for the keys
-  inside it. A tags map carrying NEITHER slot rides through reference-preserved —
+  row belongs to the fx family, and the resource family speaks only for the data
+  it planted there — its scoped keys, and (rf2-425mm) the resolved `:scope` the
+  transport continuation payload carries beside them, which is a
+  `[tier {identity}]` TUPLE rather than a scoped key and so was descended into
+  and let through in the clear one slot from the `:resource/key` that had just
+  redacted the same bytes. A tags map carrying NEITHER slot rides through reference-preserved —
   which is what lets the epoch consumer apply this to every row and keep no row
   predicate of its own, so a family key riding a carrier on some future op is
   covered without anyone widening a roster.
