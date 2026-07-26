@@ -209,7 +209,8 @@ async function main() {
   // One window
   // -------------------------------------------------------------------------
 
-  async function window_(arm, kind, doubles, published) {
+  async function window_(arm, kind, doubles, published, writes) {
+    const WRITES = writes;
     await page.evaluate((d) => window.B8.prepare(d), doubles);
     await page.evaluate(() => window.B8.seed());
     await gc();
@@ -305,15 +306,15 @@ async function main() {
   // The sampling profiler, as a NEGATIVE control
   // -------------------------------------------------------------------------
 
-  async function samplerControl(kind) {
+  async function samplerControl(kind, n, bytesPerDouble) {
     await page.evaluate((d) => window.B8.prepare(d), CTL_2);
     await page.evaluate(() => window.B8.seed());
     await gc();
     await cdp.send('HeapProfiler.startSampling', { samplingInterval: 4096 });
     const pre = await readCdp();
     const r = await page.evaluate(
-      ([a, k, n]) => window.B8.run(a, k, n),
-      ['freehand-interpreted', kind, WRITES]
+      ([a, k, w]) => window.B8.run(a, k, w),
+      ['freehand-interpreted', kind, n]
     );
     const post = await readCdp();
     // COLLECT BEFORE READING THE SAMPLER, and that is the whole point.
@@ -331,9 +332,9 @@ async function main() {
       for (const c of node.children || []) walk(c);
     })(profile.head);
     return {
-      // Known by construction: the control allocates and drops 8·CTL_2
-      // bytes on every one of WRITES writes, and nothing holds any of it.
-      controlGarbageBytes: 8 * CTL_2 * WRITES,
+      // Known by MEASUREMENT, not by arithmetic: the retention pass prices
+      // one control copy, and the loop drops one on every write.
+      controlGarbageBytes: bytesPerDouble * CTL_2 * n,
       counterAllocated: post - pre,
       samplerTotal: sampled,
       note:
@@ -346,23 +347,57 @@ async function main() {
   // Rounds
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // How many writes fit in a window before V8 collects
+  // -------------------------------------------------------------------------
+  //
+  // A collection inside the window costs accuracy: the rising-step sum
+  // nets the reclaimed bytes away inside whichever step contained the
+  // collection, so it UNDER-states. The first full run measured exactly
+  // that — the control's slope read 12.06 B/double where retention says
+  // the object is 16.00, and the gap is the bias.
+  //
+  // The fix is not a bigger correction, it is a shorter window. Arms
+  // differ by three orders of magnitude in what they allocate per write —
+  // the instrument arm 438 B, Freehand's broad write about four
+  // megabytes — so ONE write count cannot suit them all: 25 writes is
+  // comfortably collection-free for Reagent and guarantees a dozen
+  // collections for Freehand. So each arm, at each control level, gets
+  // the number of writes that fits its own allocation into one nursery.
+  const TARGET = Number(process.env.B8_TARGET_BYTES || 3.0e6);
+  const nFor = {};
+  for (const kind of KINDS) {
+    nFor[kind] = {};
+    for (const arm of ARMS) {
+      nFor[kind][arm] = {};
+      for (const d of arm === 'instrument' || LADDER_ARMS.includes(arm) ? [0, CTL_1, CTL_2] : [0]) {
+        // A calibration window, never read as data. It doubles as the
+        // warm-up pass — first-call compilation, inline caches and
+        // one-time module state are not what this asks about, and charged
+        // to round 1 they read as allocation per write.
+        const probe = await window_(arm, kind, d, false, 4);
+        const perWrite = Math.max(1, probe.inPage.posSum / 4);
+        const n = Math.max(2, Math.min(WRITES, Math.round(TARGET / perWrite)));
+        nFor[kind][arm][d] = n;
+        console.error(
+          `[b8] ${kind}/${arm}/D=${d}: ~${Math.round(perWrite)} B per write -> ${n} writes per window`
+        );
+      }
+    }
+  }
+
   const rows = [];
   for (const kind of KINDS) {
-    // A warm-up window per arm, never read: first-call compilation, inline
-    // caches and one-time module state are not what this asks about, and
-    // charged to round 1 they read as allocation per write.
-    console.error(`[b8] ${kind}: warm-up ...`);
-    for (const arm of ARMS) await window_(arm, kind, 0, false);
-
     for (let round = 0; round < ROUNDS; round++) {
       console.error(`[b8] ${kind}: round ${round + 1}/${ROUNDS}`);
       for (let j = 0; j < ARMS.length; j++) {
         const arm = ARMS[(j + round) % ARMS.length];
-        rows.push({ round, ...(await window_(arm, kind, 0, false)) });
-        rows.push({ round, ...(await window_(arm, kind, 0, true)) });
+        const n0 = nFor[kind][arm][0];
+        rows.push({ round, ...(await window_(arm, kind, 0, false, n0)) });
+        rows.push({ round, ...(await window_(arm, kind, 0, true, n0)) });
         if (LADDER_ARMS.includes(arm)) {
-          rows.push({ round, ...(await window_(arm, kind, CTL_1, false)) });
-          rows.push({ round, ...(await window_(arm, kind, CTL_2, false)) });
+          rows.push({ round, ...(await window_(arm, kind, CTL_1, false, nFor[kind][arm][CTL_1])) });
+          rows.push({ round, ...(await window_(arm, kind, CTL_2, false, nFor[kind][arm][CTL_2])) });
         }
       }
     }
@@ -373,12 +408,17 @@ async function main() {
   for (const d of [CTL_1, CTL_2]) {
     for (const k of [20, 40]) retention.push(await controlRetention(d, k));
   }
+  // The retention reading at the larger D and larger copy count is the
+  // reference: more copies means the per-copy figure is less sensitive to
+  // the baseline, and a residue of zero says the release was clean.
+  const refBpd = retention[retention.length - 1].bytesPerDouble;
 
   console.error('[b8] sampler negative control ...');
-  const sampler = await samplerControl(KINDS[0]);
+  const sampler = await samplerControl(KINDS[0], nFor[KINDS[0]]['freehand-interpreted'][0], refBpd);
 
   await browser.close();
-  return { rows, sampler, retention, integrity: integ, precise: { probes } };
+  return { rows, sampler, retention, refBytesPerDouble: refBpd, nFor,
+           integrity: integ, precise: { probes } };
 }
 
 // ---------------------------------------------------------------------------
@@ -395,6 +435,13 @@ const fmt = (v) => (v === null || v === undefined ? '-' : Math.round(v).toLocale
 
 function report(out) {
   const { rows, sampler } = out;
+  // The control's per-double cost, MEASURED by the retention pass rather
+  // than predicted. `8·D` was the arithmetic and it was wrong: `.slice()`
+  // of a HOLEY double array does not take the packed fast path, so a copy
+  // costs a 4-byte pointer slot plus a boxed 12-byte HeapNumber per
+  // element, not one unboxed 8-byte slot. Retention reads 16.002 B/double
+  // on two copy counts with a residue of zero.
+  const REF = out.refBytesPerDouble;
   const kinds = [...new Set(rows.map((r) => r.kind))];
   const summary = {};
 
@@ -460,8 +507,14 @@ function report(out) {
 
     // --- positive control -------------------------------------------------
     console.log(';;');
-    console.log(';; POSITIVE CONTROL — garbage of predicted size, seen by the instrument');
-    console.log(';;   arm                 direct leg B/write   slope B/double [pred 8.000]');
+    console.log(
+      ';; POSITIVE CONTROL — garbage whose size is known from the retention pass, seen by ' +
+        'the allocation instrument'
+    );
+    console.log(
+      `;;   reference: ${REF.toFixed(3)} B/double, measured by retention on the same object`
+    );
+    console.log(';;   arm                 direct leg B/write        slope B/double   error');
     const ctl = {};
     for (const arm of LADDER_ARMS) {
       const d1 = of(arm, CTL_1, false);
@@ -473,7 +526,8 @@ function report(out) {
       const slope = b1 && b2 ? (b2.mean - b1.mean) / (CTL_2 - CTL_1) : null;
       const slope0 = b0 && b2 ? (b2.mean - b0.mean) / CTL_2 : null;
       ctl[arm] = {
-        predictedPerWriteAtCtl2: 8 * CTL_2,
+        referenceBytesPerDouble: REF,
+        expectedPerWriteAtCtl2: REF * CTL_2,
         directLegAtCtl2: leg2,
         slopeBytesPerDouble: slope,
         slopeFromZero: slope0,
@@ -481,9 +535,11 @@ function report(out) {
         at1: b1,
         at2: b2,
       };
+      const err = slope === null ? null : (slope / REF - 1) * 100;
       console.log(
         `;;   ${arm.padEnd(20)} ${fmt(leg2 && leg2.mean).padStart(12)}` +
-          `   [pred ${fmt(8 * CTL_2)}]   ${slope === null ? '-' : slope.toFixed(3)}` +
+          `  [expect ${fmt(REF * CTL_2)}]   ${slope === null ? '   -  ' : slope.toFixed(3)}` +
+          `   ${err === null ? '-' : (err > 0 ? '+' : '') + err.toFixed(1) + '%'}` +
           `   (from 0: ${slope0 === null ? '-' : slope0.toFixed(3)})`
       );
     }
@@ -628,14 +684,20 @@ function report(out) {
   }
 
   console.log('\n;; ==== CONTROL CROSS-CALIBRATION — the same object, priced two ways ====');
-  console.log(';;   D doubles  copies   retained B/copy   B/double   [8·D predicts 8.000]   residue');
+  console.log(';;   D doubles  copies   retained B/copy   B/double   residue after release');
   for (const r of out.retention || []) {
     console.log(
       `;;   ${String(r.doubles).padStart(9)}  ${String(r.copies).padStart(6)}   ` +
-        `${fmt(r.retainedPerCopy).padStart(14)}   ${r.bytesPerDouble.toFixed(3).padStart(8)}` +
-        `                          ${fmt(r.residue).padStart(8)}`
+        `${fmt(r.retainedPerCopy).padStart(14)}   ${r.bytesPerDouble.toFixed(3).padStart(8)}   ` +
+        `${fmt(r.residue).padStart(14)}`
     );
   }
+  console.log(
+    ';;   `8·D` predicted 8.000 and was WRONG — a .slice() of a HOLEY double array does not'
+  );
+  console.log(
+    ';;   take the packed fast path. The instrument was fine; the arithmetic was the fiction.'
+  );
 
   console.log('\n;; ==== NEGATIVE CONTROL — the sampling heap profiler on the same window ====');
   console.log(`;;   garbage allocated by the control, by construction: ${fmt(sampler.controlGarbageBytes)} B`);
