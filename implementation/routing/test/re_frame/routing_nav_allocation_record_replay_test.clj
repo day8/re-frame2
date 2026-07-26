@@ -33,10 +33,24 @@
 
   This namespace is the ADVERSARIAL acceptance: it reproduces both failures
   under the re-mint scenario (the hole) and shows them FIXED when the recorded
-  allocation is re-presented under strict replay."
+  allocation is re-presented under strict replay.
+
+  ## Posture split (rf2-o5dbf)
+
+  Both failures and both fixes are production-real and carry no posture
+  guard — the minted ids land in runtime-db, the `:rf.route/continue` no-op,
+  the stale-suppression flip and its repair are all readable off runtime-db
+  and app-db. They run in the ordinary `clojure -M:test` suite AND in
+  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+
+  The single exception is the `:rf.route.nav-token/stale-suppressed` TRACE,
+  dev instrumentation behind `interop/debug-enabled?`; it is kept VERBATIM
+  inside a `(when interop/debug-enabled? …)` arm marked `rf2-o5dbf`, beside
+  the app-db assertion that already proves the same suppression happened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
             [re-frame.cofx :as cofx]
             [re-frame.routing :as routing]
             [re-frame.routing.nav-counters :as nav-counters]
@@ -183,8 +197,12 @@
       (rf/unregister-listener! :trace ::flip)
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "the recorded continuation (carried nav-1) was SUPPRESSED against the re-minted nav-6 — the bug (should have committed)")
-      (is (some #(= :rf.route.nav-token/stale-suppressed (:operation %)) @traces)
-          "a stale-suppressed trace fired — the flipped decision"))))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The FLIP
+      ;; itself — the recorded continuation was suppressed and never reached
+      ;; app-db — is asserted immediately above, posture-independently.
+      (when interop/debug-enabled?
+        (is (some #(= :rf.route.nav-token/stale-suppressed (:operation %)) @traces)
+            "a stale-suppressed trace fired — the flipped decision")))))
 
 (deftest failure-2-fixed-recorded-allocation-replays-same-nav-token
   (testing "rf2-vcop6y FIX: replaying the commit with the RECORDED

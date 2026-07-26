@@ -2,10 +2,30 @@
   "Multi-frame URL-ownership tests for re-frame.routing (the `:url-bound?`
   exclusivity hook, duplicate-URL-binding diagnostics, the
   single-owner-drives-navigation rule, and the non-URL-bound push no-op).
-  Split from routing_test.clj per rf2-u8qe7y finding 3."
+  Split from routing_test.clj per rf2-u8qe7y finding 3.
+
+  ## Posture split (rf2-o5dbf)
+
+  URL OWNERSHIP is production-real and carries no posture guard: which frame
+  `routing/url-owner-frame-id` reports, that a duplicate binding is STORED
+  rather than rejected, that only the deterministic owner drives navigation,
+  that reconcile fails CLOSED on an ambiguous multi-binding load order, and
+  that a non-URL-bound frame's push is a no-op. Those run in the ordinary
+  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
+  `-Dre-frame.debug=false` lane).
+
+  The `:rf.error/duplicate-url-binding` DIAGNOSTIC is dev instrumentation —
+  `trace/emit-error!` sits behind `interop/debug-enabled?`, read once at load
+  time. Its assertions are kept VERBATIM inside `(when interop/debug-enabled?
+  …)` arms marked `rf2-o5dbf`. One of them is NEGATIVE
+  (`non-default-frame-without-url-bound-does-not-collide`): with no trace bus
+  it would pass vacuously, so it is inside the arm with the ownership fact it
+  is really about — `:rf/default` still owns the URL after both non-bound
+  registrations — asserted outside."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
@@ -31,12 +51,19 @@
       ;; owner, so a second frame opting in collides with it.
       (rf/make-frame {:id :my-frame :url-bound? true})
       (rf/unregister-listener! :trace ::dup-bind)
-      (is (some (fn [ev]
-                  (and (= :rf.error/duplicate-url-binding (:operation ev))
-                       (= :rf/default (-> ev :tags :existing-frame))
-                       (= :my-frame   (-> ev :tags :offending-frame))))
-                @traces)
-          ":rf.error/duplicate-url-binding emitted with both frame ids"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the collision is resolved
+      ;; the same way in both postures — the incumbent keeps the URL and the
+      ;; late claimant does not steal it. Only the announcement is dev-only.
+      (is (= :rf/default (routing/url-owner-frame-id))
+          "the incumbent :rf/default keeps URL ownership; :my-frame did not steal it")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.error/duplicate-url-binding (:operation ev))
+                         (= :rf/default (-> ev :tags :existing-frame))
+                         (= :my-frame   (-> ev :tags :offending-frame))))
+                  @traces)
+            ":rf.error/duplicate-url-binding emitted with both frame ids")))))
 
 (deftest non-default-frame-without-url-bound-does-not-collide
   (testing "registering a non-default frame WITHOUT :url-bound? true is
@@ -47,9 +74,17 @@
       (rf/make-frame {:id :story/variant-A})              ;; no :url-bound?
       (rf/make-frame {:id :test/fixture :url-bound? false}) ;; explicit off
       (rf/unregister-listener! :trace ::no-dup)
-      (is (empty? (filter #(= :rf.error/duplicate-url-binding (:operation %))
-                          @traces))
-          "no duplicate-url-binding trace fires for non-URL-bound frames"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): neither frame claimed the
+      ;; URL, so the incumbent owner is untouched. That is the fact the silent
+      ;; diagnostic encodes; without it the leg below is vacuous under the gate.
+      (is (= :rf/default (routing/url-owner-frame-id))
+          ":rf/default still owns the URL — neither non-bound frame claimed it")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); NEGATIVE over
+      ;; the trace ring, hence guarded.
+      (when interop/debug-enabled?
+        (is (empty? (filter #(= :rf.error/duplicate-url-binding (:operation %))
+                            @traces))
+            "no duplicate-url-binding trace fires for non-URL-bound frames")))))
 
 (deftest push-url-noop-from-non-url-bound-frame
   (testing ":rf.nav/push-url skips on a non-URL-bound frame and emits
@@ -185,11 +220,20 @@
       ;; one conflict.
       (rf/make-frame {:id :my-conflicting-frame :url-bound? true})
       (rf/unregister-listener! :trace ::dup-once)
-      (let [dups (filter #(= :rf.error/duplicate-url-binding (:operation %)) @traces)]
-        (is (= 1 (count dups))
-            "one conflict → exactly one duplicate-url-binding diagnostic, regardless of reload count")
-        (is (= :my-conflicting-frame (-> dups first :tags :offending-frame))
-            "the single diagnostic names the offending frame")))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): however many times the
+      ;; facade was reinstalled, ownership is still resolved once and the
+      ;; incumbent still holds it.
+      (is (= :rf/default (routing/url-owner-frame-id))
+          "the repeated facade reloads did not disturb URL ownership")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; ONE-not-N fan-out this deftest is named for is a property of the
+      ;; diagnostic, so it is only observable in the posture that has one.
+      (when interop/debug-enabled?
+        (let [dups (filter #(= :rf.error/duplicate-url-binding (:operation %)) @traces)]
+          (is (= 1 (count dups))
+              "one conflict → exactly one duplicate-url-binding diagnostic, regardless of reload count")
+          (is (= :my-conflicting-frame (-> dups first :tags :offending-frame))
+              "the single diagnostic names the offending frame"))))))
 
 ;; ============================================================================
 ;; rf2-25i7r7 — finding 2: duplicate URL binding is STORED, not rejected;
@@ -417,8 +461,12 @@
       (rf/register-listener! :trace ::reconcile-dup (fn [ev] (swap! traces conj ev)))
       (url-bound/reconcile-existing-url-bindings!)
       (rf/unregister-listener! :trace ::reconcile-dup)
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the FAIL-CLOSED half — no
+      ;; owner is picked, in either posture.
       (is (nil? (routing/url-owner-frame-id))
           "no deterministic owner for an ambiguous multi-binding load order")
-      (let [dups (filter #(= :rf.error/duplicate-url-binding (:operation %)) @traces)]
-        (is (= 1 (count dups))
-            "two pre-existing bindings → exactly one duplicate diagnostic (one extra)")))))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [dups (filter #(= :rf.error/duplicate-url-binding (:operation %)) @traces)]
+          (is (= 1 (count dups))
+              "two pre-existing bindings → exactly one duplicate diagnostic (one extra)"))))))

@@ -37,10 +37,35 @@
 
   Covers the emission boundary, both activation doors, prefetch, and the
   adversarial trio the fix has to keep apart: a param that IS captured, a param
-  that is NOT, and a route with no params at all."
+  that is NOT, and a route with no params at all.
+
+  ## Posture split (rf2-o5dbf)
+
+  The REJECTION is production-real and carries no posture guard. `route-url`
+  THROWS (so the emission-boundary and link-door cases were already
+  posture-independent), the programmatic door leaves the slice untouched and
+  pushes no history entry, and prefetch never consults the warm hook. Those
+  run in the ordinary `clojure -M:test` suite AND in
+  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+
+  What is dev-only is how the rejection is ANNOUNCED on the two EVENT doors:
+  `:rf.error/schema-validation-failure` and `:rf.error/prefetch-bad-address`
+  reach the caller through `trace/emit-error!`, gated on
+  `interop/debug-enabled?` and read once at load time. (The comment `the
+  always-on channel` beside one of them means always-on with respect to the
+  SCHEMAS ARTEFACT — the diagnostic does not require it to be loaded — not
+  with respect to the production gate.) Those assertions are kept VERBATIM
+  inside `(when interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+
+  Two of them are NEGATIVE over the recorder — `(is (empty? rejected))` on the
+  positive control and `(is (empty? prefetched))` on the rejection case — and
+  would pass vacuously under the gate. They are inside the arm; the
+  production-visible half of each (the warm hook WAS consulted, exactly once,
+  with the captured-param plan / was never consulted at all) sits outside it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.link :as link]
@@ -191,8 +216,12 @@
           [traces {:pred #(= :rf.error/schema-validation-failure (:operation %))}]
           (rf/dispatch-sync [:rf.route/navigate {:to     :route/probe
                                                  :params {:id "7" :extra "x"}}])
-          (is (= 1 (count @traces)) "the caller bug surfaces on the always-on channel")
-          (is (= :route/probe (:route-id (:tags (first @traces))))))
+          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+          ;; REJECTION itself is asserted immediately below, on the slice and
+          ;; on the push log, posture-independently.
+          (when interop/debug-enabled?
+            (is (= 1 (count @traces)) "the caller bug surfaces on the always-on channel")
+            (is (= :route/probe (:route-id (:tags (first @traces)))))))
         (is (= before (current-slice)) "slice unchanged — nothing was committed")
         (is (= :route/elsewhere (:route-id (current-slice))))
         (is (empty? @pushed) "and no history entry was pushed")))
@@ -229,9 +258,14 @@
                          :rejected   (:rf.error/prefetch-bad-address @traces)}))]
         (testing "POSITIVE CONTROL — the captured-param address still warms"
           (let [{:keys [prefetched rejected]} (collect {:to :route/probe :params {:id "7"}})]
-            (is (empty? rejected))
-            (is (= 1 (count prefetched)))
-            (is (= [{:route-id :route/probe :params {:id "7"}}] @calls))))
+            ;; SEMANTIC, posture-independent (rf2-o5dbf): the warm hook really
+            ;; ran, exactly once, on the captured-param plan. Without this the
+            ;; `(empty? rejected)` leg is vacuous under the gate.
+            (is (= [{:route-id :route/probe :params {:id "7"}}] @calls))
+            ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+            (when interop/debug-enabled?
+              (is (empty? rejected))
+              (is (= 1 (count prefetched))))))
 
         (testing "an uncaptured param rejects BEFORE planning, on the SAME
                   boundary the activation doors refuse it at — prefetch warmed
@@ -239,12 +273,16 @@
           (reset! calls [])
           (let [{:keys [prefetched rejected]}
                 (collect {:to :route/probe :params {:id "7" :extra "x"}})]
-            (is (empty? prefetched) "no success summary trace")
+            ;; SEMANTIC, posture-independent (rf2-o5dbf): the address was
+            ;; refused BEFORE planning, so nothing was warmed.
             (is (empty? @calls) "the warm hook was never consulted — no ensures")
-            (is (= 1 (count rejected)))
-            (let [tags (:tags (first rejected))]
-              (is (= :route-url-validation (:reason tags))
-                  "the bare name of the boundary's error id, as Spec 009 specifies")
-              (is (= [:params] (:keys tags)) "the offending SLOT is named")
-              (is (= :route/probe (:route-id tags)))))))
+            ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+            (when interop/debug-enabled?
+              (is (empty? prefetched) "no success summary trace")
+              (is (= 1 (count rejected)))
+              (let [tags (:tags (first rejected))]
+                (is (= :route-url-validation (:reason tags))
+                    "the bare name of the boundary's error id, as Spec 009 specifies")
+                (is (= [:params] (:keys tags)) "the offending SLOT is named")
+                (is (= :route/probe (:route-id tags))))))))
       (finally (late-bind/set-fn! :routing/on-route-prefetch nil)))))
