@@ -14,8 +14,9 @@ minted `:rf.error/id`s that no Spec 009 catalogue row covered. This gate makes
 that class of drift fail CI.
 
 Per the bead's HARD SCOPE-TRIM (Mike posture 2026-07-09, no gold-plating) this
-ships EXACTLY the two checks that provably catch a real bug. The dead-assertion
-guard and retired-namespace guard are DEFERRED until a real miss motivates them.
+ships ONLY checks that provably catch a real bug. The dead-assertion guard and
+retired-namespace guard are DEFERRED until a real miss motivates them; CHECK C
+was added under rf2-d89rs because a real miss DID motivate it.
 
   CHECK A — Error/warning catalogue coverage.
     Every `:rf.error/<id>` and `:rf.warning/<id>` LITERAL emitted by the
@@ -51,6 +52,32 @@ guard and retired-namespace guard are DEFERRED until a real miss motivates them.
     non-emitting: an accepted-input spelling, not a framework-emitted/reserved
     namespace, so they neither fire the check nor reserve `:rf.world/*`.
 
+  CHECK C — The REVERSE direction: catalogue -> source (rf2-d89rs).
+    CHECK A asks "does every emitted id have a row?". It never asks the
+    converse, so a row whose emitter was DELETED stays green forever — and
+    three did: `:rf.error/ui-dispatch-unwired`, `:rf.error/ui-test-bad-selector`
+    and `:rf.error/ui-test-frame-collision` were documented in Spec 009 and
+    named nowhere else in the repo. A documented error id with no emitter is a
+    promise the framework cannot keep: a consumer (or an AI) reading the
+    catalogue to write a handler for it writes dead code — the same class as a
+    documented example that throws. So every ACTIVE `:rf.error/*` /
+    `:rf.warning/*` catalogue ROW must have a literal emitter in implementation
+    source.
+
+    RETIRED rows are excluded STRUCTURALLY, by the catalogue's own
+    retire-in-place convention — a strikethrough first cell
+    (``| ~~`:rf.error/frame-reset-in-handler`~~ | … |``). Spec 009 states the
+    category vocabulary is stable ("existing categories cannot be renamed or
+    removed"), so a category whose emitter goes away is struck, not deleted,
+    and a struck row is exactly the row that MUST NOT have an emitter. Same
+    posture as CHECK B's `_row_is_retired`: status is read off the row, never
+    from a list kept beside it. That is also what lets the check tell a
+    DELIBERATELY RETIRED emitter from one that was NEVER WRITTEN without
+    consulting git history: the corpus records the disposition on the row, and
+    the one active row the CLJS reference is CONTRACTED never to emit
+    (`:rf.error/machine-grammar-not-in-v1`, port-relative by its own Trigger
+    cell) carries the single exemption below, kept honest both ways.
+
 SCAN SURFACE (corpus-sweep rules — same as the sibling residue guards)
 ----------------------------------------------------------------------
 Implementation source only: `.clj` / `.cljc` / `.cljs` under `implementation/`,
@@ -74,7 +101,8 @@ the machine / resource / routing / flow / core runtime ids) and DELETED the
 id must have a 009 row, with no known-debt concept surviving in this script.
 
 Exit code:
-    0  no drift (every emitted id catalogued/known; every namespace reserved)
+    0  no drift (every emitted id catalogued; every namespace reserved; every
+       active catalogue row emitted)
     1  at least one drift finding (printed file-agnostic, id + which check)
     2  invocation / setup error
 Python stdlib only.
@@ -245,6 +273,65 @@ def catalogue_ids(spec_009_text: str) -> set[str]:
     return set(_ERR_WARN_RE.findall(spec_009_text))
 
 
+# --------------------------------------------------------------------------
+# CHECK C — the catalogue's own ROWS (rf2-d89rs)
+# --------------------------------------------------------------------------
+#
+# CHECK A reads ids from ANYWHERE in the doc, which is right for its direction:
+# a prose mention is enough to show the id is acknowledged. CHECK C runs the
+# other way and must be stricter — a row is a CLAIM that the runtime emits the
+# category, and only a row makes it. So this parse is scoped to the `### Error
+# event catalogue` section (the doc carries a second, differently-shaped
+# quick-reference table; the Clojure ratchet learned the same lesson under
+# rf2-i6p308) and anchored on the first cell.
+
+_CATALOGUE_HEADING_RE = re.compile(r"^###\s+Error event catalogue\s*$")
+_SECTION_HEADING_RE = re.compile(r"^#{1,3}\s+\S")
+
+# A catalogue row's FIRST cell: an optionally struck-through, back-ticked
+# error/warning id. `~~` marks the retire-in-place tombstone.
+_CATALOGUE_ROW_RE = re.compile(
+    r"^\|\s*(~~)?`(:rf\.(?:error|warning)/[a-z0-9]+(?:-[a-z0-9]+)*)`"
+)
+
+
+def catalogue_rows(spec_009_text: str) -> tuple[set[str], set[str]]:
+    """`(active, retired)` — the `:rf.error/*` / `:rf.warning/*` ids that have
+    a ROW in the Spec 009 §Error event catalogue, split by the strikethrough
+    retire-in-place marker on the row's first cell."""
+    lines = spec_009_text.splitlines()
+    start = next(
+        (i for i, ln in enumerate(lines) if _CATALOGUE_HEADING_RE.match(ln)), None
+    )
+    if start is None:
+        return set(), set()
+    active: set[str] = set()
+    retired: set[str] = set()
+    for ln in lines[start + 1:]:
+        if _SECTION_HEADING_RE.match(ln):
+            break
+        m = _CATALOGUE_ROW_RE.match(ln)
+        if m:
+            (retired if m.group(1) else active).add(m.group(2))
+    return active, retired
+
+
+# The one ACTIVE catalogue row the CLJS reference implementation is CONTRACTED
+# not to emit — a PORT-RELATIVE category, not drift. `:rf.error/machine-grammar
+# -not-in-v1` is the unclaimed-capability rejection from the Spec 005 capability
+# matrix: the row's own Trigger cell says "The v1 CLJS reference claims
+# `:fsm/history` … and parallel regions …, so it NEVER RAISES THIS for them; a
+# leaner port that omits a capability rejects the corresponding key here". The
+# category is live vocabulary for other ports, so striking it would be a lie;
+# it simply has no reference emitter and never will.
+#
+# Exact-literal set, mirroring `_RETIRED_ACCEPTED_INPUTS` above, and kept honest
+# the same way the sibling ratchet keeps its allow-list honest: an entry that
+# stops being an active row, or that acquires a reference emitter, is REPORTED
+# (see `run_checks`) so it cannot rot into a silent suppression.
+_PORT_RELATIVE_CATEGORIES = frozenset({":rf.error/machine-grammar-not-in-v1"})
+
+
 def _reserved_ns_table_region(conventions_text: str) -> str:
     """The text of the reserved-namespace table ("The single-root reserved set")
     — from its header row through the last consecutive table row. Reservations
@@ -343,24 +430,49 @@ def iter_impl_src(impl_root: Path) -> Iterable[Path]:
 # --------------------------------------------------------------------------
 
 
-def run_checks(repo_root: Path) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    """Return (check_a_findings, check_b_findings) — each maps an offending
-    token to the sorted list of impl files that emit it."""
-    catalogue = catalogue_ids((repo_root / _SPEC_009).read_text(encoding="utf-8"))
+def run_checks(
+    repo_root: Path,
+) -> tuple[dict[str, list[str]], dict[str, list[str]], list[str]]:
+    """Return (check_a_findings, check_b_findings, check_c_findings). A and B
+    map an offending token to the sorted list of impl files that emit it; C is
+    the sorted list of catalogue rows nothing emits."""
+    spec_009 = (repo_root / _SPEC_009).read_text(encoding="utf-8")
+    catalogue = catalogue_ids(spec_009)
+    active_rows, _retired_rows = catalogue_rows(spec_009)
     reserved = reserved_namespaces(
         (repo_root / _SPEC_CONVENTIONS).read_text(encoding="utf-8")
     )
 
     a_findings: dict[str, set[Path]] = {}
     b_findings: dict[str, set[Path]] = {}
+    emitted: set[str] = set()
     for path in iter_impl_src(repo_root / _IMPL_DIR):
         masked = mask(path.read_text(encoding="utf-8", errors="replace"))
-        for kid in emitted_err_warn_ids(masked):
+        ids = emitted_err_warn_ids(masked)
+        emitted |= ids
+        for kid in ids:
             if kid not in catalogue:
                 a_findings.setdefault(kid, set()).add(path)
         for ns in emitted_namespaces(masked):
             if ns not in reserved:
                 b_findings.setdefault(ns, set()).add(path)
+
+    # CHECK C — an ACTIVE row nothing emits (rf2-d89rs), plus the two ways the
+    # port-relative exemption can go stale: an entry that is no longer an
+    # active row, and one that has acquired a reference emitter. Reporting all
+    # three here keeps the exemption from becoming a silent suppression, and
+    # keeps the honesty legs out of a separate roster.
+    c_findings = sorted(active_rows - emitted - _PORT_RELATIVE_CATEGORIES)
+    c_findings += [
+        f"{kid} (STALE EXEMPTION: no longer an active catalogue row — drop it "
+        "from _PORT_RELATIVE_CATEGORIES)"
+        for kid in sorted(_PORT_RELATIVE_CATEGORIES - active_rows)
+    ]
+    c_findings += [
+        f"{kid} (STALE EXEMPTION: implementation source now emits it — drop it "
+        "from _PORT_RELATIVE_CATEGORIES)"
+        for kid in sorted(_PORT_RELATIVE_CATEGORIES & emitted)
+    ]
 
     def rel(paths: set[Path]) -> list[str]:
         return sorted(
@@ -370,6 +482,7 @@ def run_checks(repo_root: Path) -> tuple[dict[str, list[str]], dict[str, list[st
     return (
         {k: rel(v) for k, v in a_findings.items()},
         {k: rel(v) for k, v in b_findings.items()},
+        c_findings,
     )
 
 
@@ -398,7 +511,25 @@ _FIX_B = (
 )
 
 
-def report(a: dict[str, list[str]], b: dict[str, list[str]]) -> None:
+_FIX_C = (
+    "Each id above has an ACTIVE row in the Spec 009 error/warning catalogue but\n"
+    "  is named by NO implementation source file — a documented diagnostic the\n"
+    "  framework cannot produce. A consumer (or an AI) reading the catalogue to\n"
+    "  handle it writes dead code. Two honest fixes, and no third:\n"
+    "    * the emitter was RETIRED — strike the row in place, the way Spec 009\n"
+    "      already retires categories (`| ~~`:rf.error/x`~~ | — | n/a (retired) |\n"
+    "      **RETIRED.** <why> | — | — |`). The vocabulary is stable, so the row\n"
+    "      is struck, never deleted, and the strikethrough is what excludes it\n"
+    "      from this check.\n"
+    "    * the emitter was NEVER WRITTEN — write it, or, if the reference\n"
+    "      implementation is CONTRACTED not to emit the category (a port-relative\n"
+    "      row whose own Trigger cell says so), add it to\n"
+    "      `_PORT_RELATIVE_CATEGORIES` with that citation. A row nothing emits\n"
+    "      and nothing plans to emit is drift either way (rf2-d89rs)."
+)
+
+
+def report(a: dict[str, list[str]], b: dict[str, list[str]], c: list[str]) -> None:
     if a:
         sys.stderr.write(
             f"\nCHECK A — {len(a)} emitted :rf.error/:rf.warning id(s) with no "
@@ -415,6 +546,14 @@ def report(a: dict[str, list[str]], b: dict[str, list[str]]) -> None:
         for ns in sorted(b):
             sys.stderr.write(f"  :{ns}/*\n      emitted by: {', '.join(b[ns])}\n")
         sys.stderr.write(f"\nFix:\n  {_FIX_B}\n")
+    if c:
+        sys.stderr.write(
+            f"\nCHECK C — {len(c)} ACTIVE Spec 009 catalogue row(s) that NO "
+            "implementation source emits:\n\n"
+        )
+        for kid in c:
+            sys.stderr.write(f"  {kid}\n")
+        sys.stderr.write(f"\nFix:\n  {_FIX_C}\n")
 
 
 # --------------------------------------------------------------------------
@@ -463,15 +602,20 @@ def main(argv: list[str]) -> int:
             sys.stderr.write(f"error: expected {rel} under {repo_root}.\n")
             return 2
 
-    a, b = run_checks(repo_root)
+    a, b, c = run_checks(repo_root)
     if args.verbose:
         n = sum(1 for _ in iter_impl_src(repo_root / _IMPL_DIR))
+        active, retired = catalogue_rows(
+            (repo_root / _SPEC_009).read_text(encoding="utf-8")
+        )
         sys.stderr.write(
             f"scanned {n} implementation source file(s); "
-            f"check A findings={len(a)}, check B findings={len(b)}.\n"
+            f"{len(active)} active + {len(retired)} retired catalogue row(s); "
+            f"check A findings={len(a)}, check B findings={len(b)}, "
+            f"check C findings={len(c)}.\n"
         )
-    if a or b:
-        report(a, b)
+    if a or b or c:
+        report(a, b, c)
         return 1
     if args.verbose:
         sys.stderr.write("keyword contract clean: no catalogue/namespace drift.\n")
@@ -667,6 +811,77 @@ def _run_self_tests(verbose: bool = False) -> int:
     expect("B: a parent row citing its child in prose STILL reserves",
            b_fire('(x :rf.route/navigate :rf.interceptor/path)', reserved)
            == set())
+
+    # CHECK C teeth (rf2-d89rs) --------------------------------------------
+    #
+    # The reverse direction. The synthetic catalogue below reproduces the three
+    # shapes the live doc carries: an ACTIVE row with an emitter, an ACTIVE row
+    # with none (the defect), and a STRUCK row with none (correct by
+    # construction). The `~~` rows are byte-for-byte the live retire-in-place
+    # shape.
+    synthetic_009_rows = (
+        "## Preamble\n"
+        "\n"
+        "Prose naming `:rf.error/prose-only-mention` — NOT a row, so CHECK C\n"
+        "must not demand an emitter for it.\n"
+        "\n"
+        "### Error event catalogue\n"
+        "\n"
+        "| `:operation` | `:op-type` | Channel | Trigger | Default `:recovery` | `:tags` |\n"
+        "|---|---|---|---|---|---|\n"
+        "| `:rf.error/handler-exception` | `:error` | always-on | … | … | … |\n"
+        "| `:rf.warning/plain-fn` | `:warning` | diagnostic | … | … | … |\n"
+        "| `:rf.error/emitter-was-deleted` | `:error` | diagnostic | … | … | … |\n"
+        "| ~~`:rf.error/properly-retired`~~ | — | n/a (retired) | **RETIRED.** … | — | — |\n"
+        "\n"
+        "### Schemas\n"
+        "\n"
+        "| `:rf.error/row-in-a-later-table` | `:error` | diagnostic | … | … | … |\n"
+    )
+    active_rows, retired_rows = catalogue_rows(synthetic_009_rows)
+
+    expect("C: parses the active rows",
+           active_rows == {":rf.error/handler-exception",
+                           ":rf.warning/plain-fn",
+                           ":rf.error/emitter-was-deleted"})
+    expect("C: strikethrough row is RETIRED, not active",
+           retired_rows == {":rf.error/properly-retired"})
+    # Scope discipline, both directions: a prose mention before the table is
+    # not a row, and a row-shaped line in a LATER section is not this table's.
+    expect("C: prose mention is not a row",
+           ":rf.error/prose-only-mention" not in active_rows)
+    expect("C: a row after the next `###` heading is out of scope",
+           ":rf.error/row-in-a-later-table" not in active_rows)
+
+    def c_fire(src: str, exempt: frozenset[str] = frozenset()) -> set[str]:
+        """The active rows CHECK C fires on, given an emitting source."""
+        return active_rows - emitted_err_warn_ids(mask(src)) - exempt
+
+    live_src = ('(emit-error! :rf.error/handler-exception {})'
+                '(emit! :warning :rf.warning/plain-fn {})')
+    expect("C: a row whose emitter exists passes",
+           c_fire(live_src + '(x :rf.error/emitter-was-deleted)') == set())
+    expect("C: a row with NO emitter FIRES (the rf2-d89rs defect)",
+           c_fire(live_src) == {":rf.error/emitter-was-deleted"})
+    # Striking the row is the documented fix, so it must actually work: after
+    # the retire-in-place edit the same source greens, with no other change.
+    struck_active, struck_retired = catalogue_rows(
+        synthetic_009_rows.replace(
+            "| `:rf.error/emitter-was-deleted` | `:error` | diagnostic | … | … | … |",
+            "| ~~`:rf.error/emitter-was-deleted`~~ | — | n/a (retired) | "
+            "**RETIRED.** … | — | — |"))
+    expect("C: striking the row silences it — the retire-in-place fix",
+           struck_active - emitted_err_warn_ids(mask(live_src)) == set()
+           and ":rf.error/emitter-was-deleted" in struck_retired)
+    # The exemption is precision, not a licence: it silences exactly its own
+    # entry and nothing else.
+    expect("C: the port-relative exemption silences only its own entry",
+           c_fire(live_src, frozenset({":rf.error/emitter-was-deleted"})) == set())
+    # …and a mention in a COMMENT / DOCSTRING is not an emitter, so it must not
+    # green a row (the masking that protects CHECK A protects CHECK C too).
+    expect("C: a commented-out emitter does NOT green the row",
+           c_fire(live_src + ';; (x :rf.error/emitter-was-deleted)')
+           == {":rf.error/emitter-was-deleted"})
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
