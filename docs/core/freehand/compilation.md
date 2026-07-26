@@ -1,7 +1,8 @@
 # Compilation
 
 Most Freehand views should stay **interpreted**. Compilation is a power tool for
-hot boundaries and library leaves — not a second product you live in by default.
+hot boundaries and library leaves — under **When you need more** in the nav, not
+a second product you live in by default.
 
 High `:stable-renders` means fix subscriptions or props, not compile. Measure
 first; compile second.
