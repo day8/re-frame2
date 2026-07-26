@@ -452,6 +452,7 @@ def lifecycle_arms_run(texts: dict[str, str | None]) -> set[str]:
         if all(texts.get(src) is not None for src in sources)
     }
 
+
 # The compiled client's frame-lifecycle CALL forms. Keyed on the leading paren so
 # docstring / backtick mentions (`(run-preflight! …)`, `` `.render` ``,
 # `` `createRoot` ``) never register as calls.
