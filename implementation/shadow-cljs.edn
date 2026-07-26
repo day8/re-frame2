@@ -1748,9 +1748,14 @@
   ;; refuses the React-element-shaped adapters including
   ;; `:rf.adapter/freehand` (rf2-qgfo4), so on a host that installed
   ;; `v/adapter` there is no Views panel to populate at all. The adapter
-  ;; supplies the OBSERVATION half a ViewCell's reads need (a watchable
-  ;; derived value) plus the `:render` slot the shell mounts through;
-  ;; Freehand renders itself through react-dom/client either way. That
+  ;; supplies the OBSERVATION half a ViewCell's reads need — which takes
+  ;; more than a watchable derived value, since a `reagent.ratom/Reaction`
+  ;; captures its sources only through `deref-capture` and a ViewCell is not
+  ;; a component; Reagent closes that by publishing
+  ;; `:adapter/activate-derived-value!`, so a cell here genuinely REPAINTS
+  ;; (rf2-8cnxg / rf2-jt8vz) — plus the `:render` slot the shell mounts
+  ;; through; Freehand renders itself through react-dom/client either way.
+  ;; That
   ;; arrangement is blessed by the substrate contract itself
   ;; (`re-frame.freehand.substrate`: bring-your-own adapter stays legitimate
   ;; for a mixed application). Nothing on the page is Reagent-rendered.

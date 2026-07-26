@@ -33,9 +33,19 @@
   contract does bless is exactly this arrangement — \"bring-your-own adapter
   ... stays legitimate for a mixed application under the single-adapter
   runtime\" (`re-frame.freehand.substrate`). The adapter supplies the
-  OBSERVATION half (a watchable derived value, which is all a ViewCell's
-  reads need); Freehand renders itself through `react-dom/client` either
-  way.
+  OBSERVATION half, and supplying it takes more than handing back a
+  watchable derived value. Reagent's are demand-driven: a
+  `reagent.ratom/Reaction` learns its sources only by being run through
+  `deref-capture`, so a read taken outside a reactive context leaves it
+  subscribed to nothing — watchable, and silent for as long as it lives. A
+  Reagent COMPONENT never meets that, because its render IS the capture
+  context; a ViewCell is not a component, so nothing supplies one on its
+  behalf. Reagent closes the gap by publishing the optional
+  `:adapter/activate-derived-value!` late-bind hook, which puts the value on
+  the substrate's push path (spec/006 §Reactive substrate — watchable is
+  necessary, not sufficient; rf2-8cnxg). With that, a cell on this page
+  genuinely REPAINTS when app-db moves. Freehand renders itself through
+  `react-dom/client` either way.
 
   So the split is clean and deliberate:
 
@@ -85,10 +95,11 @@
   rule for every deck under `tools/xray/testbeds/`."
   (:require [re-frame.core :as rf]
             [re-frame.freehand :as v]
-            ;; The OBSERVATION half of the substrate contract, and the
-            ;; `:render` slot Xray's hiccup shell needs. See the ns
-            ;; docstring: this is a blessed mixed host, not a stand-in for
-            ;; `v/adapter`.
+            ;; The OBSERVATION half of the substrate contract — including
+            ;; the `:adapter/activate-derived-value!` hook a ViewCell's reads
+            ;; need to be live at all — and the `:render` slot Xray's hiccup
+            ;; shell needs. See the ns docstring: this is a blessed mixed
+            ;; host, not a stand-in for `v/adapter`.
             [re-frame.adapter.reagent :as reagent-adapter]
             ;; Xray's `configure!` to seed `:project-root` so the per-site
             ;; `[code]` chips in Declared View Sites resolve a
@@ -124,8 +135,10 @@
 
 (v/defview controls
   "The dispatching view — compiled, so its declaration carries a proven
-  event site, and the only handler on the page. Pressing `+` moves app-db,
-  which advances [[readout]]'s committed generation."
+  event site, and the only handler on the page. Pressing `+` moves app-db
+  and [[readout]] repaints. Not its `:generation` — that is the hot-reload
+  body revision, not a render tally, and it stays 0 here (see the ns
+  docstring)."
   {:compiled true}
   [_]
   [:div {:data-testid "fh-controls"}
@@ -154,19 +167,21 @@
 ;; freshly minted occurrences. `v/mount` is idempotent per root, so the same
 ;; button re-renders a live root and mounts a fresh one after an unmount.
 ;;
-;; `Mount root` is also the only way to move a Freehand cell on THIS host,
-;; and the reason is worth stating plainly rather than leaving a reader to
-;; discover it by clicking `+` and watching nothing happen. The `+` dispatch
-;; DOES land — app-db moves, the Xray App-db panel shows `{:count 1 ← was 0}`
-;; — but under a ratom-family adapter the cell's committed read receives no
-;; change notification: `cell/pending-count` stays 0, the cell is never
-;; marked dirty, and it never repaints. Under Freehand's OWN adapter the same
-;; page repaints correctly (0 → 1 → 2), and Xray then refuses to mount
-;; (rf2-qgfo4). So on today's substrate no single host both repaints a
-;; Freehand cell reactively AND shows Xray's Views panel. Filed as a
-;; follow-up bead; this deck is built on the half that works, and a render is
-;; that half — it reads current values regardless of the notification
-;; channel, which is why `+` then `Mount root` shows the moved count.
+;; They are NOT how you move a cell, though this comment used to say they
+;; were. Pressing `+` repaints [[readout]] directly: the dispatch lands, the
+;; App-db panel shows `{:count 1 ← was 0}`, and the cell follows. It did not
+;; always — under a ratom-family adapter the cell's committed read once
+;; received no change notification at all, so `cell/pending-count` stayed 0
+;; and the readout sat at its first value while app-db moved underneath it.
+;; The cause was in the observation port, not the host: it installed a watch
+;; on a `reagent.ratom/Reaction` that had captured no sources, because a
+;; `Reaction` captures only through `deref-capture` and a ViewCell, not being
+;; a component, supplies no capture context. The port now ACTIVATES the value
+;; through `:adapter/activate-derived-value!` (rf2-8cnxg / rf2-jt8vz), so
+;; this host both repaints a Freehand cell and shows Xray's Views panel. The
+;; only refusal still standing is Xray's own: it will not mount on the
+;; React-element-shaped adapters, `:rf.adapter/freehand` among them
+;; (rf2-qgfo4).
 
 (defn- resolve-source-root []
   (testbed-config/resolve-source-root "tools/xray/testbeds"))
