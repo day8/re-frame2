@@ -45,7 +45,7 @@ hooks, refs, or stable identity are legal.
 - Decisions that depend on changing application state belong in the receiving
   re-frame event handler, not a render-captured callback guard.
 - Hooks, effects, refs, portals, context, and React-specific callback protocols
-  belong in a UIx/Helix wrapper or qualified host boundary.
+  belong inside the React component a D022 host declaration registers.
 - Equal callback values at two different runtime sites must never share lifecycle,
   `:once` state, frame ownership, or diagnostic identity.
 - Candidate render evidence becomes live atomically at commit; an abandoned render
@@ -160,7 +160,8 @@ fresh meaning without foreign identity churn.
 ## Dependencies and what this unlocks
 
 This depends on mounted occurrence identity, atomic candidate publication, the
-event projection decision, and qualified host schemas. It unlocks predictable
+event projection decision, and D022's `:callbacks` map, which is what names a
+declared foreign position. It unlocks predictable
 integration with date pickers, virtualized lists, Vega-style render hooks, SpreadJS
 adapters, memoized React children, and deterministic callback diagnostics.
 

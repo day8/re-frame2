@@ -2,9 +2,10 @@
 
 **Freehand** is the product name, and the single public entry point is
 `re-frame.freehand`, with `v` as the documented source alias (D001) — all
-dream code below uses `v`. Edge namespaces (`re-frame.freehand.test`, plus the
-later accepted `.form` and `.controls`) exist only where a bounded capability
-materially clarifies; there is no public `.host` namespace. Compiler and runtime
+dream code below uses `v`. Sibling edge namespaces exist only where a bounded
+capability materially clarifies; `spec/Conventions.md` §Freehand — one public
+namespace, one alias, one reserved root holds the roster, and there is no public
+`.host` namespace on it. Compiler and runtime
 namespaces stay internal; `re-frame.view` is NOT published as an alias (one
 door, per the absorption ruling), and `re-frame.ui` is a donor namespace only,
 deleted at the gate.
@@ -98,7 +99,7 @@ per substrate release, not per view. The product topology:
 | Scheduling | host-checkpoint render batches; one sanctioned synchronous door for controlled inputs (D009: frame-scoped flush confirmed) | §2.2, §2.3 |
 | Events | flat `:on-*`; vectors + options map + closed placeholder trio + key-condition maps (D007); materialize-at-the-adapter splice (D006); **one event per user action** (no multi-intent vectors) | §2.3 |
 | Instance state | semantic controllers (D003 + D004) — library-registered records keyed by kind + explicit caller-supplied `:control` address, semantic transition events; occurrence identity stays in the tool plane; raw storage verbs only for protocol-free state; controlled-first stands | §2.4 |
-| Host integration | registered behaviors (D013) — `host/defbehavior` + `::v/behavior` use-site data, connect/update/disconnect, bounded `:commands` with semantic-id targets; React ref protocols stay inside explicit wrappers | §2.5 |
+| Host integration | registered behaviors (D013) — `v/defbehavior` + `::v/behavior` use-site data, connect/update/disconnect, bounded `:commands` with semantic-id targets; React ref protocols stay inside explicit wrappers | §2.5 |
 | Data orientation | purpose-ranked doctrine (testability, AI-authorability first); inline `v/sub` is the one read language in v1 (D012 — no `:reads` declaration) | §2.5 |
 | Tier-2 shape | ABSORPTION, by operator ruling: re-frame.ui's machinery becomes the compiled tier; the standalone artifact is deleted at the gate | §3.4 |
 | Tier placement | app pages interpret; library leaves and row templates compile at birth; promotion by evidence, never folklore | §3.5 |
@@ -699,7 +700,7 @@ exactly like events/`reg-event` and fx/`reg-fx` — under the spine's protocol
 and vocabulary (behavior, not a second "attach" concept):
 
 ```clojure
-(host/defbehavior chart-host
+(v/defbehavior chart-host
   {:connect    (fn [node ctx {:keys [series]}] (chart/create node series))  ; → state
    :update     (fn [node ctx inst old new]
                  (when (not= (:series old) (:series new))
@@ -2341,7 +2342,7 @@ line each, full dossiers in `decisions/`:
 | D010 | no dynamic-markup valve in v1; `v/markup` is the blessed boundary crossing; `:interp-slots` counts its mounts |
 | D011 | props schemas optional in the grammar, mandatory by library/catalogue/generated-parity policy; closed-by-default Malli |
 | D012 | no `:reads` declaration in v1; evidence is the scope×basis×complete?×loss record everywhere |
-| D013 | registered behaviors (`host/defbehavior`, connect/update/disconnect) with closed passive/layout timing and the bounded `:commands` channel; semantic-id targets only; `:v.scroll/window` deferred |
+| D013 | registered behaviors (`v/defbehavior`, connect/update/disconnect) with closed passive/layout timing and the bounded `:commands` channel; semantic-id targets only; `:v.scroll/window` deferred |
 | D014 | `v/->react` on the shipped contract: shallow uncoerced copy, reserved `frame` prop, one `:map-props` adapter, descriptor-only, descriptor-keyed caching |
 | D015 | the closed top-layer intrinsic pair `:rf.web/popover-open?`/`:rf.web/modal-open?`; no neutral portal; efxb1h triggers gate any future helper |
 | D016 | one generation-fenced buffered controller; required `:reset-key`; begin = first edit; cancel = semantic clear |

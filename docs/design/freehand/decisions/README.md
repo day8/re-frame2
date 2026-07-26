@@ -1,6 +1,7 @@
 # Freehand decision register
 
-All twenty-two Freehand product decisions are **Ruled**. The files in this
+Every Freehand product decision is **Ruled** — the [table below](#rulings) is the
+roster. The files in this
 directory explain the problem, alternatives, consequences, and rationale; their
 header states the operative ruling so an implementer does not have to infer it
 from a recommendation section.
@@ -35,8 +36,10 @@ code; after that migration there is one owner.
 ## Settled foundations
 
 - The product is Freehand, published through `re-frame.freehand` with alias `v`
-  and no second product root or alternative primary facade. Qualified edge
-  namespaces such as `.test`, `.form`, and `.controls` remain part of Freehand.
+  and no second product root or alternative primary facade. Qualified sibling
+  edge namespaces remain part of Freehand; `spec/Conventions.md` §Freehand — one
+  public namespace, one alias, one reserved root holds the roster, and this
+  register does not keep a second copy of it.
 - Freehand is one re-frame-native substrate with interpreted and compiled modes;
   the compiled mode is required.
 - The useful `re-frame.ui` machinery is absorbed as the compiled mode's

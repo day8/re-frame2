@@ -81,9 +81,13 @@ Consequences:
 
 The selected option is **Freehand** and **`re-frame.freehand`**, with `v` as the
 documented alias.
-Use `re-frame.freehand.host` and `re-frame.freehand.test` only where a separate edge
-namespace materially clarifies host-only or test-only capabilities. Compiler and
-runtime implementation namespaces remain internal.
+Add a sibling edge namespace only where it materially clarifies a capability with
+its own audience; the sanctioned roster is held by
+[`spec/Conventions.md` §Freehand — one public namespace, one alias, one reserved
+root](../../../../spec/Conventions.md#freehand--one-public-namespace-one-alias-one-reserved-root),
+which this ruling does not restate. Compiler and runtime implementation namespaces
+remain internal, and the inward React host declaration is a verb on the door
+([D022](D022-public-react-host-door.md)) rather than an edge namespace of its own.
 
 Do not publish `re-frame.view` as an alias. Any future rename would be one
 coordinated pre-alpha change, not a second door.

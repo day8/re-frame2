@@ -37,7 +37,7 @@ listen for host events, and release resources.
 A spreadsheet is a tangible example:
 
 ```clojure
-(host/defbehavior workbook
+(v/defbehavior workbook
   {:connect    connect-workbook!
    :update     update-workbook!
    :disconnect disconnect-workbook!})
@@ -184,7 +184,7 @@ strict limits:
 For example:
 
 ```clojure
-(host/defbehavior workbook
+(v/defbehavior workbook
   {:connect    connect-workbook!
    :update     update-workbook!
    :disconnect disconnect-workbook!
@@ -220,7 +220,7 @@ Consequences:
 Choose **Option D**, under the public term **behavior** rather than introducing a
 second `attach` concept.
 
-The base API should remain the Codex protocol: `host/defbehavior` and a qualified
+The base API should remain the Codex protocol: `v/defbehavior` and a qualified
 behavior value on one node, with `connect`, `update`, and `disconnect`. A
 registration chooses `:timing :passive` (the default) or `:timing :layout` for
 host work that must finish before paint; this is closed registry metadata, not a
@@ -240,7 +240,8 @@ The behavioral split should be taught plainly:
 - **host emitted information** → behavior maps it through a configured intent
   using committed-generation dispatch;
 - **perform this one-shot host operation now** → one data command effect;
-- **React owns the protocol** → use a wrapper, not a behavior.
+- **React owns the protocol** → keep the region React-owned and register that
+  wrapper through `v/defhost`, not a behavior.
 
 ### Proposed command semantics
 
