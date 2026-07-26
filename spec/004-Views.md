@@ -1674,7 +1674,13 @@ Normatively, for both forms:
   that the attribute table is entitled to judge. Forward to a host with an ordinary
   map — `merge`, caller's remainder as the base and the props you own second — and the
   host's own naming law then judges every key that arrives, which is the only law that
-  was ever true there.
+  was ever true there. The refusal is `:rf.error/view-bad-props` with
+  `:forward-to-a-host-with-an-ordinary-map`, and it runs BEFORE the head's exactness
+  law ([§Three disjoint planes](#three-disjoint-planes)), because a spread has already
+  rewritten the very names that law reads. Both forms answer a plain map, so what the
+  boundary reads is a MARK the forms leave on their own result — provenance, not a key
+  inspection, since a corrupted map is indistinguishable from an authored one by the
+  time it arrives.
 
 And for `v/spread-safe` alone:
 
