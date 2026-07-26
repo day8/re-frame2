@@ -305,42 +305,126 @@
 (defn timed-write!
   "Write, yield ONE microtask, force the arm's own synchronous drain, stop
   the clock — then VERIFY at the DOM that the cell holds what was written.
-  Answers a promise of `{:ms … :ok? …}`."
+  Answers a promise of `{:ms … :write-ms … :force-ms … :ok? …}`.
+
+  The window is SPLIT because the split answers the comparison's biggest
+  fairness question. This row pits Freehand reading re-frame `app-db`
+  against Reagent reading a bare `reagent.core/atom`, which is each
+  substrate's own idiom but is NOT the same amount of framework: a
+  Reagent application that used re-frame subscriptions would pay a
+  re-frame write and a re-frame signal graph too. `:write-ms` is exactly
+  that leg — `frame/replace-app-db!` and the subscription recompute it
+  triggers, before React is involved — so a reader can see how much of
+  the gap a re-frame-shaped Reagent app would also have paid, instead of
+  being asked to take a sentence for it."
   [{:keys [arm container]} i val]
   (let [t0 (m/now-ms)]
     ((:write! arm) i val)
-    (-> (js/Promise.resolve nil)
-        (.then (fn [_]
-                 ((:force! arm))
-                 (let [ms    (- (m/now-ms) t0)
-                       probe (if (= i :all) 0 i)]
-                   {:ms   ms
-                    :ok?  (= (str val) (cell-text container probe))
-                    :ok2? (or (not= i :all)
-                              (= (str val) (cell-text container (dec cells-n))))}))))))
+    (let [t1 (m/now-ms)]
+      (-> (js/Promise.resolve nil)
+          (.then (fn [_]
+                   (let [t2 (m/now-ms)]
+                     ((:force! arm))
+                     (let [t3    (m/now-ms)
+                           probe (if (= i :all) 0 i)]
+                       ;; `:ms` is the WHOLE window, microtask boundary
+                       ;; included — the elapsed time to get this write onto
+                       ;; the page, which is the figure the ratios use. The
+                       ;; three legs are published beside it so the boundary
+                       ;; is visible rather than assumed empty: whatever
+                       ;; Freehand's notification does, it does it there.
+                       {:ms       (- t3 t0)
+                        :write-ms (- t1 t0)
+                        :gap-ms   (- t2 t1)
+                        :force-ms (- t3 t2)
+                        :ok?      (= (str val) (cell-text container probe))
+                        :ok2?     (or (not= i :all)
+                                      (= (str val) (cell-text container (dec cells-n))))}))))))))
 
 (defn chain
   "Fold `xs` into a serial promise chain, threading an accumulator."
   [init xs f]
   (reduce (fn [p x] (.then p (fn [acc] (f acc x)))) (js/Promise.resolve init) xs))
 
+(def writes-per-sample
+  "How many writes one SAMPLE of each row contains.
+
+  Chrome clamps `performance.now()` to 100 µs. A broad write costs every
+  arm well above that, so one write is a sample. A NARROW write does not:
+  measured one at a time, Reagent and the floor both returned exactly
+  0.1 ms — the quantum itself — which is the predecessor report's null
+  result wearing a different hat. Twenty writes to a sample lifts every
+  arm clear of the clamp, and the per-write figure is the sample divided
+  by twenty."
+  {:broad 1 :narrow 20})
+
+(defn- n-writes!
+  "`n` writes on one arm, timed as one sample. Every write carries a fresh
+  value and every one is verified at the DOM."
+  [mnt kind n]
+  (chain {:ms 0 :write-ms 0 :gap-ms 0 :force-ms 0 :bad 0} (range n)
+         (fn [acc _]
+           (let [val (next-gen!)
+                 i   (if (= kind :broad) :all (mod val cells-n))]
+             (-> (timed-write! mnt i val)
+                 (.then (fn [{:keys [ms write-ms gap-ms force-ms ok? ok2?]}]
+                          (cond-> (-> acc
+                                      (update :ms + ms)
+                                      (update :write-ms + write-ms)
+                                      (update :gap-ms + gap-ms)
+                                      (update :force-ms + force-ms))
+                            (not (and ok? ok2?)) (update :bad inc)))))))))
+
 (defn- update-round!
   [mounts kind sampling]
   (let [k     (count mounts)
-        total (+ (:warmup sampling) (:samples sampling))]
+        total (+ (:warmup sampling) (:samples sampling))
+        n     (get writes-per-sample kind)]
     (chain {:readings (zipmap (map #(:id (:arm %)) mounts) (repeat []))
+            :legs     (zipmap (map #(:id (:arm %)) mounts) (repeat []))
             :bad      0}
            (for [s (range total) j (range k)] [s j])
            (fn [acc [s j]]
              (let [mnt (nth mounts (mod (+ j s) k))
-                   val (next-gen!)
-                   i   (if (= kind :broad) :all (mod val cells-n))]
-               (-> (timed-write! mnt i val)
-                   (.then (fn [{:keys [ms ok? ok2?]}]
-                            (cond-> acc
-                              (not (and ok? ok2?)) (update :bad inc)
+                   id  (:id (:arm mnt))]
+               (-> (n-writes! mnt kind n)
+                   (.then (fn [{:keys [ms write-ms gap-ms force-ms bad]}]
+                            (cond-> (update acc :bad + bad)
                               (>= s (:warmup sampling))
-                              (update-in [:readings (:id (:arm mnt))] conj ms))))))))))
+                              (-> (update-in [:readings id] conj ms)
+                                  (update-in [:legs id] conj
+                                             {:write write-ms
+                                              :gap   gap-ms
+                                              :force force-ms})))))))))))
+
+(defn- leg-summary
+  "Per-arm p50 of each leg of the window, in milliseconds per SAMPLE."
+  [legs]
+  (into {}
+        (map (fn [[id xs]]
+               [id (when (seq xs)
+                     {:write-ms (:p50 (m/summarise (map :write xs)))
+                      :gap-ms   (:p50 (m/summarise (map :gap xs)))
+                      :force-ms (:p50 (m/summarise (map :force xs)))})]))
+        legs))
+
+;; THE MICROTASK YIELD IS PRICED IN SITU, BY THE ARMS THAT DO NOT NEED IT.
+;;
+;; Every measured write pays one microtask yield, because the slowest arm
+;; requires one, so a reader is owed the size of that constant. The
+;; measurement is `:gap-ms` in the `:legs` decomposition, and the control
+;; is that the floor and Reagent arms — which commit without it — report
+;; `:gap-ms 0.0` in every round of both rows. The yield costs nothing;
+;; what shows up in the Freehand arms' gap is Freehand's own notification
+;; callback running there, and it scales with the write exactly as it
+;; should (≈0.35 ms when a broad write moves 300 subscriptions, ≈0.01 ms
+;; when a narrow one moves one).
+;;
+;; A first attempt priced it instead by chaining 2,000 bare
+;; `js/Promise.resolve`s and dividing, which reported ≈1 ms a hop — larger
+;; than an entire measured Reagent write, and therefore impossible. That
+;; control was measuring the construction of a 2,000-deep promise chain,
+;; not a microtask. It was removed rather than published with a caveat.
 
 (defn seed-update-arms! [mounts]
   (chain nil mounts (fn [_ mnt] (-> (timed-write! mnt :all 0) (.then (fn [_] nil))))))
@@ -384,8 +468,14 @@
                                        :adapter           :rf.adapter/uix
                                        :reagent-version   "2.0.1"
                                        :unverified-writes bad
+                                       :writes-per-sample (get writes-per-sample kind)
                                        :measurement-method
-                                       (str "per write: t0; the arm's own state install; ONE "
+                                       (str "a SAMPLE is " (get writes-per-sample kind)
+                                            " write(s); Chrome clamps performance.now() to "
+                                            "100 us and a single narrow write sits on that "
+                                            "clamp for the floor and Reagent alike, so the "
+                                            "narrow row batches to lift every arm clear of it. "
+                                            "Per write: t0; the arm's own state install; ONE "
                                             "microtask yield; the arm's own synchronous drain "
                                             "(empty react-dom/flushSync for the floor and both "
                                             "Freehand arms, reagent.core/flush inside one for "
@@ -408,6 +498,7 @@
                                        :reference {:arm  :floor
                                                    :note "plain top-down React re-render, no substrate"}}
                       :per-round      {:p50 (mapv :p50 norm) :ratio (mapv :ratio norm)}
+                      :legs           (mapv #(leg-summary (:legs %)) rds)
                       :ratio-to-floor summ
                       :status         :evidence}]
                  (h/publish! (str "update / " (name kind)) record)
