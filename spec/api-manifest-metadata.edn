@@ -1657,6 +1657,66 @@
   ["re-frame.freehand.test" "text"]        {:tier :testing :owner "008" :status "EP-0036"}
 
   ;; =========================================================================
+  ;; re-frame.freehand.form — the PURE form transitions (rf2-drpa3.182.4;
+  ;; the accepted product-completion setpoint's DC-03, kept inside Freehand's
+  ;; own distribution by ER-04). A sanctioned `re-frame.freehand.*` sibling,
+  ;; conventionally aliased `form`.
+  ;;
+  ;; FRONT-PORCH, and that is the restrictive answer here rather than the
+  ;; permissive one. The tier taxonomy is "when ambiguous, pick the MORE
+  ;; restrictive", and the instinct is to file a new surface `:advanced`. But
+  ;; the tier is about WHO the surface is for, not how new it is: these nine
+  ;; operations and the `field` read are what an ORDINARY application author
+  ;; calls from an ordinary `reg-event` and `reg-sub`, in the first form they
+  ;; write. Filing them `:advanced` would keep them out of the Guide and the
+  ;; skills — the two surfaces whose whole job is to teach the seed-merge that
+  ;; every hand-rolled form gets wrong — which is the opposite of the
+  ;; restriction the taxonomy is asking for.
+  ;;
+  ;; `path-key` is the exception and it is `:advanced`: it is the RESERVED
+  ;; keyword a `field` projection carries its leaf path under, needed by a
+  ;; control author reading a projection and by nobody writing a form.
+  ;;
+  ;; No `:cljs-only` rows — the namespace is `.cljc` and host-neutral by
+  ;; construction, so `ns-publics` existence-verifies it on the JVM exactly as
+  ;; it does `re-frame.freehand`, and the CLJS probe reconciles the other half.
+  ;; =========================================================================
+  ["re-frame.freehand.form" "init"]           {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.form" "edit"]           {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.form" "visit"]          {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.form" "seed"]           {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.form" "reset"]          {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.form" "rebase"]         {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.form" "set-errors"]     {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.form" "attempt-submit"] {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.form" "reset-key"]      {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.form" "field"]          {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.form" "path-key"]       {:tier :advanced    :owner "004" :status "EP-0036"}
+
+  ;; =========================================================================
+  ;; re-frame.freehand.controls — the FIRST-PARTY CONTROL KIT (rf2-drpa3.182.4;
+  ;; DC-04). Conventionally aliased `c`. Two controls, the causal owner's
+  ;; release, and the keyboard law that makes a composing Enter commit nothing.
+  ;;
+  ;; `field` / `buffered-field` / `release` are FRONT-PORCH for the same reason
+  ;; the form transitions are: they are what an application author mounts and
+  ;; dispatches, not a library-author mechanism. `key-intent` and its two key
+  ;; names are `:advanced` — they are published so the composition rule is
+  ;; PROVABLE by calling it and so a kit member with its own keyboard protocol
+  ;; answers the question through one function rather than re-deciding it, and
+  ;; neither is reached by writing a form.
+  ;;
+  ;; The two controls are declared views, so their `:kind` is derived from the
+  ;; live var like any other; nothing here is curated but the three axes.
+  ;; =========================================================================
+  ["re-frame.freehand.controls" "field"]          {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.controls" "buffered-field"] {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.controls" "release"]        {:tier :front-porch :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.controls" "key-intent"]     {:tier :advanced    :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.controls" "commit-key"]     {:tier :advanced    :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.controls" "cancel-key"]     {:tier :advanced    :owner "004" :status "EP-0036"}
+
+  ;; =========================================================================
   ;; re-frame.freehand.tool — the Freehand TOOL-TIER READER DOOR (rf2-hytu5,
   ;; extended by rf2-lvvl2 / rf2-xftdv / rf2-cpfbg; EP-0036). The third and
   ;; last sanctioned `re-frame.freehand.*` namespace. SIX names: the

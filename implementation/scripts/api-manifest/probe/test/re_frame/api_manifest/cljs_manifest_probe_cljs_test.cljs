@@ -152,7 +152,9 @@
             ;; rf2-hytu5 — the Freehand TOOL-TIER reader door, enrolled on the
             ;; same terms again. Six names, and the require forces its analysis
             ;; so `emit-ns-publics` reads the live surface.
-            [re-frame.freehand.tool]))
+            [re-frame.freehand.tool]
+            [re-frame.freehand.form]
+            [re-frame.freehand.controls]))
 
 ;; ---------------------------------------------------------------------------
 ;; The live CLJS public surface, captured at compile time.
@@ -201,7 +203,12 @@
    "re-frame.freehand.test"                          (emit-ns-publics re-frame.freehand.test)
    ;; rf2-hytu5 — the Freehand tool-tier reader door. Same terms: JVM-
    ;; introspected rows, live CLJS surface reconciled here, fully-rowed.
-   "re-frame.freehand.tool"                          (emit-ns-publics re-frame.freehand.tool)})
+   "re-frame.freehand.tool"                          (emit-ns-publics re-frame.freehand.tool)
+   ;; rf2-drpa3.182.4 — the Freehand pure form transitions and the
+   ;; first-party control kit. Same terms: JVM-introspected rows, live CLJS
+   ;; surface reconciled here, fully-rowed.
+   "re-frame.freehand.form"                          (emit-ns-publics re-frame.freehand.form)
+   "re-frame.freehand.controls"                      (emit-ns-publics re-frame.freehand.controls)})
 
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
@@ -234,7 +241,15 @@
     ;; reader, not a tool framework), so a SEVENTH public var appearing on
     ;; either host without a manifest row → RED. Its rows likewise come from
     ;; :classification, fed in via `freehand-tool-rows` below.
-    "re-frame.freehand.tool"})
+    "re-frame.freehand.tool"
+    ;; rf2-drpa3.182.4 — direction-2 completeness for the form transitions and
+    ;; the control kit. The published rosters ARE the surfaces (the leafwise
+    ;; walk and the host-event scalar readers beneath them are `defn-`), so one
+    ;; more public var on either host without a manifest row → RED. That is the
+    ;; guard that keeps a form RUNTIME from arriving one convenience verb at a
+    ;; time, which is the way the non-goal would actually be breached.
+    "re-frame.freehand.form"
+    "re-frame.freehand.controls"})
 
 (def cljs-only-rows
   "The `:cljs-only` rows from spec/api-manifest-metadata.edn, embedded at
@@ -276,15 +291,33 @@
    permanently, and direction-2 completeness is what keeps them out."
   (emit-classification-rows "re-frame.freehand.tool"))
 
+(def freehand-form-rows
+  "The `re-frame.freehand.form` `:classification` rows (rf2-drpa3.182.4),
+   projected exactly as `freehand-tool-rows` is. The form module is `.cljc`
+   and depends on nothing but the substrate's equality, so its two hosts have
+   the least excuse of any surface here to differ — which is precisely why the
+   reconciliation is worth having rather than assumed."
+  (emit-classification-rows "re-frame.freehand.form"))
+
+(def freehand-controls-rows
+  "The `re-frame.freehand.controls` `:classification` rows (rf2-drpa3.182.4),
+   projected exactly as `freehand-form-rows` is. The kit grows through
+   witnesses, so direction-2 completeness is what makes each new control a
+   deliberate manifest row rather than a var that appeared."
+  (emit-classification-rows "re-frame.freehand.controls"))
+
 (def reconcile-rows
   "Every row the probe reconciles: the `:cljs-only` surfaces plus the
-   JVM-owned `re-frame.ui.test`, `re-frame.freehand`, `re-frame.freehand.test`
-   and `re-frame.freehand.tool` rows."
+   JVM-owned `re-frame.ui.test`, `re-frame.freehand`, `re-frame.freehand.test`,
+   `re-frame.freehand.tool`, `re-frame.freehand.form` and
+   `re-frame.freehand.controls` rows."
   (-> cljs-only-rows
       (into ui-test-rows)
       (into freehand-rows)
       (into freehand-test-rows)
-      (into freehand-tool-rows)))
+      (into freehand-tool-rows)
+      (into freehand-form-rows)
+      (into freehand-controls-rows)))
 
 ;; ---------------------------------------------------------------------------
 ;; The probe.

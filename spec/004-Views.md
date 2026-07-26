@@ -1170,6 +1170,188 @@ A Freehand implementation MUST NOT provide:
 **Conformance:** [FH-CTRL-001](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
 FH-CTRL-002, FH-CTRL-003, FH-CTRL-004, FH-CTRL-005.
 
+### Forms and the first-party control kit
+
+The sections above give a library the two things the substrate owes it —
+addressing, and the generation fence. What they do not give an application is a
+**form**, and a form is where those two ideas are actually needed. The accepted
+product-completion setpoint's DC-03 and DC-04 fill that in, and ER-04 keeps both
+inside Freehand's own distribution rather than in a second artefact:
+`re-frame.freehand.form` for the transitions and `re-frame.freehand.controls`
+for the controls.
+
+Neither is a form runtime. There is no atom, no validator engine, no schema
+renderer, no generic local store and no widget catalogue — the non-goals of the
+programme stand. What there is, is a value and some functions over it.
+
+#### Pure form transitions
+
+`re-frame.freehand.form` is **side-effect-free CLJC over ordinary application
+data**. It MUST register no event and no subscription, own no mutable state, and
+read no frame; every operation is `(f form …) -> form`, so an application owns
+event registration, validation policy, app-db placement and rendering, exactly as
+it does today.
+
+```clojure
+(rf/reg-event :editor/edited
+  (fn [{:keys [db]} [_ path text]]
+    {:db (update db :editor form/edit path text)}))
+```
+
+The starting public roster is `init`, `edit`, `visit`, `seed`, `reset`,
+`rebase`, `set-errors`, `attempt-submit` and `reset-key`, plus the one narrow
+reader §The narrow read requires.
+
+A form is a plain map, and its slots are public because a documented map needs no
+reader for each key:
+
+| Slot | |
+|---|---|
+| `:baseline` | the last values the DOMAIN accepted |
+| `:draft` | what the controls show and edit |
+| `:visited` | leaf paths the user has focused and left |
+| `:edited` | leaf paths the user has CHANGED |
+| `:resets` | leaf path → reset revision |
+| `:errors` | leaf path → structured message |
+| `:submit` | `{:attempted? :attempts :pending}` |
+
+- **A leaf path is a non-empty vector.** `[:contact :email]`,
+  `[:lines "line-7" :qty]`. That is what makes four of the slots flat sets and
+  maps keyed by one comparable value rather than four parallel nested trees, and
+  it is what lets a row keep its identity: a row addressed by its **stable domain
+  id** survives an insert, a delete and a re-sort, where a row addressed by its
+  index silently becomes a different row.
+- **`:visited` and `:edited` are two sets, and collapsing them is a bug.**
+  `:edited` is *the user changed this* and is what protects a leaf from a late
+  load; `:visited` is *the user has been here and left* and is what reveals an
+  error. A tab-through is visited and not edited. One `touched` set either makes
+  a tab-through wipe-protected, or makes an untouched required field scream.
+- **`edit` marks the leaf edited unconditionally**, including at a value equal to
+  the baseline. A leaf typed into and corrected back is still the user's.
+- **The reset revision is PER LEAF.** A form-wide generation would make rejecting
+  one field discard every other field's in-flight edit.
+- **Submit stays attemptable.** `attempt-submit` always marks the form attempted,
+  which reveals every error at once; when there are none it also opens a pending
+  save stamped with the attempt number. That stamp is the **staleness fence**: a
+  reply carrying a superseded number is inert. `rebase`, `set-errors` and `reset`
+  each settle a pending submit, because each of them IS the reply landing.
+
+**Conformance:** [FH-CTRL-012](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
+FH-CTRL-015.
+
+#### Seed, reset and rebase
+
+Three transitions move a form from the outside, and the whole of the design is
+that they are **three and not one**.
+
+| | draft | edited marks | reset revisions |
+|---|---|---|---|
+| `seed` | edited leaves held; the rest take the new value | untouched | untouched |
+| `reset` | discarded, back to baseline | cleared | **ADVANCED** |
+| `rebase` | KEPT | cleared where the draft now agrees | untouched |
+
+- **`seed` is LEAFWISE, and that is the fix for the oldest bug in forms.** A slow
+  load returns while the user is typing and a whole-map `assoc` over the draft
+  erases the keystrokes. Seeding leafwise MUST hold every leaf in `:edited` — in
+  the draft *and* in the baseline, so the work is neither displayed over nor
+  silently re-based under — MUST leave every leaf the payload does not mention
+  untouched, including a sibling of one that is mentioned and a whole sub-tree
+  the payload omits, and MUST mark nothing visited or edited, because the server
+  typing is not the user typing. A seeded leaf moves baseline and draft together
+  and clears the error its old value carried.
+- **`reset` is a REJECTION and advances the generation.** A caller refuses a
+  draft by reasserting what it already had, so nothing derived from the value can
+  observe the decision (§The generation fence). Advancing the leaf's revision is
+  the one signal equality is not blind to. Scoped to a leaf, it advances that
+  leaf's generation and no other.
+- **`rebase` is an ACCEPTANCE and advances nothing.** The baseline moved under a
+  live draft — a save landed, an authoritative refresh arrived — and the user's
+  unsaved work is not a draft to be rejected, so a control holding a live buffer
+  keeps it. A leaf whose draft now equals the new baseline stops being edited;
+  there is nothing left to protect there.
+
+**Conformance:** [FH-CTRL-013](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
+FH-CTRL-014.
+
+#### The narrow read
+
+A form read through its **container** — subscribe to `:draft`, then `get` the key
+— is invalidated by a character typed in any *other* field; and because a
+controlled input's synchronous door drains re-frame and flushes the dirty cells
+on **this** frame before returning into React (§Controlled inputs), every one of
+those fields re-renders *inside* the keystroke rather than after it. Whole-container
+reads therefore make keystroke latency scale with the size of the form. On a form
+this is a cost model rather than a matter of taste, which is why the narrow read
+is a published derivation rather than advice.
+
+```clojure
+(rf/reg-sub :editor/field
+  (fn [db [_ path]] (form/field (:editor db) path)))
+```
+
+`form/field` answers everything one control needs about one leaf and nothing
+about any other — `:value`, `:baseline`, `:error`, `:visited?`, `:edited?`,
+`:show-error?`, `:reset-key`, and the leaf path itself under the reserved
+`:re-frame.freehand/path`. That is **one subscription for a form of any size**: it
+recomputes on every keystroke, as every subscription over app-db does, and its
+value changes only when that leaf's does.
+
+`:show-error?` is the REVEAL policy and not the validation policy. An error shows
+once the user has visited the leaf, or once a submit has been attempted; which
+errors exist is the application's to decide.
+
+#### The first-party control kit
+
+`re-frame.freehand.controls` is a **small kit grown through serious witnesses**,
+not a catalogue promise. Skins, layouts and application compositions are meant to
+be copied and adapted; the correctness machinery is not copy-only. Today it is
+`field`, `buffered-field` and `release`.
+
+```clojure
+[c/field {:field    (v/sub [:editor/field [:contact :email]])
+          :on-edit  [:editor/edited      [:contact :email]]
+          :on-visit [:editor/visited     [:contact :email]]}]
+```
+
+- **Neither control has a `:value` prop.** The only value either accepts is a
+  `form/field` projection, and a caller's forwarded attributes go through
+  `v/spread-safe`, whose deny law refuses `value` on the component's own
+  controlled element in every build. The container read is not discouraged here;
+  there is nowhere to put it.
+- **Each renders one native `<input>`** carrying `value` with a literal event
+  vector at `onInput` — the shape the door recognises — and one attribute of its
+  own beyond the contract, `aria-invalid`, from the projection's `:show-error?`.
+  The label, the message and the layout are the application's: a control that
+  owned its markup would be un-adaptable exactly where design systems differ.
+- **`buffered-field` keeps its draft IN THE FORM.** What is buffered is the
+  *domain's* view of it: `:on-edit` writes the form's draft leaf on every
+  keystroke, and `:on-commit` fires on blur and on Enter, carrying the leaf's
+  reset revision so the receiving handler decides against committed state. There
+  is no host slot, no local buffer and no controller record, so a re-render, an
+  abandoned candidate, a StrictMode double-invoke and a hot reload are all
+  uneventful.
+- **A COMPOSING ENTER MUST NOT COMMIT.** The Enter that accepts an input-method
+  candidate belongs to the IME, and a control that reads it as a commit fires the
+  domain event mid-word on every phrase a Japanese, Chinese or Korean user types.
+  A composing Escape is the IME's too. The rule is a pure function of the key and
+  the composition flag (`controls/key-intent`), so it is provable without a
+  browser.
+- **`release` is the causal owner's clear**, and it is exact: it removes the form
+  slices the owner NAMED — never "every form", never "everything this kind holds"
+  — in one value, creating nothing where a path's parent is absent and changing
+  nothing when it runs twice. It exists because there is no lifecycle cleanup hook
+  and there will not be one (§Semantic transitions and owner cleanup); **unmount
+  is not a domain event, and the absence of a mounted occurrence is not proof of
+  orphaning.** Nothing in this kit can be orphaned, because its controls keep
+  their state in the form the owner already owns.
+
+Both declarations are inside the compiled grammar as they stand, so promotion is
+a keyword rather than a rewrite and interpreted/compiled structural parity holds
+by construction.
+
+**Conformance:** [FH-CTRL-016](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
+FH-CTRL-017.
+
 ### Presence
 
 Presence is declarative enter/exit retention over keyed children — deliberately
