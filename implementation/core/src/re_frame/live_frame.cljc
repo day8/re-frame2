@@ -349,15 +349,21 @@
   registration issued after `make-frame` is deterministically visible to the
   very next dispatch / subscribe in the SAME tick, not only after the deferred
   `next-tick` flush happens to run. This strengthens the EP-0023 §Default Image
-  Semantics dev guarantee from \"reprojected at the next macrotask boundary\" to
+  Semantics guarantee from \"reprojected at the next macrotask boundary\" to
   \"reprojected before the next resolution\" — with `make-frame` as the ONE
   constructor, every frame is image-loaded, and the
   register-then-dispatch-sync sequence (tests, REPL, setup code) must not race
   the deferred tick. Coalescing is UNCHANGED: a synchronous `reg-*` burst still
   sets one flag and is flushed ONCE, by whichever comes first — this read or
-  the scheduled tick. Gated on `interop/debug-enabled?` (the flag can only be
-  set by the dev-only registration hook, and the gate lets `:advanced` +
-  `goog.DEBUG=false` builds DCE the read entirely — zero production cost).
+  the scheduled tick.
+
+  rf2-9c2jf: this flush is NOT gated on `interop/debug-enabled?`. It was, and
+  because `make-frame` seals a generation unconditionally the production gate
+  froze each frame's view of the registration pool at construction time — every
+  handler registered afterwards dispatched as `:rf.error/no-such-handler`. The
+  consult is by late-bind KEYWORD and its publisher is rooted from
+  `make-frame`, so an app that never constructs a frame still DCEs the whole
+  reprojection + assembly graph and pays nothing here.
 
   EP-0024 (rf2-tu2vr7): `frame-target` may be a frame VALUE (`make-frame`'s
   return token) or a frame id — the generation is read from the record by id, so
@@ -1102,12 +1108,23 @@
 ;;
 ;; ## Production elision
 ;;
-;; Reprojection is a DEV hot-reload concern: in production the source registrar
-;; stops changing after boot (EP-0023:530 — "the default path feels sealed for
-;; the lifetime of the frame"), so there is nothing to reproject. The whole
-;; wiring is therefore gated on `interop/debug-enabled?` — under `:advanced` +
-;; `goog.DEBUG=false` the gate constant-folds to `false`, the `defonce` install
-;; body DCEs, and the registration path carries ZERO reprojection cost. The
+;; Reprojection USED to be treated as a DEV hot-reload concern and the whole
+;; wiring was gated on `interop/debug-enabled?`, on the reasoning that "in
+;; production the source registrar stops changing after boot, so there is
+;; nothing to reproject". rf2-9c2jf retired that gate: nothing orders all
+;; registrations before all frame construction, `make-frame` seals a generation
+;; UNCONDITIONALLY (EP-0026 §Default Image), and `registrar/lookup` resolves
+;; through that seal — so under the gate the ordinary
+;; `make-frame` → `reg-*` → `dispatch` sequence resolved nothing and reported
+;; `:rf.error/no-such-handler`. Keeping a frame's generation in step with the
+;; registration pool is a CORRECTNESS invariant, not a diagnostic.
+;;
+;; The elision it bought is preserved differently: the wiring is now installed
+;; by `ensure-reprojection-installed!`, which ONLY `make-frame` reaches. An app
+;; that never constructs a frame never roots the reprojection + assembly graph,
+;; so `:advanced` + `goog.DEBUG=false` still trims it (`check-elision.cjs`
+;; PROD_ABSENT_WHEN_UNUSED); an app that DOES construct a frame already roots
+;; `assemble-default` through `make-frame` itself. The
 ;; hook adds NO new ALWAYS-ON error id: assembly errors never reach the
 ;; always-on axis (Spec 009 §Observability channels) here — they are diagnosed
 ;; on the trace DIAGNOSTIC channel only (`:rf.warning/reprojection-failed`,
