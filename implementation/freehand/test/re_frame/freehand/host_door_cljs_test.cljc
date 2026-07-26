@@ -493,3 +493,163 @@
     (is (nil? (compile-reject '[:div [:span "ordinary"]]))
         "control: an ordinary compiled body still analyzes, so the red above
          is the host head talking")))
+
+;; ---------------------------------------------------------------------------
+;; An ELEMENT forwarding form at a host head (rf2-n4by4)
+;; ---------------------------------------------------------------------------
+;;
+;; 004 §Props forwarding: "Both forms fold onto an element, and neither is
+;; legal at a `v/defhost` head." What makes that a refusal rather than a style
+;; note is the shape of the failure it replaces. `v/spread` at a host head was
+;; ACCEPTED, and a spread canonicalises every key onto the slot an ELEMENT
+;; would write it into — so `:className`, the name a React library actually
+;; reads, arrived as `:class`, a prop the component does not read. The
+;; component received no class and nothing said so.
+;;
+;; Both forms answer a plain map, so the boundary had nothing to read. The
+;; refusal rides a mark the forms leave on their own result
+;; (`rules/mark-element-forward`), which is why the ELEMENT rows at the bottom
+;; of this section are not optional: the mark travels on the value that every
+;; legal fold also receives, and over-refusing there would be exactly as wrong
+;; as under-refusing at the head.
+
+(v/defhost forwarding-host
+  "The host these rows are written against. One declared callback position, so
+  a realistic forward has an owned prop to collide with."
+  (fn [_props] nil)
+  {:callbacks {:onChange :event}
+   :children  :none
+   :ssr       :client-only})
+
+(v/defview spread-forward-field
+  "The shape nine documentation sites taught until rf2-33bgx: the caller's
+  remainder forwarded onto a HOST head with `v/spread`."
+  [{:keys [date] :as props}]
+  [forwarding-host (v/spread (dissoc props :date) {:selected date})])
+
+(v/defview merge-forward-field
+  "The counterfactual — the same forward written the way 004 rules it. Same
+  view, same caller map, an ordinary `merge` with the remainder as the base."
+  [{:keys [date] :as props}]
+  [forwarding-host (merge (dissoc props :date) {:selected date})])
+
+(v/defview spread-forward-card
+  "The NEGATIVE CONTROL for `v/spread`: the same forward, the same map, at an
+  ELEMENT head — where the form is the point and the canonicalization that
+  corrupts a host prop is exactly what the element wants."
+  [{:keys [date] :as props}]
+  [:div.card (v/spread (dissoc props :date) {:data-part "root"})])
+
+(v/defview spread-safe-forward-input
+  "The negative control for `v/spread-safe`, at the element it was written
+  for — a controlled input whose owned keys the caller cannot reach."
+  [{:keys [value] :as props}]
+  [:input (v/spread-safe {:value value :data-part "control"} (dissoc props :value))])
+
+(deftest an-element-forwarding-form-at-a-host-head-is-refused
+  (testing "Per 004 §Props forwarding: the entire content of a forwarding form
+            is the attribute grammar, and a host prop is not an attribute — it
+            is an exact unqualified keyword handed shallowly to a foreign API.
+            Both forms are refused, and the diagnostic names WHICH form, WHICH
+            head, and the ordinary merge that works."
+    (doseq [[form props] [['v/spread      (v/spread {:className "from-a-react-lib"}
+                                                    {:variant :compact})]
+                          ['v/spread-safe (v/spread-safe {:variant :compact}
+                                                         {:className "from-a-react-lib"})]]]
+      (let [call #(descriptor/normalize-host-call forwarding-host [props])
+            data (conf/caught-data call)
+            msg  (conf/caught-message call)]
+        (is (= :rf.error/view-bad-props (conf/caught-id call))
+            (str form " at a host head is refused"))
+        (is (= :forward-to-a-host-with-an-ordinary-map (:recovery data))
+            (str form " — the recovery names the forward that works"))
+        (is (= form (:form data))
+            (str form " — and the payload names which form was used"))
+        (is (= (:host-id (descriptor/host-entry forwarding-host)) (:view-id data))
+            (str form " — reported against the head that refused it"))
+        (is (str/includes? msg (str form))
+            (str form " — the sentence names the form"))
+        (is (str/includes? msg (str (:host-id (descriptor/host-entry forwarding-host))))
+            (str form " — and names the head, so the author can navigate to it"))
+        (is (str/includes? msg "merge")
+            (str form " — and names the recovery in prose, not only as a keyword"))))
+    (is (= {:variant :compact}
+           (:props (descriptor/normalize-host-call forwarding-host [{:variant :compact}])))
+        "control: an ORDINARY map of the same keys still normalizes — the
+         refusal is the forwarding form's provenance talking, not the props")))
+
+(deftest the-forwarding-refusal-runs-before-the-exactness-law
+  (testing "Ordering is load-bearing, so it is asserted rather than assumed. A
+            spread projects `\"class\"` onto the slot an element would use, so
+            by the time the exactness law reads the names the string has
+            already become the keyword `:class` — a clean call, and the
+            corruption as the answer. The forwarding refusal therefore runs
+            first."
+    (let [props (v/spread {"class" "from-a-react-lib"})]
+      (is (= [] (descriptor/inexact-host-prop-names props))
+          "non-vacuity: the exactness law sees nothing to complain about — the
+           string key was laundered into a keyword before it got here")
+      (is (str/includes? (conf/caught-message
+                          #(descriptor/normalize-host-call forwarding-host [props]))
+                         "ELEMENT")
+          "so the refusal that fires is the forwarding one, not the exactness one")
+      (is (= :rf.error/view-bad-props
+             (conf/caught-id #(descriptor/normalize-host-call forwarding-host
+                                                             [{"class" "from-a-react-lib"}])))
+          "control: the SAME authored key in an ordinary map is still refused —
+           by the exactness law, which is the check a spread walks past"))))
+
+(deftest the-className-rename-is-refused-end-to-end
+  (testing "The concrete corruption, through a real render rather than at the
+            boundary function alone. `:className` and `:class` are DIFFERENT
+            React props, and `:className` is the one a third-party component
+            reads — so a rename here is not a laundered spelling, it is the
+            wrong prop, silently.
+
+            The merge twin is the counterfactual, and it is what makes this row
+            more than an assertion that something throws: the caller's name
+            survives when the forward is written the way 004 rules it."
+    (is (= :rf.error/view-bad-props
+           (conf/caught-id #(t/render [holder {} [spread-forward-field
+                                                  {:date      "2026-01-05"
+                                                   :className "from-a-react-lib"}]])))
+        "the spread forward is refused at render, not accepted and renamed")
+    (let [props (:props (host-node [merge-forward-field
+                                    {:date      "2026-01-05"
+                                     :className "from-a-react-lib"}]))]
+      (is (= "from-a-react-lib" (:className props))
+          "and the merge forward crosses under the caller's own name")
+      (is (nil? (:class props))
+          "with nothing in the slot the spread would have renamed it into")
+      (is (= "2026-01-05" (:selected props))
+          "the owned prop still won the position it owns"))))
+
+(deftest a-forwarding-form-at-an-element-head-still-folds
+  (testing "The NEGATIVE CONTROL. The mark the refusal reads travels on the
+            value every LEGAL fold also receives, so an over-broad guard would
+            break the forms at the only head where they belong — and nothing
+            else in this file would notice. At an element the slot
+            canonicalization is the feature: a caller's `:className` composes
+            into the element's own class rather than being renamed behind its
+            back, because at an element `class` really is the slot."
+    (let [attrs (t/attrs (t/find (t/render [holder {} [spread-forward-card
+                                                       {:date      "2026-01-05"
+                                                        :className "from-a-react-lib"
+                                                        :placeholder "pick"}]])
+                                 #(= :div (:tag %))))]
+      (is (= "card from-a-react-lib" (:class attrs))
+          "v/spread: the caller's :className composed with the .card sugar")
+      (is (= "root" (:data-part attrs)) "the overrides position still wins")
+      (is (= "pick" (:placeholder attrs)) "and the ordinary remainder forwarded"))
+    (let [attrs (t/attrs (t/find (t/render [holder {} [spread-safe-forward-input
+                                                       {:value          "ada@example.com"
+                                                        :className      "from-a-react-lib"
+                                                        :data-analytics "signup-email"}]])
+                                 #(= :input (:tag %))))]
+      (is (= "ada@example.com" (:value attrs))
+          "v/spread-safe: the owned controlled value survives the caller map")
+      (is (= "control" (:data-part attrs)) "under the component's own part name")
+      (is (= "from-a-react-lib" (:class attrs))
+          "the caller's class composed onto the element it was aimed at")
+      (is (= "signup-email" (:data-analytics attrs))
+          "and the caller's annotation landed"))))
