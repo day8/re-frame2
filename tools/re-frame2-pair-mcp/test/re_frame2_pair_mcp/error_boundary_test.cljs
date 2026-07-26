@@ -16,27 +16,39 @@
 
   `tools/re-frame2-pair-mcp/src` has exactly four `throw` sites, and a
   throw reaches the agent by one of two DIFFERENT relays depending on
-  WHERE in a tool body it fires. The relays are still asymmetric, but
-  only one-sidedly so now:
+  WHERE in a tool body it fires. The two relays used to keep OPPOSITE
+  halves of the exception; both now carry the whole of it, and differ
+  only in the precedence they give the two `:reason` slots:
 
-  - `server.cljs` `invoke-and-guard` → `{:reason :handler-threw :message
-    (.-message err)}`. Keeps the MESSAGE, drops the ex-data. Reached by
-    anything thrown while the tool body builds its request — before the
-    nREPL round-trip. (Its dropped ex-data half is rf2-qoih4.)
+  - `server.cljs` `invoke-and-guard` → the ex-data merged UNDER
+    `{:reason :handler-threw :message (.-message err)}`. Carries both
+    halves since rf2-qoih4. Reached by anything thrown while the tool
+    body builds its request — before the nREPL round-trip. `:reason`
+    is the ENVELOPE's discriminator here, so it outranks a site's own;
+    the site's rides in `:rf.error/id`.
 
-  - `tools/probe.cljs` `err->result` → the ex-data merged over
-    `{:ok? false :message (ex-message err)}`. Carries BOTH halves since
+  - `tools/probe.cljs` `err->result` → the ex-data merged OVER
+    `{:ok? false :message (ex-message err)}`. Carries both halves since
     rf2-6tzm5. Reached by anything thrown from the `on-value` callback
     of `eval-after-runtime!` / `eval-after-runtime-signalled!` — i.e.
-    all response shaping, after the round-trip.
+    all response shaping, after the round-trip. Here the ex-data's
+    `:reason` IS the payload's discriminator, so it wins.
 
-  Which relay a given throw meets decides which half of the Spec 009
-  shape the agent can read, so each is pinned here at its own boundary:
+  Both relays put ex-data on the wire, which makes a relayed throw's
+  ex-data WIRE DATA: every value in it must be EDN-round-trippable,
+  because the envelope's canonical slot is `(pr-str v)` and one
+  unreadable value reds the consumer's read of the WHOLE envelope
+  rather than merely going missing.
+
+  Each relay is pinned here at its own boundary:
 
   - **rt-let binding shape** (`tools/eval-form` `emit-name`) fires during
-    synchronous form construction, so it meets `invoke-and-guard`. Its
-    message IS the consumer contract, and the first test pins the human
-    sentence and the token end to end.
+    synchronous form construction, so it meets `invoke-and-guard`. The
+    first test pins both halves: the human sentence and the token in the
+    message, and `:rf.error/id` / `:where` / `:recovery` / `:name` as
+    ex-data slots — plus the precedence rule, since `emit-name`'s
+    ex-data carries a `:reason` of its own that must NOT displace
+    `:handler-threw`.
 
   - **unknown wire `:kind`** (`tools/wire-pipeline` `run-wire-pipeline`)
     fires only from response shaping — all five call sites across
@@ -154,8 +166,17 @@
 (deftest rt-let-binding-shape-reaches-the-agent-as-a-readable-message
   ;; Reverting `emit-name`'s message to a bare `(str error-kw)` reds the
   ;; sentence assertion; dropping the trailing token reds the token
-  ;; assertion; a regression that turns the tool error into a rejected
-  ;; promise reds `tu/error?` and takes the whole row with it.
+  ;; assertion; reverting `invoke-and-guard` to `{:reason :handler-threw
+  ;; :message …}` — the shape that made this ex-data unreachable — reds the
+  ;; four ex-data rows; a regression that turns the tool error into a
+  ;; rejected promise reds `tu/error?` and takes the whole row with it.
+  ;;
+  ;; And the row is a tripwire for the hazard that promotion introduces, at
+  ;; no extra cost: `tu/extract-edn` IS the consumer's EDN reader, so a
+  ;; single non-EDN value anywhere in a relayed ex-data reds EVERY assertion
+  ;; below at once with `No reader function for tag object`. `emit-name`
+  ;; carried one (`:type (type n)`, a JS constructor) harmlessly for as long
+  ;; as relay 1 dropped ex-data; putting it back demonstrates the failure.
   (async done
     (let [orig ef/rt-let
           ;; The REAL constructor, handed a binding name that is not a
@@ -180,7 +201,32 @@
                      (pr-str msg)))
             (is (str/includes? msg "[:rf.error/pair-mcp-rt-let-binding-bad-shape]")
                 (str "the canonical [:rf.error/…] token rides the message\n  got: "
-                     (pr-str msg)))))
+                     (pr-str msg)))
+            ;; The other half, closed by rf2-qoih4. Relay 1 used to relay the
+            ;; message and DROP `(ex-data err)`, so the discriminator an agent
+            ;; BRANCHES on arrived only as a token embedded in prose — it had
+            ;; to regex it back out — and the actionable slots beside it did
+            ;; not arrive at all. Nothing else on this surface can notice
+            ;; that: every other assertion here reads the message, which the
+            ;; old relay preserved. These rows are the only thing standing
+            ;; between a future `{:reason :handler-threw :message …}` and a
+            ;; second round of ex-data that reaches nobody.
+            (is (= :rf.error/pair-mcp-rt-let-binding-bad-shape
+                   (:rf.error/id edn))
+                "the machine discriminator rides as a SLOT, namespace intact")
+            (is (= 're-frame2-pair-mcp/rt-let (:where edn))
+                "along with the rest of the site's actionable ex-data")
+            (is (= :no-recovery (:recovery edn)))
+            (is (= (pr-str "not-a-symbol") (:name edn))
+                "and the offending value, in its total pr-str rendering")
+            ;; Precedence, and it is the OPPOSITE of relay 2's. `emit-name`'s
+            ;; ex-data carries its own `:reason` string; the `:handler-threw`
+            ;; row above passes only because the relay's `:reason` wins over
+            ;; it. Merge the ex-data OVER instead and that row reds, because
+            ;; the agent loses the one key telling it the tool body threw
+            ;; before the runtime was ever reached.
+            (is (= :handler-threw (:reason edn))
+                "the envelope discriminator survives an ex-data :reason")))
         done))))
 
 (deftest invoke-and-guard-relays-the-producers-message-verbatim

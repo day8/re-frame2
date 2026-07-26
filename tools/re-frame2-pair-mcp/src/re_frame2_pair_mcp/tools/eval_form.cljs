@@ -127,9 +127,26 @@
   (when-not (symbol? n)
     ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape: the
     ;; human sentence + a trailing `[:rf.error/<id>]` token IS the ex-message.
-    ;; Load-bearing here (rf2-jquiy) — `server.cljs`'s `invoke-and-guard`
-    ;; relays `(.-message err)` into the `:handler-threw` envelope, so this
-    ;; text is what the agent on the other end of the MCP wire reads.
+    ;; Load-bearing here (rf2-jquiy) — this fires during synchronous form
+    ;; construction, so it meets RELAY 1 (`server.cljs`'s `invoke-and-guard`),
+    ;; which relays `(.-message err)` into the `:handler-threw` envelope.
+    ;; Since rf2-qoih4 relay 1 merges this ex-data in alongside, so the slots
+    ;; below reach the agent as slots — `:rf.error/id` is the discriminator it
+    ;; branches on, and it no longer has to regex the token out of the
+    ;; sentence. `:reason` stays a courtesy restatement: relay 1's envelope
+    ;; `:reason` is `:handler-threw` and takes precedence over this one.
+    ;;
+    ;; That promotion makes this ex-data WIRE DATA, so every value in it must
+    ;; be EDN-round-trippable — the envelope's canonical slot is `(pr-str v)`
+    ;; and the agent reads it back with an EDN reader. `:name` is therefore
+    ;; `(pr-str n)`: `n` is by definition NOT a symbol here, so it can be any
+    ;; junk a mis-built binding vector carries, and its printed form is both
+    ;; the whole of the information and the only total rendering of it. A
+    ;; former `:type (type n)` slot is gone for the same reason — `(type "x")`
+    ;; is a JS constructor, which `pr-str`s to `#object[Function …]` and reds
+    ;; every EDN reader downstream with `No reader function for tag object`,
+    ;; costing the agent the message too. It told the agent nothing `:name`
+    ;; does not.
     ;; Hand-rolled inline: `tools/` MUST NOT `:require re-frame.*`.
     (throw (ex-info (str "rt-let binding name must be a symbol, got "
                          (pr-str n)
@@ -138,8 +155,7 @@
                      :where    're-frame2-pair-mcp/rt-let
                      :recovery :no-recovery
                      :reason   "rt-let binding name must be a symbol"
-                     :name     n
-                     :type     (type n)})))
+                     :name     (pr-str n)})))
   (name n))
 
 (defn- emit-body [forms]

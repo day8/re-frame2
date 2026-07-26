@@ -755,11 +755,17 @@
 
     - `server.cljs` `invoke-and-guard` (relay 1) — reached by anything
       thrown while the tool body BUILDS its request, before the nREPL
-      round-trip. Keeps the message; drops the ex-data (rf2-qoih4).
+      round-trip.
     - this fn (relay 2) — reached by anything thrown from an
       `eval-after-runtime!` / `eval-after-runtime-signalled!`
       `on-value` callback, i.e. ALL response shaping, after the
       round-trip.
+
+  Both now carry the message AND the ex-data; they differ only in
+  PRECEDENCE, and deliberately. Here the ex-data's `:reason` is the
+  payload's own discriminator so it wins; at relay 1 `:reason` is the
+  envelope's `:handler-threw` discriminator so the relay's wins and the
+  site's rides in `:rf.error/id` (rf2-qoih4).
 
   Relay 2 used to keep only the ex-data, dropping `(ex-message err)`
   entirely — so a Spec 009 canonical message composed at a
