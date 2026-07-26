@@ -480,11 +480,18 @@
     makes. A `dispatch` would settle another epoch record for a value that is
     pure setup, and the cascade's record count is read below.
   - `:trace-events-keep` is pinned to the shipped default. The suite-wide
-    `:init-fn` sets 5 for `drive-mixed-ring!`'s five cascades; this cascade
-    settles more than five and EVERY record is read for its `:trace-events`, so
-    inheriting that cap would silently elide the FIRST record's rows and return
-    the fx-carrier scans to reporting green over ground they no longer cover.
-    Pinning it here is what stops the cascade's LENGTH from being load-bearing."
+    `:init-fn` sets a cap sized for `drive-mixed-ring!`, and
+    `epoch.state/elide-just-crossed-trace-events` dissocs the `:trace-events` of
+    every record that slides out of that window. `drive-resource-family!` below
+    settles one record per `dispatch-sync` it makes and EVERY one of them is read
+    for its rows, so under the inherited cap this fixture's coverage would hang
+    on one driver never outgrowing a number tuned for a different driver — and
+    outgrowing it is SILENT: the oldest record's rows are simply gone, and the
+    fx-carrier scans return to reporting green over ground they no longer cover.
+    Pinning it here is what stops the cascade's LENGTH from being load-bearing;
+    the `every? (comp seq :trace-events)` fixture control in
+    `forwarder-projected-record-leaks-no-raw-resource-family-bytes` is what
+    catches the pin itself rotting."
   [frame-id]
   (rf/configure! {:epoch-history {:trace-events-keep 50}})
   (frame/swap-frame-db! frame-id assoc-in [:auth :user :username] secret-password)
@@ -571,7 +578,8 @@
   They used also to be harvested here because epoch capture DROPPED them
   outright — `capture-event!` resolved an event's frame from `[:tags :frame]`
   and the whole family stamped only its `:rf.frame/id` EVIDENCE key, so the
-  cascade put 7 rows on the bus and 0 into the 3 records it settled. Fixed in
+  cascade — three dispatches at the time, before rf2-0t7o8 widened it — put
+  7 rows on the bus and 0 into the 3 records it settled. Fixed in
   rf2-hbmeb: `build-event` now supplies the canonical `[:tags :frame]` routing
   tag for emit sites that don't stamp one, and the rows land. The proof that
   they do — bus counted against record, over a real cascade — lives in
@@ -628,13 +636,16 @@
   "The frame's last REAL epoch record with the cascade's WHOLE set of family
   rows appended to its `:trace-events` — one record carrying every row the
   scans below want to see at once, which no single real record does (one record
-  is one dequeued event, and this cascade is three). Everything else about the
-  record is the producer's: its own trace rows, `:sub-runs`, `:effects`,
-  bookkeeping slots and frame.
+  is one dequeued event, so `drive-resource-family!`'s rows are spread across as
+  many records as it dispatches). Everything else about the record is the
+  producer's: its own trace rows, `:sub-runs`, `:effects`, bookkeeping slots and
+  frame.
 
-  Since rf2-hbmeb the record already carries its OWN family rows, so the last
-  record's `:rf.resource/owner-released` appears twice here. Harmless: every
-  scan below is either a whole-set leak scan or a `first`-match lookup by
+  Since rf2-hbmeb the record already carries its OWN family rows, so the rows of
+  the driver's LAST dispatch appear twice here — that dispatch is the global
+  `invalidate-tags`, so today it is the global `:rf.resource/invalidated` row
+  that doubles. Harmless whichever dispatch ends up last: every scan below is
+  either a whole-set leak scan or a `first`-match lookup by
   `[operation resource-id]`, and both read the same row either way."
   [frame-id rows]
   (update (last (rf/epoch-history frame-id)) :trace-events (fnil into []) rows))
@@ -770,9 +781,16 @@
   (testing "MCP `register-epoch-listener!` forwarder pattern: the projected
             record MUST NOT egress the full large payload as a leaf
             string — the wire-elision walker substitutes a
-            :rf.size/large-elided marker (a map containing :path, :bytes,
-            :digest), not the raw bytes. An MCP forwarder downstream of
-            the token-cap walker depends on this.
+            :rf.size/large-elided marker (the body `elision/->marker` builds:
+            the slot's :path, its measured :bytes, its :type, the declaration's
+            :reason / :hint, and an addressing :handle), not the raw bytes.
+            No :digest: a forwarder projects at the default
+            :rf.egress/off-box-observability boundary, and the whole-output
+            `:large?` markers pinned below carry none at ANY boundary — that
+            seam builds through `classification/large-marker`, which calls
+            `->marker` WITHOUT `include-digests?`. So :bytes is the field these
+            assertions read. An MCP forwarder downstream of the token-cap walker
+            depends on this.
 
             rf2-isp3i — the scan below is cross-cutting, but it can only
             catch what the fixture puts in front of it, and the fixture

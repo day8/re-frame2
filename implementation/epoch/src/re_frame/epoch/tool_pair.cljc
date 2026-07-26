@@ -1586,9 +1586,13 @@
   `:sensitive?` overload, so there is no sensitive analogue of this rule: the
   axis here is TOKEN BUDGET (a bulky derived value burning an off-box
   consumer's context window), not privacy. Because the per-path sensitive
-  substitution already happened at emit, the marker's `:bytes` / `:digest` are
-  computed over a value whose secrets are already `:rf/redacted` — no size or
-  digest oracle over live secret bytes."
+  substitution already happened at emit, the marker's `:bytes` is measured over
+  a value whose secrets are already `:rf/redacted` — no size oracle over live
+  secret bytes. And no digest oracle either, at this seam by construction: the
+  marker is built through `classification/large-marker`, which reaches
+  `elision/->marker` WITHOUT `include-digests?`, so a whole-output marker
+  carries no `:digest` under ANY egress profile — including
+  `:rf.egress/off-box-tool`, where a PATH-declared marker does get one."
   [m {:keys [include-large?]} value-key prev-value-key]
   (let [mark (fn [k] (fn [v] (if (elision/marker? v) v (classification/large-marker v [k]))))]
     (cond
