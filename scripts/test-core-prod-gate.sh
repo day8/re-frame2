@@ -44,9 +44,10 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 83 namespaces, 915 tests, 4257
+# What is left IS green, and it is not a rump: 94 namespaces, 1103 tests, 5120
 # assertions, exit 0 — versus the zero suites that had ever executed under this
-# posture before.
+# posture before.  (It was 88 / 934 / 4340 before rf2-d2841 split the spine's
+# dev-instrumentation assertions away from the semantics beside them.)
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -106,11 +107,27 @@ known_red=(
   #    :errors sink received", ":doc retained for tooling", "handler-meta
   #    carries :ns". Under -Dre-frame.debug=false the framework emits none
   #    of it, by design, so these are legitimate dev-posture tests — but
-  #    they drag their semantic neighbours out of this lane with them,
-  #    which is why the spine (smoke / drain / fx / events / sub-cache /
-  #    interceptor / frame-lifecycle) is excluded today. Every line removed
-  #    from here is a namespace whose semantics are now proven under the
-  #    production posture.
+  #    they drag their semantic neighbours out of this lane with them.
+  #    Every line removed from here is a namespace whose semantics are now
+  #    proven under the production posture.
+  #
+  #    The SPINE is done: smoke / drain / events / sub-cache / interceptor /
+  #    frame-lifecycle came off in the first rf2-d2841 pass. The split shape
+  #    they use — instrumentation assertions kept VERBATIM inside a
+  #    `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, everything
+  #    outside such an arm posture-independent — is documented in each of
+  #    those namespaces' docstrings under "## Posture split (rf2-d2841)".
+  #    `fx-test` is the big one still standing (107 failures / 25 errors
+  #    across ~20 deftests under the gate).
+  #
+  #    NOTE for whoever finishes this list: a namespace whose EVERY deftest
+  #    is about the dev trace (the `trace-listener-*` cohort, `trace-test`,
+  #    `db-pending-trace-test`, `sub-dispose-trace-test`, …) has no semantic
+  #    residue to run under the gate. Guarding it wholesale and deleting its
+  #    roster line would report GREEN for a namespace that executed nothing
+  #    — the false-green this lane exists to close. Those want a var-level
+  #    tag the lane excludes (the `-e :requires-debug` idea above), not a
+  #    posture guard.
   re-frame.capture-frame-reincarnation-sink-route-cljs-test
   re-frame.capture-frame-test
   re-frame.cascade-dispatch-id-test
@@ -128,11 +145,9 @@ known_red=(
   re-frame.elision-test
   re-frame.ep0026-inline-grammar-cljs-test
   re-frame.event-context-partition-test
-  re-frame.events-test
   re-frame.frame-destroy-composed-test
   re-frame.frame-destroy-incarnation-jvm-test
   re-frame.frame-initial-events-cljs-test
-  re-frame.frame-lifecycle-test
   re-frame.frame-teardown-report-cljs-test
   re-frame.fx-aggregate-classification-cljs-test
   re-frame.fx-args-trace-egress-cljs-test
@@ -143,7 +158,6 @@ known_red=(
   re-frame.image-no-emit-trace-gate-cljs-test
   re-frame.init-platform-test
   re-frame.interceptor-override-summary-trace-test
-  re-frame.interceptor-test
   re-frame.live-frame-reload-cljs-test
   re-frame.machine-action-outcome-classification-cljs-test
   re-frame.machine-routed-event-classification-cljs-test
@@ -162,7 +176,6 @@ known_red=(
   re-frame.source-coords-test
   re-frame.sub-algebra-view-test
   re-frame.sub-arg-fragmentation-warn-test
-  re-frame.sub-cache-test
   re-frame.sub-cycle-cljs-test
   re-frame.sub-dispose-trace-test
   re-frame.sub-parametric-inputs-test

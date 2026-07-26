@@ -15,12 +15,32 @@
   This SUPERSEDES the former rf2-bbea warning
   (`:rf.warning/interceptors-in-metadata-map`): `:interceptors` inside the
   metadata-map is now the documented home, not a typo. A malformed
-  `:interceptors` value is a loud `:rf.error/reg-event-bad-interceptors`."
+  `:interceptors` value is a loud `:rf.error/reg-event-bad-interceptors`.
+
+  ## Posture split (rf2-d2841)
+
+  Every assertion here is posture-independent — it holds in the ordinary
+  `clojure -M:test` suite AND under the real production gate
+  (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
+  inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`.
+
+  Two things this namespace observes are dev-only BY DESIGN and therefore live
+  in such arms: the `:trace` stream (every `trace/emit-error!` site is gated on
+  `interop/debug-enabled?`) and `:doc` reflection metadata on a registry entry
+  (retained for tooling / agent inspection in dev, elided in production — see
+  `re-frame.doc-metadata-prod-elision-test`).
+
+  Where the trace was the only witness for a REJECTION, a production-visible
+  one was ADDED rather than the assertion dropped: `clear-event` really stops
+  the handler running, and a non-map handler return really yields no `:db` and
+  no `:fx` — a returned `[[:dispatch …]]` vector is NOT quietly honoured as an
+  effects vector."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.interceptor :as interceptor]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -123,8 +143,13 @@
           "the superset form does NOT fire the retired metadata-misuse warning")
       (let [meta (rf/handler-meta :event :test.bpmszk/super)
             ids  (chain-ids (:interceptors meta))]
-        (is (= "Superset form." (:doc meta))
-            "the reflection metadata is retained on the registry entry")
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). `:doc` is
+        ;; retained for tooling in dev and ELIDED in production; the chain
+        ;; threading this deftest is named for is asserted below, in both
+        ;; postures.
+        (when interop/debug-enabled?
+          (is (= "Superset form." (:doc meta))
+              "the reflection metadata is retained on the registry entry"))
         (is (not (contains? meta :interceptors-as-raw))
             "the raw key is not duplicated under another name")
         (is (= [:test/noop :rf/event-handler] ids)
@@ -307,28 +332,39 @@
 (deftest clear-event-removes-a-single-handler
   (testing "(rf/clear-event id) removes the registered :event slot;
             a subsequent dispatch traces :rf.error/no-such-handler"
-    (rf/reg-event :test.6z20/foo (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
-    ;; Pre-clear: reachable via lookup AND dispatch.
-    (is (some? (registrar/lookup :event :test.6z20/foo))
-        "the event handler is reachable via registrar/lookup pre-clear")
-    (rf/dispatch-sync [:test.6z20/foo])
-    (is (true? (:touched? (rf/app-db-value :rf/default)))
-        "the handler ran when registered")
-
-    ;; Clear.
-    (rf/clear-event :test.6z20/foo)
-
-    ;; Post-clear: gone from the registry, dispatch traces no-such-handler.
-    (is (nil? (registrar/lookup :event :test.6z20/foo))
-        "registry slot is gone after clear-event")
-    (let [recorded (record-traces! ::post-clear)]
+    ;; `runs` is the production-visible witness (rf2-d2841): the integration
+    ;; symptom this deftest exists to catch — "a stale handler still firing"
+    ;; — is a fact about EXECUTION, not about the trace stream, so count the
+    ;; handler bodies rather than reading the count off a dev-only channel.
+    (let [runs (atom 0)]
+      (rf/reg-event :test.6z20/foo
+        (fn [{:keys [db]} _] (swap! runs inc) {:db (assoc db :touched? true)}))
+      ;; Pre-clear: reachable via lookup AND dispatch.
+      (is (some? (registrar/lookup :event :test.6z20/foo))
+          "the event handler is reachable via registrar/lookup pre-clear")
       (rf/dispatch-sync [:test.6z20/foo])
-      (let [errs (filterv #(= :rf.error/no-such-handler (:operation %))
-                          @recorded)]
-        (is (= 1 (count errs))
-            "a subsequent dispatch traces :rf.error/no-such-handler")
-        (is (= :test.6z20/foo (-> errs first :tags :rf.trace/event-id))
-            ":rf.trace/event-id carries the cleared handler's id")))))
+      (is (true? (:touched? (rf/app-db-value :rf/default)))
+          "the handler ran when registered")
+      (is (= 1 @runs) "exactly one handler body ran pre-clear")
+
+      ;; Clear.
+      (rf/clear-event :test.6z20/foo)
+
+      ;; Post-clear: gone from the registry, dispatch traces no-such-handler.
+      (is (nil? (registrar/lookup :event :test.6z20/foo))
+          "registry slot is gone after clear-event")
+      (let [recorded (record-traces! ::post-clear)]
+        (rf/dispatch-sync [:test.6z20/foo])
+        (is (= 1 @runs)
+            "the cleared handler did NOT run on the subsequent dispatch")
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+        (when interop/debug-enabled?
+          (let [errs (filterv #(= :rf.error/no-such-handler (:operation %))
+                              @recorded)]
+            (is (= 1 (count errs))
+                "a subsequent dispatch traces :rf.error/no-such-handler")
+            (is (= :test.6z20/foo (-> errs first :tags :rf.trace/event-id))
+                ":rf.trace/event-id carries the cleared handler's id")))))))
 
 (deftest clear-event-no-arg-clears-every-event
   (testing "(rf/clear-event) with no args clears every registered :event id"
@@ -382,37 +418,61 @@
         (fn [_ _] "hello"))
       (let [db-before (rf/app-db-value :rf/default)]
         (rf/dispatch-sync [:test.k3bj/string-return])
-        (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
-          (is (= 1 (count errs))
-              (str "expected exactly one :rf.error/effect-handler-bad-return, got " (count errs)))
-          (let [t (:tags (first errs))]
-            (is (= :test.k3bj/string-return (:event-id t)))
-            (is (= [:test.k3bj/string-return] (:event t)))
-            (is (= "hello" (:returned t)))
-            (is (= (type "hello") (:returned-type t)))
-            (is (string? (:reason t)))
-            (is (re-find #"non-map" (:reason t))))
-          (is (= :no-recovery (:recovery (first errs)))))
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+        ;; production-real half is the RECOVERY, asserted below in both
+        ;; postures: nothing is extracted from a non-map return, so app-db is
+        ;; untouched.
+        (when interop/debug-enabled?
+          (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
+            (is (= 1 (count errs))
+                (str "expected exactly one :rf.error/effect-handler-bad-return, got " (count errs)))
+            (let [t (:tags (first errs))]
+              (is (= :test.k3bj/string-return (:event-id t)))
+              (is (= [:test.k3bj/string-return] (:event t)))
+              (is (= "hello" (:returned t)))
+              (is (= (type "hello") (:returned-type t)))
+              (is (string? (:reason t)))
+              (is (re-find #"non-map" (:reason t))))
+            (is (= :no-recovery (:recovery (first errs))))))
         (is (= db-before (rf/app-db-value :rf/default))
             "app-db is unchanged after a no-op recovery"))))
 
   (testing "handler returning a number emits :rf.error/effect-handler-bad-return"
-    (let [recorded (record-traces! ::bad-number)]
+    (let [recorded  (record-traces! ::bad-number)
+          db-before (rf/app-db-value :rf/default)]
       (rf/reg-event :test.k3bj/number-return
         (fn [_ _] 42))
       (rf/dispatch-sync [:test.k3bj/number-return])
-      (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
-        (is (= 1 (count errs)))
-        (is (= 42 (:returned (:tags (first errs))))))))
+      (is (= db-before (rf/app-db-value :rf/default))
+          "app-db is unchanged — nothing is extracted from a number return")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
+          (is (= 1 (count errs)))
+          (is (= 42 (:returned (:tags (first errs)))))))))
 
   (testing "handler returning a vector emits :rf.error/effect-handler-bad-return"
-    (let [recorded (record-traces! ::bad-vector)]
+    ;; The vector case carries the sharpest production-real claim in this
+    ;; deftest (rf2-d2841): `[[:dispatch [:other]]]` is exactly the shape of an
+    ;; `:fx` VALUE, so a runtime that shrugged and honoured it would silently
+    ;; dispatch `[:other]`. `other-runs` witnesses that it does not — in both
+    ;; postures, where before only the dev trace said so.
+    (let [recorded   (record-traces! ::bad-vector)
+          other-runs (atom 0)
+          db-before  (rf/app-db-value :rf/default)]
+      (rf/reg-event :other (fn [{:keys [db]} _] (swap! other-runs inc) {:db db}))
       (rf/reg-event :test.k3bj/vector-return
         (fn [_ _] [[:dispatch [:other]]]))
       (rf/dispatch-sync [:test.k3bj/vector-return])
-      (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
-        (is (= 1 (count errs)))
-        (is (= [[:dispatch [:other]]] (:returned (:tags (first errs)))))))))
+      (is (zero? @other-runs)
+          "the returned vector was NOT honoured as an :fx value — [:other] never dispatched")
+      (is (= db-before (rf/app-db-value :rf/default))
+          "app-db is unchanged — nothing is extracted from a vector return")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
+          (is (= 1 (count errs)))
+          (is (= [[:dispatch [:other]]] (:returned (:tags (first errs))))))))))
 
 (deftest reg-event-nil-return-stays-silent
   (testing "handler returning nil is a documented legal no-op; no :rf.error/effect-handler-bad-return"
@@ -472,8 +532,13 @@
       (rf/dispatch-sync [:test.fuudi/shape-2])
       (is (true? (:test.fuudi/touched-2? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/shape-2)]
-        (is (= "metadata-only middle slot" (:doc meta))
-            ":doc from the metadata-map is retained on the registry entry")
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring): `:doc` is
+        ;; tooling metadata, retained in dev and elided in production. That the
+        ;; SHAPE was accepted at all is the `:test.fuudi/touched-2?` assertion
+        ;; above, which runs in both postures.
+        (when interop/debug-enabled?
+          (is (= "metadata-only middle slot" (:doc meta))
+              ":doc from the metadata-map is retained on the registry entry"))
         (is (= 1 (count (:interceptors meta)))
             "no user interceptors; chain holds only the runtime :rf/event-handler wrapper")))
 
@@ -496,8 +561,10 @@
       (is (true? (:test.fuudi/touched-4? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/shape-4)
             ids  (chain-ids (:interceptors meta))]
-        (is (= "metadata AND interceptors" (:doc meta))
-            ":doc from the metadata-map is retained on the registry entry")
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+        (when interop/debug-enabled?
+          (is (= "metadata AND interceptors" (:doc meta))
+              ":doc from the metadata-map is retained on the registry entry"))
         (is (= [:test.fuudi/marker :rf/event-handler] ids)
             "the user interceptor ref sits before the runtime wrapper in registration order")))
 
@@ -529,7 +596,9 @@
     (let [meta (rf/handler-meta :event :test.fuudi/ctx-shape-4)
           ids  (chain-ids (:interceptors meta))]
       (is (not (contains? meta :event/kind)))
-      (is (= "interceptor, metadata interceptors" (:doc meta)))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= "interceptor, metadata interceptors" (:doc meta))))
       (is (= [:test.fuudi/ctx-marker :rf/event-handler] ids)))))
 
 (deftest normalise-args-rejects-overlong-and-malformed
