@@ -514,3 +514,39 @@
                answer a value; neither is an event stream."
        (is (sequential? (active-connections-read)))
        (is (sequential? (command-log-read))))))
+
+(deftest the-platform-attribute-is-preferred-before-any-behavior
+  (testing "host-boundaries.md block 8 — the page's advice is `:auto-focus`
+            first, and the block is a plain controlled input. Rendering it is
+            the claim; declaring it is not (rf2-kem4o)."
+    (seed! {:draft "Ada"})
+    (let [attrs (t/attrs (t/find (t/with-render (t/render [autofocus-input {}]))
+                                 #(= :input (:tag %))))]
+      (is (true? (:auto-focus attrs)) "the platform attribute, as an ordinary attr")
+      (is (= "Ada" (:value attrs)))
+      (is (= [:rename/drafted ::v/value] (:on-input attrs))))))
+
+(deftest a-command-request-leaves-as-an-ordinary-effect
+  (testing "host-boundaries.md block 4 — the block's whole claim is that
+            reaching a live connection is an fx addressed by the semantic
+            `:target`, which only running the handler shows."
+    (let [sent (atom [])]
+      (rf/reg-fx :guide/captured-command (fn [_ v] (swap! sent conj v)))
+      (register-refit-requested!)
+      (rf/with-fx-overrides {:re-frame.freehand.host/command :guide/captured-command}
+        (rf/dispatch-sync [:composer/refit-requested]))
+      (is (= [{:target :composer/body :op :refit}] @sent)
+          "the request is data, addressed by the caller-authored target"))))
+
+#?(:clj
+   (deftest the-browser-only-guide-calls-are-inert-on-the-structural-host
+     (testing "install.md blocks 3 and 4, ssr.md block 3 and adoption.md
+               block 1 call door verbs that exist only in ClojureScript. The
+               CLJS half is proved by `the-browser-only-door-verbs-are-present`
+               and by the outward-bridge suite; what the JVM can prove is that
+               each wrapper is REACHABLE and does no host work here — which is
+               more than a fixture that only loads (rf2-kem4o)."
+       (is (= ::browser-only (unmount-root! ::root)))
+       (is (= ::browser-only (mount-panels! ::left ::right)))
+       (is (= ::browser-only (mount-two-roots! ::left ::right ::frame)))
+       (is (= ::browser-only (person-cell-renderer-props))))))

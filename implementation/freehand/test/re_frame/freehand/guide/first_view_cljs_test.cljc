@@ -246,3 +246,55 @@
                                                             {:id 2 :label "two"}]}]))]
       (is (= ["one" "two"] (mapv t/text (t/find-all tree #(= :li (:tag %)))))
           "keys ride in props and the rows still render in order"))))
+
+(deftest the-vocabulary-blocks-each-render-their-own-claim
+  (testing "mental-model.md and vs-reagent.md spend a block per idea, and a
+            declaration nobody renders proves nothing — a bad vector head is
+            a RENDER-time refusal, so a fixture that merely loads carries the
+            defect silently (rf2-kem4o). Each of those blocks is rendered
+            here, and each assertion is that block's own claim."
+    (rf/reg-sub :invoice/subtotal (fn [d [_ id]] (get-in d [:subtotals id])))
+    (rf/reg-sub :email (fn [d _] (:email d)))
+    (seed! {:count 2 :note "n" :email "ada@example.com" :subtotals {7 40}})
+
+    (testing "block 3 — a pure helper is markup a boundary never needed"
+      (let [tree (t/with-render (t/render [invoice {:id 7}]))]
+        (is (= "Subtotal$40" (t/text (t/find tree #(= :div (:tag %)))))
+            "the plain fn ran inline and produced markup")
+        (is (= "tax for 7" (t/text (t/find tree #(= "tax" (:class (t/attrs %))))))
+            "and the declared child mounted beside it")))
+
+    (testing "block 5 — a read in place, with no deref"
+      (is (= "Count: 2" (t/text (t/with-render (t/render [count-span {}]))))))
+
+    (testing "block 7 — intent is data on the site"
+      (is (= [:count/inc]
+             (:on-click (t/attrs (t/find (t/render [inc-button {}])
+                                         #(= :button (:tag %))))))))
+
+    (testing "block 8 — the controlled door carries an unfilled marker"
+      (let [attrs (t/attrs (t/find (t/render [email-input {:email "ada@example.com"}])
+                                   #(= :input (:tag %))))]
+        (is (= "ada@example.com" (:value attrs)))
+        (is (= [:form/edit :email ::v/value] (:on-input attrs)))))
+
+    (testing "vs-reagent.md blocks 4 and 6 — the same two shapes, subscribed"
+      (let [attrs (t/attrs (t/find (t/with-render (t/render [email-input-vs-reagent {}]))
+                                   #(= :input (:tag %))))]
+        (is (= "ada@example.com" (:value attrs)))
+        (is (= [:form/set-email ::v/value] (:on-input attrs))))
+      (let [tree (t/with-render (t/render [counter-vs-reagent {}]))]
+        (is (= "Count: 2" (t/text (t/find tree #(= :p (:tag %))))))
+        (is (= [:count/inc] (:on-click (t/attrs (t/find tree #(= :button (:tag %)))))))
+        (is (= "n" (:value (t/attrs (t/find tree #(= :input (:tag %)))))))))))
+
+(deftest the-one-shot-read-is-re-frames-and-names-its-frame
+  (testing "mental-model.md block 6 — the read OUTSIDE a render is
+            `rf/subscribe-once`, and the page's spelling names the frame
+            rather than resolving one ambiently. Running it is the only way
+            to know the named-frame opts form still reads."
+    (rf/with-new-frame [_f (rf/make-frame {:id :app/main})]
+      (rf/reg-sub :basket/total (fn [db _] (:total db)))
+      (rf/dispatch-sync [:rf/set-db {:total 12}])
+      (is (= 12 (basket-total-once))
+          "the one-shot read answered the named frame's current value"))))

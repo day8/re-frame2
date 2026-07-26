@@ -330,3 +330,65 @@
           btn  (t/find tree #(= :button (:tag %)))]
       (is (true? (:aria-expanded (t/attrs btn))))
       (is (= [:faq/toggled :q1] (:on-click (t/attrs btn)))))))
+
+(deftest the-pages-earlier-blocks-render-and-run-as-written
+  (testing "semantic-controllers.md builds its argument from blocks 1, 3, 4
+            and 7, and each was transcribed but never rendered — which
+            proves nothing, because a bad site is a RENDER-time refusal
+            (rf2-kem4o)."
+    (seed! {:drafts {7 "typed"}
+            :search {:query "ada" :result-ids [1 2]}
+            :invoices {9 {:amount "120.00" :rev 3}}})
+
+    (testing "block 1 — plain `on-blur` is valid Freehand and needs no controller"
+      (let [attrs (t/attrs (t/find (t/with-render (t/render [keymap-field {:id 7}]))
+                                   #(= :input (:tag %))))]
+        (is (= "typed" (:value attrs)))
+        (is (= [:lines/label-committed 7] (:on-blur attrs)))
+        (is (= {:rf.ui/opaque :fn} (:on-key-down attrs))
+            "the keymap rides as a carrier, opaque in the tree")))
+
+    (testing "block 4 — the view driving the debounced search stays ordinary"
+      (let [tree (t/with-render (t/render [search-box {}]))]
+        (is (= "ada" (:value (t/attrs (t/find tree #(= :input (:tag %)))))))
+        (is (= [:search/query-typed ::v/value]
+               (:on-input (t/attrs (t/find tree #(= :input (:tag %)))))))
+        (is (= ["result 1" "result 2"]
+               (mapv t/text (t/find-all tree #(= :li (:tag %)))))
+            "and the results are ordinary keyed children")))
+
+    (testing "block 7 — the call site a semantic controller earns"
+      (let [attrs (t/attrs (t/find (t/with-render (t/render [buffered-field-call
+                                                             {:invoice-id 9}]))
+                                   #(= :input (:tag %))))]
+        (is (= "120.00" (:value attrs))
+            "no draft in flight — the read falls through to the domain value")
+        (is (= [:fh.buffer/edited [::buffered-field [:invoice 9 :amount]] 3 ::v/value]
+               (:on-input attrs))
+            "and the record is addressed by the (kind, address) pair under its
+             own generation")))))
+
+(deftest the-debounced-search-fences-its-own-generation
+  (testing "semantic-controllers.md block 3 — the whole claim is about what
+            the handlers DO with a generation, so the block is registered
+            and run rather than merely declared."
+    (let [later (atom [])]
+      (rf/reg-fx :guide/captured-later (fn [_ v] (swap! later conj v)))
+      (register-search-dataflow!)
+      (rf/dispatch-sync [:rf/set-db {}])
+      (rf/with-fx-overrides {:dispatch-later :guide/captured-later}
+        (rf/dispatch-sync [:search/query-typed "ad"])
+        (rf/dispatch-sync [:search/query-typed "ada"]))
+      (is (= [{:ms 200 :event [:search/run 1 "ad"]}
+              {:ms 200 :event [:search/run 2 "ada"]}]
+             @later)
+          "each keystroke kicks its own generation, and `:event` is the v2 key")
+      (rf/reg-sub :guide/search (fn [db _] (:search db)))
+      (is (= {:query "ada" :generation 2 :status :pending} @(rf/subscribe [:guide/search])))
+      (rf/dispatch-sync [:search/results-arrived 1 [:stale]])
+      (is (= :pending (:status @(rf/subscribe [:guide/search])))
+          "a stale reply is dropped by the fence")
+      (rf/dispatch-sync [:search/results-arrived 2 [:fresh]])
+      (is (= {:query "ada" :generation 2 :status :ready :results [:fresh]}
+             @(rf/subscribe [:guide/search]))
+          "and the current one lands"))))

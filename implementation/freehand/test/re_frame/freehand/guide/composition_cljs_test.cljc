@@ -214,7 +214,7 @@
   (let [email "ada@example.com"]
     [field {:label "Email"
             :value email
-            :on-input [:account/email-changed ::v/value]
+            :on-change [:account/email-changed]
             :parts {:label   {:class "quiet-label"}
                     :control {:class "wide-control"
                               :data-analytics "signup-email"}}}]))
@@ -376,6 +376,52 @@
       (is (= "$42" (t/text (t/find tree #(= :strong (:tag %)))))))
     (is (= "W" (t/text (t/with-render (t/render [app-root {}]))))
         "one read at the top, props the rest of the way down")))
+
+(deftest the-remaining-ladder-rungs-and-state-shapes-render
+  (testing "composition.md's policy and library rungs, and state.md's two
+            field shapes, each transcribed and then rendered — a fixture
+            that only LOADS proves no render-time law (rf2-kem4o)."
+    (seed! {:open {:d1 true} :email "ada@example.com" :email-draft "ada@"})
+
+    (testing "block 2 — a `:children-policy :none` leaf takes its content as props"
+      (let [attrs (t/attrs (t/find (t/render [icon-button {:event [:item/deleted 42]
+                                                           :label "Delete"}])
+                                   #(= :button (:tag %))))]
+        (is (= "Delete" (:aria-label attrs)))
+        (is (= [:item/deleted 42] (:on-click attrs))
+            "the caller's intent reaches the child's own site as data")))
+
+    (testing "block 4 — the fixed region the component places, when it decides to"
+      (let [open (t/with-render (t/render [disclosure {:id :d1 :label "Why?"}
+                                           [:p.body "because"]]))]
+        (is (= "because" (t/text (t/find open #(= :p (:tag %)))))
+            "open — the caller's children are placed in the body region")
+        (is (true? (:aria-expanded (t/attrs (t/find open #(= :button (:tag %))))))))
+      (let [shut (t/with-render (t/render [disclosure {:id :d2 :label "Why?"}
+                                           [:p.body "because"]]))]
+        (is (nil? (t/find shut #(= :p (:tag %))))
+            "closed — the same children are simply not placed")))
+
+    (testing "block 13 — the caller reaches BOTH declared parts"
+      (let [tree (t/with-render (t/render field-call-with-parts))]
+        (is (= "quiet-label"
+               (:class (t/attrs (t/find tree #(= :span (:tag %))))))
+            "the label part took the caller's class")
+        (is (= "wide-control"
+               (:class (t/attrs (t/find tree #(= :input (:tag %))))))
+            "and so did the control part")))
+
+    (testing "state.md blocks 4 and 5 — live domain value versus app-owned draft"
+      (let [live (t/attrs (t/find (t/with-render (t/render [email-controlled-input {}]))
+                                  #(= :input (:tag %))))]
+        (is (= "ada@example.com" (:value live)))
+        (is (= [:form/set-email ::v/value] (:on-input live)))
+        (is (nil? (:on-blur live)) "the live field has no commit transition"))
+      (let [draft (t/attrs (t/find (t/with-render (t/render [email-draft-input {}]))
+                                   #(= :input (:tag %))))]
+        (is (= "ada@" (:value draft)) "the draft field reads the draft key")
+        (is (= [:form/email-committed] (:on-blur draft))
+            "and commits on blur, which is the whole difference")))))
 
 (deftest a-keyed-list-mounts-one-child-per-id
   (testing "composition.md and reactivity-and-ownership.md share this claim:

@@ -353,3 +353,113 @@
            (t/text (t/find (t/with-render (t/render [email-field {}]))
                            #(= :p (:tag %)))))
         "touched — the error appears")))
+
+(deftest every-site-shape-on-the-page-renders-the-data-it-claims
+  (testing "events-and-handlers.md spends a block per site shape. Each is
+            rendered here rather than merely declared: a bad site is a
+            RENDER-time refusal, so a fixture nothing renders proves nothing
+            (rf2-kem4o)."
+    (seed! {})
+
+    (testing "block 1 — the paved path, whole"
+      (is (= [:cart/add 42]
+             (:on-click (t/attrs (t/find (t/render [add-to-cart-button {:product-id 42}])
+                                         #(= :button (:tag %))))))))
+
+    (testing "block 2 — the three everyday named markers ride unfilled"
+      (is (= [[:form/typed :email ::v/value]
+              [:prefs/set :dark ::v/checked]
+              [:editor/key ::v/key]]
+             (mapv (fn [site]
+                     (let [attrs (t/attrs (t/render site))]
+                       (or (:on-input attrs) (:on-change attrs) (:on-key-down attrs))))
+                   projection-marker-sites))))
+
+    (testing "block 4 — the general read door the markers are sugar for"
+      (is (= [[:pane/scrolled [::v/read [:target :scrollLeft]]]
+              [:editor/chord [::v/read :altKey]]]
+             (mapv (fn [site]
+                     (let [attrs (t/attrs (t/render site))]
+                       (or (:on-scroll attrs) (:on-key-down attrs))))
+                   general-read-sites))))
+
+    (testing "blocks 6 and 7 — send the key, or branch at the site"
+      (is (= [:picker/key-pressed ::v/key]
+             (:on-key-down (t/attrs (t/find (t/render [key-pressed-site {}])
+                                            #(= :input (:tag %)))))))
+      (is (= {:rf.ui/opaque :fn}
+             (:on-key-down (t/attrs (t/find (t/render [key-branch-site {}])
+                                            #(= :input (:tag %))))))
+          "a carrier is opaque in the tree — its EXISTENCE is the assertable fact"))
+
+    (testing "block 12 — the uncontrolled escape has no :value on the door"
+      (let [attrs (t/attrs (t/find (t/render [uncontrolled-cell-input {:id 3 :raw "old"}])
+                                   #(= :input (:tag %))))]
+        (is (= "old" (:default-value attrs)))
+        (is (true? (:auto-focus attrs)))
+        (is (nil? (:value attrs)) "no :value key — that is what uncontrolled means")
+        (is (= [:cells/commit-edit 3 ::v/value] (:on-blur attrs)))))
+
+    (testing "block 13 — the parent's intent reaches the child's own site"
+      (is (= [:item/deleted 42]
+             (:on-click (t/attrs (t/find (t/render icon-button-call)
+                                         #(= :button (:tag %))))))))))
+
+(deftest the-branch-handler-decides-with-application-state-in-hand
+  (testing "events-and-handlers.md block 11 — pattern B's branch point is an
+            ordinary event handler, so the page's claim is about what it
+            DISPATCHES. Registering it and running it is the only way to know."
+    (let [seen (atom [])]
+      (rf/reg-fx :guide/captured-dispatch (fn [_ ev] (swap! seen conj ev)))
+      (register-draft-key-handler!)
+      (rf/with-fx-overrides {:dispatch :guide/captured-dispatch}
+        (rf/dispatch-sync [:lines/draft-key 7 "Enter"])
+        (rf/dispatch-sync [:lines/draft-key 7 "Escape"])
+        (rf/dispatch-sync [:lines/draft-key 7 "x"]))
+      (is (= [[:lines/label-committed 7] [:lines/draft-cancelled 7]] @seen)
+          "Enter commits, Escape cancels, and an ordinary key does neither"))))
+
+(deftest a-late-server-value-never-clobbers-what-the-user-typed
+  (testing "forms.md block 4 — the whole point of the block is the `touched`
+            check, and only running the handler shows it holds."
+    (rf/reg-sub :guide/editor (fn [db _] (:editor db)))
+    (register-article-loaded!)
+    (rf/dispatch-sync [:rf/set-db {:editor {:draft {:title "mine"} :touched #{:title}}}])
+    (rf/dispatch-sync [:editor/article-loaded "slug" {:title "server" :body "prose"}])
+    (let [{:keys [draft baseline slug]} @(rf/subscribe [:guide/editor])]
+      (is (= "mine" (:title draft)) "the touched key kept the user's text")
+      (is (= "prose" (:body draft)) "the untouched key took the server value")
+      (is (= {:title "server" :body "prose"} baseline) "and the server value is kept whole")
+      (is (= "slug" slug)))))
+
+(deftest the-submit-button-reads-the-two-derived-facts
+  (testing "forms.md block 6 — `:disabled` is derived, never stored, and the
+            label follows the busy fact."
+    (seed! {:editor {:draft {:title "T"} :errors {}}})
+    (let [ready (t/with-render (t/render [editor-actions {}]))]
+      (is (= "Save" (t/text ready)))
+      (is (false? (:disabled (t/attrs (t/find ready #(= :button (:tag %))))))
+          "a valid, idle form submits"))
+    (seed! {:editor {:draft {:title "T"} :errors {}}
+            :mutations {:editor-save {:pending? true}}})
+    (let [busy (t/with-render (t/render [editor-actions {}]))]
+      (is (= "Saving…" (t/text busy)))
+      (is (true? (:disabled (t/attrs (t/find busy #(= :button (:tag %))))))
+          "and a save in flight closes the door"))))
+
+(deftest the-conversion-pair-echoes-the-active-field-and-derives-the-other
+  (testing "forms.md blocks 7 and 8 — the dataflow and the two fields are one
+            claim, and it only holds when the registration actually runs."
+    (rf/reg-sub :temp/f-display (fn [db _] (get-in db [:temp :f-text])))
+    (register-temperature-dataflow!)
+    (rf/dispatch-sync [:rf/set-db {:temp {:c-text "22" :f-text "71.6" :active :c}}])
+    (let [inputs (t/find-all (t/with-render (t/render [temperature-inputs {}]))
+                             #(= :input (:tag %)))]
+      (is (= ["22" "71.6"] (mapv #(:value (t/attrs %)) inputs))
+          "the active field echoes raw text; the other shows its own")
+      (is (= [[:temp/c-typed ::v/value] [:temp/f-typed ::v/value]]
+             (mapv #(:on-input (t/attrs %)) inputs))))
+    (rf/reg-sub :guide/temp (fn [db _] (:temp db)))
+    (rf/dispatch-sync [:temp/c-typed "30"])
+    (is (= {:c-text "30" :f-text "92" :active :c} @(rf/subscribe [:guide/temp]))
+        "typing sets the active field, its raw text, and the sibling's derived raw")))
