@@ -183,18 +183,31 @@ the row goes stale-red for a reason that has nothing to do with the donor.
 Adding the build id fixes both files at once, which is why one alternative
 covers a two-file finding.
 
-Two files that sweep listed are deliberately NOT rowed.
+Two files that sweep listed are deliberately NOT rowed, and both non-rowings
+turn on the same property: each couples to a **marker**, not to a tree.
 `examples/scripts/check-examples-assets.cjs` named `implementation/ui/scaffold-smoke`
 only in a comment explaining WHY it prunes standalone scaffolds; the prune
-itself is marker-based (a project root bearing its own `shadow-cljs.edn`, "no
+itself keys off a project root bearing its own `shadow-cljs.edn` ("no
 per-path list"), so it read no donor path and measured `rc 0 → 0` with the
 donor tree absent. That comment now names
 `implementation/freehand/scaffold-smoke` — rf2-kbzqn moved the lane — so the
-file carries no donor spelling at all and the non-rowing is no longer even a
-judgement call. Its unit test
-`implementation/scripts/check-examples-assets.test.cjs` couples to
-`examples/ui/minimal-counter/`, which lives under `examples/` and already has a
-row. Both are the historical-mention exclusion in substance rather than by name.
+file carries no donor spelling at all and its non-rowing is no longer even a
+judgement call.
+
+Its unit test `implementation/scripts/check-examples-assets.test.cjs` is the
+same story, but **the reason recorded here was false** and is corrected now
+(rf2-ddu3i, from the merged-PR audit of #7084). It said the test couples to
+`examples/ui/minimal-counter/`. The landed test names no such path: it
+discovers every standalone example root by the `shadow-cljs.edn` marker,
+floors the discovered population at one so the negative cannot pass `0 of 0`,
+requires each discovered project to serve a candidate host page, and proves
+each candidate is pruned (rf2-72gaq). It therefore survives the donor's
+deletion by construction, and the one event that reds it — the LAST
+standalone project leaving `examples/` — is not a donor event at all. The
+conclusion was right; only its stated reason was wrong, which is its own
+lesson: a non-rowing is a claim, and a claim recorded with the wrong reason
+cannot be re-checked by the next reader. Both files are the
+historical-mention exclusion in substance rather than by name.
 
 ## How coverage is enforced
 
