@@ -216,16 +216,17 @@
   (first (find-all tree pred)))
 
 ;; ---------------------------------------------------------------------------
-;; Node discrimination (Spec 004B §Node schema — the closed five-variant set)
+;; Node discrimination (Spec 004B §Node schema — the closed node set, which
+;; that section's roster table enumerates)
 ;; ---------------------------------------------------------------------------
 
 (defn- node-kind
   "Discriminate a MAP node per the pinned order: `:tag` → element, else
   `:view-id` → view boundary, else `:html` → trusted-HTML, else
   `:rf.ui/host` → a declared host crossing, else `:children` → fragment.
-  More than one primary discriminating field, or none of the five, is
-  malformed — a projection over a malformed node fails loud rather than
-  reading a plausible answer off a broken tree.
+  More than one primary discriminating field, or none of the fields just
+  named, is malformed — a projection over a malformed node fails loud
+  rather than reading a plausible answer off a broken tree.
 
   The host arm is NOT decoration. A `v/defhost` crossing carries `:props`
   and `:children` and no `:tag`, so without its own arm it reaches the

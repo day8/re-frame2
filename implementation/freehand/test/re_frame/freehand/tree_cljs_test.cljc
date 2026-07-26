@@ -41,10 +41,12 @@
 (def struct-001 (conf/fixture :FH-STRUCT-001))
 
 (deftest fh-struct-001-the-node-schema-and-its-discrimination
-  (testing "Per FH-STRUCT-001: five variants, a closed set, discriminated
-            in one pinned order. Text is the host string itself and not a
-            map, so a text-rooted form roots in a fragment — the variant
-            whose whole job is to hold a run of children."
+  (testing "Per FH-STRUCT-001: a closed set of variants — element,
+            fragment, view-boundary, trusted-HTML, host, bare text —
+            discriminated in one pinned order (Spec 004B §Node schema is
+            the roster). Text is the host string itself and not a map, so a
+            text-rooted form roots in a fragment — the variant whose whole
+            job is to hold a run of children."
     (check-cases struct-001)))
 
 (deftest fh-struct-001-the-root-carries-the-schema-version
