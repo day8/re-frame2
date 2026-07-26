@@ -270,6 +270,11 @@
               (assoc-in sound [:fh/record :evidence] [:reads])              :evidence]
              ["an empty evidence expectation — say nothing or say something"
               (assoc-in sound [:fh/record :evidence] {})                    :evidence]
+             ["an evidence map that does not say what a run leaves behind"
+              (assoc-in sound [:fh/record :evidence] {:reads [:dom/value]}) :evidence]
+             ["a residue claim outside the closed two"
+              (assoc-in sound [:fh/record :evidence]
+                        {:reads [:dom/value] :residue :probably-fine})     :evidence]
              ["an :open entry not keyed by an owning bead"
               (assoc-in sound [:fh/record :open] {"someone" "one day"})     :open]
              ["an :open entry with no question stated"

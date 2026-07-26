@@ -127,6 +127,75 @@
                (:ns entry))))))
 
 ;; ---------------------------------------------------------------------------
+;; `:residue :none` is a claim a checker can refuse — acceptance 3
+;; ---------------------------------------------------------------------------
+
+(def ^:private emptiness-assertion
+  "The shapes a residue assertion takes in this corpus. A leak assertion is
+  always an ABSENCE read after teardown — an exact zero or an empty
+  collection off the substrate's own book — so these are what one looks
+  like, not an arbitrary keyword list.
+
+  `nothing-survived` is included because the async surrogate factors its
+  absence check into a named helper and calls it from every case; a rule
+  that only recognised the inline spellings would refuse the most thorough
+  suite in the set."
+  [#"\(zero\?" #"\(empty\?" #"nothing-survived" #"\(= \[\] " #"\(= 0 \(count"])
+
+(deftest a-residue-none-claim-is-backed-by-an-emptiness-assertion
+  (testing "Per rf2-drpa3.182.7 acceptance 3: mounted cleanup is EXACT, and
+            `:residue :none` is the record saying so. An unenforced `:none`
+            would be the most expensive kind of green — a leaked React root
+            contaminates every later suite sharing the process, and this
+            corpus has seen one leak produce failures across dozens of
+            unrelated suites — so the claim is checked rather than read.
+
+            Every mounted projection of a `:residue :none` record must read
+            an absence after teardown. A record whose suites only unmount
+            and remove, without asserting what survived, says
+            `:unasserted` — which is honest, countable, and what two of the
+            three spine members currently say."
+    (doseq [record roster/spine
+            :when  (= :none (get-in record [:fh/record :evidence :residue]))
+            entry  (roster/tier record :mounted)]
+      (let [res  (ns->resource (:ns entry))
+            text (some-> res slurp)]
+        (is (and text (some #(re-find % text) emptiness-assertion))
+            (str (:fh/id record) " claims :residue :none, but its mounted proof "
+                 (:ns entry) " makes no emptiness assertion — either it asserts "
+                 "what survived, or the record says :unasserted"))))))
+
+(deftest the-residue-rule-would-refuse-a-suite-that-asserts-nothing
+  (testing "NON-VACUITY for the row above, which is otherwise a rule that
+            has only ever seen input it passes. A teardown that unmounts and
+            removes and reads nothing is exactly the suite the rule exists
+            to refuse, so it is run against that text directly."
+    (let [teardown-only "(defn- teardown! [c r] (.unmount r) (.remove c) nil)"
+          with-absence  (str teardown-only "\n(is (zero? (connection-count)))")]
+      (is (not-any? #(re-find % teardown-only) emptiness-assertion)
+          "an unmount-and-remove teardown is not a residue assertion")
+      (is (some #(re-find % with-absence) emptiness-assertion)
+          "and reading a book empty afterwards is"))))
+
+(deftest the-spine-records-what-it-has-not-yet-earned
+  (testing "Per rf2-drpa3.182.7 acceptance 3: the roster's value here is
+            that the gap is COUNTABLE rather than hidden. FH-BEHAVIOR-005
+            earns `:residue :none` — both its projections read the
+            substrate's books empty after teardown, as exact zeros. The
+            other two tear down and assert nothing, and say so.
+
+            This row is a statement of the CURRENT state, and it is meant to
+            be edited when the mounted-lifecycle facade lands and the other
+            two earn `:none`. It is here so that happens deliberately."
+    (is (= {:FH-REACT-007    :unasserted
+            :FH-CTRL-018     :unasserted
+            :FH-BEHAVIOR-005 :none}
+           (into {} (map (fn [id]
+                           [id (get-in (roster/by-id id)
+                                       [:fh/record :evidence :residue])])
+                         roster/spine-ids))))))
+
+;; ---------------------------------------------------------------------------
 ;; The resolver itself
 ;; ---------------------------------------------------------------------------
 
