@@ -374,13 +374,17 @@
   ;; whole reprojection + image-assembly graph, which must DCE out of
   ;; production bundles that never root `make-frame`/`assemble` (the Spec 009
   ;; elision probe pins `resolve-within-image` ABSENT-when-unused). The
-  ;; dev-only publisher lives in the debug-gated auto-reprojection `defonce`
-  ;; below, so under `:advanced` + `goog.DEBUG=false` nothing references the
-  ;; flush and the graph folds away — the same seam the deferred tick's hook
-  ;; install already rides.
-  (when interop/debug-enabled?
-    (when-let [flush! (late-bind/get-fn-cached :live-frame/flush-projection!)]
-      (flush!)))
+  ;; publisher is `ensure-reprojection-installed!`, rooted from `make-frame`,
+  ;; so a bundle that never constructs a frame still folds the graph away —
+  ;; the keyword consult here roots nothing on its own.
+  ;;
+  ;; rf2-9c2jf: NOT gated on `interop/debug-enabled?`. `make-frame` seals a
+  ;; generation unconditionally and this seam binds it for every lookup in the
+  ;; cascade, so skipping the flush in production froze the frame's view of the
+  ;; registration pool at construction time and turned every later-registered
+  ;; handler into `:rf.error/no-such-handler`.
+  (when-let [flush! (late-bind/get-fn-cached :live-frame/flush-projection!)]
+    (flush!))
   (if-let [gen (frame-resolution-generation frame-target)]
     (binding [registrar/*generation* gen]
       (thunk))
@@ -501,6 +505,13 @@
   key. A supplied `:capabilities` now flows through to the engine as
   record-config (an ordinary config key)."
   #{:images :id :adapter})
+
+;; Forward reference: the reprojection wiring is defined at the bottom of this
+;; ns (it closes over the flush/mark fns, which in turn close over the
+;; reprojection sweep) but is ROOTED from `make-frame` below — see
+;; `ensure-reprojection-installed!` for why the install hangs off frame
+;; construction rather than namespace load (rf2-9c2jf).
+(declare ensure-reprojection-installed!)
 
 ;; ===========================================================================
 ;; Generation resolution (shared by make-frame and reproject-live-frame!)
@@ -694,6 +705,13 @@
    ;; argument cannot silently register a garbage default frame or fail by an
    ;; obscure host ClassCastException.
    (validate-opts! opts)
+   ;; rf2-9c2jf: a frame resolves every `(kind, id)` through the SEALED
+   ;; generation assembled below, so from this call onward the generation must
+   ;; be kept in step with the registration pool. Root the freshener here —
+   ;; idempotent, no debug gate — so the invariant holds on both hosts and
+   ;; under the production gate, while an app that never constructs a frame
+   ;; still DCEs the whole reprojection + assembly graph.
+   (ensure-reprojection-installed!)
    (let [{:keys [images id adapter]} opts
          ;; The frame id the record is keyed by: the public `:id` when supplied
          ;; (so `(rf/dispatch [...] {:frame :counter/main})` finds the same
@@ -1216,7 +1234,14 @@
   `flush-pending-reprojection!` and the direct `reproject-live-frames!` keep
   their all-or-nothing throw-through contract UNCHANGED — a REPL/test caller
   wants immediate fail-loud feedback, not a partially-applied sweep; only
-  THIS deferred path is resilient + defensive. Returns nil."
+  THIS deferred path is resilient + defensive. Returns nil.
+
+  rf2-9c2jf: this consult now runs on the PRODUCTION resolution path too. The
+  JVM `locking` stays UNCONDITIONAL — a fast-path `@pending-reprojection?` read
+  outside the monitor would return immediately while another thread's sweep is
+  mid-flight (that sweep has already cleared the flag), which is precisely the
+  stale-record race the lock exists to close. The uncontended acquire is the
+  price of that guarantee."
   []
   (try
     (flush-projection-if-dirty!)
@@ -1297,18 +1322,53 @@
   [_event]
   (mark-dirty-and-schedule!))
 
-;; Install the reprojection hook ONCE per process. `defonce` over the install so
-;; a dev `:reload` of THIS ns does not push a duplicate hook into the registrar's
-;; `registration-hooks` vector (it dedupes none, and `clear-all!` does not clear
-;; it) — the same "install a registrar hook once, survive hot-reload" pattern
-;; `re-frame.substrate.observation`'s `_registrar-hooks` and
-;; `re-frame.subs.cache`'s `_hot-reload-hook` use.
-;; Gated on `interop/debug-enabled?` so the
-;; whole install (and thus any reprojection cost on the registration path) is
-;; constant-folded away under `:advanced` + `goog.DEBUG=false`: production stops
-;; `reg-*`-ing after boot, so there is nothing to reproject (EP-0023:530).
-(defonce ^:private _auto-reprojection-hook
-  (when interop/debug-enabled?
+(defonce ^:private reprojection-installed? (atom false))
+
+(defn ^:no-doc ensure-reprojection-installed!
+  "Install the reprojection wiring ONCE per process: the registrar registration
+  hook plus the two late-bind keys the registrar's removal paths and the
+  resolution seams consult. Idempotent — `compare-and-set!` makes the
+  install-decision atomic, so a concurrent `make-frame` burst installs exactly
+  one hook (the registrar's `registration-hooks` vector dedupes none, and
+  `clear-all!` does not clear it).
+
+  ROOTED FROM `make-frame`, NOT FROM NAMESPACE LOAD, and carrying NO
+  `interop/debug-enabled?` gate (rf2-9c2jf). Both properties matter:
+
+  * NO DEBUG GATE, because the invariant it maintains — a frame's sealed
+    generation reflects the registration pool at resolution time — is a
+    CORRECTNESS invariant, not a diagnostic. `make-frame` assembles a
+    generation UNCONDITIONALLY (EP-0026 §Default Image: every frame is
+    image-loaded, so the absence-is-default registrar-atom fall-through never
+    fires on the make-frame path), and `registrar/lookup` resolves through that
+    generation for every dispatch / subscribe / fx / cofx inside
+    `call-with-frame-resolution`. Gating only the MAINTAINER left the PRODUCER
+    unconditional: under `-Dre-frame.debug=false` (and `:advanced` +
+    `goog.DEBUG=false`) the generation froze at `make-frame` time and every
+    later `reg-*` became invisible to dispatch — a `registrar/lookup` that
+    succeeded on the atom while the same lookup inside the cascade returned
+    nil and the event failed with `:rf.error/no-such-handler`. The gate's
+    former justification (\"production stops `reg-*`-ing after boot, so there
+    is nothing to reproject\") does not hold: nothing orders all registrations
+    before all frame construction, and the ordinary
+    `make-frame` → `reg-*` → `dispatch` sequence is exactly the broken one.
+
+  * ROOTED FROM `make-frame`, because that preserves the reachability-DCE
+    contract the former ns-load `defonce` bought with its debug gate
+    (`check-elision.cjs` PROD_ABSENT_WHEN_UNUSED pins
+    `image-assembly/resolve-within-image` ABSENT when the probe never calls
+    `make-frame`/`assemble`). An app that never constructs a frame never
+    reaches this fn, so Closure still trims the whole reprojection + assembly
+    graph; an app that DOES construct a frame already roots `assemble-default`
+    through `make-frame` itself, so the freshener costs it no new class of
+    code. The freshener is installed by the same call that creates the thing
+    which goes stale.
+
+  Nothing is lost by deferring the install: `mark-dirty-and-schedule!` skips
+  when no image-loaded frame exists, so the hook was a guaranteed no-op before
+  the first `make-frame` anyway."
+  []
+  (when (compare-and-set! reprojection-installed? false true)
     (registrar/add-registration-hook! reproject-on-registration-change!)
     ;; The REMOVAL twin (rf2-h1vqa4): `unregister!` / `clear-kind!` /
     ;; `clear-all!` are source-store changes exactly like a `reg-*` — a
@@ -1318,8 +1378,8 @@
     ;; its removal paths; same dirty-mark + coalescing as the register side.
     (late-bind/set-fn! :live-frame/mark-projection-dirty! mark-dirty-and-schedule!)
     ;; The read-time coalesced flush consult in `call-with-frame-resolution`
-    ;; (rf2-h1vqa4) — published HERE, inside the debug gate, so production
-    ;; bundles never reference the flush body and the reprojection +
-    ;; assembly graph DCEs (Spec 009 elision probe).
-    (late-bind/set-fn! :live-frame/flush-projection! flush-projection-if-dirty!)
-    :installed))
+    ;; and `router/process-event!` (rf2-h1vqa4). Both consult by KEYWORD
+    ;; through `late-bind`, so the consult sites themselves root nothing —
+    ;; only this publication does, and only `make-frame` reaches it.
+    (late-bind/set-fn! :live-frame/flush-projection! flush-projection-if-dirty!))
+  nil)
