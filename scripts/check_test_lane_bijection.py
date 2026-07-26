@@ -163,21 +163,42 @@ NON_EXECUTABLE_HEAD = "#_"
 
 #: A run of reader prefixes that makes the delimited form after it DATA rather
 #: than code: `#_` (discard) and `'` / `` ` `` (quote, syntax quote), in any
-#: number and any order, optionally with a reader conditional between the run
-#: and the form (`#_#?(:clj ...)`).  The match ENDS on the opening delimiter,
-#: which is the position the walk below tests.
+#: number and any order, optionally with METADATA and/or a reader conditional
+#: between the run and the form (`#_^:doc (...)`, `#_#?(:clj ...)`).  The match
+#: ENDS on the opening delimiter, which is the position the walk below tests.
 #:
-#: The lookbehind is the character literal `\'`, which `mask_source` leaves in
-#: place because it is code: without it, `(do \' (deftest t ...))` would read
-#: as a quoted deftest and the file would leave the universe.
+#: TWO LOOKALIKES ARE NOT QUOTES, and both would cost a live suite:
+#:
+#:   * the character literal `\'`, which `mask_source` leaves in place because
+#:     it is code -- without the guard, `(do \' (deftest t ...))` reads as a
+#:     quoted deftest;
+#:   * the PRIME SUFFIX on a symbol -- `db'`, `tags'`, `ring'`.  A `'` closing
+#:     a symbol is part of that symbol, not a reader macro, so `(do tags'
+#:     (deftest t ...))` must keep its deftest.  Measured 2026-07-26: 352 such
+#:     runs across `.clj`/`.cljc`/`.cljs`, every one of them nested inside a
+#:     binding vector where the walk cannot see it, so the universe is the same
+#:     1694 files either way -- a latent false GREEN, not a live one.
+#:
+#: Both are handled by the same lookbehind, which rejects a quote preceded by
+#: any symbol constituent (a `\` among them) while still allowing one preceded
+#: by another prefix in the run (`''(...)`).
 #:
 #: BOUND: a run consumes ONE following form.  `#_#_ (a) (b)` discards two, and
 #: only `(a)` is seen as data here.  There is no such run in the tree (measured
 #: 2026-07-26: two `#_`-prefixed forms in all of `.clj`/`.cljc`/`.cljs`, no
 #: multi-discard anywhere), and a run that consumes a non-delimited form
 #: (`#_ignored (deftest ...)`) is already exact, because the run only matches
-#: when a delimiter follows it.
-NON_EXECUTABLE_PREFIX = re.compile(r"(?<!\\)(?:(?:#_|['`])\s*)+(?:#\?@?)?(?=[(\[{])")
+#: when a delimiter follows it -- METADATA is the one non-delimited form it may
+#: cross, because metadata is not the form the run consumes, it is part of it.
+#:
+#: BOUND: a metadata MAP is read to its first `}`, as `NS_FORM` reads one, so a
+#: nested map (`^{:a {:b 1}}`) does not match and its form stays executable --
+#: the reporting direction, and there is no such spelling in the tree.
+NON_EXECUTABLE_PREFIX = re.compile(
+    r"(?:(?:#_|(?<![\\\w*+!?<>=/.-])['`])\s*)+"
+    r"(?:\^(?:\{[^{}]*\}|[^\s()\[\]{}]+)\s*)*"
+    r"(?:#\?@?)?(?=[(\[{])"
+)
 
 #: `(ns name)`, tolerating any number of metadata prefixes (`^{:doc ...}`,
 #: `^:no-doc`).  Anchored at column 0: an `ns` form is never nested.
@@ -874,6 +895,12 @@ GREEN_FILES = {
     "implementation/core/test/app/quote_helper.clj":
         "(ns app.quote-helper)\n'(deftest quoted (is true))\n"
         "`(deftest syntax-quoted (is true))\n",
+    # ... and the same two shapes wearing a metadata reader prefix, which is
+    # part of the form the run consumes rather than a form of its own.  Neither
+    # is evaluated, so reading either as a test file fires B1 here too.
+    "implementation/core/test/app/meta_helper.clj":
+        "(ns app.meta-helper)\n'^:doc (deftest quoted-with-meta (is true))\n"
+        '#_^{:doc "dead"} (deftest discarded-with-meta (is true))\n',
 }
 
 
@@ -964,6 +991,22 @@ def run_self_test() -> int:
     files["implementation/core/test/app/char_quote_helper.cljc"] = (
         "(ns app.char-quote-helper)\n(do \\' (deftest t (is true)))\n")
     case("B1 still sees a deftest after a `\\'` character literal",
+         expect="B1 orphan", files=files)
+
+    # The other quote lookalike: a PRIME-SUFFIXED symbol.  The `'` closing
+    # `tags'` belongs to the symbol, so the deftest after it is evaluated.
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/prime_symbol_helper.cljc"] = (
+        "(ns app.prime-symbol-helper)\n(do\n  tags'\n  (deftest t (is true)))\n")
+    case("B1 still sees a deftest after a prime-suffixed SYMBOL",
+         expect="B1 orphan", files=files)
+
+    # ... and metadata alone is not a discard: `^:doc (deftest ...)` with no
+    # quote or `#_` in front of it is evaluated, metadata and all.
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/meta_live_helper.cljc"] = (
+        "(ns app.meta-live-helper)\n^:doc (deftest t (is true))\n")
+    case("B1 still sees a deftest carrying METADATA",
          expect="B1 orphan", files=files)
 
     files = dict(GREEN_FILES)
