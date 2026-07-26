@@ -89,7 +89,12 @@ A runtime subsystem owns its storage, so you never name an absolute runtime path
    :states  {,,,}})
 
 (rf/reg-resource :user-profile
-  {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]})
+  {:sensitive     [[:data :ssn]]
+   :large         [[:data :avatar-bytes]]
+   :scope         {:from-db :app/session}
+   :params-schema [:map [:user-id :string]]}
+  (fn [{:keys [user-id]} _ctx]
+    {:request {:method :get :url (str "/api/users/" user-id)}}))
 ```
 
 The `[:data :payment :token]` declaration redacts that slot everywhere the machine snapshot egresses (every transition's before/after, the Xray Machine Inspector, the pair-MCP wire, the epoch record), for **every spawned actor instance**, with no per-instance author code. Rename the slot in the declaration and the classification moves with it. A malformed declaration is rejected fail-loud at registration.

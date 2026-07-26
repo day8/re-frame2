@@ -70,16 +70,15 @@ This is the moment the value wants to be *part of the application's state*. That
 
 ;; AFTER — a flow. Same formula, but the result is WRITTEN into app-db,
 ;; where handlers read it as plain data and your schema can cover it.
-(rf/reg-flow
-  {:id          :cart/total
-   :inputs      [[:cart :items]]                 ;; app-db paths to watch
-   :derive      (fn [items] (reduce + (map :price items)))
-   :output-path [:cart/total]})                  ;; where the result is written
+(rf/reg-flow :cart/total                         ;; the flow's id
+  {:inputs      [[:cart :items]]                 ;; app-db paths to watch
+   :output-path [:cart/total]}                   ;; where the result is written
+  (fn [items] (reduce + (map :price items))))    ;; the pure recompute
 ```
 
 The formula is identical. What changed is *where the value lives*. Your checkout handler now reads `(:cart/total db)` like any other state, and because the value is part of the [frame](glossary.md#frame)'s state, it rides time-travel and SSR. Dispatch a cart event with [Xray](glossary.md#xray) open and you'll watch the flow's recompute ride the very [pipeline run](glossary.md#run) that changed its inputs — so the total becomes part of the event's *outcome*, not a render-time afterthought.
 
-Those four keys are the whole core of a flow: `:id` names it, `:inputs` is the ordered vector of paths to watch (each value arrives positionally to `:derive`), `:derive` is the pure recompute, and `:output-path` is the `app-db` path written for you.
+Those four things are the whole core of a flow: the id names it, `:inputs` is the ordered vector of paths to watch (each value arrives positionally to the derive fn), the third slot is the pure recompute, and `:output-path` is the `app-db` path written for you.
 
 The rent is real: an `app-db` write on every recompute, plus a piece of registered runtime. You pay it *because a handler needs the value as data*, and not before. Rule of thumb: a typical app has dozens of subscriptions and a *handful* of flows. If no handler reads a flow's output, you're over-paying — go back to a sub.
 
@@ -89,7 +88,7 @@ The rent is real: an `app-db` write on every recompute, plus a piece of register
 
 !!! note "Two more knobs worth knowing"
 
-    First, **`:inputs` can read [runtime-db](glossary.md#runtime-db), not just `app-db`.** Alongside your `app-db`, the framework keeps its own slice of frame state — *runtime-db* — where it stashes things like machine snapshots and the current route (you'll meet it again in Question 4). A bare input path like `[:cart :items]` reads `app-db`; a path led by `:rf.db/runtime` reads that runtime partition — so a flow can derive an `app-db` value from a machine's snapshot or the current route, e.g. `[:rf.db/runtime :rf.runtime/machines :snapshots :checkout/flow :state]`. The **write side stays `app-db`-only**, always: a flow's `:output-path` is never a runtime-db path. Second, **flows are frame-scoped.** `reg-flow` registers against the surrounding frame; pass `{:frame …}` as a second argument (or wrap the call in `with-frame`) to target a specific one. A bare `(reg-flow …)` outside any frame scope fails loud with `:rf.error/no-frame-context` rather than guessing a default.
+    First, **`:inputs` can read [runtime-db](glossary.md#runtime-db), not just `app-db`.** Alongside your `app-db`, the framework keeps its own slice of frame state — *runtime-db* — where it stashes things like machine snapshots and the current route (you'll meet it again in Question 4). A bare input path like `[:cart :items]` reads `app-db`; a path led by `:rf.db/runtime` reads that runtime partition — so a flow can derive an `app-db` value from a machine's snapshot or the current route, e.g. `[:rf.db/runtime :rf.runtime/machines :snapshots :checkout/flow :state]`. The **write side stays `app-db`-only**, always: a flow's `:output-path` is never a runtime-db path. Second, **flows are frame-scoped.** `reg-flow` registers against the surrounding frame; add a `:frame` key to the metadata map (or wrap the call in `with-frame`) to target a specific one. A bare `(reg-flow …)` outside any frame scope fails loud with `:rf.error/no-frame-context` rather than guessing a default.
 
 !!! note "Flows fail loud, at registration, before they can bite"
 

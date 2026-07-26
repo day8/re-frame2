@@ -209,7 +209,12 @@ So a route carrying a token in its query string (`?reset_token=…`) classifies 
   "/reset")
 
 (rf/reg-resource :user-profile
-  {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]})
+  {:sensitive     [[:data :ssn]]
+   :large         [[:data :avatar-bytes]]
+   :scope         {:from-db :app/session}
+   :params-schema [:map [:user-id :string]]}
+  (fn [{:keys [user-id]} _ctx]
+    {:request {:method :get :url (str "/api/users/" user-id)}}))
 ```
 
 A malformed subsystem declaration fails loud at registration under its own per-subsystem error id — `reg-machine` raises `:rf.error/invalid-machine-classification`, a bad resource spec folds into `:rf.error/resource-bad-spec`.

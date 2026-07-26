@@ -132,7 +132,7 @@ Same for the `uix` variant.
 (reg :sub :id ...)                   → (reg-sub :id ...)
 (reg :fx :id ...)                    → (reg-fx :id ...)
 (reg :cofx :id ...)                  → (reg-cofx :id ...)
-(reg :flow :id ...)                  → (reg-flow ...)
+(reg :flow :id ...)                  → (reg-flow :id {…} derive-fn)   ; 3 slots — the :derive fn moves OUT of the map
 (sub <vector>)                       → (subscribe <vector>)   ; EXCEPT inside a reg-sub signal/input fn, per M-71 (below)
 (sub {:re-frame/q ::id :param 1})    → (subscribe [::id 1])   ; vectorize the query-map
 ```
