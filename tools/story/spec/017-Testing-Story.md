@@ -1109,12 +1109,26 @@ bridge once at boot:
 holds the Freehand dependency on the *app's* side of the seam — Story's
 jar ships the file but never requires it, so the dependency direction is
 unchanged. It composes two verbs the substrate already published — the
-logical advance above, and core's adapter-dispatched synchronous commit
-(`re-frame.substrate.adapter/flush-render!`, Spec 006) so the removals the
-advance fires are committed before the step returns. It installs at load
-time; there is nothing else to call.
+logical advance above, and **Freehand's own** synchronous commit, the Spec 006
+`flush-render!` contract slot read off the published `v/adapter` value — so
+the removals the advance fires are committed before the step returns. It
+installs at load time; there is nothing else to call.
 (`re-frame.story.play.presence/install-presence-flush!` stays public for a
 host registering a different advance.)
+
+**Freehand's boundary, not the process adapter's.** The commit that has to
+happen is a commit of a Freehand root, so the bridge does not route through
+`re-frame.substrate.adapter/flush-render!`, which dispatches on whatever
+substrate adapter the process installed. Story's own shell is a Reagent
+application and every shipped testbed seats `re-frame.adapter.reagent/adapter`,
+whose slot is `(fn [f] (f) (reagent.core/flush))`: it runs the thunk bare and
+drains Reagent's own queues. A presence removal makes no Reagent component
+dirty — it calls a plain React `useState` setter inside the Freehand root — so
+that drain never reaches `react-dom/flushSync` and never closes Freehand's
+ViewCell window. Dispatched, the verb would return with the clock reporting
+zero pending and the retained child still painted. Read off `v/adapter`, the
+boundary is correct under every seating and byte-identical under Freehand's
+own.
 
 `[:flush-presence]` requires NO capability token and does not lift
 `:required-runner` to `:dom` — the presence clock is a process-global

@@ -47,14 +47,14 @@
     quiescence, a number → advance by that many logical ms). The advance is
     the framework's; only the wrapper around it is this bridge's.
 
-  - **`re-frame.substrate.adapter/flush-render!`** — core's adapter-dispatched
-    SYNCHRONOUS commit (Spec 006 §`flush-render!`). The removals an advance
-    fires are React state updates, so a bare advance would leave the DOM one
-    commit behind; running the advance INSIDE the substrate's synchronous
-    commit boundary returns with the DOM settled. Freehand's override of that
-    slot also closes the pending ViewCell window inside the same boundary and
-    converges, and runs the shared `guard-open-drain!` first — so a flush
-    forced from inside an open drain fails loud
+  - **`(:flush-render! v/adapter)`** — FREEHAND's synchronous commit, the
+    Spec 006 `flush-render!` contract slot read off the published adapter
+    VALUE. The removals an advance fires are React state updates, so a bare
+    advance would leave the DOM one commit behind; running the advance INSIDE
+    that commit boundary returns with the DOM settled. Freehand's
+    implementation also closes the pending ViewCell window inside the same
+    boundary and converges, and runs the shared `guard-open-drain!` first —
+    so a flush forced from inside an open drain fails loud
     (`:rf.error/flush-in-open-epoch`) exactly as the donor's did.
 
   Composing them is why crossing to Freehand needed no new published verb.
@@ -64,6 +64,52 @@
   supported both — `presence/advance!` attaches a `:pending` thenable only
   when the host verb returns one, and `settle!` calls back synchronously when
   it does not — so the runner needs no arm for this and gains no latency.
+
+  ## Why FREEHAND's boundary and not the PROCESS adapter's (rf2-gzmg0)
+
+  The commit that has to happen is a commit of a FREEHAND root, so the
+  boundary that closes it is Freehand's — not whichever substrate adapter the
+  process happens to have installed.
+
+  This bridge first reached for `re-frame.substrate.adapter/flush-render!`,
+  core's adapter-DISPATCHED spelling of the same slot, on the reasonable-
+  sounding ground that a Freehand app installs `v/adapter` and the dispatch
+  therefore lands on Freehand's implementation anyway. It does not, in the
+  topology that matters. Every shipped Story testbed seats
+  `re-frame.adapter.reagent/adapter` — Story's own shell is a Reagent
+  application — and a Freehand variant mounts inside that process. Reagent's
+  slot is `(fn [f] (f) (reagent.core/flush))`: it runs the thunk bare and then
+  drains Reagent's own before-flush / ratom / component / after-render queues.
+  A presence removal makes no Reagent component dirty (it calls a plain React
+  `useState` setter inside the Freehand root), so that drain never enters
+  `react-dom/flushSync`, and it never closes Freehand's ViewCell window
+  either. The verb would return, the clock would report zero pending, and the
+  retained child would still be painted — a green clock over a stale DOM,
+  which is the ONE failure this rung exists to exclude.
+
+  Reading the slot off `v/adapter` removes the process adapter from the
+  question entirely. Under `v/adapter` it is byte-identical to what the
+  dispatch found before; under any other seating it is the boundary that is
+  actually correct. `re-frame.freehand.substrate/flush-render!` — the fn this
+  resolves to — is adapter-state-free by construction: it stands on
+  `react-dom/flushSync`, the module-global ViewCell registry and core's
+  router-state drain guard, none of which consult the installed adapter.
+
+  It also retires the bridge's old headless special case. `flush-render!` is
+  an OPTIONAL contract fn and the plain-atom adapter a headless Story run
+  installs ships none, so the dispatched call used to run nothing and the
+  bridge re-ran the advance outside the boundary to compensate. Freehand's
+  slot always exists, so the advance now runs exactly once, on every host,
+  through one path.
+
+  KNOWN, WIDER, AND NOT THIS BRIDGE'S (rf2-gzmg0): a Freehand view's
+  SUBSCRIPTION reads are inert on the ratom substrates. Core's observation
+  port activates a derived value by adding a watch and dereferencing it, and a
+  stock Reagent `Reaction` deref'd outside `*ratom-context*` never captures
+  its sources — so it never notifies, and the ViewCell it feeds is never
+  marked dirty. That is upstream of this file and of Story, it is why the
+  mounted proof drives its presence children through props rather than a
+  subscription under the Reagent seating, and it is tracked separately.
 
   ## What it deliberately does NOT do
 
@@ -80,14 +126,25 @@
   With this bridge absent, `[:flush-presence]` REFUSES (`:cannot-run`) rather
   than skipping silently — see `re-frame.story.play.presence`."
   (:require [re-frame.story.play.presence :as presence]
-            ;; Core's adapter-dispatched synchronous commit. Core is already a
-            ;; hard Story dependency, so this adds no coordinate — it is named
-            ;; here rather than reached through `re-frame.core` because the
-            ;; substrate-contract verbs live on this namespace.
-            [re-frame.substrate.adapter :as substrate]
-            ;; The substrate's presence clock. This is the ONE require that
-            ;; makes this file the app-side half of the seam.
-            [re-frame.freehand.presence-runtime :as fh-presence]))
+            ;; The substrate's presence clock. Host-neutral, so it is required
+            ;; unconditionally — the JVM arm below never calls into it, but the
+            ;; namespace loads on both hosts.
+            [re-frame.freehand.presence-runtime :as fh-presence]
+            ;; The Freehand DOOR, for `v/adapter` alone. CLJS-only because the
+            ;; adapter value is: it stands on the core React spine, and a JVM
+            ;; structural render has no React root to commit.
+            #?@(:cljs [[re-frame.freehand :as v]])))
+
+#?(:cljs
+   (def ^:private freehand-commit!
+     "Freehand's own synchronous commit boundary — the Spec 006
+     `flush-render!` contract slot, read off the PUBLISHED adapter value.
+
+     Deliberately not `re-frame.substrate.adapter/flush-render!`, which
+     dispatches to whatever adapter the process installed: the commit that has
+     to happen here is a commit of a Freehand root. See the ns docstring
+     §Why FREEHAND's boundary and not the PROCESS adapter's."
+     (:flush-render! v/adapter)))
 
 #?(:cljs
    (defn- advance-clock!
@@ -100,21 +157,13 @@
 
 #?(:cljs
    (defn- advance-and-commit!
-     "Advance the presence clock and return with the DOM SETTLED.
-
-     `flush-render!` is an OPTIONAL contract fn: core's dispatcher runs the
-     thunk only when the installed adapter ships the slot, and returns nil
-     otherwise. A headless Story run installs `plain-atom`, which ships none —
-     there is no React commit to settle there, but the clock is still real and
-     its removal callbacks must still fire. So the advance is re-run outside
-     the boundary exactly when the boundary never ran it, and never twice."
+     "Advance the presence clock and return with the Freehand DOM SETTLED,
+     whatever adapter the process installed. One advance, one boundary, one
+     path on every host — Freehand always ships the slot, so there is no
+     'the boundary ran nothing' case to compensate for."
      [ms]
-     (let [advanced? (volatile! false)]
-       (substrate/flush-render! (fn []
-                                  (vreset! advanced? true)
-                                  (advance-clock! ms)))
-       (when-not @advanced? (advance-clock! ms))
-       nil)))
+     (freehand-commit! #(advance-clock! ms))
+     nil))
 
 (defn install!
   "Register the Freehand presence advance under the `:flush-presence!`
