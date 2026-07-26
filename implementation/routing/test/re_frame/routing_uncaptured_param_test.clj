@@ -145,7 +145,21 @@
     (let [data (thrown-data #(registry/route-url {:to     :route/plain
                                                   :params {:url "/nope"}}))]
       (is (= :uncaptured-params (:reason data)))
-      (is (= [:url] (:keys data))))))
+      (is (= [:url] (:keys data)))))
+
+  (testing "the exemption is load-bearing on a LIVE door, not just on the
+            best-effort address-bar restore: an in-place query edit while
+            parked on the fallback carries the miss record back through
+            route-url, and an unexempted fallback would reject it"
+    (rf/dispatch-sync [:rf.route/transitioned "/nope"])
+    (is (= :rf.route/not-found (:route-id (current-slice))))
+    (is (= {:url "/nope"} (:params (current-slice)))
+        "the miss record is the fallback's :params — never path captures")
+    (rf/dispatch-sync [:rf.route/navigate {:query {:x "1"}}])
+    (is (= {:x "1"} (:query (current-slice)))
+        "the in-place edit committed rather than rejecting")
+    (is (= {:url "/nope"} (:params (current-slice)))
+        "and the miss record survived the edit unchanged")))
 
 ;; ===========================================================================
 ;; The two ACTIVATION doors agree
