@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 testbed: freehand-views (Xray demo)</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    .rf2-testbed-shell { display: flex; min-height: 100vh; }
+    /* `--rf-xray-inline-width` is Xray's documented host-resize knob
+       (rf2-um813; see day8.re-frame2-xray.config/default-layout-host-css-var
+       and spec/011-Launch-Modes.md §Resizing the inline host). Override
+       the property anywhere up the cascade to resize the panel without
+       JS or a fork of this rule. The user-draggable resize handle is
+       auto-injected by Xray (rf2-70u8q; spec/007-UX-IA.md §Resize
+       affordance) — no `resize: horizontal` / `overflow: auto` needed. */
+    :root { --rf-xray-accent: #539bf5; }
+    [data-rf-xray-host] { flex: 0 0 var(--rf-xray-inline-width, 560px); min-width: 320px; box-sizing: border-box; border-left: 1px solid #2a2a2a; }
+    #app { flex: 1; min-width: 0; padding: 0 16px; }
+    .rf2-host-controls { padding: 8px 16px; border-top: 1px solid #ddd; }
+    .rf2-host-controls button { margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div class="rf2-testbed-shell">
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+      <main id="app"></main>
+      <!-- HOST controls, not application views. `v/mount` / `v/unmount!`
+           are the host's imperative root verbs (they take a DOM node), so
+           they are wired from the boot script (freehand-views.core/run)
+           onto plain buttons that live OUTSIDE the React-owned #app. See
+           that namespace's BOOT section for why each one exists. -->
+      <div class="rf2-host-controls">
+        <button id="fh-mount" data-testid="fh-mount">Mount root</button>
+        <button id="fh-unmount" data-testid="fh-unmount">Unmount root</button>
+      </div>
+    </div>
+    <aside data-rf-xray-host></aside>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>

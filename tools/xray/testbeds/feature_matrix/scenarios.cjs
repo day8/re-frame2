@@ -152,6 +152,19 @@ const STAGED_SURFACES = [
     html: ['tools', 'xray', 'testbeds', 'two_frame_isolation', 'index.html'],
     servedPath: 'testbeds/two-frame-isolation',
   },
+  // The freehand-views deck (rf2-6pohj) — the ONE staged surface whose
+  // views are FREEHAND views, so the Views panel's Mounted Views and
+  // Declared View Sites sections have something to project. Every other
+  // surface here is Reagent-hosted and connects no Freehand occurrence.
+  // Served from the deck's own hand-written index.html (source dir first,
+  // like the 8036 :dev-http entry); the compiled main.js falls through to
+  // out/testbeds/freehand-views.
+  {
+    build: 'testbeds/freehand-views',
+    bundleDir: ['out', 'testbeds', 'freehand-views'],
+    html: ['tools', 'xray', 'testbeds', 'freehand_views', 'index.html'],
+    servedPath: 'testbeds/freehand-views',
+  },
 ];
 
 function sleep(ms) {
