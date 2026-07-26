@@ -480,6 +480,40 @@
             (._queued-run r)))
         (recur)))))
 
+(defn activate!
+  "Put `rx` on the PUSH path by running its body through `deref-capture`,
+  so it subscribes to the sources it reads. Returns `rx`. rf2-8cnxg.
+
+  WHY THIS EXISTS. A Reaction is DEMAND-driven: `-deref` outside
+  `*ratom-context*` with no `auto-run` takes the fast path — run `f` raw,
+  notify explicit watches if the value moved — and deliberately wires no
+  watcher graph, so `watching` stays nil. `_handle-change` is therefore
+  never called, and `_queued-run` requires `(some? watching)`, so `flush!`
+  moves nothing either. A reader that only ever `add-watch`es (never derefs
+  inside a reactive context) consequently holds a watch that CANNOT fire —
+  which is exactly what a compiled ViewCell does through re-frame's
+  observation port. A component render normally supplies the capture; a
+  ViewCell is not a component, so it asks for it here.
+
+  Idempotent: a Reaction whose `watching` is already populated is on the
+  push path and is left alone rather than recomputed. Total: a no-op on
+  anything that is not a Reaction (an `RAtom` is push-based already).
+
+  This is NOT `:auto-run true`. Activation performs ONE capture run, off
+  the writer's stack, and leaves change handling on the ordinary batched
+  `rea-enqueue` → `flush!` path. `:auto-run true` would instead recompute
+  synchronously inside every source `reset!`.
+
+  Stock Reagent spells the same operation `reagent.ratom/run` (its
+  `IRunnable` protocol). The rewrite dropped `IRunnable` — no audited
+  codebase called it — so the one genuinely-needed use rides this named fn
+  instead of resurrecting the protocol."
+  [rx]
+  (when (and (instance? Reaction rx)
+             (nil? (.-watching ^Reaction rx)))
+    (._run ^Reaction rx false))
+  rx)
+
 (defn make-reaction
   "Construct a Reaction wrapping body fn `f`.
 

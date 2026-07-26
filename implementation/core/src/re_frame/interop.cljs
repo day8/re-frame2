@@ -82,6 +82,42 @@
   (when-let [hook (late-bind/get-fn-cached :adapter/make-reaction)]
     (hook f)))
 
+(defn activate-derived-value!
+  "Put a `make-derived-value` result on the substrate's PUSH path — i.e.
+  make it actually notify its watches when a source moves (rf2-8cnxg /
+  rf2-jt8vz).
+
+  Spec 006 §`make-derived-value` says the derived container \"updates
+  automatically when any source's value changes\" and that
+  `subscribe-container` works on it as on a base container. On the
+  React-hook spine that is true from birth: `make-derived-value-fn` wires one
+  watch per source AT CONSTRUCTION. The ratom family is DEMAND-driven
+  instead: `reagent.ratom/Reaction` captures its sources only through
+  `deref-capture`, and a plain `deref` taken OUTSIDE `*ratom-context*` (with
+  no `auto-run`) runs the body raw and leaves `watching` nil — a reaction
+  that is watchable, and watched, and notifies nobody. A Reagent COMPONENT
+  never notices because its render IS the capture context; a compiled
+  ViewCell is not a component, so nothing supplies it.
+
+  This op is that missing capture, and it is the ONLY thing the ratom family
+  needs to satisfy the spec's push clause: once the sources are captured, a
+  write reaches `_handle-change` → the reaction enqueues itself → the
+  substrate's ordinary batched flush recomputes and notifies. Nothing here
+  makes a subscription EAGER: activation happens at observation-port acquire
+  time, not at construction, so a sub no ViewCell observes is untouched, and
+  the change path stays batched (`:auto-run true` — the one-line \"fix\" —
+  would instead recompute every Reagent-hosted subscription synchronously
+  inside the app-db `reset!`).
+
+  Idempotent and total: adapters whose derived values are already push-based
+  (the React-hook spine: UIx, Helix, re-frame.ui, Freehand) publish no hook
+  and the call is a no-op; the ratom impls no-op on an already-activated
+  reaction and on any container that is not one of their derived values."
+  [derived]
+  (when-let [hook (late-bind/get-fn-cached :adapter/activate-derived-value!)]
+    (hook derived))
+  nil)
+
 (defn add-on-dispose!
   "Register a teardown callback on a-ratom."
   [a-ratom f]

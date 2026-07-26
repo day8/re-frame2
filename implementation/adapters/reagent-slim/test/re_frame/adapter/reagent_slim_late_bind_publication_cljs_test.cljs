@@ -40,6 +40,9 @@
     :adapter/ratom
     :adapter/ratom?
     :adapter/make-reaction
+    ;; rf2-8cnxg — push-path activation for a `make-derived-value` result,
+    ;; published by the ratom family alone (`reagent2.ratom/activate!`).
+    :adapter/activate-derived-value!
     :adapter/add-on-dispose!
     :adapter/dispose!
     :adapter/reactive?

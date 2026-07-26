@@ -93,6 +93,12 @@
      :atom              r/atom
      :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
      :make-reaction     ratom/make-reaction
+     ;; rf2-8cnxg — the missing `deref-capture`, same defect and same shape
+     ;; as stock Reagent's (the rewrite keeps stock's nine-field Reaction
+     ;; kernel, demand-driven `-deref` included). `ratom/activate!` is the
+     ;; rewrite's name for stock's `IRunnable` `run`; it is idempotent and
+     ;; a no-op on anything that is not one of its Reactions.
+     :activate-reaction! ratom/activate!
      :disposable?       (fn [a] (satisfies? ratom/IDisposable a))
      :add-on-dispose!   ratom/add-on-dispose!
      :dispose!          ratom/dispose!

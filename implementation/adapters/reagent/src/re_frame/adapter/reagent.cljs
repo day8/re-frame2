@@ -73,6 +73,27 @@
      :atom              r/atom
      :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
      :make-reaction     ratom/make-reaction
+     ;; rf2-8cnxg — the missing `deref-capture`. A stock `Reaction` learns
+     ;; its sources ONLY by being run through `deref-capture`; `ratom/run`
+     ;; (its `IRunnable` op) is exactly that run, and after it the reaction
+     ;; is on Reagent's ordinary batched push path (`_handle-change` →
+     ;; enqueue → `ratom/flush!` → notify). A plain `deref` outside
+     ;; `*ratom-context*` deliberately does NOT do this, which is why an
+     ;; `add-watch`-only observer — the observation port over a compiled
+     ;; ViewCell — never heard from a Reagent-hosted subscription.
+     ;;
+     ;; Guarded twice, and both guards are load-bearing. `IRunnable` skips
+     ;; anything that is not a Reagent `Reaction` (a base `r/atom`, or a
+     ;; spine-produced derived value inherited through a cross-substrate
+     ;; test bundle — rf2-jicu2). A non-nil `watching` means the reaction is
+     ;; ALREADY capturing, so re-running it would recompute a live node for
+     ;; nothing; skipping keeps activation idempotent across the second and
+     ;; subsequent ViewCells that acquire the same cached node.
+     :activate-reaction! (fn [rx]
+                           (when (and (satisfies? ratom/IRunnable rx)
+                                      (nil? (.-watching rx)))
+                             (ratom/run rx))
+                           nil)
      :disposable?       (fn [a] (satisfies? ratom/IDisposable a))
      :add-on-dispose!   ratom/add-on-dispose!
      :dispose!          ratom/dispose!

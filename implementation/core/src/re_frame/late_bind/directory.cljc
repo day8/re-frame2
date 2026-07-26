@@ -987,6 +987,12 @@
     :chained?    true
     :design-bead "rf2-s36l"
     :description "Substrate-specific make-reaction (re-frame.interop/make-reaction). Per rf2-jicu2 not published by UIx; absent-hook returns nil."}
+   {:key         :adapter/activate-derived-value!
+    :producer-ns '[re-frame.adapter.reagent
+                   re-frame.adapter.reagent-slim]
+    :chained?    true
+    :design-bead "rf2-8cnxg"
+    :description "Put a make-derived-value result on the substrate's PUSH path (re-frame.interop/activate-derived-value!), so a source write actually notifies the derived container's watches — Spec 006 §make-derived-value's \"updates automatically when any source's value changes\" clause. Published by the ratom family ALONE, because they alone are demand-driven: a reagent.ratom/Reaction captures its sources only through deref-capture, and a deref taken outside *ratom-context* with no auto-run runs the body raw and leaves `watching` nil — watchable, watched, and silent. The observation port calls this before installing its per-handle watch, so a compiled ViewCell (which is not a Reagent component and so supplies no capture context of its own) observes a live node. NOT published by the React-hook spine (UIx / Helix / re-frame.ui / Freehand), whose make-derived-value wires one watch per source at CONSTRUCTION and is push-based from birth; the routed chain-bottom returns nil and the port's call is a no-op. Not published by plain-atom / test-react for the same reason."}
    {:key         :adapter/add-on-dispose!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
