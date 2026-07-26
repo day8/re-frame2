@@ -1667,6 +1667,16 @@ reaches a host only at a position the declaration named, because that is what
 makes the site finite, checkable, and able to carry the committed identity
 below.
 
+**A prop NAME is exact too: an unqualified keyword, and nothing else.** The
+crossing names each prop by its bare name, so a qualified keyword would arrive
+with its namespace silently dropped, and a string would give one React prop a
+second spelling. A second spelling is not cosmetic — every law at this boundary
+is enforced BY the name, so `"children"`, `:x/key` and a `"onSelect"` no
+declaration can see would each reach React under the reserved name while
+passing the check that looked for the keyword. Exactness is what makes those
+checks total, and it is the same law `:callbacks` already states on the
+declaration side.
+
 **`:callbacks` is a finite map from EXACT prop names to the roles `:event` or
 `:handler`.** A position accepts the corresponding carrier and is never inferred
 from an `on*` name. A bare event vector at a foreign callback position is NOT an
@@ -1698,7 +1708,9 @@ non-portable host values. It runs in the browser only, and on the ordinary plane
 only: callback carriers and trailing children are WITHHELD from it and installed
 afterwards. The adapter MUST NOT supply or replace declared callbacks, children,
 the key, or any other reserved Freehand fact, and a returned map naming one is
-refused.
+refused. It answers under the caller's own naming law — the adapter owns the
+ordinary plane's VALUES, and the names stay the caller's — which is what makes
+that refusal total rather than a filter a second spelling walks past.
 
 Props-contract evidence under `:props` is OPTIONAL for application-private
 declarations; the stronger publication policy of
