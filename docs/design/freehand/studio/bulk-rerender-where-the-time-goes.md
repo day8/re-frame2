@@ -276,6 +276,20 @@ code. Each is filed as its own bead.
    the deficit and the least tractable of the three, because each hook is
    named in the shell's contract.
 
+   **Decision, 2026-07-27 (`rf2-dkcor`): the contract stands and this is
+   not taken.** Every one of those six hooks is named normatively in
+   `spec/006-ReactiveSubstrate.md` §The Freehand atomic shell and in
+   `shell.cljs` — one `useSyncExternalStore` per view so N moving targets
+   settle in one pass, the reconcile effect publishing each render's
+   bundle, the lifecycle effect owning connect/disconnect. Removing one
+   means weakening a stated guarantee, and the arithmetic does not
+   justify it: §6's re-take puts the total at 4.8 ms against Reagent's
+   ≈0.8, so the deficit is now ≈4.0 ms and the ablation's 0.9 ms is
+   **≈22%** of it rather than 25% — *assuming the constant itself is
+   unchanged, which has not been re-measured*. Twenty-two percent does
+   not close a 10× gap, and it is the smallest of the three levers while
+   being the only one that costs a contract. Recorded, not actioned.
+
 Not on this list: the interpreted markup walk. `react/emit` is 0.47 ms of
 4.05 — even a 30% cut is 4% of the deficit. #7077 already took 26% out of
 that walk on the mount path; the update row is not where it lives.
