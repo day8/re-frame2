@@ -29,6 +29,11 @@
   Filed under rf2-qwsmv."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            ;; ClojureScript only, and spliced away on the JVM: the outward
+            ;; bridge answers a React component, and the assertion that it is
+            ;; not already an element needs React's own predicate.
+            #?@(:cljs [["react" :as react]
+                       [goog.object :as gobj]])
             [re-frame.core :as rf]
             [re-frame.freehand :as v]
             [re-frame.freehand.test :as t]
@@ -479,6 +484,29 @@
        (is (fn? v/->react)            "v/->react — adoption.md, host-boundaries.md")
        (is (fn? v/active-connections) "v/active-connections — debugging.md")
        (is (fn? v/command-log)        "v/command-log — debugging.md"))))
+
+#?(:cljs
+   (deftest the-outward-bridge-answers-a-component-that-must-be-created
+     (testing "js-libraries.md block 3 — the crossing its AnimatePresence
+               sketch turns on. `v/->react` answers a COMPONENT, and a
+               library that RETAINS children wants elements: React keeps
+               only valid elements, so a component value handed over as a
+               child is dropped and the tray renders nothing. Created into
+               an element it is an ordinary keyed child, and the props
+               object reaches the view's props map by exact name — the one
+               shallow rule the bridge states."
+       (let [exported (person-cell-react)]
+         (is (fn? exported)
+             "the bridge answers a component value")
+         (is (not (react/isValidElement exported))
+             "which is NOT a child React can retain — this is the defect")
+         (let [el (react/createElement exported #js {:key "7" :person-id 7})]
+           (is (react/isValidElement el)
+               "created into an element, it is")
+           (is (= "7" (.-key el))
+               "and the key rides the element, where a retaining library reads it")
+           (is (= 7 (gobj/get (.-props el) "person-id"))
+               "props pass shallowly and by exact name"))))))
 
 #?(:cljs
    (deftest the-two-tool-plane-reads-answer-collections
