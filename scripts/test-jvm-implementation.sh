@@ -39,6 +39,15 @@ artefacts=(
   # emitter alongside the React one, so the JVM arm is load-bearing here
   # from the first commit rather than bolted on later.
   implementation/freehand
+  # rf2-ftmh0 — the CI teeth for examples/ui/minimal-counter. The required
+  # `ui-scaffold-smoke` job runs this artefact's `clojure -M:test` with
+  # RF2_UI_SCAFFOLD_COMPILE=1, but it sat on NO roster, so a scaffold-only
+  # change armed nothing locally. Listed WITHOUT the env var on purpose: the
+  # structural tier (7 tests, ~3s, no Node needed) is what belongs in a local
+  # sweep, while the install+compile proof and the per-file omission matrix
+  # — which shell out to `npm install` + `npx shadow-cljs compile app` — stay
+  # CI's job. Set RF2_UI_SCAFFOLD_COMPILE=1 to arm those locally too.
+  implementation/freehand/scaffold-smoke
   # The build-time reader for committed spec/ data
   # (day8/re-frame2-spec-resource). Its `:test` alias is the DETERMINISTIC
   # control for the cold-load race that reader exists to close: it holds
