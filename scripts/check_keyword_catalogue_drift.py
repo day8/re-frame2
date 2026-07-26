@@ -78,6 +78,43 @@ was added under rf2-d89rs because a real miss DID motivate it.
     (`:rf.error/machine-grammar-not-in-v1`, port-relative by its own Trigger
     cell) carries the single exemption below, kept honest both ways.
 
+FAMILY SCOPE — the two families A and C read, and the one that is OUT
+----------------------------------------------------------------------
+CHECKS A and C are keyed on `:rf.error/*` and `:rf.warning/*`. That is a
+DECISION, not an accident of the regex, and rf2-f9v2s is why it is written
+down: a reader who finds an emitted `:rf.*` id this gate never mentions
+deserves the boundary in the same file as the scan, rather than having to
+infer it from a prefix.
+
+Spec 009's catalogue is the RUNTIME error-EVENT vocabulary — the ids a
+consumer observes on the trace surface or catches off a thrown ex-info — and
+`:rf.error/*` / `:rf.warning/*` are the two families it rows at scale (445 of
+its 485 active rows). The remaining 40 rows sit in 14 other `:rf.*` families
+(`:rf.ssr/*`, `:rf.epoch/*`, `:rf.http/*`, `:rf.fx/*`, `:rf.route.nav-token/*`,
+…); their id-level coverage belongs to the Clojure ratchet
+(`implementation/core/test/re_frame/error_catalogue_channel_conformance_test
+.clj` — Channel column, emit sites, Tags column), not here. CHECK B is the one
+arm that IS total over `:rf.*`: every emitted namespace must be reserved,
+whatever its family, so nothing escapes the gate entirely.
+
+OUT OF SCOPE, deliberately — `:rf.ui.compile/*`. The Freehand compiler emits
+~110 analyzer-refusal ids in that namespace (`:rf.ui.compile/bad-render-fn`,
+`…/bad-tag`, `…/unsupported-form`, …) and not one has a Spec 009 row. That is
+correct, and the reserved-namespace table already decided it: Conventions §The
+single-root reserved set says the family is the "compile-error id namespace …
+(compile-time only: thrown at macroexpansion, NEVER emitted at runtime, never
+a trace)", gives its spec home as "004 (rewrite)", and names its roster
+authority — "the id roster is pinned by the S1b analyzer reject tables". A
+never-a-trace id cannot have an error-EVENT row, so widening this scan to the
+family would not find drift; it would manufacture ~110 findings against a
+contract nobody wrote. The family's own roster gate is real and in flight
+elsewhere: `implementation/ui/test/re_frame/ui/error_roster_*`, dispositioned
+**MOVE** in `spec/conformance/freehand/donor-inventory.md` (F1, pending) — it
+CROSSES into Freehand rather than dying with the donor tree, and the ids
+themselves already live on the Freehand side
+(`implementation/freehand/src/re_frame/freehand/compiler/`), so the pending
+`implementation/ui` deletion takes the donor copy only.
+
 SCAN SURFACE (corpus-sweep rules — same as the sibling residue guards)
 ----------------------------------------------------------------------
 Implementation source only: `.clj` / `.cljc` / `.cljs` under `implementation/`,
@@ -145,6 +182,11 @@ _SPEC_CONVENTIONS = "spec/Conventions.md"
 # `<placeholder>` angle-bracket forms that appear only in docstrings, so a
 # prose mention like `:rf.error/reply-<category>` or a sentence-final
 # `:rf.error/frame-destroyed.` never fires.
+#
+# The two families here ARE the scope of CHECKS A and C — see §Family scope in
+# the module docstring for what that excludes and why (rf2-f9v2s). Adding a
+# prefix to this alternation widens both checks at once; do not do it without
+# first establishing that the new family is meant to have catalogue rows.
 _ERR_WARN_RE = re.compile(r":rf\.(?:error|warning)/[a-z0-9]+(?:-[a-z0-9]+)*")
 
 # Any reserved-root keyword; group 1 is its NAMESPACE (`rf`, `rf.error`,
