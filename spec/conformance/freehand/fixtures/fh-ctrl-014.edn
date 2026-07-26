@@ -1,5 +1,5 @@
 {:fh/id  "FH-CTRL-014"
- :fh/law "RESET and REBASE are distinct transitions and neither is the other. Reset discards the draft back to the baseline, clears the leaf's visited / edited / error marks, and ADVANCES that leaf's reset revision — so a caller rejecting a draft by reasserting the value it already had is observable, which value-equality provably is not. Rebase moves the baseline under a live draft, KEEPS the draft, clears the edited mark only where the draft now agrees with the new baseline, and advances no revision, because a rebase is not a rejection. A scoped reset advances one leaf's generation and no other."
+ :fh/law "RESET and REBASE are distinct transitions and neither is the other. Reset discards the draft back to the baseline, clears the leaf's visited / edited / error marks, and ADVANCES that leaf's reset revision — so a caller rejecting a draft by reasserting the value it already had is observable, which value-equality provably is not. Rebase moves the baseline under a live draft, KEEPS the draft, clears the edited mark only where the draft now agrees with the new baseline, and advances no revision, because a rebase is not a rejection. A scoped reset advances one leaf's generation and no other, and back to the baseline means back to ABSENT where the baseline has no key at all: a baseline nil is a value the domain accepted and is restored as one, while a leaf the baseline never had is REMOVED rather than materialised holding nil, at any depth, so the scoped arity converges on the value the whole-form arity takes."
 
  :baseline {:amount "10" :notes "keep typing"}
 
@@ -50,4 +50,55 @@
  :reset-discards-draft? true
  :rebase-keeps-draft?   true
  :reset-advances-generation? true
- :rebase-advances-generation? false}
+ :rebase-advances-generation? false
+
+ ;; ---------------------------------------------------------------------------
+ ;; ABSENT IS NOT NIL — what "back to the baseline" means where the baseline
+ ;; has no key at all
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; `get-in` answers nil for a missing key and for a key holding nil alike,
+ ;; and `assoc-in` materialises whichever it is handed. So the VALUE after a
+ ;; reset is nil in both of the cases below and PRESENCE is the only thing
+ ;; that separates them: an assertion about the value alone is green against
+ ;; the bug, which is why each case pins the whole draft and its presence.
+
+ ;; The user typed into a leaf the baseline never had. The reset removes it.
+ :draft-only-baseline           {}
+ :draft-only-path               [:nickname]
+ :draft-only-typed              "typed"
+ :draft-only-draft-after-edit   {:nickname "typed"}
+ :draft-only-draft-after-reset  {}
+ :draft-only-present-after-edit?  true
+ :draft-only-present-after-reset? false
+ :draft-only-value-after-reset    nil
+ :draft-only-reset-key-after      1
+
+ ;; What `assoc-in` produced: the key materialised, holding nil — a leaf the
+ ;; baseline never had, and one a subsequent whole-form reset would have to
+ ;; advance a generation for.
+ :draft-only-materialised-draft {:nickname nil}
+
+ ;; NESTED — the same law two levels down, where the removal also empties
+ ;; the map `edit` created on the way in. The scoped arity has to converge
+ ;; on what the whole-form arity takes, which is the baseline itself.
+ :nested-path                      [:contact :nickname]
+ :nested-draft-after-edit          {:contact {:nickname "typed"}}
+ :nested-draft-after-reset         {}
+ :nested-materialised-draft        {:contact {:nickname nil}}
+ :nested-husk-draft                {:contact {}}
+
+ ;; …and the pruning stops at the first ancestor the baseline DOES have a
+ ;; key for, empty map included.
+ :kept-parent-baseline          {:contact {}}
+ :kept-parent-draft-after-reset {:contact {}}
+
+ ;; THE OTHER CASE, and the one that makes the first mean anything: a
+ ;; baseline nil is a VALUE the domain accepted, so the reset restores it
+ ;; and the key STAYS — at the top level and nested alike.
+ :baseline-nil                     {:nickname nil}
+ :baseline-nil-draft-after-reset   {:nickname nil}
+ :baseline-nil-present-after-reset? true
+ :baseline-nil-value-after-reset    nil
+ :nested-baseline-nil                   {:contact {:nickname nil}}
+ :nested-baseline-nil-draft-after-reset {:contact {:nickname nil}}}

@@ -171,6 +171,58 @@
                  paths)))
 
 ;; ---------------------------------------------------------------------------
+;; Absent is not the same as nil
+;; ---------------------------------------------------------------------------
+
+(defn- absent?
+  "Has the nested map `m` NO KEY at the leaf path `path`?
+
+  `get-in` answers `nil` for a key that is missing and for a key holding
+  `nil` alike, and `assoc-in` materialises whatever key it is handed — so
+  the pair cannot express *there is nothing here*, and [[reset]] has to
+  be able to. A baseline `nil` is a VALUE the domain accepted; an absent
+  baseline key is the domain never having had that leaf at all, and a
+  reset that conflated them would answer a draft the baseline never held."
+  [m path]
+  (let [parent (get-in m (vec (butlast path)))]
+    (not (and (associative? parent) (contains? parent (last path))))))
+
+(defn- discard
+  "The nested map `m` with the key at leaf path `path` REMOVED — `m`
+  unchanged when there is no key there. `dissoc`, never a written `nil`."
+  [m path]
+  (if (absent? m path)
+    m
+    (let [parent-path (vec (butlast path))
+          remaining   (dissoc (get-in m parent-path) (last path))]
+      (if (seq parent-path)
+        (assoc-in m parent-path remaining)
+        remaining))))
+
+(defn- restore-leaf
+  "`form` with its DRAFT leaf at `path` back to what the baseline holds
+  there: the baseline's value where it has one, and NOTHING where it has
+  none.
+
+  The second half is why this is not one `assoc-in`. A leaf the user typed
+  into that the baseline never had must come back ABSENT, and any
+  enclosing map the removal empties goes with it — up to the first
+  ancestor the baseline does have a key for. That pruning is what makes
+  [[reset]]'s two arities agree: the whole-form arity simply takes the
+  baseline, so discarding a draft-only sub-tree one leaf at a time has to
+  arrive at the same value rather than at a husk of empty maps the
+  baseline never held."
+  [form path]
+  (let [baseline (:baseline form)]
+    (if-not (absent? baseline path)
+      (assoc-in form (into [:draft] path) (get-in baseline path))
+      (loop [draft (discard (:draft form) path)
+             p     (vec (butlast path))]
+        (if (and (seq p) (= {} (get-in draft p)) (absent? baseline p))
+          (recur (discard draft p) (vec (butlast p)))
+          (assoc form :draft draft))))))
+
+;; ---------------------------------------------------------------------------
 ;; The empty form
 ;; ---------------------------------------------------------------------------
 
@@ -350,6 +402,16 @@
   the form — baseline, draft, visited, edited or errors — so a leaf the
   user typed into that the baseline never had is discarded too.
 
+  **Back to the baseline means back to ABSENT where the baseline has no
+  key.** A baseline `nil` is a value the domain accepted; a missing
+  baseline key is the domain never having had that leaf, and `get-in`
+  cannot tell the two apart while `assoc-in` materialises whichever it is
+  handed. So `(reset (edit (init {}) [:nickname] \"typed\") [:nickname])`
+  answers a draft of `{}` — not `{:nickname nil}`, which is a leaf the
+  baseline never held. Any enclosing map the removal empties goes too, up
+  to the first ancestor the baseline does have: the two arities have to
+  agree, and the whole-form arity simply takes the baseline.
+
   A pending submit is settled: the work it was for is gone."
   ([form]
    (let [paths (into #{}
@@ -367,7 +429,7 @@
          (assoc-in [:submit :pending] nil))))
   ([form path]
    (-> form
-       (assoc-in (into [:draft] path) (get-in form (into [:baseline] path)))
+       (restore-leaf path)
        (update :visited disj path)
        (update :edited disj path)
        (update :errors dissoc path)

@@ -1276,6 +1276,17 @@ that they are **three and not one**.
   observe the decision (§The generation fence). Advancing the leaf's revision is
   the one signal equality is not blind to. Scoped to a leaf, it advances that
   leaf's generation and no other.
+- **Back to the baseline means back to ABSENT where the baseline has no key.** A
+  baseline `nil` is a value the domain accepted and MUST be restored as one; a
+  baseline key that is *missing* is the domain never having held that leaf, and a
+  scoped `reset` MUST remove the draft leaf rather than materialise it holding
+  `nil` — at any depth, together with any enclosing map the removal empties, up
+  to the first ancestor the baseline does have a key for. `get-in` answers `nil`
+  for both cases and `assoc-in` materialises whichever it is handed, so this is a
+  distinction an implementation has to make deliberately and a conformance row
+  has to pin through **presence** rather than through the value. The scoped arity
+  therefore converges on what the whole-form arity takes, which is the baseline
+  itself.
 - **`rebase` is an ACCEPTANCE and advances nothing.** The baseline moved under a
   live draft — a save landed, an authoritative refresh arrived — and the user's
   unsaved work is not a draft to be rejected, so a control holding a live buffer
