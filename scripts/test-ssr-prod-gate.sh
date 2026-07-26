@@ -120,26 +120,81 @@ known_red=(
   #    where nothing stamps anything.
 
   # ── rf2-lwtlk — dev-instrumentation assertions written inline with the
-  #    semantics they sit next to: "exactly one `:rf.ssr/schema-digest-
-  #    mismatch` trace", "`:doc` preserved on the reg-head registry slot", "a
-  #    `:rf.ssr.head/cleanup-failed` warning surfaced", "`:rf.cofx/skipped-on-
-  #    platform` fired once", the `:rf.ssr/suspense-boundary-failed` and
-  #    `-duplicate-id` streaming traces, the hydration-mismatch trace's
-  #    `:server-hash` / `:client-hash` tags.  Under `-Dre-frame.debug=false`
-  #    the framework emits none of it, by design, so these are legitimate
-  #    dev-posture tests — but they drag their semantic neighbours out of this
-  #    lane with them.  Every line removed from here is a namespace whose
-  #    semantics are now proven under the production posture.
+  #    semantics they sit next to.  CLEARED for eleven namespaces: the
+  #    `:rf.ssr/schema-digest-mismatch` / `-version-mismatch` traces, `:doc`
+  #    on the reg-head and reg-cofx registry slots, the
+  #    `:rf.ssr.head/cleanup-failed` warning, `:rf.cofx/skipped-on-platform`,
+  #    the `:rf.ssr/suspense-boundary-failed` / `-duplicate-id` streaming
+  #    traces, the hydration-mismatch trace's `:server-hash` /
+  #    `:client-hash` tags, the EP-0001 ownership diagnostics, and the
+  #    `:rf.error/malformed-hydration-payload` /
+  #    `-hydration-frame-id-mismatch` rejection diagnostics.  Each is kept
+  #    VERBATIM inside a `(when interop/debug-enabled? …)` arm marked
+  #    `rf2-lwtlk`, with a `## Posture split` section in the ns docstring;
+  #    the semantics they were entangled with now run in this lane.
+  #
+  #    THE LARGER HALF WAS THE ASSERTIONS THAT WERE NOT FAILING.  A NEGATIVE
+  #    over the trace ring — `(is (empty? @diags))`, `(is (not-any? …
+  #    (ops)))`, "no malformed diagnostic on a well-formed payload" — passes
+  #    AUTOMATICALLY under this gate, where the ring is empty for every
+  #    input.  Roughly two dozen such assertions moved into the dev arms
+  #    alongside their positive counterparts.  Left outside they would have
+  #    been the quiet half of the same false green.
   #
   #    NOTE for whoever finishes this list: a namespace whose EVERY deftest is
   #    about the dev trace has no semantic residue to run under the gate.
   #    Guarding it wholesale and deleting its roster line would report GREEN
   #    for a namespace that executed nothing — the false-green this lane
-  #    exists to close.  Those want a var-level tag the lane excludes, not a
-  #    posture guard.
-  re-frame.flows-integration-test                 #  14
+  #    exists to close.  `ssr-compatibility-checks-test` was exactly that
+  #    (both fxs are best-effort: no state change, no return value, the trace
+  #    IS the output), and rather than roster it off it gained two
+  #    production-real deftests — the fx registrations with their
+  #    `:platforms #{:client}` gate, and a proof that a DOUBLE mismatch
+  #    neither throws nor stops the effect queued behind it.
+
+  # ── rf2-bkvu5 — HELD FOR A RULING.  ONE deftest,
+  #    `flow-output-schema-failure-rejects-candidate-before-install`, fails
+  #    for a REAL reason: under `-Dre-frame.debug=false` a flow output that
+  #    violates the registered app-db schema is NOT rejected — the invalid
+  #    candidate INSTALLS, and the handler's own `:db` installs with it.
+  #    That is not trace spelling.  `router.cljc`'s `validate-event!` and
+  #    `schemas/validate.cljc` both document it: every `validate-*!` body
+  #    sits inside its own `(if interop/debug-enabled? … true)` gate and
+  #    "Production builds return `true` unconditionally".  So `reg-app-schema`
+  #    is a no-op in production and the EP-0025 atomic-candidate-rejection
+  #    contract is a DEV-POSTURE contract.  Adjacent to rf2-rqje9 in class —
+  #    a documented choice whose consequence nobody had executed — but a
+  #    different surface, and none of rf2-rqje9's three candidate shapes
+  #    addresses it, so it has its own bead.
+  #
+  #    Every OTHER assertion in this namespace has already been posture-split
+  #    by rf2-lwtlk (the `by-op` / `ops` trace signatures are in dev arms, and
+  #    two flow-eval witnesses were added off the trace bus so "the flow
+  #    computed its bad output" and "the flow threw" survive the gate).  The
+  #    line below therefore comes out with a one-line change once rf2-bkvu5
+  #    lands.  Do not split that one deftest before it does.
+  re-frame.flows-integration-test                 #   2
+
+  # ── rf2-rqje9 — HELD, via the conformance corpus.  Nine `ssr-*.edn`
+  #    fixtures fail under the gate.  Eight are `:trace-emissions` claims
+  #    (`:rf.event/run-start` for `:rf/server-init` / `:rf/hydrate`), i.e.
+  #    the dev bus.  The ninth, `:ssr/error-known-mapping`, is the rqje9
+  #    cluster itself: "the buffered `:rf.error/no-such-handler` projects 404".
+  #    Because the corpus is one `(is (zero? (count failed)))` over every
+  #    fixture, that one fixture keeps the whole namespace red.
+  #
+  #    FINDING for whoever picks this up, so the runner is not misread as a
+  #    second defect: `:ssr/error-sanitisation` ALSO reports
+  #    `public-error actual: nil` under the gate, but its category is
+  #    `:rf.error/handler-exception`, which IS on the always-on
+  #    `re-frame.error-emit` axis.  It fails only because the runner's
+  #    `pe-check` sources its error event from `@traces` — the DEV bus —
+  #    before feeding it to `ssr/project-error`.  The projector itself is
+  #    fine under the gate: `re-frame.ssr-error-projector-substrate-test` is
+  #    IN this lane and green.  Re-sourcing `pe-check` from the always-on
+  #    axis is the rf2-7vk3z shape and would clear that fixture; it will not
+  #    clear `:ssr/error-known-mapping`, which needs the ruling.
   re-frame.ssr-conformance-test                   #   1
-  re-frame.ssr-hydration-test                     #  15
 
   # ── rf2-lwtlk — the PAYLOAD-POLICY suite.  CLEARED, and the roster note
   #    that asked for verification rather than assumption was answered:
@@ -235,7 +290,15 @@ fi
 # renamed directory, an `-n` list that matched nothing — cannot report itself
 # green with `Ran 0 tests`.  Calibrated below the observed count with room for
 # ordinary churn; raise it when the roster grows materially.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-215}"
+#
+# RAISED 215 -> 380 by rf2-lwtlk.  The original figure was calibrated against
+# 247 observed tests across 28 namespaces.  The roster has since shrunk from
+# 21 entries to 7, and the lane runs 436 tests / 2014 assertions across 42 —
+# so 215 had stopped being a floor and become a formality: the lane could have
+# lost HALF its namespaces and still cleared it.  380 restores the original
+# ~13% headroom against the current observed count.  Raise it again as the
+# remaining seven come off.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-380}"
 
 args=()
 for ns in $runnable; do

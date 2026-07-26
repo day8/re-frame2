@@ -61,6 +61,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
+            [re-frame.interop :as interop]
             [re-frame.schemas :as schemas]
             ;; Loading the Malli adapter publishes the
             ;; `:schemas/malli-validate` late-bind hook the default
@@ -117,6 +118,22 @@
   "Captured trace events whose `:operation` is `op`, in capture order."
   [op]
   (filterv #(= op (:operation %)) @*captured*))
+
+;; rf2-lwtlk — POSTURE SPLIT.  `ops` and `by-op` read the DEV trace bus, and
+;; every emit site behind them is gated on `interop/debug-enabled?`, read once
+;; at namespace-load time.  Under `-Dre-frame.debug=false` the capture atom is
+;; empty for every input, so a `by-op` assertion FAILS and — more dangerously
+;; — an `(is (not-any? … (ops)))` assertion PASSES without distinguishing the
+;; case it exists to distinguish.
+;;
+;; Both kinds are kept verbatim, wrapped in `(when interop/debug-enabled? …)`
+;; arms marked with this bead id.  Every interaction this suite pins has a
+;; posture-independent witness OUTSIDE the arm — the flow-eval log, the
+;; flow-input log, the installed app-db value, the untouched route slice, the
+;; :on-match fx counter — and those are what now run in
+;; `scripts/test-ssr-prod-gate.sh`.  The trace assertions are the
+;; trace-LEVEL restatement each deftest's own comments already call
+;; trace-level confirmation and trace signature.
 
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
@@ -208,9 +225,12 @@
           "the flow output (derived from the settled machine snapshot)
            landed in app-db")
       ;; Trace-level confirmation: a single :rf.flow/computed for the event.
-      (is (= 1 (count (by-op :rf.flow/computed)))
-          "exactly one :rf.flow/computed trace fired for the macrostep
-           dispatch — no double / missed eval"))))
+      ;; rf2-lwtlk — dev-instrumentation arm. The eval COUNT it restates is
+      ;; pinned posture-independently by `(= 1 (count @flow-evals))` above.
+      (when interop/debug-enabled?
+        (is (= 1 (count (by-op :rf.flow/computed)))
+            "exactly one :rf.flow/computed trace fired for the macrostep
+             dispatch — no double / missed eval")))))
 
 ;; ===========================================================================
 ;; 2. flow-write × schema-rejection — the subtlest interaction. Two
@@ -247,51 +267,72 @@
     ;; The handler writes :n; the flow reads :n and writes a value that the
     ;; app-db schema will REJECT (negative when :n is negative).
     (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (rf/reg-flow :doubler {:inputs [[:n]] :output-path [:derived :doubled]} (fn [n] (* 2 n)))
-    ;; Seed a conforming baseline (n=1 → doubled=2, conforms).
-    (rf/dispatch-sync [:seed])
-    (is (= 2 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
-        "baseline: flow wrote a conforming value")
-    (let [baseline-db (rf/app-db-value :rf/default)]
-      ;; Now drive :n negative → flow computes -6 → app-db schema rejects
-      ;; the candidate.
-      (reset! *captured* [])
-      (rf/dispatch-sync [:set-n -3])
+    ;; rf2-lwtlk — record what the flow COMPUTED, so that the flow having run
+    ;; and its VALUE having been rejected has a witness off the trace bus.
+    ;; That is this deftest's discriminator against path (b) below, and it
+    ;; previously existed only as a `:rf.flow/computed` trace tag.
+    (let [flow-outputs (atom [])]
+      (rf/reg-flow :doubler {:inputs [[:n]] :output-path [:derived :doubled]}
+                   (fn [n] (let [out (* 2 n)] (swap! flow-outputs conj out) out)))
+      ;; Seed a conforming baseline (n=1 → doubled=2, conforms).
+      (rf/dispatch-sync [:seed])
+      (is (= 2 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
+          "baseline: flow wrote a conforming value")
+      (let [baseline-db (rf/app-db-value :rf/default)]
+        ;; Now drive :n negative → flow computes -6 → app-db schema rejects
+        ;; the candidate.
+        (reset! *captured* [])
+        (reset! flow-outputs [])
+        (rf/dispatch-sync [:set-n -3])
 
-      ;; The candidate never installed — neither the handler's :n write NOR
-      ;; the flow's bad output ever reached the container.
-      (is (= baseline-db (rf/app-db-value :rf/default))
-          "the whole db keeps the pre-handler value — the flow write rode
-           the same rejected candidate as the handler's :db")
-      (is (= 1 (get (rf/app-db-value :rf/default) :n))
-          ":n stayed at the pre-handler value (1) — the handler's own write
-           was rejected too (atomic candidate boundary)")
+        ;; The candidate never installed — neither the handler's :n write NOR
+        ;; the flow's bad output ever reached the container.
+        (is (= baseline-db (rf/app-db-value :rf/default))
+            "the whole db keeps the pre-handler value — the flow write rode
+             the same rejected candidate as the handler's :db")
+        (is (= 1 (get (rf/app-db-value :rf/default) :n))
+            ":n stayed at the pre-handler value (1) — the handler's own write
+             was rejected too (atomic candidate boundary)")
 
-      ;; Trace signature (a): exactly one schema failure, ZERO db-changed —
-      ;; and no :rf.trace/phase :rollback anywhere (the phase has no
-      ;; producer under validate-before-install).
-      (let [sig (filterv #{:rf.event/db-changed
-                           :rf.error/schema-validation-failure}
-                         (ops))]
-        (is (= [:rf.error/schema-validation-failure]
-               sig)
-            "rejection signature: one schema-validation-failure, zero
-             db-changed (the candidate never installed)")
-        (is (not-any? #(= :rollback (-> % :tags :rf.trace/phase)) @*captured*)
-            "no trace carries :rf.trace/phase :rollback")
-        (is (true? (-> (by-op :rf.error/schema-validation-failure)
-                       first :tags :rollback?))
-            "the failure trace carries :rollback? true — the public
-             transaction-REJECTED vocabulary")
-        ;; The flow DID compute (its bad output is what tripped the
-        ;; validator) — the rejection is a candidate-validation reject of a
-        ;; computed value, not a flow-eval skip/throw.
-        (is (= 1 (count (by-op :rf.flow/computed)))
-            "the flow computed its (bad) output — the failure is a
-             candidate rejection, not a flow-eval skip")
-        (is (= -6 (-> (by-op :rf.flow/computed) first :tags :result))
-            "the flow's computed result (-6) is what the app-db schema
-             rejected")))))
+        ;; SEMANTIC, posture-independent (rf2-lwtlk): the flow COMPUTED (its
+        ;; bad output is what tripped the validator) even though nothing
+        ;; installed. That is the whole discriminator between path (a) — a
+        ;; candidate-validation reject of a computed VALUE — and path (b), a
+        ;; flow-eval throw, and outside the trace it had no witness at all.
+        (is (= [-6] @flow-outputs)
+            "the flow ran and produced its (bad) -6 output — the rejection is
+             a candidate reject of a computed value, not a flow-eval skip")
+
+        ;; Trace signature (a): exactly one schema failure, ZERO db-changed —
+        ;; and no :rf.trace/phase :rollback anywhere (the phase has no
+        ;; producer under validate-before-install).
+        ;;
+        ;; rf2-lwtlk — dev-instrumentation arm. Note the `not-any?` and the
+        ;; zero-db-changed half of `sig`: both are negatives over the trace
+        ;; ring and would pass vacuously under the gate.
+        (when interop/debug-enabled?
+          (let [sig (filterv #{:rf.event/db-changed
+                               :rf.error/schema-validation-failure}
+                             (ops))]
+            (is (= [:rf.error/schema-validation-failure]
+                   sig)
+                "rejection signature: one schema-validation-failure, zero
+                 db-changed (the candidate never installed)")
+            (is (not-any? #(= :rollback (-> % :tags :rf.trace/phase)) @*captured*)
+                "no trace carries :rf.trace/phase :rollback")
+            (is (true? (-> (by-op :rf.error/schema-validation-failure)
+                           first :tags :rollback?))
+                "the failure trace carries :rollback? true — the public
+                 transaction-REJECTED vocabulary")
+            ;; The flow DID compute (its bad output is what tripped the
+            ;; validator) — the rejection is a candidate-validation reject of a
+            ;; computed value, not a flow-eval skip/throw.
+            (is (= 1 (count (by-op :rf.flow/computed)))
+                "the flow computed its (bad) output — the failure is a
+                 candidate rejection, not a flow-eval skip")
+            (is (= -6 (-> (by-op :rf.flow/computed) first :tags :result))
+                "the flow's computed result (-6) is what the app-db schema
+                 rejected")))))))
 
 (deftest flow-throw-aborts-event-no-db-changed-no-partial-commit
   (testing "(b) a flow THROW aborts the event PRE-install: the pending :db
@@ -307,26 +348,47 @@
     (rf/dispatch-sync [:seed])
     (is (= {:n 0} (rf/app-db-value :rf/default))
         "baseline seeded before the throwing flow is registered")
-    (rf/reg-flow :boom {:inputs [[:n]] :output-path [:derived :doomed]} (fn [_] (throw (ex-info "flow boom" {:why :test}))))
-    (reset! *captured* [])
-    (rf/dispatch-sync [:bump])
+    ;; rf2-lwtlk — count the eval ATTEMPTS so that the flow having run and
+    ;; thrown has a witness off the trace bus. The contrast this deftest
+    ;; draws against path (a) is about WHICH stage failed, and an abort is
+    ;; otherwise indistinguishable from the flow never having been reached.
+    (let [flow-attempts (atom 0)]
+      (rf/reg-flow :boom {:inputs [[:n]] :output-path [:derived :doomed]}
+                   (fn [_]
+                     (swap! flow-attempts inc)
+                     (throw (ex-info "flow boom" {:why :test}))))
+      (reset! *captured* [])
+      (rf/dispatch-sync [:bump])
 
-    ;; The handler's :db did NOT land — the flow throw aborted the event.
-    (is (= {:n 0} (rf/app-db-value :rf/default))
-        ":n did NOT increment — a flow throw is a pre-install throw; the
-         pending :db (handler write + flow write) was discarded wholesale")
+      ;; The handler's :db did NOT land — the flow throw aborted the event.
+      (is (= {:n 0} (rf/app-db-value :rf/default))
+          ":n did NOT increment — a flow throw is a pre-install throw; the
+           pending :db (handler write + flow write) was discarded wholesale")
 
-    ;; Trace signature (b): ZERO db-changed, a flow-eval-exception present.
-    (is (not-any? #(= :rf.event/db-changed %) (ops))
-        "NO :rf.event/db-changed in the throw stream — the event aborted
-         before install (the schema-rejection path (a) also emits zero
-         db-changed; the discriminator is the ERROR op)")
-    (is (seq (by-op :rf.flow/failed))
-        ":rf.flow/failed fired — the flow eval threw")
-    (is (not-any? #(= :rf.error/schema-validation-failure %) (ops))
-        "no schema-validation-failure — the abort discards the pending :db
-         BEFORE candidate validation would run (contrast (a), whose flow
-         computed cleanly and whose VALUE failed validation)")))
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): the flow really was
+      ;; EVALUATED and really did throw. Without this the abort is
+      ;; indistinguishable from the flow never having run — and the
+      ;; contrast with path (a), which this deftest exists to draw, is
+      ;; precisely about WHICH stage failed.
+      (is (= 1 @flow-attempts)
+          "the flow eval was attempted exactly once and threw — the abort is
+           a pre-install THROW, not a skipped eval")
+
+      ;; rf2-lwtlk — dev-instrumentation arm. Both `not-any?` halves are
+      ;; negatives over the trace ring; under the gate they hold whatever the
+      ;; drain did.
+      (when interop/debug-enabled?
+        ;; Trace signature (b): ZERO db-changed, a flow-eval-exception present.
+        (is (not-any? #(= :rf.event/db-changed %) (ops))
+            "NO :rf.event/db-changed in the throw stream — the event aborted
+             before install (the schema-rejection path (a) also emits zero
+             db-changed; the discriminator is the ERROR op)")
+        (is (seq (by-op :rf.flow/failed))
+            ":rf.flow/failed fired — the flow eval threw")
+        (is (not-any? #(= :rf.error/schema-validation-failure %) (ops))
+            "no schema-validation-failure — the abort discards the pending :db
+             BEFORE candidate validation would run (contrast (a), whose flow
+             computed cleanly and whose VALUE failed validation)")))))
 
 ;; ===========================================================================
 ;; 3. flow × SSR sync-drain — under SSR's synchronous drain, a sub over a
@@ -411,13 +473,17 @@
            (10 * 2), not the parent's (10 * 1)")
       ;; Trace-level confirmation: two :rf.flow/computed events (one per
       ;; event), each carrying its own input value.
-      (let [computes (by-op :rf.flow/computed)]
-        (is (= 2 (count computes))
-            "exactly two :rf.flow/computed traces — one per dispatched event")
-        (is (= [[1] [2]]
-               (mapv #(-> % :tags :input-values) computes))
-            "each compute observed its own event's input — parent saw [1],
-             child saw [2] — independent evals, not a shared one")))))
+      ;; rf2-lwtlk — dev-instrumentation arm. Both assertions restate
+      ;; `(= [1 2] @flow-inputs)` above, which is posture-independent and is
+      ;; the same claim read off the flow itself rather than off the bus.
+      (when interop/debug-enabled?
+        (let [computes (by-op :rf.flow/computed)]
+          (is (= 2 (count computes))
+              "exactly two :rf.flow/computed traces — one per dispatched event")
+          (is (= [[1] [2]]
+                 (mapv #(-> % :tags :input-values) computes))
+              "each compute observed its own event's input — parent saw [1],
+               child saw [2] — independent evals, not a shared one"))))))
 
 ;; ===========================================================================
 ;; 5. flow × routing (rf2-qm8m3) — a flow over the [:rf.runtime/routing
@@ -501,14 +567,18 @@
 
       ;; Trace signature: exactly one :rf.flow/computed for the dispatched
       ;; transition, with the post-transition route id as input.
-      (let [computes (by-op :rf.flow/computed)]
-        (is (= 1 (count computes))
-            "exactly one :rf.flow/computed trace for the transition
-             dispatch — no double / missed eval")
-        (is (= [:route/article]
-               (-> computes first :tags :input-values))
-            "the :rf.flow/computed trace's :input-values carries the
-             post-transition route id")))))
+      ;; rf2-lwtlk — dev-instrumentation arm. Both restate
+      ;; `(= [:route/article] @flow-inputs)` above, which is
+      ;; posture-independent.
+      (when interop/debug-enabled?
+        (let [computes (by-op :rf.flow/computed)]
+          (is (= 1 (count computes))
+              "exactly one :rf.flow/computed trace for the transition
+               dispatch — no double / missed eval")
+          (is (= [:route/article]
+                 (-> computes first :tags :input-values))
+              "the :rf.flow/computed trace's :input-values carries the
+               post-transition route id"))))))
 
 ;; EP-0001 §535-551 (rf2-4eisfr) — RE-ENABLED. The throwing flow reads the
 ;; route slice via the qualified runtime-db input
@@ -570,14 +640,21 @@
             ":route/load-article was NOT invoked — the :on-match :dispatch
              sat in the handler's :fx; a flow throw skips :fx entirely")
 
-        ;; Trace signature: :rf.flow/failed fired, but NO :rf.event/db-changed
-        ;; for this dispatch — the event aborted before install.
-        (is (seq (by-op :rf.flow/failed))
-            ":rf.flow/failed fired — the flow eval threw")
-        (is (not-any? #(= :rf.event/db-changed %) (ops))
-            "NO :rf.event/db-changed in the throw stream — the event
-             aborted before install (contrast: a clean transition would
-             emit one :rf.event/db-changed for the slice rewrite)")))))
+        ;; rf2-lwtlk — dev-instrumentation arm. The atomicity contract this
+        ;; deftest pins — neither partition installed, `:fx` skipped
+        ;; wholesale — is fully covered outside the arm by the unchanged
+        ;; app-db, the unchanged route slice and the zero `:on-match`
+        ;; invocations. The `not-any?` half is a negative over the ring and
+        ;; would pass vacuously under the gate.
+        (when interop/debug-enabled?
+          ;; Trace signature: :rf.flow/failed fired, but NO :rf.event/db-changed
+          ;; for this dispatch — the event aborted before install.
+          (is (seq (by-op :rf.flow/failed))
+              ":rf.flow/failed fired — the flow eval threw")
+          (is (not-any? #(= :rf.event/db-changed %) (ops))
+              "NO :rf.event/db-changed in the throw stream — the event
+               aborted before install (contrast: a clean transition would
+               emit one :rf.event/db-changed for the slice rewrite)"))))))
 
 ;; ===========================================================================
 ;; 6. dual-partition TRIGGER (EP-0001 §542-544, rf2-4eisfr) — a RUNTIME-ONLY
@@ -653,8 +730,12 @@
           "a transition to the SAME route does NOT recompute the flow — the
            runtime-db route id is value-equal, so the dirty-check skips
            (widening the trigger to runtime-db preserves the skip)")
-      (is (seq (by-op :rf.flow/skip))
-          ":rf.flow/skip fired for the value-equal re-transition"))))
+      ;; rf2-lwtlk — dev-instrumentation arm. The SKIP itself is pinned
+      ;; posture-independently by `(= [] @flow-evals)` above — the flow body
+      ;; did not run — which is the observation the trace announces.
+      (when interop/debug-enabled?
+        (is (seq (by-op :rf.flow/skip))
+            ":rf.flow/skip fired for the value-equal re-transition")))))
 
 ;; ===========================================================================
 ;; 7. binary-syntax mixed inputs (EP-0001 §535-538, rf2-4eisfr) — ONE flow
