@@ -1,18 +1,39 @@
 ;; Top-level tools coordinator (rf2-nuuk3).
 ;;
-;; The published artefacts are
-;;   - xray/       (day8/re-frame2-xray)
+;; The published artefacts, grouped by the channel they actually ship
+;; on — the three are gated differently and the flat list this note
+;; used to carry hid that (rf2-gugc3):
+;;
+;;   Clojars, per-tool tag, in the lockstep inventory
+;;   (.github/scripts/verify-version-lockstep.sh TOOLS — these five and
+;;   only these five):
+;;   - xray/         (day8/re-frame2-xray)
+;;   - story/        (day8/re-frame2-story)
+;;   - story-mcp/    (day8/re-frame2-story-mcp)
 ;;   - machines-viz/ (day8/re-frame2-machines-viz)
-;;   - mcp-base/    (day8/re-frame2-mcp-base)
-;;   - re-frame2-pair-mcp/   (@day8/re-frame2-pair-mcp, npm only)
-;;   - story/       (day8/re-frame2-story)
-;;   - story-mcp/   (day8/re-frame2-story-mcp)
-;;   - template/    (day8/re-frame2-template — git-coord, not Clojars
-;;                   per rf2-dolpf §2.5)
+;;   - mcp-base/     (day8/re-frame2-mcp-base)
+;;
+;;   Of those five, only xray, story and machines-viz have a release
+;;   workflow today. story-mcp and mcp-base carry coordinates but no
+;;   publish path: both declare day8/de-dupe by git coordinate, which
+;;   `clein pom` drops silently and which is not on Clojars. That is
+;;   rf2-2ii52, held pending an operator ruling — do not cut a tag for
+;;   either until it lands.
+;;
+;;   npm, not Clojars, no :clein/build, deliberately outside the
+;;   lockstep inventory:
+;;   - re-frame2-pair-mcp/  (@day8/re-frame2-pair-mcp)
+;;
+;;   git coordinate on a template-v* tag, not Clojars, guarded by its
+;;   own in-template version_lockstep_test.clj rather than by the
+;;   repo-level script (rf2-40vmd / rf2-dolpf §2.5):
+;;   - template/     (day8/re-frame2-template)
+;;
 ;; see tools/xray/deps.edn, tools/machines-viz/deps.edn,
 ;; tools/mcp-base/deps.edn, tools/re-frame2-pair-mcp/deps.edn,
 ;; tools/story/deps.edn, tools/story-mcp/deps.edn, and
-;; tools/template/deps.edn.
+;; tools/template/deps.edn. The operational runbook for all of it is
+;; docs/release-process.md §The tools tier.
 ;;
 ;; Other tool directories (machines-viz-mcp/, mcp-conformance/) are
 ;; spec-only or Node-only today — no `deps.edn` / CLJ surface to
