@@ -246,7 +246,12 @@
       ;; Regression pin: the current canonical covered-row set. Update
       ;; this number deliberately when a scenario starts/stops covering a
       ;; row — that is the signal the gate's summary changed.
-      (is (= 12 (count canonical))
+      ;; 12 -> 13 (rf2-6pohj): the `freehand-views populated Views roster`
+      ;; scenario is the first to claim `Mounted view reads (Freehand tool
+      ;; door, rf2-7gth0)`. That row was `covered` by the node lane alone
+      ;; until the Freehand-hosted deck gave the browser gate a surface with
+      ;; real connected occurrences to project.
+      (is (= 13 (count canonical))
           (str "canonical covered-row count drifted to " (count canonical)
                " (" (str/join ", " (sort canonical)) ") — update this pin "
                "when a scenario's coverage changes, deliberately")))))
