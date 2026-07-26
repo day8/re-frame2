@@ -61,7 +61,9 @@
   `RGSUB - S4-PRELOOK` is then the ref-count attach, and the `RC-*` arms
   price its parts against the REAL 300-entry cache map:
 
-    RC-ATTACH  the shipped `swap-vals!` form, standalone
+    RC-ATTACH  the PRE-rf2-j8ls2 `swap-vals!` form (the `update-in`
+               spelling), kept as the paired control
+    RC-CAND    the form that replaced it in `subs/bump-ref-count-fn`
     RC-GUARD   the same `swap-vals!` whose fn returns `m` UNCHANGED —
                swap machinery + the identity guard, no update
     RC-SWAPID  `(swap-vals! cache identity)` — the machinery alone
@@ -324,6 +326,10 @@
 ;; against a SNAPSHOT of the same 300-entry cache map, so the outer HAMT they
 ;; copy is the real one.
 
+;; The PRE-rf2-j8ls2 attach, held here verbatim as the paired control for the
+;; form that replaced it (RC-CAND). It is deliberately NOT a call into
+;; `subs/bump-ref-count-fn`: the whole point is to keep the retired expression
+;; measurable beside the shipped one, in the same process, on the same map.
 (defn- arm-rc-attach [n]
   (let [{:keys [qs cache reactions]} @rig]
     (dotimes [k n]
@@ -386,10 +392,12 @@
     (dotimes [k n]
       (vreset! sink (if (assoc (get snap (nth qs k)) :ref-count 2) 1 0)))))
 
-;; The CANDIDATE attach: the same `swap-vals!` under the same CAS-after-
-;; snapshot discipline and the same identity guard, with the two-level
-;; `update-in` written out. Same result, same semantics; measured beside
-;; RC-ATTACH so the difference is the whole claim.
+;; The SHIPPED attach (rf2-j8ls2 — `subs/bump-ref-count-fn`): the same
+;; `swap-vals!` under the same CAS-after-snapshot discipline and the same
+;; identity guard, with the two-level `update-in` written out. Same result,
+;; same semantics; measured beside RC-ATTACH so the difference is the whole
+;; claim. Spelled out here rather than called, so the pair stays a comparison
+;; of two EXPRESSIONS and neither arm can drift under the other.
 (defn- arm-rc-cand [n]
   (let [{:keys [qs cache reactions]} @rig]
     (dotimes [k n]
