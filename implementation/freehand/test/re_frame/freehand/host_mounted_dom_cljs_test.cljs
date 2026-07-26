@@ -195,15 +195,42 @@
    :ssr       :client-only
    :map-props (fn [p] {:spec (clj->js (:spec p))})})
 
+;; The three ways an adapter can answer a key set that is not the caller's.
+;; Same component, same declaration, one adapter each — so the only variable
+;; between these and `vega-host` above is the answer's KEY SET.
+
 (v/defhost renaming-host
-  "A host whose adapter tries to rename its way past the reserved-fact
-  check — the browser half of the naming law FH-REACT-007 §prop-names
-  states. The adapter owns VALUES; the names stay the caller's."
+  "The MINIMAL violation, and the one the merged-PR audit of #7081 named: an
+  ordinary unqualified RENAME. `:chartSpec` is exact, unreserved, and a name
+  the call never supplied, so no per-key filter over the answer can see it —
+  only the authored key set can. The adapter owns VALUES; the names stay the
+  caller's."
+  vega-chart
+  {:callbacks {:onSelect :event}
+   :children  :none
+   :ssr       :client-only
+   :map-props (fn [p] {:chartSpec (:spec p)})})
+
+(v/defhost smuggling-host
+  "A reserved fact under a second spelling. It is refused as the CREATED name
+  it is — the key-set law needs no separate reserved-name filter to be total,
+  because the plane the adapter was handed had those facts removed already."
   vega-chart
   {:callbacks {:onSelect :event}
    :children  :none
    :ssr       :client-only
    :map-props (fn [_p] {"key" "smuggled" "onSelect" "smuggled" :x/spec 1})})
+
+(v/defhost dropping-host
+  "The mirror half: an authored key the answer LOSES. The structural tree
+  records the AUTHORED props, so a dropped key leaves it reporting a prop
+  React never received — which is why the law is equality in both directions
+  rather than a subset."
+  vega-chart
+  {:callbacks {:onSelect :event}
+   :children  :none
+   :ssr       :client-only
+   :map-props (fn [p] {:spec (:spec p)})})
 
 ;; ===========================================================================
 ;; The application under mount
@@ -477,37 +504,77 @@
                         (done)))))))))
 
 ;; ===========================================================================
-;; The naming law, browser half — a `:map-props` adapter may not rename
+;; The key-set law, browser half — a `:map-props` adapter answers the
+;; caller's OWN keys
 ;; ===========================================================================
 
-(deftest d022-a-map-props-adapter-answers-under-the-callers-naming-law
+(def ^:private drift-cases
+  "Each rostered reject row's declaration and call site, keyed by the
+  `[authored answers]` key vectors FH-REACT-007 states for it. Keying on the
+  roster's own statement rather than on position means a row added to the
+  fixture with no declaration here reds, and a declaration whose adapter
+  stops matching its row reds too — neither file can drift alone."
+  {[[:spec] [:chartSpec]]
+   [renaming-host  {:spec {:mark "bar" :values [1]}}]
+
+   [[:spec] ["key" "onSelect" :x/spec]]
+   [smuggling-host {:spec {:mark "bar" :values [1]}}]
+
+   [[:spec :rows] [:spec]]
+   [dropping-host  {:spec {:mark "bar" :values [1]} :rows 3}]})
+
+(deftest d022-a-map-props-adapter-answers-the-callers-own-keys
   (testing "Per FH-REACT-007 §prop-names §map-props-adapter: the adapter
-            owns the ordinary plane's VALUES, and the names stay the
-            caller's.
+            owns the ordinary plane's VALUES, the names stay the caller's,
+            and the law that makes those words true is key-set EQUALITY,
+            enforced at the crossing where the authored plane and the
+            answer both exist.
 
-            This is the second half of the defect the reopen named. The
-            reserved-fact check filtered the adapter's answer for the
-            KEYWORDS `:key`, `:children` and each declared position, while
-            the crossing named every key by `name` — so an adapter
-            returning `\"key\"` or `\"onSelect\"` passed the filter and
-            reached React under the reserved name anyway. Holding the
-            answer to the caller's own exactness law FIRST is what makes
-            that filter total.
+            The merged-PR audit of #7081 found nothing enforcing it. The
+            landed checks filtered the ANSWER for inexact names and then
+            for reserved ones, which catches `\"key\"` and `:x/spec` and
+            cannot catch the ordinary case: `:chartSpec` is exact,
+            unreserved, and a name the call never supplied. The first row
+            below is that case, and it is the row this suite was missing.
 
-            No commit needed: the refusal is the emitter's, so this row
-            runs in the node lane too."
-    (let [d (conf/caught-data #(fr/element [renaming-host {:spec {:mark "bar" :values [1]}}]))]
-      (is (= (get-in react-007 [:prop-names :map-props-adapter :error-id])
-             (:rf.error/id d))
-          "the adapter's answer is refused")
-      (doseq [k (get-in react-007 [:prop-names :map-props-adapter :rejects])]
-        (is (some #(= k %) (:props d))
-            (str "and " (pr-str k) " is named in the refusal"))))))
+            Equality subsumes both filters rather than joining them, which
+            the second row is here to show: `\"key\"` and `\"onSelect\"` are
+            refused as CREATED names, because the plane handed to the
+            adapter had `:key` and the declared positions removed before it
+            arrived. The third row is the mirror direction — the structural
+            tree records the AUTHORED props, so an answer that drops a key
+            leaves it reporting a prop React never received.
 
-(deftest d022-a-well-named-adapter-still-crosses
-  (testing "The positive control for the row above: the SAME machinery, an
-            adapter that spells its answer exactly, and the crossing
-            happens. Without this, the refusal above could be a host that
-            never crosses at all."
+            No commit needed: the refusal is the emitter's, so these rows
+            run in the node lane too."
+    (let [{:keys [error-id rejects]} (get-in react-007 [:prop-names :map-props-adapter])]
+      (is (<= 3 (count rejects)) "the roster states the rows")
+      (doseq [{:keys [case authored answers created dropped]} rejects]
+        (if-let [[host props] (get drift-cases [authored answers])]
+          (let [d (conf/caught-data #(fr/element [host props]))]
+            (is (= error-id (:rf.error/id d))
+                (str "refused: " case))
+            (is (= created (:created d))
+                (str "and names exactly what was created, per the roster: " case))
+            (is (= dropped (:dropped d))
+                (str "and exactly what was dropped, per the roster: " case)))
+          (is false (str "no declaration here answers the rostered row: " case)))))))
+
+(deftest d022-a-key-set-preserving-adapter-still-crosses
+  (testing "The negative control for the rows above, and the half only it
+            can catch: over-refusing is as wrong as under-refusing. The
+            SAME machinery, an adapter that owns values and preserves the
+            caller's keys, and the crossing happens — `vega-host` prepares
+            `:spec` into a JS object under `:spec`, which is the whole
+            legitimate use of the option.
+
+            The mounted row above carries this further, to a real commit and
+            a click; this row is the emitter-only floor, so a regression
+            that refused every adapter would red in the node lane too."
+    (let [{:keys [accepts]} (get-in react-007 [:prop-names :map-props-adapter])]
+      (is (seq accepts) "the roster states the accepting row")
+      (doseq [{:keys [case authored answers]} accepts]
+        (is (= (set authored) (set answers))
+            (str "an accepted row is one whose key sets are EQUAL: " case))))
     (is (some? (fr/element [vega-host {:spec {:mark "bar" :values [1]}}]))
-        "an exactly-named adapter answer produces a real React element")))
+        "a key-set-preserving adapter answer produces a real React element")))

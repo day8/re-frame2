@@ -144,24 +144,26 @@
     (is (= {:modes #{:interpreted :compiled} :hosts #{:jvm :browser}}
            (select-keys (roster/by-id :FH-REACT-007) [:modes :hosts])))))
 
-(deftest an-unsettled-boundary-is-named-rather-than-pinned
-  (testing "Per rf2-drpa3.182.3 (open, from the merged-PR audit of #7081):
-            the `:map-props` key-set law — equality or output subset — is
-            not settled, so no rostered projection asserts either answer.
-            The record says so under `:open`, keyed by the bead that owns
-            the question. This row exists so that removing the note is a
-            deliberate act by whoever settles it, rather than a silent drift
-            back to an unmarked gap; it asserts the QUESTION is recorded and
-            asserts nothing about the answer."
-    (let [open (get-in (roster/by-id :FH-REACT-007) [:fh/record :open])]
-      (is (contains? open :rf2-drpa3.182.3)
-          "the host record names the bead that owns the naming boundary")
-      (is (re-find #"map-props" (get open :rf2-drpa3.182.3))
-          "and states which boundary is unsettled"))
-    (testing "and no other spine member is holding an open question"
-      (is (= [:FH-REACT-007]
-             (filterv #(seq (get-in (roster/by-id %) [:fh/record :open]))
-                      roster/spine-ids))))))
+(deftest the-spine-holds-no-open-boundary
+  (testing "`:open` is the record key for a boundary of a law that is NOT
+            settled, and the spine currently holds none. FH-REACT-007 held
+            the last one — the `:map-props` key-set law, equality or output
+            subset, recorded as a question rather than pinned to the
+            behaviour that shipped so that settling it would not mean
+            fighting the roster. rf2-drpa3.182.3 settled it as key-set
+            EQUALITY, enforced at the crossing where the authored plane and
+            the adapter's answer both exist, and the answer moved into
+            `:prop-names` §`:map-props-adapter` where the rows that run
+            live.
+
+            This row is the ratchet, in the direction that matters now: a
+            NEW open note is a deliberate act with a bead behind it, and
+            reads as a change to this list rather than as prose nobody
+            diffs. It says nothing about which answers the settled rows
+            reached — those rows assert themselves."
+    (is (= [] (filterv #(seq (get-in (roster/by-id %) [:fh/record :open]))
+                       roster/spine-ids))
+        "no spine member is holding an open question")))
 
 ;; ---------------------------------------------------------------------------
 ;; Applicability parsing — the join's one piece of grammar

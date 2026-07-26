@@ -1910,11 +1910,21 @@ component is the intended route, not a hook API in Freehand.
 A declaration MAY carry one whole-ordinary-props `:map-props` adapter to prepare
 non-portable host values. It runs in the browser only, and on the ordinary plane
 only: callback carriers and trailing children are WITHHELD from it and installed
-afterwards. The adapter MUST NOT supply or replace declared callbacks, children,
-the key, or any other reserved Freehand fact, and a returned map naming one is
-refused. It answers under the caller's own naming law — the adapter owns the
-ordinary plane's VALUES, and the names stay the caller's — which is what makes
-that refusal total rather than a filter a second spelling walks past.
+afterwards.
+
+**The adapter's answer carries EXACTLY the keys the call authored.** It owns the
+ordinary plane's VALUES — that is why it exists, to build what the authored map
+could not hold — and the names stay the caller's, so key-set equality is the
+whole law the answer owes and it is enforced where the authored plane and the
+answer both exist. Equality rather than a subset, in both directions. A created
+name is a rename no call site can see: it would reach React under a name nobody
+authored, and it would put `:key`, `:children` and every declared callback
+position back within reach of a plane they were withheld from — which is how the
+adapter MUST NOT supply or replace a reserved Freehand fact, without a
+reserved-name filter for a second spelling to walk past. A dropped name would
+leave the structural projection, which records the AUTHORED props, reporting a
+prop React never received. A host whose props want renaming renames them inside
+the registered React component.
 
 Props-contract evidence under `:props` is OPTIONAL for application-private
 declarations; the stronger publication policy of

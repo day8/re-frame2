@@ -2313,14 +2313,20 @@
 
      Runs on the WHOLE ordinary-props map, in the browser only, to prepare
      non-portable host values. Callback carriers and trailing children are
-     withheld from it and installed afterwards, so it cannot supply or
-     replace a declared callback, the children, the key or any other
-     reserved fact; a returned map that names one is refused. It answers
-     under the caller's own naming law, which is what makes that refusal
-     total: the adapter owns the ordinary plane's VALUES, and the names
-     stay the caller's. The structural tree records the AUTHORED props, not
-     the adapter's output — an adapter exists to make values a tree could
-     not print.
+     withheld from it and installed afterwards.
+
+     **Its answer carries EXACTLY the keys the call authored.** The adapter
+     owns the ordinary plane's VALUES — that is the whole of what it is
+     for — and the names stay the caller's, so key-set equality is the one
+     law the answer owes. A name it invents is a rename no call site can
+     see: it would reach React under a name nobody authored, and it would
+     put the key, the children and every declared callback position back
+     within reach of a plane they were withheld from. A name it drops would
+     leave the structural tree — which records the AUTHORED props, because
+     an adapter exists to make values a tree could not print — reporting a
+     prop React never received. Prepare the value under the caller's key; a
+     host whose props want renaming renames them in the registered React
+     component, where it is ordinary React code.
 
      ## Structure and SSR
 
