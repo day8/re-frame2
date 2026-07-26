@@ -327,7 +327,13 @@ async function main() {
       const r = await page.evaluate(([a, k, w]) => window.B8.run(a, k, w), ['instrument', kind, n]);
       const post = await readCdp();
       const kept = await page.evaluate(() => window.B8.kept());
-      // Release and settle, so the next pass starts clean.
+      // Collect while the copies are STILL HELD. For the kept pass this is
+      // the same counter's reading of the same objects' RETAINED size, in
+      // the same window that just measured their allocation — so the two
+      // questions are put to one reader instead of two.
+      await gc();
+      const held = await readCdp();
+      // Now release and settle, so the next pass starts clean.
       await page.evaluate(() => window.B8.keep(false));
       await gc();
       const settled = await readCdp();
@@ -336,7 +342,8 @@ async function main() {
         copiesHeld: kept,
         counterPerCopy: r.posSum / n,
         cdpPerCopy: (post - pre) / n,
-        retainedAfter: settled - pre,
+        retainedWhileHeldPerCopy: (held - pre) / n,
+        residueAfterRelease: settled - pre,
         decreases: r.decreases,
       };
     }
@@ -751,9 +758,10 @@ function report(out) {
     for (const k of ['dropped', 'kept']) {
       const v = kd[k];
       console.log(
-        `;;   ${k.padEnd(8)} counter ${fmt(v.counterPerCopy).padStart(9)} B/copy   CDP ` +
-          `${fmt(v.cdpPerCopy).padStart(9)}   held afterwards ${String(v.copiesHeld).padStart(3)}` +
-          `   retained ${fmt(v.retainedAfter).padStart(9)}   GCs ${v.decreases}`
+        `;;   ${k.padEnd(8)} allocated ${fmt(v.counterPerCopy).padStart(9)} B/copy   CDP ` +
+          `${fmt(v.cdpPerCopy).padStart(9)}   still held ${String(v.copiesHeld).padStart(3)}` +
+          `   retained/copy ${fmt(v.retainedWhileHeldPerCopy).padStart(9)}` +
+          `   residue ${fmt(v.residueAfterRelease).padStart(9)}   GCs ${v.decreases}`
       );
     }
     console.log(`;;   kept / dropped = ${kd.ratioKeptOverDropped.toFixed(4)}`);
