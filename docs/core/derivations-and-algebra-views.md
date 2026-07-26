@@ -64,11 +64,10 @@ with the identical formula:
   (fn [[items discounts] _] (sum-cart items discounts)))
 
 ;; Source form B — a flow. The same function.
-(rf/reg-flow
-  {:id     :cart/materialized-total
-   :inputs [[:cart :items] [:pricing :discounts]]
-   :derive (fn [items discounts] (sum-cart items discounts))
-   :output-path [:cart :total]})
+(rf/reg-flow :cart/materialized-total
+  {:inputs      [[:cart :items] [:pricing :discounts]]
+   :output-path [:cart :total]}
+  (fn [items discounts] (sum-cart items discounts)))
 ```
 
 `sum-cart` is one whole-value function. Both forms compute the cart total the same

@@ -272,13 +272,13 @@ Related: [Introduction](introduction.md).
 
 A pure derivation re-frame2 keeps materialised at a path in [app-db](#app-db). Because the value lives *in* app-db, [event handlers](#event-handler) can read it as plain state — unlike a [subscription](#subscription), whose value is for [views](#view).
 
-Declare `:inputs`, a pure `:derive`, and `:output-path`. When an input changes, the runtime re-runs `:derive` and writes the result in step with the [event pipeline](#event-pipeline):
+Declare `:inputs` and an `:output-path` in the metadata map, with the pure derive fn as the third slot. When an input changes, the runtime re-runs that fn and writes the result in step with the [event pipeline](#event-pipeline):
 
 ```clojure
-(rf/reg-flow
-  {:id :cart/total :inputs [[:cart :items]]
-   :derive (fn [items] (reduce + (map :price items)))
-   :output-path [:cart :total]})
+(rf/reg-flow :cart/total
+  {:inputs      [[:cart :items]]
+   :output-path [:cart :total]}
+  (fn [items] (reduce + (map :price items))))
 ```
 
 Use a flow to collate many facts into one (e.g. several error flags → `:any-errors?`). Inputs may read framework state under `:rf.db/runtime`. Flows can be [added and removed dynamically](../api/re-frame.flows.md) via effects.
