@@ -2,10 +2,28 @@
   "Framework-sub tests for re-frame.routing (`:rf/route` and the
   `:rf.route/*` derived subs, `:rf.route/chain` nested-layout chain,
   `:rf/pending-navigation`, and the activated/deactivated lifecycle
-  trace). Split from routing_test.clj per rf2-u8qe7y finding 3."
+  trace). Split from routing_test.clj per rf2-u8qe7y finding 3.
+
+  ## Posture split (rf2-o5dbf)
+
+  The subs are production-real and carry no posture guard: `:rf/route`, the
+  derived `:rf.route/*` family, the nested-layout `:rf.route/chain` and
+  `:rf/pending-navigation` all run in the ordinary `clojure -M:test` suite AND
+  in `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+
+  The activated/deactivated LIFECYCLE TRACE is not a sub — it is dev
+  instrumentation emitted through `trace/emit!`, gated on
+  `interop/debug-enabled?` and read once at load time. Its assertions are kept
+  VERBATIM inside a `(when interop/debug-enabled? …)` arm marked `rf2-o5dbf`.
+  Two of them are NEGATIVE (`(is (empty? …))` for the first-nav and same-id
+  cases); with no trace bus they would pass vacuously, which is why they are
+  inside the arm rather than left beside the semantics. In their place the
+  route slice really did move — and, for the same-id case, really did not —
+  which is posture-independent and asserted outside the arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -157,36 +175,59 @@
       (rf/register-listener! :trace ::act1 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/from}])
       (rf/unregister-listener! :trace ::act1)
-      (is (= [:route/from]
-             (map #(-> % :tags :route-id)
-                  (filter #(= :rf.route/activated (:operation %)) @traces)))
-          "first nav: :rf.route/activated for :route/from")
-      (is (empty? (filter #(= :rf.route/deactivated (:operation %)) @traces))
-          "first nav (no prior): :rf.route/deactivated does NOT fire"))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the activation the trace
+      ;; announces really happened — the slice moved to :route/from from
+      ;; nothing, which is the "no prior route" the second leg is about.
+      (is (= :route/from @(rf/subscribe [:rf.route/id]))
+          "first nav landed on :route/from")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); the second leg
+      ;; is NEGATIVE over the trace ring, hence guarded.
+      (when interop/debug-enabled?
+        (is (= [:route/from]
+               (map #(-> % :tags :route-id)
+                    (filter #(= :rf.route/activated (:operation %)) @traces)))
+            "first nav: :rf.route/activated for :route/from")
+        (is (empty? (filter #(= :rf.route/deactivated (:operation %)) @traces))
+            "first nav (no prior): :rf.route/deactivated does NOT fire")))
     ;; Cross-route nav: both fire in deactivated→activated order.
     (let [traces (atom [])]
       (rf/register-listener! :trace ::act2 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/to}])
       (rf/unregister-listener! :trace ::act2)
-      (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
-                                (:operation %))
-                              @traces)]
-        (is (= [:rf.route/deactivated :rf.route/activated]
-               (map :operation lifecycle))
-            "cross-route nav: deactivated → activated in that order")
-        (is (= :route/from
-               (-> (first lifecycle) :tags :route-id))
-            ":deactivated carries the prior route-id")
-        (is (= :route/to
-               (-> (second lifecycle) :tags :route-id))
-            ":activated carries the next route-id")))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the cross-route transition
+      ;; the pair announces really happened.
+      (is (= :route/to @(rf/subscribe [:rf.route/id]))
+          "cross-route nav moved the slice from :route/from to :route/to")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
+                                  (:operation %))
+                                @traces)]
+          (is (= [:rf.route/deactivated :rf.route/activated]
+                 (map :operation lifecycle))
+              "cross-route nav: deactivated → activated in that order")
+          (is (= :route/from
+                 (-> (first lifecycle) :tags :route-id))
+              ":deactivated carries the prior route-id")
+          (is (= :route/to
+                 (-> (second lifecycle) :tags :route-id))
+              ":activated carries the next route-id"))))
     ;; Same-id navigation: neither fires (route stays active across the transition).
     (let [traces (atom [])]
       (rf/register-listener! :trace ::act3 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/to}])
       (rf/unregister-listener! :trace ::act3)
-      (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
-                                (:operation %))
-                              @traces)]
-        (is (empty? lifecycle)
-            "same-id navigation: neither lifecycle trace fires")))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the route STAYED active
+      ;; across the transition — that is the fact the two silent traces encode,
+      ;; and without it the `(empty? lifecycle)` leg below would pass vacuously
+      ;; under the gate.
+      (is (= :route/to @(rf/subscribe [:rf.route/id]))
+          "same-id navigation left the slice on :route/to (the route stayed active)")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); NEGATIVE over
+      ;; the trace ring, hence guarded.
+      (when interop/debug-enabled?
+        (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
+                                  (:operation %))
+                                @traces)]
+          (is (empty? lifecycle)
+              "same-id navigation: neither lifecycle trace fires"))))))

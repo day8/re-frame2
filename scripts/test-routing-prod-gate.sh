@@ -147,9 +147,25 @@ known_red=(
   #    for a namespace that executed nothing — the false-green this lane
   #    exists to close.  Those want a var-level tag the lane excludes, not a
   #    posture guard.
-  re-frame.route-algebra-view-test                #  5
-  re-frame.routing-framework-authority-test       #  2
-  re-frame.routing-nav-allocation-record-replay-test  #  1
+  #    CLEARED 2026-07-27 (rf2-o5dbf, batch 3 — the small end of the list):
+  #    route-algebra-view, routing-framework-authority,
+  #    routing-nav-allocation-record-replay, routing-subs,
+  #    routing-uncaptured-param, routing-url-bound.  Each now carries a
+  #    "## Posture split (rf2-o5dbf)" ns docstring.
+  #
+  #    `routing-framework-authority-test` is the closest thing in this
+  #    artefact to the "no semantic residue" case the note above warns about,
+  #    and is called out here because the next reader deserves to know: FIVE
+  #    of its six deftests assert `(is (empty? @warns))` over the
+  #    `:rf.warning/app-handler-runtime-effect` trace, and the sixth is
+  #    explicitly the control that proves the other five are not vacuous.
+  #    Under the gate every one of those six is meaningless, so all six are
+  #    inside the posture arm.  It stays in the lane because the navigation
+  #    SCAFFOLDING each case drives — the route commits, the pending slot
+  #    fills and clears, `:rf.route/continue` completes — is real runtime-db
+  #    state that does execute.  Be clear-eyed about the trade: under the
+  #    production gate this namespace contributes routing semantics, not the
+  #    ownership contract it is named for.
   re-frame.routing-nav-fx-schemas-test            # 32
   re-frame.routing-nav-token-test                 # 32
   re-frame.routing-navigation-test                # 64
@@ -157,9 +173,6 @@ known_red=(
   re-frame.routing-prefetch-test                  # 18
   re-frame.routing-registry-test                  # 11
   re-frame.routing-scroll-test                    # 11
-  re-frame.routing-subs-test                      #  4
-  re-frame.routing-uncaptured-param-test          #  7
-  re-frame.routing-url-bound-test                 #  4
 )
 
 # ---------------------------------------------------------------------------

@@ -25,10 +25,28 @@
   live in the bundle-isolated `re-frame.routing.tooling` sibling, reached on
   JVM through the `re-frame.routing/route-algebra-view` convenience alias, and
   consumed by Xray + the conformance fixtures. There is no
-  `re-frame.core/route-algebra-view` public facade export."
+  `re-frame.core/route-algebra-view` public facade export.
+
+  ## Posture split (rf2-o5dbf)
+
+  The node SHAPE is production-real and carries no posture guard: the
+  classifications, the `:rf/route` fact id, the inputs / output / source-form,
+  the resource activation edge and the live slice projection all run in the
+  ordinary `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh`
+  (the `-Dre-frame.debug=false` lane).
+
+  Two leaf slots are NOT: `:source` and `:doc`. Source coords are captured
+  behind `interop/debug-enabled?` (Spec 001 §Source-coordinate capture), and
+  `:doc` is a pure-documentation key the registrar STRIPS before storage in
+  production builds (Spec 001 §Production elision contract, registrar.cljc
+  §573-580) so its string bytes DCE out of the bundle. Both deftests below
+  therefore branch: the dev arm keeps the presence assertions VERBATIM, and
+  the production arm asserts the ELISION — that the strip really happened.
+  Neither arm is vacuous; nothing was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
@@ -257,15 +275,31 @@
     (rf/reg-route :route/home {} "/")
     (let [node   ((routing-tooling/route-algebra-view) :route/home)
           source (:source node)]
-      (is (some? source) ":source map is present when the registration carried coords")
-      (is (some? (:ns source))     ":ns captured at the call site")
-      (is (number? (:line source)) ":line captured at the call site")
-      (is (some? (:file source))   ":file captured at the call site"))))
+      (if interop/debug-enabled?
+        ;; rf2-o5dbf — dev arm (see ns docstring), kept verbatim.
+        (do
+          (is (some? source) ":source map is present when the registration carried coords")
+          (is (some? (:ns source))     ":ns captured at the call site")
+          (is (number? (:line source)) ":line captured at the call site")
+          (is (some? (:file source))   ":file captured at the call site"))
+        ;; rf2-o5dbf — production arm: coord capture is DCE'd, so the node
+        ;; carries no `:source` at all. The rest of the node is unaffected.
+        (do
+          (is (nil? source)
+              "under -Dre-frame.debug=false the coords are elided (Spec 001)")
+          (is (= {:kind :reg-route :id :route/home} (:source-form node))
+              "…and the node itself is otherwise intact"))))))
 
 (deftest doc-passes-through
   (testing ":doc supplied on the route metadata surfaces in the node"
     (rf/reg-route :route/home {:doc "the home route"} "/")
-    (is (= "the home route" (:doc ((routing-tooling/route-algebra-view) :route/home))))))
+    (if interop/debug-enabled?
+      ;; rf2-o5dbf — dev arm (see ns docstring), kept verbatim.
+      (is (= "the home route" (:doc ((routing-tooling/route-algebra-view) :route/home))))
+      ;; rf2-o5dbf — production arm: `:doc` is stripped BEFORE storage so its
+      ;; string bytes leave the bundle, so the node cannot carry it.
+      (is (not (contains? ((routing-tooling/route-algebra-view) :route/home) :doc))
+          "under -Dre-frame.debug=false the registrar strips :doc before storage"))))
 
 (deftest no-doc-when-absent
   (testing ":doc is absent when the registration didn't supply it"
