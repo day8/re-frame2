@@ -8,10 +8,14 @@
   whole reconciler is graft-checked headlessly against the REAL observation
   port on both hosts (node + JVM, plain-atom adapter).
 
-  Sole reactive consumer of the internal observation port
+  A reactive consumer of the internal observation port
   (`re-frame.substrate.observation`) — the six operations
   `resolve-target` / `probe` / `acquire!` / `current?` / `read` /
-  `release!` (Spec 006 §The internal observation port). Per the S2a
+  `release!` (Spec 006 §The internal observation port). Not the only
+  one: the Freehand atomic shell (`re-frame.freehand.cell`) reads the
+  same port on the same ABI. Freehand is the port's NAMED consumer; this
+  donor runtime reads it for the length of the EP-0036 coexistence
+  window and goes when the donor artefact does. Per the S2a
   handoff: `read` returns `:frame-epoch` / `:registry-epoch` ADDITIVELY
   (no second probe at commit step 5); `resolve-target`'s `site-ctx` shape
   is `{:query-v … :frame pin? :override {:value :override-id :version}?}`;

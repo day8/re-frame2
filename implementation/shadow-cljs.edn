@@ -1339,9 +1339,11 @@
                         :depends-on #{:trace-tooling}}
     :ssr               {:init-fn re-frame.bundle-isolation-positive-control.ssr/run
                         :depends-on #{:trace-tooling}}
-    ;; rf2-vxgfnd.99.2 — day8/re-frame2-ui is now a published, browser-optional
-    ;; substrate, so its client sentinel (rf.error/ui-tree-malformed) needs a
-    ;; positive control proving it is emitted by re-frame.ui.runtime.
+    ;; rf2-vxgfnd.99.2 — re-frame.ui is a browser-optional substrate carrying a
+    ;; client sentinel (rf.error/ui-tree-malformed), so it needs a positive
+    ;; control proving it is emitted by re-frame.ui.runtime. What is under test
+    ;; is the sentinel reaching a browser bundle, not a shipped artefact:
+    ;; day8/re-frame2-ui is in-tree donor code that never publishes.
     :ui                {:init-fn re-frame.bundle-isolation-positive-control.ui/run
                         :depends-on #{:trace-tooling}}
     :subs-tooling      {:init-fn re-frame.bundle-isolation-positive-control.subs-tooling/run

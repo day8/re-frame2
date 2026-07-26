@@ -166,8 +166,8 @@ implementation/
   ui/                        day8/re-frame2-ui — the re-frame.ui compiled-view substrate
                              (epic rf2-vxgfnd; S1a skeleton per rf2-vxgfnd.1 — the
                              compiler slice lands from S1b).
-    deps.edn                 :local/root dep on ../core; own :test alias (pre-publication,
-                             so no :clein deploy aliases yet).
+    deps.edn                 :local/root dep on ../core; own :test alias (never published,
+                             so no :clein deploy aliases at all).
     src/re_frame/ui.cljc           Public-surface root stub (defview et al. land S1b+).
     src/re_frame/ui/compiler.cljc  Compiler entry stub (AST / analyzer / emitters, S1b).
     src/re_frame/ui/client.cljs    Client-kernel stub (mount surface S1c; reactivity S2).
