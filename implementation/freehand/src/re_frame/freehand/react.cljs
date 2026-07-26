@@ -946,8 +946,9 @@
   projection, and the two planes cannot collide on one name: the ordinary
   plane has had the declared positions removed from it, and every key in
   either plane is an unqualified keyword — the exactness
-  `descriptor/inexact-host-prop-names` enforces on the caller's map and on
-  a `:map-props` adapter's answer alike. So this writer never has to ask
+  `descriptor/inexact-host-prop-names` enforces on the caller's map, which
+  a `:map-props` adapter's answer inherits by carrying the caller's own
+  keys (`descriptor/host-prop-name-drift`). So this writer never has to ask
   what a name might already mean."
   [cand ordinary callbacks]
   (let [o (js-obj)]
@@ -979,8 +980,8 @@
   component's own tree (so the tree's context reaches them)."
   [cand head {:keys [props callbacks] kid-forms :children}]
   (let [entry     (descriptor/host-entry head)
-          host-id   (:host-id entry)
-          component (:component entry)
+        host-id   (:host-id entry)
+        component (:component entry)
         mapper    (:map-props entry)
         ordinary  (if mapper (mapper props) props)]
     (when (nil? component)
@@ -997,32 +998,34 @@
              (type-name ordinary) ". It prepares the ordinary-props MAP and must "
              "answer one — it is not a place to build the element.")
         {:host host-id}))
-    ;; The adapter's answer is held to the caller's own naming law, and
-    ;; BEFORE the reserved check below — which is what makes that check
-    ;; total. Asked the other way round, an adapter returning `"key"` or
-    ;; `"onSelect"` would pass a filter looking for the keyword and then
-    ;; reach React under the reserved name anyway.
-    (let [inexact (descriptor/inexact-host-prop-names ordinary)]
-      (when (seq inexact)
-        (malformed!
-          (str "The :map-props adapter on " host-id " returned " (pr-str inexact)
-               ". A host prop name is EXACT — an unqualified keyword, spelled as "
-               "the library spells the prop — because the name is what every "
-               "reserved-fact check reads. The adapter prepares VALUES the "
-               "authored map could not hold; the names stay the caller's.")
-          {:host host-id :props inexact})))
-    (let [reserved (vec (sort (filter (fn [k] (or (contains? (:callbacks entry) k)
-                                                  (= :key k)
-                                                  (= :children k)))
-                                      (keys ordinary))))]
-      (when (seq reserved)
-        (malformed!
-          (str "The :map-props adapter on " host-id " returned " (pr-str reserved)
-               ". The adapter owns the ORDINARY plane only: declared callbacks, "
-               "children, the key and every other reserved Freehand fact are "
-               "withheld from it and installed afterwards, so it can neither "
-               "supply nor replace one.")
-          {:host host-id :reserved reserved})))
+    ;; The adapter's KEY SET is the caller's — the one law the answer owes,
+    ;; enforced here because this is the only place both maps exist. It is
+    ;; the whole law: `props` has already had `:key` and the declared
+    ;; positions removed, `:children` and every inexact spelling refused at
+    ;; the call, so an answer carrying the caller's own keys cannot name a
+    ;; reserved fact or an unspellable one, and there is no filter left to
+    ;; make total.
+    (when mapper
+      (let [{:keys [created dropped]} (descriptor/host-prop-name-drift props ordinary)]
+        (when (or (seq created) (seq dropped))
+          (malformed!
+            (str "The :map-props adapter on " host-id " answered a different KEY SET "
+                 "than the call authored"
+                 (when (seq created) (str " — created " (pr-str created)))
+                 (when (seq dropped)
+                   (str (if (seq created) ", dropped " " — dropped ") (pr-str dropped)))
+                 ". The adapter prepares the ordinary plane's VALUES, which is why "
+                 "it exists at all: it builds what the authored map could not hold. "
+                 "The names stay the caller's, so it answers the caller's OWN keys. "
+                 "A name it invents is a rename no call site can see — it reaches "
+                 "React under a name nobody authored, and it puts :key, :children "
+                 "and every declared callback position back within reach of a plane "
+                 "they were withheld from. A name it drops leaves the structural "
+                 "tree, which records the AUTHORED props, reporting a prop React "
+                 "never received. Prepare the value under the caller's key; a host "
+                 "whose props want renaming renames them inside the registered "
+                 "React component, where it is ordinary React code.")
+            {:host host-id :created created :dropped dropped}))))
     (apply react/createElement
            component
            (host-props cand ordinary callbacks)

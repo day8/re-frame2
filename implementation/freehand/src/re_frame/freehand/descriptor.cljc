@@ -664,11 +664,10 @@
   SECOND spelling.
 
   A second spelling is not a cosmetic matter. Every law this boundary
-  enforces — `:children` is the trailing-forms slot, `:key` is the ABI's,
-  a declared callback position takes a carrier and nothing else, a
-  `:map-props` adapter may not supply a reserved fact — is enforced by
-  NAME. So `\"children\"`, `:x/key` and a `\"onSelect\"` no declaration can
-  see would each arrive at React under the reserved name while passing
+  enforces — `:children` is the trailing-forms slot, `:key` is the ABI's, a
+  declared callback position takes a carrier and nothing else — is enforced
+  by NAME. So `\"children\"`, `:x/key` and a `\"onSelect\"` no declaration
+  can see would each arrive at React under the reserved name while passing
   every check that looked for the keyword. Refusing the spelling closes all
   of them at once, and closes them where the name is authored rather than
   at each check in turn."
@@ -676,6 +675,32 @@
   (vec (sort-by pr-str
                 (remove #(and (keyword? %) (nil? (namespace %)))
                         (keys m)))))
+
+(defn host-prop-name-drift
+  "How a `:map-props` adapter's `answered` map differs from the `authored`
+  ordinary plane BY NAME — `{:created […] :dropped […]}`, each sorted for a
+  diagnostic. Both are empty exactly when the two key sets are EQUAL, which
+  is the law: the adapter owns the ordinary plane's VALUES, so the names
+  stay the caller's.
+
+  Equality rather than a subset, and it is the *whole* law the answer owes.
+  Every fact the adapter is denied is denied BY NAME — `:key` and the
+  declared callback positions were removed from this plane before it was
+  handed over, `:children` was refused at the call, and an inexact spelling
+  was refused there too ([[inexact-host-prop-names]]). An answer that
+  carries the caller's own keys therefore cannot name a reserved fact and
+  cannot name an unspellable one: there is nothing left to filter. A
+  created name would put all of that back within reach, and a dropped one
+  would leave the structural projection — which records the AUTHORED props,
+  because the adapter exists to build values a portable tree cannot print —
+  reporting a prop React never received.
+
+  So one law, checked once, is the same shape [[host-prop-name]] has: the
+  crossing name is settled where it is authored rather than re-litigated at
+  each check that reads it."
+  [authored answered]
+  {:created (vec (sort-by pr-str (remove #(contains? authored %) (keys answered))))
+   :dropped (vec (sort-by pr-str (remove #(contains? answered %) (keys authored))))})
 
 (defn- host-callback-value
   "Validate one declared callback position's supplied `value` against its
