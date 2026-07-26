@@ -130,7 +130,7 @@
   of `image-assembly/assemble` plus one registry `swap!`. An app that never
   calls `make-frame` with `:images` never reaches these fns (Closure DCE removes
   them). The resolution seam adds a single dynamic binding around the cascade
-  (the no-generation default path pays one `frame-object?` predicate then runs
+  (the no-generation default path pays one record read then runs
   with zero binding cost — see [[call-with-frame-resolution]]). Reload runs on
   the development hot-reload / explicit re-`make-frame` reload path (not a
   per-event hot path, not a DEBUG-gated branch): pure re-assembly via
@@ -188,7 +188,8 @@
 ;; Back-compat internal alias: the resolution seam below was written against
 ;; `frame-object?`; EP-0024 renames the concept to `frame-value?` (a value, not
 ;; an object) but keeps the predicate available under both spellings for the
-;; internal callers (router / subs frame-resolution-target) until they migrate.
+;; internal callers (`re-frame.core/resolve-live-frame-object`) until they
+;; migrate.
 (def ^{:doc "Internal alias of `frame-value?` (EP-0024 renamed frame OBJECT →
   frame VALUE); the dispatch/subscribe resolution-target helpers still spell it
   `frame-object?`. Pure."}
@@ -302,24 +303,16 @@
 ;; not inferred from process state. A plain fn (not a macro) so CLJS sibling-ns
 ;; callers use it with no `:require-macros` plumbing.
 
-(defn frame-resolution-target
-  "EP-0023 §Frame-derived live registration resolution (rf2-uejnt3): given the
-  CARRIED frame `target` a caller holds (a `subscribe` `frame-id` slot or a
-  dispatch envelope's `:frame`), return the EP-0023 frame OBJECT to derive the
-  resolution generation from — the object itself when the target IS one (the
-  direct-object form), or the live-frame registry's object for a frame-id
-  KEYWORD. nil for any target that names no live image-loaded frame — the
-  absence-is-default signal that [[call-with-frame-resolution]] binds NOTHING
-  and the build/dispatch resolves through the registrar atom path,
-  byte-identical for every existing caller. The shared resolution-target read
-  the subscribe-side (`subs`) and dispatch-side (`router`) twins collapsed onto
-  (rf2-6zfzxy) — both held a byte-identical copy. Pure read of the carried
-  target + the process-local live-frame registry."
-  [target]
-  (cond
-    (frame-object? target) target
-    (keyword? target)      (live-frame target)
-    :else                  nil))
+;; RETIRED: `frame-resolution-target` (rf2-8gb3t). It sat between every caller
+;; and [[call-with-frame-resolution]], turning a frame-id KEYWORD into a freshly
+;; minted frame VALUE — which [[frame-resolution-generation]] then normalized
+;; straight back to that same keyword to read the record's `:generation`. Pass
+;; the CARRIED target itself: a frame value, a frame id, or nil are all already
+;; the seam's documented input, and each resolves the same generation by the
+;; same path (`frame-value->id` is identity on a keyword, and on anything that
+;; is not a frame value; an unregistered address reads nil). The wrapper was
+;; therefore a no-op that allocated a throwaway map per subscribe / probe /
+;; dispatch.
 
 (defn frame-resolution-generation
   "Return the resolved image generation a `frame-target` resolves registrations

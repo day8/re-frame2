@@ -333,10 +333,9 @@
         ;; carries a keyword `:frame` and every bare-`frame-id`-keyed cascade
         ;; operation downstream (the router queue/drain, `frame-state-value`,
         ;; the commit path, the sub-cache) stays byte-identical. The
-        ;; generation-resolution seam re-resolves the object from this id via the
-        ;; live-frame registry (`frame-resolution-target`), so an object target
-        ;; and a child dispatch carrying the same id BOTH route the frame's
-        ;; image. A keyword target (and the scope/hold-resolved frame) passes
+        ;; generation-resolution seam reads the sealed generation off the record
+        ;; by this id, so an object target and a child dispatch carrying the same
+        ;; id BOTH route the frame's image. A keyword target (and the scope/hold-resolved frame) passes
         ;; through `frame-target->id` unchanged.
          frame              (when (trace/continuation-live?)
                               (try
@@ -2874,8 +2873,8 @@
       resolve the same `[kind id]` to their own image's descriptor
       (ALL-OR-NOTHING — `call-with-frame-resolution` covers the whole
       thunk). The generation is DERIVED from the carried frame target
-      (`frame-resolution-target` resolves a direct frame OBJECT verbatim,
-      a frame-id keyword through the live-frame registry), never an
+      (a direct frame VALUE and a frame-id keyword normalize to the same
+      record address, so both read the same sealed generation), never an
       ambient binding (EP-0002). A target that names no live image-loaded
       frame yields no generation, so `call-with-frame-resolution` binds
       NOTHING and resolution falls through to the registrar-atom path,
@@ -3755,7 +3754,7 @@
          handler-meta (when (and event-id (continue?))
                         (try
                           (live-frame/call-with-frame-resolution
-                            (live-frame/frame-resolution-target (:frame envelope))
+                            (:frame envelope)
                             (fn [] (registrar/lookup :event event-id)))
                           (catch #?(:clj Throwable :cljs :default) e
                             ;; Resolution is callback-bearing. A destroy+throw

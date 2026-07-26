@@ -1494,10 +1494,10 @@
   normalized here to its runnable-id ADDRESS via `frame/frame-target->id`
   so the sub-cache lookup (`(frame/frame frame-id)`), the override seam,
   and the error payloads all key the backing record unchanged — a keyword
-  passes through. The generation-resolution seam (`frame-resolution-target`)
-  then re-resolves the frame's image from this id via the live-frame
-  registry — so a value target builds against its OWN image, byte-identical
-  to the keyword form. Mirrors the dispatch-side normalization in
+  passes through. The generation-resolution seam
+  (`live-frame/call-with-frame-resolution`) then reads the frame's sealed
+  generation off the record by this id — so a value target builds against its
+  OWN image, byte-identical to the keyword form. Mirrors the dispatch-side normalization in
   `re-frame.router/build-envelope`.
 
   Per Spec 006 §The sub-override subscribe seam (CLJS /
@@ -1596,7 +1596,7 @@
    ;; and the build resolves through the registrar atom directly
    ;; (absence-is-default). DERIVED from the carried target (EP-0002).
    (live-frame/call-with-frame-resolution
-     (live-frame/frame-resolution-target frame-id)
+     frame-id
      (fn []
    (let [frame-record (frame/frame frame-id)
          ;; rf2-7w1im: resolve the record ONCE and decide supersession up front,
@@ -2302,7 +2302,7 @@
   `release!`), or `unsubscribe`."
   [frame-id query-v]
   (live-frame/call-with-frame-resolution
-    (live-frame/frame-resolution-target frame-id)
+    frame-id
     (fn []
       (if-let [cache (:sub-cache (frame/frame frame-id))]
         (let [k (cache-key query-v)]

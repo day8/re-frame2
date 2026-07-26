@@ -49,14 +49,26 @@
   are strict prefixes of `RGSUB`, re-walked through public functions
   only, so neighbour subtraction attributes bytes to a step:
 
-    S1-CURFRM  `require-current-frame!` + the `{:where :event-id}` extra
-               map `subscribe`'s 1-arity builds on EVERY call
-    S2-RESTGT  + `frame-target->id` + `frame-resolution-target`
+    S1-CURFRM  `require-current-frame!` on the happy path — the SHIPPED
+               reader-then-require spelling (rf2-a8bw0)
+    S2-TGTID   + `frame-target->id`
     S3-CWFR    + `call-with-frame-resolution` around an empty thunk —
                the flush consult, the generation read, the `binding`
     S4-PRELOOK + `(frame/frame id)` + `(get @cache q)` inside the thunk:
                everything up to the ref-count attach
     RGSUB      + the ref-count attach and the post-swap re-check
+
+  Two RETIRED spellings are kept live beside their replacements as
+  PAIRED CONTROLS in the same process, so each saving is a falsifiable
+  prediction rather than a before/after story:
+
+    S1-EAGER   `require-current-frame!` with the `{:where :event-id}`
+               extra map built EAGERLY — what `subscribe`'s 1-arity did
+               before rf2-a8bw0.  S1-EAGER - S1-CURFRM is the saving.
+    N-CWFRWRAP `call-with-frame-resolution` behind the retired
+               `frame-resolution-target` wrapper (rf2-8gb3t), against
+    N-CWFRRAW  the shipped form, which passes the carried target itself.
+               N-CWFRWRAP - N-CWFRRAW must equal N-RESTGT.
 
   `RGSUB - S4-PRELOOK` is then the ref-count attach, and the `RC-*` arms
   price its parts against the REAL 300-entry cache map:
@@ -74,8 +86,8 @@
     RC-EASSOC  pure `(assoc entry :ref-count n)` — the INNER copy alone
 
   The `N-*` arms open rf2-ncjyt's `PRELUDE` the same way: the throwaway
-  frame VALUE `frame-resolution-target` mints, the late-bind flush
-  consult, the generation read, the `binding` alone, and `registrar/
+  frame VALUE the retired `frame-resolution-target` minted, the late-bind
+  flush consult, the generation read, the `binding` alone, and `registrar/
   lookup` on both its branches (generation-bound and registrar-atom).
 
   ## The instrument, and why its controls are the shape they are
@@ -173,6 +185,42 @@
 (defn- arm-noop [_n] nil)
 
 ;; ---------------------------------------------------------------------------
+;; the RETIRED spellings, held here verbatim as paired controls
+;;
+;; Each is deliberately NOT a call into the shipped source: the whole point is
+;; to keep the retired EXPRESSION measurable beside the one that replaced it,
+;; in the same process, against the same live frame — so a claimed saving is a
+;; prediction the instrument can falsify rather than a before/after story.
+
+;; rf2-8gb3t. `live-frame/frame-resolution-target`, as it stood before the
+;; wrapper was retired: a frame VALUE verbatim, a frame-id keyword through
+;; `live-frame` (which MINTS a fresh frame value), anything else nil.
+(defn- retired-resolution-target [target]
+  (cond
+    (live-frame/frame-value? target) target
+    (keyword? target)                (live-frame/live-frame target)
+    :else                            nil))
+
+;; rf2-a8bw0. `subscribe`'s 1-arity, as it stood before the payload was
+;; deferred: the `{:where :event-id}` extra map built on EVERY call, read only
+;; on the `:rf.error/no-frame-context` path.
+(defn- retired-current-frame! [query-v]
+  (frame/require-current-frame!
+    :subscribe
+    {:where    're-frame.subs/subscribe
+     :event-id (first query-v)}))
+
+;; The SHIPPED spelling (rf2-a8bw0): the scope reader first, and the payload —
+;; with `require-current-frame!` building it — only when the reader found
+;; nothing. Same error, same content, same call site; built lazily.
+(defn- shipped-current-frame! [query-v]
+  (or (frame/resolve-current-frame)
+      (frame/require-current-frame!
+        :subscribe
+        {:where    're-frame.subs/subscribe
+         :event-id (first query-v)})))
+
+;; ---------------------------------------------------------------------------
 ;; the arms
 
 (defn- arm-resolve [n]
@@ -246,7 +294,7 @@
             query  (:query target)]
         (when (nil? (frame/frame fid*)) (throw (ex-info "no frame" {})))
         (live-frame/call-with-frame-resolution
-          (live-frame/frame-resolution-target fid*)
+          fid*
           (fn []
             (registrar/lookup :sub (first query))
             (vreset! sink (if (:reaction (get @cache query)) 1 0))))))))
@@ -259,7 +307,7 @@
             query  (:query target)]
         (when (nil? (frame/frame fid*)) (throw (ex-info "no frame" {})))
         (live-frame/call-with-frame-resolution
-          (live-frame/frame-resolution-target fid*)
+          fid*
           (fn []
             (registrar/lookup :sub (first query))
             (let [r (:reaction (get @cache query))]
@@ -275,46 +323,36 @@
 (defn- arm-s1-curfrm [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
-      (vreset! sink
-               (if (frame/require-current-frame!
-                     :subscribe
-                     {:where    're-frame.subs/subscribe
-                      :event-id (first (nth qs k))})
-                 1 0)))))
+      (vreset! sink (if (shipped-current-frame! (nth qs k)) 1 0)))))
 
-(defn- arm-s2-restgt [n]
+;; The paired control for S1-CURFRM: the eager-payload spelling rf2-a8bw0
+;; retired. S1-EAGER - S1-CURFRM is the whole of what deferring it saves.
+(defn- arm-s1-eager [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
-      (let [fid* (frame/frame-target->id
-                   (frame/require-current-frame!
-                     :subscribe
-                     {:where    're-frame.subs/subscribe
-                      :event-id (first (nth qs k))}))]
-        (vreset! sink (if (live-frame/frame-resolution-target fid*) 1 0))))))
+      (vreset! sink (if (retired-current-frame! (nth qs k)) 1 0)))))
+
+(defn- arm-s2-tgtid [n]
+  (let [qs (:qs @rig)]
+    (dotimes [k n]
+      (let [fid* (frame/frame-target->id (shipped-current-frame! (nth qs k)))]
+        (vreset! sink (if fid* 1 0))))))
 
 (defn- arm-s3-cwfr [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
-      (let [fid* (frame/frame-target->id
-                   (frame/require-current-frame!
-                     :subscribe
-                     {:where    're-frame.subs/subscribe
-                      :event-id (first (nth qs k))}))]
+      (let [fid* (frame/frame-target->id (shipped-current-frame! (nth qs k)))]
         (live-frame/call-with-frame-resolution
-          (live-frame/frame-resolution-target fid*)
+          fid*
           (fn [] (vreset! sink 1)))))))
 
 (defn- arm-s4-prelook [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
       (let [q    (nth qs k)
-            fid* (frame/frame-target->id
-                   (frame/require-current-frame!
-                     :subscribe
-                     {:where    're-frame.subs/subscribe
-                      :event-id (first q)}))]
+            fid* (frame/frame-target->id (shipped-current-frame! q))]
         (live-frame/call-with-frame-resolution
-          (live-frame/frame-resolution-target fid*)
+          fid*
           (fn []
             (let [cache* (:sub-cache (frame/frame fid*))]
               (vreset! sink (if (get @cache* q) 1 0)))))))))
@@ -424,7 +462,21 @@
 
 (defn- arm-n-restgt [n]
   (dotimes [_ n]
-    (vreset! sink (if (live-frame/frame-resolution-target fid) 1 0))))
+    (vreset! sink (if (retired-resolution-target fid) 1 0))))
+
+;; rf2-8gb3t, the falsifiable pair: the RETIRED composition every caller wrote
+;; (`(cwfr (frame-resolution-target X) thunk)`) against the SHIPPED one
+;; (`(cwfr X thunk)`). Their difference must be N-RESTGT — the wrapper and
+;; nothing else.
+(defn- arm-n-cwfr-wrap [n]
+  (dotimes [_ n]
+    (live-frame/call-with-frame-resolution
+      (retired-resolution-target fid)
+      (fn [] (vreset! sink 1)))))
+
+(defn- arm-n-cwfr-raw [n]
+  (dotimes [_ n]
+    (live-frame/call-with-frame-resolution fid (fn [] (vreset! sink 1)))))
 
 (defn- arm-n-genread [n]
   (dotimes [_ n]
@@ -562,13 +614,15 @@
             ;; rf2-j8ls2 / rf2-ncjyt. RGSUB is in BOTH plans because it is the
             ;; whole that S1..S4 + the attach must add back up to.
             subs-plan [["RGSUB"     arm-rgsub]
-                       ["S1-CURFRM" arm-s1-curfrm]  ["S2-RESTGT" arm-s2-restgt]
+                       ["S1-CURFRM" arm-s1-curfrm]  ["S1-EAGER"  arm-s1-eager]
+                       ["S2-TGTID"  arm-s2-tgtid]
                        ["S3-CWFR"   arm-s3-cwfr]    ["S4-PRELOOK" arm-s4-prelook]
                        ["RC-ATTACH" arm-rc-attach]  ["RC-GUARD"  arm-rc-guard]
                        ["RC-SWAPID" arm-rc-swapid]  ["RC-UPDIN"  arm-rc-updin]
                        ["RC-NEST"   arm-rc-nest]    ["RC-ASSOC"  arm-rc-assoc]
                        ["RC-EASSOC" arm-rc-eassoc]  ["RC-CAND"   arm-rc-cand]
                        ["N-RESTGT"  arm-n-restgt]   ["N-GENREAD" arm-n-genread]
+                       ["N-CWFRWRAP" arm-n-cwfr-wrap] ["N-CWFRRAW" arm-n-cwfr-raw]
                        ["N-FLUSH"   arm-n-flush]    ["N-BINDONLY" arm-n-bindonly]
                        ["N-CWFRNOG" arm-n-cwfr-nogen]
                        ["N-LOOKGEN" arm-n-lookgen]  ["N-LOOKATOM" arm-n-lookatom]]
@@ -599,12 +653,21 @@
           (println ";;")
           (println ";; rf2-j8ls2 — INSIDE subscribe's cache-HIT path (prefix ladder)")
           (doseq [[lbl v] [["require-current-frame! (S1)"            (net "S1-CURFRM")]
-                           ["+ resolution target    (S2-S1)"         (- (net "S2-RESTGT") (net "S1-CURFRM"))]
-                           ["+ call-with-frame-res  (S3-S2)"         (- (net "S3-CWFR") (net "S2-RESTGT"))]
+                           ["+ frame-target->id     (S2-S1)"         (- (net "S2-TGTID") (net "S1-CURFRM"))]
+                           ["+ call-with-frame-res  (S3-S2)"         (- (net "S3-CWFR") (net "S2-TGTID"))]
                            ["+ frame + cache get    (S4-S3)"         (- (net "S4-PRELOOK") (net "S3-CWFR"))]
                            ["+ the REF-COUNT ATTACH (RGSUB-S4)"      (- (net "RGSUB") (net "S4-PRELOOK"))]
                            ["= subscribe            (RGSUB)"         (net "RGSUB")]]]
             (println (format ";;   %-38s %8.1f B/call" lbl (/ v (double n)))))
+          (println ";; the retired spellings, as paired controls:")
+          (doseq [[lbl v] [["S1-EAGER (retired eager payload)"       (per "S1-EAGER")]
+                           ["S1-CURFRM (shipped, deferred)"          (per "S1-CURFRM")]
+                           ["rf2-a8bw0 saves (S1-EAGER - S1-CURFRM)" (- (per "S1-EAGER") (per "S1-CURFRM"))]
+                           ["N-CWFRWRAP (retired target wrapper)"    (per "N-CWFRWRAP")]
+                           ["N-CWFRRAW  (shipped, carried target)"   (per "N-CWFRRAW")]
+                           ["rf2-8gb3t saves (WRAP - RAW)"           (- (per "N-CWFRWRAP") (per "N-CWFRRAW"))]
+                           ["  ... predicted by N-RESTGT"            (per "N-RESTGT")]]]
+            (println (format ";;   %-38s %8.1f B/call" lbl v)))
           (println ";; the attach, part by part (RC-ATTACH is the shipped form):")
           (doseq [l ["RC-ATTACH" "RC-CAND" "RC-GUARD" "RC-SWAPID" "RC-UPDIN"
                      "RC-NEST" "RC-ASSOC" "RC-EASSOC"]]
@@ -624,7 +687,7 @@
             (println (format ";;   %-38s %8.1f B/call" l (per l))))
           (println (format ";;   %-38s %8.1f B/call"
                            "the dynamic binding (S3-S2 - N-CWFRNOG)"
-                           (- (per "S3-CWFR") (per "S2-RESTGT") (per "N-CWFRNOG")))))
+                           (- (per "S3-CWFR") (per "S2-TGTID") (per "N-CWFRNOG")))))
         (when port?
         (println ";;")
         (println ";; ATTRIBUTION")
