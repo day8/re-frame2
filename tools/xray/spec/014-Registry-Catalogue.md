@@ -142,11 +142,18 @@ Version `3` (rf2-sa8j3) is the first REPLACEMENT delta — the
 `:rf.xray/reactive-show-unchanged?` quick-toggle + the Settings
 show-unchanged pin), so the clause re-runs the owning `reactive-panel`
 facade's `install!` to re-register it (evicting the stale two-input
-reaction). Version `4` (rf2-7gth0) is the Freehand tool-door cutover — three
-NEW sub ids (`:rf.xray/mounted-views`, `:rf.xray/mounted-views-schema`,
-`:rf.xray/mounted-view-sites`) replacing the donor evidence subs and their
-ownership event/sub pair, installed via
-`reactive-panel/install-mounted-views-subs!` so the reads stay panel-owned.
+reaction). Version `4` (rf2-7gth0) is the Freehand tool-door cutover, and the first
+delta with a REMOVAL in it — three NEW sub ids (`:rf.xray/mounted-views`,
+`:rf.xray/mounted-views-schema`, `:rf.xray/mounted-view-sites`) installed via
+`reactive-panel/install-mounted-views-subs!` so the reads stay panel-owned,
+plus five donor-era registrations cleared: the subs
+`:rf.xray/viewcell-evidence`, `:rf.xray/viewcell-evidence-version`,
+`:rf.xray/view-evidence-sites` and `:rf.xray/viewcell-evidence-ownership`,
+and the event `:rf.xray/viewcell-evidence-ownership-changed`. A removal needs
+its own clause for the mirror image of the reason a replacement does: the fn
+that installed those ids is deleted, so no re-registration happens and the
+umbrella has nothing to compare against — left alone they resolve forever as
+phantom ids backed by a deleted namespace's resident closures.
 `migrate-schema!` reaches each delta through the `reactive-panel` facade the
 orchestrator already requires (the idempotent re-install applies only the
 missing/changed delta).
@@ -163,6 +170,59 @@ number: the governance pin
 any gated registration edit — add or replace — must consciously bump
 `schema-version` (or record an explicit no-migration rationale) and update
 the pin.
+
+#### Schema 4 is reload-required for a donor-resident process (rf2-7gth0)
+
+The seam migrates REGISTRATIONS, and registrations are the only thing a live
+upgrade can migrate. Schema 4 is the first version whose delta also includes
+state that is **not** a registration, so it is the first version that can
+fail to complete — and the seam reports that instead of hiding it.
+
+A schema-3 process claimed the donor `re-frame.ui.tool.evidence` projection
+at boot under the owner id `:rf.xray/viewcell-evidence`. Releasing it means
+calling that tier's `uninstall!`, which schema-4 code cannot do: `re-frame.ui`
+is off `tools/xray/deps.edn` and must stay off it, because dropping that
+coordinate is the cutover. Re-adding it to run a teardown would reinstate the
+donor coupling this version exists to remove, for a tier the donor-deletion
+chain removes outright — the teardown would be dead code the day it shipped.
+Deleting a namespace from source does not execute teardown in a process that
+already loaded it, so the projection stays owned, its sink stays armed, its
+entries stay retained, and another tool is refused the slot.
+
+So the clause splits:
+
+- **The registrar half always migrates.** The three Freehand reads install
+  and the five donor-era ids are cleared, live, exactly like any other delta.
+  A process the developer does not reload is left as current as a live
+  process can be.
+- **The ownership half is reload-only, and is declared so.** When the process
+  carries the donor claim, `migrate-schema!` returns false: the process is
+  **not** stamped current, and one `console.warn` names the owner id still
+  holding the donor slot and the reload that ends it. `register-xray-handlers!`
+  stamps `installed-schema` only on a true return, so a live upgrade can never
+  assert an upgrade that did not finish. A subsequent `:after-load` repeats
+  both the refusal and the warning; only a page reload — which discards the
+  whole module registry, donor state included — clears the condition.
+
+The probe is Xray's own `js/globalThis` marker
+(`__day8_re_frame2_xray_viewcell_evidence`), which the deleted
+`viewcell_evidence.cljs` wrote on a successful acquire and removed on
+release. Reading it needs no donor dependency, which is exactly why it is the
+probe — the tier's own `installed-owner` is not askable from an artefact that
+does not depend on it. A process that booted at schema 4, and an older
+process whose acquire was rejected by a foreign owner, both read false and
+upgrade to completion. `reset-for-test!` clears the marker along with the
+sentinels, since no registrar rollback or `defonce` reset reaches a
+`globalThis` key.
+
+`registry/installed-schema-version` is the read-only diagnostic counterpart to
+`schema-version`: equal means current, behind means a reload is outstanding.
+Regressions: `schema-4-migrates-the-registrar-half-of-the-donor-cutover-rf2-7gth0`
+(the completing path) and
+`schema-4-refuses-to-stamp-a-donor-resident-process-rf2-7gth0` (the
+reload-required path — registrar half migrated, stamp withheld, warning
+emitted, refusal stable across a second `:after-load`, and current the instant
+the residue goes).
 
 #### Fresh-install atomicity (rf2-g2jf3)
 

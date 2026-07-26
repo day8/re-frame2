@@ -30,7 +30,8 @@
   panel owns its subs / events / fxs colocated with the view that
   reads them. Sub-registration order is purely cosmetic — re-frame
   resolves `:<-` chains lazily at subscribe time, not register time."
-  (:require [re-frame.core :as rf]
+  (:require [goog.object :as gobj]
+            [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             ;; Load the first-class edn-inspector widget ns so its
             ;; top-level `reg-sub` / `reg-event` calls land in
@@ -163,13 +164,26 @@
         surface crossed off the donor `re-frame.ui.tool` evidence tier onto
         `re-frame.freehand.tool`. Three sub ids are NEW
         (`:rf.xray/mounted-views`, `:rf.xray/mounted-views-schema`,
-        `:rf.xray/mounted-view-sites`) and four registrations are GONE
+        `:rf.xray/mounted-view-sites`) and five registrations are GONE
         (`:rf.xray/viewcell-evidence`, `:rf.xray/viewcell-evidence-version`,
         `:rf.xray/view-evidence-sites`, and the
-        `:rf.xray/viewcell-evidence-ownership` event/sub pair whose ownership
-        plane has no Freehand counterpart and was deleted rather than ported).
-        A schema-3 process has the old ids cached and none of the new ones, so
-        the migration installs the delta."
+        `:rf.xray/viewcell-evidence-ownership` sub /
+        `:rf.xray/viewcell-evidence-ownership-changed` event pair whose
+        ownership plane has no Freehand counterpart and was deleted rather
+        than ported). A schema-3 process has the old ids registered and none
+        of the new ones, so the migration installs the delta AND clears the
+        five.
+
+        Schema 4 is the ONE version that is RELOAD-REQUIRED for part of its
+        delta, and the migration says so rather than pretending otherwise
+        (see `migrate-schema!`). The registrar half migrates live like every
+        other clause. The half that does not is the donor evidence
+        projection a schema-3 process ACQUIRED at boot: releasing it means
+        calling `re-frame.ui.tool.evidence/uninstall!`, and this build has no
+        dependency on `re-frame.ui` — nor may it acquire one, since dropping
+        that coordinate is the whole point of the cutover. So a process
+        carrying that residue is NOT stamped current; it is told, once and
+        loudly, to reload."
   4)
 
 (defonce ^:private installed-schema
@@ -182,18 +196,95 @@
   ;; reloads — a current process re-loading itself no-ops the migration.
   (atom nil))
 
+;; ---- schema 4: what a live upgrade can and cannot reach (rf2-7gth0) ------
+;;
+;; The migration seam moves REGISTRATIONS, and registrations are the only
+;; thing a live upgrade can move. Schema 3 also left non-registration state
+;; behind, and the honest handling of it is what the three defs below are
+;; for. See `migrate-schema!` for the verdict they feed.
+
+(def ^:private schema-3-subs-removed
+  "The `:rf.xray/*` SUBS schema 3 registered and schema 4 removed. A
+  live-upgraded process still has all four in the registrar: they were
+  installed by `reactive-panel-subs/install-viewcell-evidence-bridge!`, a fn
+  that no longer exists, so nothing re-registers or replaces them and the
+  umbrella cannot notice their absence from the current install. Left alone
+  they are FOUR PHANTOM IDS — resolvable, backed by a deleted namespace's
+  resident closures, read by no view, and enumerated by every tool that walks
+  the `:rf.xray/*` surface. The schema-4 clause clears them."
+  [:rf.xray/viewcell-evidence
+   :rf.xray/viewcell-evidence-version
+   :rf.xray/view-evidence-sites
+   :rf.xray/viewcell-evidence-ownership])
+
+(def ^:private schema-3-events-removed
+  "The `:rf.xray/*` EVENTS schema 3 registered and schema 4 removed — the
+  other half of the deleted ownership pair. Its handler wrote the donor
+  ownership revision into `:rf/xray` app-db at a key nothing reads any more."
+  [:rf.xray/viewcell-evidence-ownership-changed])
+
+(def ^:private donor-ownership-marker
+  "The `js/globalThis` key the DELETED `day8.re-frame2-xray.viewcell-evidence`
+  wrote on a successful donor acquire and removed on release. Its presence in
+  a live process is exact evidence of the one piece of schema-3 state this
+  build cannot reach: the `re-frame.ui.tool.evidence` projection is still
+  OWNED by `:rf.xray/viewcell-evidence`, with the tier's sink armed and its
+  entries retained.
+
+  The marker is read here, never written. Reading it needs no donor
+  dependency — it is Xray's own key, in Xray's own namespace prefix — which
+  is precisely why it is the probe: `re-frame.ui` is off this artefact's
+  classpath (`tools/xray/deps.edn`) and must stay off it, so the tier's own
+  `installed-owner` is not askable and neither is its `uninstall!` callable."
+  "__day8_re_frame2_xray_viewcell_evidence")
+
+(defn- donor-ownership-resident?
+  "True when this process acquired the donor evidence projection under
+  schema 3 and never released it — see `donor-ownership-marker`. False in
+  every process that booted at schema 4, and in any older process whose
+  acquire was rejected by a foreign owner (nothing was claimed, so nothing
+  is held)."
+  []
+  (and (exists? js/globalThis)
+       (some? (gobj/get js/globalThis donor-ownership-marker))))
+
+(defn- warn-donor-ownership-resident!
+  "Say the one true thing, once, at the moment the seam discovers it: the
+  registrar is current, the donor projection is not, and only a reload
+  finishes the job. Loud beats silent — the alternative the audit of this
+  cutover caught was stamping the process current and letting the developer
+  find out later that a second tool could not claim the slot."
+  []
+  (when (exists? js/console)
+    (.warn js/console
+           (str "[re-frame2 Xray] Registration schema 4 needs a page reload "
+                "to finish. This process claimed the re-frame.ui ViewCell "
+                "evidence projection under schema 3 (owner "
+                ":rf.xray/viewcell-evidence). Schema 4 reads views through "
+                "re-frame.freehand.tool and has no re-frame.ui dependency, so "
+                "it cannot release that claim: the donor tier keeps Xray as "
+                "owner, keeps its sink armed, and refuses another tool the "
+                "slot until this page is RELOADED. The Xray registrations "
+                "themselves have already migrated. rf2-7gth0."))))
+
 (defn- migrate-schema!
   "Bring an already-registered older-schema process up to `schema-version`
   by installing EXACTLY the bounded delta newer schema versions introduce —
-  a handler newer versions ADD, or a gated registration whose BODY/topology
-  newer versions CHANGE (replace) — the live-upgrade seam (rf2-ykaq4u /
-  rf2-sa8j3). `from` is the process's installed schema (0 ⇒
-  pre-schema-versioning, i.e. a pre-#5915 process). Each clause is idempotent
-  (re-frame's registrar replaces in place; replacing a sub also evicts its
-  stale cache via the registrar replacement-hook), and gated on `from`
+  a handler newer versions ADD, a gated registration whose BODY/topology
+  newer versions CHANGE (replace), or a registration newer versions REMOVE —
+  the live-upgrade seam (rf2-ykaq4u / rf2-sa8j3). `from` is the process's
+  installed schema (0 ⇒ pre-schema-versioning, i.e. a pre-#5915 process).
+  Each clause is idempotent (re-frame's registrar replaces in place;
+  replacing a sub also evicts its stale cache via the registrar
+  replacement-hook; clearing an absent id is a no-op), and gated on `from`
   predating the version that introduced its delta — so this is NOT an
   unconditional whole-registry re-registration; only the missing/changed
-  delta is installed, and only for a process that is behind.
+  delta is applied, and only for a process that is behind.
+
+  Returns TRUE when the process is now genuinely at `schema-version` and may
+  be stamped current, FALSE when it is not and must reload — the caller
+  stamps only on true. Every clause but one always returns true; schema 4 is
+  the exception and its docstring entry says why.
 
   Schemas 1 and 2 have NO clause. Both installed the donor ViewCell evidence
   reactivity bridge, and rf2-7gth0 deleted that bridge along with the donor
@@ -219,16 +310,41 @@
     ;; block, so the seam's `(< schema-version schema-version)` guard is false
     ;; there and this clause never double-registers on a fresh boot.
     (reactive-panel/install!))
-  (when (< from 4)
-    ;; schema 4 — the Freehand tool-door reads (rf2-7gth0). Three NEW sub ids
-    ;; (`:rf.xray/mounted-views`, `-schema`, `:rf.xray/mounted-view-sites`)
-    ;; replaced the donor evidence subs, so a schema-3 process has none of
-    ;; them: its cached `:rf.xray/viewcell-evidence` sub names a consumer that
-    ;; no longer exists and the Views panel would render nothing. Install the
-    ;; three through the `reactive-panel` facade the orchestrator already
-    ;; requires — the reads stay panel-owned. Idempotent (reg-sub replaces in
-    ;; place), and reached only for a behind process.
-    (reactive-panel/install-mounted-views-subs!)))
+  (if (< from 4)
+    ;; schema 4 — the Freehand tool-door cutover (rf2-7gth0). Two halves,
+    ;; and they do NOT have the same reach.
+    ;;
+    ;; The REGISTRAR half migrates live, like every clause before it. Five
+    ;; donor-era ids go (nothing else would ever remove them — the fn that
+    ;; installed them is deleted, so neither the umbrella nor a replacement
+    ;; can notice) and the three Freehand reads arrive through the
+    ;; `reactive-panel` facade the orchestrator already requires, so the
+    ;; reads stay panel-owned. Both idempotent, both reached only for a
+    ;; behind process.
+    (do
+      (run! rf/clear-sub schema-3-subs-removed)
+      (run! rf/clear-event schema-3-events-removed)
+      (reactive-panel/install-mounted-views-subs!)
+      ;; The OWNERSHIP half does not migrate live, and this is where the
+      ;; seam stops pretending. A schema-3 process acquired the
+      ;; `re-frame.ui.tool.evidence` projection at boot; releasing it means
+      ;; calling that tier's `uninstall!`. This build cannot: `re-frame.ui`
+      ;; is not on the artefact's classpath, and putting it back to run a
+      ;; teardown would reinstate exactly the donor coupling the cutover
+      ;; exists to remove — for a tier that F6e deletes outright, which
+      ;; would make the teardown dead code the day it shipped. Xray's own
+      ;; ownership listener is in the same deleted namespace and is
+      ;; unreachable too, but it is also provably INERT: it fires only from
+      ;; `acquire!`/`release-span!`, and no call site for either survives.
+      ;;
+      ;; So: refuse the stamp and say so. The process keeps a donor owner it
+      ;; cannot drop, and a reload — which discards the whole module
+      ;; registry, donor state included — is the only thing that finishes
+      ;; the upgrade.
+      (if (donor-ownership-resident?)
+        (do (warn-donor-ownership-resident!) false)
+        true))
+    true))
 
 (defn register-xray-handlers!
   "Idempotent registration of Xray's :rf.xray/* events, subs, fxs.
@@ -1172,22 +1288,45 @@
   ;; INDEPENDENT of the umbrella gate above. An already-registered process
   ;; running OLDER-schema code left `registered?` set, so the fresh-install
   ;; block no-ops — but it may lack handlers newer schema versions add.
-  ;; Bring it up to `schema-version`, then stamp current. Idempotent: once
-  ;; at `schema-version` (a fresh boot, or a completed upgrade) this
-  ;; no-ops, so a current process re-loading itself emits no handler-
-  ;; replaced flood and installs exactly one ownership listener.
+  ;; Bring it up to `schema-version`, then stamp current — but ONLY when the
+  ;; migration reports the process genuinely reached it (rf2-7gth0). A
+  ;; schema-3 process holding donor evidence ownership this build cannot
+  ;; release stays stamped 3 and is told to reload; stamping it current
+  ;; would be the registry asserting an upgrade that did not finish.
+  ;; Idempotent: once at `schema-version` (a fresh boot, or a completed
+  ;; upgrade) this no-ops, so a current process re-loading itself emits no
+  ;; handler-replaced flood.
   (when (< (or @installed-schema 0) schema-version)
-    (migrate-schema! (or @installed-schema 0))
-    (reset! installed-schema schema-version))
+    (when (migrate-schema! (or @installed-schema 0))
+      (reset! installed-schema schema-version)))
   nil)
+
+(defn installed-schema-version
+  "The registration schema this process has FULLY installed, or nil when it
+  registered before schema-versioning existed. Compare with `schema-version`:
+  equal means the process is current; behind means a live upgrade could not
+  complete and a page reload is outstanding (schema 4 — see
+  `migrate-schema!`). A read-only diagnostic; the stamp itself is private."
+  []
+  @installed-schema)
 
 (defn reset-for-test!
   "Reset the registry's idempotency sentinel + schema stamp so test
   fixtures can drive multiple registration cycles from a clean slate.
-  Test-only — never call from production code."
+  Test-only — never call from production code.
+
+  Also drops the donor-era ownership marker (rf2-7gth0). It is a
+  `js/globalThis` key, so no registrar rollback or `defonce` reset reaches
+  it: a fixture that poses a donor-resident schema-3 process would otherwise
+  leave every later live-upgrade fixture in the process reading `reload
+  required` — a cross-test leak of exactly the kind this tier exists to
+  close. Production never clears it; there, its presence is a true fact
+  about the process until the page reloads."
   []
   (reset! registered? false)
   (reset! installed-schema nil)
+  (when (exists? js/globalThis)
+    (gobj/remove js/globalThis donor-ownership-marker))
   nil)
 
 (defn simulate-legacy-registration!
