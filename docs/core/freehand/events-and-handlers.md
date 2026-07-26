@@ -224,7 +224,7 @@ That control is **not** core Freehand. See
 | Draft then commit, app-specific | **B** |
 | Same hard protocol everywhere | **C** (library) |
 
-## Day-one checklist
+## Recap
 
 Stop when you can:
 
@@ -234,7 +234,7 @@ Stop when you can:
 - wire pattern **A** or **B** for a text field  
 - keep multi-step work as **one** domain event + effects  
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Fix |
 |---|---|

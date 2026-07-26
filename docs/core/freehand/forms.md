@@ -107,18 +107,25 @@ history): a late async load replaces the whole form slice and wipes keystrokes.
 ```clojure
 (rf/reg-event :editor/article-loaded
   (fn [{:keys [db]} [_ slug article]]
-    (let [{:keys [draft touched]} (get db :editor)
+    (let [editor (get db :editor)
+          {:keys [draft touched errors submit-attempted?]} editor
+          touched (or touched #{})
           seeded (reduce-kv
                   (fn [d k v]
                     (if (contains? touched k)
                       d                 ; user already typed here — keep it
                       (assoc d k v)))   ; otherwise take server value
-                  draft
+                  (or draft {})
                   article)]
-      {:db (assoc db :editor {:slug     slug
-                              :draft    seeded
-                              :baseline article
-                              :touched  (or touched #{})})})))
+      ;; Merge into the slice — do not rebuild only the keys you remembered.
+      {:db (assoc db :editor
+                 (assoc editor
+                        :slug              slug
+                        :draft             seeded
+                        :baseline          article
+                        :touched           touched
+                        :errors            (or errors {})
+                        :submit-attempted? (boolean submit-attempted?)))})))
 ```
 
 Rules of thumb:
@@ -128,29 +135,34 @@ Rules of thumb:
   overwrite them.  
 - Untouched fields still pick up late server data (title arrived, user never
   focused it).  
+- **Keep** `:errors` and `:submit-attempted?` (and any other slice keys). A seed
+  that rebuilds only four keys silently drops the rest.  
 - Reset / “reload form” is an explicit event that clears `touched` on purpose.  
 
 If you use a single whole-map `assoc` of the server payload into `:draft`, you
 will reintroduce the clobber bug.
 
-## Day-one checklist
+## Recap
+
 
 - One form-slice map (or instance-keyed path) for the form  
-- Fields wired A/B with edit → `touched`  
+- Fields on **narrow** subs (not the whole draft map)  
 - Errors gated on touched or submit-attempted  
-- Late loads use **seed-merge** (never full `assoc` over draft)  
-- Submit validates once, then starts the mutation  
+- Late loads use **seed-merge** into the existing slice  
+- Submit may be attempted while invalid (so errors can appear); disable only while busy  
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | Typing wiped by slow GET | seed only keys not in `touched` |
+| Errors / attempt flag vanish after seed | merge into the existing slice — do not rebuild a partial map |
 | Errors on empty form before touch | gate on `touched` / `submit-attempted?` |
+| Cannot reveal all errors on first Save | allow attempt while invalid; disable only while busy |
+| Typing one field re-renders every field | parametric field subs — not the whole draft map |
 | Double submit | busy/pending from mutation path |
 | Two editors share one `:editor` | instance key in the path |
 | “Need a form macro” | convention above — Freehand does not ship one |
-
 ## Submit, busy, and disabled
 
 The view stays passive: draft, errors, and busy come from subs; submit is one
@@ -162,13 +174,11 @@ event vector (or form options map).
   (fn [db _]
     (boolean (get-in db [:mutations :editor-save :pending?]))))
 
-(rf/reg-sub :editor/can-submit?
+;; Attempt is allowed while invalid — that is how :submit-attempted? becomes true
+;; and errors appear. Disable only for pending (or another non-remediable block).
+(rf/reg-sub :editor/can-attempt-submit?
   (fn [db _]
-    (let [{:keys [draft errors]} (:editor db)
-          busy? (get-in db [:mutations :editor-save :pending?])]
-      (and (not busy?)
-           (seq (:title draft))
-           (empty? errors)))))
+    (not (get-in db [:mutations :editor-save :pending?]))))
 
 (rf/reg-event :editor/submit
   (fn [{:keys [db]} _]
@@ -182,22 +192,23 @@ event vector (or form options map).
 
 ```clojure
 (v/defview editor-actions [_]
-  (let [busy?    (v/sub [:editor/busy?])
-        can-save (v/sub [:editor/can-submit?])]
-    [:button {:disabled (or busy? (not can-save))
+  (let [busy?      (v/sub [:editor/busy?])
+        can-attempt (v/sub [:editor/can-attempt-submit?])]
+    [:button {:disabled (not can-attempt)
               :on-click [:editor/submit]}
      (if busy? "Saving…" "Save")]))
 ```
 
 Rules of thumb:
 
-- **Validate in events/subs**, not only in the button’s `disabled` expression.  
-- **Busy / pending** (mutation instance, resource, or sibling flag) owns
-  double-submit; clear it on success *and* failure in the mutation path.  
+- **Validate in the submit event** (and show errors via `:submit-attempted?` /
+  touched). Do not disable the button merely because the form is invalid — that
+  makes “show all errors on attempt” unreachable.  
+- **Busy / pending** owns double-submit; clear it on success *and* failure in the
+  mutation path.  
 - Form-level **options map** for native submit is fine:
   `{:on-submit {:event [:editor/submit] :prevent-default true}}`.  
 - Server errors merge into `:errors` without wiping `:draft` or `:touched`.
-
 ## Dual-field live transform (no local state)
 
 Some screens need two fields that reformat each other (temperature C/F, currency

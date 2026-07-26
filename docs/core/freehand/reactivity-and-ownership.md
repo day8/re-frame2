@@ -59,7 +59,7 @@ or the caret and IME break. That path is allowed to flush sooner on purpose.
 once, and only if the value really changed. Fix structure first (narrower subs,
 keys, windowing); compile later if interpretation cost still shows up.
 
-## Day-one checklist
+## Recap
 
 - Prefer narrow subscriptions and stable props.  
 - Key repeated children with domain ids.  
@@ -67,7 +67,7 @@ keys, windowing); compile later if interpretation cost still shows up.
 - Do not put domain cleanup on unmount.  
 - Measure before compile.
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Fix |
 |---|---|

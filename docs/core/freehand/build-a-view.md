@@ -215,7 +215,7 @@ That is a complete Freehand view: a subscription as a value, an event as data, a
 controlled field on the sync door, mounted under a frame. No view-local
 reactive state, and no dispatch closures on the paved path.
 
-## Day-one checklist
+## Recap
 
 You can stop here and still ship a simple Freehand screen if you can:
 
@@ -225,7 +225,7 @@ You can stop here and still ship a simple Freehand screen if you can:
 - wire a controlled input with `::v/value` on `:on-input`  
 - mount with `v/mount`, seeding the frame in the same call
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|

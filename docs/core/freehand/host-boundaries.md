@@ -501,7 +501,7 @@ general on-mount API; prefer `:auto-focus` unless you need an imperative call.
 | Autofocus / measure / `.focus()` | the native attribute first; a registered behavior when you truly need the call |
 | Structure, spreads, theming | not host shapes — composition plane |
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Fix |
 |---|---|

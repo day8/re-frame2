@@ -103,8 +103,8 @@ landing next to an existing app is covered under adoption.
 | Event vectors | paved-path handlers; `::v/value` and friends fill live scalars |
 | Interpreted mode | default — full Clojure |
 | Compiled mode | `{:compiled true}` — finite grammar, same call sites |
-| Host boundaries | registered behaviors and `v/->react` — not neutral hooks in ordinary views |
-| Roots + frames | `v/mount`; the root owns or scopes its frame; `v/->react` for foreign React |
+| Host boundaries | `v/defhost` (React in), registered behaviors (imperative node), `v/->react` (Freehand out) — not neutral hooks in ordinary views |
+| Roots + frames | `v/mount`; the root owns or scopes its frame |
 
 | Mode | When | You gain | You accept |
 |---|---|---|---|

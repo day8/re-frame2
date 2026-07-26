@@ -532,7 +532,7 @@ Do not design a library theme that requires interpreting compiled output at
 runtime. Arbitrary late tree→tree transforms may exist as **interpreted/test
 tooling** only — never as the portable Freehand theme contract.
 
-## Day-one checklist
+## Recap
 
 1. Start with **props**; add trailing children only for a real default region.  
 2. Name **fixed regions** when there is more than one hole.  
@@ -542,7 +542,7 @@ tooling** only — never as the portable Freehand theme contract.
 6. Forward attrs with **`spread-safe`** (internal/controlled) or **`spread`**
    (foreign) — never a bare dynamic map on a controlled door.  
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Fix |
 |---|---|

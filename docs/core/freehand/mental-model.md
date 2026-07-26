@@ -153,7 +153,7 @@ automatically “where does my draft live in app-db?”
 Host machinery — DOM nodes, third-party widgets, layout measurement, React-only
 protocols — lives behind explicit host boundaries.
 
-## Day-one checklist
+## Recap
 
 You can write ordinary Freehand screens when you can:
 
@@ -163,7 +163,7 @@ You can write ordinary Freehand screens when you can:
 - keep product state in re-frame (no view-local ratom model)  
 - leave compilation for later (interpreted is complete)
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Recovery |
 |---|---|

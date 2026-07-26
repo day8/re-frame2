@@ -12,16 +12,18 @@ is no second compiler and no hidden interpreter inside a compiled template.
 
 > **Measure → fix structure → then `{:compiled true}`. Never the reverse.**
 
-## Day-one: usually do not compile
+## Prefer staying interpreted
 
 You can ship entire apps interpreted. Promote a boundary only when:
 
 1. measurement shows interpretation cost on a hot template, **or**  
 2. a library leaf needs static proof and a manifest.
 
-There is no separate check step, and no dry run. Adding the marker **is** the
-check: if the body sits inside the grammar the marker is the whole change, and if
-it does not the build fails and names a recovery.
+Optional preflight: `(v/check "src/app/people.cljc")` runs the **same analyzer
+the build uses** and answers eligibility and recoveries — it never rewrites the
+file and never recommends promotion. Adding `{:compiled true}` is still the real
+gate: if the body is inside the grammar, that is the whole authoring change; if
+it is not, the build fails and names a recovery.
 
 ### Promotion recipe
 
@@ -89,11 +91,12 @@ loss, not a second read language.
 
 ## What a refusal looks like
 
-There is no read-only checker to run first. You add `{:compiled true}` and the
-**build** answers: a form the grammar does not admit is a build failure carrying
-source coordinates and naming a recovery, never a silent demotion to interpreted.
+You can ask first with `v/check`, or let the **build** answer when you add
+`{:compiled true}`. Either way, a form the grammar does not admit is a failure
+carrying source coordinates and naming a recovery — never a silent demotion to
+interpreted.
 
-A refusal reads roughly like this:
+A refusal map looks roughly like this:
 
 ```clojure
 {:view-id           :app.people/people-list
@@ -117,9 +120,14 @@ Each finding’s **recovery** list *is* the work order. Prefer:
 - **extract declared child** — hot leaves / rows you still want compiled
 - **make template visible** — finite `for`, literal heads, visible `sub`
 
-Changing the declaration (`{:compiled true}`) is the **last** step, not the
-discovery mechanism. Freehand never promotes from a percentage threshold or silent
-rewrite.
+Changing the declaration (`{:compiled true}`) is the **last** step, after you
+have taken the recoveries (or decided to keep the view interpreted). Freehand
+never promotes from a percentage threshold or silent rewrite.
+
+`v/check` is honest about what it can prove: it answers eligibility for the
+source you point at, not a guarantee that every helper across your whole app is
+compile-safe. Opaque markup still fails at build (or check) with a named recovery
+— keep interpreted, extract a child, or make the template visible.
 
 ### Mini promotion transcript
 
@@ -415,11 +423,12 @@ They are **mandatory by policy** for:
 - Analyzer-derived prop *slots* are private compiler facts, not a substitute
   public schema.
 
-## If something feels wrong
+## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| Checker rejects opaque helper markup | extract declared child, pass values, or stay interpreted |
+| Unsure whether a body will compile | `(v/check "path/to/file.cljc")` — same analyzer as the build |
+| Checker / build rejects opaque helper markup | extract declared child, pass values, or stay interpreted |
 | Dynamic tag / unkeyed list under compile | finite branches; real `:key`s |
 | Need a dynamic hole in a compiled parent | `[v/markup {:value …}]` — visible interpreted child |
 | Still slow after compile | host cost or data size — not another Hiccup compiler |
