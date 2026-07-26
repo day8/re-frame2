@@ -411,7 +411,9 @@
 ;; THE MICROTASK YIELD IS PRICED IN SITU, BY THE ARMS THAT DO NOT NEED IT.
 ;;
 ;; Every measured write pays one microtask yield, because the slowest arm
-;; requires one, so a reader is owed the size of that constant. The
+;; required one when this window was designed (rf2-w2m25 has since removed
+;; that requirement; the row has not been re-taken), so a reader is owed
+;; the size of that constant. The
 ;; measurement is `:gap-ms` in the `:legs` decomposition, and the control
 ;; is that the floor and Reagent arms — which commit without it — report
 ;; `:gap-ms 0.0` in every round of both rows. The yield costs nothing;
@@ -482,11 +484,14 @@
                                             "Reagent); t1 — then the written cell is read back "
                                             "out of the DOM and the sample is rejected if it "
                                             "does not hold the written value. The microtask is "
-                                            "STRUCTURAL: a mounted Freehand v/sub does not "
-                                            "repaint inside flushSync, its notification rides a "
-                                            "microtask, and a first pass that timed inside "
-                                            "flushSync measured Freehand writes that never "
-                                            "reached the DOM at all. Arms interleaved at the "
+                                            "HISTORICAL: a mounted Freehand v/sub did not repaint "
+                                            "inside flushSync when this window was designed — its "
+                                            "notification rode a microtask, and a first pass that "
+                                            "timed inside flushSync measured Freehand writes that "
+                                            "never reached the DOM at all. rf2-w2m25 fixed that, so "
+                                            "the yield is no longer required by any arm and the row "
+                                            "is re-takeable without it; these figures were NOT "
+                                            "re-taken, so they still carry it. Arms interleaved at the "
                                             "sample level, order rotating on the sample index; "
                                             rounds " rounds of " (:warmup sampling)
                                             " warmup + " (:samples sampling) " samples; every "

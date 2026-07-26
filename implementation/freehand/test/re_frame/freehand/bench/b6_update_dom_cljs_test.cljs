@@ -11,30 +11,43 @@
   comparison would flatter whichever substrate constructs elements
   fastest while saying nothing about the thing Reagent exists for.
 
-  ## The window, and the fact that forced this shape
+  ## The window, and the defect that forced this shape
 
   A first pass timed each write inside `react-dom/flushSync`, exactly as
   the mount row does. **It measured nothing for two of the four arms**,
   and the DOM verification is what caught it: after every Freehand write
-  the DOM still read `0`. A mounted Freehand `v/sub` does not repaint
-  inside `flushSync` — its notification rides a MICROTASK, so React
-  learns about it only after the current task's stack unwinds. Measured
-  directly, and pinned by [[a-freehand-write-does-not-commit-inside-flushsync]]
-  below:
+  the DOM still read `0`. A mounted Freehand `v/sub` was not repainted
+  inside `flushSync` — its notification rode a MICROTASK, so React learnt
+  about it only after the current task's stack unwound. Measured directly:
 
-  | how the write was driven | did the DOM change? |
-  |---|---|
-  | `flushSync(write)` | **no** |
-  | `write` then a microtask then `flushSync(noop)` | yes, ~1 ms |
-  | `write` then `setTimeout 0` | yes, ~2 ms |
-  | `write` then `requestAnimationFrame` | yes, ~32 ms (two frames) |
+  | how the write was driven | did the DOM change? | since rf2-w2m25 |
+  |---|---|---|
+  | `flushSync(write)` | **no** | **yes** |
+  | `write` then a microtask then `flushSync(noop)` | yes, ~1 ms | yes |
+  | `write` then `setTimeout 0` | yes, ~2 ms | yes |
+  | `write` then `requestAnimationFrame` | yes, ~32 ms (two frames) | yes |
 
-  So every arm is timed through ONE shape, and it is the shape the
-  slowest arm requires: **write, yield one microtask, force the
-  substrate's own synchronous drain, stop the clock.** Floor and Reagent
-  do not need the microtask and pay it anyway. Nothing is measured inside
-  an `act` environment — `act` diverts work to its own queue and,
-  measured, cost 600 ms a call.
+  **That was a product defect, and it is fixed.** rf2-w2m25 gave the
+  ViewCell pending window a second closer that React can see
+  (`re-frame.freehand.checkpoint`), so a write inside `flushSync` now
+  commits before the flush returns. The right-hand column is what
+  [[a-freehand-write-commits-inside-flushsync]] pins below, and it is
+  where a regression in EITHER direction shows up.
+
+  The window this row is measured through has NOT been re-taken, so it is
+  still the shape the defect forced: **write, yield one microtask, force
+  the substrate's own synchronous drain, stop the clock.** Floor and
+  Reagent do not need the microtask and pay it anyway. Every arm is timed
+  through that ONE shape, so the comparison remains sound — what changed
+  is that it is no longer REQUIRED, and the row is now re-takeable as
+  `flushSync(write)` on all four arms, which would drop a microtask
+  boundary every arm currently pays. Whoever re-takes it should know that
+  the fix arms one extra React commit per render batch — a two-fiber
+  detached root rendering nil — which lands OUTSIDE the current window
+  but would move inside a re-taken one.
+
+  Nothing is measured inside an `act` environment — `act` diverts work to
+  its own queue and, measured, cost 600 ms a call.
 
   A second instrument fault the same verification caught: an EMPTY
   `flushSync` flushes only React's sync lane, so the floor arm's
@@ -162,16 +175,26 @@
 ;; Non-vacuity
 ;; ===========================================================================
 
-(deftest a-freehand-write-does-not-commit-inside-flushsync
-  (testing "The window's shape is not a style choice, and this is the
-            observation that forced it: a mounted Freehand `v/sub` is NOT
-            repainted by a write made inside `react-dom/flushSync`. The
-            store is written and the subscription recomputes, but React
-            learns about it on a microtask, so the commit lands after the
-            flush has returned. Reagent and the floor commit in the same
-            window. If this test ever starts failing, Freehand has gained
-            a synchronous commit and the update row should be re-taken
-            without the microtask yield."
+(deftest a-freehand-write-commits-inside-flushsync
+  (testing "This row was the observation that forced the window's shape,
+            and it now records the opposite fact. It USED to assert that a
+            mounted Freehand `v/sub` is NOT repainted by a write made
+            inside `react-dom/flushSync` — the store written, the
+            subscription recomputed, and React told on a microtask, so the
+            commit landed after the flush had returned while Reagent and
+            the floor both committed in the same window.
+
+            rf2-w2m25 fixed that: the ViewCell pending window gained a
+            SECOND closer React can see, so the write commits inside the
+            flush. The assertion is flipped rather than deleted or
+            loosened, because it is the only coverage of this case in the
+            bench and it has to catch a regression in EITHER direction —
+            a Freehand arm that silently stopped committing here is
+            exactly the fault that cost this row a whole measurement pass.
+
+            Both legs are asserted: the flush window (the new guarantee)
+            and the microtask window (the shape this row is still measured
+            through, so its non-vacuity does not rest on the new one)."
     (if-not (h/browser?)
       (is true "a real browser is required — the browser job runs this row")
       (async done
@@ -182,13 +205,21 @@
           (let [mounted ((:mount arm) container)]
             (is (= "0" (rows/cell-text container 0)) "the grid mounted and the cell reads 0")
             (react-dom/flushSync (fn [] ((:write! arm) 0 4242)))
-            (is (not= "4242" (rows/cell-text container 0))
-                "a write inside flushSync has NOT reached the DOM when the flush returns")
+            (is (= "4242" (rows/cell-text container 0))
+                "a write inside flushSync HAS reached the DOM when the flush
+                 returns — no yield of any kind between the two")
+            ;; The second leg: the window this row is actually measured
+            ;; through — write, yield one microtask, force the drain — still
+            ;; carries a write to the DOM. Re-taking the row without the
+            ;; microtask is now legitimate; until it is, this is the shape
+            ;; whose non-vacuity matters.
+            ((:write! arm) 0 8484)
             (-> (js/Promise.resolve nil)
                 (.then (fn [_]
                          ((:force! arm))
-                         (is (= "4242" (rows/cell-text container 0))
-                             "and one microtask plus a forced drain later, it has")
+                         (is (= "8484" (rows/cell-text container 0))
+                             "and the measured window — write, one microtask,
+                              forced drain — still lands its write too")
                          ((:unmount arm) mounted)
                          (.remove container)
                          (done)))
