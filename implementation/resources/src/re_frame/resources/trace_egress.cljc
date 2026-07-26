@@ -89,6 +89,7 @@
   carries beside its `:resource/key`, tokenized through that key's OWNER exactly
   as the load-more cursor is through its row's."
   (:require [re-frame.resources.registry :as registry]
+            [re-frame.resources.reply :as resources-reply]
             [re-frame.resources.ssr :as ssr]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -397,6 +398,115 @@
 
     :else [v false]))
 
+(def ^:private work-id-marker
+  "The reserved head keyword of a resource WORK-ID vector —
+  `[:rf.work/resource <scoped-key-or-mutation-id> <generation>]`
+  (`work_ledger/resource-work-id`; a mutation attempt reuses the head and
+  carries `[:rf.mutation <instance-id>]` at position 1). The runtime writes it
+  into every carrier payload it plants, so it is the family's own signature on
+  a foreign row — read as such by `carrier-family-value?` below, and by
+  `tooling`/`derivation.egress`'s work-id readers for the same reason."
+  :rf.work/resource)
+
+(defn- family-work-id?
+  "Whether `v` is a resource work-id vector — a vector headed by
+  `work-id-marker`. Position 1 of such a vector is family-planted BY
+  CONSTRUCTION, whatever its shape."
+  [v]
+  (and (vector? v) (= work-id-marker (first v))))
+
+(defn- family-named-key?
+  "Whether map key `k` is a name the resource runtime RESERVED for one of its
+  scoped keys: anything in the family's own `resource` keyword namespace
+  (`:resource/key`, `:resource/keys`, …) — a NAMESPACE read, per Conventions
+  §Reserved namespaces, so a name added next year is covered — plus
+  `:rf.reply/resource-key`, the spelling the shared REPLY ENVELOPE uses inside
+  a completion's `:correlation` facts (`resources.reply`), which lives in the
+  reply namespace rather than the family's.
+
+  This is a FIDELITY arm, not the line of defence, and the distinction is worth
+  keeping straight (the same one `scoped-keys-slot` makes above). A key here is
+  projected whatever the registry says, which is what keeps the fail-closed
+  unregistered-owner arm reachable inside a carrier. Every key of a REGISTERED
+  owner is already covered by `carrier-family-value?`'s registry proof without
+  appearing here, so a spelling nobody has added costs nothing except
+  fail-closed-ness for an owner that no longer exists."
+  [k]
+  (and (keyword? k)
+       (or (= "resource" (namespace k))
+           (= :rf.reply/resource-key k))))
+
+(defn- carrier-family-payload?
+  "Whether MAP `m` inside a FOREIGN carrier is a payload the resource RUNTIME
+  planted — proved by the family's own reserved vocabulary appearing among its
+  immediate entries: a `resource`-namespaced key, or a value that is a
+  `[:rf.work/resource …]` work-id.
+
+  This is what the free `:scope` arm reads (rf2-1kiuj audit #7054). All THREE
+  payloads the runtime plants a `:scope` in satisfy it, by three different
+  markers, and no two of them share one:
+
+    - the READ continuation (`transport.http/build-managed-args`) —
+      `{:work/id <work-id> :resource/key <key> :scope <scope> …}`;
+    - the MUTATION execute reply-payload — `{:instance-id … :work/id <work-id>
+      :scope <scope> …}`, with NO resource key at all, which is exactly why the
+      work-id is a marker and the key alone is not (rf2-425mm settled that
+      mutations must not be left leaking);
+    - a completion reply's `:correlation` facts (`resources.reply`) —
+      `{:scope <scope> :generation … :rf.reply/resource-key <key>}`, whose only
+      marker is that reserved reply spelling.
+
+  An app's own `{:request {… :scope {:tenant \"…\"} …}}` carries none of them,
+  so its `:scope` — an ordinary English word the FX family uses for its own
+  data — is nobody's business here and rides verbatim."
+  [m]
+  (boolean (some (fn [[k v]] (or (family-named-key? k) (family-work-id? v))) m)))
+
+(defn- resource-reply?
+  "Whether MAP `m` is a canonical resource READ-COMPLETION reply, by its own
+  marker (`resources.reply/work-kind-resource`, stamped on every reply the
+  read continuation substrate builds — `:rf.reply/work-kind :resource`). The
+  gate on the `reply-payload-slot` arm (rf2-1kiuj audit #7059): a map that
+  merely happens to carry a `:resource/key` beside a `:value` / `:params` is
+  NOT a reply, and the family does not speak for those two words anywhere
+  else. A mutation reply stamps `:mutation` and is deliberately not matched —
+  its payload is redacted at source (`classification/redact-continuation-reply`)."
+  [m]
+  (= resources-reply/work-kind-resource (:rf.reply/work-kind m)))
+
+(defn- carrier-family-value?
+  "Whether a value sitting in a FOREIGN carrier is a resource scoped key the
+  family may speak for. Scoped-key SHAPE is necessary and not sufficient here,
+  and that asymmetry is the whole of rf2-1kiuj's audit #7031.
+
+  On a row the family OWNS, the operation namespace already proves the family
+  emitted every tag on it, so shape alone is safe and
+  `project-unknown-slot-value` reads nothing more (rf2-wd9im). A carrier row is
+  the FX family's, and `[<anything> <keyword> <map>]` is a shape ordinary
+  application data hits constantly — an event vector `[:app/save :user {…}]`
+  has it. Projecting one destroys app data off-box and stamps the row
+  `:sensitive?`, which for the resource tools is as much a defect as the leak.
+
+  So the family must PROVE the key is its own, and there are exactly two
+  proofs, neither of them a roster:
+
+    - `named?` — the value was reached through the family's own reserved
+      vocabulary (a `resource`-namespaced map key, or position 1 of a
+      `[:rf.work/resource …]` work-id). The runtime named the position itself,
+      so whatever sits there is the family's WHATEVER the registry says — which
+      is what keeps the fail-closed arm reachable for a genuine key whose owner
+      was cleared or hot-reloaded away (`project-trace-scoped-key`'s nil-spec
+      arm);
+    - the RESOURCE REGISTRY knows the id. The family's own authority answering
+      \"is this one of mine?\" — positive proof independent of position, so a
+      registered owner's key still projects from a carrier slot nobody has
+      looked at yet.
+
+  A shape match with neither proof is somebody else's data and rides verbatim."
+  [v named?]
+  (and (scoped-key-shape? v)
+       (or named? (some? (registry/resource-meta (nth v 1))))))
+
 (def ^:private fx-carrier-slot
   "Trace tag slots owned by the FX family that the resource family's scoped keys
   RIDE IN (rf2-1kiuj).
@@ -433,12 +543,38 @@
   leak.
 
   So: an already-projected token rides as-is (idempotent, never re-digested); a
-  scoped-key-shaped vector projects through `project-trace-scoped-key` — the SAME
-  owner classification the family rows' own `:resource/key` takes, so the two
-  carriers of one key cannot drift; any other collection is walked through,
-  preserving its KIND (scoped-key identity is kind-sensitive — rf2-wgutc2) and
-  walking a map's KEYS as well as its values (a key can be map-keyed by scoped
-  key); every other scalar rides verbatim.
+  scoped key the family can PROVE is its own (`carrier-family-value?`) projects
+  through `project-trace-scoped-key` — the SAME owner classification the family
+  rows' own `:resource/key` takes, so the two carriers of one key cannot drift;
+  any other collection is walked through, preserving its KIND (scoped-key
+  identity is kind-sensitive — rf2-wgutc2) and walking a map's KEYS as well as
+  its values (a key can be map-keyed by scoped key); every other scalar rides
+  verbatim.
+
+  ## `named?`, and why the carrier needs a proof the family's own rows do not
+
+  The `named?` argument is that proof, threaded down the walk: it is true when
+  the value sits somewhere the family's RESERVED vocabulary put it — under a
+  `resource`-namespaced map key, or at position 1 of a `[:rf.work/resource …]`
+  work-id. It resets at every map entry (each key answers for its own value)
+  and is inherited through sequential collections, which is what carries it
+  from `:resource/keys` to the keys inside.
+
+  Every arm below reads a proof of that kind rather than a local cue, because a
+  local cue is something ordinary FX data hits by coincidence, and three merged
+  repairs each shipped one:
+
+    - a scoped-key SHAPE is not proof a 3-vector is a scoped key
+      (`carrier-family-value?`);
+    - a `:scope` KEY is not proof the map is a runtime continuation payload
+      (`carrier-family-payload?`);
+    - a sibling `:resource/key` is not proof the map is a read reply
+      (`resource-reply?`).
+
+  Each proof is the family's own reserved vocabulary — a reserved keyword
+  namespace, a reserved work-id head, a canonical reply marker, or the resource
+  registry itself. None of them is a slot roster, and none of them has to be
+  kept in step with an emit site.
 
   ## …AND the resolved `:scope` beside them (rf2-425mm)
 
@@ -456,23 +592,27 @@
   just redacted the very same bytes. The rf2-irwsq shape again, now inside a
   single map.
 
-  A value under a `:scope` key is therefore projected by the FAMILY rule
-  (`project-unknown-slot-value`) rather than by the carrier walk, which is what
-  makes the two carriers of one scope agree by construction: `:rf.scope/global`
-  is a SCALAR and rides verbatim, a `[tier {identity}]` tuple keeps its TIER
-  keyword (a tool still reads \"session scope\") while the identity map
-  tokenizes to a content-addressed `{:rf/redacted <digest>}` — distinct scopes
-  keeping distinct digests, so per-scope joins survive — and an unresolved
-  `{:from-db …}` reference tokenizes whole. Exactly what rf2-1zc33 settled for
-  the same slot on the family's OWN rows; this is that ruling reaching the
-  carrier the family projector never runs on.
+  A `:scope` entry OF A RUNTIME CONTINUATION PAYLOAD (`carrier-family-payload?`)
+  is therefore projected by the FAMILY rule (`project-unknown-slot-value`)
+  rather than by the carrier walk, which is what makes the two carriers of one
+  scope agree by construction: `:rf.scope/global` is a SCALAR and rides
+  verbatim, a `[tier {identity}]` tuple keeps its TIER keyword (a tool still
+  reads \"session scope\") while the identity map tokenizes to a
+  content-addressed `{:rf/redacted <digest>}` — distinct scopes keeping distinct
+  digests, so per-scope joins survive — and an unresolved `{:from-db …}`
+  reference tokenizes whole. Exactly what rf2-1zc33 settled for the same slot on
+  the family's OWN rows; this is that ruling reaching the carrier the family
+  projector never runs on.
 
-  `:scope` is the ONE key named here and this is not the beginning of a roster:
-  the arm exists because the resource runtime writes that key into a foreign
-  payload itself, so the family owns the value by construction rather than by a
-  guess about shape (a resolved scope is arbitrary EDN — there is no shape to
-  read). Everything else in the carrier is still the fx family's and still rides
-  through untouched.
+  The PAYLOAD gate is load-bearing and the arm shipped without it. A resolved
+  scope is arbitrary EDN, so there is no shape to read and the arm has to key on
+  the NAME — but `:scope` is an ordinary English word, and an app's own
+  `{:request {:method :post :scope {:tenant \"…\"} …}}` rides these same
+  carriers. Keying on the name ALONE destroyed that map off-box and stamped the
+  row `:sensitive?`. What the family actually owns is the payload the runtime
+  BUILT, and that payload wears the family's reserved vocabulary — a
+  `resource`-namespaced key, or a `[:rf.work/resource …]` work-id. Everything
+  else in the carrier is still the fx family's and still rides through untouched.
 
   ## …AND a read continuation reply's `:value` + `:params` (rf2-xx4ty)
 
@@ -495,12 +635,13 @@
 
   `:scope` is unconditional because the family's own rows classify a free
   `:scope` unconditionally (rf2-1zc33) and the two carriers of one scope must
-  agree; and because it is safe to be — `:scope` inside an fx carrier is a word
-  only the resource runtime writes.
+  agree. Note the grain distinction is about the CLASSIFICATION and not about
+  the recognition: both arms now require the same kind of proof that the family
+  planted the datum, and only then do they differ in how they treat it.
 
-  `:value` and `:params` are neither. They belong to a NAMED owner whose
-  `:resource/key` sits one slot over, and the family's own rows tokenize that
-  owner's params IFF `whole-entry-disposition` is non-`:serialize`, so
+  `:value` and `:params` are owner-conditional. They belong to a NAMED owner
+  whose `:resource/key` sits one slot over, and the family's own rows tokenize
+  that owner's params IFF `whole-entry-disposition` is non-`:serialize`, so
   unconditional tokenization would redact a PLAIN resource's reply — the
   over-redaction rf2-1kiuj rejected, and the reason this walk descends maps at
   all. Worse, `:params` and `:value` are words the FX family uses for its own
@@ -512,12 +653,20 @@
   governs the load-more cursor (rf2-3tysyj) and the same
   `whole-entry-disposition` that governs the key beside it.
 
+  And the owner read is a CLASSIFICATION, not a recognition: a sibling
+  `:resource/key` says whose data it would be, not that these two words are the
+  family's at all. A map carrying a genuine sensitive key beside an app's own
+  `:value` / `:params` satisfied the owner read and had them destroyed
+  (audit #7059). The recognition is the reply's own canonical marker
+  (`resource-reply?` — `:rf.reply/work-kind :resource`, which every reply the
+  read-continuation substrate builds carries and nothing else does).
+
   ### Reads and mutations differ here, and the difference is already handled
 
   The mutation `:reply-to` (`mutation_events/continuation-reply`) is the sibling
-  shape and carries `:params` / `:value` with NO `:resource/key` beside them
-  (its owner is named by `:mutation` / `:instance`), so this arm does not fire
-  on it — deliberately. The mutation half is closed one layer EARLIER, at the
+  shape: it stamps `:rf.reply/work-kind :mutation`, so `resource-reply?` is
+  false and this arm does not fire on it — deliberately. The mutation half is
+  closed one layer EARLIER, at the
   source: both settle sites wrap the reply in
   `classification/redact-continuation-reply`, which redacts the mutation's own
   projection-relative `:sensitive` / `:large` declarations before the reply ever
@@ -530,46 +679,61 @@
   app's own continuation handler is entitled to the decoded body, and the
   trusted-local `:include-sensitive?` opt-in must still show it. So the read
   half belongs exactly here, at the egress projector. Pure."
-  [v frame-id]
+  [v frame-id named?]
   (cond
-    (redacted-token? v)   [v true]
-    (scoped-key-shape? v) (project-trace-scoped-key v frame-id)
+    (redacted-token? v) [v true]
+
+    ;; a scoped key the family can PROVE is its own — see `carrier-family-value?`
+    (carrier-family-value? v named?)
+    (project-trace-scoped-key v frame-id)
 
     (coll? v)
-    (let [sens?* (volatile! false)
-          note!  (fn [s pv] (when s (vreset! sens?* true)) pv)
-          proj   (fn [x]
-                   (let [[pv s] (project-embedded-keys x frame-id)]
-                     (note! s pv)))
-          ;; rf2-xx4ty — a read continuation reply names its resource OWNER in
-          ;; the `:resource/key` one slot over. Read ONCE per map, exactly as
-          ;; `project-tags*` reads it once per row for the cursor; nil (no
-          ;; usable key) means this map is not a reply and its `:params` /
-          ;; `:value` are somebody else's.
-          owner-redacts? (and (map? v) (row-owner-redacts? v frame-id))
-          ;; the family's own resolved scope, planted in a foreign payload by
-          ;; the runtime — projected by the FAMILY rule so the carrier cannot
-          ;; drift from the row (rf2-425mm). Every other entry takes the walk.
-          entry  (fn [k x]
-                   (cond
-                     (= :scope k)
-                     (let [[pv s] (project-unknown-slot-value x frame-id)]
-                       (note! s pv))
+    (let [sens?*   (volatile! false)
+          note!    (fn [s pv] (when s (vreset! sens?* true)) pv)
+          proj     (fn [x named?]
+                     (let [[pv s] (project-embedded-keys x frame-id named?)]
+                       (note! s pv)))
+          ;; position 1 of a `[:rf.work/resource …]` vector is family-planted by
+          ;; construction, so the key there is NAMED however unregistered its
+          ;; resource-id has become.
+          work-id? (family-work-id? v)
+          ;; rf2-425mm — the family's own resolved scope, planted in a foreign
+          ;; payload by the runtime, projected by the FAMILY rule so the carrier
+          ;; cannot drift from the row. Gated on the payload being provably the
+          ;; runtime's (audit #7054): `:scope` is a word apps use too.
+          payload? (and (map? v) (carrier-family-payload? v))
+          ;; rf2-xx4ty — a read continuation reply's `:value` / `:params`, read
+          ;; through the owner its own `:resource/key` names (ONCE per map,
+          ;; exactly as `project-tags*` reads it once per row for the cursor).
+          ;; Gated on the canonical reply MARKER (audit #7059), not on the mere
+          ;; presence of a sibling key.
+          owner-redacts? (and (map? v)
+                              (resource-reply? v)
+                              (row-owner-redacts? v frame-id))
+          entry    (fn [k x]
+                     (cond
+                       (and payload? (= :scope k))
+                       (let [[pv s] (project-unknown-slot-value x frame-id)]
+                         (note! s pv))
 
-                     ;; the owner's own reply data (rf2-xx4ty) — tokenized
-                     ;; content-addressed iff THIS map's owner redacts, so a
-                     ;; plain resource's reply stays fully readable. Idempotent
-                     ;; (an opaque token stays sensitive and is not re-digested).
-                     (and owner-redacts? (reply-payload-slot k) (some? x))
-                     (note! true (if (redacted-token? x) x (ssr/redact-value x)))
+                       ;; the owner's own reply data — tokenized
+                       ;; content-addressed iff THIS reply's owner redacts, so a
+                       ;; plain resource's reply stays fully readable. Idempotent
+                       ;; (an opaque token stays sensitive and is not re-digested).
+                       (and owner-redacts? (reply-payload-slot k) (some? x))
+                       (note! true (if (redacted-token? x) x (ssr/redact-value x)))
 
-                     :else (proj x)))]
+                       ;; every other entry takes the walk, NAMED iff the family
+                       ;; reserved the key it sits under.
+                       :else (proj x (family-named-key? k))))]
       [(cond
-         (map? v)    (reduce-kv (fn [m k x] (assoc m (proj k) (entry k x))) {} v)
-         (set? v)    (into #{} (map proj) v)
-         (vector? v) (mapv proj v)
-         (seq? v)    (apply list (map proj v))
-         :else       (mapv proj v))
+         (map? v)    (reduce-kv (fn [m k x] (assoc m (proj k named?) (entry k x))) {} v)
+         (set? v)    (into #{} (map #(proj % named?)) v)
+         (vector? v) (if work-id?
+                       (into [] (map-indexed (fn [i x] (proj x (or named? (= 1 i))))) v)
+                       (mapv #(proj % named?) v))
+         (seq? v)    (apply list (map #(proj % named?) v))
+         :else       (mapv #(proj % named?) v))
        @sens?*])
 
     :else [v false]))
@@ -788,17 +952,24 @@
   rf2-irwsq shape: the structured `:effects[*].args` slot read `:rf/redacted`
   while the `:rf.fx/args` TAG three rows above it carried the secret in the clear.
 
-  Given a row's `tags` + the `frame-id`, walks `:rf.fx/args` / `:rf.event/fx` by
-  SHAPE (`project-embedded-keys`) and stamps `:sensitive? true` when a key
-  redacted. Everything else on the row rides UNTOUCHED, whatever its shape: the
-  row belongs to the fx family, and the resource family speaks only for the data
-  it planted there — its scoped keys, and (rf2-425mm) the resolved `:scope` the
+  Given a row's `tags` + the `frame-id`, walks `:rf.fx/args` / `:rf.event/fx`
+  (`project-embedded-keys`) and stamps `:sensitive? true` when a key redacted.
+  Everything else on the row rides UNTOUCHED, whatever its shape: the row
+  belongs to the fx family, and the resource family speaks only for the data it
+  planted there — its scoped keys, and (rf2-425mm) the resolved `:scope` the
   transport continuation payload carries beside them, which is a
   `[tier {identity}]` TUPLE rather than a scoped key and so was descended into
   and let through in the clear one slot from the `:resource/key` that had just
   redacted the same bytes, and (rf2-xx4ty) the `:value` + `:params` a READ
   CONTINUATION reply carries beside its own `:resource/key`, tokenized iff that
   key's OWNER redacts so a plain resource's reply stays readable.
+
+  \"Speaks only for the data it planted\" is enforced, not merely intended:
+  each of those three arms fires on PROOF that the runtime planted the value —
+  the family's reserved keyword namespace, its work-id head, the canonical
+  reply marker, or the resource registry — never on a local cue that ordinary
+  application data hits by coincidence. See `project-embedded-keys` §`named?`.
+
   A tags map carrying NEITHER slot rides through reference-preserved —
   which is what lets the epoch consumer apply this to every row and keep no row
   predicate of its own, so a family key riding a carrier on some future op is
@@ -814,7 +985,9 @@
           tags'  (reduce (fn [m slot]
                            (if-not (contains? m slot)
                              m
-                             (let [[pv s] (project-embedded-keys (get m slot) frame-id)]
+                             ;; `named? false` — the slot root is the FX
+                             ;; family's own value; nothing above it named it.
+                             (let [[pv s] (project-embedded-keys (get m slot) frame-id false)]
                                (when s (vreset! sens?* true))
                                (assoc m slot pv))))
                          tags
