@@ -1,15 +1,19 @@
 #!/usr/bin/env sh
 # .git/hooks/pre-commit (re-frame2-managed segments)
 #
-# TWO marker blocks, one per direction of the mayor/worker boundary:
+# THREE marker blocks. The first two are one per direction of the
+# mayor/worker boundary; the third asks a different question of the same file.
 #
 #   rf2-ydl2p — refuses commits in the MAYOR checkout that touch
 #               worker-tracked surfaces (source, spec, docs, scripts).
 #   rf2-ia8o7 — refuses commits in a WORKER worktree that touch the beads
 #               DATABASE (the stale-worker-snapshot failure mode).
+#   rf2-or8te — refuses a commit, from ANY worktree, that would empty the
+#               beads tracker or lose more than a tenth of it.
 #
-# Together they say: source flows mayor -> worker, tracker state flows
-# worker -> mayor, and neither crosses back.
+# The first two say: source flows mayor -> worker, tracker state flows
+# worker -> mayor, and neither crosses back. The third says: and when the
+# tracker does flow, it arrives whole.
 #
 # Refuses commits in the MAYOR checkout that touch worker-tracked surfaces
 # (rf2-ydl2p). Mayor commits are allowed only for `.beads/issues.jsonl` and
@@ -107,3 +111,33 @@
   unset _rf2b_top _rf2b_lib _rf2b_staged
 } || true
 # --- END re-frame2 worker beads boundary (rf2-ia8o7) ---
+
+# --- BEGIN re-frame2 beads truncation floor (rf2-or8te) ---
+# Managed by scripts/install-git-hooks.sh. Do not edit between markers.
+{
+  # The two blocks above police WHO commits what. This one polices WHAT is
+  # in the beads tracker when it IS committed, and it is the only one that
+  # runs in the PRIMARY worktree — which is where it had to be, because both
+  # times an empty export reached main the commit was a plain `git add` from
+  # the mayor checkout, where the block above correctly no-ops.
+  #
+  # No marker file and no worktree derivation: a truncated tracker is wrong
+  # from anywhere. In a worker the block above has already refused the commit
+  # and exited, so in practice this fires only in the primary.
+  _rf2t_top=$(git rev-parse --show-toplevel 2>/dev/null) || _rf2t_top=""
+  if [ -n "$_rf2t_top" ]; then
+    _rf2t_lib="$_rf2t_top/scripts/git-hooks/lib/check-beads-boundary.sh"
+    if [ -f "$_rf2t_lib" ]; then
+      # shellcheck source=lib/check-beads-boundary.sh
+      . "$_rf2t_lib"
+      _rf2t_staged=$(git diff --cached --name-only 2>/dev/null)
+      if ! printf '%s\n' "$_rf2t_staged" | check_beads_truncation; then
+        unset _rf2t_top _rf2t_lib _rf2t_staged
+        exit 1
+      fi
+    fi
+  fi
+
+  unset _rf2t_top _rf2t_lib _rf2t_staged
+} || true
+# --- END re-frame2 beads truncation floor (rf2-or8te) ---

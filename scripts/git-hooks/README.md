@@ -15,17 +15,19 @@ disturbing beads-managed segments (`bd hooks install`).
 | `post-rewrite` | Advisory: the same warning after a REBASING pull (`git pull --rebase` with a local commit), which never reaches `post-merge`. **rf2-zt65l.** |
 | `pre-commit` | Refuse commits in the MAYOR checkout that touch worker-tracked surfaces. **rf2-ydl2p.** |
 | `pre-commit` | Refuse commits in a WORKER worktree that touch the beads DATABASE. **rf2-ia8o7.** |
+| `pre-commit` | Refuse a commit from ANY worktree that would empty `.beads/issues.jsonl` or lose more than a tenth of it. **rf2-or8te.** |
 | `lib/check-stale-mcp-binary.sh` | POSIX-sh library used by `post-merge`. |
 | `lib/check-hook-install-staleness.sh` | POSIX-sh library used by `post-merge` **and** `post-rewrite` (rf2-zt65l) — one advisory, one home. |
 | `lib/check-mayor-commit-boundary.sh` | POSIX-sh library used by `pre-commit` (rf2-ydl2p). |
-| `lib/check-beads-boundary.sh` | POSIX-sh library used by `pre-commit` (rf2-ia8o7) **and** by `scripts/check-beads-pr-boundary.sh`, the CI arm. |
-| `test-pre-commit.sh` | Library unit tests, sandboxed end-to-end smoke for both pre-commit blocks, the CI arm, the installer, real pulls of both shapes, and the checkpoint helper. |
+| `lib/check-beads-boundary.sh` | POSIX-sh library carrying two checks over one file: `check_beads_boundary` (rf2-ia8o7), used by `pre-commit` **and** by `scripts/check-beads-pr-boundary.sh`, the CI arm; and `check_beads_truncation` (rf2-or8te), used by `pre-commit` alone. |
+| `test-pre-commit.sh` | Library unit tests, sandboxed end-to-end smoke for all three pre-commit blocks, the CI arm, the installer, real pulls of both shapes, and the checkpoint helper. |
 
 The unit of installation is a marker **block**, not a hook: `pre-commit`
-carries two of them. The installers key their registries on block id
-(`mayor-commit-boundary`, `worker-beads-boundary`, `mcp-staleness`,
-`hook-staleness`, `hook-staleness-rebase`) so a hook can grow another block —
-or the set can grow another hook — without either installer changing shape.
+carries three of them. The installers key their registries on block id
+(`mayor-commit-boundary`, `worker-beads-boundary`, `beads-truncation-floor`,
+`mcp-staleness`, `hook-staleness`, `hook-staleness-rebase`) so a hook can grow
+another block — or the set can grow another hook — without either installer
+changing shape.
 
 Hook sources carry no `.sh` extension, so `.gitattributes` pins each of them to
 `eol=lf` by name. A new hook here needs a line there too, or a Windows checkout
@@ -106,17 +108,20 @@ above. It has to: layer 6 calls the hook directly, and calling a hook directly
 proves the message is right while saying nothing about whether git ever runs it.
 That gap is precisely where the seven-week silence hid a second time.
 
-## The two boundaries
+## The two boundaries, and the floor under them
 
-The `pre-commit` blocks are mirror images of one another:
+The first two `pre-commit` blocks are mirror images of one another. The third
+asks a different question of the same file:
 
 | Block | Fires in | Refuses |
 |-------|----------|---------|
 | rf2-ydl2p | the **mayor** checkout | worker-tracked surfaces (source, spec, docs, scripts) |
 | rf2-ia8o7 | every **worker** worktree | the beads **database** (`.beads/issues.jsonl` and friends) |
+| rf2-or8te | **every** worktree, mayor included | a staged tracker that has lost more than a tenth of HEAD's rows |
 
-Together they say: source flows mayor → worker, tracker state flows
-worker → mayor, and neither crosses back.
+The first two say: source flows mayor → worker, tracker state flows
+worker → mayor, and neither crosses back. The third says: and when the tracker
+does flow, it arrives whole.
 
 ## The mayor-marker pattern (pre-commit hook)
 
@@ -255,6 +260,64 @@ shape. A loud refusal at commit time, naming the file and the remedy, is
 the better trade. `test-pre-commit.sh` carries a regression test asserting
 the remedy text never recommends `skip-worktree` again.
 
+## The truncation floor (rf2-or8te)
+
+The boundary above decides **who** may commit the tracker database. It says
+nothing about **what** is in it, and twice the answer has been "nothing":
+
+| Date | Commit | Damage |
+|------|--------|--------|
+| 2026-06-10 | `7aea52459` | 7172 rows deleted |
+| 2026-07-26 | `4d8042d80d` | 2573 rows deleted |
+
+Both were a plain `git add` of the JSONL caught mid-rewrite, and both came from
+the **mayor checkout** — the one place the block above deliberately no-ops,
+because committing the tracker there is the intended flow. Afterwards the
+working tree, the index and HEAD were all empty and `git status` was **clean**,
+so nothing on screen said anything was wrong.
+
+`scripts/beads-checkpoint.sh` has refused exactly this since the first
+incident: it re-exports from Dolt rather than trusting the working file,
+refuses an empty export outright, and refuses anything below 90% of HEAD. That
+guard is sound and unchanged. **Neither commit went through it.** So the same
+floor, with the same thresholds, now also lives in the hook — the one place no
+committer can route around.
+
+### An empty export is a REGENERATION event
+
+The Dolt database is the source of truth and was never at risk: `bd list`
+worked throughout the 2026-07-26 incident, and one `sh scripts/beads-checkpoint.sh`
+rebuilt 2576 rows over a HEAD of 0. Recovery is one command.
+
+**Do not restore an older export from git history.** That time-travels the
+tracker — beads closed since the older export reopen, beads filed since vanish.
+It is the rf2-ia8o7 failure mode arriving by the repair path. The refusal
+message says so, because the instinct at the moment of the incident is exactly
+the wrong one.
+
+### A genuine mass delete is the operator's call
+
+The floor refuses one, and **names the escape** in the message:
+
+```sh
+bd status              # inspect the shrink
+git commit --no-verify # then commit it by hand
+```
+
+That mirrors the checkpoint script's own answer — "refuse and say so; a genuine
+mass delete is rare enough to commit by hand". A deliberate `bd gc` is rare and
+worth one extra flag; an emptied export is neither rare nor deliberate.
+
+### What it deliberately does not do
+
+It does not run in the CI arm. A mayor checkpoint goes to `main` directly and
+never appears in a pull-request diff, so neither incident could have been seen
+there, and a guard is warranted only where the failure is silent and has
+already happened.
+
+It does not fire when HEAD carries no rows. A fresh clone must meet the tracker
+before it meets the guard, and a HEAD with nothing in it can lose nothing.
+
 ### The CI arm
 
 `scripts/check-beads-pr-boundary.sh` applies the same classifier to a PR
@@ -337,6 +400,20 @@ From rf2-51uz1, on the other side of the same boundary — the checkpoint helper
 22. A memory reorder is not a change, so it is not a commit
 23. A worker worktree is refused: the tracker database is the mayor's to commit
 
+From rf2-or8te, driving the floor from the sandbox's **primary** worktree —
+the checkout both incidents came from, and the one every layer above no-ops in:
+
+24. An emptied tracker staged by plain `git add` is refused, and the message
+    carries the two row counts, the regeneration rule, the repair and the escape
+25. A shrink past the 1/10 floor is refused too, and is not mislabelled an
+    empty export
+26. An export at exactly 9/10 of HEAD commits normally — the floor is pinned at
+    the threshold, not at a comfortable margin
+27. `git commit --no-verify` lands a deliberate mass delete: the escape the
+    message names actually works
+28. A tracker over a 0-row HEAD, and a commit that stages no tracker path at
+    all, are both untouched
+
 ## Discovery context
 
 The pre-commit hook landed in response to rf2-oswhk (#2136),
@@ -364,6 +441,9 @@ channel, the mayor's pre-commit will refuse the commit.
 - **rf2-zt65l** — the seven-week gap between that boundary landing here and
   reaching anybody's `.git/hooks`; source of the staleness advisory, its
   rebase-path arm, and the installer's own test layers.
+- **rf2-or8te** — the truncation floor, added after an empty export reached
+  main a second time (`4d8042d80d`, 2026-07-26) by a path the checkpoint
+  script's own guard could not see.
 - **rf2-51uz1 / `scripts/beads-checkpoint.sh`** — the mirror-image fault on the
   mayor's side: `git checkout HEAD -- .beads` before a pull reverts a `bd close`
   the last export-commit missed, and a checkpoint that trusts the working file
