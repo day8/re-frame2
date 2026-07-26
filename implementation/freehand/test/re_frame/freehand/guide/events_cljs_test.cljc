@@ -59,10 +59,12 @@
 ;; mechanics depend on which key it was.
 (v/defview key-branch-site [_]
   [:input {:on-key-down (v/event [e]
-                          (case (.-key e)
-                            "Enter"  [:picker/accept]
-                            "Escape" [:picker/close]
-                            nil))}])
+                          ;; IME: do not treat Enter as accept mid-composition
+                          (when-not (.-isComposing e)
+                            (case (.-key e)
+                              "Enter"  [:picker/accept]
+                              "Escape" [:picker/close]
+                              nil)))}])
 
 ;; events-and-handlers.md block 8 — the controlled door.
 (v/defview controlled-email-field [_]
@@ -158,18 +160,25 @@
   []
   (rf/reg-event :editor/article-loaded
     (fn [{:keys [db]} [_ slug article]]
-      (let [{:keys [draft touched]} (get db :editor)
+      (let [editor (get db :editor)
+            {:keys [draft touched errors submit-attempted?]} editor
+            touched (or touched #{})
             seeded (reduce-kv
                     (fn [d k v]
                       (if (contains? touched k)
                         d                 ; user already typed here — keep it
                         (assoc d k v)))   ; otherwise take server value
-                    draft
+                    (or draft {})
                     article)]
-        {:db (assoc db :editor {:slug     slug
-                                :draft    seeded
-                                :baseline article
-                                :touched  (or touched #{})})}))))
+        ;; Merge into the slice — do not rebuild only the keys you remembered.
+        {:db (assoc db :editor
+                   (assoc editor
+                          :slug              slug
+                          :draft             seeded
+                          :baseline          article
+                          :touched           touched
+                          :errors            (or errors {})
+                          :submit-attempted? (boolean submit-attempted?)))}))))
 
 (defn- validate-editor
   "The page names this helper without showing it; a form's validation is the
@@ -185,13 +194,11 @@
     (fn [db _]
       (boolean (get-in db [:mutations :editor-save :pending?]))))
 
-  (rf/reg-sub :editor/can-submit?
+  ;; Attempt is allowed while invalid — that is how :submit-attempted? becomes true
+  ;; and errors appear. Disable only for pending (or another non-remediable block).
+  (rf/reg-sub :editor/can-attempt-submit?
     (fn [db _]
-      (let [{:keys [draft errors]} (:editor db)
-            busy? (get-in db [:mutations :editor-save :pending?])]
-        (and (not busy?)
-             (seq (:title draft))
-             (empty? errors)))))
+      (not (get-in db [:mutations :editor-save :pending?]))))
 
   (rf/reg-event :editor/submit
     (fn [{:keys [db]} _]
@@ -204,9 +211,9 @@
 
 ;; forms.md block 6 — the submit button reads the two derived facts.
 (v/defview editor-actions [_]
-  (let [busy?    (v/sub [:editor/busy?])
-        can-save (v/sub [:editor/can-submit?])]
-    [:button {:disabled (or busy? (not can-save))
+  (let [busy?      (v/sub [:editor/busy?])
+        can-attempt (v/sub [:editor/can-attempt-submit?])]
+    [:button {:disabled (not can-attempt)
               :on-click [:editor/submit]}
      (if busy? "Saving…" "Save")]))
 

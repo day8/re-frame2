@@ -84,10 +84,11 @@
       :on-input    [:fh.buffer/edited k revision ::v/value]
       :on-blur     [:fh.buffer/committed k revision on-commit]
       :on-key-down (v/event [e]
-                     (case (.-key e)
-                       "Enter"  [:fh.buffer/committed k revision on-commit]
-                       "Escape" [:fh.buffer/cancelled k revision]
-                       nil))}]))
+                     (when-not (.-isComposing e)
+                       (case (.-key e)
+                         "Enter"  [:fh.buffer/committed k revision on-commit]
+                         "Escape" [:fh.buffer/cancelled k revision]
+                         nil)))}]))
 
 ;; ---------------------------------------------------------------------------
 ;; semantic-controllers.md — the page in order
