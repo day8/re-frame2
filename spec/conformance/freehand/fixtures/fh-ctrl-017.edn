@@ -1,0 +1,72 @@
+{:fh/id  "FH-CTRL-017"
+ :fh/law "A buffered field commits on blur and on Enter, and A COMPOSING ENTER COMMITS NOTHING — the Enter that accepts an input-method candidate belongs to the IME, and so does a composing Escape. The commit intent carries the leaf's reset revision, so the receiving handler decides against COMMITTED state and a superseded commit produces nothing. Cleanup follows the causal OWNER and never the render: an ordinary application transition releases the form slices the owner named, exactly and atomically, releasing twice changes nothing and creates nothing, and no published var of the kit or the door is a lifecycle or teardown hook."
+
+ :baseline {:amount "10"}
+ :amount-path [:amount]
+
+ :edit-intent   [:editor/edited    [:amount]]
+ :commit-intent [:editor/committed [:amount]]
+ :cancel-intent [:editor/reverted  [:amount]]
+
+ ;; THE KEYBOARD LAW, as a table of pure calls. `composing?` is the second
+ ;; argument, and it is what makes the SAME key two different answers.
+ :key-intents [{:key "Enter"     :composing? false :intent :commit}
+               {:key "Enter"     :composing? true  :intent nil}
+               {:key "Escape"    :composing? false :intent :cancel}
+               {:key "Escape"    :composing? true  :intent nil}
+               {:key "a"         :composing? false :intent nil}
+               {:key "Tab"       :composing? false :intent nil}
+               {:key "Process"   :composing? true  :intent nil}]
+
+ ;; The commit intent as RENDERED, carrying the leaf's generation.
+ :initial-reset-key 0
+ :rendered-on-blur  [:editor/committed [:amount] 0]
+
+ ;; After the caller rejects, the re-rendered intent speaks for the NEW
+ ;; generation while a commit captured before the rejection still speaks
+ ;; for the old — which is what makes the superseded one inert.
+ :next-reset-key      1
+ :rendered-on-blur-after-reset [:editor/committed [:amount] 1]
+ :stale-commit-current?   false
+ :current-commit-current? true
+
+ ;; THE CAUSAL OWNER'S RELEASE. Two forms are open; one owner closes.
+ :db-before {:forms {"invoice-1" {:draft {:amount "12."}}
+                     "invoice-2" {:draft {:amount "34."}}}
+             :session {:user "mike"}}
+ :owned-path     [:forms "invoice-1"]
+ :db-after       {:forms {"invoice-2" {:draft {:amount "34."}}}
+                  :session {:user "mike"}}
+
+ ;; Exact: the unrelated form and the unrelated slice survive, and a
+ ;; SECOND release of the same path is a no-op rather than a mutation.
+ :db-after-second-release {:forms {"invoice-2" {:draft {:amount "34."}}}
+                           :session {:user "mike"}}
+
+ ;; Several paths at once, in ONE value — a route leaving takes everything
+ ;; it owns with it, and no intermediate state exists in which the owner
+ ;; is gone and its form is not.
+ :both-paths [[:forms "invoice-1"] [:forms "invoice-2"]]
+ :db-after-both {:forms {} :session {:user "mike"}}
+
+ ;; A path whose parent is absent removes nothing and CREATES nothing —
+ ;; the failure an `update-in` reaches for by itself.
+ :absent-path [:nowhere "invoice-9"]
+
+ ;; A top-level slice is released by its one-element path.
+ :top-level-path [:session]
+ :db-after-top-level {:forms {"invoice-1" {:draft {:amount "12."}}
+                              "invoice-2" {:draft {:amount "34."}}}}
+
+ ;; THE NEGATIVE HALF. The absence is part of the contract, so it is
+ ;; asserted rather than assumed: no published var of the control kit, and
+ ;; none of the door, is a lifecycle or teardown surface a control could
+ ;; hang cleanup on. Matching is by SUBSTRING, so a differently-spelled
+ ;; sibling is caught by the same roster.
+ :cleanup-hook-spellings ["unmount" "did-mount" "will-mount" "cleanup" "clean-up"
+                          "dispose" "teardown" "tear-down" "destroy" "on-remove"
+                          "lifecycle" "local"]
+
+ ;; And the kit's whole published roster, exactly.
+ :public-vars #{"field" "buffered-field" "release" "key-intent"
+                "commit-key" "cancel-key"}}

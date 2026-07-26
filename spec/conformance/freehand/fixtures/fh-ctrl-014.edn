@@ -1,0 +1,53 @@
+{:fh/id  "FH-CTRL-014"
+ :fh/law "RESET and REBASE are distinct transitions and neither is the other. Reset discards the draft back to the baseline, clears the leaf's visited / edited / error marks, and ADVANCES that leaf's reset revision — so a caller rejecting a draft by reasserting the value it already had is observable, which value-equality provably is not. Rebase moves the baseline under a live draft, KEEPS the draft, clears the edited mark only where the draft now agrees with the new baseline, and advances no revision, because a rebase is not a rejection. A scoped reset advances one leaf's generation and no other."
+
+ :baseline {:amount "10" :notes "keep typing"}
+
+ :amount-path [:amount]
+ :notes-path  [:notes]
+
+ :typed-amount "bad"
+ :typed-notes  "half a sentence"
+
+ ;; Every leaf starts at generation 0, so a control is fenced from its
+ ;; first render rather than from its first rejection.
+ :initial-reset-key 0
+
+ ;; THE CASE THE WHOLE DESIGN EXISTS FOR. The caller refuses "bad" and
+ ;; stands by "10" — the value it already had. Nothing derived from the
+ ;; value can see that decision.
+ :reasserted-value "10"
+
+ ;; After a SCOPED reset of :amount.
+ :amount-after-reset      "10"
+ :amount-reset-key-after  1
+ :notes-after-reset       "half a sentence"
+ :notes-reset-key-after   0
+ :edited-after-reset      #{[:notes]}
+
+ ;; After a WHOLE-FORM reset every leaf's generation advances together and
+ ;; every mark is cleared.
+ :whole-form-reset-keys {[:amount] 2 [:notes] 1}
+ :draft-after-whole-reset {:amount "10" :notes "keep typing"}
+ :edited-after-whole-reset #{}
+
+ ;; REBASE. The save landed and the domain accepted a new amount while the
+ ;; user was still typing notes.
+ :rebase-values {:amount "10"}
+
+ ;; The draft STANDS — including the draft on the very leaf that was
+ ;; rebased — and no generation moves.
+ :draft-after-rebase       {:amount "bad" :notes "half a sentence"}
+ :amount-reset-key-after-rebase 0
+
+ ;; The edited mark clears only where the draft now AGREES with the new
+ ;; baseline; there is nothing left to protect there.
+ :agreeing-rebase-values {:amount "bad"}
+ :edited-after-agreeing-rebase #{[:notes]}
+
+ ;; THE CONTRAST, asserted as one table so the two transitions cannot be
+ ;; green for the same reason.
+ :reset-discards-draft? true
+ :rebase-keeps-draft?   true
+ :reset-advances-generation? true
+ :rebase-advances-generation? false}
