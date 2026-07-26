@@ -132,19 +132,32 @@
 (defn- composing?
   "Is an IME composition in flight for this host keyboard event?
 
-  THREE signals, ORed, because no single one is dependable across
-  browsers. `isComposing` is the standard and is the one to trust when it
-  is there; `keyCode` 229 is the sentinel every engine has emitted for
-  two decades and is what actually fires on the Enter that accepts a
-  candidate in Chromium; and React's synthetic event does not carry
-  `isComposing` on every version, so the native event is consulted
-  behind it. Answering `true` on any of them is the safe direction: a
-  commit wrongly withheld is one more Enter, and a commit wrongly taken
-  is a domain event carrying half a word."
+  TWO signals, ORed, because the one that is standard is missing on the
+  engine that matters most.
+
+  - **The standard `isComposing` flag**, asked of the NATIVE event where
+    there is one and of the event itself otherwise. Those are two surfaces
+    of ONE fact rather than two signals: React's synthetic keyboard event
+    does not carry `isComposing` at all, so a React host has to be asked
+    through `nativeEvent`, while a host handing over a raw DOM event has
+    no `nativeEvent` and carries the flag directly.
+  - **`keyCode` 229**, the sentinel every engine has emitted for two
+    decades and what Chromium ACTUALLY fires on the Enter that accepts a
+    candidate — with `isComposing` false. Without it the control is broken
+    for every input method on Chromium.
+
+  The two are ORed and never ANDed, and FH-CTRL-018 presses them SEPARATELY
+  for that reason: an event carrying both cannot fail for either one, so a
+  reader of only the standard flag — the reader that breaks on Chromium —
+  would pass a proof that set both at once.
+
+  Answering `true` on either signal is the safe direction: a commit wrongly
+  withheld is one more Enter, and a commit wrongly taken is a domain event
+  carrying half a word."
   [e]
-  #?(:cljs (boolean (or (.-isComposing e)
-                        (= 229 (.-keyCode e))
-                        (some-> (.-nativeEvent e) (.-isComposing))))
+  #?(:cljs (let [flag (or (some-> (.-nativeEvent e) (.-isComposing))
+                          (.-isComposing e))]
+             (boolean (or flag (= 229 (.-keyCode e)))))
      :clj  (boolean (:composing? e))))
 
 ;; ---------------------------------------------------------------------------

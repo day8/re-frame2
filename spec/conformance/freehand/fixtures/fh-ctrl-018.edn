@@ -24,14 +24,23 @@
 
  ;; THE COMMIT. A plain Enter commits the draft the form is holding.
  :commit-key "Enter"
+ :plain-key-code 13
  :commits-after-plain-enter 1
  :committed-value "190"
 
  ;; THE COMPOSING ENTER. The same key, with a composition in flight — the
- ;; Enter that accepts an input-method candidate. `keyCode` 229 is the
- ;; sentinel every engine emits for it, and `isComposing` is the standard
- ;; flag; both are set, because a control that trusted only one of them is
- ;; the control this row exists to catch.
+ ;; Enter that accepts an input-method candidate. There are TWO scalars a
+ ;; host can report it through: `isComposing` is the standard flag, and
+ ;; `keyCode` 229 is the sentinel every engine has emitted for two decades
+ ;; and what Chromium actually sends.
+ ;;
+ ;; They are pinned as SEPARATE presses, one signal each, and that is the
+ ;; law rather than an arrangement. A single event carrying BOTH cannot tell
+ ;; a reader of both from a reader of either: an implementation that consults
+ ;; only `isComposing` — the one this row exists to catch, because it is the
+ ;; one that breaks on Chromium — stays green against it. Each press below
+ ;; sets one signal and leaves the other at the plain Enter's value, so each
+ ;; is falsifiable on its own.
  :composing-key-code 229
  :commits-after-composing-enter 0
 
