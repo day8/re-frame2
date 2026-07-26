@@ -558,6 +558,15 @@ result, on the commonest authoring mistake there is (rf2-2z9u3). Every
 handler that copies `ex-data` onto `:structuredContent` runs it through
 `tools.result/wire-safe-ex-data` for that reason.
 
+That projection is total, and total by SHAPE rather than by naming the
+slots known to misbehave — `:explain` was the first, and the next opaque
+value arrived under a different key (rf2-ia904). Any value outside the
+EDN value space, at any depth and in key position, is replaced by
+`{:rf.story-mcp/unencodable "<class name>"}`. `:explain` is still named,
+but only because `:explain-humanized` is a better answer than a marker,
+not because the relay would otherwise fail. See
+[`001-Wire-Protocol.md`](001-Wire-Protocol.md) §Run-loop survivability.
+
 ### `unregister-variant`
 
 **Input.** `{:variant-id keyword (required)}`.
