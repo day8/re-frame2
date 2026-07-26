@@ -987,6 +987,19 @@
              ;; projects through the resource owner classification instead. Same
              ;; move the refetch-plan below already makes (`(:resource/key
              ;; entry)`), and the reason `:entries` and these two diverge.
+             ;;
+             ;; Both accumulators are SEQUENCES, and that is load-bearing rather
+             ;; than incidental (rf2-5o52l audit of #7018). Resource identity is
+             ;; the CEDN `key-id`, which is collection-KIND sensitive
+             ;; (rf2-wgutc2): params `{:xs [1 2 3]}` and `{:xs '(1 2 3)}` are two
+             ;; distinct entries with two distinct key-ids, and yet their scoped
+             ;; keys are `=` to Clojure. A scoped-key-KEYED accumulator therefore
+             ;; silently collapses them and one live entry's diagnostic
+             ;; disappears — `:skews` was such a map and did exactly that. A
+             ;; sequence has no key to collide on: `reduce-kv` visits each
+             ;; key-id once, so one entry in is one member out, and the scoped
+             ;; key rides in the VALUE where it is emitted rather than in a
+             ;; position where it decides identity.
              reconciled (reduce-kv
                           (fn [acc k entry]
                             (let [[entry' dropped] (reconcile-entry-owners
@@ -997,8 +1010,8 @@
                               (-> acc
                                   (assoc-in [:entries k] entry'')
                                   (update :orphaned into (map (fn [o] [sk o])) dropped)
-                                  (cond-> skew (update :skews assoc sk skew)))))
-                          {:entries {} :orphaned [] :skews {}}
+                                  (cond-> skew (update :skews conj [sk skew])))))
+                          {:entries {} :orphaned [] :skews []}
                           entries)
              entries'  (:entries reconciled)
              ;; recompute the reverse indexes from the reconciled entries
@@ -1009,7 +1022,13 @@
                       {:rf.frame/id    frame-id
                        :installed      (count entries')
                        :orphaned-owners (vec (:orphaned reconciled))
-                       :clock-skews    (:skews reconciled)})
+                       ;; a VECTOR of `[<scoped-key> <skew-ms>]` pairs, the same
+                       ;; shape `:orphaned-owners` beside it carries — see the
+                       ;; accumulator note above for why it cannot be a map
+                       ;; keyed by the scoped key. The off-box shape default
+                       ;; walks it per member, so each key projects through its
+                       ;; own owner and per-key joins survive.
+                       :clock-skews    (vec (:skews reconciled))})
          (doseq [[sk skew] (:skews reconciled)]
            (trace/emit! :warning :rf.resource/hydrate-clock-skew
                         {:rf.frame/id  frame-id
@@ -1446,7 +1465,8 @@
              ;; key-id is a reversible plaintext CEDN-1 encoding the off-box
              ;; projector can only read as an opaque scalar. Restore reconciles a
              ;; LIVE (never wire-projected) snapshot, so its key-ids carry the
-             ;; raw scope + params.
+             ;; raw scope + params. Both accumulators are SEQUENCES for the
+             ;; kind-collision reason the hydrate twin states in full.
              reconciled (reduce-kv
                           (fn [acc k entry]
                             (let [[entry' dropped] (reconcile-entry-owners entry route-owner-policy)
@@ -1456,8 +1476,8 @@
                               (-> acc
                                   (assoc-in [:entries k] entry'')
                                   (update :orphaned into (map (fn [o] [sk o])) dropped)
-                                  (cond-> skew (update :skews assoc sk skew)))))
-                          {:entries {} :orphaned [] :skews {}}
+                                  (cond-> skew (update :skews conj [sk skew])))))
+                          {:entries {} :orphaned [] :skews []}
                           entries)
              entries'  (:entries reconciled)
              subtree'  (state/recompute-indexes
@@ -1514,7 +1534,10 @@
                                  ;; EP-0019 Q3 — the optimistic keys a dangled
                                  ;; optimistic write rolled back INSIDE this pass.
                                  :rolled-back-mutation-keys (vec rolled-mutation-keys)
-                                 :clock-skews       (:skews reconciled)}}]
+                                 ;; a VECTOR of `[<scoped-key> <skew-ms>]` pairs
+                                 ;; — the hydrate twin's shape, and for the same
+                                 ;; kind-collision reason.
+                                 :clock-skews       (vec (:skews reconciled))}}]
                        cat
                        [;; per-owner row for every STALE-NAV route owner released
                         ;; as an orphan (Spec 016 §Restore and replay part 4:

@@ -105,7 +105,15 @@
   (rf/reg-resource :plain/article
     {:scope         :rf.scope/global
      :params-schema [:map [:slug :string]]}
-    (fn [_p _ctx] {:request {:method :get :url "/public"}})))
+    (fn [_p _ctx] {:request {:method :get :url "/public"}}))
+  ;; a `:sensitive?` owner whose params admit a SEQUENTIAL value, so §6 can
+  ;; build two entries whose scoped keys are Clojure-`=` and whose CEDN
+  ;; key-ids are not (rf2-wgutc2 — collection kind decides resource identity).
+  (rf/reg-resource :secret/seq
+    {:scope         :rf.scope/global
+     :sensitive?    true
+     :params-schema [:map [:xs [:sequential :string]]]}
+    (fn [_p _ctx] {:request {:method :get :url "/seq"}})))
 
 (use-fixtures :each
   (core-test-support/make-reset-runtime-fixture
@@ -423,5 +431,104 @@
               "the orphaned route owner is paired with its entry's scoped key")
           (is (not (leaks-secret? (project tags))) "no plaintext off-box")
           (is (not (leaks-cedn-token? (project tags)))
-              "no CEDN-1 token off-box — including under :clock-skews, whose
-               MAP shape the projector tokenizes wholesale"))))))
+              "no CEDN-1 token off-box — :clock-skews included"))))))
+
+;; ===========================================================================
+;; 6. THE ACCUMULATOR'S OWN IDENTITY. Naming entries by scoped key was right;
+;;    naming them by scoped key IN A MAP KEY POSITION was not.
+;; ===========================================================================
+;;
+;; Resource identity is the CEDN `key-id`, and it is collection-KIND sensitive
+;; (rf2-wgutc2): params `{:xs ["…"]}` and `{:xs '("…")}` are two DISTINCT
+;; entries under two distinct key-ids. Their scoped keys, however, are `=` to
+;; Clojure, which considers a list and a vector sequentially equal. So the
+;; moment the reconcile's `:skews` accumulator became a scoped-key-KEYED map,
+;; two live entries collapsed into one and one entry's clock-skew diagnostic
+;; vanished — silently, on both the hydrate and the restore path (the audit of
+;; PR #7018 measured exactly one row and one summary member where two entries
+;; went in).
+;;
+;; `:orphaned` never had the defect: it was a SEQUENCE from the start, and a
+;; sequence has no key to collide on. `:skews` is one now, for the same reason,
+;; and the pair below is the proof — it fails if either accumulator ever
+;; acquires a key again.
+
+(def ^:private seq-resource-id :secret/seq)
+
+(defn- seq-key
+  "A scoped key for `:secret/seq` whose secret-bearing params carry `xs` — the
+  collection whose KIND decides identity."
+  [xs]
+  (state/scoped-resource-key :rf.scope/global seq-resource-id {:xs xs}))
+
+(defn- kind-colliding-runtime-db
+  "A runtime-db holding TWO skewed `:sensitive?` entries whose scoped keys are
+  Clojure-`=` and whose key-ids are not: one with VECTOR params, one with LIST
+  params. Both owned by an `[:ssr …]` owner, so both also orphan."
+  []
+  (let [now (interop/epoch-now-ms)
+        ent (fn [sk] {:resource/key   sk
+                      :status         :loaded
+                      :data           {:body "server-rendered"}
+                      :active-owners  #{[:ssr "req-1" "nav-1"]}
+                      :current-work   nil
+                      :generation     1
+                      :loaded-at      (+ now 100000)
+                      :stale-at       (+ now 200000)
+                      :stale-after-ms 100000})]
+    (-> (runtime-db)
+        (assoc-in (state/entry-path (seq-key [secret])) (ent (seq-key [secret])))
+        (assoc-in (state/entry-path (seq-key (list secret)))
+                  (ent (seq-key (list secret)))))))
+
+(deftest reconcile-skew-accumulators-keep-kind-distinct-entries-distinct
+  (testing "rf2-5o52l — the hydrate and restore reconciles must report ONE
+            diagnostic per live ENTRY, and entry identity is the CEDN key-id,
+            not Clojure equality of the scoped key"
+    (let [vk  (seq-key [secret])
+          lk  (seq-key (list secret))
+          rdb (kind-colliding-runtime-db)]
+      (testing "FIXTURE — the collision this pins is real and is not Clojure's
+                idea of equality"
+        (is (= vk lk)
+            "the two scoped keys are `=` — a map keyed on them holds ONE entry")
+        (is (not= (state/key-id vk) (state/key-id lk))
+            "while their CEDN key-ids differ — they are two distinct resources")
+        (is (= 2 (count (:entries (get rdb state/resources-key))))
+            "and the runtime-db really holds both"))
+
+      (doseq [[label reconcile! skew-op summary-op]
+              [["hydrate" #(r-ssr/hydrate-runtime-db % :rf/default)
+                :rf.resource/hydrate-clock-skew :rf.resource/hydrated]
+               ["restore" #(r-ssr/reconcile-on-restore % :rf/default)
+                :rf.resource/restore-clock-skew :rf.resource/restored]]]
+        (testing label
+          (is (= 2 (count (capture-op! skew-op #(reconcile! rdb))))
+              "one per-entry clock-skew row per DISTINCT entry — a
+               scoped-key-keyed accumulator emits one")
+          (let [tags  (:tags (first (capture-op! summary-op #(reconcile! rdb))))
+                skews (:clock-skews tags)]
+            (is (= 2 (count skews))
+                "and two summary members, paired `[<scoped-key> <skew-ms>]`
+                 exactly as :orphaned-owners pairs beside them")
+            (is (= 2 (count (:orphaned-owners tags)))
+                "the sibling accumulator, which never had the defect, still
+                 reports both — so this is not a change in what reconciles")
+            (let [xs (map #(:xs (nth (first %) 2)) skews)]
+              (is (= [1 1] [(count (filter vector? xs)) (count (filter seq? xs))])
+                  "one member carries the VECTOR params and the other the LIST
+                   params, so the surviving entry is not simply reported twice.
+                   Compared by KIND and not by `=`, because `=` is precisely
+                   what cannot tell these two apart — a `#{}` literal of the two
+                   throws Duplicate key"))
+            (testing "and both still egress correctly"
+              (let [proj (:clock-skews (project tags))]
+                (is (every? #(redacted-token? (nth (first %) 2)) proj)
+                    "each member's params tokenize through its own owner")
+                (is (every? #(= seq-resource-id (second (first %))) proj)
+                    "each keeps its resource-id for attribution")
+                (is (= 2 (count (set (map #(nth (first %) 2) proj))))
+                    "and the two digests DIFFER — distinct identities stay
+                     distinct off-box, which a collapsed accumulator cannot show")
+                (is (not (leaks-secret? proj)) "no plaintext off-box")
+                (is (not (leaks-cedn-token? proj)) "no CEDN-1 token off-box")))))))))
