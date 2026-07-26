@@ -4346,6 +4346,22 @@ jobs:
             ${{ runner.os }}-clj-tools-story-mcp-
             ${{ runner.os }}-clj-
 
+      # rf2-vm036 — resolve story-mcp's classpath HERE, in a step whose name
+      # says what it is doing, instead of leaving it to happen inside the
+      # server the Node harness spawns. `test:story` / `test:flag-gates` boot
+      # `clojure -M -m re-frame.story-mcp.server` (base :deps, no alias — so
+      # bare `clojure -P` is the same classpath); when Maven Central 403s the
+      # runner under concurrent-PR load, that server dies before it speaks and
+      # the harness reports `FAIL: MCP error -32000: Connection closed`, which
+      # reads like a code fault and cost real diagnosis time twice. With this
+      # step the resolve is warm before the harness starts, and a genuine
+      # resolution failure fails here, named, with an ::error:: annotation
+      # saying it is infrastructure. See the script for why caching (already
+      # configured above) was not the missing piece.
+      - name: Pre-resolve story-mcp classpath (a failure here is dependency infrastructure, not the diff)
+        working-directory: tools/story-mcp
+        run: "$GITHUB_WORKSPACE/.github/scripts/resolve-clojure-deps.sh"
+
       # rf2-vtp2er — lockfile-exact install (committed package-lock.json).
       # See the mcp-conformance-re-frame2-pair job for rationale.
       - name: Install mcp-conformance deps
@@ -4416,6 +4432,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-clj-mcp-conformance-wire-vocab-
             ${{ runner.os }}-clj-
+
+      # rf2-vm036 — this lane took a Central 403 on
+      # `com.cognitect:transit-cljs:0.8.280` (PR #7123). It reads more honestly
+      # than the story lane did (`Error building classpath`, not "Connection
+      # closed"), so what it gains here is the bounded retry: a short throttle
+      # window clears inside the run instead of costing a re-run. Splitting the
+      # resolve out also keeps the retry off the SUITE — the step below runs
+      # exactly once, so a real test failure is never re-rolled.
+      - name: Pre-resolve wire-vocab classpath (a failure here is dependency infrastructure, not the diff)
+        run: "$GITHUB_WORKSPACE/.github/scripts/resolve-clojure-deps.sh -M:test"
 
       - name: Run JVM wire-vocab conformance gates
         run: clojure -M:test
