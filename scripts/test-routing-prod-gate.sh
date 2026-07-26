@@ -166,9 +166,26 @@ known_red=(
   #    state that does execute.  Be clear-eyed about the trade: under the
   #    production gate this namespace contributes routing semantics, not the
   #    ownership contract it is named for.
-  re-frame.routing-nav-fx-schemas-test            # 32
   re-frame.routing-navigation-test                # 64
   re-frame.routing-plan-seam-test                 # 31
+  #    CLEARED 2026-07-27 (rf2-o5dbf, batch 7): routing-nav-fx-schemas.
+  #    READ THIS ONE BEFORE ASSUMING THE NEXT LOOK-ALIKE IS A DEFECT.  Its
+  #    failures were `(is (false? (validate-through-hook …)))` returning
+  #    TRUE under the gate — the fx-args gate accepting args it rejects in
+  #    dev, which reads exactly like the rf2-9c2jf class.  It is not.
+  #    `re-frame.schemas.validate/validate-fx!` is literally
+  #    `(if interop/debug-enabled? (run-validation …) true)`, per Spec 010
+  #    §Production builds: the per-step `validate-*!` hot-path fns are
+  #    dev-only and production-build validation is the OPT-IN boundary
+  #    interceptor `:rf.schema/at-boundary`, which routes through
+  #    `validate-with-registered-fn` outside the gate.
+  #
+  #    That short-circuit also makes the suite's POSITIVE control pass for
+  #    the wrong reason — `true` because validation did not run, not because
+  #    the args conform.  The always-on replacement is `m/validate` against
+  #    the LIVE registration's `:schema`: same schema the hook consults, no
+  #    gate between the call and the verdict.
+  #
   #    CLEARED 2026-07-27 (rf2-o5dbf, batch 6): routing-nav-token.  Stale
   #    suppression is ENFORCEMENT, not advice — the superseded completion's
   #    app `:rf/reply-to` target is never dispatched, so app-db and
