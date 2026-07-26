@@ -122,8 +122,8 @@ in an emitter is indistinguishable from a bug:
 ## The node schema — version 1
 
 The tree is **plain, serialisable Clojure data** — plain maps and strings, no wrapper
-types, no metadata-carried contract (EDN print/read round-trips losslessly). Five node
-variants, a **closed set**:
+types, no metadata-carried contract (EDN print/read round-trips losslessly). The node
+variants are a **closed set**, and this table is their roster:
 
 | Variant | Shape | Required field | Optional fields |
 |---|---|---|---|
@@ -131,11 +131,23 @@ variants, a **closed set**:
 | **fragment** | map | `:children` | `:key` + reserved keys |
 | **view-boundary** | map | `:view-id` | `:props` `:children` `:key` + reserved keys |
 | **trusted-HTML** | map | `:html` | `:key` |
+| **host** | map | `:rf.ui/host` `:rf.ui/host-ssr` `:children` | `:props` `:rf.ui/host-children` `:rf.ui/host-map-props` `:key` |
 | **text** | **the host string itself** | — | — |
 
+The **host** variant is one `v/defhost` crossing. Its fields, and the reason each was
+chosen against a way the node could lie, are pinned by
+[004 §Structure and SSR](004-Views.md#structure-and-ssr) and are not restated here;
+what this contract owns is its place in the closed set, its place in the discrimination
+order, and what the projections and `N` answer for it. Its `:children` are the declared
+SSR projection — retained when empty, like a fragment's.
+
 **Discrimination is pinned, in order:** a string is a text node; a map with `:tag` is an
-element; else `:view-id` → view-boundary; else `:html` → trusted-HTML; else a map with
-`:children` → fragment. A map carrying more than one discriminating field, or none, is
+element; else `:view-id` → view-boundary; else `:html` → trusted-HTML; else
+`:rf.ui/host` → host; else a map with
+`:children` → fragment. The **primary** discriminators are the four a map may carry only
+one of — `:tag`, `:view-id`, `:html`, `:rf.ui/host`. `:children` is the fallthrough
+rather than a fifth, which is why an element, a view-boundary and a host all carry it
+without ambiguity. A map carrying two primaries, or no primary and no `:children`, is
 **malformed** — every consumer (the traversal helpers, the serialiser, the fingerprint
 fn) fails loud with the typed error `:rf.error/ui-tree-malformed`, and so does the walk
 that would otherwise build one. The **text variant is deliberately not a map**: text
@@ -328,11 +340,20 @@ representation.
 
 ### Reserved `:rf.ui/*` keys — the three roles (required gate, semantic, diagnostic)
 
-A closed v1 set of reserved-namespace keys. **Consumers MUST ignore *unknown*
-`:rf.ui/*` keys**, and **normalization removes every `:rf.ui/*` key from its output** —
-no reserved key survives into a semantic node or a fingerprint. But *absent from the
-output* is **not** *safe to strip from the input*: these keys fall into three roles,
-and only one is a droppable diagnostic.
+A closed v1 set of reserved-namespace keys that **decorate** a node. **Consumers MUST
+ignore *unknown* `:rf.ui/*` keys**, and **normalization removes every `:rf.ui/*` key
+from its output** — no reserved key survives into a semantic node or a fingerprint. But
+*absent from the output* is **not** *safe to strip from the input*: these keys fall into
+three roles, and only one is a droppable diagnostic.
+
+**The host variant's fields are outside this roster, and the word "decorate" is what
+puts them there.** `:rf.ui/host`, `:rf.ui/host-ssr`, `:rf.ui/host-children` and
+`:rf.ui/host-map-props` do not annotate a node — they *are* one, enumerated as a variant
+in §The node schema and meant by [004 §Structure and SSR](004-Views.md#structure-and-ssr).
+Neither rule above reaches them: a consumer that "ignored" `:rf.ui/host` would read a
+host as a fragment, which is the single wrong answer this namespace is able to produce,
+and `N` holds its removal step back until the splice has read them (§Semantic
+normalization `N`, steps 1–2).
 
 - **Semantic — consumers MUST honor.** Load-bearing **conversion input**: `N` and the
   serialiser READ it *during* conversion and only then drop the marker. Its absence
@@ -407,6 +428,12 @@ bumps the integer. Adding a new optional **diagnostic** `:rf.ui/*` key does **no
 conversion. Consumers seeing an unsupported version fail loud (§SSR boundary names the
 error).
 
+**One exception, recorded rather than hidden.** The **host** variant joined the roster
+after this document first pinned it, and did **not** bump the integer: it shipped under
+`:rf.ui/tree-version 1`, so bumping now would name a tree no emitter writes and fail
+every consumer against trees that are already correct. The bump rules govern a roster
+change made from here.
+
 ## Projections — how nodes are read
 
 Nodes are plain maps, so **field** reads (`(:tag node)`, `(:events node)`,
@@ -418,15 +445,27 @@ under their own keys.
 - **`(t/attrs node)`** — the merged projection:
   - element → `:attrs` merged with `:events` (collision-free by construction; event
     slots carry vectors/options-maps/opaque markers as data);
-  - view-boundary → `:props` (so attr-map selectors match views by prop values for
-    free, via the same `rf=` relation);
+  - view-boundary **and host** → `:props` (so attr-map selectors match views by prop
+    values for free, via the same `rf=` relation; on a host these are the authored
+    ordinary props, each filled callback position recorded as its opaque role marker);
   - fragment / trusted-HTML → `{}` (no attributes exist; total, not an error);
   - `nil` → `nil` (nil-punning threads through a missed `find`);
   - a string (text content) → typed error (text is not a node).
 - **`(t/text node)`** — concatenation of text descendants in document order,
-  descending through elements, fragments, and view boundaries; **trusted-HTML nodes
-  contribute nothing** (their content is unparsed markup, not text data — by design);
-  `nil` → `nil`.
+  descending through elements, fragments, view boundaries and hosts; **trusted-HTML
+  nodes contribute nothing** (their content is unparsed markup, not text data — by
+  design); `nil` → `nil`.
+
+**A host is a real arm, not a fragment that happens to have props, and the difference is
+the whole point of giving it one.** A host node carries `:children` and no `:tag`, so a
+consumer written to the roster *before* the host variant existed reaches the fragment
+arm and answers `{}` — a total, harmless-looking, wrong answer, delivered silently
+because the fragment arm is documented total rather than an error. `:rf.ui/presence` and
+`:rf.ui/boundary` are deliberately **not** in the same position: those genuinely are
+fragments carrying diagnostic metadata (§Reserved `:rf.ui/*` keys), so `{}` is their true
+answer and their metadata is an ordinary field read. What `t/text` descends into on a
+host is the **SSR projection** — the declared fallback, or nothing — never the registered
+React component's own text, which no structural consumer can see.
 
 Intent assertion, respelled to this contract:
 `(is (= [:cart/add 42] (:on-click (t/attrs (some #(when (= :button (:tag %)) %) (tree-seq map? :children tree))))))`.
@@ -442,9 +481,21 @@ and to the render fingerprint. Pinned, in order:
    The property-props marker is **semantic conversion input**, not a diagnostic: step 5
    consumes it (property-classified props are omitted from markup) and only *then* is the
    marker itself dropped. Stripping it *before* conversion is unsafe — it moves the
-   fingerprint boundary (§Reserved `:rf.ui/*` keys).
-2. **Splice** view-boundary nodes (children replace the node — HTML has no view
-   boundaries; dev `data-rf2-*` annotation is excluded by the same rule).
+   fingerprint boundary (§Reserved `:rf.ui/*` keys). A host node's `:rf.ui/host*` fields
+   are the same kind of exception for a stronger reason: they are the node's **variant**,
+   and step 2 reads `:rf.ui/host` to know it has one. Remove them first and a host is
+   indistinguishable from a fragment, so removal waits on the splice exactly as it waits
+   on the property-props read.
+2. **Splice** view-boundary **and host** nodes (children replace the node — HTML has
+   neither; dev `data-rf2-*` annotation is excluded by the same rule). A host's children
+   are its declared SSR projection, so splicing is not a normalization choice about
+   hosts — it is the *same* fold §The SSR consumption boundary performs, restated in
+   semantic space so the two cannot answer differently. The fields step 1 held back go
+   with the node: read here, then gone, and no `:rf.ui/*` key reaches a fingerprint
+   either way. `v/render-static` refuses a host outright
+   ([004 §Structure and SSR](004-Views.md#structure-and-ssr)) and `emit-ui-tree` does
+   not, so `N` cannot rule the variant out — it has to mean something here, and what it
+   means is the projection.
 3. **Splice** fragment nodes.
 4. **Drop** `:events` entirely and drop `:key` values (neither has HTML presence;
    *keyed order* survives as the child order itself).
@@ -647,7 +698,9 @@ shapes.
 - **Signature — the shipped seam.** `(re-frame.ssr/emit-ui-tree tree opts) → HTML
   string` — consumes a version-1 structural tree; applies the serialisation half of the
   conversion table (final names, boolean emission, property-only omission, escaping, void
-  handling); erases view boundaries (dev coord annotation policy stays 011-owned); writes
+  handling); erases view boundaries (dev coord annotation policy stays 011-owned) **and
+  hosts**, a host's `:children` being its declared SSR projection and therefore exactly
+  the markup it folds to — the fallback, or nothing for `:client-only`; writes
   trusted-HTML nodes verbatim. `opts` carries a single current option, `:doctype?`, which
   prefixes `<!DOCTYPE html>`; other keys are ignored (the `render-to-string` option set
   does not transfer to this seam). This is the **shipped, final contract** (final naming
