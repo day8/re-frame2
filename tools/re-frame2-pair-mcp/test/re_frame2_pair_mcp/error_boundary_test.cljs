@@ -44,7 +44,7 @@
     sit inside an `on-value` callback — so it meets `err->result`, whose
     ex-data half carries the agent's sentence in `:reason` and its
     discriminator in `:rf.error/id`. That is what the second test pins.
-    Its ex-MESSAGE is unreachable by any consumer; see rf2-lqhda.
+    Its ex-MESSAGE is unreachable by any consumer; see rf2-6tzm5.
 
   The other two throws (`server.cljs`'s `:rf.error/pair-mcp-ambiguous-shadow`
   and `:rf.error/pair-mcp-nrepl-port-not-found`) are raised inside discovery
@@ -131,10 +131,11 @@
         (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 (defn- drive-with-seam
-  "Install `seam-fn` over the var `get-orig` reads, drive the boundary,
-  hand the envelope to `check`, and restore. Restore is identity-guarded
-  the same way `tu/restore-eval!` is, so a late `.finally` cannot clobber
-  a neighbouring test's seam."
+  "Install `seam` over its production var, drive the boundary, hand the
+  envelope to `check`, then restore. `install!` / `restore!` are 1-arity
+  fns over the seam because CLJS `set!` needs the var literal at the call
+  site. Restore is identity-guarded the same way `tu/restore-eval!` is,
+  so a late `.finally` cannot clobber a neighbouring test's seam."
   [install! restore! seam check done]
   (install! seam)
   (-> (drive)
@@ -238,7 +239,7 @@
             ;; DROPS `(ex-message err)`, so `run-wire-pipeline`'s carefully
             ;; composed message — and the `[:rf.error/…]` token in it —
             ;; reaches nobody. If this ever goes non-nil, that is the
-            ;; improvement rf2-lqhda asks for: assert the message here and
+            ;; improvement rf2-6tzm5 asks for: assert the message here and
             ;; correct the claim in `wire_pipeline.cljs`'s throw comment,
             ;; which today describes relay 1's behaviour at a relay-2 site.
             (is (nil? (:message edn))
