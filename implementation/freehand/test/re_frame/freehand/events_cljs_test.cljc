@@ -660,14 +660,24 @@
 ;; because the failure was mute (rf2-c1vvn).
 
 (defn- invoke-as-fn
-  "Invoke `f` as a function with `args` — the call a foreign API makes. The
-  head is bound as a local so neither compiler can fold the call site into a
-  compile-time diagnostic; the emitted call is the one a library really makes."
+  "Invoke `f` as a function with `args`, from Clojure on one host and
+  ClojureScript on the other. The head is bound as a local so neither compiler
+  can fold the call site into a compile-time diagnostic.
+
+  What this is NOT is a NATIVE JavaScript call, and the distinction is the
+  subject of `MERGED-PR AUDIT #7034`. On the JVM `clojure.lang.IFn` is the
+  host's whole call protocol, so this call IS every caller there is. In
+  ClojureScript it compiles to the carrier's `-invoke` arity or its `.call`
+  shim — neither of which a library's `props.onPing(x)` goes through. That
+  boundary has its own row, in
+  `re-frame.freehand.pilot-react-interop-dom-cljs-test`, where a caller
+  authored in JavaScript can express the call this one cannot."
   [f & args]
   (apply f args))
 
 (deftest an-invoked-carrier-is-didactic-on-both-hosts
-  (testing "rf2-yn5nj. Every declared role answers a direct call with the
+  (testing "rf2-yn5nj. Every declared role answers a direct call — from
+            Clojure on the JVM, from ClojureScript in the browser — with the
             typed `:rf.error/view-bad-event`, and the message names the three
             things a raw host TypeError cannot: the roster form that was
             invoked, the position class that produces the mistake, and the

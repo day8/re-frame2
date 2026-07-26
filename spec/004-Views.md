@@ -1782,6 +1782,19 @@ the descriptor, and the diagnostic MUST name the roster form, this position and
 that recovery — a raw host call failure names none of them, and this is the one
 position that produces it.
 
+**That diagnostic reaches as far as the host's call protocol and no further, which
+is why the closure is the contract and the message is a courtesy.** On the JVM
+`clojure.lang.IFn` is the call protocol entire, so every caller reaches the
+diagnostic. In ClojureScript `IFn` is a protocol rather than the language's call
+mechanism: a carrier invoked from ClojureScript raises the diagnostic, while a
+JavaScript caller performing a native `props.onPing(…)` finds an object with no
+call slot and receives the host's own `TypeError`. A carrier MUST NOT be made
+natively callable to close that gap — `fn?` is false on a carrier by design and
+the nominal readers depend on it staying false. The guarantee at a raw
+`createElement` prop is therefore that the call cannot **succeed**, on either host
+and by either route, with the didactic message riding wherever the host's protocol
+reaches.
+
 This escape is deliberately weaker than `v/defhost`. It is not a second host
 API.
 
