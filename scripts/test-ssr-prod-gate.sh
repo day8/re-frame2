@@ -138,27 +138,21 @@ known_red=(
   #    exists to close.  Those want a var-level tag the lane excludes, not a
   #    posture guard.
   re-frame.flows-integration-test                 #  14
-  re-frame.framework-zero-ownership-diagnostics-test  #   2
-  re-frame.ssr-compatibility-checks-test          #   4
   re-frame.ssr-conformance-test                   #   1
-  re-frame.ssr-head-test                          #   2
   re-frame.ssr-hydration-mismatch-test            #   7
   re-frame.ssr-hydration-test                     #  15
-  re-frame.ssr-render-failed-test                 #   1
-  re-frame.ssr-request-cofx-test                  #   6
-  re-frame.ssr-request-durable-fact-test          #   1
   re-frame.ssr-streaming-corner-test              #   3
   re-frame.ssr-streaming-test                     #   3
 
-  # ── rf2-lwtlk — the PAYLOAD-POLICY suite, listed apart because of what it
-  #    guards.  `re-frame.ssr.payload-policy/project-routing-egress` is the
-  #    sub-classification egress rf2-u2x6w traced into production; its
-  #    always-on witness is `re-frame.ssr-routing-egress-production-test`,
-  #    which is IN this lane and green.  The single red assertion here is a
-  #    `:rf.ssr/invalid-version` WARNING trace, i.e. the dev half — but this
-  #    is the one namespace in the artefact whose failure could be a privacy
-  #    incident, so verify that rather than assume it.
-  re-frame.ssr.payload-policy-cljs-test           #   1
+  # ── rf2-lwtlk — the PAYLOAD-POLICY suite.  CLEARED, and the roster note
+  #    that asked for verification rather than assumption was answered:
+  #    the single red assertion was the `:rf.ssr/invalid-version` WARNING
+  #    trace, the dev half of a rejection whose PRODUCTION half — a semver
+  #    string never reaching `:rf/version`, which falls back to the integer
+  #    v1 — was green under the gate throughout.  Nothing that decides what
+  #    egresses was involved.  The always-on privacy witness for the egress
+  #    proper, `re-frame.ssr-routing-egress-production-test` (rf2-u2x6w),
+  #    has been in this lane and green since it was built.
 )
 
 # ---------------------------------------------------------------------------

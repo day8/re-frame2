@@ -21,10 +21,28 @@
 
   This pins both shapes producing the durable app-db slice, the fail-loud on a
   missing provided fact, AND the contrast that the ambient `:rf.server/request`
-  value is NOT recorded on the token (the symptom the pattern avoids)."
+  value is NOT recorded on the token (the symptom the pattern avoids).
+
+  ## Posture split (rf2-lwtlk)
+
+  Everything this namespace pins is production-real — the durable app-db
+  writes, the fail-closed throw, the absence of the ambient request from the
+  causal token — with one exception: the `:rf.error/missing-required-cofx`
+  TRACE in `missing-provided-request-fact-fails-loud`. Trace emission runs
+  through `trace/emit-error!`, gated on `interop/debug-enabled?` and read once
+  at namespace-load time, so under `-Dre-frame.debug=false` the recorder sees
+  nothing. That one assertion is kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm; the fail-closed contract it sits
+  beside — the throw, its `:rf.error/id`, and the absent durable write — is
+  what a production server observes and runs in both postures.
+
+  `ambient-request-read-is-not-recorded-on-the-token` gained a positive pin
+  that the `:rf.cofx` record EXISTS before asserting what is not in it, so
+  the two negatives cannot pass by the record being absent altogether."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]
             [re-frame.test-support :refer [with-trace-recorder!]]))
@@ -100,8 +118,13 @@
           (is (some? ex) "dispatch threw rather than silently delivering nil")
           (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
               "the throw is :rf.error/missing-required-cofx (fail-closed)")
-          (is (seq (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces))
-              "a :rf.error/missing-required-cofx error trace was emitted")
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+          ;; fail-closed contract is pinned by the throw and its
+          ;; `:rf.error/id` above, both production-real; this is the dev
+          ;; trace restating the same category on the trace bus.
+          (when interop/debug-enabled?
+            (is (seq (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces))
+                "a :rf.error/missing-required-cofx error trace was emitted"))
           ;; And no durable write landed.
           (is (nil? (:auth/user (frame/frame-app-db-value server-frame)))
               "no durable app-db slice was written from a missing provided fact"))))))
@@ -126,6 +149,12 @@
           (reset! seen-cofx (:rf.cofx ctx))
           {}))
       (rf/dispatch-sync [:req/inspect-record] {:frame server-frame})
+      ;; rf2-lwtlk — pin that there IS a record to inspect before asserting
+      ;; what is missing from it. Without this the two negatives below would
+      ;; also hold if `:rf.cofx` were absent from the context entirely, which
+      ;; is a different (and much worse) world than the one under test.
+      (is (map? @seen-cofx)
+          "the handler ran and the context carried a :rf.cofx record")
       (is (not (contains? (or @seen-cofx {}) :rf.server/request))
           "the ambient request value is NOT on the token's :rf.cofx record")
       (is (not (.contains (pr-str @seen-cofx) "raw-secret"))

@@ -22,10 +22,30 @@
   gating (client-side dispatches silently no-op), the frame-isolation
   invariant (two simultaneous per-request frames don't leak), and the
   set-request! seam tests/harnesses use to drive the drain without a host
-  adapter."
+  adapter.
+
+  ## Posture split (rf2-lwtlk)
+
+  Two dev-only surfaces were asserted inline here and kept the whole
+  namespace out of `scripts/test-ssr-prod-gate.sh`.
+
+  `:doc` on the cofx registry slot is a pure-documentation key, dropped by
+  `registrar/strip-pure-documentation` when `interop/debug-enabled?` is false
+  (Spec 001 §Production elision contract). Kept verbatim in a
+  `(when interop/debug-enabled? …)` arm; the RETAINED half of the same
+  registration — the `:handler-fn` and the `:platforms #{:server}` gate that
+  actually decides whether the cofx runs — stays outside and now runs in the
+  lane.
+
+  The `:rf.cofx/skipped-on-platform` trace is emitted through the gated trace
+  bus. Kept verbatim in a dev arm. What it announces is production-real and
+  is asserted outside it: on a `:platform :client` frame the cofx does not
+  run, so `:rf.server/request` is ABSENT from the coeffect map — the
+  behaviour the trace merely narrates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]
@@ -48,8 +68,18 @@
           "the entry carries a :handler-fn")
       (is (= #{:server} (:platforms meta))
           ":platforms #{:server} per Spec 011 §634-642 — server-only")
-      (is (string? (:doc meta))
-          "the registration carries a :doc string"))))
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). `:doc` is a
+      ;; pure-documentation key and is stripped in production builds; the
+      ;; three RETAINED keys above are the ones the runtime acts on.
+      (when interop/debug-enabled?
+        (is (string? (:doc meta))
+            "the registration carries a :doc string"))
+      ;; rf2-lwtlk — the REAL-gate arm: the elision itself, witnessed on a
+      ;; JVM actually started with `-Dre-frame.debug=false`.
+      (when-not interop/debug-enabled?
+        (is (nil? (:doc meta))
+            ":doc is elided from the registry slot in production builds
+             (Spec 001 §Production elision contract)")))))
 
 ;; ---- read path: populated slot ---------------------------------------------
 ;;
@@ -142,22 +172,28 @@
             {}))
         (rf/dispatch-sync [:req-test/read-on-client] {:frame client-frame})
 
+        ;; SEMANTIC, posture-independent (rf2-lwtlk): the platform gate really
+        ;; excluded the cofx. `:absent` (not merely nil-valued) is the
+        ;; production-visible witness — the coeffect KEY is missing, which is
+        ;; exactly what the trace below narrates.
         (is (= [:absent nil] @observed)
             "the cofx did NOT run — :rf.server/request is absent from coeffects")
 
-        (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %))
-                            @traces)]
-          (is (= 1 (count skips))
-              "exactly one :rf.cofx/skipped-on-platform trace was emitted")
-          (let [t (first skips)]
-            (is (= :rf.server/request (get-in t [:tags :rf.cofx/id]))
-                ":rf.cofx/id identifies the gated cofx")
-            (is (= :client (get-in t [:tags :rf.cofx/platform]))
-                ":rf.cofx/platform carries the active platform that excluded the cofx")
-            (is (= #{:server} (get-in t [:tags :rf.cofx/registered-platforms]))
-                ":rf.cofx/registered-platforms surfaces the cofx's declared set")
-            (is (= :skipped (:recovery t))
-                ":recovery is :skipped — the runtime declined to act")))))))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+        (when interop/debug-enabled?
+          (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %))
+                              @traces)]
+            (is (= 1 (count skips))
+                "exactly one :rf.cofx/skipped-on-platform trace was emitted")
+            (let [t (first skips)]
+              (is (= :rf.server/request (get-in t [:tags :rf.cofx/id]))
+                  ":rf.cofx/id identifies the gated cofx")
+              (is (= :client (get-in t [:tags :rf.cofx/platform]))
+                  ":rf.cofx/platform carries the active platform that excluded the cofx")
+              (is (= #{:server} (get-in t [:tags :rf.cofx/registered-platforms]))
+                  ":rf.cofx/registered-platforms surfaces the cofx's declared set")
+              (is (= :skipped (:recovery t))
+                  ":recovery is :skipped — the runtime declined to act"))))))))
 
 ;; ---- frame isolation -------------------------------------------------------
 ;;
