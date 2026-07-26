@@ -3,7 +3,8 @@
 Seat: EVIDENCE SPIKE. Bead `rf2-dq20a`, answering the operator's question
 of 2026-07-27 verbatim.
 
-Measured: 2026-07-27, against `bc0af9d69e` (branch `worker/bench-vs-reagent`).
+Measured: 2026-07-27, against branch `worker/bench-vs-reagent` at the
+commit that carries this page — every arm in it ships in the same PR.
 Reagent **2.0.1**, UIx **1.4.4**, React **19.2.0**. Host: Windows 11,
 headless Chromium 147 via Playwright 1.59.1, single developer workstation
 with other agents running concurrently. Every arm is an `:advanced`
@@ -25,7 +26,7 @@ starting a second incomparable one.
 
 **On mount, compiled Freehand is slightly faster than Reagent and
 interpreted Freehand is about twice as slow. On update, Reagent is
-between 3× and 15× faster — and the decomposition says most of that gap
+between 9× and 15× faster — and the decomposition says most of that gap
 is not Freehand at all. It is `re-frame`'s write path.**
 
 Four findings, and the third is the one that changes what to do about it.
@@ -34,28 +35,28 @@ Four findings, and the third is the one that changes what to do about it.
    clearly.** On the large template compiled Freehand is **1.30× the
    floor** against Reagent's **1.55×** — a 16% advantage, with disjoint
    ranges. Interpreted Freehand is **2.99×**, which is **1.9× slower than
-   Reagent**. On the ordinary form all three are within a whisker of each
-   other and of the floor.
+   Reagent**. On the ordinary form all four substrate arms are within a
+   whisker of each other and of the floor.
 2. **Update: Reagent is far ahead on the wall clock.** A write that
    repaints 300 boundaries costs Freehand **6.4–7.4 ms** and Reagent
-   **0.6–0.7 ms** — **10× **. A write that repaints one costs Freehand
-   **≈0.9 ms** and Reagent **≈0.065 ms** — **≈14×**. On the narrow write
+   **0.6–0.7 ms** — **≈10×**. A write that repaints one costs Freehand
+   **≈1.0 ms** and Reagent **≈0.065 ms** — **≈15×**. On the narrow write
    Freehand is also **8.8× slower than a plain top-down React re-render
    of all three hundred cells**, which is the reading that should be
    uncomfortable.
 3. **But on a narrow write, ~90% of Freehand's cost is the `app-db`
    write and its subscription recompute, not rendering.** Splitting the
-   window into its legs: of Freehand's ≈0.9 ms, **≈0.85 ms is
-   `frame/replace-app-db!` plus the signal graph** and only ≈0.07 ms is
+   window into its legs: of Freehand's ≈1.0 ms, **≈0.9 ms is
+   `frame/replace-app-db!` plus the signal graph** and only ≈0.075 ms is
    React render and commit — which is *the same* as Reagent's ≈0.06 ms.
    **A Reagent application reading re-frame subscriptions would pay that
-   same write leg.** The 14× is mostly a re-frame-versus-bare-ratom
+   same write leg.** The 15× is mostly a re-frame-versus-bare-ratom
    result wearing a Freehand-versus-Reagent label, and the honest
    Freehand-specific number is much smaller.
 4. **Where Freehand's view layer really is slower is bulk re-render.** On
-   the broad write, render is 70% of Freehand's cost and Freehand's
+   the broad write, render is ~72% of Freehand's cost and Freehand's
    render leg is **4.0–5.4 ms against Reagent's 0.6–0.7 ms** — a genuine
-   **≈7× on re-rendering 300 boundaries**, which no accounting moves.
+   **≈7–8× on re-rendering 300 boundaries**, which no accounting moves.
 
 And one property that is not a number: **Freehand cannot commit a state
 change synchronously.** A write made inside `react-dom/flushSync` has not
@@ -203,13 +204,14 @@ indistinguishable on the form**, and the four substrate arms are barely
 separable from each other.
 
 **And in milliseconds, because a ratio on a sub-millisecond operation is
-not a product decision** (p50, representative round):
+not a product decision** (p50, round 4 of six — the same round §2a
+decomposes):
 
 | Witness | floor | FH interp | FH compiled | Reagent | UIx |
 |---|---:|---:|---:|---:|---:|
-| W1 | 2.4 | 7.2 | 3.2 | 3.8 | 2.9 |
+| W1 | 2.4 | 7.3 | 3.2 | 3.8 | 2.9 |
 | W2 | 0.3 | 2.4 | 0.7 | 0.8 | 0.4 |
-| W3 | 0.4 | 0.7 | 0.5 | 0.6 | 0.5 |
+| W3 | 0.5 | 0.7 | 0.6 | 0.6 | 0.5 |
 
 **The three readings that matter.**
 
@@ -274,9 +276,9 @@ per-write figure is one twentieth):
 | Row | floor | FH interp | FH compiled | **Reagent** |
 |---|---:|---:|---:|---:|
 | broad, per write | 0.2–0.3 | 6.4–7.4 | 5.7–6.9 | **0.6–0.7** |
-| narrow, per write | ≈0.115 | ≈0.9 | ≈0.85 | **≈0.065** |
+| narrow, per write | 0.11–0.12 | 0.84–1.12 | 0.77–1.09 | **0.065–0.070** |
 
-**So: Reagent is ~10× faster than Freehand on a broad write and ~14×
+**So: Reagent is ~10× faster than Freehand on a broad write and ~15×
 faster on a narrow one.** That is the answer to the question as asked,
 and it should be quoted with the next section attached to it.
 
@@ -288,36 +290,39 @@ it synchronously triggers — for Freehand that is `frame/replace-app-db!`
 and the subscription recompute. `gap` is the microtask boundary. `force`
 is React render and commit.
 
-p50 milliseconds per sample, representative round:
+p50 milliseconds per sample, round 4 of six throughout. Each leg is its
+own p50, so the three do not sum exactly to the sample's p50 — medians do
+not add; the totals column is the measured figure the ratios use.
 
 | Row / arm | write | gap | force | total |
 |---|---:|---:|---:|---:|
-| **broad** floor | 0.0 | 0.0 | 0.2 | 0.2 |
-| **broad** FH interpreted | 1.5 | 0.3 | **4.6** | 6.4 |
-| **broad** FH compiled | 1.4 | 0.3 | **4.0** | 5.7 |
+| **broad** floor | 0.0 | 0.0 | 0.2 | 0.3 |
+| **broad** FH interpreted | 1.5 | 0.3 | **4.7** | 6.5 |
+| **broad** FH compiled | 1.4 | 0.4 | **4.1** | 5.7 |
 | **broad** Reagent | 0.0 | 0.0 | **0.6** | 0.6 |
-| **narrow** floor (20 writes) | 0.0 | 0.0 | 2.3 | 2.3 |
-| **narrow** FH interpreted (20) | **19.8** | 0.2 | 1.4 | 21.4 |
-| **narrow** FH compiled (20) | **19.2** | 0.1 | 1.1 | 20.4 |
-| **narrow** Reagent (20) | 0.1 | 0.0 | 1.2 | 1.3 |
+| **narrow** floor (20 writes) | 0.0 | 0.0 | 2.4 | 2.4 |
+| **narrow** FH interpreted (20) | **19.8** | 0.2 | 1.4 | 22.4 |
+| **narrow** FH compiled (20) | **19.2** | 0.1 | 1.1 | 21.7 |
+| **narrow** Reagent (20) | 0.0 | 0.0 | 1.3 | 1.4 |
 
 Three things fall straight out.
 
 **On a narrow write, Freehand's rendering is not the problem — the write
-is.** 19.8 ms of a 21.4 ms sample is `frame/replace-app-db!` and the
-signal graph; React render is 1.4 ms, against Reagent's 1.2 ms and the
-floor's 2.3 ms. **Freehand's view layer is doing a narrow update at
+is.** The write leg is **19.8 ms** against a render leg of **1.4 ms**:
+`frame/replace-app-db!` and the signal graph are ~90% of the sample.
+And that 1.4 ms of React render sits against Reagent's 1.3 ms and the
+floor's 2.4 ms. **Freehand's view layer is doing a narrow update at
 Reagent's speed and beating plain React.** Everything else is re-frame's
 write path, which a Reagent application reading re-frame subscriptions
 would pay too. The honest Freehand-specific narrow-update number is
-therefore roughly parity, not 14×.
+therefore roughly parity, not 15×.
 
-**On a broad write, rendering *is* the problem.** 4.6 ms of 6.4 ms is
-React render and commit, against Reagent's 0.6 ms — **≈7×** on
-re-rendering 300 boundaries, with the write leg only 1.5 ms. Compiling
-moves it a little (4.6 → 4.0 ms) and does not close it. This is the one
-number in the update section that is squarely Freehand's own, and it is
-the one to act on.
+**On a broad write, rendering *is* the problem.** 4.7 ms of a 6.5 ms
+sample is React render and commit, against Reagent's 0.6 ms — **≈7–8×**
+on re-rendering 300 boundaries, with the write leg only 1.5 ms.
+Compiling moves it a little (4.7 → 4.1 ms) and does not close it. This is
+the one number in the update section that is squarely Freehand's own, and
+it is the one to act on.
 
 **The microtask yield costs nothing, and the control is in situ.** The
 floor and Reagent arms — which do not need it — report `gap` of exactly
@@ -402,7 +407,7 @@ Stated plainly, because the omissions are load-bearing.
    would help every re-frame consumer on every substrate. Measuring
    where inside `commit-frame-transition!` plus the signal graph the
    ≈0.85 ms goes is a small, high-leverage spike.
-2. **Cheapen bulk re-render of boundaries.** The ≈7× on 300 repainting
+2. **Cheapen bulk re-render of boundaries.** The ≈7–8× on 300 repainting
    boundaries is Freehand's own, and compiling barely moves it, which
    suggests the cost is in the ViewCell wrapper rather than in the
    markup walk — the same term §1a of the predecessor report priced at
