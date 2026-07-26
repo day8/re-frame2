@@ -1907,7 +1907,9 @@
 
 (defn- build-node-handle!
   "Wrap a CANONICAL cached `reaction` — one `subs/acquire-cache-reaction!` has
-  already taken a real +1 reference on — in a live NODE handle. Register the
+  already taken a real +1 reference on — in a live NODE handle. ACTIVATE the
+  node on its substrate's push path (`interop/activate-derived-value!` —
+  rf2-8cnxg; a no-op on hosts that are push-based from birth), register the
   per-handle change watch (on watchable hosts; `add-watch` never fires
   synchronously), take the baseline observation through the activated node,
   enrol the handle as an active owner, and — whenever the node hook is not yet
@@ -1954,8 +1956,30 @@
                      :on-change  on-change
                      :status     :live})
         handle (->ObservationHandle state)]
-    ;; Watch BEFORE the baseline observe: a watched reaction is live on the
-    ;; reactive hosts, so the observe below reads through the activated node.
+    ;; ACTIVATE, then watch, then observe — and the order is the whole fix
+    ;; for rf2-8cnxg / rf2-jt8vz.
+    ;;
+    ;; This step used to be absent, on the stated assumption that "a watched
+    ;; reaction is live on the reactive hosts". That is FALSE on the ratom
+    ;; family, and silently so. `add-watch` on a `reagent.ratom/Reaction`
+    ;; only RECORDS the callback; the reaction subscribes to its own sources
+    ;; solely through `deref-capture`, which a plain `deref` taken outside a
+    ;; reactive context (and with no `auto-run`) skips — it runs the body raw
+    ;; and leaves `watching` nil. So the port held a watch on a node that
+    ;; could never notify: every ViewCell over a Reagent-hosted subscription
+    ;; rendered ONCE and never again, because the mark-dirty channel was
+    ;; never entered at all. A Reagent COMPONENT never hits this because its
+    ;; render IS the capture context; a ViewCell is not a Reagent component,
+    ;; so nothing but this call supplies one.
+    ;;
+    ;; `interop/activate-derived-value!` is the substrate's own "put this
+    ;; derived value on your push path" op — a no-op for hosts already
+    ;; push-based from birth (the React-hook spine wires one watch per source
+    ;; at construction) and for plain-atom / JVM derived values, which have
+    ;; no capture step. It runs BEFORE `add-watch` so the activation's own
+    ;; first recompute cannot fan a priming notification at this handle, and
+    ;; before the baseline observe so that observe reads a settled node.
+    (interop/activate-derived-value! reaction)
     (when (watchable? reaction)
       (let [wk (gensym "rf-obs-handle")]
         (add-watch reaction wk (make-watch-handler state))

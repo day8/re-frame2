@@ -49,6 +49,11 @@
     :adapter/ratom
     :adapter/ratom?
     :adapter/make-reaction
+    ;; rf2-8cnxg — the ratom family's push-path activation for a
+    ;; `make-derived-value` result. Published ONLY here and by
+    ;; reagent-slim; the React-hook spine's derived values are push-based
+    ;; from birth and publish nothing.
+    :adapter/activate-derived-value!
     :adapter/add-on-dispose!
     :adapter/dispose!
     :adapter/reactive?

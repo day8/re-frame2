@@ -3023,6 +3023,12 @@
       :atom               — (fn [v]) → reactive atom
       :ratom?             — (fn [x]) → boolean (IReactiveAtom check)
       :make-reaction      — (fn [thunk]) → reaction
+      :activate-reaction! — (fn [rx]) → put one of THIS substrate's
+                            reactions on its push path (the missing
+                            `deref-capture`), idempotent and a no-op on
+                            anything that is not one of its reactions.
+                            rf2-8cnxg — see the `:adapter/activate-
+                            derived-value!` routing note below.
       :disposable?        — (fn [x]) → boolean (substrate IDisposable
                             check), used by the dual-protocol dispatch
       :add-on-dispose!    — (fn [a f]) → register a substrate-reaction
@@ -3032,7 +3038,7 @@
       :after-render       — (fn [f]) → schedule post-render callback
 
   Builds the 9-key adapter map, wires the chained SSR emitter install, and
-  routes the nine ratom-family late-bind hooks against the adapter. The two
+  routes the ratom-family late-bind hooks against the adapter. The two
   dual-protocol dispatch hooks (`:adapter/add-on-dispose!` / `:adapter/
   dispose!`) protocol-check the re-frame-owned
   `re-frame.disposable/IDisposable` FIRST (spine-produced derived values
@@ -3046,6 +3052,7 @@
   differ. The former hand-copied route-hook block now lives once."
   [spine-fns {:keys [kind register-context-provider
                      current-frame current-component atom ratom? make-reaction
+                     activate-reaction!
                      disposable? add-on-dispose! dispose! reactive? after-render]}]
   (let [dispose-dispatch (make-ratom-dispose-dispatch disposable? dispose!)
         adapter {:kind                      kind
@@ -3106,6 +3113,33 @@
       (constantly false))
     (substrate-adapter/route-hook! adapter :adapter/make-reaction
       make-reaction)
+    ;; rf2-8cnxg / rf2-jt8vz — the ratom family's derived values are
+    ;; DEMAND-driven, and Spec 006 §`make-derived-value` requires PUSH ("the
+    ;; derived container updates automatically when any source's value
+    ;; changes"; `subscribe-container` "works as on a base container"). A
+    ;; substrate `Reaction` captures its sources only through the
+    ;; substrate's `deref-capture`; a plain `deref` taken OUTSIDE a reactive
+    ;; context, with no `auto-run`, runs the body RAW and leaves the
+    ;; reaction's `watching` nil — so it is watchable, and watched, and
+    ;; notifies nobody. A component render is normally the capture context,
+    ;; which is why an ordinary app never sees this; the observation port's
+    ;; consumer (a compiled ViewCell) is NOT a component of this substrate,
+    ;; so nothing supplies it and the port's `add-watch` observes a node
+    ;; that can never fire. This hook is that missing capture, called by
+    ;; `re-frame.interop/activate-derived-value!` from the port's
+    ;; `build-node-handle!`.
+    ;;
+    ;; ONLY the ratom family publishes it: the React-hook spine's
+    ;; `make-derived-value-fn` wires one watch per source at CONSTRUCTION,
+    ;; so its derived values are push-based from birth and the routed
+    ;; chain-bottom nil is the correct no-op for them. Deliberately NOT
+    ;; `:auto-run true` on `make-derived-value` — that would make every
+    ;; subscription under this substrate recompute SYNCHRONOUSLY inside the
+    ;; app-db `reset!`, discarding the batching this spine's
+    ;; `replace-container!` comment relies on. Activation is per-acquire and
+    ;; idempotent, so an unobserved subscription is never made eager.
+    (substrate-adapter/route-hook! adapter :adapter/activate-derived-value!
+      activate-reaction!)
     (substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
       (fn add-on-dispose!-dispatch [a f]
         (cond
