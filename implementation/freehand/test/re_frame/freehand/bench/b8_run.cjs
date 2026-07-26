@@ -303,6 +303,48 @@ async function main() {
   }
 
   // -------------------------------------------------------------------------
+  // KEPT vs DROPPED — does the counter see garbage as fully as it sees
+  // survivors?
+  // -------------------------------------------------------------------------
+  //
+  // The identical loop, on the instrument arm, at the same D, run twice:
+  // once with each control copy kept and once with each dropped. Same
+  // code path, same allocation, one difference. If the counter reports
+  // the same bytes per copy either way, it does not care whether an
+  // object survives — the instrument sees garbage exactly as well as it
+  // sees anything, and the residual disagreement with retention is a
+  // property of the counter's scale that cancels in every ratio. If
+  // keeping reads higher, then garbage is partly invisible and this
+  // instrument shares the sampler's disease.
+  async function keptVsDropped(kind, n) {
+    const out = {};
+    for (const keep of [false, true]) {
+      await page.evaluate((d) => window.B8.prepare(d), CTL_2);
+      await page.evaluate((b) => window.B8.keep(b), keep);
+      await page.evaluate(() => window.B8.seed());
+      await gc();
+      const pre = await readCdp();
+      const r = await page.evaluate(([a, k, w]) => window.B8.run(a, k, w), ['instrument', kind, n]);
+      const post = await readCdp();
+      const kept = await page.evaluate(() => window.B8.kept());
+      // Release and settle, so the next pass starts clean.
+      await page.evaluate(() => window.B8.keep(false));
+      await gc();
+      const settled = await readCdp();
+      out[keep ? 'kept' : 'dropped'] = {
+        writes: n,
+        copiesHeld: kept,
+        counterPerCopy: r.posSum / n,
+        cdpPerCopy: (post - pre) / n,
+        retainedAfter: settled - pre,
+        decreases: r.decreases,
+      };
+    }
+    out.ratioKeptOverDropped = out.kept.counterPerCopy / out.dropped.counterPerCopy;
+    return out;
+  }
+
+  // -------------------------------------------------------------------------
   // The sampling profiler, as a NEGATIVE control
   // -------------------------------------------------------------------------
 
@@ -413,11 +455,14 @@ async function main() {
   // the baseline, and a residue of zero says the release was clean.
   const refBpd = retention[retention.length - 1].bytesPerDouble;
 
+  console.error('[b8] kept-vs-dropped self-test ...');
+  const keptDropped = await keptVsDropped(KINDS[0], 12);
+
   console.error('[b8] sampler negative control ...');
   const sampler = await samplerControl(KINDS[0], nFor[KINDS[0]]['freehand-interpreted'][0], refBpd);
 
   await browser.close();
-  return { rows, sampler, retention, refBytesPerDouble: refBpd, nFor,
+  return { rows, sampler, retention, keptDropped, refBytesPerDouble: refBpd, nFor,
            integrity: integ, precise: { probes } };
 }
 
@@ -698,6 +743,21 @@ function report(out) {
   console.log(
     ';;   take the packed fast path. The instrument was fine; the arithmetic was the fiction.'
   );
+
+  const kd = out.keptDropped;
+  if (kd) {
+    console.log('\n;; ==== KEPT vs DROPPED — can the counter see garbage as well as survivors? ====');
+    console.log(';;   the identical loop, same D, one difference: whether the copy is kept');
+    for (const k of ['dropped', 'kept']) {
+      const v = kd[k];
+      console.log(
+        `;;   ${k.padEnd(8)} counter ${fmt(v.counterPerCopy).padStart(9)} B/copy   CDP ` +
+          `${fmt(v.cdpPerCopy).padStart(9)}   held afterwards ${String(v.copiesHeld).padStart(3)}` +
+          `   retained ${fmt(v.retainedAfter).padStart(9)}   GCs ${v.decreases}`
+      );
+    }
+    console.log(`;;   kept / dropped = ${kd.ratioKeptOverDropped.toFixed(4)}`);
+  }
 
   console.log('\n;; ==== NEGATIVE CONTROL — the sampling heap profiler on the same window ====');
   console.log(`;;   garbage allocated by the control, by construction: ${fmt(sampler.controlGarbageBytes)} B`);
