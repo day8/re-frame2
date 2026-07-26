@@ -717,6 +717,30 @@ jobs:
       - name: Validate test-lane bijection (build files <-> lane selectors)
         run: python scripts/check_test_lane_bijection.py --verbose
 
+      # JVM roster <-> CI required-job bijection (rf2-as6bg). The gate above
+      # READS the two JVM rosters (scripts/test-jvm-{implementation,tools}.sh)
+      # to discover the JVM lanes, so an artefact absent from a roster is not a
+      # violation to it — it is simply not a lane. The gate that finds orphan
+      # FILES takes the roster as ground truth, so the roster is exactly what it
+      # cannot check. That blind spot is how tools/machines-viz (632 tests) and
+      # tools/testbed-support (32) sat on the local roster with no CI job at
+      # all, and how tools/template had a CI job and no local lane. Both were
+      # repaired by hand and neither repair left anything behind that would
+      # notice the next one.
+      #
+      # This gate asserts the two agree in BOTH directions: every rostered
+      # artefact is run by a test.yml job listed in all-required-passed's
+      # `needs:` (a job absent from that list is advisory, whatever its own gate
+      # says), and every required job running `clojure -M:test` has its
+      # directory on a roster. It reads this very file, so it belongs in the
+      # always-on job — the drift is introduced by adding a job or a roster line
+      # and need not touch the tier that owns either. Pure Python stdlib.
+      - name: Self-test the JVM roster/CI bijection gate
+        run: python scripts/check_jvm_lane_rosters.py --self-test
+
+      - name: Validate JVM roster <-> CI required-job bijection
+        run: python scripts/check_jvm_lane_rosters.py --verbose
+
       # Adapter disposition (Mike, 2026-07-17; source of record EP-0030 §Resolved
       # Decisions): `re-frame.ui` is a NEW, EXPERIMENTAL substrate offered
       # alongside the adapters; Reagent, reagent-slim, and UIx live on as
