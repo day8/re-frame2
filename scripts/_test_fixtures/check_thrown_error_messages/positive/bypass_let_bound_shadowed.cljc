@@ -4,14 +4,14 @@
 ;; conformant `msg`, and a binder BETWEEN it and the `ex-info` shadows the name.
 ;; The symbol thrown is the SHADOW, which carries no token, so every site below
 ;; is a genuine builder bypass. A resolver that searches enclosing `let`s only
-;; finds the outer binding and greens all nine — the false GREEN this gate must
-;; never emit. Nine findings expected.
+;; finds the outer binding and greens all eleven — the false GREEN this gate
+;; must never emit. Eleven findings expected.
 ;;
 ;; The point of the family is that it has no end: `fn`, `loop`, `if-let`,
 ;; `doseq`, `catch`, a DESTRUCTURED inner `let`, `letfn`, `as->`, an `fn` arity
-;; list — plus whatever binding macro is written next. So the resolution proves
-;; its scope by crossing only forms it recognises as introducing nothing, and
-;; fails closed on the rest.
+;; list, an `fn` SELF-REFERENCE NAME — plus whatever binding macro is written
+;; next. So the resolution proves its scope by crossing only forms it recognises
+;; as introducing nothing, and fails closed on the rest.
 
 ;; 1. THE AUDIT WITNESS — a nested `fn` PARAMETER shadows the outer binding.
 (defn make-thrower
@@ -91,3 +91,29 @@
       ([msg]
        (throw (ex-info msg {:rf.error/id :rf.error/arity-shadow
                             :where       'rf/arity-shadow}))))))
+
+;; 10. THE #7064 AUDIT WITNESS — an `fn` SELF-REFERENCE NAME, single arity. The
+;;     parameter vector `[x]` is spotless; the shadow is the name `fn` binds to
+;;     the function itself, which sits BEFORE the vector. A proof that reads
+;;     only the vector greens this.
+(defn self-named
+  []
+  (let [msg (str "outer conformant [:rf.error/outer]")]
+    (fn msg [x]
+      (throw (ex-info msg {:rf.error/id :rf.error/fn-name-shadow
+                           :where       'rf/fn-name-shadow
+                           :extra       x})))))
+
+;; 11. The same self-reference name on a MULTI-ARITY `fn`. Two readings of one
+;;     source shape — the name binds it, and so does every arity list — and
+;;     both must keep the finding. Only the innermost throw is a distinct site;
+;;     the second arity is what makes the form multi-arity.
+(defn self-named-arities
+  []
+  (let [msg (str "outer conformant [:rf.error/outer]")]
+    (fn msg
+      ([x] (str x))
+      ([x y]
+       (throw (ex-info msg {:rf.error/id :rf.error/fn-name-arity-shadow
+                            :where       'rf/fn-name-arity-shadow
+                            :extra       [x y]}))))))

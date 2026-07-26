@@ -90,8 +90,9 @@ A CONFORMANT message (does not fire) is one of:
     itself conformant by the two rules above (rf2-u3otj) — the token lives on
     the bound form, one hop from the `ex-info` — AND ONLY when that `let` is
     provably the binding in scope at the call. A binder in between (an `fn`
-    parameter, a `catch` name, a destructured inner `let`) shadows the name,
-    so the resolution fails closed and the finding stands.
+    parameter, an `fn` SELF-REFERENCE NAME, a `catch` name, a destructured
+    inner `let`) shadows the name, so the resolution fails closed and the
+    finding stands.
 
 A DELIBERATE exemption — a message pinned to bare prose downstream (the
 conformance-DSL `:throw` / `:count` ops re-emit it as `:exception-message`,
@@ -537,6 +538,23 @@ _EX_INFO_OPEN_RE = re.compile(r"\(\s*ex-info\b")
 # heard of, an `fn` arity list, a `catch` — is not proven, so the finding stands.
 # A whitelist is what makes the analysis SOUND: an unknown binder can only cost
 # a false red, never buy a false green.
+#
+# …AND A VECTOR BINDER DOES NOT ALWAYS BIND IN ITS VECTOR (rf2-u3otj, the #7064
+# audit). `fn` carries an optional SELF-REFERENCE NAME before the parameters:
+#
+#   (let [msg "outer conformant [:rf.error/outer]"]
+#     (fn msg [x]                             ; ← the fn's own name shadows it
+#       (throw (ex-info msg {:rf.error/id :rf.error/inner-bypass …}))))
+#
+# Checking only the parameter vector proved a transparency that is not there —
+# `[x]` never mentions `msg`, so the crossing looked clean and the outer binding
+# greened a genuine bypass. The proof therefore reads the WHOLE run from the
+# head to the binding vector: the head binds nothing, and anything else standing
+# there must not mention the symbol. That covers the `fn` name without naming
+# `fn`, and keeps the fail-closed posture for whatever else turns up in that
+# position. (The MULTI-ARITY spelling `(fn msg ([x] …))` was already caught, by
+# the other arm — the arity list is an unrecognised head — but it is a distinct
+# reading of the same source shape, so both are fixtures.)
 _LET_OPEN_RE = re.compile(r"\(\s*let\b")
 
 # Heads that introduce no bindings at all — the ordinary control flow that sits
@@ -550,11 +568,15 @@ _TRANSPARENT_HEADS = frozenset({
 })
 
 # Heads that bind through a LEADING vector. Crossing one is proven safe exactly
-# when that vector does not mention the symbol. The whole vector is checked, not
-# just its name positions: `for`/`doseq` interleave `:let`/`:when` modifiers and
-# `let` names can be destructuring forms, so "mentioned anywhere in the binding
-# vector" is the reading that cannot miss a binder. A value-position mention
-# costs a red, which is the safe direction.
+# when that vector does not mention the symbol — AND neither does anything
+# between the head and it. The whole vector is checked, not just its name
+# positions: `for`/`doseq` interleave `:let`/`:when` modifiers and `let` names
+# can be destructuring forms, so "mentioned anywhere in the binding vector" is
+# the reading that cannot miss a binder. A value-position mention costs a red,
+# which is the safe direction. The text BEFORE the vector is read the same way,
+# because `fn` binds there too: `(fn msg [x] …)` binds `msg` to the function
+# itself, and a proof that reads only the parameter vector greens a genuine
+# shadow (rf2-u3otj, the #7064 audit).
 _VECTOR_BINDER_HEADS = frozenset({
     "let", "loop", "fn", "if-let", "when-let", "if-some", "when-some",
     "when-first", "doseq", "for", "dotimes", "with-open", "with-local-vars",
@@ -652,16 +674,24 @@ def _enclosing_openers(masked: str, start: int, offset: int) -> list[int]:
     return stack
 
 
-def _first_child_vector(masked: str, open_idx: int, offset: int) -> str | None:
-    """The first DIRECT-CHILD vector of the form opened at `open_idx`, as text,
-    or None. Only the text before `offset` is read — every binding vector
-    precedes the body the `ex-info` sits in, and the trailing child is the
-    (truncated) one we are descending into, which `_split_forms` returns whole
-    and we ignore."""
+def _binder_vector(masked: str, open_idx: int, offset: int) -> tuple[str | None, list[str]]:
+    """The BINDING VECTOR of the form opened at `open_idx` — its first
+    direct-child vector, as text — together with the direct children that
+    PRECEDE it (the head first). `(None, …)` when there is no such vector.
+
+    Only the text before `offset` is read: every binding vector precedes the
+    body the `ex-info` sits in, and the trailing child is the (truncated) one
+    we are descending into, which `_split_forms` returns whole and we ignore.
+
+    The PREFIX is returned because a binding vector is not always the only
+    place a binder introduces a name: `fn` takes an optional self-reference
+    name between the head and the parameters."""
+    prefix: list[str] = []
     for form in _split_forms(masked[open_idx + 1:offset]):
         if form.startswith("["):
-            return form
-    return None
+            return form, prefix
+        prefix.append(form)
+    return None, prefix
 
 
 def _crossing_is_transparent(masked: str, open_idx: int, offset: int, sym: str) -> bool:
@@ -682,10 +712,18 @@ def _crossing_is_transparent(masked: str, open_idx: int, offset: int, sym: str) 
     if head in _TRANSPARENT_HEADS:
         return True
     if head in _VECTOR_BINDER_HEADS:
-        vec = _first_child_vector(masked, open_idx, offset)
+        vec, before = _binder_vector(masked, open_idx, offset)
         # A binder whose binding vector we cannot see (an `fn` written as arity
         # lists, a malformed form) proves nothing.
-        return vec is not None and not _mentions_symbol(vec, sym)
+        if vec is None or _mentions_symbol(vec, sym):
+            return False
+        # …and neither does anything BETWEEN the head and that vector. `fn`
+        # takes an optional SELF-REFERENCE NAME there — `(fn msg [x] …)` binds
+        # `msg` to the function itself, shadowing an outer `msg` exactly as a
+        # parameter would. Reading only the parameter vector greened it
+        # (rf2-u3otj, the #7064 audit). `before[0]` is the head, which binds
+        # nothing; everything after it must be clean.
+        return not any(_mentions_symbol(f, sym) for f in before[1:])
     return False
 
 
@@ -711,9 +749,10 @@ def _resolve_let_binding(masked: str, offset: int, sym: str) -> str | None:
     symbol bound only inside a destructuring form resolves nothing — the
     binding NAME must be exactly `sym`.
 
-    A NON-`let` binder in between (an `fn` parameter, a `catch` name, a
-    destructured inner `let`, …) makes the resolution unsound, so it returns
-    None and the caller keeps the finding (rf2-u3otj / the #7045 audit)."""
+    A NON-`let` binder in between (an `fn` parameter, an `fn` self-reference
+    name, a `catch` name, a destructured inner `let`, …) makes the resolution
+    unsound, so it returns None and the caller keeps the finding (rf2-u3otj /
+    the #7045 and #7064 audits)."""
     bound: str | None = None
     bound_at: int | None = None
     for m in _LET_OPEN_RE.finditer(masked, 0, offset):
@@ -1154,11 +1193,12 @@ def _run_self_tests(verbose: bool = False) -> int:
         #     (non-enclosing) scope, an inner binding that shadows a
         #     token-bearing outer one, and a destructured name all still fire.
         ("positive/bypass_let_bound_no_token.cljc",      6),
-        # --- positives for the SCOPE PROOF (rf2-u3otj / the #7045 audit): a
-        #     binder between the conformant outer `let` and the `ex-info`
-        #     shadows the name, and every binder family must still fire —
-        #     the audit's nested-`fn`-parameter witness first.
-        ("positive/bypass_let_bound_shadowed.cljc",      9),
+        # --- positives for the SCOPE PROOF (rf2-u3otj / the #7045 and #7064
+        #     audits): a binder between the conformant outer `let` and the
+        #     `ex-info` shadows the name, and every binder family must still
+        #     fire — the #7045 nested-`fn`-parameter witness first, the #7064
+        #     `fn` SELF-REFERENCE NAME (single- and multi-arity) last.
+        ("positive/bypass_let_bound_shadowed.cljc",      11),
         # --- negatives: every conformant counterpart must stay GREEN ---
         ("negative/human_message_builder.cljc",      0),
         ("negative/throw_error_bang.cljc",           0),
@@ -1178,8 +1218,9 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("negative/bypass_let_bound_token.cljc",         0),
         # --- negative for the SCOPE PROOF: crossing ordinary control flow (the
         #     `when` guard `re-frame.story/configure!` writes, an if/do/cond
-        #     chain, a nested `let` binding another name, a reader conditional)
-        #     introduces nothing, so the resolution still holds.
+        #     chain, a nested `let` binding another name, an `fn` self-named
+        #     something else, a reader conditional) introduces nothing, so the
+        #     resolution still holds.
         ("negative/bypass_let_bound_guarded.cljc",       0),
     ]
 
