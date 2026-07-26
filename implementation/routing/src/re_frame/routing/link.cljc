@@ -33,8 +33,12 @@
 
   Routing's own `prefetch-intent-attrs` maps over it; the Freehand
   `v/route-link` descriptor reaches it as the `:routing/prefetch-intent-keys`
-  late-bound seam, the same way it already reaches `prefetch-payload` — so no
-  view substrate states the class for itself.
+  late-bound seam, the same way it already reaches `prefetch-payload` — so the
+  durable view substrate no longer states the class for itself. ONE exception
+  remains, and it is explicitly temporary: the donor `re-frame.ui/route-link`
+  still writes the three positions out literally, and that copy goes when the
+  donor arm does (rf2-drpa3.57). Until then a position added here reaches
+  `rf/route-link` and `v/route-link` and misses `ui/route-link`.
 
   Order carries no meaning — the positions are independent, and each warms the
   same destination — but it is stable, so the attrs a render emits are too."
@@ -209,7 +213,7 @@
        ;; Map over the published class rather than writing the positions out a
        ;; second time (rf2-7g4qn): `prefetch-intent-keys` is the ONE enumeration
        ;; this anchor and the `:routing/prefetch-intent-keys` seam both read, so
-       ;; a position added there cannot reach one link surface and miss another.
+       ;; a position added there reaches both of them together.
        (into {}
              (map (fn [k]
                     [k (compose-intent-handler (get props k) render-frame payload)]))
