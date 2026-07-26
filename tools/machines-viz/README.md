@@ -128,6 +128,17 @@ The page decodes the `#machine=` fragment entirely client-side, so the
 fragment never reaches your server and the host needs no application
 logic. Per [DESIGN-RATIONALE Lock #7](./spec/DESIGN-RATIONALE.md).
 
+Pass the page's URL **without a fragment of its own** — a query string is
+fine. The machine payload *is* the fragment, and a URL has only one, so
+`{:host ".../viewer.html#docs"}` would produce
+`.../viewer.html#docs#machine=…`: a link that looks right and that the
+viewer cannot read, because it stops at the first `#`. The encoder refuses
+that rather than shipping it (`:reason :host-carries-fragment`, rf2-xld5m).
+It does not otherwise parse the URL — a host that is not a URL comes back
+to you as `"banana#machine=…"`, visibly wrong before you share it, so
+`file:///…/viewer.html` and a relative `/viewer.html` both keep working.
+See [spec/API.md §What `:host` is checked for](./spec/API.md).
+
 ## How to test
 
 ```bash

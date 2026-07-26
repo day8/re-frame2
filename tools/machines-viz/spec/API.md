@@ -1643,7 +1643,10 @@ and need no server logic. Then pass its URL to the encoder:
 ```
 
 `:host` is required. Omitting it throws rather than guessing
-(`:reason :no-host`).
+(`:reason :no-host`), and it must carry no URL fragment of its own — the
+machine payload is the fragment (`:reason :host-carries-fragment`, see
+[§What `:host` is checked for](#what-host-is-checked-for-and-what-it-is-not-rf2-xld5m)).
+A query string is fine.
 
 ### The viewer is a page, not library surface
 
@@ -1686,12 +1689,48 @@ Source: lifted from
 
 (share/encode-share-url chart-state {})
 ;; => throws :rf.machines-viz.share/encode-failed, :reason :no-host
+
+(share/encode-share-url chart-state {:host "https://acme.example.com/viewer.html#docs"})
+;; => throws :rf.machines-viz.share/encode-failed, :reason :host-carries-fragment
 ```
 
-`:host` is **required** — the absolute URL of the viewer page the caller
-hosts (see [§Hosting](#hosting)). There is no default and no arity that
-omits it: the library cannot know where your viewer is served from, and
-the value it used to guess returned 404 (rf2-8m344).
+`:host` is **required** — the URL of the viewer page the caller hosts
+(see [§Hosting](#hosting)). There is no default and no arity that omits
+it: the library cannot know where your viewer is served from, and the
+value it used to guess returned 404 (rf2-8m344).
+
+#### What `:host` is checked for, and what it is not (rf2-xld5m)
+
+The machine payload **is** the URL fragment, so the encoder appends
+`#machine=<payload>` to the string you pass and checks exactly one thing:
+that the string carries no `#` of its own. A `:host` that already has a
+fragment is refused with `:host-carries-fragment`.
+
+It does **not** parse the URL, police the scheme, or require
+absoluteness, and that is a decision rather than an omission. A host that
+is not a URL fails *loudly*: `{:host "banana"}` returns
+`"banana#machine=…"`, which begins with the word you typed and is not a
+link in any browser. A scheme allowlist would also refuse working input
+to catch input nobody can miss — `file:///…/viewer.html` is exactly what
+the build recipe in [§Hosting](#hosting) leaves on disk, and a relative
+`"/viewer.html"` is a legitimate same-origin base for an in-app link.
+
+An existing fragment is the one defect the caller **cannot** see.
+`"https://acme.example.com/viewer.html#docs"` would produce
+
+```
+https://acme.example.com/viewer.html#docs#machine=<400 characters of base64>
+```
+
+— right origin, right path, `#machine=` present — and the viewer cannot
+read it, because a URL has one fragment and the decoder stops at the
+first `#` (it surfaces `:malformed-fragment`). Nobody counts `#`s in 400
+characters of base64, so the sender would ship a dead link and the
+failure would land on the recipient: the outcome rf2-8m344 removed the
+hosted default to stop. The encoder therefore **refuses** rather than
+silently stripping the caller's fragment, which would be a quieter wrong
+answer. A **query string is untouched** — it precedes the fragment, so
+`…/viewer.html?theme=dark` composes correctly.
 
 `chart-state` is a map with the schema in
 [§Share-URL payload schema](#share-url-payload-schema) below. The
@@ -1732,6 +1771,7 @@ Failure modes:
 | `:reason` | Meaning |
 |---|---|
 | `:no-host` | No non-blank `:host` was supplied. There is no default viewer host — see [§Hosting](#hosting). |
+| `:host-carries-fragment` | `:host` already contains a `#`. The machine payload rides in the fragment and a URL has only one, so a second `#` yields a link the viewer cannot read (rf2-xld5m). `ex-data` carries `:fragment-index` — the offset of the offending `#`, not the host itself, which may carry a query token. |
 | `:invalid-chart-state` | The allowlisted chart state fails the same `valid-chart-state?` predicate the decoder applies (a missing/malformed `:machine-id` or `:definition`, a non-keyword `:frame-id`, or a `:snapshot` `:state` that is none of the three configuration arms). Rejected at encode rather than emitted as an undecodable URL. |
 
 ### Decoder
@@ -1993,11 +2033,12 @@ private chart-state internals are never named in the user-facing message.
 (or a hiccup-equivalent reference). The export functions derive the
 payload from the element's bound props + the live snapshot.
 
-`opts` is required and must carry `:host`, which is passed to
-`encode-share-url` (see [§Hosting](#hosting)); it may also carry an
-optional `:frame-id` for payload provenance. Neither fn has an
-`opts`-free arity — a share-URL that does not name a viewer someone
-actually serves is a dead link (rf2-8m344).
+`opts` is required and must carry `:host`, which is passed straight to
+`encode-share-url` (see [§Hosting](#hosting)) and is subject to its rules
+— including the fragment refusal (`:host-carries-fragment`, rf2-xld5m).
+`opts` may also carry an optional `:frame-id` for payload provenance.
+Neither fn has an `opts`-free arity — a share-URL that does not name a
+viewer someone actually serves is a dead link (rf2-8m344).
 
 ### Mermaid `stateDiagram-v2`
 
