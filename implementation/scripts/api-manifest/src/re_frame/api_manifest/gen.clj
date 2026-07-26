@@ -117,6 +117,24 @@
     ;; the supported six are the whole namespace by construction rather than
     ;; by carve-out. Its CLJS surface is reconciled by the probe.
     re-frame.freehand.test
+    ;; The Freehand substrate's PURE FORM TRANSITIONS and its FIRST-PARTY
+    ;; CONTROL KIT (rf2-drpa3.182.4; the accepted product-completion
+    ;; setpoint's DC-03 and DC-04, kept inside Freehand's own distribution by
+    ;; ER-04 rather than shipped as a second artefact).
+    ;;
+    ;; `.cljc` and host-neutral, so `ns-publics` is authoritative here exactly
+    ;; as it is for the door, and the CLJS half is reconciled by the probe.
+    ;; `re-frame.freehand.form` is the strongest case in this list for that
+    ;; reading: it depends on nothing but the substrate's equality, registers
+    ;; nothing, and reads no frame, so the JVM enumeration is not a proxy for
+    ;; a browser surface — it IS the surface.
+    ;;
+    ;; The private leafwise walk beneath `seed` / `rebase` / `reset`, and the
+    ;; two host-event scalar readers beneath `buffered-field`, are `defn-`, so
+    ;; the published rosters are the whole namespaces by construction rather
+    ;; than by carve-out.
+    re-frame.freehand.form
+    re-frame.freehand.controls
     ;; The Freehand substrate's TOOL-TIER READER DOOR (rf2-hytu5, extended by
     ;; rf2-lvvl2 / rf2-xftdv / rf2-cpfbg; contract in Spec 004, the
     ;; instrumentation it serves in Spec 009). The third and last sanctioned
