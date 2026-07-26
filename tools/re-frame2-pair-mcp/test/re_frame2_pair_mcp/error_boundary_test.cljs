@@ -16,19 +16,19 @@
 
   `tools/re-frame2-pair-mcp/src` has exactly four `throw` sites, and a
   throw reaches the agent by one of two DIFFERENT relays depending on
-  WHERE in a tool body it fires. The two relays keep opposite halves of
-  the exception:
+  WHERE in a tool body it fires. The relays are still asymmetric, but
+  only one-sidedly so now:
 
   - `server.cljs` `invoke-and-guard` → `{:reason :handler-threw :message
     (.-message err)}`. Keeps the MESSAGE, drops the ex-data. Reached by
     anything thrown while the tool body builds its request — before the
-    nREPL round-trip.
+    nREPL round-trip. (Its dropped ex-data half is rf2-qoih4.)
 
-  - `tools/probe.cljs` `err->result` → `(merge {:ok? false} (ex-data
-    err))`. Keeps the EX-DATA, drops the message entirely. Reached by
-    anything thrown from the `on-value` callback of
-    `eval-after-runtime!` / `eval-after-runtime-signalled!` — i.e. all
-    response shaping, after the round-trip.
+  - `tools/probe.cljs` `err->result` → the ex-data merged over
+    `{:ok? false :message (ex-message err)}`. Carries BOTH halves since
+    rf2-6tzm5. Reached by anything thrown from the `on-value` callback
+    of `eval-after-runtime!` / `eval-after-runtime-signalled!` — i.e.
+    all response shaping, after the round-trip.
 
   Which relay a given throw meets decides which half of the Spec 009
   shape the agent can read, so each is pinned here at its own boundary:
@@ -41,10 +41,13 @@
   - **unknown wire `:kind`** (`tools/wire-pipeline` `run-wire-pipeline`)
     fires only from response shaping — all five call sites across
     `snapshot`, `get-path`, `read-sub`, `trace-window` and `watch-epochs`
-    sit inside an `on-value` callback — so it meets `err->result`, whose
-    ex-data half carries the agent's sentence in `:reason` and its
-    discriminator in `:rf.error/id`. That is what the second test pins.
-    Its ex-MESSAGE is unreachable by any consumer; see rf2-6tzm5.
+    sit inside an `on-value` callback — so it meets `err->result`. The
+    second test pins BOTH halves it now relays: the ex-data's `:reason`
+    sentence and `:rf.error/id` discriminator, AND the ex-message's own
+    sentence plus trailing token. Before rf2-6tzm5 that message reached
+    no consumer at all, which is precisely why it needs a tripwire: a
+    relay that silently discards a canonical message is invisible to
+    every test that only reads ex-data.
 
   The other two throws (`server.cljs`'s `:rf.error/pair-mcp-ambiguous-shadow`
   and `:rf.error/pair-mcp-nrepl-port-not-found`) are raised inside discovery
@@ -202,12 +205,15 @@
         done))))
 
 ;; ---------------------------------------------------------------------------
-;; Relay 2 — `probe/err->result`: the EX-DATA is the consumer contract.
+;; Relay 2 — `probe/err->result`: the EX-DATA *and* the MESSAGE are the
+;; consumer contract (rf2-6tzm5 — the message half used to be dropped).
 ;; ---------------------------------------------------------------------------
 
 (deftest unknown-wire-pipeline-kind-reaches-the-agent-as-readable-ex-data
   ;; Reverting the ex-data's `:reason` to a bare keyword reds the sentence
-  ;; assertion; dropping `:rf.error/id` reds the discriminator assertion.
+  ;; assertion; dropping `:rf.error/id` reds the discriminator assertion;
+  ;; reverting `err->result` to `(merge {:ok? false} data)` — the shape that
+  ;; made this message dead prose — reds the two ex-message assertions.
   (async done
     (let [orig wp/run-wire-pipeline
           ;; The REAL pipeline, handed a `:kind` outside its closed
@@ -235,13 +241,21 @@
                      (pr-str (:reason edn))))
             (is (= :not-a-wire-kind (:kind edn))
                 "along with the actionable slot — WHICH kind was unknown")
-            ;; The finding, made durable. `err->result` relays ex-data and
-            ;; DROPS `(ex-message err)`, so `run-wire-pipeline`'s carefully
-            ;; composed message — and the `[:rf.error/…]` token in it —
-            ;; reaches nobody. If this ever goes non-nil, that is the
-            ;; improvement rf2-6tzm5 asks for: assert the message here and
-            ;; correct the claim in `wire_pipeline.cljs`'s throw comment,
-            ;; which today describes relay 1's behaviour at a relay-2 site.
-            (is (nil? (:message edn))
-                "the ex-MESSAGE does not reach a consumer at this relay")))
+            ;; The tripwire the finding earned (rf2-6tzm5). `err->result`
+            ;; used to relay ex-data and DROP `(ex-message err)`, so
+            ;; `run-wire-pipeline`'s carefully composed message — and the
+            ;; `[:rf.error/…]` token in it — reached nobody. Nothing else on
+            ;; this surface can notice that: every other assertion here reads
+            ;; ex-data, which the old relay preserved. These two rows are the
+            ;; only thing standing between a future `(merge {:ok? false}
+            ;; data)` and a second round of silently dead prose.
+            (let [msg (:message edn)]
+              (is (re-find #"unknown :kind" (str msg))
+                  (str "the ex-MESSAGE reaches the agent at this relay too\n  got: "
+                       (pr-str msg)))
+              (is (str/includes?
+                    (str msg)
+                    "[:rf.error/pair-mcp-unknown-wire-pipeline-kind]")
+                  (str "carrying the canonical [:rf.error/…] token\n  got: "
+                       (pr-str msg))))))
         done))))

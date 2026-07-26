@@ -529,7 +529,26 @@
   through `wire/result` so the structuredContent projection preserves
   keyword namespaces (a raw `clj->js` would truncate `:rf.error/*` reason
   values). Shared by the connected path (`handle-call*`) and the
-  closed-world pre-connection path (`handle-call-local`)."
+  closed-world pre-connection path (`handle-call-local`).
+
+  ## RELAY 1 of two — this one keeps the MESSAGE
+
+  pair-mcp has exactly two consumer-facing error relays, and WHERE in a
+  tool body a throw fires decides which one it meets. This one is
+  reached by anything thrown while the tool body BUILDS its request,
+  before the nREPL round-trip; `probe/err->result` (relay 2) is reached
+  by anything thrown from an `eval-after-runtime!` `on-value` callback,
+  i.e. all response shaping after it. So a throw site's ex-message is
+  load-bearing HERE and its ex-data is dropped — the reverse of what a
+  reader who has only seen relay 2 would assume.
+
+  That asymmetry is a known wart, half-fixed: relay 2 now carries both
+  halves (rf2-6tzm5), while this relay still drops `(ex-data err)` —
+  including the `:rf.error/id` an agent would rather branch on than
+  regex out of the message. rf2-qoih4 tracks closing it. Until then,
+  a throw site reached from here MUST put its actionable content in the
+  message; `tools/eval_form.cljs` `emit-name` is the live example, and
+  `error_boundary_test` pins both relays at the real MCP boundary."
   [conn name args extra]
   (-> (tools/invoke conn name args extra)
       (.catch (fn [err]
