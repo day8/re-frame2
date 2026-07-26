@@ -147,14 +147,15 @@
   ;; `re-frame.prod-gate-lane-pin-test` fails the run if it ever stops
   ;; arriving.
   ;;
-  ;; NOT THE WHOLE SUITE, YET. Under the real gate 78 of this artefact's 174
+  ;; NOT THE WHOLE SUITE, YET. Under the real gate 91 of this artefact's 174
   ;; test namespaces are red, almost all of them asserting dev instrumentation
   ;; (traces, the `:errors` sink, doc metadata, source coords) inline with
   ;; semantics — legitimate dev-posture tests, not defects. The runnable
   ;; roster therefore lives in `scripts/test-core-prod-gate.sh`, which appends
   ;; `-n` selectors for every namespace MINUS a documented known-red list, so
-  ;; a NEW namespace joins the lane by default. Do not invoke this alias bare;
-  ;; run the script.
+  ;; a NEW namespace joins the lane by default. What runs today is 83
+  ;; namespaces / 915 tests / 4257 assertions, green. Do not invoke this alias
+  ;; bare; run the script.
   :prod-gate
   {:jvm-opts  ["-Dre-frame.debug=false"]
    :main-opts ["-m" "re-frame.test-quiet.runner" "-e" ":slow" "-e" ":stress"]}

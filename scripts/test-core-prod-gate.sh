@@ -34,15 +34,19 @@
 # false green this whole file exists to close.
 #
 # WHY A ROSTER AND NOT THE WHOLE SUITE.  Nobody had ever run the core suite
-# under the real gate.  Run on 2026-07-27 it is emphatically RED: 79 of its 174
+# under the real gate.  Run on 2026-07-27 it is emphatically RED: 91 of its 174
 # test namespaces fail, and essentially every failure is a test asserting DEV
 # INSTRUMENTATION — a trace fired, an `:errors` sink received, `:doc` metadata
 # retained, source coords recorded — inline with the semantics it is really
 # about.  Under `-Dre-frame.debug=false` the framework does not emit any of
 # that, by design, so those are legitimate dev-posture tests rather than
 # defects, and "make the whole suite green under the gate" is not a fix, it is
-# a rewrite of how ~1500 assertions are spelled.  Triage beads are named per
+# a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
+#
+# What is left IS green, and it is not a rump: 83 namespaces, 915 tests, 4257
+# assertions, exit 0 — versus the zero suites that had ever executed under this
+# posture before.
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -67,7 +71,126 @@ test_root="$core/test"
 # a rename cannot leave a stale exclusion quietly suppressing coverage.
 # ---------------------------------------------------------------------------
 known_red=(
-  ROSTER_PLACEHOLDER
+  # ── NOT a gate failure — a SUBSET artefact, and the only one.  This suite
+  #    asserts that every optional per-feature artefact is loaded on the test
+  #    classpath (`feature-loaded?` for :http, :epoch, ...).  Those probe keys
+  #    are populated by whichever namespace `require`s the artefact, and
+  #    cognitect-test-runner requires only the namespaces a `-n` filter keeps —
+  #    so excluding `conformance-test` / `examples-test` for gate reasons takes
+  #    the loads with them.  Green under the gate when the WHOLE suite runs;
+  #    red only because this lane runs a slice.  It comes back on its own when
+  #    the two rosters below empty.
+  re-frame.features-cljs-test
+
+  # ── rf2-r9bra — NOT obviously instrumentation. Each of these fails on an
+  #    assertion about STATE, RESOLUTION or LIFECYCLE rather than about a
+  #    trace or a sink, which is the shape rf2-9c2jf had. They need a human
+  #    verdict — dev-posture test, or genuine production defect — before
+  #    anyone writes them off. The redaction/sensitivity pair is first in
+  #    the queue: if either protection is applied anywhere other than a
+  #    trace payload, a production build is shipping unredacted data.
+  re-frame.conformance-test
+  re-frame.core-api-additions-test
+  re-frame.elision-multi-owner-cljs-test
+  re-frame.examples-test
+  re-frame.frame-upsert-linearization-jvm-test
+  re-frame.live-run-frame-resolution-cljs-test
+  re-frame.machine-handler-meta-test
+  re-frame.partitioned-commit-test
+  re-frame.redact-interceptor-test
+  re-frame.sensitive-stamping-test
+  re-frame.subs-image-local-classification-cljs-test
+
+  # ── rf2-d2841 — dev-instrumentation assertions written inline with the
+  #    semantics they sit next to: "exactly one <...> trace fired", "the
+  #    :errors sink received", ":doc retained for tooling", "handler-meta
+  #    carries :ns". Under -Dre-frame.debug=false the framework emits none
+  #    of it, by design, so these are legitimate dev-posture tests — but
+  #    they drag their semantic neighbours out of this lane with them,
+  #    which is why the spine (smoke / drain / fx / events / sub-cache /
+  #    interceptor / frame-lifecycle) is excluded today. Every line removed
+  #    from here is a namespace whose semantics are now proven under the
+  #    production posture.
+  re-frame.capture-frame-reincarnation-sink-route-cljs-test
+  re-frame.capture-frame-test
+  re-frame.cascade-dispatch-id-test
+  re-frame.cascade-envelope-propagation-test
+  re-frame.classification-effects-cljs-test
+  re-frame.cofx-cljs-test
+  re-frame.cofx-envelope-test
+  re-frame.configure-test
+  re-frame.core-epoch-egress-profile-test
+  re-frame.cross-frame-dispatch-sync-warn-test
+  re-frame.db-noop-commit-test
+  re-frame.db-pending-trace-test
+  re-frame.dispatched-trace-cofx-test
+  re-frame.doc-metadata-prod-elision-test
+  re-frame.drain-test
+  re-frame.elision-test
+  re-frame.ep0026-inline-grammar-cljs-test
+  re-frame.event-context-partition-test
+  re-frame.events-test
+  re-frame.frame-destroy-composed-test
+  re-frame.frame-destroy-incarnation-jvm-test
+  re-frame.frame-initial-events-cljs-test
+  re-frame.frame-lifecycle-test
+  re-frame.frame-teardown-report-cljs-test
+  re-frame.fx-aggregate-classification-cljs-test
+  re-frame.fx-args-trace-egress-cljs-test
+  re-frame.fx-redirect-classification-cljs-test
+  re-frame.fx-test
+  re-frame.handler-source-test
+  re-frame.image-inline-metadata-normalization-cljs-test
+  re-frame.image-no-emit-trace-gate-cljs-test
+  re-frame.init-platform-test
+  re-frame.interceptor-override-summary-trace-test
+  re-frame.interceptor-test
+  re-frame.live-frame-reload-cljs-test
+  re-frame.machine-action-outcome-classification-cljs-test
+  re-frame.machine-routed-event-classification-cljs-test
+  re-frame.non-serialisable-event-payload-warn-test
+  re-frame.observation-port-cljs-test
+  re-frame.override-capture-trace-test
+  re-frame.pattern-smoke-test
+  re-frame.reg-event-cljs-test
+  re-frame.reg-meta-noswallow-cljs-test
+  re-frame.reg-view-injection-test
+  re-frame.registrar-warnings-test
+  re-frame.router-carried-frame-test
+  re-frame.router-front-of-queue-cljs-test
+  re-frame.smoke-test
+  re-frame.source-coord-jvm-test
+  re-frame.source-coord-prod-elision-test
+  re-frame.source-coords-test
+  re-frame.sub-algebra-view-test
+  re-frame.sub-arg-fragmentation-warn-test
+  re-frame.sub-cache-test
+  re-frame.sub-cycle-cljs-test
+  re-frame.sub-dispose-trace-test
+  re-frame.sub-parametric-inputs-test
+  re-frame.sub-topology-test
+  re-frame.subs-inline-normalization-cljs-test
+  re-frame.substrate-source-test
+  re-frame.substrate.derived-container-replaced-cljs-test
+  re-frame.success-path-call-site-test
+  re-frame.success-path-trigger-handler-test
+  re-frame.trace-buffer-test
+  re-frame.trace-cascade-captured-test
+  re-frame.trace-listener-concurrent-drain-serialization-test
+  re-frame.trace-listener-concurrent-serialization-test
+  re-frame.trace-listener-continuation-neutral-cljs-test
+  re-frame.trace-listener-deferred-batch-fifo-cljs-test
+  re-frame.trace-listener-drain-deadlock-test
+  re-frame.trace-listener-frame-tagged-serialization-test
+  re-frame.trace-listener-nested-emission-order-cljs-test
+  re-frame.trace-listener-post-drain-settled-state-cljs-test
+  re-frame.trace-listener-reentrant-dispatch-sync-deferral-test
+  re-frame.trace-listener-test
+  re-frame.trace-test
+  re-frame.trace.structural-retention-cljs-test
+  re-frame.trigger-handler-coord-test
+  re-frame.unknown-dispatch-opts-warn-test
+  re-frame.write-after-destroy-always-on-cljs-test
 )
 
 # ---------------------------------------------------------------------------
@@ -153,7 +276,7 @@ fi
 # renamed directory, an `-n` list that matched nothing — cannot report itself
 # green with `Ran 0 tests`.  Calibrated below the observed count with room for
 # ordinary churn; raise it when the roster grows materially.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-MIN_TESTS_PLACEHOLDER}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-800}"
 
 args=()
 for ns in $runnable; do

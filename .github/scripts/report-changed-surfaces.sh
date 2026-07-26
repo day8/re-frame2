@@ -329,6 +329,15 @@ else
       .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
         mark_all
         ;;
+      scripts/test-core-prod-gate.sh)
+        # rf2-f8x2i — this script IS the production-gate lane's roster: its
+        # `known_red` array decides which core namespaces the
+        # `jvm-core-prod-gate` job runs. Editing it therefore changes what
+        # that job covers, and the one edit that can silently REMOVE coverage
+        # (widening the exclusions) would otherwise fire no job at all — the
+        # same shape of unwatched gate the lane exists to close.
+        implementation_jvm=true
+        ;;
       spec/api-manifest-metadata.edn|spec/api-manifest.edn|spec/API.md)
         # rf2-4ka7c2.1 — false-green fix. The CLJS-only adapter / Xray /
         # pair-MCP public surfaces cannot be `require`d on the JVM, so their
