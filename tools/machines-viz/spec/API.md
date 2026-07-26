@@ -1553,20 +1553,18 @@ separation this section codifies).
 
 ## Read-only viewer
 
-A static page at the canonical hosted URL (or self-hosted by the
-consumer) that renders a chart decoded from a URL fragment.
+A static page, **hosted by the consumer**, that renders a chart decoded
+from a URL fragment.
 
 ### URL shape
 
 ```
-https://day8.github.io/re-frame2-machines-viz/viewer.html#machine=<base64url-transit>
-```
-
-Or, when self-hosted:
-
-```
 https://acme.example.com/path/to/viewer.html#machine=<base64url-transit>
 ```
+
+The origin and path are whatever the consumer serves the page from.
+There is **no hosted instance**, and `encode-share-url` has **no default
+host** — see [§Hosting](#hosting) below.
 
 ### Behaviour
 
@@ -1594,9 +1592,9 @@ https://acme.example.com/path/to/viewer.html#machine=<base64url-transit>
   chart renders the machine at rest. Per
   [DESIGN-RATIONALE Lock #5](./DESIGN-RATIONALE.md).
 - The page is statically hostable. Per
-  [DESIGN-RATIONALE Lock #7](./DESIGN-RATIONALE.md), the
-  canonical hosted instance at `day8.github.io` is a convenience,
-  not a contract; consumers can self-host.
+  [DESIGN-RATIONALE Lock #7](./DESIGN-RATIONALE.md) there is no
+  Day8-operated infrastructure behind it, and no Day8-hosted instance
+  either — see [§Hosting](#hosting).
 
 ### What the viewer never does
 
@@ -1617,10 +1615,42 @@ https://acme.example.com/path/to/viewer.html#machine=<base64url-transit>
   the viewer goes to my docs site" would have to fork the page;
   the canonical viewer is read-only end-to-end.
 
+### Hosting
+
+**Nobody deploys this page for you, and that is the design** (Lock #7,
+rf2-8m344). Publishing `day8/re-frame2-machines-viz` to Clojars ships the
+LIBRARY; it does not deploy anything, and no workflow in this repository
+does either. Until 2026-07-26 this section named a "canonical hosted
+instance" at `https://day8.github.io/re-frame2-machines-viz/viewer.html`
+and `encode-share-url` defaulted to it. That URL returned **404** and
+always had: there is no `day8/re-frame2-machines-viz` repository —
+machines-viz ships out of the re-frame2 monorepo — so every default
+share-URL was a dead link that looked correct to the person who copied it.
+
+Hosting the page is three steps and no infrastructure:
+
+```bash
+cd implementation
+npx shadow-cljs release machines-viz-viewer      # → out/machines-viz-viewer/viewer.js
+cp ../tools/machines-viz/public/viewer.html out/machines-viz-viewer/
+```
+
+Serve that directory — the two files are self-contained, decode client-side,
+and need no server logic. Then pass its URL to the encoder:
+
+```clojure
+(share/encode-share-url chart-state {:host "https://acme.example.com/viewer.html"})
+```
+
+`:host` is required. Omitting it throws rather than guessing
+(`:reason :no-host`).
+
 ### The viewer is a page, not library surface
 
 The viewer ships as a **page** — `public/viewer.html` plus the compiled
-`viewer.js` beside it. Its source lives on a source root of its own
+`viewer.js` beside it. "Ships" here means *is built and served by you*,
+not *is deployed by us*: see [§Hosting](#hosting) above. Its source lives
+on a source root of its own
 (`page/day8/re_frame2_machines_viz/viewer.cljs`) which the published
 `day8/re-frame2-machines-viz` jar does **not** carry, and
 `day8.re-frame2-machines-viz.viewer` is correspondingly **not** a
@@ -1651,12 +1681,17 @@ Source: lifted from
 ```clojure
 (:require [day8.re-frame2-machines-viz.share :as share])
 
-(share/encode-share-url chart-state)
-;; => "https://day8.github.io/re-frame2-machines-viz/viewer.html#machine=..."
-
 (share/encode-share-url chart-state {:host "https://acme.example.com/viewer.html"})
 ;; => "https://acme.example.com/viewer.html#machine=..."
+
+(share/encode-share-url chart-state {})
+;; => throws :rf.machines-viz.share/encode-failed, :reason :no-host
 ```
+
+`:host` is **required** — the absolute URL of the viewer page the caller
+hosts (see [§Hosting](#hosting)). There is no default and no arity that
+omits it: the library cannot know where your viewer is served from, and
+the value it used to guess returned 404 (rf2-8m344).
 
 `chart-state` is a map with the schema in
 [§Share-URL payload schema](#share-url-payload-schema) below. The
@@ -1691,6 +1726,13 @@ encoder:
 4. Wraps in the versioned envelope.
 5. Transit-writes the EDN-shaped value and base64url-encodes the Transit JSON.
 6. Wraps the fragment into the `:host` URL.
+
+Failure modes:
+
+| `:reason` | Meaning |
+|---|---|
+| `:no-host` | No non-blank `:host` was supplied. There is no default viewer host — see [§Hosting](#hosting). |
+| `:invalid-chart-state` | The allowlisted chart state fails the same `valid-chart-state?` predicate the decoder applies (a missing/malformed `:machine-id` or `:definition`, a non-keyword `:frame-id`, or a `:snapshot` `:state` that is none of the three configuration arms). Rejected at encode rather than emitted as an undecodable URL. |
 
 ### Decoder
 
@@ -1940,16 +1982,22 @@ private chart-state internals are never named in the user-facing message.
 ### Share URL
 
 ```clojure
-(export/share-url chart-element)
+(export/share-url chart-element {:host "https://acme.example.com/viewer.html"})
 ;; => URL string
 
-(export/copy-share-url-to-clipboard! chart-element)
+(export/copy-share-url-to-clipboard! chart-element {:host "https://acme.example.com/viewer.html"})
 ;; => Promise; clipboard contains the URL as text/plain
 ```
 
 `chart-element` is the in-DOM element rendered by `MachineChart`
 (or a hiccup-equivalent reference). The export functions derive the
 payload from the element's bound props + the live snapshot.
+
+`opts` is required and must carry `:host`, which is passed to
+`encode-share-url` (see [§Hosting](#hosting)); it may also carry an
+optional `:frame-id` for payload provenance. Neither fn has an
+`opts`-free arity — a share-URL that does not name a viewer someone
+actually serves is a dead link (rf2-8m344).
 
 ### Mermaid `stateDiagram-v2`
 

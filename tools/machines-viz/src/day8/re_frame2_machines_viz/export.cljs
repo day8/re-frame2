@@ -619,28 +619,29 @@
   topology + active-state configuration off the DOM seam, projects them
   into a `ChartState`, and delegates to `share/encode-share-url`.
 
-  `opts` is passed to `share/encode-share-url` (`{:host ...}`), and may
-  also carry `:frame-id` (the chart element doesn't know its frame; a
-  host that does can supply a frame-target id for payload provenance).
-  `:frame-id` is OPTIONAL (v2 / EP-0023) — omit it to share a topology
-  that does not name a live frame. Returns the URL string."
-  ([chart-element] (share-url chart-element nil))
-  ([chart-element opts]
-   (let [chart-state (element->chart-state chart-element opts)]
-     (share/encode-share-url chart-state (select-keys opts [:host])))))
+  `opts` REQUIRES `:host` — the absolute URL of the viewer page you host,
+  passed straight to `share/encode-share-url`. There is no default host
+  (rf2-8m344), so there is no `opts`-free arity: a share-URL that does not
+  name a real viewer is a dead link. `opts` may also carry `:frame-id`
+  (the chart element doesn't know its frame; a host that does can supply a
+  frame-target id for payload provenance). `:frame-id` is OPTIONAL
+  (v2 / EP-0023) — omit it to share a topology that does not name a live
+  frame. Returns the URL string."
+  [chart-element opts]
+  (let [chart-state (element->chart-state chart-element opts)]
+    (share/encode-share-url chart-state (select-keys opts [:host]))))
 
 (defn copy-share-url-to-clipboard!
   "Write the chart's share-URL to the clipboard as `text/plain`.
-  Returns a Promise."
-  ([chart-element] (copy-share-url-to-clipboard! chart-element nil))
-  ([chart-element opts]
-   (let [url (share-url chart-element opts)]
-     (if (and js/navigator (.-clipboard js/navigator))
-       (.writeText (.-clipboard js/navigator) url)
-       (js/Promise.reject
-         (error/thrown-ex-info
-           :rf.machines-viz.export/no-clipboard
-           'machines-viz.export/copy-share-url-to-clipboard!
-           (str "the browser clipboard API is unavailable; copy requires a "
-                "secure (https) context with navigator.clipboard support.")
-           {:recovery :use-a-secure-context-with-clipboard-support}))))))
+  `opts` requires `:host`, exactly as `share-url` does. Returns a Promise."
+  [chart-element opts]
+  (let [url (share-url chart-element opts)]
+    (if (and js/navigator (.-clipboard js/navigator))
+      (.writeText (.-clipboard js/navigator) url)
+      (js/Promise.reject
+        (error/thrown-ex-info
+          :rf.machines-viz.export/no-clipboard
+          'machines-viz.export/copy-share-url-to-clipboard!
+          (str "the browser clipboard API is unavailable; copy requires a "
+               "secure (https) context with navigator.clipboard support.")
+          {:recovery :use-a-secure-context-with-clipboard-support})))))

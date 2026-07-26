@@ -35,7 +35,8 @@ Surfaces that ship today:
 - **Read-only viewer page** — `public/viewer.html` + `viewer.cljs` decode
   a `#machine=` URL fragment client-side and mount the chart with
   `:read-only? true`. Malformed / newer-version payloads render a banner,
-  not a crash.
+  not a crash. You host it — see
+  [§Building and hosting the viewer page](#building-and-hosting-the-viewer-page).
 - **Share-URL encode / decode** — `ChartState → validate + canonicalise
   → versioned envelope → transit-write (json) → base64url → #machine=`.
   Runtime `:data`, source-coords, and definition metadata are dropped
@@ -90,6 +91,42 @@ at all — and `day8/reagent-slim` publishes *its* adapter at the same
 canonical `re-frame.adapter.reagent` namespace, so a slim app taking
 machines-viz would have ended up with two implementations of that
 namespace on one classpath, load order picking the substrate.
+
+## Building and hosting the viewer page
+
+**Nobody deploys this page for you.** Publishing
+`day8/re-frame2-machines-viz` to Clojars ships the library jar and
+nothing else; `release-machines-viz.yml` does not build or deploy the
+page, and no other workflow does either. There is no hosted instance.
+
+Until 2026-07-26 this repository claimed otherwise: `share/default-host`
+and the docs named
+`https://day8.github.io/re-frame2-machines-viz/viewer.html` as a
+"canonical hosted instance". It returns **404** and always did — there is
+no `day8/re-frame2-machines-viz` repository, because machines-viz ships
+out of the re-frame2 monorepo. Every default share-URL was a dead link
+that looked correct to whoever copied it. The default is gone and `:host`
+is now required (rf2-8m344).
+
+Hosting the page yourself is two files and no server:
+
+```bash
+cd implementation
+npx shadow-cljs release machines-viz-viewer      # → out/machines-viz-viewer/viewer.js
+cp ../tools/machines-viz/public/viewer.html out/machines-viz-viewer/
+```
+
+Serve that directory from anywhere that serves static files — your docs
+site, an S3 bucket, a GitHub Pages branch of your own. Then point
+share-URLs at it:
+
+```clojure
+(share/encode-share-url chart-state {:host "https://acme.example.com/viewer.html"})
+```
+
+The page decodes the `#machine=` fragment entirely client-side, so the
+fragment never reaches your server and the host needs no application
+logic. Per [DESIGN-RATIONALE Lock #7](./spec/DESIGN-RATIONALE.md).
 
 ## How to test
 
