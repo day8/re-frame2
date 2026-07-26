@@ -869,6 +869,80 @@ jobs:
       - name: Run JVM tests (core artefact)
         run: clojure -M:test
 
+  # rf2-f8x2i — the core suite under the REAL production gate.
+  #
+  # WHAT WAS MISSING. `SECURITY.md` documents `-Dre-frame.debug=false` (and
+  # `RE_FRAME_DEBUG=false`) as the JVM/SSR production setting, and
+  # `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
+  # Nothing in `.github/workflows` or `scripts/` had ever set it, so the
+  # documented production configuration was executed by NO suite, anywhere.
+  # The suites that call themselves production-gate tests
+  # (`jvm_prod_gate_integration_test`, `ep0008_producers_jvm_gate_test`, and
+  # friends) rebind the Var with `with-redefs` AFTER the framework has loaded,
+  # which cannot reach a decision the gate made at load time. That is how
+  # rf2-9c2jf — `dispatch-sync` running its handler ZERO times under the
+  # documented production gate, app-db untouched — stayed green.
+  #
+  # WHY IT IS A SEPARATE JOB AND NOT A FLAG ON `jvm-core`. The two lanes make
+  # different claims and neither substitutes for the other: `jvm-core` proves
+  # the framework's behaviour WITH its dev instrumentation, this job proves the
+  # semantics that must survive WITHOUT it. Same artefact, same classpath (the
+  # `:prod-gate` alias is a modifier composed onto `:test`), same cache key —
+  # only the JVM posture differs.
+  #
+  # THE JOB CANNOT PASS VACUOUSLY. `re-frame.prod-gate-lane-pin-test` runs
+  # inside the lane and asserts unconditionally that `re-frame.debug` reads
+  # `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it. If the
+  # property ever stops arriving, this job goes RED rather than green-on-the-
+  # wrong-posture — which matters more here than anywhere else in the file,
+  # because the lane's namespace roster is by construction a subset of what
+  # already passes in dev posture, so a lost flag would otherwise be invisible.
+  #
+  # SCOPE. Not the whole core suite yet: 78 of its 174 test namespaces are red
+  # under the real gate, essentially all of them asserting dev instrumentation
+  # (traces, the `:errors` sink, doc metadata, source coords) inline with
+  # semantics. Those are legitimate dev-posture tests, not defects; the roster
+  # and the beads splitting them out live in `scripts/test-core-prod-gate.sh`.
+  # The roster is an EXCLUSION list, so a new namespace joins this lane by
+  # default and has to be excluded deliberately.
+  jvm-core-prod-gate:
+    name: JVM core under the production gate (-Dre-frame.debug=false)
+    # Same surface gate as jvm-core: it is the same artefact.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      # Deliberately the SAME cache key as jvm-core — identical classpath, so
+      # the two jobs warm one cache instead of competing for two.
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-core-${{ hashFiles('implementation/core/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-core-
+            ${{ runner.os }}-clj-
+
+      # The script prints the property, the pin, the roster size and the
+      # excluded count before it runs anything, so the job's own log carries
+      # the evidence of which posture it ran in.
+      - name: Run the core suite under -Dre-frame.debug=false
+        run: bash scripts/test-core-prod-gate.sh
+
   jvm-ui:
     name: JVM ui (clojure -M:test)
     # rf2-vxgfnd.6 — the re-frame.ui compiled-view substrate's JVM
@@ -4618,6 +4692,11 @@ jobs:
       # database cannot ride a PR past a `--no-verify` or an uninstalled hook.
       - beads-pr-boundary
       - jvm-core
+      # rf2-f8x2i — required, so the ONE lane that executes the documented
+      # production configuration (`-Dre-frame.debug=false`) cannot be broken by
+      # a merge that never ran it. Advisory would reproduce the original hole
+      # in a new shape: a gate nobody's merge waits on.
+      - jvm-core-prod-gate
       - jvm-ui
       - cljs-ui-g1
       - cljs-ui-g13

@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+#
+# rf2-f8x2i — run `implementation/core` under the REAL production gate.
+#
+# WHY THIS EXISTS.  `SECURITY.md` documents `-Dre-frame.debug=false` (and
+# `RE_FRAME_DEBUG=false`) as the JVM/SSR production setting, and
+# `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
+# Nothing in `.github/workflows` or `scripts/` had ever set it, so the
+# documented production configuration was executed by no suite anywhere.  The
+# suites that CALL THEMSELVES production-gate tests
+# (`jvm_prod_gate_integration_test`, `ep0008_producers_jvm_gate_test`, and
+# friends) rebind `interop/debug-enabled?` with `with-redefs` AFTER the
+# framework has loaded, and a load-time gate is invisible to that.  That is not
+# a theoretical gap: rf2-9c2jf was `dispatch-sync` running its handler ZERO
+# times under the documented gate — `:rf.error/no-such-handler`, app-db
+# untouched, while `registrar/lookup` returned the handler at that same moment
+# — and it stayed green for as long as it existed.
+#
+#     bash scripts/test-core-prod-gate.sh          run the lane
+#     bash scripts/test-core-prod-gate.sh --plan   print the roster, run nothing
+#
+# CI arm: the `jvm-core-prod-gate` job in `.github/workflows/test.yml`, which
+# is in `all-required-passed`'s `needs:`.
+#
+# HOW THE FLAG GETS THERE, AND HOW YOU KNOW IT ARRIVED.  The property lives in
+# the `:prod-gate` alias's `:jvm-opts` (implementation/core/deps.edn), composed
+# onto `:test` — so it is part of the LANE's definition rather than something a
+# caller has to remember, and `:extra-paths` / `:extra-deps` cannot drift
+# between the two lanes.  `re-frame.prod-gate-lane-pin-test` then runs INSIDE
+# the lane and asserts, unconditionally, that the property reached this JVM and
+# that the framework honoured it.  Without that pin a lost flag would not go
+# red: this roster is by construction a subset of what already passes in dev
+# posture, so the lane would go GREEN on the wrong posture — the exact class of
+# false green this whole file exists to close.
+#
+# WHY A ROSTER AND NOT THE WHOLE SUITE.  Nobody had ever run the core suite
+# under the real gate.  Run on 2026-07-27 it is emphatically RED: 79 of its 174
+# test namespaces fail, and essentially every failure is a test asserting DEV
+# INSTRUMENTATION — a trace fired, an `:errors` sink received, `:doc` metadata
+# retained, source coords recorded — inline with the semantics it is really
+# about.  Under `-Dre-frame.debug=false` the framework does not emit any of
+# that, by design, so those are legitimate dev-posture tests rather than
+# defects, and "make the whole suite green under the gate" is not a fix, it is
+# a rewrite of how ~1500 assertions are spelled.  Triage beads are named per
+# cluster below.
+#
+# The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
+# the point: a namespace added to `implementation/core/test/` joins this lane
+# BY DEFAULT and has to be excluded deliberately, so a new suite that breaks
+# under the production gate reddens this job the day it lands.  An allowlist
+# would have the opposite failure mode — silently not covering the new thing.
+# The list shrinks as the beads land; when it reaches zero, this script is one
+# line and the `-n` machinery goes away.
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+core="$repo_root/implementation/core"
+test_root="$core/test"
+
+# ---------------------------------------------------------------------------
+# The known-red roster.
+#
+# Every entry is a namespace that FAILS under `-Dre-frame.debug=false` today,
+# grouped by why.  Each group names the bead that clears it.  An entry that no
+# longer names a real namespace is a hard error (see `verify_roster` below), so
+# a rename cannot leave a stale exclusion quietly suppressing coverage.
+# ---------------------------------------------------------------------------
+known_red=(
+  ROSTER_PLACEHOLDER
+)
+
+# ---------------------------------------------------------------------------
+# Roster derivation
+# ---------------------------------------------------------------------------
+
+# Every namespace DECLARED under implementation/core/test/, read from the `(ns
+# ...)` form rather than derived from the path — a lane selector is applied by
+# the runner to the declared name, so that is the name that has to match.
+declared_nses() {
+  find "$test_root" -type f \( -name '*.clj' -o -name '*.cljc' \) -exec \
+    sed -n 's/^(ns[[:space:]]\{1,\}\(\^{[^}]*}[[:space:]]*\)\{0,1\}\([^[:space:])]\{1,\}\).*/\2/p' {} + \
+    | sort -u
+}
+
+# `cognitect.test-runner` discovers namespaces under `test/` and keeps those
+# matching `.*-test$` (the default `-r`); `-n` then filters that SET.  Mirror
+# the same filter here so the two cannot disagree about what the universe is.
+test_nses() {
+  declared_nses | grep -E -- '-test$'
+}
+
+# Two guards, because a silently-shrinking roster is the failure mode this lane
+# is supposed to make impossible.
+verify_roster() {
+  local nses="$1" files ns_count missing=()
+
+  # 1. The `(ns ...)` scrape must still see every test file.  If the regex ever
+  #    stops matching, the lane quietly narrows and stays green.
+  files="$(find "$test_root" -type f \( -name '*_test.clj' -o -name '*_test.cljc' \) | wc -l)"
+  ns_count="$(printf '%s\n' "$nses" | grep -c . || true)"
+  if [ "$files" -ne "$ns_count" ]; then
+    printf 'FAIL prod-gate roster: %s test files under %s but %s `-test` namespaces scraped.\n' \
+      "$files" "${test_root#"$repo_root"/}" "$ns_count" >&2
+    printf '     The `(ns ...)` scrape in declared_nses() has drifted from the tree.\n' >&2
+    return 1
+  fi
+
+  # 2. Every exclusion must still name a live namespace.  A stale entry is an
+  #    exclusion nobody can see the effect of.
+  for ns in "${known_red[@]}"; do
+    printf '%s\n' "$nses" | grep -q -x -F -- "$ns" || missing+=("$ns")
+  done
+  if [ ${#missing[@]} -ne 0 ]; then
+    printf 'FAIL prod-gate roster: %s known-red entr(y|ies) name no live namespace:\n' \
+      "${#missing[@]}" >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    printf '     Renamed or deleted? Drop the entry from known_red in %s.\n' \
+      "${BASH_SOURCE[0]#"$repo_root"/}" >&2
+    return 1
+  fi
+}
+
+all_nses="$(test_nses)"
+verify_roster "$all_nses"
+
+excluded="$(printf '%s\n' "${known_red[@]}" | sort -u)"
+runnable="$(printf '%s\n' "$all_nses" | grep -v -x -F -f <(printf '%s\n' "$excluded"))"
+
+runnable_count="$(printf '%s\n' "$runnable" | grep -c . || true)"
+excluded_count="$(printf '%s\n' "$excluded" | grep -c . || true)"
+total_count="$(printf '%s\n' "$all_nses" | grep -c . || true)"
+
+# ---------------------------------------------------------------------------
+# Report the posture BEFORE running, so the log carries the evidence
+# ---------------------------------------------------------------------------
+printf '==> implementation/core under the REAL production gate\n'
+printf '    jvm property : -Dre-frame.debug=false (implementation/core/deps.edn, :prod-gate :jvm-opts)\n'
+printf '    posture pin  : re-frame.prod-gate-lane-pin-test (red if the property did not arrive)\n'
+printf '    namespaces   : %s of %s (%s excluded as known-red)\n' \
+  "$runnable_count" "$total_count" "$excluded_count"
+
+if [ "${1:-}" = "--plan" ]; then
+  printf '    runnable:\n'
+  printf '      %s\n' $runnable
+  printf '    excluded:\n'
+  printf '      %s\n' $excluded
+  exit 0
+fi
+
+# The coverage floor.  `re-frame.test-quiet.runner` reds any SUITE lane that
+# executed fewer than RF2_MIN_TESTS tests, so a roster that collapsed — a
+# renamed directory, an `-n` list that matched nothing — cannot report itself
+# green with `Ran 0 tests`.  Calibrated below the observed count with room for
+# ordinary churn; raise it when the roster grows materially.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-MIN_TESTS_PLACEHOLDER}"
+
+args=()
+for ns in $runnable; do
+  args+=(-n "$ns")
+done
+
+cd "$core"
+if ! clojure -M:test:prod-gate "${args[@]}"; then
+  printf '\nFAIL implementation/core under -Dre-frame.debug=false\n' >&2
+  printf 'repro: bash scripts/test-core-prod-gate.sh\n' >&2
+  printf 'A namespace that is green in `clojure -M:test` and red here is asserting\n' >&2
+  printf 'DEV INSTRUMENTATION, or it is a genuine production defect (rf2-9c2jf was\n' >&2
+  printf 'the latter). Decide which before touching the known_red roster.\n' >&2
+  exit 1
+fi
+
+printf 'PASS implementation/core under -Dre-frame.debug=false (%s namespaces)\n' "$runnable_count"
