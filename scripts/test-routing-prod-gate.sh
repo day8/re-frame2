@@ -170,8 +170,15 @@ known_red=(
   re-frame.routing-nav-token-test                 # 32
   re-frame.routing-navigation-test                # 64
   re-frame.routing-plan-seam-test                 # 31
-  re-frame.routing-prefetch-test                  # 18
-
+  #    CLEARED 2026-07-27 (rf2-o5dbf, batch 5): routing-prefetch.  Its
+  #    `@calls` atom is the stubbed `:routing/on-route-prefetch` warm hook —
+  #    a late-bound fn, NOT a trace — so "did prefetch reach planning, and
+  #    with which resolved identity" was always production-visible; only the
+  #    summary / rejection REPORTING is dev-gated.  Note the carrier-absence
+  #    trio at its foot: with no trace the `tags` map is nil, so all three
+  #    would have certified a PRIVACY guarantee about a payload that was
+  #    never built.
+  #
   #    CLEARED 2026-07-27 (rf2-o5dbf, batch 4): routing-registry,
   #    routing-scroll.  Both had NEGATIVE trace assertions that this roster
   #    line was hiding — the shadow advisory's two "registers with ZERO
