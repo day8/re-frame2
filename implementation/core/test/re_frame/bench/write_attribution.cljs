@@ -583,13 +583,28 @@
 ;; ---------------------------------------------------------------------------
 ;; rig construction
 
-(defn- build-rig! [n cells-n ns-per-frame]
+(defn- build-rig! [n cells-n ns-per-frame coords?]
   ;; One sub-id per cell, exactly B6's `:b6/cell` shape but registered per
   ;; index so every subscription is a distinct cache entry with a distinct
   ;; body closure — the shape a real application's 300 boundaries have.
+  ;;
+  ;; `coords?` (WA_COORDS=1) decides whether those registrations carry SOURCE
+  ;; COORDS, and it is not a detail (rf2-zxv06). This ns requires
+  ;; `re-frame.core` WITHOUT `:include-macros true`, so `rf/reg-sub` here is
+  ;; the plain FUNCTION and no call site is captured — the registrar slot
+  ;; comes out `{}`. A real application writes `(rf/reg-sub …)` in a namespace
+  ;; that does get the macro, so its slots carry `:ns` / `:file` / `:line`
+  ;; (`:column` is dev-only and absent under `:advanced` + goog.DEBUG=false).
+  ;; That is the difference between `P-SCOPE` and `P-SCOPEM` — a factor of six
+  ;; — so the ladder can be run either way and the header prints which it is.
+  ;; The DEFAULT stays coord-less, which is what rf2-jr76s measured, so the
+  ;; recorded slope remains comparable.
   (doseq [i (range cells-n)]
-    (rf/reg-sub (keyword "wa" (str "cell" i))
-                (fn [db _] (get-in db [:cells i]))))
+    (let [body (fn [db _] (get-in db [:cells i]))
+          qid  (keyword "wa" (str "cell" i))]
+      (if coords?
+        (rf/reg-sub qid prod-sub-meta body)
+        (rf/reg-sub qid body))))
   (let [qids  (mapv #(keyword "wa" (str "cell" %)) (range cells-n))
         qvs   (mapv vector qids)
         ;; One frame per subscription count, each with its OWN held
@@ -678,6 +693,7 @@
         samples  (env-int "WA_SAMPLES" 40)
         warmup   (env-int "WA_WARMUP" 3)
         rev?     (= "rev" (env "WA_ORDER" ""))
+        coords?  (= "1" (env "WA_COORDS" ""))
         ns-per-frame [0 (js/Math.round (/ n 4)) (js/Math.round (/ n 2)) n]]
     (rf/init! (spine/make-react-adapter
                 (spine/make-react-spine
@@ -692,7 +708,7 @@
     (vreset! ctl-templates
              (into {} (concat (map (fn [d] [(ctl-key "DBL" d) (packed-doubles d)]) ctl-double-ds)
                               (map (fn [d] [(ctl-key "SMI" d) (packed-smis d)]) ctl-smi-ds))))
-    (build-rig! n n ns-per-frame)
+    (build-rig! n n ns-per-frame coords?)
     (println (gstring/format ";; rf2-jr76s WRITE attribution — node V8, :advanced"))
     (println (gstring/format ";; debug-enabled? = %s   gc-exposed? = %s"
                      interop/debug-enabled?
@@ -700,9 +716,22 @@
     (println (gstring/format ";; node %s  V8 %s  pointer-compression=%s (Chrome ships it ON: a tagged slot is 4 B there, 8 B here)"
                      (.-node js/process.versions) (.-v8 js/process.versions)
                      (if (= 1 (gobj/getValueByKeys js/process "config" "variables" "v8_enable_pointer_compression")) "ON" "OFF")))
-    (println (gstring/format ";; n=%d samples=%d warmup=%d order=%s frames=%s"
+    (println (gstring/format ";; n=%d samples=%d warmup=%d order=%s frames=%s coords=%s"
                      n samples warmup (if rev? "REVERSED" "forward")
-                     (pr-str ns-per-frame)))
+                     (pr-str ns-per-frame) (if coords? "ON" "off")))
+    ;; PROVENANCE, not decoration (rf2-zxv06). `handler-scope-from-meta`'s cost
+    ;; is dominated by whether the registrar slot carries source coords: with
+    ;; `:ns` / `:file` / `:line` it builds a coord map AND a trigger map on top
+    ;; of the record; without them `trigger-handler-from-meta` returns nil and
+    ;; the record is all there is. So which of `P-SCOPE` (coord-less) and
+    ;; `P-SCOPEM` (coord-carrying) predicts the ladder's slope depends on a
+    ;; fact about THIS build, and guessing it would be guessing the headline.
+    (let [slot (registrar/lookup :sub (first (:qids @rig)))]
+      (println (gstring/format ";; registered sub-meta coord keys = %s  (trigger-handler %s)"
+                       (pr-str (select-keys slot [:ns :file :line :column]))
+                       (if (trace/trigger-handler-from-meta :sub :probe slot)
+                         "BUILT — P-SCOPEM is the predictive arm"
+                         "nil — P-SCOPE is the predictive arm"))))
     ;; Agreement gate: every held subscription must read what the writer
     ;; wrote, or the graph is not wired and nothing below is evidence.
     (let [f (last (:frames @rig))
