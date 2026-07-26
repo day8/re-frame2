@@ -673,8 +673,7 @@ def _crossing_is_transparent(masked: str, open_idx: int, offset: int, sym: str) 
         return True  # a vector / map / set literal binds nothing
     # A reader conditional (`#?(:clj …)` / `#?@(…)`) is a branch selector, not a
     # binder; its head is a platform keyword, so it needs saying explicitly.
-    if masked[max(0, open_idx - 2):open_idx].endswith("#?") or \
-       masked[max(0, open_idx - 3):open_idx].endswith("#?@"):
+    if masked[max(0, open_idx - 3):open_idx].endswith(("#?", "#?@")):
         return True
     m = _FORM_HEAD_RE.match(masked, open_idx)
     if not m:
