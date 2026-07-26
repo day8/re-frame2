@@ -2,12 +2,38 @@
   "Scroll-restoration tests for re-frame.routing (scroll-position
   save/lookup, per-frame isolation, the LRU cap, the `:rf.nav/scroll` fx
   emission, and scroll-strategy resolution precedence). Split from
-  routing_test.clj per rf2-u8qe7y finding 3."
+  routing_test.clj per rf2-u8qe7y finding 3.
+
+  ## Posture split (rf2-o5dbf)
+
+  Scroll restoration proper is production-real and carries no posture guard:
+  the save / lookup round-trip, per-frame isolation, the LRU cap and eviction
+  order, cache teardown with the frame, the `:rf.nav/scroll` fx EMISSION (what
+  the plan puts on `:fx`), and strategy-resolution precedence all run in the
+  ordinary `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh`
+  (the `-Dre-frame.debug=false` lane).
+
+  The one exception is `nav-fx-skip-traces-use-canonical-rf-fx-id-tag`, which
+  is about a TRACE TAG SPELLING — that the four `:rf.nav/*` JVM skip paths
+  stamp the canonical `:rf.fx/id` rather than a bare `:fx-id`. Tag spelling is
+  a property of `:rf.fx/skipped-on-platform` events, emitted through
+  `trace/emit!` behind `interop/debug-enabled?`, so under the real gate there
+  are no events to spell anything. Its assertions are kept VERBATIM inside
+  `(when interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+
+  Note the five `(is (not (contains? (first tags) :fx-id)))` legs in
+  particular: with no traces `(first tags)` is nil and `(contains? nil :fx-id)`
+  is false, so each would pass VACUOUSLY — reporting that the drift was
+  removed from a tag map that was never built. Outside the arm each block now
+  asserts the always-on CAUSE of the skip instead: the fx's
+  `:platforms #{:client}` declaration (registrar state), and for the
+  frame-not-url-bound path, that the frame really is not the URL owner."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.routing :as routing]
             [re-frame.routing.nav-fx :as nav-fx]
             [re-frame.routing.nav-fx-schemas :as nav-fx-schemas]
@@ -473,23 +499,33 @@
   (testing ":rf.nav/scroll's JVM skip-on-platform trace stamps :rf.fx/id, not bare :fx-id"
     (let [tags (capture-fx-traces
                  #(scroll/scroll-fx-handler nil {:strategy :top}))]
-      (is (= 1 (count tags))
-          "the JVM :rf.nav/scroll handler emits exactly one skip trace")
-      (is (= :rf.nav/scroll (:rf.fx/id (first tags)))
-          "the skip trace carries :rf.fx/id :rf.nav/scroll (canonical identity tag)")
-      (is (not (contains? (first tags) :fx-id))
-          "no bare :fx-id tag remains (drift removed)")))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
+      (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/scroll)))
+          ":rf.nav/scroll is declared :client-only — that is what makes the JVM skip")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count tags))
+            "the JVM :rf.nav/scroll handler emits exactly one skip trace")
+        (is (= :rf.nav/scroll (:rf.fx/id (first tags)))
+            "the skip trace carries :rf.fx/id :rf.nav/scroll (canonical identity tag)")
+        (is (not (contains? (first tags) :fx-id))
+            "no bare :fx-id tag remains (drift removed)"))))
 
   (testing ":rf.nav/capture-scroll's JVM skip-on-platform trace stamps :rf.fx/id"
     (let [tags (capture-fx-traces
                  #(scroll/capture-scroll-handler {:frame :rf/default}
                                                  {:url "/articles/intro"}))]
-      (is (= 1 (count tags))
-          "the JVM :rf.nav/capture-scroll handler emits exactly one skip trace")
-      (is (= :rf.nav/capture-scroll (:rf.fx/id (first tags)))
-          "the skip trace carries :rf.fx/id :rf.nav/capture-scroll")
-      (is (not (contains? (first tags) :fx-id))
-          "no bare :fx-id tag remains")))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
+      (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/capture-scroll)))
+          ":rf.nav/capture-scroll is declared :client-only")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count tags))
+            "the JVM :rf.nav/capture-scroll handler emits exactly one skip trace")
+        (is (= :rf.nav/capture-scroll (:rf.fx/id (first tags)))
+            "the skip trace carries :rf.fx/id :rf.nav/capture-scroll")
+        (is (not (contains? (first tags) :fx-id))
+            "no bare :fx-id tag remains"))))
 
   (testing ":rf.nav/push-url's JVM owner-skip trace stamps :rf.fx/id"
     ;; :rf/default is the URL owner in this suite (reset-runtime declares
@@ -497,22 +533,32 @@
     ;; (history.pushState is browser-only), emitting :rf.fx/skipped-on-platform.
     (let [tags (capture-fx-traces
                  #(nav-fx/push-url-handler {:frame :rf/default} "/articles"))]
-      (is (= 1 (count tags))
-          "the JVM :rf.nav/push-url handler emits exactly one skip trace")
-      (is (= :rf.nav/push-url (:rf.fx/id (first tags)))
-          "the skip trace carries :rf.fx/id :rf.nav/push-url")
-      (is (not (contains? (first tags) :fx-id))
-          "no bare :fx-id tag remains")))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
+      (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/push-url)))
+          ":rf.nav/push-url is declared :client-only")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count tags))
+            "the JVM :rf.nav/push-url handler emits exactly one skip trace")
+        (is (= :rf.nav/push-url (:rf.fx/id (first tags)))
+            "the skip trace carries :rf.fx/id :rf.nav/push-url")
+        (is (not (contains? (first tags) :fx-id))
+            "no bare :fx-id tag remains"))))
 
   (testing ":rf.nav/replace-url's JVM owner-skip trace stamps :rf.fx/id"
     (let [tags (capture-fx-traces
                  #(nav-fx/replace-url-handler {:frame :rf/default} "/articles"))]
-      (is (= 1 (count tags))
-          "the JVM :rf.nav/replace-url handler emits exactly one skip trace")
-      (is (= :rf.nav/replace-url (:rf.fx/id (first tags)))
-          "the skip trace carries :rf.fx/id :rf.nav/replace-url")
-      (is (not (contains? (first tags) :fx-id))
-          "no bare :fx-id tag remains")))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
+      (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/replace-url)))
+          ":rf.nav/replace-url is declared :client-only")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count tags))
+            "the JVM :rf.nav/replace-url handler emits exactly one skip trace")
+        (is (= :rf.nav/replace-url (:rf.fx/id (first tags)))
+            "the skip trace carries :rf.fx/id :rf.nav/replace-url")
+        (is (not (contains? (first tags) :fx-id))
+            "no bare :fx-id tag remains"))))
 
   (testing ":rf.nav/push-url's frame-not-url-bound skip trace also stamps :rf.fx/id"
     ;; A non-URL-bound frame skips the history push with :reason
@@ -521,11 +567,18 @@
     (rf/make-frame {:id :story/variant})              ;; no :url-bound?
     (let [tags (capture-fx-traces
                  #(nav-fx/push-url-handler {:frame :story/variant} "/articles"))]
-      (is (= 1 (count tags))
-          "a non-URL-bound frame's :rf.nav/push-url emits exactly one skip trace")
-      (is (= :rf.nav/push-url (:rf.fx/id (first tags)))
-          "the frame-not-url-bound skip trace carries :rf.fx/id :rf.nav/push-url")
-      (is (= :frame-not-url-bound (:reason (first tags)))
-          "it is the frame-not-url-bound skip path (not the platform skip)")
-      (is (not (contains? (first tags) :fx-id))
-          "no bare :fx-id tag remains"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the OTHER skip path's
+      ;; always-on cause — :story/variant is not the URL owner, so the push
+      ;; has nothing to push to whatever the posture.
+      (is (= :rf/default (routing/url-owner-frame-id))
+          ":story/variant is not the URL owner — the frame-not-url-bound skip path")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count tags))
+            "a non-URL-bound frame's :rf.nav/push-url emits exactly one skip trace")
+        (is (= :rf.nav/push-url (:rf.fx/id (first tags)))
+            "the frame-not-url-bound skip trace carries :rf.fx/id :rf.nav/push-url")
+        (is (= :frame-not-url-bound (:reason (first tags)))
+            "it is the frame-not-url-bound skip path (not the platform skip)")
+        (is (not (contains? (first tags) :fx-id))
+            "no bare :fx-id tag remains")))))

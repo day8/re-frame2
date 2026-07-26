@@ -3,12 +3,39 @@
   (reg-route, match-url, route-url, the match/registry primitives, query
   coercion + the keyword-interning cap, optional groups, splats, pattern
   parsing, and metadata validation). Split from routing_test.clj per
-  rf2-u8qe7y finding 3."
+  rf2-u8qe7y finding 3.
+
+  ## Posture split (rf2-o5dbf)
+
+  The registry is production-real and almost all of this namespace carries no
+  posture guard: `reg-route` validation and its fail-loud throws, `match-url`
+  / `route-url` and their round trip, the ranking algorithm, optional groups,
+  splats, query coercion and the keyword-interning cap all run in the ordinary
+  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
+  `-Dre-frame.debug=false` lane).
+
+  Three deftests observed registry facts through the DEV TRACE instead: the
+  `:rf.route/registered` and `:rf.route/cleared` lifecycle ops (rf2-dn26r) and
+  the `:rf.warning/route-shadowed-by-equal-score` advisory (rf2-6gzobp). All
+  three emit through `trace/emit!`, gated on `interop/debug-enabled?` and read
+  once at load time. Their assertions are kept VERBATIM inside
+  `(when interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+
+  Two of the shadow-advisory blocks are NEGATIVE (`(is (= [] warns))` for the
+  every-app static case and the disjoint param-prefix pair) and would pass
+  vacuously under the gate. Outside the arm each of the three now asserts the
+  REGISTRY fact the trace was reporting on — read off `rf/handler-meta` and
+  `match-url`, which are always-on. In particular the shadow advisory's whole
+  claim is about which route wins at match time, so `match-url` is the natural
+  witness: `/a/7` really does resolve to the earlier registration and really
+  does carry ITS capture name, and the three disjoint static routes really are
+  all reachable. Nothing was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
             [re-frame.identity :as identity]
+            [re-frame.interop :as interop]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]
@@ -1086,16 +1113,27 @@
                   (fn []
                     (rf/reg-route :route/a {} "/a/:x")
                     (rf/reg-route :route/b {} "/a/:y")))]
-      (is (= 1 (count warns))
-          "exactly one warning for the conflicting pair")
-      (let [t (:tags (first warns))]
-        (is (= :route/b (:route-id t))
-            ":route-id names the NEW route — the shadowed one")
-        (is (= :route/a (:shadowed-by t))
-            ":shadowed-by names the existing winner (earlier registration
-            wins the rule-6 tiebreak)")
-        (is (= [1 1 2 1 1] (:rank t))
-            ":rank carries the tied rules-1-5 structural tuple"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the SHADOWING the warning
+      ;; describes is real match-time behaviour. `/a/7` matches both patterns
+      ;; structurally; the earlier registration wins the rule-6 tiebreak, so
+      ;; :route/b really is unreachable for this URL family. That is the fact
+      ;; the diagnostic reports, and it survives -Dre-frame.debug=false.
+      (is (= :route/a (:route-id (routing/match-url "/a/7")))
+          "the earlier registration wins the rule-6 tiebreak at match time")
+      (is (= {:x "7"} (:params (routing/match-url "/a/7")))
+          "…so the capture name is :x (:route/a's), not :y — :route/b is shadowed")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count warns))
+            "exactly one warning for the conflicting pair")
+        (let [t (:tags (first warns))]
+          (is (= :route/b (:route-id t))
+              ":route-id names the NEW route — the shadowed one")
+          (is (= :route/a (:shadowed-by t))
+              ":shadowed-by names the existing winner (earlier registration
+              wins the rule-6 tiebreak)")
+          (is (= [1 1 2 1 1] (:rank t))
+              ":rank carries the tied rules-1-5 structural tuple")))))
 
   (testing "equal rank alone does NOT warn — distinct single-segment static
             routes (the every-app case) register with ZERO shadow warnings"
@@ -1105,8 +1143,17 @@
                     (rf/reg-route :route/home    {} "/home")
                     (rf/reg-route :route/about   {} "/about")
                     (rf/reg-route :route/contact {} "/contact")))]
-      (is (= [] warns)
-          "N distinct static routes emit zero spurious shadow warnings")))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): there is nothing to warn
+      ;; ABOUT — all three routes are reachable, so no URL co-matches a pair.
+      ;; Without this the `(= [] warns)` leg is vacuous under the gate.
+      (is (= [:route/home :route/about :route/contact]
+             (mapv #(:route-id (routing/match-url %)) ["/home" "/about" "/contact"]))
+          "every one of the three is reachable — the families are disjoint")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); NEGATIVE over
+      ;; the trace ring, hence guarded.
+      (when interop/debug-enabled?
+        (is (= [] warns)
+            "N distinct static routes emit zero spurious shadow warnings"))))
 
   (testing "equal rank alone does NOT warn — distinct-literal param-prefix
             pair (/x/:id vs /y/:slug, the pair the old over-broad scan
@@ -1115,8 +1162,19 @@
                   (fn []
                     (rf/reg-route :route/x {} "/x/:id")
                     (rf/reg-route :route/y {} "/y/:slug")))]
-      (is (= [] warns)
-          "same-shape routes on disjoint URL families never warn")))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): both are reachable under
+      ;; their OWN capture names — the pair the old over-broad scan
+      ;; false-flagged genuinely does not shadow. Without this the
+      ;; `(= [] warns)` leg is vacuous under the gate.
+      (is (= {:id "7"} (:params (routing/match-url "/x/7")))
+          "/x/:id keeps its own capture name")
+      (is (= {:slug "7"} (:params (routing/match-url "/y/7")))
+          "/y/:slug keeps its own — neither shadows the other")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); NEGATIVE over
+      ;; the trace ring, hence guarded.
+      (when interop/debug-enabled?
+        (is (= [] warns)
+            "same-shape routes on disjoint URL families never warn"))))
 
   (testing "several co-matchable equal-rank ties name the route that
             actually wins at match time — the earliest-registered"
@@ -1129,12 +1187,20 @@
                     (rf/reg-route :route/first  {} "/m/:x")
                     (rf/reg-route :route/second {} "/m/:y")
                     (rf/reg-route :route/third  {} "/m/:z")))]
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the warning's claim about
+      ;; WHICH route wins is a claim about `match-url`, so check it there.
+      (is (= :route/first (:route-id (routing/match-url "/m/7")))
+          "the earliest-registered intersecting tie is the match-time winner")
+      (is (= {:x "7"} (:params (routing/match-url "/m/7")))
+          "…and it is :route/first's capture name that survives, not :z's")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
       ;; :route/second warns against :route/first; :route/third ties with
       ;; BOTH but the warning names :route/first — the match-time winner.
-      (is (= 2 (count warns)))
-      (is (= {:route-id :route/third :shadowed-by :route/first}
-             (select-keys (:tags (peek warns)) [:route-id :shadowed-by]))
-          "the named winner is the earliest-registered intersecting tie"))))
+      (when interop/debug-enabled?
+        (is (= 2 (count warns)))
+        (is (= {:route-id :route/third :shadowed-by :route/first}
+               (select-keys (:tags (peek warns)) [:route-id :shadowed-by]))
+            "the named winner is the earliest-registered intersecting tie")))))
 
 (deftest route-shadow-scan-registration-benchmark
   (testing "registering a large table of same-rank distinct-literal static
@@ -2106,13 +2172,22 @@
       (rf/reg-route :route/home {} "/")
       (rf/reg-route :route/home {} "/") ;; re-register (no trace)
       (rf/unregister-listener! :trace ::reg-trace)
-      (let [reg-events (filter #(= :rf.route/registered (:operation %)) @traces)]
-        (is (= 1 (count reg-events))
-            "first-time reg-route emits :rf.route/registered exactly once")
-        (is (= :route/home (-> reg-events first :tags :route-id))
-            ":route-id rides in :tags")
-        (is (= "/" (-> reg-events first :tags :path))
-            ":path rides in :tags")))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the registration the trace
+      ;; announces really landed, and the re-registration really was idempotent
+      ;; rather than additive — one route row, one path.
+      (is (= "/" (:path (rf/handler-meta :route :route/home)))
+          "the route is registered at / after both calls")
+      (is (= :route/home (:route-id (routing/match-url "/")))
+          "…and / resolves to it")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [reg-events (filter #(= :rf.route/registered (:operation %)) @traces)]
+          (is (= 1 (count reg-events))
+              "first-time reg-route emits :rf.route/registered exactly once")
+          (is (= :route/home (-> reg-events first :tags :route-id))
+              ":route-id rides in :tags")
+          (is (= "/" (-> reg-events first :tags :path))
+              ":path rides in :tags"))))))
 
 (deftest route-cleared-trace-on-unregister
   (testing "clear-route emits :rf.route/cleared (rf2-dn26r)"
@@ -2122,11 +2197,20 @@
       (routing/clear-route :route/transient)
       (routing/clear-route :route/transient) ;; idempotent, no trace
       (rf/unregister-listener! :trace ::cleared-trace)
-      (let [cleared-events (filter #(= :rf.route/cleared (:operation %)) @traces)]
-        (is (= 1 (count cleared-events))
-            "clear-route emits :rf.route/cleared exactly once")
-        (is (= :route/transient (-> cleared-events first :tags :route-id))
-            ":route-id rides in :tags")))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the clear the trace
+      ;; announces really happened, and the SECOND clear really was idempotent
+      ;; — it neither threw nor resurrected the row.
+      (is (nil? (rf/handler-meta :route :route/transient))
+          "the route row is gone after clear-route")
+      (is (nil? (:route-id (routing/match-url "/transient")))
+          "…and /transient no longer resolves to it")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [cleared-events (filter #(= :rf.route/cleared (:operation %)) @traces)]
+          (is (= 1 (count cleared-events))
+              "clear-route emits :rf.route/cleared exactly once")
+          (is (= :route/transient (-> cleared-events first :tags :route-id))
+              ":route-id rides in :tags"))))))
 
 ;; ===========================================================================
 ;; rf2-aleg9 — match-against direct function-boundary tests

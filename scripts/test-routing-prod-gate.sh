@@ -171,8 +171,16 @@ known_red=(
   re-frame.routing-navigation-test                # 64
   re-frame.routing-plan-seam-test                 # 31
   re-frame.routing-prefetch-test                  # 18
-  re-frame.routing-registry-test                  # 11
-  re-frame.routing-scroll-test                    # 11
+
+  #    CLEARED 2026-07-27 (rf2-o5dbf, batch 4): routing-registry,
+  #    routing-scroll.  Both had NEGATIVE trace assertions that this roster
+  #    line was hiding — the shadow advisory's two "registers with ZERO
+  #    shadow warnings" blocks, and five `(not (contains? (first tags)
+  #    :fx-id))` legs where `(first tags)` is nil under the gate.  The
+  #    always-on witnesses that replaced them are `match-url` (the shadow
+  #    advisory's whole claim is about which route wins at match time) and
+  #    the fx `:platforms #{:client}` declarations (the cause of every
+  #    skip-on-platform trace the tag-spelling test was about).
 )
 
 # ---------------------------------------------------------------------------
