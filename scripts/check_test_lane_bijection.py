@@ -53,7 +53,13 @@ decided by reading the enclosing forms, not by the column the form starts in:
     the deftest there sits inside the `defmacro`, which is not transparent.
 
 Comments and string bodies are masked before any of this, because the repo's
-test files discuss `deftest` in prose at length.
+test files discuss `deftest` in prose at length.  Masking is not enough on its
+own: a form can be spelled in full, in code, and still never be evaluated.  A
+reader DISCARD (`#_(deftest ...)`) and a QUOTE (`'(deftest ...)`,
+`` `(deftest ...) ``) both produce data, so neither defines a test, and reading
+either as one invents a test file and fires a false B1/B2 -- the same way the
+retired column-0 prose scan did.  Both are skipped, and everything nested
+inside them with them.
 
 CLASSIFIED BY THE DECLARED NAMESPACE.  A lane selector is applied by the
 runner to the namespace the file DECLARES, so this gate reads `(ns ...)` rather
@@ -149,6 +155,30 @@ DEFMACRO_FORM = re.compile(r"\(defmacro\s+([^\s()\[\]{}]+)")
 #: conditional is recorded as `#?` whatever platform keyword heads it.
 TRANSPARENT_HEADS = frozenset({"#?", "do"})
 
+#: The head recorded for a form the reader does not EVALUATE -- one behind a
+#: discard or a quote.  It is deliberately not a legal Clojure symbol, so it
+#: can be neither `deftest` nor a derived generator-macro name, and it is not
+#: in `TRANSPARENT_HEADS`, so the whole subtree under it is unreachable too.
+NON_EXECUTABLE_HEAD = "#_"
+
+#: A run of reader prefixes that makes the delimited form after it DATA rather
+#: than code: `#_` (discard) and `'` / `` ` `` (quote, syntax quote), in any
+#: number and any order, optionally with a reader conditional between the run
+#: and the form (`#_#?(:clj ...)`).  The match ENDS on the opening delimiter,
+#: which is the position the walk below tests.
+#:
+#: The lookbehind is the character literal `\'`, which `mask_source` leaves in
+#: place because it is code: without it, `(do \' (deftest t ...))` would read
+#: as a quoted deftest and the file would leave the universe.
+#:
+#: BOUND: a run consumes ONE following form.  `#_#_ (a) (b)` discards two, and
+#: only `(a)` is seen as data here.  There is no such run in the tree (measured
+#: 2026-07-26: two `#_`-prefixed forms in all of `.clj`/`.cljc`/`.cljs`, no
+#: multi-discard anywhere), and a run that consumes a non-delimited form
+#: (`#_ignored (deftest ...)`) is already exact, because the run only matches
+#: when a delimiter follows it.
+NON_EXECUTABLE_PREFIX = re.compile(r"(?<!\\)(?:(?:#_|['`])\s*)+(?:#\?@?)?(?=[(\[{])")
+
 #: `(ns name)`, tolerating any number of metadata prefixes (`^{:doc ...}`,
 #: `^:no-doc`).  Anchored at column 0: an `ns` form is never nested.
 NS_FORM = re.compile(r"^\(ns\s+(?:\^(?:\{[^}]*\}|[^\s()\[\]{}]+)\s+)*([^\s()\[\]{}]+)",
@@ -189,17 +219,28 @@ def top_level_heads(masked: str):
     reader conditional or a `do`.  That is what makes `#?(:cljs (deftest ...))`
     and `#?(:clj (do ... (deftest ...)))` reachable while a `deftest` inside a
     `defmacro` (the suite generator) correctly stays out of reach.
+
+    Reachable is not the same as evaluated.  A form behind a discard or a
+    quote is DATA: it is yielded by nothing, and because the head recorded for
+    it is not transparent, neither is anything nested inside it.  One
+    `NON_EXECUTABLE_PREFIX` pass supplies those positions; the stack does the
+    rest, so the rule costs a set lookup per delimiter rather than a branch
+    per shape.
     """
     stack = []
+    data_openers = {m.end() for m in NON_EXECUTABLE_PREFIX.finditer(masked)}
     for match in DELIMITERS.finditer(masked):
         i = match.start()
         if match.group(0) in "([{":
-            if masked[max(i - 3, 0):i] == "#?@" or masked[max(i - 2, 0):i] == "#?":
+            executable = i not in data_openers
+            if not executable:
+                head = NON_EXECUTABLE_HEAD
+            elif masked[max(i - 3, 0):i] == "#?@" or masked[max(i - 2, 0):i] == "#?":
                 head = "#?"
             else:
                 m = FORM_HEAD.match(masked, i + 1)
                 head = m.group(0) if m else ""
-            if all(h in TRANSPARENT_HEADS for h in stack):
+            if executable and all(h in TRANSPARENT_HEADS for h in stack):
                 yield head
             stack.append(head)
         elif stack:
@@ -824,6 +865,15 @@ GREEN_FILES = {
     "implementation/core/test/app/prose_helper.clj":
         "(ns app.prose-helper)\n;; (deftest not-a-test (is true))\n"
         '(def example\n  "for the docs:\n(deftest also-not-a-test (is true))\nend")\n',
+    # Spelled in code, in column 0, and still never evaluated: a discarded
+    # form and two quoted ones.  Both files sit under a namespace no selector
+    # reaches, so reading either as a test file fires B1 -- which makes the
+    # green case above their inverted proof, exactly as it is for the prose.
+    "implementation/core/test/app/discard_helper.clj":
+        "(ns app.discard-helper)\n#_(deftest discarded (is true))\n",
+    "implementation/core/test/app/quote_helper.clj":
+        "(ns app.quote-helper)\n'(deftest quoted (is true))\n"
+        "`(deftest syntax-quoted (is true))\n",
 }
 
 
@@ -899,6 +949,22 @@ def run_self_test() -> int:
         "(ns app.both-test)\n(deftest t (is true))\n")
     case("B2 fires when only the DECLARED namespace leaves the selector",
          expect="B2 partially emptied", files=files)
+
+    # ... and the other side of the discard/quote rule: it must not swallow a
+    # real definition.  A discard consumes the ONE form after it, and `\\'` is
+    # a character literal rather than a quote, so both deftests below are
+    # still evaluated and both files are still in the universe.
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/after_discard_helper.cljc"] = (
+        "(ns app.after-discard-helper)\n#_ignored\n(deftest t (is true))\n")
+    case("B1 still sees a deftest after a discarded SYMBOL",
+         expect="B1 orphan", files=files)
+
+    files = dict(GREEN_FILES)
+    files["implementation/core/test/app/char_quote_helper.cljc"] = (
+        "(ns app.char-quote-helper)\n(do \\' (deftest t (is true)))\n")
+    case("B1 still sees a deftest after a `\\'` character literal",
+         expect="B1 orphan", files=files)
 
     files = dict(GREEN_FILES)
     files["implementation/core/test/app/nameless_cljs_test.cljc"] = "(deftest t (is true))\n"
