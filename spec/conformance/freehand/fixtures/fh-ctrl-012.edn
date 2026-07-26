@@ -42,6 +42,17 @@
  ;; the draft byte-identical, and does not protect it from a seed.
  :visited-after-tab #{[:contact :phone]}
 
+ ;; AND VISITING IS WHAT REVEALS. The error exists before the blur and is
+ ;; hidden; the blur alone shows it, with NO submit attempted anywhere in
+ ;; the form — which is the half of the reveal policy a submit-only test
+ ;; cannot see, and the half that makes `:visited` worth carrying at all.
+ :phone-error              "too short"
+ :show-error-before-visit? false
+ :show-error-after-visit?  true
+
+ ;; The neighbour is unaffected: revealing is per LEAF, not per form.
+ :show-email-error-after-visit? false
+
  ;; THE PURITY CONTROL. The module's public surface is functions and one
  ;; keyword constant; nothing in it registers, dispatches or reaches a
  ;; frame. Matching is by SUBSTRING over the public var names, so a

@@ -89,7 +89,30 @@
       (is (= visited-after-tab (:visited f1)))
       (is (= #{} (:edited f1)) "visited and edited are two sets, and only one moved")
       (is (= (:draft f0) (:draft f1)) "the draft is byte-identical")
-      (is (= (:baseline f0) (:baseline f1)) "and so is the baseline"))))
+      (is (= (:baseline f0) (:baseline f1)) "and so is the baseline"))
+
+    (testing "and the blur ALONE reveals that leaf's error, with no submit
+              attempted anywhere — the half of the reveal policy a
+              submit-only test cannot see, and the whole reason `:visited`
+              is carried"
+      (let [{:keys [baseline phone-path email-path phone-error
+                    show-error-before-visit? show-error-after-visit?
+                    show-email-error-after-visit?]} ctrl-012
+            errored (form/set-errors (form/init baseline) {phone-path phone-error})
+            visited (form/visit errored phone-path)]
+        (is (= phone-error (:error (form/field errored phone-path)))
+            "non-vacuous: the error is there before the blur")
+        (is (false? (get-in errored [:submit :attempted?]))
+            "non-vacuous: and no submit has been attempted, in either state")
+        (is (= show-error-before-visit? (:show-error? (form/field errored phone-path)))
+            "hidden while the user has not been there")
+        (is (= show-error-after-visit? (:show-error? (form/field visited phone-path)))
+            "and shown once they have")
+        (is (not= show-error-before-visit? show-error-after-visit?)
+            "non-vacuous: the fixture's two answers really are opposites")
+        (is (= show-email-error-after-visit?
+               (:show-error? (form/field visited email-path)))
+            "revealing is per LEAF — the neighbour is untouched")))))
 
 (deftest fh-ctrl-012-nothing-in-the-module-registers-anything
   (testing "Per FH-CTRL-012: the module registers no event and no
