@@ -300,21 +300,34 @@ and what the Freehand door deliberately does not, cannot. `:generation` is NOT
 the fact under test: it is the hot-reload body revision, not a render tally,
 so `gen 0` on every row is correct for a page that is never hot-reloaded.
 
-**The host constraint, stated because it bounds what any browser gate over
-this panel can assert.** The deck installs the REAGENT adapter and renders
-Freehand views — a mixed application, which the substrate contract blesses
-(`re-frame.freehand.substrate`: bring-your-own adapter stays legitimate under
-the single-adapter runtime). It is not a convenience: Xray's shell is hiccup,
-and `day8.re-frame2-xray.mount` refuses the React-element-shaped adapters
-including `:rf.adapter/freehand` (rf2-qgfo4), so on a host that installed
-`v/adapter` there is no Views panel to populate at all. On the Reagent host
-the converse limitation applies — a dispatch lands and app-db moves, but the
-cell's committed read receives no change notification (`cell/pending-count`
-stays 0) and the cell never repaints. So **no single host today both repaints
-a Freehand cell reactively and renders Xray's Views panel**, and no browser
-gate over this panel can currently assert a reactively-driven re-render. The
-scenario therefore drives commits through the mount verb, which reads current
-values regardless of the notification channel.
+**The host shape, and what it no longer bounds.** The deck installs the
+REAGENT adapter and renders Freehand views — a mixed application, which the
+substrate contract blesses (`re-frame.freehand.substrate`: bring-your-own
+adapter stays legitimate under the single-adapter runtime). It is not a
+convenience: Xray's shell is hiccup, and `day8.re-frame2-xray.mount` refuses
+the React-element-shaped adapters including `:rf.adapter/freehand`
+(rf2-qgfo4), so on a host that installed `v/adapter` there is no Views panel
+to populate at all. That refusal is unchanged.
+
+What HAS changed is the converse. This section used to record a second
+limitation on the Reagent side — a dispatch landed and app-db moved, but the
+cell's committed read received no change notification and the cell never
+repainted — and concluded that **no single host both repaints a Freehand cell
+reactively and renders Xray's Views panel**, so no browser gate over this
+panel could assert a reactively-driven re-render. That headline no longer
+holds (rf2-8cnxg / rf2-jt8vz). The cause was never the host: the observation
+port installed a watch on a `reagent.ratom/Reaction` that had captured no
+sources, because a `Reaction` learns them only through `deref-capture` and a
+ViewCell — not being a component — supplies no capture context. The port now
+ACTIVATES the value through the optional `:adapter/activate-derived-value!`
+late-bind hook, which Reagent publishes, so a Reagent host **both** repaints a
+Freehand cell and mounts Xray's shell. A browser gate over this panel is no
+longer bounded by that constraint.
+
+The scenario still drives commits through the mount verb, which reads current
+values regardless of the notification channel. That is now a choice rather
+than the only option available; asserting a reactively-driven repaint on this
+deck has become possible and is tracked separately.
 
 ## Cross-references
 
