@@ -157,11 +157,27 @@
 ;; ---------------------------------------------------------------------------
 ;; the control — a slope, not a prediction
 
-(defonce ^:private ctl-small (volatile! nil))
-(defonce ^:private ctl-large (volatile! nil))
+(defonce ^:private ctl-templates (volatile! {}))
 
-(def ^:private ctl-small-d 1000)
-(def ^:private ctl-large-d 10000)
+(def ^:private ctl-double-ds
+  "Two SMALL sizes a decade apart from the two LARGE ones. Small so the
+  copied object is a fraction of V8's 256 KB heap page and the page-tail
+  filler V8 inserts when the next object will not fit is a rounding error;
+  large so the same slope can be re-read where that filler is 2% of the
+  object and the two readings can be compared. A constant error and a scale
+  error look different across the four."
+  [100 200 1000 10000])
+
+(def ^:private ctl-smi-ds
+  "The SAME `.slice()` over a PACKED SMI array. Its slot width is the ONE
+  thing that differs from the double control: V8 never compresses a double,
+  but a tagged pointer/SMI slot is 4 bytes under pointer compression and 8
+  without it. Node.js ships V8 with pointer compression DISABLED (it caps
+  the heap at 4 GB); Chrome ships it ENABLED. So this pair does not merely
+  check the instrument — it READS OFF which regime this process is in, which
+  is what decides whether an absolute byte count here is comparable to a
+  browser one."
+  [100 200])
 
 (defn- packed-doubles
   "A PACKED double-element JS array. Built by pushing doubles rather than
@@ -173,8 +189,29 @@
     (dotimes [i d] (.push a (+ 0.5 i)))
     a))
 
-(defn- arm-ctl-small [] (let [c (.slice @ctl-small)] (vreset! sink (aget c 0))) nil)
-(defn- arm-ctl-large [] (let [c (.slice @ctl-large)] (vreset! sink (aget c 0))) nil)
+(defn- packed-smis
+  "A PACKED SMI-element JS array — same shape, integer elements, so
+  `.slice()` yields a `FixedArray` of tagged slots rather than a
+  `FixedDoubleArray` of raw doubles."
+  [d]
+  (let [a (array)]
+    (dotimes [i d] (.push a (inc i)))
+    a))
+
+(defn- ctl-key [kind d] (str kind "-" d))
+
+(defn- arm-ctl [kind d]
+  (let [t (get @ctl-templates (ctl-key kind d))]
+    (fn []
+      (let [c (.slice t)]
+        (vreset! sink (aget c 0)))
+      nil)))
+
+(defn- slope
+  "Bytes per element between two control readings — the reading that cancels
+  every header, every constant and every per-sample overhead."
+  [b k1 d1 k2 d2]
+  (/ (- (b k2) (b k1)) (- d2 d1)))
 
 ;; ---------------------------------------------------------------------------
 ;; the rig
@@ -312,7 +349,7 @@
   (let [h0 (used-heap)
         _  (dotimes [_ 4] (f))
         per (max 1 (/ (- (used-heap) h0) 4))]
-    (-> (js/Math.round (/ target per)) (max 1) (min 20000))))
+    (-> (js/Math.round (/ target per)) (max 1) (min 4000))))
 
 ;; ---------------------------------------------------------------------------
 ;; rig construction
@@ -396,13 +433,17 @@
                    :use-callback          (fn [t _] t)
                    :use-context           (fn [_] nil)})
                 {:kind :rf.adapter/write-attribution :frame-provider nil}))
-    (vreset! ctl-small (packed-doubles ctl-small-d))
-    (vreset! ctl-large (packed-doubles ctl-large-d))
+    (vreset! ctl-templates
+             (into {} (concat (map (fn [d] [(ctl-key "DBL" d) (packed-doubles d)]) ctl-double-ds)
+                              (map (fn [d] [(ctl-key "SMI" d) (packed-smis d)]) ctl-smi-ds))))
     (build-rig! n n ns-per-frame)
     (println (gstring/format ";; rf2-jr76s WRITE attribution — node V8, :advanced"))
     (println (gstring/format ";; debug-enabled? = %s   gc-exposed? = %s"
                      interop/debug-enabled?
                      (some? (gobj/get js/globalThis "gc"))))
+    (println (gstring/format ";; node %s  V8 %s  pointer-compression=%s (Chrome ships it ON: a tagged slot is 4 B there, 8 B here)"
+                     (.-node js/process.versions) (.-v8 js/process.versions)
+                     (if (= 1 (gobj/getValueByKeys js/process "config" "variables" "v8_enable_pointer_compression")) "ON" "OFF")))
     (println (gstring/format ";; n=%d samples=%d warmup=%d order=%s frames=%s"
                      n samples warmup (if rev? "REVERSED" "forward")
                      (pr-str ns-per-frame)))
@@ -416,11 +457,12 @@
                          v (pr-str got) (if (= v got) "AGREE" "*** DISAGREE ***")))
         (when-not (= v got)
           (throw (ex-info "graph not wired; measurement is meaningless" {:wrote v :read got})))))
-    (let [plan (cond-> [["CTL-S"     arm-ctl-small        1]
-                        ["CTL-L"     arm-ctl-large        1]
-                        ["MKDB"      arm-mkdb             1]
+    (let [plan (cond-> (into (vec (concat
+                                    (map (fn [d] [(ctl-key "DBL" d) (arm-ctl "DBL" d) 1]) ctl-double-ds)
+                                    (map (fn [d] [(ctl-key "SMI" d) (arm-ctl "SMI" d) 1]) ctl-smi-ds)))
+                       [["MKDB"      arm-mkdb             1]
                         ["BAREATOM"  arm-bareatom         1]
-                        ["SPINE0"    arm-spine0           1]]
+                        ["SPINE0"    arm-spine0           1]])
                  true (into (map-indexed
                               (fn [k cnt]
                                 [(str "RFWRITE-" cnt) (fn [] (arm-rfwrite k)) 1])
@@ -446,12 +488,24 @@
                  plan)
           b    (fn [l] (:p50 (get res l)))]
       (println ";;")
-      (println ";; CONTROL — slope across two decades, predicted 8.000 B/double")
-      (let [slope (/ (- (b "CTL-L") (b "CTL-S")) (- ctl-large-d ctl-small-d))]
-        (println (gstring/format ";;   small D=%d %s B    large D=%d %s B"
-                         ctl-small-d (fmt (b "CTL-S")) ctl-large-d (fmt (b "CTL-L"))))
-        (println (gstring/format ";;   measured slope %.4f B/double   predicted 8.0000   %+.3f%%"
-                         slope 8.0 (* 100.0 (/ (- slope 8.0) 8.0)))))
+      (println ";; CONTROLS")
+      (doseq [d ctl-double-ds]
+        (println (gstring/format ";;   DBL D=%-6d %12s B/copy" d (fmt (b (ctl-key "DBL" d))))))
+      (doseq [d ctl-smi-ds]
+        (println (gstring/format ";;   SMI D=%-6d %12s B/copy" d (fmt (b (ctl-key "SMI" d))))))
+      (let [sm (slope b (ctl-key "DBL" 100) 100 (ctl-key "DBL" 200) 200)
+            lg (slope b (ctl-key "DBL" 1000) 1000 (ctl-key "DBL" 10000) 10000)
+            si (slope b (ctl-key "SMI" 100) 100 (ctl-key "SMI" 200) 200)]
+        (println (gstring/format
+                   ";;   DBL slope, SMALL pair (100->200)     %.4f B/double  predicted 8.0000  %+.2f%%"
+                   sm (* 100.0 (/ (- sm 8.0) 8.0))))
+        (println (gstring/format
+                   ";;   DBL slope, LARGE pair (1000->10000)  %.4f B/double  predicted 8.0000  %+.2f%%"
+                   lg (* 100.0 (/ (- lg 8.0) 8.0))))
+        (println (gstring/format
+                   ";;   SMI slope, SMALL pair (100->200)     %.4f B/slot    -> pointer compression %s"
+                   si (if (< si 6.0) "ON (4 B/slot, Chrome-like)"
+                          "OFF (8 B/slot, Node default)"))))
       (println ";;")
       (println ";; THE LADDER — bytes per WRITE")
       (doseq [[lbl v] [["MKDB      the application's own new-db value" (b "MKDB")]
