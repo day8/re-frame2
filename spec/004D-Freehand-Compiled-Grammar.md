@@ -33,7 +33,8 @@
 > namespaces, over `re-frame.freehand.rules`, `re-frame.freehand.fingerprint`
 > and `re-frame.freehand.eq`. `grammar` owns the version keyword, the admitted
 > node-kind roster and the recovery roster; `check` is the analyzer's
-> read-only face (§The read-only checker); `re-frame.freehand.node` — which
+> read-only face, published on the door as `v/check` (§The read-only
+> checker); `re-frame.freehand.node` — which
 > sits below the public door, not inside the compiler — owns the canonical
 > structural builders BOTH modes construct nodes through.
 > The two emitters remain **separate implementations**
@@ -2268,6 +2269,58 @@ The **report vocabulary** — the reason roster, the recovery roster, and the
 report and finding shapes — is host-neutral, so a ClojureScript tool can render
 a report it received over the wire without a second copy of the vocabulary to
 drift.
+
+### The published verb
+
+The checker's name on the Freehand door is **`v/check`** — the door's one
+*source*-level read, where every other verb there answers about a value the
+caller is already holding:
+
+```clojure
+(v/check "src/app/people.cljc")   ;; => [report …], one per declaration
+```
+
+It is a **thin** projection, and it is required to stay one. The analysis, the
+report vocabulary and the recovery ladders live in the checker; the door
+publishes them rather than summarising, re-ranking or re-deriving them. A
+projection that re-derived any part of a verdict would be a second checker free
+to drift from the analysis — the same argument §Three laws makes against a
+second id roster, one layer out. It is JVM-only and *absent* in ClojureScript
+rather than present-and-throwing, for the resolution reason §Where the checker
+runs gives.
+
+**The compiled tier is a specialised offering, and the verb must not read as a
+recommendation of it.** Interpreted Hiccup is the paved path and the right
+answer for ordinary application views. `{:compiled true}` serves a performance
+requirement that a particular *shape* earns — a sub-free boundary whose reactive
+ViewCell the analysis can prove away (`:reactive? false` / `:view-cell :elided`,
+§Static manifests and capability elision) — and on an ordinary reactive form the
+two modes are close enough to be inseparable. An **eligible** report is
+therefore a statement about the grammar and nothing else, and prose around the
+verb may not imply that an application should reach for the tier by default.
+That is §Three laws' "it never recommends", stated where a reader meets the verb
+rather than only where the laws are listed.
+
+**What it does not check is contract, not omission.** A stated boundary is worth
+more than an implied coverage, and an eligible report is a narrow claim:
+
+| Not checked | |
+|---|---|
+| **correctness** | eligible means the body is inside `:re-frame.freehand/v1` — never that it renders what was meant, that the subscriptions it reads are registered, that the events it dispatches exist, or that a caller's props satisfy a declared `:props` schema |
+| **anything outside the file** | one file, its own declarations; a view the body mounts from another namespace is answered by pointing the checker at *that* file |
+| **anything that is not a `defview`** | a `defbehavior`, a `defhost` or a plain helper in the same file is read past, not reported on |
+| **more than one finding per declaration** | §One refusal at a time — the analyzer stops where the build stops, so a refusal names one thing to fix and not a list |
+| **a pure `.cljs` source** | refused rather than approximated (§Where the checker runs) |
+| **whether the loaded namespace still matches the file** | the source is read from *disk* and heads resolve through the *loaded* namespace, so a file edited since it was last required makes the two disagree — a helper added but not reloaded reports `:rf.ui.compile/unresolved-head`, one deleted but still loaded resolves anyway. Reload, then check |
+
+**A pass has to be able to fail.** The checker's failure mode is silence: a
+green that could never have been red is indistinguishable from an earned one,
+and an author who trusted it would carry that trust into a build that then
+refuses. So the published verb carries a non-vacuity obligation its internal
+caller does not — over one real file it must produce *both* verdicts in exact
+counts, the refusal it reports must be the id the compiler refuses that same
+body with, and a source it cannot answer for must reach the caller as a refusal
+rather than as the empty findings vector an eligible file also produces.
 
 ### Finding ids carry no catalogue row
 
