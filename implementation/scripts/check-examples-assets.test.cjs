@@ -248,13 +248,83 @@ it('isStandaloneExampleProject is true iff the dir carries its own shadow-cljs.e
   );
 });
 
-it('LIVE: the standalone minimal-counter scaffold host page is NOT enumerated (rf2-vxgfnd.281)', () => {
-  const rel = realIndexes.map((p) => path.relative(EXAMPLES_ROOT, p).split(path.sep).join('/'));
+// Discover the standalone project roots on disk, and the host pages each one
+// actually serves. This is the PRECONDITION half of the prune assertion
+// (rf2-72gaq): the old LIVE test was a bare negative naming one path
+// (`ui/minimal-counter/`), so the day that scaffold is deleted — or merely
+// relocated, its ledger row being MOVE — it would assert 0 of 0 and stay green,
+// indistinguishable from a real pass by exit code. Discovering the subjects
+// instead of naming one keeps the assertion alive across the relocation, and
+// makes the day the LAST standalone project leaves examples/ a loud failure
+// rather than a quiet one. The walk deliberately does NOT prune standalone
+// roots (that is the behaviour under test) — it stops AT one, since the whole
+// subtree belongs to that project.
+function findStandaloneProjects(root) {
+  const fs = require('fs');
+  const found = [];
+  const hostPagesUnder = (dir) => {
+    const out = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules') continue;
+        out.push(...hostPagesUnder(full));
+      } else if (entry.isFile() && isExampleHostPage(entry.name)) {
+        out.push(full);
+      }
+    }
+    return out;
+  };
+  const walk = (dir) => {
+    if (dir !== root && isStandaloneExampleProject(dir)) {
+      found.push({ root: dir, hostPages: hostPagesUnder(dir) });
+      return;
+    }
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name === 'node_modules' || entry.name === '_shared') continue;
+      walk(path.join(dir, entry.name));
+    }
+  };
+  walk(root);
+  return found;
+}
+
+const standaloneProjects = findStandaloneProjects(EXAMPLES_ROOT);
+
+it('LIVE: every standalone example project is pruned from the gallery host-page walk (rf2-vxgfnd.281)', () => {
   assert.ok(
-    !rel.some((p) => p.startsWith('ui/minimal-counter/')),
-    `the standalone re-frame.ui scaffold must be pruned from the gallery asset ` +
-      `walk (its host-page contract is owned by implementation/ui/scaffold-smoke), ` +
-      `got: ${rel.filter((p) => p.startsWith('ui/')).join(', ')}`,
+    standaloneProjects.length >= 1,
+    'no standalone example project (a dir bearing its own shadow-cljs.edn) exists ' +
+      'under examples/, so this negative assertion has no subject and would pass ' +
+      'vacuously — 0 of 0. Either a standalone scaffold is staged and the walk lost ' +
+      'sight of it, or the last one is gone and the prune rule should be retired ' +
+      'together with its final subject.',
+  );
+  const rel = realIndexes.map((p) => path.relative(EXAMPLES_ROOT, p).split(path.sep).join('/'));
+  let prunedPages = 0;
+  for (const project of standaloneProjects) {
+    const projectRel = path.relative(EXAMPLES_ROOT, project.root).split(path.sep).join('/');
+    assert.ok(
+      project.hostPages.length >= 1,
+      `the standalone project '${projectRel}' serves NO host page, so pruning it ` +
+        `proves nothing — the walk had no candidate to drop. A standalone scaffold ` +
+        `without a host page cannot witness this rule.`,
+    );
+    for (const page of project.hostPages) {
+      const pageRel = path.relative(EXAMPLES_ROOT, page).split(path.sep).join('/');
+      assert.ok(
+        !rel.includes(pageRel),
+        `the standalone project '${projectRel}' must be pruned from the gallery ` +
+          `asset walk (its host-page contract is owned by its own scaffold smoke), ` +
+          `but '${pageRel}' was enumerated`,
+      );
+      prunedPages++;
+    }
+  }
+  console.log(
+    `        (checked ${standaloneProjects.length} standalone project(s), ` +
+      `${prunedPages} candidate host page(s) proven pruned)`,
   );
 });
 
