@@ -368,13 +368,39 @@ connection at firing time, so a continuation that outlives its node dispatches
 nothing and answers `false`. You do not need to null out your own callbacks; you
 do need to release host listeners in `:disconnect`.
 
+**A finalizer that fails is the host's problem, and the recipe survives it by
+ordering rather than by catching.** `:disconnect` writes `:closed` before it
+touches the host, and the substrate removes the connection record before
+`:disconnect` runs at all — so a `dispose!` that throws still leaves the owner
+terminal, the connection table and target index empty, and nothing holding a
+reference to retry from. What it leaves behind is the host's own instance, which
+no recipe can release: the library was asked exactly once and refused. Report
+that honestly rather than papering over it.
+
+Where the failure surfaces depends on which finalizer site threw, and one of the
+two is quiet:
+
+| The `dispose!` that throws | What you see |
+|---|---|
+| in `:disconnect`, at unmount | the throw comes straight back out of the unmount call — loud, and React neither swallows nor reroutes it |
+| in the late-success continuation | an **unhandled promise rejection** — and everything after it in that arm is skipped, so a `dispatch` placed below a late `dispose!` never runs |
+
+The second is the one to design around. If you need to know that a late handle
+was abandoned, dispatch **before** you finalise it, or wrap the finalise in your
+own `try`/`catch` — the announcement is not guaranteed to survive a host that
+refuses to be released.
+
 ### Proven, not merely argued
 
 Unlike the exit-animation path above, this one is mounted. The ordering that
 matters — **unmount before the Promise resolves** — is asserted in
 `behavior_async_dom_cljs_test.cljs` against a deterministic surrogate: the late
 handle is disposed exactly once, never configured, and the library's book of
-undisposed instances reads empty. A real third-party witness is still outstanding.
+undisposed instances reads empty. **Finalizer failure** is asserted there too, on
+both sites and on the *first* release rather than a second one: exactly one
+release attempted, the owner already `:closed` when it was attempted, both
+framework books empty afterwards, and the host's surviving instance asserted as a
+leak instead of wished away. A real third-party witness is still outstanding.
 
 ## Animation checklist
 
