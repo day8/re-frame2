@@ -33,7 +33,9 @@
   suite which runs without resources)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
+            [re-frame.frame :as frame]
             ;; rf2-hbmeb §(8) — `fx/reg-fx`, the plain fn, NOT the `rf/reg-fx`
             ;; macro: see `drive-real-cascade!` for why the difference decides
             ;; whether the frame's default image can still be reprojected.
@@ -1276,4 +1278,319 @@
               session-scope session-scope]
              scopes)
           "every row's raw :scope rides with :include-sensitive?"))))
+
+;; ===========================================================================
+;; (rf2-425mm) the SAME free `:scope`, ONE CARRIER FURTHER OUT — inside the
+;; transport continuation payload copied onto `:rf.fx/args` / `:rf.event/fx`.
+;; ===========================================================================
+;;
+;; §(rf2-1zc33) above settled the free `:scope` tag on the rows the resource
+;; family OWNS. This is not its residual — a one-line change to
+;; `sibling-owned-slot` could not have reached here, because the epoch tool-pair
+;; routes that projector by OPERATION NAMESPACE (`resource-family-op?`) and the
+;; rows below are `rf.fx`. It is the completeness remainder of rf2-1kiuj, the
+;; OTHER projector: `project-fx-args-egress` → `project-embedded-keys`, reached
+;; by SLOT on every row.
+;;
+;; An `ensure` lowers into `[:rf.http/managed <args>]`, and
+;; `transport.http/build-managed-args` puts the runtime's stale-suppression
+;; verification payload into the args' `:on-success` / `:on-failure`:
+;;
+;;   {:work/id      [:rf.work/resource <scoped-key> <gen>]
+;;    :resource/key <scoped-key>
+;;    :scope        <resolved scope>          ← the leak
+;;    :generation   <n>
+;;    :rf.frame/id  <frame>}
+;;
+;; `re-frame.fx/handle-one-fx` stamps those args under `:rf.fx/args` and `do-fx`
+;; stamps the whole effect vector under `:rf.event/fx`, so the payload egresses
+;; twice. `project-embedded-keys` walks both carriers, and — deliberately, and
+;; rightly (rf2-1kiuj) — DESCENDS a map rather than tokenizing it, because an
+;; fx-args payload belongs to the fx family and tokenizing it wholesale would
+;; redact a plain owner's request map. It recognised the `:resource/key` and the
+;; key embedded in the `:work/id` and redacted both. The `:scope` beside them is
+;; a `[tier {identity}]` TUPLE, not a scoped key, so the walk descended it, found
+;; an ordinary map, and let the resolver's IDENTITY MAP through in the clear —
+;; one slot from the `:resource/key` that had just redacted the identical bytes,
+;; and one carrier from the `:effects[*].args` twin that read `:rf/redacted`.
+;;
+;; No existing fixture could see it: every resource in every epoch-egress fixture
+;; scoped `:rf.scope/global`, a SCALAR with nothing in it to leak. Only a
+;; `{:from-db …}` resolver puts an identity map on the carrier, and the MCP-egress
+;; conformance cascade reaches its identity-bearing scope through
+;; `invalidate-tags`, which stamps a free `:scope` on a FAMILY row and never
+;; lowers into fx.
+;;
+;; The repair gives a `:scope`-keyed value inside the carrier the SAME family rule
+;; §(rf2-1zc33) gave it on the family's own rows (`project-unknown-slot-value`),
+;; so the two carriers agree by construction. Per shape, unchanged from there:
+;; a `:rf.scope/global` scalar rides verbatim, a `[tier {identity}]` tuple keeps
+;; its tier and tokenizes its identity map.
+
+(def ^:private profile-params {:slug "me"})
+
+(defn- secret-leak-paths
+  "Every path in `x` whose leaf string carries the secret, each with the
+  offending value. The path-reporting counterpart of `contains-secret?`: a
+  failure NAMES the slot that leaked instead of printing `(not (not true))`,
+  which is the whole diagnostic value when the leak is four levels down inside
+  an fx carrier."
+  [x]
+  (let [found (atom [])
+        walk  (fn walk [path v]
+                (cond
+                  (string? v) (when (.contains ^String v "topsecret")
+                                (swap! found conj [path v]))
+                  (map? v)    (doseq [[k vv] v]
+                                (walk (conj path k) k)
+                                (walk (conj path k) vv))
+                  (coll? v)   (doseq [[i vv] (map-indexed vector v)]
+                                (walk (conj path i) vv))))]
+    (walk [] x)
+    @found))
+
+(defn- carrier-scopes
+  "Every value sitting under a `:scope` key anywhere inside the `:rf.fx/args` /
+  `:rf.event/fx` carriers of `record`'s trace rows — i.e. the exact slot the
+  four leaking paths name, found by walking rather than by index so the
+  assertion does not encode the cascade's fx ORDER."
+  [record]
+  (let [found (atom [])
+        walk  (fn walk [v]
+                (cond
+                  (map? v)  (doseq [[k vv] v]
+                              (when (= :scope k) (swap! found conj vv))
+                              (walk vv))
+                  (coll? v) (run! walk v)))]
+    (doseq [tags (map :tags (:trace-events record))
+            slot [:rf.fx/args :rf.event/fx]
+            :when (contains? tags slot)]
+      (walk (get tags slot)))
+    @found))
+
+(defn- continuation-payload
+  "The `:on-success` verification payload of the `:rf.http/managed` args as they
+  egress under `:rf.fx/args` — `{:work/id … :resource/key … :scope … :generation
+  … :rf.frame/id …}`, the map the four leaking paths run through."
+  [record]
+  (->> (:trace-events record)
+       (map :tags)
+       (keep :rf.fx/args)
+       (filter #(and (map? %) (contains? % :on-success)))
+       first
+       :on-success
+       second))
+
+(defn- tokenized-scope?
+  "Whether `s` is a resolved `[tier {identity}]` scope that egressed correctly —
+  the tier keyword verbatim (attribution survives) over a tokenized identity."
+  [s]
+  (and (vector? s) (= 2 (count s))
+       (= :rf.scope/session (first s))
+       (redacted-component? (second s))))
+
+(defn- drive-session-scoped-ensure!
+  "Drive ONE real `[:rf.resource/ensure …]` of the `:sensitive?`
+  `{:from-db :rt/session}` resource and return the epoch records it settled.
+
+  The session identity is written straight into the frame's app-db partition
+  (not dispatched) so it settles no record of its own, and CLASSIFIED
+  `:sensitive` there so the app-db axis can never be what the scans below
+  catch — any surviving copy of the secret came off a trace carrier, which is
+  the axis this section owns. `fx/reg-fx` (the plain fn, not the `rf/reg-fx`
+  macro) overrides managed HTTP with a no-op for the reason `drive-real-cascade!`
+  documents."
+  [resource-id]
+  (rf/configure! {:epoch-history {:trace-events-keep 50}})
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (frame/swap-runtime-db! :test/rt
+    (fn [rt] (elision/apply-classification-effects
+               rt {:sensitive [[:auth :user :username]]})))
+  (frame/swap-frame-db! :test/rt assoc-in [:auth :user :username] secret)
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource resource-id
+                      :params   profile-params
+                      :owner    real-owner}]
+                    {:frame :test/rt})
+  (rf/epoch-history :test/rt))
+
+;; ---------------------------------------------------------------------------
+;; (1) THE ACCEPTANCE ARM — a REAL ensure, the whole projected record
+;; ---------------------------------------------------------------------------
+
+(deftest real-session-scoped-ensure-leaks-no-identity-into-fx-carriers
+  (testing "rf2-425mm — `projected-record` over the record a REAL
+            `[:rf.resource/ensure …]` settles for a `:sensitive?` resource with
+            a `{:from-db …}` scope must carry the resolved identity at ZERO
+            paths. Before the repair it carried it at four: the `:scope` inside
+            the `:on-success` and `:on-failure` continuation payloads, once under
+            `:rf.fx/args` and again under `:rf.event/fx`."
+    (let [records   (drive-session-scoped-ensure! :derived/profile)
+          raw       (last records)
+          projected (epoch/projected-record raw)]
+
+      (testing "FIXTURE — the producer really put an identity-bearing scope on
+                the fx carriers, so the assertions below are not passing over an
+                empty set"
+        (is (seq (carrier-scopes raw))
+            "the ensure's fx carriers carry a `:scope` at all")
+        (is (every? #(= session-scope %) (carrier-scopes raw))
+            "and every one of them is the RAW resolved [tier {identity}] tuple
+             the resolver derived from app-db")
+        (is (seq (secret-leak-paths raw))
+            "the unprojected record leaks — the projector's input is the
+             runtime's own output, not an invented tag map"))
+
+      (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
+                record"
+        (is (= [] (secret-leak-paths projected))
+            "every leaking path is named here; before the repair this printed
+             the four [:trace-events n :tags :rf.fx/args :on-success 1 :scope 1
+             :username] shapes"))
+
+      (testing "and each carrier's scope is PROJECTED, not merely absent"
+        (is (= (count (carrier-scopes raw)) (count (carrier-scopes projected)))
+            "projection neither drops nor invents a carrier scope")
+        (is (every? tokenized-scope? (carrier-scopes projected))
+            "each keeps its TIER keyword and tokenizes its identity map"))
+
+      (testing "the sibling `:resource/key` in the SAME payload agrees — the two
+                carriers of one scope can no longer redact and leak it side by
+                side"
+        (let [cont (continuation-payload projected)]
+          (is (some? cont) "the continuation payload is on the carrier")
+          (is (= :derived/profile (second (:resource/key cont)))
+              "the resource-id survives for attribution")
+          (is (redacted-component? (first (:resource/key cont)))
+              "carrier 1 — the key's scope component is tokenized")
+          (is (tokenized-scope? (:scope cont))
+              "carrier 2 — the free :scope beside it is tokenized too")
+          (is (= (:generation (continuation-payload raw)) (:generation cont))
+              "the generation rides verbatim")
+          (is (= :test/rt (:rf.frame/id cont)) "the frame stamp rides verbatim"))))))
+
+;; ---------------------------------------------------------------------------
+;; (2) the same shape assembled — deterministic, and it names the four paths
+;; ---------------------------------------------------------------------------
+
+(defn- managed-args
+  "The `:rf.http/managed` args `transport.http/build-managed-args` produces for
+  one ensure: the app `:request` map plus the runtime-owned `:request-id` and
+  the `:on-success` / `:on-failure` verification payloads."
+  [scoped-key scope]
+  (let [work-id [:rf.work/resource scoped-key 1]
+        payload {:work/id      work-id
+                 :resource/key scoped-key
+                 :scope        scope
+                 :generation   1
+                 :rf.frame/id  :test/rt}]
+    {:request    {:method :get :url "/z"}
+     :request-id [:rf.req :test/rt work-id]
+     :on-success [:rf.resource.internal/succeeded payload]
+     :on-failure [:rf.resource.internal/failed payload]}))
+
+(defn- fx-carrier-record
+  "A record carrying the ensure's TWO fx carriers of one payload — the
+  `:rf.fx/handled` row's `:rf.fx/args` and the `:rf.fx/do-fx` row's
+  `:rf.event/fx` (the whole effect vector, the managed fx third)."
+  [args]
+  (record-with
+    [(event :rf.fx/handled
+            {:rf.frame/id :test/rt :frame :test/rt
+             :rf.fx/id :rf.http/managed :rf.fx/args args})
+     (event :rf.fx/do-fx
+            {:rf.frame/id :test/rt :frame :test/rt
+             :rf.event/fx [[:rf.resource/commit-generation {:value 1}]
+                           [:rf.resource/record-work-handle {:frame-id :test/rt}]
+                           [:rf.http/managed args]]})]))
+
+(deftest fx-carrier-scope-tokenizes-on-both-carriers
+  (testing "rf2-425mm — the projector, over the exact payload the transport
+            builds. Four `:scope` occurrences across the two carriers, every one
+            of them tokenized; and the fx family's OWN slots on the same rows
+            ride untouched, because the resource family speaks only for what it
+            planted there."
+    (let [k1        (sk session-scope :derived/profile profile-params)
+          args      (managed-args k1 session-scope)
+          projected (epoch/projected-record (fx-carrier-record args))
+          scopes    (carrier-scopes projected)]
+      (is (= 4 (count scopes))
+          "two payloads per carrier, two carriers — the four paths the bead named")
+      (is (every? tokenized-scope? scopes)
+          "each keeps its tier keyword and tokenizes its identity map")
+      (is (= [] (secret-leak-paths projected))
+          "and nothing raw survives anywhere in the record")
+      (testing "the fx family's own args ride UNTOUCHED"
+        (let [tags (:tags (first (:trace-events projected)))]
+          (is (= {:method :get :url "/z"} (:request (:rf.fx/args tags)))
+              "the app's request map is not redacted")
+          (is (= :rf.http/managed (:rf.fx/id tags))
+              "the fx id rides verbatim")
+          (is (true? (:sensitive? tags))
+              "but the row IS stamped :sensitive?"))))))
+
+;; ---------------------------------------------------------------------------
+;; (3) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
+;; ---------------------------------------------------------------------------
+
+(deftest fx-carrier-keeps-plain-request-map-and-global-scope-verbatim
+  (testing "rf2-425mm guard — a PLAIN owner's `:rf.http/managed` args, whose
+            scope is the `:rf.scope/global` SCALAR, must ride BYTE-IDENTICAL
+            through both carriers and must not stamp the row sensitive. This is
+            the side that proves the repair did not turn `project-embedded-keys`
+            into the wholesale map tokenizer rf2-1kiuj rejected: the app's own
+            request map, its params and its scope all survive."
+    (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
+          args      (managed-args k1 :rf.scope/global)
+          record    (fx-carrier-record args)
+          projected (epoch/projected-record record)
+          [handled do-fx] (:trace-events projected)]
+      (is (= args (:rf.fx/args (:tags handled)))
+          "the whole args map rides verbatim — request, request-id and both
+           continuation payloads, scoped keys and scope included")
+      (is (= (:rf.event/fx (:tags (second (:trace-events record))))
+             (:rf.event/fx (:tags do-fx)))
+          "and so does the whole effect vector on the other carrier")
+      (is (= [:rf.scope/global :rf.scope/global :rf.scope/global :rf.scope/global]
+             (carrier-scopes projected))
+          "a global scope is a scalar — no over-redaction on any carrier")
+      (is (not (:sensitive? (:tags handled)))
+          "a plain-owner fx row is NOT stamped sensitive")
+      (is (not (:sensitive? (:tags do-fx)))
+          "on either carrier"))))
+
+(deftest fx-carrier-scope-tokens-stay-distinct-per-scope
+  (testing "rf2-425mm — distinct scopes must keep DISTINCT digests on the fx
+            carriers too, so an Xray effect graph can still group and join a
+            record's requests by session after the identity map tokenizes"
+    (let [proj  (fn [scope]
+                  (let [k (sk scope :derived/profile profile-params)]
+                    (-> (fx-carrier-record (managed-args k scope))
+                        epoch/projected-record
+                        carrier-scopes
+                        first)))
+          s1    (proj session-scope)
+          s2    (proj other-session-scope)]
+      (is (tokenized-scope? s1))
+      (is (tokenized-scope? s2))
+      (is (not= (second s1) (second s2))
+          "two distinct sessions keep two distinct digests"))))
+
+;; ---------------------------------------------------------------------------
+;; (4) the trusted-local boundary — the redaction is the off-box DEFAULT
+;; ---------------------------------------------------------------------------
+
+(deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-scope
+  (testing "rf2-425mm — the trusted-local `:include-sensitive?` opt-in keeps the
+            raw carrier scope (the local-raw boundary — the tokenization is the
+            off-box default, not a strip)"
+    (let [k1        (sk session-scope :derived/profile profile-params)
+          args      (managed-args k1 session-scope)
+          projected (epoch/projected-record (fx-carrier-record args)
+                                            {:include-sensitive? true})]
+      (is (= [session-scope session-scope session-scope session-scope]
+             (carrier-scopes projected))
+          "every carrier's raw :scope rides with :include-sensitive?")
+      (is (= args (:rf.fx/args (:tags (first (:trace-events projected)))))
+          "and so does the rest of the payload it sits in"))))
 
