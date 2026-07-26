@@ -257,6 +257,8 @@ Public macros (`reagent2.ratom.clj`):
 
 Symbols **not shipped**: `track`, `track!`, `cursor`, `wrap`, `make-wrapper`, `Track`, `RCursor`, `Wrapper` types, `IRunnable` protocol, `run!` macro. Audit-confirmed zero usage across re-com / 10x / Dash8 / rf8.
 
+Added beyond stock: `activate!` — see §3.2. Stock reaches the same operation through `IRunnable`'s `run`, which this rewrite does not ship.
+
 ### §2.3a Note on dropped types and cross-substrate `ratom?`
 
 Stage 1 §1.6 marked `RAtom`, `Reaction`, `Track`, `RCursor`, `Wrapper` as SHOULD because re-com type-checks against them (`re-com/util.cljs :refer [RAtom Reaction RCursor Track Wrapper]`). However the audit (rf2-cgcv) confirmed re-com's references resolve at compile time and re-com only reaches `RAtom` and `Reaction` at runtime (the others are imported but unused in the surface paths re-com exercises). The rewrite ships **`RAtom` and `Reaction` types only**.
@@ -384,7 +386,7 @@ The `notify-watches` implementation walks the `watches` map and fires each `(f k
 `(deftype Reaction [^:mutable f ^:mutable state ^:mutable dirty? ^:mutable active? ^:mutable watching ^:mutable watches ^:mutable auto-run ^:mutable on-set ^:mutable on-dispose])` — same nine-field shape stock Reagent uses. Implements all the protocols of RAtom (so a Reaction looks like an atom to consumers) plus:
 
 - `IDisposable` — `dispose!` + `add-on-dispose!`. **Critical**: this is the protocol UIx and Helix adapters reify (`uix.cljs:120-126`, `helix.cljs:120-127`) for cross-substrate cache wiring. The shape of `dispose!` and `add-on-dispose!` is part of the cross-substrate ABI and **must not change**.
-- `IRunnable` — NOT implemented. Stage 1 §1.6 marks `IRunnable` CAN-DEPRECATE; DECISION-7 Class A says don't ship.
+- `IRunnable` — NOT implemented. Stage 1 §1.6 marks `IRunnable` CAN-DEPRECATE; DECISION-7 Class A says don't ship. The one operation it carried that re-frame genuinely needs — running the body through `deref-capture` so the reaction subscribes to its sources — ships instead as the named fn `reagent2.ratom/activate!` (rf2-8cnxg). Stock spells it `(run rx)`; the rewrite spells it `(activate! rx)`, idempotent and a no-op off a `Reaction`. Its consumer is `re-frame.substrate.observation/build-node-handle!` via the `:adapter/activate-derived-value!` late-bind hook: a ViewCell is not a component and so never supplies the capture context a component render supplies, and without this the port holds a watch that can never fire.
 
 The compute path (`-deref` on a Reaction): if `dirty?`, run `f`, equality-compare against `state`, conditionally `notify-watches`. Stage 2 §3.2 — equality memoisation kept; this is the right shape.
 
