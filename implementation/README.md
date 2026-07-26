@@ -397,6 +397,7 @@ preserving first-seen order.
 | `:examples/machine-epochs` | http://localhost:8033/ |
 | `:examples/edn-inspector` | http://localhost:8034/ |
 | `:examples/managed-http` | http://localhost:8035/ |
+| `:testbeds/freehand-views` | http://localhost:8036/ |
 | `:examples/two-frame-isolation` | http://localhost:8030/ |
 | `:testbeds/panel-gallery` | http://localhost:8765/ |
 | `:examples/nine-states-with-stories` | http://localhost:8040/ · `/#/stories` |
