@@ -1,6 +1,7 @@
 # Semantic controllers and reusable fields
 
-Most Freehand apps **never** need this page.
+Most Freehand apps **never** need this page. It sits under **When you need more**
+in the nav for a reason.
 
 If you only need a live field, or an app-specific draft that commits on blur and
 Enter, ordinary Freehand plus re-frame is enough. Open this page only when

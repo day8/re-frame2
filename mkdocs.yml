@@ -198,32 +198,35 @@ nav:
       - "Report errors in production": core/how-to/report-errors-in-production.md
       - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
       - "Use UIx or slim": core/how-to/use-uix-or-slim.md
+    # Freehand nav order is the reading order (AUTHORING). No "Start here"
+    # mini-track — the sidebar already is the path. Sections: run → write →
+    # host edge → rare power tools → operate/migrate.
     - "Freehand: the view layer":
       - core/freehand/index.md
-      - "Start here":
-        - "Mental model": core/freehand/mental-model.md
-        - "Coming from Reagent": core/freehand/vs-reagent.md
+      - "Get running":
         - "Install and boot": core/freehand/install.md
+        - "Mental model": core/freehand/mental-model.md
         - "Build a view": core/freehand/build-a-view.md
-      - "Everyday authoring":
-        - "Reactivity and ownership": core/freehand/reactivity-and-ownership.md
-        - "State: where a value lives": core/freehand/state.md
-        - "Forms": core/freehand/forms.md
+      - "Authoring":
         - "Events and handlers": core/freehand/events-and-handlers.md
-        - "Debugging and performance": core/freehand/debugging.md
-      - "Structure and libraries":
+        - "State: where a value lives": core/freehand/state.md
+        - "Reactivity and ownership": core/freehand/reactivity-and-ownership.md
+        - "Forms": core/freehand/forms.md
         - "Composition and theming": core/freehand/composition.md
         - "Accessibility": core/freehand/accessibility.md
-        - "Semantic controllers": core/freehand/semantic-controllers.md
-        - "Compilation": core/freehand/compilation.md
-      - "Host and browser":
+      - "Host edge":
         - "Host boundaries": core/freehand/host-boundaries.md
         - "JavaScript libraries": core/freehand/js-libraries.md
         - "Presence: enter and exit": core/freehand/presence.md
         - "SSR and hydration": core/freehand/ssr.md
-      - "Ship and live with it":
+      - "When you need more":
+        - "Semantic controllers": core/freehand/semantic-controllers.md
+        - "Compilation": core/freehand/compilation.md
+      - "Operate":
         - "Testing": core/freehand/testing.md
+        - "Debugging and performance": core/freehand/debugging.md
         - "Adoption": core/freehand/adoption.md
+        - "Coming from Reagent": core/freehand/vs-reagent.md
         - "Limits and escapes": core/freehand/limits-and-escapes.md
     - "Testing":
       - core/testing/index.md

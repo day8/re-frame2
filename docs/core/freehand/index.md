@@ -91,7 +91,8 @@ Reagent and UIx remain first-class. Prefer them when:
 
 Choosing another layer is a supported choice, not a failure. Freehand is the
 **re-frame-native** bet when you want the UI inside that architecture. Incremental
-landing next to an existing app is covered under adoption.
+landing next to an existing app is under [Adoption](adoption.md); a Reagent delta
+map is under [Coming from Reagent](vs-reagent.md).
 
 ## Shape at a glance
 
@@ -101,16 +102,16 @@ landing next to an existing app is covered under adoption.
 | `[view props]` vs `(helper …)` | vector = boundary; parens = inline helper |
 | `(v/sub …)` | plain value inside a render; render-only |
 | Event vectors | paved-path handlers; `::v/value` and friends fill live scalars |
-| Interpreted mode | default — full Clojure |
-| Compiled mode | `{:compiled true}` — finite grammar, same call sites |
-| Host boundaries | `v/defhost` (React in), registered behaviors (imperative node), `v/->react` (Freehand out) — not neutral hooks in ordinary views |
-| Roots + frames | `v/mount`; the root owns or scopes its frame |
+| Interpreted by default | full Clojure; promote with `{:compiled true}` only when measured |
+| Host edge | `v/defhost` (React in), behaviors (imperative node), `v/->react` (Freehand out) |
+| Roots | `v/mount`; the root owns or scopes its frame |
 
-| Mode | When | You gain | You accept |
-|---|---|---|---|
-| **Interpreted** | app pages, composition, most SPA work | full Clojure, flexible helpers | Hiccup walk on re-rendered boundaries |
-| **Compiled** | hot boundaries, library leaves, static evidence | direct lowering, manifests, elision when proved | a finite grammar — the build refuses what it cannot see |
+Call sites and structural tests do not change when you compile a declaration.
+Freehand never auto-promotes or silently demotes.
 
-Call sites and structural tests do not change across modes. Compilation is always
-**manual** — Freehand never promotes a declaration for you, and never silently
-demotes one it cannot compile.
+## This guide
+
+The left nav is the path. **Install → mental model → build a view**, then authoring
+(events, state, forms), then the host edge only when you leave pure Freehand DOM.
+Semantic controllers and compilation are **rare**; skip them until you need them.
+Operate (test, debug, adopt) when you ship.
