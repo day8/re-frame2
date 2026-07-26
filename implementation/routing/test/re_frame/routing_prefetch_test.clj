@@ -301,12 +301,14 @@
 ;; Each case additionally pins the canonical expected identity as a literal, so
 ;; neither arm can pass merely because its two sides match.
 ;;
-;; KNOWN GAP, deliberately not asserted either way here: a path param the route
-;; PATTERN does not capture (`{:id "7" :extra "x"}` on `/probe/:id`). The
-;; programmatic door commits it, a link click drops it (the URL cannot carry
-;; it), and prefetch follows the programmatic door. That is a disagreement
-;; between the two ACTIVATION doors which prefetch merely inherits, and
-;; resolving it is a contract ruling on `:rf.route/navigate` — rf2-0iuh3.
+;; The former KNOWN GAP here — a path param the route PATTERN does not capture
+;; (`{:id "7" :extra "x"}` on `/probe/:id`), which the programmatic door
+;; committed, a link click dropped, and prefetch inherited from the
+;; programmatic door — is SETTLED (rf2-0iuh3): neither committed value wins;
+;; the address rejects LOUD at `route-url`, the shared emission boundary all
+;; three named-address doors already run through. Prefetch therefore refuses it
+;; through the destination gate above, needing no code of its own. Asserted in
+;; `re-frame.routing-uncaptured-param-test`.
 
 (defn- with-identity-hooks
   "Publish BOTH late-bound resource hooks — the prefetch WARM plan and the
