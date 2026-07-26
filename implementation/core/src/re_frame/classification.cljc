@@ -236,13 +236,18 @@
 ;; The walker threads `[path candidates]`: the CONCRETE runtime path (which
 ;; drives the `:large` marker's `:path` / `:handle`) beside a SET of candidate
 ;; DECLARATION coordinates — the positions in declaration space the walker
-;; could currently be standing at. In the default mode the two never diverge
-;; and the set is the singleton `#{path}`; `:index-free?` is what makes them
-;; differ. Both are pruned against the prefix set of every declared path, so a
-;; candidate that can never reach a declaration is dropped and the set stays
-;; bounded by the declaration cardinality. The same device
+;; could currently be standing at.
+;;
+;; Candidates are pruned against the prefix set of every declared path, so one
+;; that can never reach a declaration is dropped and the set stays bounded by
+;; the declaration cardinality. In the DEFAULT mode that makes the set exactly
+;; `#{path}` while `path` is still some declaration's prefix and `#{}` the
+;; moment it is not — which is the exact path membership test spelled through
+;; the same machinery, since a declared path is always its own prefix.
+;; `:index-free?` is the only thing that lets the two diverge. The same device
 ;; `re-frame.elision`'s schema-first walker uses, at the grain this walker
-;; needs.
+;; needs — index fork only, no `:map-of` key skip, so this walker stays
+;; strictly MORE precise than the durable side's.
 
 (defn- path-prefixes
   "Every non-empty prefix of `path`, the full path included."
