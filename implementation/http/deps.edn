@@ -23,6 +23,25 @@
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../core"}
          ;; The JVM codec uses Cheshire; CLJS uses the host `JSON` object.
+         ;;
+         ;; This stays at COMPILE scope, and `:provided` is the wrong shape for
+         ;; it (rf2-nucj0). `provided` says a container supplies the dependency;
+         ;; a JVM re-frame2 app has no container, so the artefact would be
+         ;; asking every JVM consumer to redeclare its own codec. And the cost
+         ;; of getting that wrong is not a lazy failure at first decode: the
+         ;; `cheshire.core` require in `re-frame.http.json` is unconditional
+         ;; inside `#?(:clj …)`, so it fires when the namespace LOADS. Drop
+         ;; Cheshire from a JVM classpath and requiring this artefact's own
+         ;; `:main` — `re-frame.http.managed` — dies at boot with
+         ;; "Could not locate cheshire/core". Spec 014 ships the JVM transport
+         ;; (`java.net.http.HttpClient`) and names Cheshire as the JVM `:json`
+         ;; codec, so that path is specified, not incidental.
+         ;;
+         ;; What a browser-only consumer actually pays is smaller than it looks:
+         ;; `jackson-core` is already on any `day8/re-frame2` classpath via
+         ;; ClojureScript -> transit-java. Cheshire's marginal cost is itself
+         ;; plus jackson-dataformat-smile, -cbor, and tigris, and a jackson-core
+         ;; version bump. Nothing reaches the bundle.
          cheshire/cheshire {:mvn/version "5.13.0"}}
 
  :aliases
