@@ -148,19 +148,30 @@ them from a `v/defview`.
             :onAnimationComplete (fn [] (dispatch [:toast/settled id]))}
        text)]))
 
+;; `v/->react` answers a COMPONENT, and repeated exports of one view answer
+;; the identical one — so hoist it and let React reconcile on it.
+(def Toast (v/->react toast))
+
 (v/defview toasts [_]
   [:div.toasts
    (react/createElement
      AnimatePresence
      #js {}
-     (clj->js (for [{:keys [id]} (sub [:toast/visible])]
-                (v/->react toast) )))])
+     (into-array
+       (for [{:keys [id text]} (sub [:toast/visible])]
+         (react/createElement Toast #js {:key (str id) :id id :text text}))))])
 ```
 
-The outer half of that last expression is where the two worlds actually meet, and
-it is worth being explicit about: `AnimatePresence` wants React **children** it can
-retain, so the Freehand content going into it crosses back out through
-`v/->react`.
+The last expression is where the two worlds actually meet, and three details in it
+carry the crossing. **`v/->react` answers a component, not an element** —
+`AnimatePresence` retains React *children*, and it filters what it is handed
+through `isValidElement`, so a component value passed as a child is dropped and
+the tray renders nothing. Each toast therefore becomes an element through
+`react/createElement`. **The props object is the exported view's own props, by
+exact name**: `id` and `text` arrive in the view's props map as `:id` and `:text`,
+which is the one shallow rule the bridge states — no camelisation, no deep walk.
+**And every child carries a `key`**, because `AnimatePresence` tracks an exit by
+key; an unkeyed list gives it no identity to animate out.
 
 What this is saying:
 
@@ -427,6 +438,8 @@ motion bus.
 | Bare React component at a vector head | create the element; put it in a child position |
 | `v/event` in a foreign element's `#js` props | a plain closure over `rf/capture-frame` — Freehand does not walk those props, so the carrier arrives non-callable |
 | A callback closing over `rf/dispatch` | close over `(rf/capture-frame)`'s `:dispatch`; the render scope is gone when the library calls |
+| `v/->react`'s **component** value handed over as a child | `react/createElement` it first — React retains elements and drops a function child |
+| An unkeyed list of children under `AnimatePresence` | one stable `key` per child; an exit is tracked by key |
 | Assume AnimatePresence exit works untested | mounted pilot before you depend on it |
 | Return the acquisition Promise from `:connect` | return a **cell**; `:disconnect` must have something to release |
 | Let a late handle install into a torn-down connection | `:disconnect` fences first; the continuation checks `:closed` and finalises |

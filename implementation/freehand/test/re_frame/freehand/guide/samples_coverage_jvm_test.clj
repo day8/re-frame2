@@ -337,7 +337,7 @@
    "js-libraries.md"
    [[ 1 "c27c0a28d420" host/toast-tray]
     [ 2 "b9e89841da17" :foreign-npm]
-    [ 3 "e94f3380438e" :foreign-npm]
+    [ 3 "5b5d5da11d93" :foreign-npm]
     [ 4 "2248c34107cb" :foreign-npm]
     [ 5 "8e3bda770349" host/fade-panel]
     [ 6 "b104f110d013" host/async-chart]]
