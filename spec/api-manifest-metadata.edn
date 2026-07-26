@@ -549,6 +549,42 @@
   {:namespace "re-frame.ui.react" :var "lazy"              :kind :macro :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
+ ;; :jvm-only-classification — the MIRROR of :cljs-only above, and the
+ ;; smaller of the two by design.
+ ;;
+ ;; :cljs-only carries rows the JVM generator cannot see. This key does the
+ ;; opposite bookkeeping for a var the CLJS PROBE cannot see: a
+ ;; `:classification` row on a probe-covered `.cljc` namespace whose var is
+ ;; defined under `#?(:clj …)` with NO ClojureScript arm at all. The row is
+ ;; real — the generator introspects the live JVM var and owns its tier and
+ ;; kind — but the probe reconciles every `:classification` row of a covered
+ ;; namespace against the live CLJS surface, and a var that will never appear
+ ;; there would report permanent staleness for behaving exactly as designed.
+ ;;
+ ;; The hatch is ONE-DIRECTIONAL by construction, which is what keeps it from
+ ;; becoming a hole. Only the probe's direction 1 (rowed-but-not-live) skips
+ ;; the entry; direction 2 (live-but-not-rowed) still covers the namespace
+ ;; fully, so a var listed here that ever DID acquire a ClojureScript arm
+ ;; would appear as a live public with no row and turn the probe RED.
+ ;;
+ ;; Not every JVM-only var on a covered door needs an entry: `render-static`
+ ;; is a `#?(:clj (defmacro …))` and is `:require-macros`-referred, so the
+ ;; CLJS analyzer does carry it and it reconciles normally. An entry is
+ ;; needed only where the CLJS host has NOTHING.
+ ;;
+ ;; Each entry states its justification. Keep it short.
+ :jvm-only-classification
+ #{;; `re-frame.freehand/check` (rf2-drpa3.182.6) — the read-only compile
+   ;; checker's published verb. It READS A SOURCE FILE and classifies heads
+   ;; by resolution, which happens on the JVM for both compilation targets;
+   ;; a browser runtime has no source file to read and no analyzer
+   ;; environment to resolve through, so the verb is honestly ABSENT on the
+   ;; host that cannot support it rather than present-and-throwing — the
+   ;; policy `->react` and the behavior tool plane already state in the
+   ;; other direction. Per Spec 004D §The read-only checker.
+   ["re-frame.freehand" "check"]}
+
+ ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The
  ;; spec/API.md projection check (api-md-check) skips these by bare var
  ;; name. Each is a `post-v1 lib` surface the spec describes normatively
