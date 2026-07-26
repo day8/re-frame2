@@ -149,47 +149,45 @@
             the make-watch-handler channel the plain-atom suites cannot reach"
     (register!)
     (rf/dispatch-sync [:obs/set-n 1])
-    (do
-      (ratom/flush!)                       ;; settle any pending queue first
-      (let [notes  (atom [])
-            target (obs/resolve-target {:frame fid :query-v [:obs/n]})
-            handle  (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
-        (try
-          ;; --- preconditions: the port armed the value-movement channel ---
-          (is (obs/handle? handle))
-          (is (satisfies? IWatchable (node-reaction))
-              "the Reagent sub reaction IS IWatchable — the port installed its
-               per-handle value-movement watch (on a non-watchable host this
-               whole channel is dead, which is the very gap under test)")
-          (is (some? (:watch-key (handle-state handle)))
-              "acquire! registered a per-handle change watch key on the node")
-          (is (empty? @notes)
-              "acquire! on a WARM node fans nothing synchronously (I-5
-               no-sync-fan-out holds on a watchable host too)")
-          (let [v0    (:version (handle-last handle))
-                node0 (:node-key (handle-last handle))]
-            (is (= 1 (:value (handle-last handle))) "baseline observed value")
-            ;; --- MOVE the value; flush the reaction queue (the push) ---
-            (rf/dispatch-sync [:obs/set-n 2])
-            (ratom/flush!)
-            (testing "the value-movement watch fired the {:cause :subscription} channel"
-              (is (pos? (count @notes))
-                  "the port's per-handle watch fired on the value movement")
-              (is (every? #(= :subscription (:cause %)) @notes)
-                  "every fan-out on this path carries {:cause :subscription}")
-              (let [ev (peek @notes)]
-                (is (= target (:target ev)) "the payload carries the handle target")
-                (is (= node0 (:node-key ev)) "same node — a MOVEMENT, not a rebuild")
-                (is (> (:node-version ev) v0)
-                    "the delivered-value node-version ADVANCED past the baseline")
-                (is (= (:node-version ev) (:version (handle-last handle)))
-                    "the handle :last was advanced to the delivered version")
-                (is (= 2 (:value (handle-last handle)))
-                    "the handle :last holds the DELIVERED new value (no recompute)")
-                (is (int? (:frame-epoch ev)))
-                (is (int? (:registry-epoch ev))))))
-          (finally
-            (obs/release! handle)))))))
+    (let [notes  (atom [])
+          target (obs/resolve-target {:frame fid :query-v [:obs/n]})
+          handle  (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
+      (try
+        ;; --- preconditions: the port armed the value-movement channel ---
+        (is (obs/handle? handle))
+        (is (satisfies? IWatchable (node-reaction))
+            "the Reagent sub reaction IS IWatchable — the port installed its
+             per-handle value-movement watch (on a non-watchable host this
+             whole channel is dead, which is the very gap under test)")
+        (is (some? (:watch-key (handle-state handle)))
+            "acquire! registered a per-handle change watch key on the node")
+        (is (empty? @notes)
+            "acquire! on a WARM node fans nothing synchronously (I-5
+             no-sync-fan-out holds on a watchable host too)")
+        (let [v0    (:version (handle-last handle))
+              node0 (:node-key (handle-last handle))]
+          (is (= 1 (:value (handle-last handle))) "baseline observed value")
+          ;; --- MOVE the value; flush the reaction queue (the push) ---
+          (rf/dispatch-sync [:obs/set-n 2])
+          (ratom/flush!)
+          (testing "the value-movement watch fired the {:cause :subscription} channel"
+            (is (pos? (count @notes))
+                "the port's per-handle watch fired on the value movement")
+            (is (every? #(= :subscription (:cause %)) @notes)
+                "every fan-out on this path carries {:cause :subscription}")
+            (let [ev (peek @notes)]
+              (is (= target (:target ev)) "the payload carries the handle target")
+              (is (= node0 (:node-key ev)) "same node — a MOVEMENT, not a rebuild")
+              (is (> (:node-version ev) v0)
+                  "the delivered-value node-version ADVANCED past the baseline")
+              (is (= (:node-version ev) (:version (handle-last handle)))
+                  "the handle :last was advanced to the delivered version")
+              (is (= 2 (:value (handle-last handle)))
+                  "the handle :last holds the DELIVERED new value (no recompute)")
+              (is (int? (:frame-epoch ev)))
+              (is (int? (:registry-epoch ev))))))
+        (finally
+          (obs/release! handle))))))
 
 (deftest watchable-host-idempotent-move-does-not-fan-cause-value
   (testing "a commit that leaves the sub value UNMOVED does not fire the
@@ -197,24 +195,22 @@
             node-record's rf= version hold) mean an equal re-commit is silent"
     (register!)
     (rf/dispatch-sync [:obs/set-n 7])
-    (do
-      (ratom/flush!)
-      (let [notes  (atom [])
-            target (obs/resolve-target {:frame fid :query-v [:obs/n]})
-            handle  (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
-        (try
-          (is (empty? @notes) "acquire! on a WARM node is silent")
-          (let [v0 (:version (handle-last handle))]
-            ;; Re-commit the SAME value: the node re-runs to an equal value, so
-            ;; no watch notification and no version advance.
-            (rf/dispatch-sync [:obs/set-n 7])
-            (ratom/flush!)
-            (is (empty? @notes)
-                "an unmoved value fans nothing on the :subscription channel")
-            (is (= v0 (:version (handle-last handle)))
-                "the node-version did not advance for an equal re-commit"))
-          (finally
-            (obs/release! handle)))))))
+    (let [notes  (atom [])
+          target (obs/resolve-target {:frame fid :query-v [:obs/n]})
+          handle  (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
+      (try
+        (is (empty? @notes) "acquire! on a WARM node is silent")
+        (let [v0 (:version (handle-last handle))]
+          ;; Re-commit the SAME value: the node re-runs to an equal value, so
+          ;; no watch notification and no version advance.
+          (rf/dispatch-sync [:obs/set-n 7])
+          (ratom/flush!)
+          (is (empty? @notes)
+              "an unmoved value fans nothing on the :subscription channel")
+          (is (= v0 (:version (handle-last handle)))
+              "the node-version did not advance for an equal re-commit"))
+        (finally
+          (obs/release! handle))))))
 
 ;; ===========================================================================
 ;; the reentrancy guard on the value-movement fan-out
@@ -227,31 +223,29 @@
             the guard the plain-atom suites cannot reach"
     (register!)
     (rf/dispatch-sync [:obs/set-n 1])
-    (do
-      (ratom/flush!)
-      (let [target  (obs/resolve-target {:frame fid :query-v [:obs/n]})
-            outcome (atom :guard-not-fired)
-            ;; The on-change attempts a FORBIDDEN reentrant self-release from
-            ;; inside the value fan-out; the guard must throw before any
-            ;; teardown, so the handle stays intact and `finally` is a clean op.
-            handle   (atom nil)]
-        (reset! handle
-          (obs/acquire! target
-            (fn [_ev]
-              (reset! outcome
-                (try (obs/release! @handle) :released-no-throw
-                     (catch :default e (:rf.error/id (ex-data e))))))))
-        (try
-          ;; MOVE the value so the measured handle's watch fires on a warm node.
-          (rf/dispatch-sync [:obs/set-n 2])
-          (ratom/flush!)
-          (is (= :rf.error/reentrant-graph-op @outcome)
-              "release! from inside the value-movement fan-out threw the dev
-               reentrant-graph-op assert (fan-out! bound *in-owner-fan-out?*)")
-          (is (= :live (:status (handle-state @handle)))
-              "the guard threw BEFORE any teardown — the handle is untouched")
-          (finally
-            (obs/release! @handle)))))))
+    (let [target  (obs/resolve-target {:frame fid :query-v [:obs/n]})
+          outcome (atom :guard-not-fired)
+          ;; The on-change attempts a FORBIDDEN reentrant self-release from
+          ;; inside the value fan-out; the guard must throw before any
+          ;; teardown, so the handle stays intact and `finally` is a clean op.
+          handle   (atom nil)]
+      (reset! handle
+        (obs/acquire! target
+          (fn [_ev]
+            (reset! outcome
+              (try (obs/release! @handle) :released-no-throw
+                   (catch :default e (:rf.error/id (ex-data e))))))))
+      (try
+        ;; MOVE the value so the measured handle's watch fires on a warm node.
+        (rf/dispatch-sync [:obs/set-n 2])
+        (ratom/flush!)
+        (is (= :rf.error/reentrant-graph-op @outcome)
+            "release! from inside the value-movement fan-out threw the dev
+             reentrant-graph-op assert (fan-out! bound *in-owner-fan-out?*)")
+        (is (= :live (:status (handle-state @handle)))
+            "the guard threw BEFORE any teardown — the handle is untouched")
+        (finally
+          (obs/release! @handle))))))
 
 ;; ===========================================================================
 ;; rf2-r09qj — NaN moves NaN-STABLY through the PUBLIC acquire path
@@ -266,51 +260,49 @@
             natively) would spuriously fan a phantom value movement."
     (register!)
     (rf/dispatch-sync [:obs/set-n ##NaN])
-    (do
-      (ratom/flush!)                         ;; settle any pending queue first
-      (let [notes            (atom [])
-            target           (obs/resolve-target {:frame fid :query-v [:obs/n]})
-            handle            (obs/acquire! target (fn [ev] (swap! notes conj ev)))
-            reaction         (node-reaction)
-            [nan-hits nan-rm] (install-nan-sentinel! reaction)]
-        (try
-          ;; --- preconditions ---
-          (is (obs/handle? handle))
-          (is (satisfies? IWatchable reaction)
-              "the Reagent sub reaction IS IWatchable — the port armed its
-               per-handle value-movement watch")
-          (is (empty? @notes) "acquire! on a warm NaN node fans nothing")
-          (is (nan-num? (:value (handle-last handle))) "baseline observed the host NaN")
-          (let [v0 (:version (handle-last handle))]
-            ;; --- MOVE NaN→NaN: app-db moves (NaN≠NaN under map =), the reaction
-            ;; re-derives NaN, and Reagent's =-gated notify fires (NaN≠NaN). ---
-            (rf/dispatch-sync [:obs/set-n ##NaN])
+    (let [notes            (atom [])
+          target           (obs/resolve-target {:frame fid :query-v [:obs/n]})
+          handle            (obs/acquire! target (fn [ev] (swap! notes conj ev)))
+          reaction         (node-reaction)
+          [nan-hits nan-rm] (install-nan-sentinel! reaction)]
+      (try
+        ;; --- preconditions ---
+        (is (obs/handle? handle))
+        (is (satisfies? IWatchable reaction)
+            "the Reagent sub reaction IS IWatchable — the port armed its
+             per-handle value-movement watch")
+        (is (empty? @notes) "acquire! on a warm NaN node fans nothing")
+        (is (nan-num? (:value (handle-last handle))) "baseline observed the host NaN")
+        (let [v0 (:version (handle-last handle))]
+          ;; --- MOVE NaN→NaN: app-db moves (NaN≠NaN under map =), the reaction
+          ;; re-derives NaN, and Reagent's =-gated notify fires (NaN≠NaN). ---
+          (rf/dispatch-sync [:obs/set-n ##NaN])
+          (ratom/flush!)
+          (testing "the host watch fired but the port fanned nothing"
+            (is (pos? @nan-hits)
+                "the underlying Reagent host watch FIRED for NaN→NaN — the
+                 port's make-watch-handler callback genuinely ran (non-vacuous)")
+            (is (empty? @notes)
+                "NaN→NaN emitted NO {:cause :subscription} note — node-value= suppressed
+                 the fan-out (raw not= would fan a phantom movement)")
+            (is (= v0 (:version (handle-last handle)))
+                "the node version did NOT advance — NaN=NaN under the movement law"))
+          (testing "positive control — a REAL move fans exactly once + advances"
+            (rf/dispatch-sync [:obs/set-n 5])
             (ratom/flush!)
-            (testing "the host watch fired but the port fanned nothing"
-              (is (pos? @nan-hits)
-                  "the underlying Reagent host watch FIRED for NaN→NaN — the
-                   port's make-watch-handler callback genuinely ran (non-vacuous)")
-              (is (empty? @notes)
-                  "NaN→NaN emitted NO {:cause :subscription} note — node-value= suppressed
-                   the fan-out (raw not= would fan a phantom movement)")
-              (is (= v0 (:version (handle-last handle)))
-                  "the node version did NOT advance — NaN=NaN under the movement law"))
-            (testing "positive control — a REAL move fans exactly once + advances"
-              (rf/dispatch-sync [:obs/set-n 5])
-              (ratom/flush!)
-              (is (= 1 (count @notes)) "exactly one {:cause :subscription} for a real move")
-              (is (= :subscription (:cause (first @notes))))
-              ;; EXACT `inc`, not merely `> v0`: `advance-node-record!` advances
-              ;; the node version by exactly `(inc (:version rec))` per real
-              ;; movement (observation.cljc), and between `v0` and this single
-              ;; real move only the NO-move NaN→NaN recompute intervened (version
-              ;; held at `v0`, asserted above). A +2 seam increment — the mutation
-              ;; the loose `> v0` waves through — fails this assertion.
-              (is (= (inc v0) (:version (handle-last handle)))
-                  "the real value movement advanced the node version EXACTLY once")))
-          (finally
-            (nan-rm)
-            (obs/release! handle)))))))
+            (is (= 1 (count @notes)) "exactly one {:cause :subscription} for a real move")
+            (is (= :subscription (:cause (first @notes))))
+            ;; EXACT `inc`, not merely `> v0`: `advance-node-record!` advances
+            ;; the node version by exactly `(inc (:version rec))` per real
+            ;; movement (observation.cljc), and between `v0` and this single
+            ;; real move only the NO-move NaN→NaN recompute intervened (version
+            ;; held at `v0`, asserted above). A +2 seam increment — the mutation
+            ;; the loose `> v0` waves through — fails this assertion.
+            (is (= (inc v0) (:version (handle-last handle)))
+                "the real value movement advanced the node version EXACTLY once")))
+        (finally
+          (nan-rm)
+          (obs/release! handle))))))
 
 ;; ===========================================================================
 ;; rf2-r09qj — NaN moves NaN-STABLY through an integrated ViewCell
@@ -382,58 +374,56 @@
             cannot reach."
     (register!)
     (rf/dispatch-sync [:obs/set-n ##NaN])
-    (do
-      (ratom/flush!)
-      (let [cell    (reactive/make-cell ::nan-host)
-            renders (atom 0)]
-        (render+commit! cell)                ;; commit installs the watch-bearing handle
-        (let [unsub             (reactive/subscribe cell (fn [] (swap! renders inc)))
-              reaction          (node-reaction)
-              [nan-hits nan-rm] (install-nan-sentinel! reaction)
-              handle             (reactive/committed-handle cell (tk [:obs/n]))
-              ver0              (:version (obs/read handle))
-              rev0              (reactive/revision cell)]
-          (try
-            ;; --- preconditions: a real owned, watch-bearing handle at NaN ---
-            (is (some? handle) "the ViewCell committed a handle over the watchable host")
-            (is (obs/owned? handle)
-                "…a REAL owned observation node (so acquire! installed the watch)")
-            (is (nan-num? (get (reactive/committed-values cell) (tk [:obs/n])))
-                "the committed value is the host's NaN")
-            (is (= 0 rev0) "precondition: committed, no revision yet")
-            (is (= 0 @renders) "precondition: no render notifications yet")
-            ;; --- NaN→NaN: host watch fires, the port suppresses everything ---
-            (rf/dispatch-sync [:obs/set-n ##NaN])
+    (let [cell    (reactive/make-cell ::nan-host)
+          renders (atom 0)]
+      (render+commit! cell)                ;; commit installs the watch-bearing handle
+      (let [unsub             (reactive/subscribe cell (fn [] (swap! renders inc)))
+            reaction          (node-reaction)
+            [nan-hits nan-rm] (install-nan-sentinel! reaction)
+            handle             (reactive/committed-handle cell (tk [:obs/n]))
+            ver0              (:version (obs/read handle))
+            rev0              (reactive/revision cell)]
+        (try
+          ;; --- preconditions: a real owned, watch-bearing handle at NaN ---
+          (is (some? handle) "the ViewCell committed a handle over the watchable host")
+          (is (obs/owned? handle)
+              "…a REAL owned observation node (so acquire! installed the watch)")
+          (is (nan-num? (get (reactive/committed-values cell) (tk [:obs/n])))
+              "the committed value is the host's NaN")
+          (is (= 0 rev0) "precondition: committed, no revision yet")
+          (is (= 0 @renders) "precondition: no render notifications yet")
+          ;; --- NaN→NaN: host watch fires, the port suppresses everything ---
+          (rf/dispatch-sync [:obs/set-n ##NaN])
+          (ratom/flush!)
+          (reactive/flush-dirty! cell)     ;; drain any pending notification
+          (testing "NaN→NaN leaves version + revision + render UNMOVED"
+            (is (pos? @nan-hits)
+                "the host watch FIRED for NaN→NaN (the callback genuinely ran)")
+            (is (= ver0 (:version (obs/read handle)))
+                "node version UNMOVED — NaN=NaN under the movement law")
+            (is (= rev0 (reactive/revision cell))
+                "cell revision UNMOVED — make-watch-handler dirtied nothing")
+            (is (= 0 @renders) "ZERO renders — no listener notification fired"))
+          (testing "a re-render+commit finds no movement at step 5 either"
+            (render+commit! cell)
+            (reactive/flush-dirty! cell)
+            (is (= rev0 (reactive/revision cell))
+                "a re-commit over the un-advanced node advances NO revision")
+            (is (= 0 @renders) "…and still no render"))
+          (testing "positive control — a REAL move moves all three EXACTLY once"
+            (rf/dispatch-sync [:obs/set-n 5])
             (ratom/flush!)
-            (reactive/flush-dirty! cell)     ;; drain any pending notification
-            (testing "NaN→NaN leaves version + revision + render UNMOVED"
-              (is (pos? @nan-hits)
-                  "the host watch FIRED for NaN→NaN (the callback genuinely ran)")
-              (is (= ver0 (:version (obs/read handle)))
-                  "node version UNMOVED — NaN=NaN under the movement law")
-              (is (= rev0 (reactive/revision cell))
-                  "cell revision UNMOVED — make-watch-handler dirtied nothing")
-              (is (= 0 @renders) "ZERO renders — no listener notification fired"))
-            (testing "a re-render+commit finds no movement at step 5 either"
-              (render+commit! cell)
-              (reactive/flush-dirty! cell)
-              (is (= rev0 (reactive/revision cell))
-                  "a re-commit over the un-advanced node advances NO revision")
-              (is (= 0 @renders) "…and still no render"))
-            (testing "positive control — a REAL move moves all three EXACTLY once"
-              (rf/dispatch-sync [:obs/set-n 5])
-              (ratom/flush!)
-              (reactive/flush-dirty! cell)
-              ;; EXACT `inc`, matching the revision assertion just below: only
-              ;; the NO-move NaN→NaN recompute(s) intervened between `ver0` and
-              ;; this single real move, so `advance-node-record!` advanced the
-              ;; node version by exactly one. A +2 seam increment fails here.
-              (is (= (inc ver0) (:version (obs/read handle)))
-                  "the real move advanced the node version EXACTLY once")
-              (is (= (inc rev0) (reactive/revision cell))
-                  "the real move advanced the cell revision exactly once")
-              (is (= 1 @renders)
-                  "the real move fired exactly one render (listener notification)"))
-            (finally
-              (nan-rm)
-              (unsub))))))))
+            (reactive/flush-dirty! cell)
+            ;; EXACT `inc`, matching the revision assertion just below: only
+            ;; the NO-move NaN→NaN recompute(s) intervened between `ver0` and
+            ;; this single real move, so `advance-node-record!` advanced the
+            ;; node version by exactly one. A +2 seam increment fails here.
+            (is (= (inc ver0) (:version (obs/read handle)))
+                "the real move advanced the node version EXACTLY once")
+            (is (= (inc rev0) (reactive/revision cell))
+                "the real move advanced the cell revision exactly once")
+            (is (= 1 @renders)
+                "the real move fired exactly one render (listener notification)"))
+          (finally
+            (nan-rm)
+            (unsub)))))))
