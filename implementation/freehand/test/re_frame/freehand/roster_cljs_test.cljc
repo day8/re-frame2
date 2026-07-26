@@ -1,0 +1,297 @@
+(ns re-frame.freehand.roster-cljs-test
+  "The fixture roster, projected — rf2-drpa3.182.7 acceptances 1 and 2.
+
+  The roster's claim is that a Freehand law has ONE identity across every
+  projection that mentions it, and that a failure NAMES that identity. This
+  file proves the halves of that which are pure data and therefore run
+  unchanged on both hosts: the spine is enrolled, every record is
+  well-formed against a closed vocabulary, the fixture and its index row
+  state the same law, and every defect a malformed record can produce
+  carries its `:fh/id`.
+
+  The half that needs a filesystem — that each declared source and proof
+  namespace is a file that exists — is `roster-jvm-test`'s. The half that
+  needs a browser is the mounted tier's own suites, which the records name.
+
+  ## Why the negative rows are here
+
+  A validator that has only ever run against input it passes has not been
+  tested, and a roster gate that could not fail is the most expensive kind
+  of green: it makes a reader believe the spine is checked. So every defect
+  shape below is DRIVEN — a record is broken one way at a time and the
+  defect it produces is asserted, including that it names the right law."
+  (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.freehand.roster :as roster]))
+
+;; ---------------------------------------------------------------------------
+;; Enrolment — the spine is the three vertical fixtures, and it is complete
+;; ---------------------------------------------------------------------------
+
+(deftest the-spine-is-enrolled-and-nothing-loaded-empty
+  (testing "Per rf2-drpa3.182.7 §INITIAL SPINE: the declared host, the
+            serious form and the deferred foreign-handle surrogate are all
+            rostered, and each resolved to a real joined record. A roster
+            that quietly shrank to the ids it could resolve would let this
+            suite pass over a law it stopped loading — the worst failure a
+            table-driven gate has — so the COUNT is asserted alongside the
+            membership."
+    (is (= 3 (count roster/spine))
+        "three records, one per spine member")
+    (is (= #{"FH-REACT-007" "FH-CTRL-018" "FH-BEHAVIOR-005"}
+           (set (map :fh/id roster/spine)))
+        "and they are the three the spine names")
+    (doseq [id roster/spine-ids]
+      (is (some? (roster/by-id id))
+          (str (name id) " resolves to a rostered record")))))
+
+(deftest every-rostered-record-carries-its-whole-identity
+  (testing "Per rf2-drpa3.182.7 acceptance 1: one record answers every
+            question a reader has about a law — what states it, where it is
+            addressed, which modes and hosts it binds, which source
+            implements it, where it executes, what evidence a run leaves,
+            and whether the prose describing it is executable. Asserted
+            field by field rather than by a schema call, so a record that
+            lost one of them names WHICH."
+    (doseq [{id :fh/id law :fh/law index-law :index/law record :fh/record
+             :keys [paragraph modes hosts status]}
+            roster/spine]
+      (is (seq law)          (str id " states its law"))
+      (is (seq index-law)    (str id " is addressed by an index row"))
+      (is (seq paragraph)    (str id " cites a canonical spec paragraph"))
+      (is (seq modes)        (str id " binds at least one mode"))
+      (is (seq hosts)        (str id " binds at least one host"))
+      (is (= :active status) (str id " is an active law"))
+      (is (seq (:source record))
+          (str id " names the source it is a law about"))
+      (is (contains? roster/prose-statuses (:prose record))
+          (str id " declares the status of the prose describing it")))))
+
+(deftest the-roster-is-sound
+  (testing "Per rf2-drpa3.182.7 acceptance 1: the whole roster validates —
+            no malformed record, no duplicated id, and no fixture whose
+            `:fh/law` has drifted from the index row that addresses it. The
+            failure message is the defect list itself, so a red row reads as
+            a sentence about a law."
+    (let [ds (roster/roster-defects roster/spine)]
+      (is (= [] ds) (str "roster defects:\n" (pr-str ds))))))
+
+;; ---------------------------------------------------------------------------
+;; The spine members' own shapes — what each vertical actually claims
+;; ---------------------------------------------------------------------------
+
+(deftest each-spine-member-names-the-tier-its-vertical-lives-on
+  (testing "Per rf2-drpa3.182.7 acceptance 2: the three verticals run
+            through the SAME roster rather than three pasted arrangements,
+            which is only meaningful if each names its tiers as data. Every
+            spine member declares both a headless structural entry and a
+            mounted browser entry, and each entry states the law THAT TIER
+            proves — the two are different claims and a record that gave
+            them one sentence would be describing neither."
+    (doseq [{:keys [fh/id] :as record} roster/spine]
+      (doseq [t [:structural :mounted]]
+        (let [{:keys [ns law]} (roster/tier record t)]
+          (is (symbol? ns)
+              (str id " names its " (name t) " proof namespace"))
+          (is (seq law)
+              (str id " states what its " (name t) " tier proves"))))
+      (is (not= (:law (roster/tier record :structural))
+                (:law (roster/tier record :mounted)))
+          (str id " states DIFFERENT laws for its two tiers — a headless "
+               "walk and a real commit do not prove the same thing")))))
+
+(deftest a-browser-only-law-does-not-claim-the-jvm
+  (testing "Per the index's applicability grammar: the modes and hosts on a
+            record are READ from its index row, so the roster cannot widen a
+            claim the ledger narrowed. FH-CTRL-018 and FH-BEHAVIOR-005 are
+            `interpreted browser` rows — caret behaviour and a real
+            teardown are browser facts — while FH-REACT-007 is `common jvm
+            browser`, because the three-plane split happens once for both
+            emitters."
+    (is (= {:modes #{:interpreted} :hosts #{:browser}}
+           (select-keys (roster/by-id :FH-CTRL-018) [:modes :hosts])))
+    (is (= {:modes #{:interpreted} :hosts #{:browser}}
+           (select-keys (roster/by-id :FH-BEHAVIOR-005) [:modes :hosts])))
+    (is (= {:modes #{:interpreted :compiled} :hosts #{:jvm :browser}}
+           (select-keys (roster/by-id :FH-REACT-007) [:modes :hosts])))))
+
+(deftest an-unsettled-boundary-is-named-rather-than-pinned
+  (testing "Per rf2-drpa3.182.3 (open, from the merged-PR audit of #7081):
+            the `:map-props` key-set law — equality or output subset — is
+            not settled, so no rostered projection asserts either answer.
+            The record says so under `:open`, keyed by the bead that owns
+            the question. This row exists so that removing the note is a
+            deliberate act by whoever settles it, rather than a silent drift
+            back to an unmarked gap; it asserts the QUESTION is recorded and
+            asserts nothing about the answer."
+    (let [open (get-in (roster/by-id :FH-REACT-007) [:fh/record :open])]
+      (is (contains? open :rf2-drpa3.182.3)
+          "the host record names the bead that owns the naming boundary")
+      (is (re-find #"map-props" (get open :rf2-drpa3.182.3))
+          "and states which boundary is unsettled"))
+    (testing "and no other spine member is holding an open question"
+      (is (= [:FH-REACT-007]
+             (filterv #(seq (get-in (roster/by-id %) [:fh/record :open]))
+                      roster/spine-ids))))))
+
+;; ---------------------------------------------------------------------------
+;; Applicability parsing — the join's one piece of grammar
+;; ---------------------------------------------------------------------------
+
+(deftest applicability-parses-both-axes-and-refuses-a-cell-it-cannot-read
+  (testing "The index cell is two axes in one string, and the roster reads
+            it rather than restating it. An unreadable cell answers nil so a
+            caller reports the cell verbatim — a parser that guessed would
+            hand a suite a narrower claim than the ledger made and nothing
+            would notice."
+    (is (= {:modes #{:interpreted :compiled} :hosts #{:jvm :browser}}
+           (roster/parse-applicability "common jvm browser")))
+    (is (= {:modes #{:compiled} :hosts #{:browser}}
+           (roster/parse-applicability "compiled browser")))
+    (is (= {:modes #{:interpreted :compiled} :hosts #{[:host "vega"]}}
+           (roster/parse-applicability "common host:vega"))
+        "a qualified boundary keeps its name")
+    (is (= {:modes #{:interpreted :compiled} :hosts #{:jvm :browser :ssr}}
+           (roster/parse-applicability "  common   jvm browser ssr  ")))
+    (testing "and the refusals"
+      (is (nil? (roster/parse-applicability "jvm browser"))
+          "no mode token")
+      (is (nil? (roster/parse-applicability "common compiled jvm"))
+          "two mode tokens — the axis takes exactly one")
+      (is (nil? (roster/parse-applicability "common"))
+          "no host token")
+      (is (nil? (roster/parse-applicability "common jvm wombat"))
+          "a token on neither axis")
+      (is (nil? (roster/parse-applicability ""))))))
+
+;; ---------------------------------------------------------------------------
+;; FAILURES NAME THE LAW — acceptance 1's load-bearing half
+;; ---------------------------------------------------------------------------
+;;
+;; A roster whose failing assertion reported a line number would not have
+;; met acceptance 1. Each row below breaks a sound record ONE way and
+;; asserts both that the defect is raised and that it names the law it is
+;; about.
+
+(def ^:private sound
+  "A minimal record that validates — the control every negative row below
+  mutates. Deliberately not one of the real three: a negative suite that
+  edited a live record would prove things about that record's incidental
+  shape rather than about the vocabulary."
+  {:fh/id     "FH-PROBE-001"
+   :fh/law    "a probe law"
+   :index/law "a probe law"
+   :fh/record {:source     '[re-frame.freehand.probe]
+               :structural {:ns 're-frame.freehand.probe-cljs-test :law "headlessly"}
+               :prose      :executable}})
+
+(defn- one-defect
+  "The single defect `record` produces, or a marker naming what went wrong
+  instead. Answering the whole entry rather than a boolean is what lets a
+  row assert the id, the field AND the count in one place."
+  [record]
+  (let [ds (roster/defects record)]
+    (if (= 1 (count ds))
+      (first ds)
+      {::unexpected (vec ds)})))
+
+(deftest the-control-record-validates
+  (testing "NON-VACUITY for every negative row below. If the control were
+            already defective, each mutation would 'produce a defect'
+            without the mutation having anything to do with it."
+    (is (= [] (roster/defects sound)))))
+
+(deftest every-defect-names-the-law-it-is-about
+  (testing "Per rf2-drpa3.182.7 acceptance 1: a failing roster row is
+            attributable to its law without a lookup. Every defect shape is
+            driven, and each is asserted to carry the id — a roster that
+            reported `:field :prose` and left a reader to work out WHICH
+            law's prose is exactly the failure this acceptance names."
+    (doseq [[note broken field]
+            [["a key outside the closed record set"
+              (assoc-in sound [:fh/record :wombat] 1)                       :fh/record]
+             ["a missing required key"
+              (update sound :fh/record dissoc :source)                      :fh/record]
+             ["a source that is not a vector of namespace symbols"
+              (assoc-in sound [:fh/record :source] "re-frame.freehand")     :source]
+             ["an empty source vector — a law is about SOMETHING"
+              (assoc-in sound [:fh/record :source] [])                      :source]
+             ["a prose status outside the closed three"
+              (assoc-in sound [:fh/record :prose] :probably)                :prose]
+             ["an evidence expectation that is not a map"
+              (assoc-in sound [:fh/record :evidence] [:reads])              :evidence]
+             ["an empty evidence expectation — say nothing or say something"
+              (assoc-in sound [:fh/record :evidence] {})                    :evidence]
+             ["an :open entry not keyed by an owning bead"
+              (assoc-in sound [:fh/record :open] {"someone" "one day"})     :open]
+             ["an :open entry with no question stated"
+              (assoc-in sound [:fh/record :open] {:rf2-abc ""})             :open]
+             ["no proof tier at all — a law that executes nowhere is prose"
+              (update sound :fh/record dissoc :structural)                  :fh/record]
+             ["a tier naming its namespace as a string"
+              (assoc-in sound [:fh/record :structural :ns] "re-frame.x")    :structural]
+             ["a tier that states no law"
+              (update-in sound [:fh/record :structural] dissoc :law)        :structural]
+             ["a tier carrying a key outside #{:ns :law}"
+              (assoc-in sound [:fh/record :structural :when] :tuesdays)     :structural]]]
+      (let [d (one-defect broken)]
+        (is (= "FH-PROBE-001" (:fh/id d)) (str note " — names the law"))
+        (is (= field (:field d))          (str note " — names the field"))
+        (is (seq (:detail d))             (str note " — says what is wrong"))))))
+
+(deftest a-record-with-no-usable-identity-still-answers-a-defect
+  (testing "Total over garbage. A validator that threw on the input it
+            exists to reject would report the first defect and hide the
+            rest — and the inputs here are exactly the ones a hand-edited
+            fixture produces."
+    (is (= [{:fh/id nil :field :record :detail "a roster record is a map; got 42"}]
+           (roster/defects 42)))
+    (is (= [:fh/id] (mapv :field (roster/defects {:fh/law "no id"}))))
+    (is (= [:fh/id] (mapv :field (roster/defects {:fh/id "" :fh/law "blank"}))))
+    (is (= [:fh/record] (mapv :field (roster/defects {:fh/id "FH-PROBE-002"}))))))
+
+(deftest the-roster-level-defects-name-the-law-too
+  (testing "Per rf2-drpa3.182.7 acceptance 1: a duplicated id is a property
+            of the ROSTER rather than of one record, and it still names the
+            law."
+    (is (= [{:fh/id "FH-PROBE-001" :field :fh/id
+             :detail "appears 2 times in the roster; an id addresses exactly one law"}]
+           (roster/roster-defects [sound sound])))))
+
+(deftest a-record-cannot-claim-a-tier-its-index-row-rules-out
+  (testing "The one cross-file law the join can state: a record's proof
+            tiers are checked against the host axis of the row that
+            addresses it, so a record cannot advertise a browser proof for a
+            law the ledger binds to the JVM alone. Before the join the two
+            files described the same law with nothing comparing them, and a
+            tier claim was a sentence nobody read.
+
+            Deliberately NOT checked: that the fixture's `:fh/law` matches
+            its index row word for word. The two state the same law at
+            different lengths on purpose — the row is the addressed one-line
+            statement, the fixture's is the header over the values below it
+            — and every row in the ledger is written that way, so gating
+            equality would force a hundred prose rewrites to satisfy a law
+            the corpus never held."
+    (let [jvm-only (assoc sound :hosts #{:jvm}
+                               :fh/record (assoc (:fh/record sound)
+                                            :mounted {:ns 're-frame.freehand.probe-dom-cljs-test
+                                                      :law "in a browser"}))
+          ds       (roster/roster-defects [jvm-only])]
+      (is (= 1 (count ds)))
+      (is (= "FH-PROBE-001" (:fh/id (first ds))) "the tier defect names the law")
+      (is (= :mounted (:field (first ds))))
+      (is (re-find #"can only run on" (:detail (first ds)))))
+    (testing "and the same record on a browser row is sound — non-vacuity
+              for the row above"
+      (is (= [] (roster/roster-defects
+                  [(assoc sound :hosts #{:browser}
+                          :fh/record (assoc (:fh/record sound)
+                                       :mounted {:ns 're-frame.freehand.probe-dom-cljs-test
+                                                 :law "in a browser"}))]))))
+    (testing "an :ssr tier on a row that names no SSR host"
+      (is (= [:ssr] (mapv :field
+                          (roster/roster-defects
+                            [(assoc sound :hosts #{:jvm :browser}
+                                    :fh/record (assoc (:fh/record sound)
+                                                 :ssr {:ns 're-frame.freehand.probe-ssr-jvm-test
+                                                       :law "to HTML"}))])))))))
