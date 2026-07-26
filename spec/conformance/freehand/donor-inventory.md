@@ -110,6 +110,14 @@ so it went unrowed while its `:ui-g13` sibling was rowed (rf2-vfv8r). When you
 add a donor build id, an npm entry point, or a runner, the row is yours to
 write.
 
+Assume the hole travels in families. Rowing `run-ui-g8.cjs` left the identical
+hole one directory over: the adapter-smoke harness under
+`implementation/adapters/scripts/` hard-codes the donor `ui/testbed` build and
+its testbed paths, and two `_*.test.cjs` files assert that exact build set —
+five files the census could not see, coupled to the donor by a build id and a
+path, none of them rowed. They are rowed now. When a build id turns out to be
+unrowed, sweep for the others that name it before closing the finding.
+
 ## How coverage is enforced
 
 ```
@@ -331,6 +339,11 @@ release train have no Freehand successor and are DELETEd outright.
 | `implementation/scripts/_release-ui-required-gate.test.cjs` | the guard asserting the donor is a required artifact of the release train; the donor is never published, so nothing succeeds it | DELETE | F6 | done |
 | `implementation/scripts/_ui-deps-edn-boundary.test.cjs` | the guard scoping optional artifacts out of the donor's production dependencies | REPLACE | F6 | pending |
 | `implementation/scripts/_changed-surfaces.test.cjs` | the router's own unit tests. Its donor arms pin that `run-ui-bench.cjs`, `run-ui-g13.cjs`, `run-ui-g8.cjs` and the two donor isolation checkers route onto the donor gate output, that the whole `implementation/ui/**` tree arms the donor's four lanes, and that `cljs-ui-g1` / `cljs-ui-g13` / `cljs-ui-g8` are job-gated on that output. Takes its subject's disposition, the way every other `_*.test.cjs` row here does: the job is real and Freehand keeps a router with its own arms, but no donor arm is carried across | REPLACE | F6 | pending |
+| `implementation/adapters/scripts/adapter-smoke-filter.cjs` | the shared adapter-smoke manifest and its one selection function. Its donor arm is the bespoke third `ADAPTER_SMOKES` entry — build id `ui/testbed`, with `htmlSrc` and `specPath` under `implementation/ui/testbed/` — plus `implementation/ui` in `ADAPTER_SMOKE_SPEC_ROOTS`. Shared build wiring, so the section rule applies: the manifest still has to exist and it serves the adapters either way, but the substrate entry is re-declared against Freehand rather than carried across. Neither census signal can reach this file — the require detector reads only `.clj`, `.cljs`, `.cljc` and `.edn`, and the coupling is a build id rather than a spelling of the donor's name | REPLACE | F6 | pending |
+| `implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs` | the orchestrator half of the same harness: it compiles the donor `ui/testbed` build, stages the testbed's hand-written `index.html` beside the compiled output, and serves it for the run. The `ui-smoke` CI job's `ui/testbed` filter is its documented contract | REPLACE | F6 | pending |
+| `implementation/adapters/scripts/run-adapter-smokes.cjs` | the Playwright half: it drives the donor substrate spec and reconciles the manifest against the spec files actually on disk, so a declared-but-absent donor spec reds the run rather than being silently skipped | REPLACE | F6 | pending |
+| `implementation/scripts/_adapter-smoke-filter.test.cjs` | the manifest's own unit tests. Its donor arms pin the exact three-build set including `ui/testbed`, that every declared `specPath` exists on disk, and that both `ui/testbed` and `ui-testbed` filter shapes select the substrate smoke while `adapters/` deliberately excludes it. Takes its subject's disposition | REPLACE | F6 | pending |
+| `implementation/scripts/_reagent-slim-smoke-policy.test.cjs` | the slim-adapter smoke policy. Its donor arm is a second `deepStrictEqual` over the same three-build set — including `ui/testbed` — pinning that no slim entry can hide behind manifest growth. Takes the manifest's disposition, as its subject | REPLACE | F6 | pending |
 | `.github/scripts/verify-version-lockstep.sh` | the release inventory's assertion that the donor artifact is publishable; the surrounding inventory serves other artifacts and stays | DELETE | F6 | done |
 | `.github/scripts/report-changed-surfaces.sh` | the changed-surface router that maps donor paths to gates | REPLACE | F6 | pending |
 | `.github/workflows/test.yml` | the donor-suite jobs on the pull-request train | REPLACE | F6 | pending |
