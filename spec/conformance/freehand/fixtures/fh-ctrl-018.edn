@@ -1,0 +1,47 @@
+{:fh/id  "FH-CTRL-018"
+ :fh/law "In a real browser the first-party controls hold the user-visible facts a structural assertion cannot reach: sustained and mid-string typing through a `field` produces a value equal to the typed string character for character with the caret where the user put it, a `buffered-field`'s Enter COMMITS while an Enter carrying a live IME composition commits nothing and leaves the draft alone, and a caller's reset restores the baseline on the SAME node — still focused, and through the controlled-input path rather than by remounting."
+
+ :frame :rf.test/controls-kit
+ :form-path [:editor]
+
+ :baseline {:amount "10"}
+ :amount-path [:amount]
+
+ ;; SUSTAINED TYPING. Appended one character at a time, the way a user
+ ;; produces it, so a dropped keystroke shows up as a short string rather
+ ;; than as a timing observation.
+ :typed "12345"
+ :value-after-typing "1012345"
+
+ ;; A MID-STRING INSERT. The caret is placed inside the text, one
+ ;; character arrives, and the caret must follow it rather than jumping to
+ ;; either end — the failure a naive controlled input produces on every
+ ;; keystroke.
+ :insert-at 1
+ :insert-ch "9"
+ :value-after-insert "190"
+ :caret-after-insert 2
+
+ ;; THE COMMIT. A plain Enter commits the draft the form is holding.
+ :commit-key "Enter"
+ :commits-after-plain-enter 1
+ :committed-value "190"
+
+ ;; THE COMPOSING ENTER. The same key, with a composition in flight — the
+ ;; Enter that accepts an input-method candidate. `keyCode` 229 is the
+ ;; sentinel every engine emits for it, and `isComposing` is the standard
+ ;; flag; both are set, because a control that trusted only one of them is
+ ;; the control this row exists to catch.
+ :composing-key-code 229
+ :commits-after-composing-enter 0
+
+ ;; And the draft is UNTOUCHED by the composing Enter — a commit withheld
+ ;; must not also be a value discarded.
+ :value-after-composing-enter "190"
+
+ ;; THE RESET. The caller rejects by reasserting the value it already had
+ ;; and advancing the leaf's generation, which is the case value-equality
+ ;; is blind to.
+ :reasserted-value "10"
+ :next-reset-key 1
+ :value-after-reset "10"}
