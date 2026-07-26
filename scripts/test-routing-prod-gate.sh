@@ -84,17 +84,26 @@ test_root="$artefact/test"
 # leave a stale exclusion quietly suppressing coverage.
 # ---------------------------------------------------------------------------
 known_red=(
-  # ── rf2-o5dbf — NOT obviously instrumentation, and first in the triage
-  #    queue.  Each of these fails on an assertion about a LOUD REJECTION
-  #    rather than about a trace payload: a malformed `:url-strategy`, a
-  #    non-boolean `:can-leave` return, a heterogeneous unknown-key set.  If
-  #    any of those rejections is meant to survive production and does not,
-  #    that is an rf2-9c2jf-class defect and not a posture test.  Somebody
-  #    has to look before they are written off.
-  re-frame.routing-boundary-totality-cljs-test    #  3
-  re-frame.routing-can-leave-test                 # 10
-  re-frame.routing-url-strategy-test              #  8
-  re-frame.routing-entry-denied-test              #  4
+  # ── rf2-o5dbf — CLEARED 2026-07-27.  The four LOUD-REJECTION tripwires
+  #    (`routing-boundary-totality-cljs-test`, `routing-can-leave-test`,
+  #    `routing-url-strategy-test`, `routing-entry-denied-test`) were the
+  #    first triage batch, because each one had to be read before it could be
+  #    written off as instrumentation.  Verdict: EVERY rejection those suites
+  #    assert does survive production — none is an rf2-9c2jf-class defect.
+  #    What is dev-only is the CHANNEL each was observed through, and in two
+  #    cases the observation was worse than dev-only:
+  #      * `denial-is-safe-with-no-application-handler` and
+  #        `repeated-denials-never-emit-a-loop-error` each asserted a NEGATIVE
+  #        over the trace ring (`not-any? :rf.error/no-such-handler` /
+  #        `:rf.error/route-guard-loop`).  Under the gate that ring is empty
+  #        by design, so both would have passed VACUOUSLY the moment the
+  #        roster line came off.  They are now inside the posture arm, with
+  #        the deny itself asserted outside it.
+  #      * the `url-strategy` consult tripwire is dev-only BY DESIGN
+  #        (rf2-ecb4sx made the consult a trusted read); the production-real
+  #        defence is the ungated registration preflight, which the same
+  #        namespace already pins posture-independently.
+  #    All four now carry a "## Posture split (rf2-o5dbf)" ns docstring.
 
   # ── rf2-o5dbf — the CLASSIFICATION / PRIVACY suites.  rf2-u2x6w already
   #    carved the always-on production legs of the egress contract into

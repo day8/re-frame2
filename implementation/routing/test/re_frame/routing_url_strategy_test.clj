@@ -12,10 +12,33 @@
   contract: encode/decode shape, the encode/decode ROUND-TRIP identity, the
   ADVERSARIAL negative fixtures (malformed / mismatched forms), and
   `url-strategy-from-config` / `url-strategy-for-frame-id`. Per Spec 012
-  §URL strategies."
+  §URL strategies.
+
+  ## Posture split (rf2-o5dbf)
+
+  The fail-loud validation seam is FRAME CONSTRUCTION (rf2-ktmto9):
+  `preflight-frame-config!` runs `validate-url-strategy!` UNCONDITIONALLY at
+  `re-frame.frame/upsert-frame!`, the sole `frames`-store config writer. That
+  is production-real and is asserted here WITHOUT a posture guard — the
+  preflight tests, the engine-rejects-before-any-write test and the three
+  trusted-read store invariants all run in the ordinary `clojure -M:test`
+  suite AND in `scripts/test-routing-prod-gate.sh` (the
+  `-Dre-frame.debug=false` lane).
+
+  What is NOT production-real is the CONSULT-path tripwire. rf2-ecb4sx made
+  `url-strategy-from-config` a trusted read that pays no per-render
+  validation; what remains there is a `(when interop/debug-enabled? …)`
+  re-check, DCE'd from production CLJS bundles and dead on a JVM started with
+  `-Dre-frame.debug=false`. The two tripwire deftests below therefore branch
+  on `interop/debug-enabled?`: the dev arm keeps the fail-loud assertions
+  VERBATIM, and the production arm asserts what the trusted read actually
+  does when the tripwire is gone — it returns the declared value verbatim,
+  throwing nothing, which is the contract the ~30x consult speed-up rides on.
+  Neither arm is vacuous; nothing was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.strategy :as strategy]
@@ -189,35 +212,64 @@
             test default), a truthy but NON-MAP :url-strategy still fails loud
             with :rf.error/invalid-url-strategy at the consult, backstopping the
             registration preflight for any future config-write bypass"
-    (let [ex (try (strategy/url-strategy-from-config {:url-strategy :not-a-map})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "a non-map :url-strategy throws under the dev tripwire")
-      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex)))
-          "the canonical structured error id is stamped")
-      (is (= :not-a-map (:url-strategy (ex-data ex)))
-          "the offending value is carried in the ex-data"))))
+    (if interop/debug-enabled?
+      ;; rf2-o5dbf — dev-tripwire arm (see ns docstring), kept verbatim.
+      (let [ex (try (strategy/url-strategy-from-config {:url-strategy :not-a-map})
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) "a non-map :url-strategy throws under the dev tripwire")
+        (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex)))
+            "the canonical structured error id is stamped")
+        (is (= :not-a-map (:url-strategy (ex-data ex)))
+            "the offending value is carried in the ex-data"))
+      ;; rf2-o5dbf — production arm: the tripwire is DCE'd / gated off, so the
+      ;; consult is a pure trusted read. It must not throw and must not
+      ;; silently substitute a default — the preflight (asserted
+      ;; posture-independently below) is what keeps a value of this shape out
+      ;; of the store in the first place.
+      (is (= :not-a-map (strategy/url-strategy-from-config {:url-strategy :not-a-map}))
+          "under -Dre-frame.debug=false the consult returns the declared value
+           verbatim and pays no validation — the trusted read rf2-ecb4sx bought"))))
 
 (deftest custom-url-strategy-missing-leg-tripwire
   (testing "rf2-ecb4sx: the confirmed repro — a custom strategy missing a
             callable :encode (only :decode supplied) fails loud under the dev
             tripwire naming the bad leg"
-    (let [ex (try (strategy/url-strategy-from-config
-                    {:url-strategy {:decode (constantly "/")}})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "a strategy missing a required callable leg throws")
-      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
-      (is (contains? (set (:missing (ex-data ex))) :encode)
-          "the missing :encode leg is named in :missing")))
+    (if interop/debug-enabled?
+      ;; rf2-o5dbf — dev-tripwire arm (see ns docstring), kept verbatim.
+      (let [ex (try (strategy/url-strategy-from-config
+                      {:url-strategy {:decode (constantly "/")}})
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) "a strategy missing a required callable leg throws")
+        (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
+        (is (contains? (set (:missing (ex-data ex))) :encode)
+            "the missing :encode leg is named in :missing"))
+      ;; rf2-o5dbf — production arm (see ns docstring).
+      (let [half {:decode (constantly "/")}]
+        (is (identical? half (strategy/url-strategy-from-config {:url-strategy half}))
+            "the production consult returns the declared value verbatim, throwing nothing"))))
   (testing "a non-callable leg (a non-fn value in a required slot) is rejected too"
-    (let [ex (try (strategy/url-strategy-from-config
-                    {:url-strategy {:encode "not-a-fn" :decode (constantly "/")}})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
-      (is (contains? (set (:missing (ex-data ex))) :encode)
-          "a non-callable :encode counts as missing"))))
+    (if interop/debug-enabled?
+      ;; rf2-o5dbf — dev-tripwire arm (see ns docstring), kept verbatim.
+      (let [ex (try (strategy/url-strategy-from-config
+                      {:url-strategy {:encode "not-a-fn" :decode (constantly "/")}})
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
+        (is (contains? (set (:missing (ex-data ex))) :encode)
+            "a non-callable :encode counts as missing"))
+      ;; rf2-o5dbf — production arm. The REJECTION of this exact value is not
+      ;; lost under the gate: `preflight-carries-frame-id-in-ex-data` and
+      ;; `make-frame-engine-rejects-malformed-strategy-before-any-write` below
+      ;; assert it posture-independently at the registration chokepoint.
+      (let [non-callable {:encode "not-a-fn" :decode (constantly "/")}]
+        (is (identical? non-callable
+                        (strategy/url-strategy-from-config {:url-strategy non-callable}))
+            "the production consult returns the declared value verbatim, throwing nothing")
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (strategy/preflight-frame-config! :t/owner {:url-strategy non-callable}))
+            "…and the ungated registration preflight still rejects it LOUD")))))
 
 (deftest url-strategy-from-config-is-a-trusted-read
   (testing "rf2-ecb4sx: a SHAPE-VALID declared strategy resolves by identity —

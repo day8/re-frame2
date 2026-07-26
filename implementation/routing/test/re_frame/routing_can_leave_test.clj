@@ -2,11 +2,38 @@
   "Leave-guard + pending-navigation protocol tests for re-frame.routing
   (`:can-leave`, `:rf/pending-navigation`, `:rf.route/continue` /
   `:rf.route/cancel` / `:rf.route/navigation-blocked`). Split from
-  routing_test.clj per rf2-u8qe7y finding 3."
+  routing_test.clj per rf2-u8qe7y finding 3.
+
+  ## Posture split (rf2-o5dbf)
+
+  Leave-guard SEMANTICS are production-real and are asserted here WITHOUT a
+  posture guard: a rejecting `:can-leave` blocks the transition, a truthy
+  NON-BOOLEAN return fails CLOSED (rf2-5pyyl), the `:rf/pending-navigation`
+  slot is written with `:rejecting-route` / `:rejecting-guard` /
+  `:requested-url`, an unbound `:subs/subscribe-once` hook degrades to
+  ALLOW, and an external URL never touches the routing slice. Those run in
+  the ordinary `clojure -M:test` suite AND in
+  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+
+  The `:trace` stream several of them were previously observed THROUGH is not
+  production-real: every `trace/emit!` / `trace/emit-error!` site sits behind
+  `interop/debug-enabled?`, read once at load time, so under the real gate the
+  framework emits nothing here BY DESIGN. Those assertions are correct
+  dev-posture coverage and are kept VERBATIM inside `(when
+  interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+
+  Where the trace was the ONLY witness — the four rf2-dbmj6x `:frame`-stamp
+  tests and `navigation-blocked-trace-carries-rejecting-guard` — a
+  production-visible witness was ADDED rather than the assertion dropped: the
+  same facts are readable off the frame's runtime-db, because
+  `re-frame.routing.decisions/decide` writes `:rejecting-route` and
+  `:rejecting-guard` into the pending-navigation slot itself. Nothing was
+  deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.events :as events]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.registry :as registry]
@@ -185,11 +212,21 @@
       (rf/register-listener! :trace ::blocked (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (rf/unregister-listener! :trace ::blocked)
-      (is (some (fn [ev]
-                  (and (= :rf.route/navigation-blocked (:operation ev))
-                       (= :editor/can-leave? (-> ev :tags :rejecting-guard))))
-                @traces)
-          "navigation-blocked trace tags include :rejecting-guard"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the rejecting sub-id is not
+      ;; a trace-only fact — `decisions/decide` writes it into the pending-nav
+      ;; slot, which is runtime-db state the `:rf/pending-navigation` sub reads
+      ;; in production. Tooling reading it off the trace is the dev restatement.
+      (is (= :editor/can-leave?
+             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                     [:rf.runtime/routing :pending-navigation :rejecting-guard]))
+          "the pending-navigation slot names the rejecting guard sub-id")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.route/navigation-blocked (:operation ev))
+                         (= :editor/can-leave? (-> ev :tags :rejecting-guard))))
+                  @traces)
+            "navigation-blocked trace tags include :rejecting-guard")))))
 
 ;; ---- rf2-yursn: :rf.route/continue re-issues :rf.route/url-requested ----------
 ;;
@@ -390,11 +427,21 @@
       (rf/register-listener! :trace ::nb-id (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (rf/unregister-listener! :trace ::nb-id)
-      (let [nb (first (filter #(= :rf.error/can-leave-non-boolean (:operation %))
-                              @traces))]
-        (is (some? nb) ":rf.error/can-leave-non-boolean fired")
-        (is (= :editor/article (-> nb :tags :route-id))
-            ":route-id is the route-id KEYWORD, not the \"/editor/articles/:id\" path string")))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the "route-id keyword, not
+      ;; the :path pattern string" fact has a production-visible restatement —
+      ;; the pending-nav slot's `:rejecting-route` is written from the same
+      ;; `(:route-id current)` the trace tags.
+      (is (= :editor/article
+             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                     [:rf.runtime/routing :pending-navigation :rejecting-route]))
+          ":rejecting-route is the route-id KEYWORD, not the \"/editor/articles/:id\" path string")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [nb (first (filter #(= :rf.error/can-leave-non-boolean (:operation %))
+                                @traces))]
+          (is (some? nb) ":rf.error/can-leave-non-boolean fired")
+          (is (= :editor/article (-> nb :tags :route-id))
+              ":route-id is the route-id KEYWORD, not the \"/editor/articles/:id\" path string"))))))
 
 ;; ============================================================================
 ;; rf2-5pyyl — :can-leave non-boolean → BLOCK + :rf.error/can-leave-non-boolean
@@ -437,13 +484,17 @@
             "navigation BLOCKED — slice still on the source route")
         (is (some? pending)
             ":rf/pending-navigation slot is populated (block path)")
-        (is (= :rf.error/can-leave-non-boolean
-               (-> nb-traces first :operation))
-            ":rf.error/can-leave-non-boolean trace fired (rf2-5pyyl)")
-        (is (= 42 (-> nb-traces first :tags :value))
-            "trace carries the offending non-boolean value")
-        (is (= :blocked-navigation (-> nb-traces first :recovery))
-            "trace hoists :recovery :blocked-navigation (Spec 009 §error contract)")))))
+        ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+        ;; fail-CLOSED semantics this deftest exists for are pinned by the two
+        ;; runtime-db assertions above, which are posture-independent.
+        (when interop/debug-enabled?
+          (is (= :rf.error/can-leave-non-boolean
+                 (-> nb-traces first :operation))
+              ":rf.error/can-leave-non-boolean trace fired (rf2-5pyyl)")
+          (is (= 42 (-> nb-traces first :tags :value))
+              "trace carries the offending non-boolean value")
+          (is (= :blocked-navigation (-> nb-traces first :recovery))
+              "trace hoists :recovery :blocked-navigation (Spec 009 §error contract)"))))))
 
 ;; ============================================================================
 ;; rf2-dbmj6x — can-leave / external-url diagnostics carry :frame
@@ -481,12 +532,25 @@
       (rf/register-listener! :trace ::dbmj6x-blocked (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner})
       (rf/unregister-listener! :trace ::dbmj6x-blocked)
-      (is (some (fn [ev]
-                  (and (= :rf.route/navigation-blocked (:operation ev))
-                       (= :editor/can-leave? (-> ev :tags :rejecting-guard))
-                       (= :route/owner (-> ev :tags :frame))))
-                @traces)
-          ":rf.route/navigation-blocked carries :frame :route/owner (pre-fix: absent)"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the block landed in the
+      ;; NON-DEFAULT frame and nowhere else. That is the production half of
+      ;; "the diagnostic knew which frame it was on" — the rejecting guard is
+      ;; recorded in :route/owner's runtime-db, and :rf/default is untouched.
+      (is (= :editor/can-leave?
+             (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
+                     [:rf.runtime/routing :pending-navigation :rejecting-guard]))
+          ":route/owner's pending-nav slot names the rejecting guard")
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                        [:rf.runtime/routing :pending-navigation]))
+          ":rf/default saw no pending navigation — the block is frame-local")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.route/navigation-blocked (:operation ev))
+                         (= :editor/can-leave? (-> ev :tags :rejecting-guard))
+                         (= :route/owner (-> ev :tags :frame))))
+                  @traces)
+            ":rf.route/navigation-blocked carries :frame :route/owner (pre-fix: absent)")))))
 
 (deftest can-leave-non-boolean-trace-carries-frame-rf2-dbmj6x
   (testing "rf2-dbmj6x: :rf.error/can-leave-non-boolean stamps :frame for a
@@ -509,12 +573,27 @@
       (rf/register-listener! :trace ::dbmj6x-nb (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner})
       (rf/unregister-listener! :trace ::dbmj6x-nb)
-      (is (some (fn [ev]
-                  (and (= :rf.error/can-leave-non-boolean (:operation ev))
-                       (= 42 (-> ev :tags :value))
-                       (= :route/owner (-> ev :tags :frame))))
-                @traces)
-          ":rf.error/can-leave-non-boolean carries :frame :route/owner (pre-fix: absent)"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the non-boolean guard failed
+      ;; CLOSED against the NON-DEFAULT frame — :route/owner is still on the
+      ;; source route with a pending slot, and :rf/default was never involved.
+      (is (= :editor/article
+             (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
+                     [:rf.runtime/routing :current :route-id]))
+          ":route/owner stayed on the source route — the guard failed closed there")
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
+                         [:rf.runtime/routing :pending-navigation]))
+          ":route/owner's pending-nav slot is populated")
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                        [:rf.runtime/routing :pending-navigation]))
+          ":rf/default saw no pending navigation — the guard is frame-local")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.error/can-leave-non-boolean (:operation ev))
+                         (= 42 (-> ev :tags :value))
+                         (= :route/owner (-> ev :tags :frame))))
+                  @traces)
+            ":rf.error/can-leave-non-boolean carries :frame :route/owner (pre-fix: absent)")))))
 
 (deftest can-leave-subs-artefact-missing-trace-carries-frame-rf2-dbmj6x
   (testing "rf2-dbmj6x: :rf.warning/can-leave-subs-artefact-missing stamps
@@ -538,11 +617,25 @@
           (rf/register-listener! :trace ::dbmj6x-missing (fn [ev] (swap! traces conj ev)))
           (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner})
           (rf/unregister-listener! :trace ::dbmj6x-missing)
-          (is (some (fn [ev]
-                      (and (= :rf.warning/can-leave-subs-artefact-missing (:operation ev))
-                           (= :route/owner (-> ev :tags :frame))))
-                    @traces)
-              ":rf.warning/can-leave-subs-artefact-missing carries :frame :route/owner"))
+          ;; SEMANTIC, posture-independent (rf2-o5dbf): with the subs hook
+          ;; unbound the guard cannot be evaluated, so `decisions/guard?`
+          ;; degrades to ALLOW (decisions.cljc §141-144) — the navigation
+          ;; PROCEEDS in :route/owner and no pending slot is written. The
+          ;; warning is the dev-only announcement of that degraded state.
+          (is (= :route/cart
+                 (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
+                         [:rf.runtime/routing :current :route-id]))
+              "the unevaluable guard degraded to ALLOW — :route/owner navigated")
+          (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
+                            [:rf.runtime/routing :pending-navigation]))
+              "…and nothing was left pending")
+          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+          (when interop/debug-enabled?
+            (is (some (fn [ev]
+                        (and (= :rf.warning/can-leave-subs-artefact-missing (:operation ev))
+                             (= :route/owner (-> ev :tags :frame))))
+                      @traces)
+                ":rf.warning/can-leave-subs-artefact-missing carries :frame :route/owner")))
         (finally
           ;; Restore the hook (it lives in core/subs.cljc, which the routing
           ;; fixture does NOT reload, so it must be put back explicitly).
@@ -564,11 +657,23 @@
       (rf/dispatch-sync [:rf.route/url-requested {:url "https://example.invalid/cart"}]
                         {:frame :route/owner})
       (rf/unregister-listener! :trace ::dbmj6x-external)
-      (is (some (fn [ev]
-                  (and (= :rf.route/external-url-requested (:operation ev))
-                       (= :route/owner (-> ev :tags :frame))))
-                @traces)
-          ":rf.route/external-url-requested carries :frame :route/owner (pre-fix: absent)"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): an EXTERNAL URL is not an
+      ;; in-app navigation — :route/owner's slice stays on `/` and no pending
+      ;; slot is written. That is the branch the trace merely announces.
+      (is (= :route/home
+             (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
+                     [:rf.runtime/routing :current :route-id]))
+          "the external URL did not move :route/owner's routing slice")
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
+                        [:rf.runtime/routing :pending-navigation]))
+          "…and left nothing pending")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.route/external-url-requested (:operation ev))
+                         (= :route/owner (-> ev :tags :frame))))
+                  @traces)
+            ":rf.route/external-url-requested carries :frame :route/owner (pre-fix: absent)")))))
 
 ;; ============================================================================
 ;; rf2-dqlfty — nav-guard phase fails CLOSED on a throwing/hostile URL

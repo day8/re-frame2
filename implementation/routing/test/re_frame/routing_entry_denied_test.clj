@@ -6,14 +6,45 @@
   framework no-op default handler, the URL restore on a URL-driven door, the
   SSR `403` floor + redirect supersession, the fresh-return auth recipe, and
   the retirement roster (`:rf.route/entry-blocked`, `:enter-attempts`,
-  `:rf.error/route-guard-loop`, enter bypass, `:bypass-guards?`)."
+  `:rf.error/route-guard-loop`, enter bypass, `:bypass-guards?`).
+
+  ## Posture split (rf2-o5dbf)
+
+  Almost everything here is already production-real and carries NO posture
+  guard: `capture-denials!` observes the denial through a PUBLIC
+  `rf/reg-event` handler, not the trace stream, and the terminal-entry
+  invariants (nothing commits, no pending value, exactly-once dispatch, the
+  address-bar restore, the SSR 403 floor) are read off the runtime-db and the
+  SSR response. Those run in the ordinary `clojure -M:test` suite AND in
+  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+
+  Two shapes needed the guard.
+
+  1. Trace-PAYLOAD assertions — the `:rf.error/can-enter-non-boolean` tags,
+     the `:rf.error/navigate-bad-request` `:reason` / `:keys` — sit behind
+     `trace/emit-error!`, gated on `interop/debug-enabled?` and read once at
+     load time. Kept VERBATIM inside `(when interop/debug-enabled? …)` arms
+     marked `rf2-o5dbf`. In every case the SEMANTICS beside them (the deny
+     held; the malformed request navigated nowhere) stay posture-independent.
+
+  2. NEGATIVE trace assertions — `not-any? :rf.error/no-such-handler` and
+     `not-any? :rf.error/route-guard-loop`. Under the gate the ring is EMPTY
+     by design, so these pass VACUOUSLY: they would have reported green
+     without the framework doing anything at all. They are dev-posture
+     assertions and are guarded as such, with the production-visible half of
+     each (the deny still holds; 12 attempts really did deny 12 times and
+     accumulated no pending value) left outside the arm.
+
+  Nothing was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
+            [re-frame.routing.address :as address]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]
             [re-frame.ssr :as ssr]))
@@ -128,11 +159,18 @@
       (rf/register-listener! :trace ::d (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (rf/unregister-listener! :trace ::d)
-      (is (= 1 (count (filter #(= :rf.route/entry-denied (:operation %)) @traces)))
-          "exactly one :rf.route/entry-denied trace — counted independently of
-           any application handler")
-      (is (not-any? #(= :rf.error/no-such-handler (:operation %)) @traces)
-          "no :rf.error/no-such-handler — the default handler resolved the dispatch")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). BOTH of these
+      ;; read the trace ring, and the second is NEGATIVE: under
+      ;; -Dre-frame.debug=false the ring is empty by design, so `not-any?`
+      ;; would pass without the framework resolving anything.
+      (when interop/debug-enabled?
+        (is (= 1 (count (filter #(= :rf.route/entry-denied (:operation %)) @traces)))
+            "exactly one :rf.route/entry-denied trace — counted independently of
+             any application handler")
+        (is (not-any? #(= :rf.error/no-such-handler (:operation %)) @traces)
+            "no :rf.error/no-such-handler — the default handler resolved the dispatch"))
+      ;; SEMANTIC, posture-independent: with only the framework default in
+      ;; place the denial is still a HARD deny that commits nothing.
       (is (= :home (current-id)) "with the default handler, denial is a HARD deny")
       (is (nil? (pending))))))
 
@@ -219,11 +257,17 @@
       (rf/register-listener! :trace ::nb (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (rf/unregister-listener! :trace ::nb)
-      (is (some (fn [ev] (and (= :rf.error/can-enter-non-boolean (:operation ev))
-                              (= :account (-> ev :tags :route-id))))
-                @traces)
-          ":rf.error/can-enter-non-boolean fired, tagged with the target route")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; fail-CLOSED semantics are pinned posture-independently below, through
+      ;; the PUBLIC :rf.route/entry-denied handler `capture-denials!` seats.
+      (when interop/debug-enabled?
+        (is (some (fn [ev] (and (= :rf.error/can-enter-non-boolean (:operation ev))
+                                (= :account (-> ev :tags :route-id))))
+                  @traces)
+            ":rf.error/can-enter-non-boolean fired, tagged with the target route"))
       (is (= 1 (count @seen)) "the non-boolean DENIED, exactly once")
+      (is (= :account (:route-id (:target (first @seen))))
+          "the denial names the guarded target — the non-boolean failed CLOSED there")
       (is (= :home (current-id))))))
 
 (deftest can-enter-guard-receives-resolved-target
@@ -423,21 +467,38 @@
       (rf/register-listener! :trace ::bad (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :account :bypass-guards? #{:enter}}])
       (rf/unregister-listener! :trace ::bad)
-      (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
-                              (= :unknown-keys (-> ev :tags :reason))
-                              (= [:bypass-guards?] (-> ev :tags :keys))))
-                @traces)
-          ":bypass-guards? is rejected LOUD as an unknown request key")
-      (is (= :home (current-id)) "the malformed request navigated nowhere"))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the REJECTION is the
+      ;; always-on structural gate (`address/classify`; navigate.cljc
+      ;; §236-250), so a retired key really does buy nothing under the
+      ;; production gate — `:bypass-guards? #{:enter}` did NOT get past the
+      ;; `:can-enter` guard, and the slice never moved.
+      (is (= :home (current-id))
+          ":bypass-guards? bought no entry — the malformed request navigated nowhere")
+      (is (= [:bypass-guards?]
+             (:keys (address/classify {:to :account :bypass-guards? #{:enter}} nil)))
+          "the always-on gate names :bypass-guards? as the unknown key")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
+                                (= :unknown-keys (-> ev :tags :reason))
+                                (= [:bypass-guards?] (-> ev :tags :keys))))
+                  @traces)
+            ":bypass-guards? is rejected LOUD as an unknown request key")))
     ;; and the retired internal resume rider is likewise unknown
     (let [traces (atom [])]
       (rf/register-listener! :trace ::rider (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:to :home :rf.route/enter-attempts 2}])
       (rf/unregister-listener! :trace ::rider)
-      (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
-                              (= :unknown-keys (-> ev :tags :reason))))
-                @traces)
-          ":rf.route/enter-attempts is no longer an internal exemption"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): same always-on gate.
+      (is (= :unknown-keys
+             (:reason (address/classify {:to :home :rf.route/enter-attempts 2} nil)))
+          ":rf.route/enter-attempts is not an exemption in the always-on gate")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
+                                (= :unknown-keys (-> ev :tags :reason))))
+                  @traces)
+            ":rf.route/enter-attempts is no longer an internal exemption")))))
 
 (deftest repeated-denials-never-emit-a-loop-error
   (testing "entry is terminal, so a repeatedly-denied target cannot spin —
@@ -450,8 +511,15 @@
       (dotimes [_ 12] (rf/dispatch-sync [:rf.route/navigate {:to :account}]))
       (rf/unregister-listener! :trace ::loop)
       (is (= 12 (count @seen)) "each fresh attempt denies once — 12 attempts, 12 denials")
-      (is (not-any? #(= :rf.error/route-guard-loop (:operation %)) @traces)
-          ":rf.error/route-guard-loop is retired")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). This assertion
+      ;; is NEGATIVE over the trace ring, which is EMPTY by design under
+      ;; -Dre-frame.debug=false, so outside a posture guard it would pass
+      ;; vacuously. The production-visible half of "cannot spin" — 12 attempts
+      ;; produced exactly 12 terminal denials and no pending accumulation —
+      ;; is asserted outside the arm.
+      (when interop/debug-enabled?
+        (is (not-any? #(= :rf.error/route-guard-loop (:operation %)) @traces)
+            ":rf.error/route-guard-loop is retired"))
       (is (nil? (pending)) "no pending value ever accumulated")
       (is (= :home (current-id))))))
 
