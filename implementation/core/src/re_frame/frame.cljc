@@ -1309,11 +1309,20 @@
 (defonce ^:private frame-commit-epochs
   (atom {}))
 
+(def ^:private inc-commit-epoch
+  "`(fnil inc 0)`, hoisted. `fnil` is a CALL that builds a fresh closure —
+  and, being multi-arity + variadic, an expensive one — so spelling it at
+  the `swap!` site below built a new one on every commit to express a
+  constant. Measured at 745 B per write on node V8 (rf2-78ejq), 21% of what
+  a zero-subscription write costs. The value is the same function either
+  way; only the number of times it is constructed changes."
+  (fnil inc 0))
+
 (defn- bump-commit-epoch!
   "Advance frame `id`'s commit epoch by one. Called at BOTH physical
   frame-state write chokepoints, after the container install. INTERNAL."
   [id]
-  (swap! frame-commit-epochs update id (fnil inc 0))
+  (swap! frame-commit-epochs update id inc-commit-epoch)
   nil)
 
 (defn frame-commit-epoch

@@ -288,6 +288,119 @@
     (frame/replace-app-db! f (update (frame/frame-app-db-value f) :cells assoc i v))
     nil))
 
+;; ---- rf2-78ejq: the rungs UNDER RFWRITE-0 ---------------------------------
+;;
+;; `RFWRITE-0` — a write to a frame with ZERO subscriptions — was measured by
+;; rf2-jr76s as ONE number. It is a CONSTANT, so at 300 subs it is 1.6% of the
+;; write and invisible; at the 10 subs a small app or a per-frame tool panel
+;; actually has, it is a THIRD of it. These arms split it.
+;;
+;; Each component is measured on its own, through public fns where the surface
+;; is public and by re-spelling the private expression inline where it is not —
+;; the `Q-SCHED` discipline, which keeps the measured expression pinned in the
+;; harness so it cannot drift under the thing it is attributed to. The sum is
+;; checked against the `RFWRITE-0 − SPINE0` delta and the residual is printed,
+;; so an attribution that does not add up says so.
+;;
+;;   C-FRAME    `(frame/frame id)` — the registry lookup `commit-frame-
+;;              transition!` does before anything else
+;;   C-PARTS    `commit-frame-record-transition!`'s partition bookkeeping:
+;;              the two `contains?`, the four `get`, the `next-fs` map, the
+;;              `changed` cond-> set, the two `not=` partition comparisons and
+;;              the two `identical?` no-op checks. NO container write, NO
+;;              new-db construction — those are their own rungs.
+;;   C-TAGPAIR  the two `[::ok v]` tagged pairs `call-exact-frame-callback`
+;;              allocates per commit (one for `read-container`, one for
+;;              `replace-container!`)
+;;   C-BUMP     `bump-commit-epoch!` in its RETIRED spelling — `(fnil inc 0)`
+;;              built fresh on every write
+;;   C-BUMPH    the same in the SHIPPED spelling, the wrapper hoisted to a
+;;              namespace constant. PAIRED CONTROL.
+;;   SPINE0B    `replace-container!` of a PRE-BUILT frame-state map onto a
+;;              container with NO derived values — the write with nothing
+;;              layered over it
+;;   SPINE0P    the same write onto a container carrying the TWO partition
+;;              projections (`:rf.db/app` / `:rf.db/runtime`) a real frame
+;;              wires. `SPINE0P − SPINE0B` is therefore the cost of the two
+;;              projections recomputing and draining, and that term is the
+;;              one Spec 002 §One physical container, two projection reactions
+;;              makes non-negotiable.
+
+(defonce ^:private bump-epochs (atom {}))
+
+(def ^:private hoisted-fnil-inc
+  "The SHIPPED spelling's hoisted wrapper. `(fnil inc 0)` is a function CALL
+  that returns a fresh closure, so writing it at the `swap!` site allocates
+  one per write."
+  (fnil inc 0))
+
+(defn- arm-c-frame []
+  (keep! (frame/frame fid))
+  nil)
+
+(defn- arm-c-parts []
+  (let [{:keys [fs-a fs-b db-a db-b]} @rig
+        e?         (even? @gen)
+        ;; Alternate so the two `not=` comparisons do the work a real commit
+        ;; makes them do — a genuinely different app-db value, one cell apart,
+        ;; which `=` walks element-wise exactly as it does on the real path.
+        current    (if e? fs-a fs-b)
+        partitions (if e? {frame/app-partition-key db-b}
+                          {frame/app-partition-key db-a})
+        app-given? (contains? partitions frame/app-partition-key)
+        rt-given?  (contains? partitions frame/runtime-partition-key)
+        next-app   (if app-given? (get partitions frame/app-partition-key)
+                       (get current frame/app-partition-key))
+        next-rt    (if rt-given? (get partitions frame/runtime-partition-key)
+                       (get current frame/runtime-partition-key))
+        next-fs    {frame/app-partition-key     next-app
+                    frame/runtime-partition-key next-rt}
+        changed    (cond-> #{}
+                     (and app-given?
+                          (not= next-app (get current frame/app-partition-key)))
+                     (conj frame/app-partition-key)
+                     (and rt-given?
+                          (not= next-rt (get current frame/runtime-partition-key)))
+                     (conj frame/runtime-partition-key))]
+    (keep! (and (identical? next-app (get current frame/app-partition-key))
+                (identical? next-rt  (get current frame/runtime-partition-key))))
+    (next-gen!)
+    ;; Sink the two results SEPARATELY. Wrapping them in a `[next-fs changed]`
+    ;; pair to sink them in one go allocates a vector this arm is not
+    ;; measuring, and charges it to the bookkeeping — the control error that
+    ;; standing method says to suspect first.
+    (vreset! sink2 next-fs)
+    (keep! changed)
+    nil))
+
+(defn- arm-c-tagpair []
+  (let [{:keys [db-a]} @rig]
+    ;; TWO pairs, sunk separately — one per host-adapter callback. An
+    ;; enclosing `[pair pair]` vector would make this arm read three.
+    (vreset! sink2 [::ok db-a])
+    (vreset! sink2 [::ok nil])
+    nil))
+
+(defn- arm-c-bump []
+  (swap! bump-epochs update fid (fnil inc 0))
+  nil)
+
+(defn- arm-c-bump-h []
+  (swap! bump-epochs update fid hoisted-fnil-inc)
+  nil)
+
+(defn- arm-spine0b []
+  (let [{:keys [fs-a fs-b bare-fs-container]} @rig]
+    (adapter/replace-container! bare-fs-container (if (even? @gen) fs-a fs-b))
+    (next-gen!)
+    nil))
+
+(defn- arm-spine0p []
+  (let [{:keys [fs-a fs-b proj-fs-container]} @rig]
+    (adapter/replace-container! proj-fs-container (if (even? @gen) fs-a fs-b))
+    (next-gen!)
+    nil))
+
 ;; ---- the per-subscription pieces ------------------------------------------
 
 (defn- arm-p-body []
@@ -306,6 +419,66 @@
       (trace/with-handler-scope
         (trace/handler-scope-from-meta :sub (nth qids k) nil)
         (keep! true)))))
+
+;; rf2-zxv06 — the handler-scope bracket, in BOTH spellings, one process, the
+;; same sub-ids. `P-SCOPE` above is kept EXACTLY as rf2-jr76s left it (nil
+;; meta) so its 120.8 B figure stays comparable, but nil meta is not the
+;; production shape: a macro-registered sub carries `:ns` / `:file` / `:line`
+;; (`:column` is dev-only and absent under `:advanced` + goog.DEBUG=false), and
+;; those are what make `trigger-handler-from-meta` build a coord map AND a
+;; three-key trigger map on top of the record. So:
+;;
+;;   P-SCOPEM  the RETIRED spelling with REALISTIC registration meta — build
+;;             the scope per recompute, the way `validate-and-trace` did
+;;   P-SCOPEH  the SHIPPED spelling — the scope built ONCE per cache entry and
+;;             closed over, so the per-recompute cost is the `binding` and
+;;             `inherit-scope` alone (rf2-zxv06)
+;;
+;; and, because `inherit-scope`'s copies only happen when a PARENT scope is
+;; bound — which is the real shape, since an app's write runs inside the
+;; router's event scope, but is NOT the shape of the RFWRITE ladder below,
+;; where nothing binds a parent:
+;;
+;;   P-INHER   the RETIRED `inherit-scope` under a bound parent whose
+;;             `:call-site` / `:dispatch-id` are both nil, as they always are
+;;             in a production build
+;;   P-INHERH  the SHIPPED one under the same parent
+;;
+;; P-INHER − P-INHERH is therefore a saving the ladder here CANNOT show and a
+;; real application does get. It is quoted separately rather than folded in.
+
+(def ^:private prod-sub-meta
+  "What `reg-sub`'s macro path leaves in the registrar slot for a PRODUCTION
+  build: `:ns` / `:file` / `:line` are the locked coord keys; `:column` is
+  dev-only (`source-coords/prod-coords-form`) so it is absent here."
+  {:ns 'wa.bench :file "wa/bench.cljs" :line 42})
+
+(defn- arm-p-scope-m []
+  (let [{:keys [n qids]} @rig]
+    (dotimes [k n]
+      (trace/with-handler-scope
+        (trace/handler-scope-from-meta :sub (nth qids k) prod-sub-meta)
+        (keep! true)))))
+
+(defn- arm-p-scope-h []
+  (let [{:keys [n sub-scopes]} @rig]
+    (dotimes [k n]
+      (trace/with-handler-scope (nth sub-scopes k) (keep! true)))))
+
+(defn- arm-p-inher []
+  (let [{:keys [n sub-scopes parent-scope]} @rig]
+    (dotimes [k n]
+      (let [s (nth sub-scopes k)]
+        ;; the RETIRED expression, pinned here so it cannot drift under the
+        ;; shipped one: assoc unconditionally wherever the child's slot is nil
+        (keep! (cond-> s
+                 (nil? (:call-site s))   (assoc :call-site   (:call-site parent-scope))
+                 (nil? (:dispatch-id s)) (assoc :dispatch-id (:dispatch-id parent-scope))))))))
+
+(defn- arm-p-inher-h []
+  (let [{:keys [n sub-scopes parent-scope]} @rig]
+    (dotimes [k n]
+      (keep! (trace/inherit-scope (nth sub-scopes k) parent-scope)))))
 
 (defn- arm-p-emit []
   (let [{:keys [n qids qvs]} @rig]
@@ -445,7 +618,20 @@
                                (subvec qvs 0 cnt))))
                      frames ns-per-frame)
         db-a  (db-of cells-n 7)
-        db-b  (update (db-of cells-n 7) :cells assoc (dec cells-n) 8)]
+        db-b  (update (db-of cells-n 7) :cells assoc (dec cells-n) 8)
+        ;; rf2-78ejq — the two frame-state values a commit alternates between,
+        ;; PRE-BUILT so the SPINE0B / SPINE0P arms measure the container write
+        ;; and the projections alone, with no value construction folded in.
+        fs-a  {frame/app-partition-key db-a frame/runtime-partition-key {}}
+        fs-b  {frame/app-partition-key db-b frame/runtime-partition-key {}}
+        ;; A container with NOTHING layered over it, and the same container
+        ;; shape carrying the TWO partition projections a real frame wires
+        ;; (`frame.cljc`'s `(make-derived-value [frame-state] :rf.db/app)` and
+        ;; its `:rf.db/runtime` sibling). The pair isolates the projections.
+        bare-fs-container (adapter/make-state-container fs-a)
+        proj-fs-container (adapter/make-state-container fs-a)
+        _proj (mapv (fn [k] (adapter/make-derived-value [proj-fs-container] k))
+                    [frame/app-partition-key frame/runtime-partition-key])]
     (vreset! rig
              {:n        n
               :cells-n  cells-n
@@ -458,6 +644,20 @@
               :spine-container (adapter/make-state-container (db-of cells-n 0))
               :db-a     db-a
               :db-b     db-b
+              :fs-a     fs-a
+              :fs-b     fs-b
+              :bare-fs-container bare-fs-container
+              :proj-fs-container proj-fs-container
+              :projections       _proj
+              ;; rf2-zxv06 — one PRE-BUILT scope per sub, the shipped shape
+              ;; (`subs.memo`'s wrappers now close over exactly this), plus a
+              ;; parent whose inheritable slots are both nil, which is what a
+              ;; production build always presents to `inherit-scope`.
+              :sub-scopes   (mapv #(trace/handler-scope-from-meta
+                                     :sub % prod-sub-meta)
+                                  qids)
+              :parent-scope (trace/handler-scope-from-meta
+                              :event :wa/parent prod-sub-meta)
               ;; the shipped memo wrapper, one per subscription
               :memos    (mapv (fn [i]
                                 (subs-memo/make-layer-1-memoised-body
@@ -518,7 +718,15 @@
                                     (map (fn [d] [(ctl-key "SMI" d) (arm-ctl "SMI" d) 1]) ctl-smi-ds)))
                        [["MKDB"      arm-mkdb             1]
                         ["BAREATOM"  arm-bareatom         1]
-                        ["SPINE0"    arm-spine0           1]])
+                        ["SPINE0"    arm-spine0           1]
+                        ;; rf2-78ejq — the rungs under RFWRITE-0
+                        ["SPINE0B"   arm-spine0b          1]
+                        ["SPINE0P"   arm-spine0p          1]
+                        ["C-FRAME"   arm-c-frame          1]
+                        ["C-PARTS"   arm-c-parts          1]
+                        ["C-TAGPAIR" arm-c-tagpair        1]
+                        ["C-BUMP"    arm-c-bump           1]
+                        ["C-BUMPH"   arm-c-bump-h         1]])
                  true (into (map-indexed
                               (fn [k cnt]
                                 [(str "RFWRITE-" cnt) (fn [] (arm-rfwrite k)) 1])
@@ -526,6 +734,11 @@
                  true (into [["P-BODY"  arm-p-body  n]
                              ["P-EQDB"  arm-p-eqdb  n]
                              ["P-SCOPE" arm-p-scope n]
+                             ;; rf2-zxv06 paired controls
+                             ["P-SCOPEM"  arm-p-scope-m n]
+                             ["P-SCOPEH"  arm-p-scope-h n]
+                             ["P-INHER"   arm-p-inher   n]
+                             ["P-INHERH"  arm-p-inher-h n]
                              ["P-EMIT"  arm-p-emit  n]
                              ["P-MEMO"  arm-p-memo  n]
                              ["Q-SCHED" arm-q-sched n]
@@ -580,11 +793,53 @@
         (println (gstring/format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write" (fmt slope)))
         (println ";;")
         (println ";; WHERE THE PER-SUBSCRIPTION BYTES GO (each arm × n, reported per sub)")
-        (doseq [l ["P-BODY" "P-EQDB" "P-SCOPE" "P-EMIT" "P-MEMO" "Q-SCHED" "Q-SCHEDJS" "P-VALS" "P-RKV"]]
+        (doseq [l ["P-BODY" "P-EQDB" "P-SCOPE" "P-SCOPEM" "P-SCOPEH" "P-INHER" "P-INHERH"
+                   "P-EMIT" "P-MEMO" "Q-SCHED" "Q-SCHEDJS" "P-VALS" "P-RKV"]]
           (let [v (/ (b l) n)]
             (println (gstring/format ";;   %-10s %10s B/sub   %5.1f%% of the slope"
                              l (fmt v) (* 100.0 (/ v slope))))))
         (println (gstring/format ";;   %-10s %10s B/sub"
                          "RESIDUAL" (fmt (- slope (/ (b "P-MEMO") n)
-                                            (/ (b "Q-SCHEDJS") n) (/ (b "P-RKV") n)))))))
+                                            (/ (b "Q-SCHEDJS") n) (/ (b "P-RKV") n)))))
+        (println ";;")
+        (println ";; rf2-zxv06 — THE HANDLER-SCOPE BRACKET, PAIRED")
+        (println (gstring/format
+                   ";;   P-SCOPEM (retired, prod meta)   %10s B/sub" (fmt (/ (b "P-SCOPEM") n))))
+        (println (gstring/format
+                   ";;   P-SCOPEH (shipped, hoisted)     %10s B/sub" (fmt (/ (b "P-SCOPEH") n))))
+        (println (gstring/format
+                   ";;   -> hoist predicts               %10s B/sub saved"
+                   (fmt (/ (- (b "P-SCOPEM") (b "P-SCOPEH")) n))))
+        (println (gstring/format
+                   ";;   P-INHER  (retired inherit)      %10s B/sub" (fmt (/ (b "P-INHER") n))))
+        (println (gstring/format
+                   ";;   P-INHERH (shipped inherit)      %10s B/sub" (fmt (/ (b "P-INHERH") n))))
+        (println (gstring/format
+                   ";;   -> inherit predicts             %10s B/sub saved  (ONLY under a bound parent — a real app's write; NOT visible in the ladder above)"
+                   (fmt (/ (- (b "P-INHER") (b "P-INHERH")) n)))))
+      (println ";;")
+      (println ";; rf2-78ejq — WHERE RFWRITE-0's CONSTANT GOES")
+      (let [rf0    (b "RFWRITE-0")
+            sp0    (b "SPINE0")
+            delta  (- rf0 sp0)
+            proj   (- (b "SPINE0P") (b "SPINE0B"))
+            comps  [["C-FRAME    (frame id) registry lookup" (b "C-FRAME")]
+                    ["C-PARTS    partition bookkeeping"      (b "C-PARTS")]
+                    ["C-TAGPAIR  two [::ok v] pairs"         (b "C-TAGPAIR")]
+                    ["C-PROJ     the two projections"        proj]
+                    ["C-BUMP     bump-commit-epoch!"         (b "C-BUMP")]]
+            summed (reduce + (map second comps))]
+        (println (gstring/format ";;   RFWRITE-0 %s B  −  SPINE0 %s B  =  %s B to attribute"
+                         (fmt rf0) (fmt sp0) (fmt delta)))
+        (doseq [[lbl v] comps]
+          (println (gstring/format ";;     %-42s %10s B   %5.1f%% of the delta"
+                           lbl (fmt v) (* 100.0 (/ v delta)))))
+        (println (gstring/format ";;     %-42s %10s B   %5.1f%%"
+                         "RESIDUAL" (fmt (- delta summed))
+                         (* 100.0 (/ (- delta summed) delta))))
+        (println (gstring/format ";;   SPINE0B (bare container write) %s B ; SPINE0P (+2 projections) %s B"
+                         (fmt (b "SPINE0B")) (fmt (b "SPINE0P"))))
+        (println (gstring/format ";;   C-BUMP %s B vs C-BUMPH %s B  -> hoisting (fnil inc 0) predicts %s B/write"
+                         (fmt (b "C-BUMP")) (fmt (b "C-BUMPH"))
+                         (fmt (- (b "C-BUMP") (b "C-BUMPH")))))))
     (println (gstring/format ";; sink %s %s" @sink (some? @sink2)))))
