@@ -320,6 +320,20 @@ The run-loop is designed to survive every recoverable error:
 
 The protocol and server tests cover each of these paths.
 
+**A tool HANDLER's exception never reaches that `-32603` arm.** `invoke-tool`
+catches it and answers an `isError: true` result, which is what MCP §Error
+Handling asks for: the agent shows the failure to the LLM instead of aborting
+the conversation. That containment has to hold for an arbitrary throw, so the
+relayed `ex-data` is projected by `tools.result/wire-safe-ex-data` — total by
+SHAPE, not by a roster of known-bad slots. Any value outside the EDN value
+space, at any depth and in key position, becomes
+`{:rf.story-mcp/unencodable "<class name>"}`: bounded loss, and never an
+object address. Without the projection an un-encodable slot throws inside
+`protocol/write-frame!`, *past* the handler's own error result, and the client
+gets a protocol fault on what was a tool-domain failure (rf2-2z9u3,
+rf2-ia904). The `-32603` arm remains the outer net for a fault in dispatch
+itself.
+
 ## Cross-references
 
 - [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 20 tools.

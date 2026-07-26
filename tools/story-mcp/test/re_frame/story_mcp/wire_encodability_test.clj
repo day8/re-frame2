@@ -22,6 +22,14 @@
       which relays a whole `ex-data` under `:data` and so fails for ANY
       handler whose throw carries a non-encodable slot.
 
+  The generic arm is the one that has to be TOTAL (rf2-ia904). Naming
+  `:explain` closed the reachable producer and left `{:opaque (Object.)}`
+  reaching Cheshire under any other key, so `wire-safe-ex-data` now
+  projects by SHAPE rather than by slot. Its tests plant opaque values
+  where no slot roster would look — under a non-`:explain` key, three
+  levels down, and in KEY position, which does not even throw: Cheshire
+  `str`s an opaque key and leaks its address into a JSON member name.
+
   Only the first is reachable through the shipped tool surface today: the
   other two re-register bodies the registrar itself produced (already
   valid) or catch throws the handlers already handle. Their tests seam
@@ -31,10 +39,12 @@
   (:require [cheshire.core :as cheshire]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [malli.error]
             [re-frame.core :as rf]
             [re-frame.story :as story]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.server :as server]
+            [re-frame.story-mcp.tools.result :as result]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ---- fixture --------------------------------------------------------------
@@ -232,3 +242,120 @@
                  (get-in (structured frame) [:data :explain-humanized])))
           (is (= "rf.story/reg-story" (get-in (structured frame) [:data :where]))
               "every other ex-data slot rides through untouched"))))))
+
+;; ---- wire-pipeline: ARBITRARY ex-data, not just the named slot -------------
+;;
+;; rf2-ia904. Naming `:explain` fixed the reachable producer and left the
+;; generic promise unmet: `invoke-tool`'s catch relays a WHOLE `ex-data`, so
+;; the next opaque value simply arrived under a different key. The rule is now
+;; the value's SHAPE — anything outside the EDN value space becomes a bounded
+;; marker naming its class — so these tests plant opaque values where no slot
+;; roster would have looked: a non-`:explain` key, a nested one, and a KEY.
+
+(def ^:private address-in-line
+  "A `java.lang.Object@2c6aed22`-style identity hash. Cheshire does NOT
+  throw on an opaque map KEY — it `str`s it — so the key half of this
+  fails silently, and only an assertion on the raw bytes catches it."
+  #"@[0-9a-f]{6,}")
+
+(defn- throwing-get-variant
+  "Drive the real `get-variant` boundary with `thrown` coming out of the
+  one producer the read handler trusts, and return `[raw-line frame]`."
+  [thrown]
+  (story/reg-variant* :story.button/probe {:doc "probe"})
+  (with-redefs [story/variant->edn (fn [_] (throw thrown))]
+    (call-tool "get-variant" "{\"variant-id\":\"story.button/probe\"}")))
+
+(deftest handler-throw-with-opaque-ex-data-outside-explain-is-a-tool-error
+  (testing "an opaque value under a NON-:explain key still returns isError"
+    ;; The bead's headline repro, verbatim: before the shape rule this line
+    ;; was {"error":{"code":-32603,"message":"Server fault: Cannot JSON
+    ;; encode object of class: class java.lang.Object …"}}.
+    (let [[line frame] (throwing-get-variant
+                         (ex-info "opaque throw" {:opaque (Object.)}))]
+      (is (not (str/includes? line "Server fault"))
+          "the generic catch must contain an arbitrary ex-data, not just a malli one")
+      (is (nil? (:error frame))
+          (str "expected a JSON-RPC result envelope, got an error: " line))
+      (is (tool-error? frame))
+      (is (str/includes? (result-text frame) "opaque throw")
+          "the handler's own message still reaches the agent")
+      (is (= {:rf.story-mcp/unencodable "java.lang.Object"}
+             (get-in (structured frame) [:data :opaque]))
+          "the opaque value is a bounded marker naming its class")
+      (is (nil? (re-find address-in-line line))
+          "and the marker carries the class only — never an object address"))))
+
+(deftest handler-throw-with-nested-and-keyed-opaque-values-is-a-tool-error
+  (testing "depth and key position are covered by the same rule"
+    (let [[line frame] (throwing-get-variant
+                         (ex-info "deep throw"
+                                  {:ctx    {:layers [{:handle (Object.)} :ok]}
+                                   (Object.) :opaque-key
+                                   :reason "still readable"}))
+          data (:data (structured frame))]
+      (is (not (str/includes? line "Server fault")))
+      (is (tool-error? frame))
+      (is (= {:rf.story-mcp/unencodable "java.lang.Object"}
+             (get-in data [:ctx :layers 0 :handle]))
+          "a value nested three levels down is projected too")
+      (is (= "ok" (get-in data [:ctx :layers 1]))
+          "its encodable siblings are untouched")
+      (is (= "still readable" (:reason data))
+          "and so is every sibling slot")
+      (is (nil? (re-find address-in-line line))
+          "an opaque KEY does not throw — Cheshire strs it — so the only
+           evidence of the leak is the raw line"))))
+
+(deftest handler-throw-with-ordinary-ex-data-is-relayed-verbatim
+  ;; The control. A projection that made everything a marker would pass the
+  ;; two tests above and be useless.
+  (testing "plain data crosses unchanged"
+    (let [[_ frame] (throwing-get-variant
+                      (ex-info "plain throw" {:reason  "not found"
+                                              :where   :rf.story/get-variant
+                                              :ids     [:a/b :c/d]
+                                              :count   3
+                                              :nested  {:ok true}}))
+          data (:data (structured frame))]
+      (is (tool-error? frame))
+      (is (= {:reason "not found"
+              :where  "rf.story/get-variant"
+              :ids    ["a/b" "c/d"]
+              :count  3
+              :nested {:ok true}}
+             data)
+          "every slot is its own JSON encoding of the EDN value, marker-free"))))
+
+(deftest wire-safe-ex-data-output-always-encodes
+  ;; The fast guard under the three boundary tests. It cannot replace them —
+  ;; the defect lived between the handler and the wire, and only `run-loop!`
+  ;; covers that — but it fails in milliseconds when the rule regresses, and
+  ;; it can enumerate more shapes than it is worth driving a server for.
+  (testing "no ex-data shape survives the projection un-encodable"
+    (doseq [[label d] [["opaque"      {:opaque (Object.)}]
+                       ["nested"      {:a [{:b #{(Object.)}}]}]
+                       ["opaque key"  {(Object.) 1}]
+                       ["throwable"   {:cause (ex-info "boom" {:x 1})}]
+                       ["regex"       {:re #"x"}]
+                       ["fn"          {:f (fn [] 1)}]
+                       ["atom"        {:a (atom 1)}]
+                       ["tagged EDN"  {:u (java.util.UUID/randomUUID)
+                                       :d (java.util.Date. 0)}]
+                       ["nil"         nil]]]
+      (is (string? (cheshire/generate-string
+                     (result/wire-safe-ex-data d)))
+          (str "wire-safe-ex-data output must encode: " label)))))
+
+(deftest wire-safe-ex-data-cannot-itself-throw
+  ;; The projection runs INSIDE the caller's catch, so a throw here would be
+  ;; the same -32603 by another route.
+  (testing "a humanizer that throws degrades to a bounded marker"
+    (with-redefs [malli.error/humanize (fn [_] (throw (ex-info "humanize blew up" {})))]
+      (let [projected (result/wire-safe-ex-data {:explain {:schema :whatever}
+                                                 :reason  "x"})]
+        (is (= "clojure.lang.ExceptionInfo"
+               (:rf.story-mcp/unencodable projected))
+            "the guard names what failed")
+        (is (string? (cheshire/generate-string projected))
+            "and its fallback encodes")))))
