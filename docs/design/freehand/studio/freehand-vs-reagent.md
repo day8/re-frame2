@@ -169,9 +169,10 @@ unchanged.
   to a sample for exactly this reason; the broad row does not need to.
 - **Any range that straddles 1.0 is reported as indistinguishable**, not
   as a win. One does: UIx on W3.
-- **No memory claim of any kind.** The predecessor report's retained-heap
-  instrument was not re-run across substrates; the allocation question is
-  open and is the obvious next measurement.
+- **No memory claim of any kind** *in this report*. It has since been
+  measured: see
+  [`freehand-vs-reagent-memory.md`](freehand-vs-reagent-memory.md), and
+  §3 below.
 - **No claim about a real application.** These are six purpose-built
   witnesses.
 
@@ -203,6 +204,18 @@ neither does UIx. It is here because the predecessor report measured it.
 four arms overlap; UIx's range includes 1.0, so **UIx and the floor are
 indistinguishable on the form**, and the four substrate arms are barely
 separable from each other.
+
+> **Does the Freehand mount arm bill frame construction to the
+> substrate?** It was put to this row as `rf2-prjh0`, on the grounds that
+> the arm passes no `:frame` and would therefore create one per sample
+> inside the timed `flushSync`. **It does not** — a frameless `v/mount`
+> runs no plan and creates no frame — and measuring the three shapes
+> found the published arm is the *cheapest* of them: a shared
+> pre-created frame costs 3.8% **more** on W1 and 10.9% more on W2, in
+> 6 of 6 paired rounds. No figure in this table changes. The row also
+> reproduced on a later day against current `main`, Reagent W1 at 1.545
+> [1.471–1.647] against the 1.554 above. Detail in
+> [`freehand-vs-reagent-memory.md`](freehand-vs-reagent-memory.md) §3.
 
 **And in milliseconds, because a ratio on a sub-millisecond operation is
 not a product decision** (p50, round 4 of six — the same round §2a
@@ -379,11 +392,19 @@ without the microtask yield; it has not been re-taken.
 
 Stated plainly, because the omissions are load-bearing.
 
-- **Memory.** Nothing. The predecessor report's retained-heap instrument
-  was not run across substrates. Given it found 6.26× retained heap per
-  elidable boundary *within* Freehand, a Reagent comparison on standing
-  heap is the obvious next measurement and might well be the more
-  decisive one.
+- **Memory.** Nothing, in this report — and it turned out to matter.
+  [`freehand-vs-reagent-memory.md`](freehand-vs-reagent-memory.md) ran
+  the comparison this bullet asked for and **the answer went against
+  Freehand, harder than the clock does**: a boundary that reads nothing
+  costs Freehand 2,430 bytes of standing heap against Reagent's 410 and
+  UIx's 251 — **5.93×** and **9.67×** — and a boundary reading its own
+  signal costs 4,346 against Reagent's 1,037, **4.19×**. Two independent
+  readers agree to within 1% and every range is disjoint. Crucially the
+  §2a rebuttal below does *not* apply: the widest gap is on the witness
+  with no reactivity and no `app-db` on either side, so the larger term
+  is the ViewCell wrapper rather than re-frame's write path. Heap *under
+  update* is still unmeasured and is the one memory question left with an
+  argument in it.
 - **Reagent reading re-frame.** The Reagent arm reads a bare
   `reagent.core/atom`, which is Reagent's own idiom but is *less
   framework* than the Freehand arm carries. §2a bounds the effect rather
@@ -429,7 +450,11 @@ Stated plainly, because the omissions are load-bearing.
    batch (a two-fiber detached root rendering nil); it lands outside the
    current window but would move inside a re-taken one, so whoever
    re-takes the row should report it rather than absorb it.
-4. **The memory row.** See above.
+4. **~~The memory row.~~ DONE — and it did not help.**
+   [`freehand-vs-reagent-memory.md`](freehand-vs-reagent-memory.md).
+   Freehand costs 5.93× Reagent per sub-free boundary in standing heap
+   and 4.19× per reactive one. What remains open is heap *under update*,
+   where a fine-grained substrate could still come out ahead.
 
 ## Provenance
 
