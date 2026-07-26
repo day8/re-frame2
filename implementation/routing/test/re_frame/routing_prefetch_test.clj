@@ -14,9 +14,41 @@
   The DESTINATION gate at the foot drives `:rf.route/prefetch` end-to-end
   against a stubbed `:routing/on-route-prefetch` warm hook, so a destination that
   does not resolve is proven to reject BEFORE the hook is consulted — with no
-  ensures and no success summary trace."
+  ensures and no success summary trace.
+
+  ## Posture split (rf2-o5dbf)
+
+  The two GATES are production-real and carry no posture guard. The structural
+  gate `address/prefetch-address-error` and the pure payload synthesis
+  `link/prefetch-payload` are plain always-on functions, so the whole top half
+  of this namespace already ran under the gate. So does the fact each
+  destination case is really about: `@calls` is the stubbed
+  `:routing/on-route-prefetch` warm hook — a late-bound fn, not a trace — so
+  whether prefetch REACHED planning, and with which resolved identity, is
+  readable in production. Those run in the ordinary `clojure -M:test` suite
+  AND in `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false`
+  lane).
+
+  What is dev-only is the REPORTING: the `:rf.route/prefetched` summary trace
+  and the `:rf.error/prefetch-bad-address` rejection both reach the caller
+  through `trace/emit!` / `trace/emit-error!`, gated on
+  `interop/debug-enabled?` and read once at load time. Those assertions are
+  kept VERBATIM inside `(when interop/debug-enabled? …)` arms marked
+  `rf2-o5dbf`.
+
+  Pay attention to the CARRIER-ABSENCE trio at the foot —
+  `(not (contains? tags :value))`, `(not (contains? tags :error))`,
+  `(not (re-find #\"SECRET-100\" (pr-str tags)))`. With no trace, `tags` is nil
+  and all three pass VACUOUSLY: they would certify a privacy guarantee about a
+  rejection payload that was never built. They are inside the arm, and outside
+  it the same ground is covered by two posture-independent facts — the
+  offending value never reached the warm plan, and `route-url`'s own ex-data
+  demonstrably DOES reproduce the raw params, so the hazard the emit-site
+  projection exists for is proven real in both postures rather than assumed.
+  Nothing was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.address :as address]
@@ -190,13 +222,19 @@
                 trace (the gate rejects only what route-url refuses)"
         (let [{:keys [prefetched rejected]}
               (prefetch! {:to :route/probe :params {:id "7"}})]
-          (is (empty? rejected))
-          (is (= 1 (count prefetched)))
-          (is (= {:route-id :route/probe :warmed 1}
-                 (select-keys (:tags (first prefetched)) [:route-id :warmed])))
+          ;; SEMANTIC, posture-independent (rf2-o5dbf): the warm hook is a
+          ;; late-bound fn, not a trace — this is what "reached the warm plan"
+          ;; means, and it is what makes the `(empty? @calls)` assertions in
+          ;; the rejection blocks below non-vacuous.
           (is (= [{:route-id :route/probe :params {:id "7"}}]
                  (mapv #(select-keys % [:route-id :params]) @calls))
-              "the warm hook saw the resolved destination and its params")))
+              "the warm hook saw the resolved destination and its params")
+          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+          (when interop/debug-enabled?
+            (is (empty? rejected))
+            (is (= 1 (count prefetched)))
+            (is (= {:route-id :route/probe :warmed 1}
+                   (select-keys (:tags (first prefetched)) [:route-id :warmed]))))))
 
       (testing "an UNREGISTERED destination rejects BEFORE planning — no warm
                 hook call, and critically NO success summary trace (it used to
@@ -204,44 +242,68 @@
         (reset! calls [])
         (let [{:keys [prefetched rejected]}
               (prefetch! {:to :route/does-not-exist})]
-          (is (empty? prefetched) "no :rf.route/prefetched — the trace no longer lies")
+          ;; SEMANTIC, posture-independent (rf2-o5dbf): the REJECTION is real —
+          ;; the warm plan was never consulted. The positive control above
+          ;; proves this atom does fill when prefetch reaches planning, so an
+          ;; empty one here is evidence rather than an artefact of the posture.
           (is (empty? @calls) "the warm plan was never consulted — no ensures")
-          (is (= 1 (count rejected)))
-          (is (= :no-recovery (:recovery (first rejected)))
-              "the rejection is terminal — nothing was warmed to recover")
-          (let [tags (:tags (first rejected))]
-            (is (= :no-such-route (:reason tags)))
-            (is (= :route/does-not-exist (:route-id tags)))
-            (is (= [:to] (:keys tags)))
-            (is (= :event (:where tags))))))
+          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+          ;; `(empty? prefetched)` leg is NEGATIVE over the trace ring.
+          (when interop/debug-enabled?
+            (is (empty? prefetched) "no :rf.route/prefetched — the trace no longer lies")
+            (is (= 1 (count rejected)))
+            (is (= :no-recovery (:recovery (first rejected)))
+                "the rejection is terminal — nothing was warmed to recover")
+            (let [tags (:tags (first rejected))]
+              (is (= :no-such-route (:reason tags)))
+              (is (= :route/does-not-exist (:route-id tags)))
+              (is (= [:to] (:keys tags)))
+              (is (= :event (:where tags)))))))
 
       (testing "a REGISTERED destination with a required path param OMITTED
                 rejects too — it used to reach the warm hook as {:params {}},
                 warming the wrong resource identity"
         (reset! calls [])
         (let [{:keys [prefetched rejected]} (prefetch! {:to :route/probe})]
-          (is (empty? prefetched))
-          (is (empty? @calls))
-          (is (= 1 (count rejected)))
-          (let [tags (:tags (first rejected))]
-            (is (= :missing-route-param (:reason tags)))
-            (is (= [:id] (:keys tags)) "the offending param KEY is named")
-            (is (= :route/probe (:route-id tags)))))
+          ;; SEMANTIC, posture-independent (rf2-o5dbf): the pre-fix bug was that
+          ;; the warm hook was reached as `{:params {}}` — the WRONG resource
+          ;; identity. An empty `@calls` is precisely the absence of that.
+          (is (empty? @calls) "the warm hook was never reached with {:params {}}")
+          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+          (when interop/debug-enabled?
+            (is (empty? prefetched))
+            (is (= 1 (count rejected)))
+            (let [tags (:tags (first rejected))]
+              (is (= :missing-route-param (:reason tags)))
+              (is (= [:id] (:keys tags)) "the offending param KEY is named")
+              (is (= :route/probe (:route-id tags))))))
         (testing "and an empty-string param — the un-round-trippable zero-length
                   segment — rejects on the same channel"
           (reset! calls [])
           (let [{:keys [prefetched rejected]}
                 (prefetch! {:to :route/probe :params {:id ""}})]
-            (is (empty? prefetched))
-            (is (empty? @calls))
-            (is (= :missing-route-param (:reason (:tags (first rejected))))))))
+            ;; SEMANTIC, posture-independent (rf2-o5dbf).
+            (is (empty? @calls) "the zero-length segment never reached the warm hook")
+            ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+            (when interop/debug-enabled?
+              (is (empty? prefetched))
+              (is (= :missing-route-param (:reason (:tags (first rejected)))))))))
 
       (testing "the STRUCTURAL gate still wins — a malformed request never
                 reaches the registry, so its own :reason is reported"
         (reset! calls [])
         (let [{:keys [rejected]} (prefetch! {:url "/probe/7"})]
-          (is (= :unknown-keys (:reason (:tags (first rejected)))))
-          (is (empty? @calls)))))))
+          ;; SEMANTIC, posture-independent (rf2-o5dbf): the STRUCTURAL gate
+          ;; (`address/prefetch-address-error`) is always-on, so it rejects a
+          ;; `:url`-bearing prefetch request in both postures — the warm hook
+          ;; is never reached, and the gate names the offending key itself.
+          (is (empty? @calls) "the structural gate refused before any planning")
+          (is (= :unknown-keys
+                 (:reason (address/prefetch-address-error {:url "/probe/7"})))
+              "the always-on structural gate classifies it :unknown-keys")
+          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+          (when interop/debug-enabled?
+            (is (= :unknown-keys (:reason (:tags (first rejected)))))))))))
 
 (deftest prefetch-rejects-params-that-fail-the-routes-schema-without-leaking-them
   (let [restore (rts/with-stub-validator)]
@@ -254,28 +316,55 @@
           (testing "conforming params warm normally"
             (let [{:keys [prefetched rejected]}
                   (prefetch! {:to :route/guarded :params {:id "ok"}})]
-              (is (empty? rejected))
-              (is (= 1 (count prefetched)))
-              (is (= 1 (count @calls)))))
+              ;; SEMANTIC, posture-independent (rf2-o5dbf): the conforming
+              ;; address really reached the warm plan. This is the live control
+              ;; for the `(empty? @calls)` assertion in the rejection block.
+              (is (= 1 (count @calls)))
+              ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+              (when interop/debug-enabled?
+                (is (empty? rejected))
+                (is (= 1 (count prefetched))))))
           (testing "non-conforming params reject before planning — prefetch
                     adjudicates the address against the SAME schemas a
                     navigation does"
             (reset! calls [])
             (let [{:keys [prefetched rejected]}
                   (prefetch! {:to :route/guarded :params {:id "SECRET-100"}})]
-              (is (empty? prefetched))
+              ;; SEMANTIC, posture-independent (rf2-o5dbf): the adjudication is
+              ;; real — the non-conforming address never reached the warm plan,
+              ;; so `SECRET-100` never became a warmed resource identity. The
+              ;; conforming case above proves this atom does fill.
               (is (empty? @calls))
-              (is (= 1 (count rejected)))
-              (let [tags (:tags (first rejected))]
-                (is (= :route-url-validation (:reason tags)))
-                (is (= [:params] (:keys tags)) "the offending SLOT is named")
-                (testing "and the rejection carries NO carrier value — route-url's
-                          ex-data embeds :value (the raw params) and :error (an
-                          explainer that reproduces them), the class the navigate
-                          door has to redact at its own emit site"
-                  (is (not (contains? tags :value)))
-                  (is (not (contains? tags :error)))
-                  (is (not (re-find #"SECRET-100" (pr-str tags))))))))))
+              (is (not (re-find #"SECRET-100" (pr-str @calls)))
+                  "the offending param value never reached the warm plan")
+              ;; …and the HAZARD the redaction exists for is real in BOTH
+              ;; postures: `route-url` itself throws ex-data carrying the raw
+              ;; params under :value / :error. That is what must not be copied
+              ;; onto the rejection payload.
+              (let [ex-data' (try (routing/route-url
+                                    {:to :route/guarded :params {:id "SECRET-100"}})
+                                  nil
+                                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+                (is (re-find #"SECRET-100" (pr-str ex-data'))
+                    "route-url's own ex-data DOES reproduce the raw params —
+                     the leak the emit-site projection has to stop"))
+              ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+              ;; three carrier-absence legs are NEGATIVE over the rejection's
+              ;; trace tags: with no trace `tags` is nil, so each would report
+              ;; a privacy guarantee about a payload that was never built.
+              (when interop/debug-enabled?
+                (is (empty? prefetched))
+                (is (= 1 (count rejected)))
+                (let [tags (:tags (first rejected))]
+                  (is (= :route-url-validation (:reason tags)))
+                  (is (= [:params] (:keys tags)) "the offending SLOT is named")
+                  (testing "and the rejection carries NO carrier value — route-url's
+                            ex-data embeds :value (the raw params) and :error (an
+                            explainer that reproduces them), the class the navigate
+                            door has to redact at its own emit site"
+                    (is (not (contains? tags :value)))
+                    (is (not (contains? tags :error)))
+                    (is (not (re-find #"SECRET-100" (pr-str tags)))))))))))
       (finally (restore)))))
 
 ;; ===========================================================================
