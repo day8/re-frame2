@@ -329,13 +329,15 @@ else
       .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
         mark_all
         ;;
-      scripts/test-core-prod-gate.sh)
-        # rf2-f8x2i — this script IS the production-gate lane's roster: its
-        # `known_red` array decides which core namespaces the
-        # `jvm-core-prod-gate` job runs. Editing it therefore changes what
-        # that job covers, and the one edit that can silently REMOVE coverage
-        # (widening the exclusions) would otherwise fire no job at all — the
-        # same shape of unwatched gate the lane exists to close.
+      scripts/test-core-prod-gate.sh|scripts/test-routing-prod-gate.sh|scripts/test-ssr-prod-gate.sh)
+        # rf2-f8x2i / rf2-hnrwo — each of these scripts IS a production-gate
+        # lane's roster: its `known_red` array decides which of that
+        # artefact's namespaces the matching `jvm-*-prod-gate` job runs.
+        # Editing one therefore changes what that job covers, and the one edit
+        # that can silently REMOVE coverage (widening the exclusions) would
+        # otherwise fire no job at all — the same shape of unwatched gate the
+        # lanes exist to close. One flag covers all three: `implementation_jvm`
+        # is what gates every `jvm-*-prod-gate` job.
         implementation_jvm=true
         ;;
       spec/api-manifest-metadata.edn|spec/api-manifest.edn|spec/API.md)
