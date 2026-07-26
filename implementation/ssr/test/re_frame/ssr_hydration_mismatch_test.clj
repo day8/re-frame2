@@ -38,11 +38,49 @@
   Migration-Audit classifies them (C); per the rf2-pxb7t bead the
   whole `spec.cjs` is dropped and those two assertions retire
   alongside (substrate mount is covered by the 3 adapter smokes per
-  the audit's §Drop-or-keep recommendation)."
+  the audit's §Drop-or-keep recommendation).
+
+  ## Posture split (rf2-lwtlk)
+
+  `verify-hydration!` has TWO output channels for one detection, and only
+  one of them survives production. The `:rf.ssr/hydration-mismatch` TRACE
+  goes through the `:trace/emit-error!` late-bind hook, whose emit site is
+  gated on `interop/debug-enabled?` — read once at namespace-load time, so
+  under `-Dre-frame.debug=false` nothing is emitted. The strict-mode THROW
+  is always-on: `hydrate.cljc` builds ONE shared payload and uses it for
+  both, so `:server-hash`, `:client-hash`, `:failing-id`, `:recovery`,
+  `:reason` and `:where` are observable in production through
+  `ex-data` even though the trace carrying the identical map is not.
+
+  That is why `mismatch-strict-mode-throws-with-structured-payload` was
+  already green under the gate, and it is the production witness the trace
+  assertions lean on. Each trace assertion here is kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-lwtlk`.
+
+  Two deftests would otherwise have been left with nothing to prove, and
+  both gained a production witness rather than being guarded away:
+
+    - `mismatch-detection-defaults-on-when-knob-absent` and
+      `mismatch-detection-disabled-skips-comparison` are about the
+      `:detect-mismatch?` knob, and both observed it ONLY through the
+      trace — including a `(is (empty? mismatches))` that is satisfied
+      automatically under the gate. Each now drives the SAME knob through
+      a frame that also sets `:on-mismatch :hard-error`, where detection-on
+      throws and detection-off does not. The knob's effect is then visible
+      on the always-on channel, in either posture.
+    - `mismatch-trace-client-hash-is-8-char-lowercase-hex` pinned the shape
+      of `render-tree-hash`'s output by reading it back off a trace tag. The
+      shape claim is about the hash function, so it is now also asserted
+      directly against `rf/render-tree-hash`, which is not gated at all.
+    - `mismatch-trace-is-an-error-op-type-event` asserts an
+      ERROR-severity classification; its always-on counterpart is that the
+      same condition carries `:rf.error/id :rf.ssr/hydration-mismatch` — an
+      error id — in the strict-mode throw's `ex-data`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.subs :as subs]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]
@@ -121,28 +159,33 @@
           ;; A second 8-hex string — anything other than \"deadbeef\".
           client-hash    "0badf00d"]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-      (with-trace-recorder! [traces]
-        (ssr/verify-hydration! client-frame client-hash)
-        (let [mismatches (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                 @traces)]
-          (is (= 1 (count mismatches))
-              (str "expected exactly one :rf.ssr/hydration-mismatch trace; saw: "
-                   (pr-str (mapv :operation @traces))))
-          (when (seq mismatches)
-            (let [ev (first mismatches)]
-              (is (= "deadbeef" (-> ev :tags :server-hash))
-                  ":tags :server-hash echoes the payload's known-wrong literal")
-              (is (= client-hash (-> ev :tags :client-hash))
-                  ":tags :client-hash echoes the value we passed to
-                   verify-hydration!")
-              (is (= :rf/hydrate (-> ev :tags :failing-id))
-                  ":tags :failing-id discriminator per Spec 011 v1
-                   (body-mismatch; runtime head-mismatch reserved for the
-                   still-deferred post-v1 head-only-hash extension —
-                   reg-head itself has already shipped)")
-              (is (= :warned-and-replaced (:recovery ev))
-                  ":recovery hoisted onto the envelope top-level
-                   (Spec 009 §Error event shape)"))))))))
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+      ;; identical payload map is observable in production through the
+      ;; strict-mode throw's ex-data, pinned by
+      ;; `mismatch-strict-mode-throws-with-structured-payload`.
+      (when interop/debug-enabled?
+        (with-trace-recorder! [traces]
+          (ssr/verify-hydration! client-frame client-hash)
+          (let [mismatches (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                   @traces)]
+            (is (= 1 (count mismatches))
+                (str "expected exactly one :rf.ssr/hydration-mismatch trace; saw: "
+                     (pr-str (mapv :operation @traces))))
+            (when (seq mismatches)
+              (let [ev (first mismatches)]
+                (is (= "deadbeef" (-> ev :tags :server-hash))
+                    ":tags :server-hash echoes the payload's known-wrong literal")
+                (is (= client-hash (-> ev :tags :client-hash))
+                    ":tags :client-hash echoes the value we passed to
+                     verify-hydration!")
+                (is (= :rf/hydrate (-> ev :tags :failing-id))
+                    ":tags :failing-id discriminator per Spec 011 v1
+                     (body-mismatch; runtime head-mismatch reserved for the
+                     still-deferred post-v1 head-only-hash extension —
+                     reg-head itself has already shipped)")
+                (is (= :warned-and-replaced (:recovery ev))
+                    ":recovery hoisted onto the envelope top-level
+                     (Spec 009 §Error event shape)")))))))))
 
 (deftest mismatch-trace-client-hash-is-8-char-lowercase-hex
   (testing "Migrated from testbeds/ssr_hydration_mismatch/spec.cjs
@@ -164,29 +207,49 @@
                         [:p "count=" [:span {:data-testid "count"} 0]]]
           client-hash  (rf/render-tree-hash render-tree)]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-      (with-trace-recorder! [traces]
-        (ssr/verify-hydration! client-frame render-tree)
-        (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch
-                                          (:operation %))
-                                      @traces))]
-          (is (some? mismatch)
-              ":rf.ssr/hydration-mismatch fires when the resolved tree
-               hashes to anything other than 'deadbeef'")
-          (when mismatch
-            (let [observed (-> mismatch :tags :client-hash)]
-              (is (and (string? observed) (= 8 (count observed)))
-                  (str "computed client-hash is exactly 8 chars; got "
-                       (pr-str observed)))
-              (is (re-matches hex-8-pattern observed)
-                  (str "computed client-hash is 8-char lowercase hex; got "
-                       (pr-str observed)))
-              (is (= client-hash observed)
-                  "the trace echoes the same hash render-tree-hash
-                   computes when called directly on the input")
-              (is (not= "deadbeef" observed)
-                  "client-hash never equals the (deliberately wrong)
-                   server-hash — that would be a hash-collision spec
-                   violation"))))))))
+
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): the SHAPE claim is about
+      ;; `render-tree-hash`, which is not gated at all — reading it back off
+      ;; a trace tag was only ever a detour. Both spec.cjs assertions this
+      ;; deftest migrated (#5 shape, #6 not-equal-deadbeef) are stated here
+      ;; against the hash function itself.
+      (is (and (string? client-hash) (= 8 (count client-hash)))
+          (str "render-tree-hash emits exactly 8 chars; got "
+               (pr-str client-hash)))
+      (is (re-matches hex-8-pattern client-hash)
+          (str "render-tree-hash emits 8-char lowercase hex; got "
+               (pr-str client-hash)))
+      (is (not= "deadbeef" client-hash)
+          "the computed hash never equals the (deliberately wrong)
+           server-hash — that would be a hash-collision spec violation")
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). What is
+      ;; left here that is genuinely ABOUT the trace: that the tag echoes
+      ;; the same value `render-tree-hash` computes directly.
+      (when interop/debug-enabled?
+        (with-trace-recorder! [traces]
+          (ssr/verify-hydration! client-frame render-tree)
+          (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch
+                                            (:operation %))
+                                        @traces))]
+            (is (some? mismatch)
+                ":rf.ssr/hydration-mismatch fires when the resolved tree
+                 hashes to anything other than 'deadbeef'")
+            (when mismatch
+              (let [observed (-> mismatch :tags :client-hash)]
+                (is (and (string? observed) (= 8 (count observed)))
+                    (str "computed client-hash is exactly 8 chars; got "
+                         (pr-str observed)))
+                (is (re-matches hex-8-pattern observed)
+                    (str "computed client-hash is 8-char lowercase hex; got "
+                         (pr-str observed)))
+                (is (= client-hash observed)
+                    "the trace echoes the same hash render-tree-hash
+                     computes when called directly on the input")
+                (is (not= "deadbeef" observed)
+                    "client-hash never equals the (deliberately wrong)
+                     server-hash — that would be a hash-collision spec
+                     violation")))))))))
 
 ;; ===========================================================================
 ;; spec.cjs §(3) → the trace's :op-type is :error
@@ -203,15 +266,36 @@
     (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-mismatch client frame"
                                        :platform :client})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-      (with-trace-recorder! [traces]
-        (ssr/verify-hydration! client-frame "0badf00d")
-        (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch
-                                          (:operation %))
-                                      @traces))]
-          (is (some? mismatch))
-          (when mismatch
-            (is (= :error (:op-type mismatch))
-                ":op-type is :error — Spec 009 categorisation")))))))
+
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): the ERROR-severity
+      ;; classification has an always-on counterpart — the same condition,
+      ;; escalated, carries an `:rf.error/id` (not a `:rf.warning/…` id) in
+      ;; the strict-mode throw's ex-data. Spec 009 categorisation is
+      ;; therefore witnessed in both postures, not only on the trace bus.
+      (let [strict-frame (frame/make-anon-frame-record!
+                           {:doc      "ssr-mismatch severity frame"
+                            :platform :client
+                            :ssr      {:on-mismatch :hard-error}})]
+        (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame strict-frame})
+        (let [thrown (try (ssr/verify-hydration! strict-frame "0badf00d")
+                          nil
+                          (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? thrown) "the mismatch escalates when strict")
+          (is (= :rf.ssr/hydration-mismatch (:rf.error/id (ex-data thrown)))
+              "the condition is catalogued under :rf.error/… — an ERROR
+               severity, matching the trace's :op-type :error")))
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (with-trace-recorder! [traces]
+          (ssr/verify-hydration! client-frame "0badf00d")
+          (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch
+                                            (:operation %))
+                                        @traces))]
+            (is (some? mismatch))
+            (when mismatch
+              (is (= :error (:op-type mismatch))
+                  ":op-type is :error — Spec 009 categorisation"))))))))
 
 ;; ===========================================================================
 ;; spec.cjs §(4) → page is still interactive post-mismatch
@@ -302,15 +386,20 @@
                                        :platform :client
                                        :ssr {:on-mismatch :hard-error}})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-      (with-trace-recorder! [traces]
-        (try (ssr/verify-hydration! client-frame "0badf00d")
-             (catch clojure.lang.ExceptionInfo _ nil))
-        (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                      @traces))]
-          (is (some? mismatch)
-              "the mismatch trace fires even in strict mode")
-          (is (= :hard-error (:recovery mismatch))
-              "the trace's :recovery reflects strict mode"))))))
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). This
+      ;; deftest's subject is the TRACE half of the emit-then-throw pair; the
+      ;; throw half is `mismatch-strict-mode-throws-with-structured-payload`,
+      ;; which runs in both postures.
+      (when interop/debug-enabled?
+        (with-trace-recorder! [traces]
+          (try (ssr/verify-hydration! client-frame "0badf00d")
+               (catch clojure.lang.ExceptionInfo _ nil))
+          (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                        @traces))]
+            (is (some? mismatch)
+                "the mismatch trace fires even in strict mode")
+            (is (= :hard-error (:recovery mismatch))
+                "the trace's :recovery reflects strict mode")))))))
 
 (deftest mismatch-detection-disabled-skips-comparison
   (testing "rf2-ee38b.10 — a frame with :ssr {:detect-mismatch? false}
@@ -321,13 +410,35 @@
                                        :platform :client
                                        :ssr {:detect-mismatch? false}})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-      (with-trace-recorder! [traces]
-        (is (nil? (ssr/verify-hydration! client-frame "0badf00d"))
-            "verify-hydration! is a no-op when detection is off")
-        (let [mismatches (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                 @traces)]
-          (is (empty? mismatches)
-              "no mismatch trace fires when :detect-mismatch? is false"))))))
+      (is (nil? (ssr/verify-hydration! client-frame "0badf00d"))
+          "verify-hydration! is a no-op when detection is off")
+
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): a no-op return value is
+      ;; also what the DETECTING path returns, so it cannot on its own tell
+      ;; the short-circuit from a completed comparison. Drive the same knob
+      ;; on a frame that ALSO asks for `:on-mismatch :hard-error`: with
+      ;; detection off there is nothing to escalate, so it must not throw.
+      ;; That reaches the always-on channel and holds in either posture.
+      (let [off-strict (frame/make-anon-frame-record!
+                         {:doc      "ssr detection-off strict frame"
+                          :platform :client
+                          :ssr      {:detect-mismatch? false
+                                     :on-mismatch      :hard-error}})]
+        (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame off-strict})
+        (is (nil? (ssr/verify-hydration! off-strict "0badf00d"))
+            ":detect-mismatch? false short-circuits BEFORE the comparison —
+             even :on-mismatch :hard-error has nothing to escalate"))
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). A NEGATIVE
+      ;; over the trace ring: vacuous under the gate, where no mismatch
+      ;; trace fires whether detection ran or not.
+      (when interop/debug-enabled?
+        (with-trace-recorder! [traces]
+          (ssr/verify-hydration! client-frame "0badf00d")
+          (let [mismatches (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                   @traces)]
+            (is (empty? mismatches)
+                "no mismatch trace fires when :detect-mismatch? is false")))))))
 
 (deftest mismatch-detection-defaults-on-when-knob-absent
   (testing "rf2-ee38b.10 — absence of the :detect-mismatch? knob (the
@@ -338,10 +449,38 @@
     (let [client-frame (frame/make-anon-frame-record! {:doc "ssr default frame"
                                        :platform :client})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-      (with-trace-recorder! [traces]
-        (ssr/verify-hydration! client-frame "0badf00d")
-        (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                      @traces))]
-          (is (some? mismatch) "detection defaults on")
-          (is (= :warned-and-replaced (:recovery mismatch))
-              "the default recovery is warn-and-replace (not hard-error)"))))))
+
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): the default this deftest
+      ;; exists to pin is `:detect-mismatch?` ABSENT ⇒ detection ON, and it
+      ;; was observable only through the trace. Drive the same absent knob on
+      ;; a frame that asks for `:on-mismatch :hard-error`: if detection had
+      ;; silently defaulted off there would be nothing to escalate and no
+      ;; throw. The throw is always-on, so the default is now pinned in both
+      ;; postures — which is precisely the refactor this deftest guards
+      ;; against.
+      (let [default-strict (frame/make-anon-frame-record!
+                             {:doc      "ssr default-detection strict frame"
+                              :platform :client
+                              :ssr      {:on-mismatch :hard-error}})]
+        (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame default-strict})
+        (let [thrown (try (ssr/verify-hydration! default-strict "0badf00d")
+                          nil
+                          (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? thrown)
+              "with :detect-mismatch? absent the comparison still ran —
+               detection defaults ON")
+          (is (= "0badf00d" (:client-hash (ex-data thrown)))
+              "…and it compared the hashes it was given, rather than
+               short-circuiting")))
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The default
+      ;; RECOVERY (`:warned-and-replaced` rather than `:hard-error`) is only
+      ;; observable on the trace: the warn path throws nothing by definition.
+      (when interop/debug-enabled?
+        (with-trace-recorder! [traces]
+          (ssr/verify-hydration! client-frame "0badf00d")
+          (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                        @traces))]
+            (is (some? mismatch) "detection defaults on")
+            (is (= :warned-and-replaced (:recovery mismatch))
+                "the default recovery is warn-and-replace (not hard-error)")))))))
