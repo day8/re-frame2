@@ -798,6 +798,17 @@
 ;; category with :failing-id = the true failing component, mirroring the
 ;; already-distinct flow (:rf.error/flow-eval-exception) and fx
 ;; (:rf.error/fx-handler-exception) categories.
+;;
+;; PRODUCTION TWIN (rf2-mlh1h). The attribution below is read off the DEV
+;; TRACE, which emits nothing under -Dre-frame.debug=false — hence the
+;; `(when interop/debug-enabled? …)` arms. The contract itself is
+;; production-real: `error-emit/emit-error-both!` lifts `:failing-id` +
+;; `:reason` onto the ALWAYS-ON record whenever the failing id differs from
+;; `:event-id`. That half is witnessed in `re-frame.on-error-cljs-test`
+;; (rf2-n4x74b's four `*-record-carries-failing-*-id` deftests, plus
+;; rf2-mlh1h's phase / event-id pair), which captures through the `:errors`
+;; stream and runs in BOTH postures. Do not conclude from the dev-only arms
+;; here that the production lifting is unasserted — it is asserted there.
 
 (defn- capture-error-traces
   "Dispatch `event` and return the vector of emitted :op-type :error trace

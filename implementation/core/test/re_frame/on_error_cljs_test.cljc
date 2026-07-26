@@ -13,10 +13,23 @@
     - `:elapsed-ms` is an integer on every platform (rf2-ph8pa
       contract).
 
-  Dev-side coverage (runs under `:node-test` / `:browser-test` /
-  `clojure -M:test`). The CLJS production-mode counterpart lives in
-  `re-frame.on-error-elision-prod-test` — that suite pins the same
-  contract under `:advanced` + `goog.DEBUG=false`."
+  Runs under `:node-test` / `:browser-test` / `clojure -M:test`. The CLJS
+  production-mode counterpart lives in `re-frame.on-error-elision-prod-test`
+  — that suite pins the same contract under `:advanced` + `goog.DEBUG=false`.
+
+  ## Posture (rf2-mlh1h)
+
+  POSTURE-INDEPENDENT throughout, and that is the point of the namespace.
+  Every assertion here captures through the ALWAYS-ON `:errors` stream, never
+  the dev-only `:trace` stream, so this namespace is deliberately NOT on
+  `scripts/test-core-prod-gate.sh`'s exclusion roster and runs under
+  `-Dre-frame.debug=false` as well as in the ordinary suite. It is therefore
+  the production witness for the rf2-mszrz / rf2-n4x74b component-attribution
+  contract (`:failing-id` + `:reason` lifted onto the record for the
+  interceptor and coeffect categories, and NOT stamped for handler-exception,
+  whose failing id already equals `:event-id`). Keep it that way: an
+  assertion here that only holds in dev belongs in the dev-posture twin
+  (`re-frame.interceptor-test`), not in this file."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -560,6 +573,93 @@
              redundant with :event-id — the tight shape is preserved)")
         (is (= :n4x74b/handler-throws (:event-id r))
             ":event-id carries the event id (the failing handler IS the event)")))))
+
+;; ----------------------------------------------------------------------------
+;; rf2-mlh1h — the residue of the rf2-mszrz attribution contract the four
+;; twins above do not reach.
+;;
+;; They pin `:failing-id` on the always-on record, which is the load-bearing
+;; half and the half rf2-mlh1h was filed about. But rf2-mszrz's contract also
+;; discriminates the two INTERCEPTOR PHASES, and `:phase` is deliberately NOT
+;; lifted: `error-emit/emit-error-both!` lifts exactly `:failing-id` +
+;; `:reason`, keeping the record tight. So in production the phase is
+;; observable through the `:reason` STRING and nowhere else — and both
+;; interceptor twins above assert only `(string? (:reason r))`. Drop the phase
+;; from that string and an off-box shipper silently loses the ability to tell
+;; a `:before` failure from an `:after` one, with nothing red in either
+;; posture.
+;;
+;; The dev-posture assertions in `re-frame.interceptor-test`'s
+;; `pipeline-exception-attributed-to-true-component` read `:phase` off the
+;; trace tags directly. That arm is correct and stays; this is its
+;; production-axis counterpart, in the rf2-7vk3z twin shape.
+;; ----------------------------------------------------------------------------
+
+(defn- record-for
+  "Dispatch `event`, return the first ALWAYS-ON record whose `:error` is
+  `category`. Captures through the `:errors` stream — never the dev-only
+  `:trace` stream, which emits nothing under `-Dre-frame.debug=false`, so
+  every assertion built on this helper means the same thing in both postures."
+  [category event]
+  (let [seen (atom [])]
+    (rf/register-listener! :errors :test/recorder
+                           (fn [record] (swap! seen conj record)))
+    (try (rf/dispatch-sync event)
+         (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+    (some (fn [x] (when (= category (:error x)) x)) @seen)))
+
+(deftest interceptor-exception-record-discriminates-phase-in-production
+  (testing "Per rf2-mlh1h: `:phase` is not lifted onto the tight always-on
+            record, so an off-box shipper tells a `:before` failure from an
+            `:after` one through `:reason` alone. Both phases pinned here, in
+            every posture."
+    (rf/reg-interceptor :mlh1h/boom-before
+      (rf/->interceptor :id     :mlh1h/boom-before
+                        :before (fn [_ctx] (throw (ex-info "before boom" {})))))
+    (rf/reg-event :mlh1h/before-throws
+                  {:interceptors [:mlh1h/boom-before]}
+                  (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-interceptor :mlh1h/boom-after
+      (rf/->interceptor :id    :mlh1h/boom-after
+                        :after (fn [_ctx] (throw (ex-info "after boom" {})))))
+    (rf/reg-event :mlh1h/after-throws
+                  {:interceptors [:mlh1h/boom-after]}
+                  (fn [{:keys [db]} _] {:db db}))
+    (let [before (record-for :rf.error/interceptor-exception [:mlh1h/before-throws])
+          after  (record-for :rf.error/interceptor-exception [:mlh1h/after-throws])]
+      (is (some? before) "the always-on record fired for the :before throw")
+      (is (some? after) "the always-on record fired for the :after throw")
+      ;; NOT a vacuous negative: the record above is asserted present first,
+      ;; and it is the always-on one, which fires in both postures.
+      (is (nil? (:phase before))
+          ":phase is absent from the record by design — it rides the dev trace
+           tags only, and the tight record shape is the contract")
+      (is (re-find #"`before` phase" (:reason before))
+          ":reason names the :before phase — the ONLY production-visible
+           discriminator between the two interceptor phases")
+      (is (re-find #"`after` phase" (:reason after))
+          ":reason names the :after phase")
+      (is (re-find #":mlh1h/boom-before" (:reason before))
+          ":reason names the failing interceptor, agreeing with :failing-id"))))
+
+(deftest coeffect-exception-record-keeps-the-event-in-event-id
+  (testing "Per rf2-mlh1h: the lift is GUARDED on `:failing-id` differing from
+            `:event-id`, so the coeffect twin above only means what it claims
+            if `:event-id` really carries the dispatched EVENT. Pin the other
+            half of that pair — otherwise a supplier id in BOTH slots would
+            satisfy the twin while telling the shipper nothing."
+    (rf/reg-cofx :mlh1h/boom-cofx (fn [] (throw (ex-info "cofx boom" {}))))
+    (rf/reg-event :mlh1h/needs-boom-cofx
+                  {:rf.cofx/requires [:mlh1h/boom-cofx]}
+                  (fn [_ _] {}))
+    (let [r (record-for :rf.error/coeffect-exception [:mlh1h/needs-boom-cofx])]
+      (is (some? r) "the always-on record fired")
+      (is (= :mlh1h/needs-boom-cofx (:event-id r))
+          ":event-id is the dispatched EVENT, not the failing supplier")
+      (is (= :mlh1h/boom-cofx (:failing-id r))
+          ":failing-id is the failing SUPPLIER")
+      (is (not= (:event-id r) (:failing-id r))
+          "the two are DISTINCT — exactly the condition the lift is guarded on"))))
 
 ;; ============================================================================
 ;; rf2-bxud9v — sub error records carry the failing SUB's source-coord.
