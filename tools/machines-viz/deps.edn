@@ -73,6 +73,52 @@
                        {:local/root "../../implementation/machines"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
+  ;; rf2-odlm3 — the CLJS half of the same test tree, for the artefact's own
+  ;; `:machines-viz-node-test` shadow-cljs build (see shadow-cljs.edn beside
+  ;; this file for why the lane is declared HERE rather than borrowed onto the
+  ;; consolidated one).
+  ;;
+  ;; It carries the SAME paths and the SAME test-only deps as `:test` above and
+  ;; differs in exactly one respect: no `:main-opts`. shadow-cljs resolves a
+  ;; `:deps {:aliases [...]}` classpath by shelling out to `clojure -A:<alias>`,
+  ;; which INHERITS the alias's `:main-opts` and then hands shadow's own
+  ;; arguments to cognitect's test-runner instead of to shadow. Pointing the
+  ;; build at `:test` therefore fails before it compiles anything. A
+  ;; :main-opts-free alias is the whole difference; keeping the deps in lockstep
+  ;; is what makes the two runtimes see one classpath.
+  ;; `thheller/shadow-cljs` is pinned here for the same reason
+  ;; tools/mcp-base/deps.edn and tools/re-frame2-pair-mcp/deps.edn pin it: the
+  ;; artefact has no npm surface, so the shadow-cljs launcher cannot inject its
+  ;; own jar and the classpath must carry it. Version tracks
+  ;; implementation/package.json's `shadow-cljs` entry, like every other pin of
+  ;; it in the tree.
+  :cljs-test
+  {:extra-paths ["test"]
+   :extra-deps  {day8/re-frame2-test-quiet
+                 {:local/root "../../implementation/test-quiet"}
+                 day8/re-frame2-machines
+                 {:local/root "../../implementation/machines"}
+                 thheller/shadow-cljs {:mvn/version "3.4.10"}
+                 ;; FINDING (rf2-odlm3): `src/day8/re_frame2_machines_viz/
+                 ;; adapters/uix.cljs` :requires `uix.core`, and this artefact's
+                 ;; `:deps` map does not declare it — the namespace compiles
+                 ;; today ONLY because implementation/shadow-cljs.edn carries
+                 ;; com.pitch/uix.{core,dom} in its own `:dependencies` and
+                 ;; borrows the tree onto that classpath. A consumer whose only
+                 ;; tool dep is day8/re-frame2-machines-viz cannot compile the
+                 ;; UIx adapter at all: the rf2-r8trk shape, one artefact over.
+                 ;;
+                 ;; Declaring it HERE unblocks the lane without changing the
+                 ;; PUBLISHED dependency graph, which is a separate decision
+                 ;; (optional adapter → provided dep?) and is filed rather than
+                 ;; taken in a CI-arming PR.
+                 com.pitch/uix.core   {:mvn/version "1.4.4"}
+                 com.pitch/uix.dom    {:mvn/version "1.4.4"}
+                 ;; Same finding, second instance: `src/.../viewer.cljs`
+                 ;; :requires `re-frame.adapter.reagent`.
+                 day8/re-frame2-reagent
+                 {:local/root "../../implementation/adapters/reagent"}}}
+
   ;; Clojars deploy. The release
   ;; workflow rewrites :local/root → :mvn/version before invoking
   ;; clein.

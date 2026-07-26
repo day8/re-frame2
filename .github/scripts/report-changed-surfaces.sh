@@ -59,6 +59,12 @@ tools_jvm=false
 # the files these outputs exist to reach.
 tools_jvm_machines_viz=false
 tools_jvm_testbed_support=false
+# rf2-odlm3 — the artefact's OWN CLJS lane
+# (tools/machines-viz/shadow-cljs.edn `:machines-viz-node-test`), which runs the
+# `-test`-suffixed suites the consolidated `:node-test` build compiles and never
+# selects. Its own output for the same reason as the two above: no existing
+# output gates a job that runs this build.
+tools_cljs_machines_viz=false
 template_expensive=false
 mcp_conformance=false
 mcp_live=false
@@ -84,6 +90,7 @@ mark_all() {
   tools_jvm=true
   tools_jvm_machines_viz=true
   tools_jvm_testbed_support=true
+  tools_cljs_machines_viz=true
   template_expensive=true
   mcp_conformance=true
   mcp_live=true
@@ -339,6 +346,7 @@ else
         # in this file is spelled out the same way.
         tools_jvm_machines_viz=true
         tools_jvm_testbed_support=true
+        tools_cljs_machines_viz=true
         ;;
       implementation/adapters/reagent-slim/*|examples/substrates/reagent_slim/counter/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
         # rf2-8cevm — the examples/ tree is test-free. counter_slim_and_fast
@@ -588,7 +596,11 @@ else
         # skipped. Scoped to the one artefact on the other end of the declared
         # edge; the sibling per-feature trees have no such consumer.
         case "$file" in
-          implementation/machines/*) tools_jvm_machines_viz=true ;;
+          implementation/machines/*)
+            tools_jvm_machines_viz=true
+            # rf2-odlm3 — the parity ratchet runs in BOTH runtimes now, so an
+            # engine change must schedule both of its lanes.
+            tools_cljs_machines_viz=true ;;
         esac
         ;;
       implementation/ui/*)
@@ -1466,6 +1478,15 @@ else
             cljs_node_test=true
             cljs_browser=true
             tools_jvm_machines_viz=true
+            # rf2-odlm3 — and the artefact's OWN CLJS lane. The two suites the
+            # comment above calls out as JVM-only, `engine_grammar_parity_test`
+            # and `mermaid_public_smoke_test`, are `.cljc`: dual-runtime by
+            # construction, and the parity ratchet carries `:cljs` reader arms.
+            # The consolidated `:node-test` bundle does not contain them at all
+            # (its `cljs-test$` selector never reaches the namespaces), so the
+            # `cljs` job above is not their lane however green it is.
+            # `:machines-viz-node-test` is, and this output is what schedules it.
+            tools_cljs_machines_viz=true
             ;;
         esac
         ;;
@@ -1633,6 +1654,7 @@ emit ui_smoke "$ui_smoke"
 emit tools_jvm "$tools_jvm"
 emit tools_jvm_machines_viz "$tools_jvm_machines_viz"
 emit tools_jvm_testbed_support "$tools_jvm_testbed_support"
+emit tools_cljs_machines_viz "$tools_cljs_machines_viz"
 emit template_expensive "$template_expensive"
 emit mcp_conformance "$mcp_conformance"
 emit mcp_live "$mcp_live"
