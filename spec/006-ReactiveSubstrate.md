@@ -1277,9 +1277,13 @@ These are normative (R-2). Each names the bug class it deletes.
    headless site that self-corrects through no channel.)*
 6. **One notification per cell per render batch — the boundary is the host checkpoint, not
    drain quiescence and not epoch close.** A **render batch** is the pending read/render
-   window that ends at the next CLJS host microtask checkpoint, or at an explicit
-   headless/test flush; the UI scheduler has no hook from router drain finalization and
-   observes no drain boundary at all (rf2-vxgfnd.166). An event/frame **epoch** is a
+   window that ends at the **earliest** host checkpoint to reach it — the next CLJS host
+   microtask checkpoint, a host-scheduled render checkpoint a synchronous host commit can
+   see, or an explicit headless/test flush ([§Render-batch
+   finalization](#render-batch-finalization--the-host-checkpoint-boundary) enumerates all
+   three, and states why an earlier close moves none of the four guarantees); the UI
+   scheduler has no hook from router drain finalization and observes no drain boundary at
+   all (rf2-vxgfnd.166). An event/frame **epoch** is a
    commit-phase + diagnostic-evidence unit (one per dequeued event — per
    [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)); it is
    **not** a React render boundary. Source-side notification is constant work — mark the
@@ -1773,8 +1777,10 @@ On the observation-port substrate, the invalidation algorithm's Phase 3
 ([§Invalidation algorithm](#invalidation-algorithm) — "notify subscribers") is realised
 as constant-work stale-marking (invariant 6). The commit sequence gains an
 **adapter-internal final phase — the host-checkpoint render batch**. A **render batch** is
-the pending read/render window that ends at the next CLJS host microtask checkpoint, or at
-an explicit headless/test flush. The window is armed by the **first** dirty mark, not by
+the pending read/render window that ends at the **earliest** host checkpoint to reach it:
+the next CLJS host microtask checkpoint, a host-scheduled render checkpoint a synchronous
+host commit can see ([§The second closer](#the-second-closer--a-synchronous-host-commit-must-be-able-to-close-the-window)),
+or an explicit headless/test flush. The window is armed by the **first** dirty mark, not by
 the start of a drain, and it closes at the **host's** checkpoint, not at the end of a
 drain: this scheduler has no hook from router drain finalization and observes no drain
 boundary at all (rf2-vxgfnd.166). A run-to-completion drain may settle several queued
@@ -1808,7 +1814,10 @@ a torn frame paint before the correction runs. A single microtask, armed by the 
 mark of the window, cannot run until the synchronous stack unwinds, so it fires strictly
 **after** that stack completes — at the event loop's microtask checkpoint, which runs
 **before** the next paint — never between two queued events of the same drain, and always
-before a torn frame can show (rf2-vxgfnd.40). The headless (JVM/SSR) host has no async
+before a torn frame can show (rf2-vxgfnd.40). That microtask is the window's **guaranteed**
+closer, and outside a synchronous host flush it is still the only one that ever runs;
+[§The second closer](#the-second-closer--a-synchronous-host-commit-must-be-able-to-close-the-window)
+below covers the one that runs inside one. The headless (JVM/SSR) host has no async
 render loop and drains through the explicit test flush. On CLJS,
 `ui.test/flush!` returns a Promise; its optional thunk runs inside direct React 19
 `act`, then framework drains and React commits alternate until both are quiescent. On
@@ -1820,6 +1829,70 @@ notifications, or host work, carrying the active `:frame` and `:frame-epoch` (pe
 rejects a misuse of the **explicit** flush; it is not the automatic scheduling boundary,
 which consults no drain state at all. The
 adapter's distinct production/tooling `flush-render!` contract is unchanged.
+
+#### The second closer — a synchronous host commit must be able to close the window
+
+A dirty mark is **constant work**, and it schedules no host render work at all: it records
+the cause, enrols the cell in the open pending window, and arms the microtask. Nothing a
+React scheduler can see has happened. `react-dom/flushSync` returns as soon as the work
+scheduled *inside its callback* has committed — so it committed nothing, reported nothing,
+and a state write made inside it left the DOM showing the old value. The caller who reaches
+for a synchronous flush is exactly the caller about to measure layout, move focus, set a
+caret, or hand off to imperative third-party code, and that caller got a stale page in
+silence (rf2-w2m25).
+
+**The microtask is not abolished, and must not be.** Making a mark notify synchronously
+would recompute and re-render inside the source write — the trap invariant 6 exists to
+forbid — and would dissolve the coalescing every batch here rests on. The remedy is a
+**second closer**, not a different first one.
+
+On a host that owns a render scheduler the window is therefore armed with **two** closers,
+both by the same first mark, both running the **same idempotent flush**. Whichever the host
+runs first closes the window; the other finds it empty and does nothing. The third item in
+the enumeration above — the explicit headless/test flush — is a caller's door rather than a
+scheduled checkpoint, and nothing here touches it.
+
+1. **The host microtask** — the guaranteed closer, armed first, unchanged, and still the
+   owner of the ordinary batch.
+2. **The host render checkpoint** — a render the host's own scheduler performs, whose
+   *synchronous* commit phase closes the window. The CLJS realisation
+   (`re-frame.freehand.checkpoint`) renders one nil-returning sentinel into a detached
+   React root and closes the window from a **layout** effect: `flushSync` always runs
+   layout effects synchronously, which is a documented React guarantee, whereas its
+   flushing of *passive* effects is a React-19 implementation detail and not one.
+
+Lane behaviour does the arbitration, which is what lets two closers coexist without a rule
+to order them. **Inside a synchronous flush** the sentinel's update is issued during the
+callback and takes the synchronous lane, so the host renders it, runs its layout effect,
+closes the window, and flushes the cells' resulting updates before the flush returns — the
+DOM is current on the next line. **Outside one** that update takes an ordinary lane and the
+host reaches it later, by which time the microtask closer — armed first, and therefore
+first out of a FIFO queue — has already closed the window and the sentinel's effect finds
+nothing pending. Batching outside a synchronous flush is bit-for-bit what it was.
+
+Two ordering rules make that safe rather than merely true, and both are normative:
+
+- The guaranteed microtask closer is armed **first**, and the host closer is
+  **best-effort**, armed inside a guard. A mark is a notification sink with no caller to
+  report a scheduling failure to, so a host closer that throws must never cost the window
+  its guaranteed one.
+- A host with no render scheduler installs **no** second closer and is unaffected. The
+  headless (JVM/SSR) host is that case: it closes its window explicitly, exactly as before.
+
+None of the four guarantees moves. Neither closer can run while the marking stack is still
+unwinding — both are armed by the mark, and a synchronous flush runs its callback to
+completion before it flushes anything — so a run-to-completion drain still cannot be split
+across batches (guarantee 1) and N epochs settled in one drain still coalesce into one
+batch (guarantee 2). Guarantee 3 is **permissive**: drains finishing before the same host
+checkpoint *may* share a batch, so an earlier close spends latitude the guarantee already
+grants rather than breaching it. Guarantee 4 is untouched — drains separated by a real host
+yield still render separately. What changed is only *which* checkpoint may close a window a
+**synchronous commit** is waiting on.
+
+The consumer-facing consequence is the whole point of the mechanism: **a state write made
+inside a synchronous host flush is committed to the DOM before that flush returns.** The
+next line may measure layout, move focus, set a caret, or assert on the DOM, and read the
+value it just wrote.
 
 ## The Freehand atomic shell
 
