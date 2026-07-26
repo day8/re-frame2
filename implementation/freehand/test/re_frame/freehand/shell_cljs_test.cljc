@@ -723,6 +723,120 @@
            (is (= (:recorded-sites sub-007) (count (cell/candidate-reads cand)))))))))
 
 ;; ===========================================================================
+;; Invariant 5 — moved evidence corrects before paint, on the RETAINED set
+;; ===========================================================================
+;;
+;; Spec 006 §The six frozen invariants, invariant 5. These two rows exist to
+;; make one failure mode LOUD: a commit that stops re-reading a retained
+;; dependency — because every site kept its query, its target and its handle,
+;; so re-reading looks like work worth skipping — is not faster, it is torn.
+;; The retained site is precisely the one with no other correction channel on
+;; a host whose derived values are not watchable, which is this fixture's
+;; host and the headless contract generally.
+;;
+;; Each row therefore carries its own falsification. The mocked row moves ONE
+;; evidence axis at a time and pairs every moved arm with an UNMOVED control,
+;; so it fails both if an axis stops being compared and if the comparison
+;; degenerates into always correcting. The real-port row does the same over
+;; the actual observation port and the actual sub-cache, because a mock can
+;; drift away from the port it stands for.
+
+(def ^:private tear-probe
+  "What the RENDER probed: one live node, one identity, one version, one
+  frame epoch, one registry epoch."
+  {:value       :v0  :node-version   7 :node-key :node/a
+   :frame-epoch 3    :registry-epoch 2 :live?    true})
+
+(def ^:private tear-reading-unmoved
+  "What a commit-time `obs/read` answers when NOTHING moved in the gap — the
+  same node, the same version, the same epochs. `read` spells the version
+  `:version` where `probe` spells it `:node-version`; comparing that pair is
+  the tear check."
+  {:value :v0 :version 7 :node-key :node/a :frame-epoch 3 :registry-epoch 2})
+
+(defn- retained-recommit
+  "Commit twice over a fully MOCKED observation port whose kept-check always
+  holds, so the second commit's site is RETAINED — the same handle, never
+  re-acquired. Answers `{:delta … :retained? …}`: how far the cell's revision
+  moved on that second commit, and whether the handle really was the first
+  commit's, which is what makes the row a statement about the retained set
+  rather than about staging."
+  [reading]
+  (let [q [:tear/site]
+        c (cell/cell :shell/panel)]
+    (with-redefs [obs/resolve-target (mock-fn (fn [{:keys [query-v]}] {:query-v query-v}))
+                  obs/probe          (mock-fn (fn [_target] tear-probe))
+                  obs/acquire!       (mock-fn (fn [target] {:handle-for (:query-v target)}))
+                  obs/current?       (mock-fn (fn [_handle] true))
+                  obs/read           (mock-fn (fn [_handle] reading))
+                  obs/owned?         (mock-fn (fn [_handle] true))
+                  obs/release!       (mock-fn (fn [_handle] nil))]
+      ;; The first commit stages fresh and publishes; it is the prior set the
+      ;; second one retains from, and its own correction is not what is read.
+      (cell/commit! (render! c nil [q]))
+      (let [h0     (:handle (get (cell/dependencies c) 0))
+            before (cell/revision c)]
+        (cell/commit! (render! c nil [q]))
+        {:delta     (- (cell/revision c) before)
+         :retained? (identical? h0 (:handle (get (cell/dependencies c) 0)))}))))
+
+(deftest invariant-5-every-axis-is-still-compared-on-a-retained-handle
+  (testing "Per invariant 5: at commit, EVERY acquired node — the handles
+            RETAINED from the prior committed set as well as the newly
+            staged ones — has its identity, its version and the frame and
+            registry epochs compared against the render's probe evidence, and
+            movement on ANY of those axes advances the cell's revision so the
+            host corrects before paint.
+
+            Each axis is moved ALONE, so the row fails if any single one
+            stops being compared; and the unmoved control fails if the
+            comparison degenerates into correcting unconditionally, which is
+            the other way a broken check passes a movement test."
+    (is (= {:delta 0 :retained? true}
+           (retained-recommit tear-reading-unmoved))
+        "the control — nothing moved in the gap, so nothing is corrected")
+    (doseq [[axis moved] {:node-key       (assoc tear-reading-unmoved :node-key :node/b)
+                          :version        (assoc tear-reading-unmoved :version 8)
+                          :frame-epoch    (assoc tear-reading-unmoved :frame-epoch 4)
+                          :registry-epoch (assoc tear-reading-unmoved :registry-epoch 3)}]
+      (is (= {:delta 1 :retained? true} (retained-recommit moved))
+          (str "movement on the " axis " axis ALONE is caught on the retained "
+               "handle and corrects before paint")))))
+
+(deftest invariant-5-a-real-node-moving-in-the-gap-corrects-a-retained-site
+  (testing "The same law over the REAL observation port and the REAL
+            sub-cache: a site committed once, re-rendered, and then moved
+            underneath the candidate before its commit runs. This fixture's
+            plain-atom derived values are not watchable, so nothing notifies
+            this cell — the commit's own comparison is the only channel there
+            is, and the site is RETAINED, which is exactly the comparison a
+            fast path removes if it removes anything."
+    (let [q [:tear/v]]
+      (rf/reg-sub (first q) (fn [db _] (:v db)))
+      (seed! fid {:v 1})
+      (let [c (cell/cell :shell/panel)]
+        (render+commit! c fid [q])
+        (let [h0     (:handle (get (cell/dependencies c) 0))
+              before (cell/revision c)]
+          (testing "the control: a re-commit with nothing moving corrects nothing"
+            (render+commit! c fid [q])
+            (is (= before (cell/revision c)))
+            (is (identical? h0 (:handle (get (cell/dependencies c) 0)))))
+          (let [cand (render! c fid [q])]
+            ;; THE GAP: the node moves after this render probed it and before
+            ;; the commit reads it.
+            (seed! fid {:v 2})
+            (is (= :published (cell/commit! cand)))
+            (is (identical? h0 (:handle (get (cell/dependencies c) 0)))
+                "the site was RETAINED — the same handle, never re-acquired")
+            (is (= 2 (:value (first (:observations (cell/evidence c)))))
+                "and the published evidence carries what the COMMIT read, not
+                 what the render probed")
+            (is (> (cell/revision c) before)
+                "movement in the render→commit gap advanced the revision, so
+                 the host corrects before paint")))))))
+
+;; ===========================================================================
 ;; The shell's own value surface
 ;; ===========================================================================
 
