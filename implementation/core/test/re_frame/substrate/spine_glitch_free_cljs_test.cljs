@@ -605,8 +605,12 @@
       ;; Scheduler cells clean after the failed fan-out.
       (is (= 0 @(:depth scheduler)) "depth clean")
       (is (false? @(:flushing? scheduler)) "flushing? clean")
-      (is (= [] @(:queue scheduler)) "queue empty")
-      (is (= #{} @(:queued scheduler)) "queued empty")
+      ;; rf2-jr76s — the drain's scratch is a JS array + `js/Set` mutated in
+      ;; place, not a volatile over persistent collections. The CONTRACT this
+      ;; asserts is unchanged: both are empty after the failed fan-out, so no
+      ;; thunk is stranded and no `queued` entry survives to block a re-mark.
+      (is (zero? (alength (:queue scheduler))) "queue empty")
+      (is (zero? (.-size (:queued scheduler))) "queued empty")
       (is (not (instance? js/Error @(:escaped scheduler)))
           ":escaped retains no failure")
       ;; A DIFFERENT source's clean mutation must NOT receive the retained failure.

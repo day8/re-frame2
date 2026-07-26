@@ -139,12 +139,32 @@
   `reset!` fires that ONE watch, which brackets the whole dependent fan-out
   in a `with-epoch` — so a raw source mutation drains every dependent once
   and surfaces the earliest failure at a REAL terminal, exactly like
-  `replace-container!` (see `ensure-source-coordinator!`)."
+  `replace-container!` (see `ensure-source-coordinator!`).
+
+  `:queue` / `:queued` are the drain's SCRATCH — a JS array and a `js/Set`,
+  mutated in place, rather than a `volatile!` holding a persistent vector
+  and a persistent set (rf2-jr76s). This is the same reasoning that already
+  made `depth` / `flushing?` volatiles one line above: both are written and
+  read only on the single-threaded JS event loop, and neither ever escapes
+  this scheduler. A persistent collection buys immutable sharing that nobody
+  here can observe, and charges for it once per dirty entry: an app-db write
+  that marks D derived values dirty performs D `conj`s onto a growing HAMT
+  and D `disj`s as the drain consumes them, each copying its path. Measured
+  on a 300-subscription frame that was **1,706 bytes per dirty subscription
+  — 60% of the whole per-subscription cost of a narrow write**, and it grew
+  with D, because HAMT path length does.
+
+  `js/Set` membership is SameValueZero, which for the function objects this
+  set holds is reference identity — the same relation `contains?` on a
+  persistent set gave them (CLJS `=` on two distinct functions is
+  `identical?`). Enqueue order, the double-enqueue guard, the drain order,
+  and the re-entrant append the running drain observes are all unchanged;
+  this is a representation change and nothing else."
   []
   {:depth     (volatile! 0)   ;; open-epoch nesting depth
    :flushing? (volatile! false)
-   :queue     (volatile! [])  ;; ordered queue of pending flush thunks
-   :queued    (volatile! #{}) ;; identity set guarding double-enqueue
+   :queue     (array)         ;; ordered queue of pending flush thunks (scratch)
+   :queued    (js/Set.)       ;; identity set guarding double-enqueue (scratch)
    :escaped   (volatile! capture-none) ;; earliest-escape cell (rf2-2u4rw)
    :source-coordinators (js/Map.)}) ;; source -> fan-out coordinator (rf2-7ryt0)
 
@@ -226,20 +246,21 @@
         ;; old head-pop-before-call ordering). The per-thunk `try/catch`
         ;; isolates a throwing thunk (drains the tail) AND retains its escape.
         (loop [cursor 0]
-          (when (< cursor (count @queue))
-            (let [thunk (nth @queue cursor)]
-              (vswap! queued disj thunk)
+          (when (< cursor (alength queue))
+            (let [thunk (aget queue cursor)]
+              (.delete queued thunk)
               (try (thunk)
                    (catch :default e
                      (when (identical? capture-none @escaped)
                        (vreset! escaped e)))))
             (recur (inc cursor))))
         (finally
-          ;; The loop consumes `@queue` to empty on every non-re-entrant exit
+          ;; The loop consumes `queue` to empty on every non-re-entrant exit
           ;; (per-thunk capture means no throw escapes the loop), so this
-          ;; releases the backing vector for the next epoch. Re-entrant drains
-          ;; short-circuit on `@flushing?` above and never reach here.
-          (vreset! queue [])
+          ;; releases the held thunks for the next epoch — truncating a JS
+          ;; array drops the references beyond the new length. Re-entrant
+          ;; drains short-circuit on `@flushing?` above and never reach here.
+          (set! (.-length queue) 0)
           (vreset! flushing? false)))
       ;; Queue/flushing state is restored. Surface ONLY a stale escape — one
       ;; SEEDED at entry (a `with-epoch` body-throw E1). A fresh escape captured
@@ -275,9 +296,9 @@
   short-circuits the inline drain, and the running loop picks the thunk up);
   the depth-zero inline drain is the fallback flush for any other seam."
   [{:keys [depth queue queued] :as scheduler} thunk]
-  (when-not (contains? @queued thunk)
-    (vswap! queued conj thunk)
-    (vswap! queue conj thunk))
+  (when-not (.has queued thunk)
+    (.add queued thunk)
+    (.push queue thunk))
   (when (zero? @depth)
     (drain-scheduler! scheduler)))
 
@@ -681,15 +702,34 @@
                                  ;; Two+ subscribers: attempt each independently,
                                  ;; capture the FIRST escape by presence, re-raise
                                  ;; after delivery (surfaced via the drain).
-                                 ;; `vals` over the map skips a map-entry seq.
+                                 ;;
+                                 ;; `reduce-kv` walks the map's backing nodes
+                                 ;; directly, for the SAME reason `sole-val`
+                                 ;; above does (rf2-2u4rw): `(vals ws)` is
+                                 ;; `(map val (seq ws))`, so it allocates a seq
+                                 ;; node AND a lazy-seq cell PER SUBSCRIBER just
+                                 ;; to hand each one to `run!`. On the app-db
+                                 ;; projection — whose subscriber set is EVERY
+                                 ;; layer-1 subscription in the frame — that was
+                                 ;; measured at 307 bytes per subscription per
+                                 ;; write, 11% of the whole per-subscription cost
+                                 ;; of a narrow write (rf2-jr76s). `reduce-kv`
+                                 ;; visits the same entries in the same order
+                                 ;; with the same per-subscriber isolation and
+                                 ;; the same earliest-capture; `ws` is already
+                                 ;; the immutable snapshot taken above, so the
+                                 ;; add/remove-watch-during-fan-out guarantee is
+                                 ;; untouched.
                                  (let [captured (volatile! capture-none)]
-                                   (run! (fn [w]
-                                           (try
-                                             (w prev nu)
-                                             (catch :default e
-                                               (when (identical? capture-none @captured)
-                                                 (vreset! captured e)))))
-                                         (vals ws))
+                                   (reduce-kv
+                                     (fn [_ _ w]
+                                       (try
+                                         (w prev nu)
+                                         (catch :default e
+                                           (when (identical? capture-none @captured)
+                                             (vreset! captured e))))
+                                       nil)
+                                     nil ws)
                                    (when-not (identical? capture-none @captured)
                                      (throw @captured)))))))
           ;; Baseline derived value. LAZY (rf2-ee38b.1 P2): seeded with the
