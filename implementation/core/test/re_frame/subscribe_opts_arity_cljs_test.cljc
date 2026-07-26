@@ -58,6 +58,28 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (:rf.error/id (ex-data e)))))
 
+(deftest ambient-1-arity-no-frame-context-payload-is-fully-attributed
+  (testing "rf2-a8bw0: the 1-arity builds its `:rf.error/no-frame-context`
+            payload LAZILY — the scope reader runs first and the `extra` map is
+            constructed only once absence is known. The error a caller sees must
+            therefore be identical to the eagerly-built one: the same
+            discriminator, the same `:operation`, the same `:where` naming the
+            resolving fn, and the same `:event-id` carrying the query's sub-id
+            so a frameless subscribe is attributed to the query it held.
+            Deferring construction must never degrade the message."
+    (setup!)
+    (let [data (try @(rf/subscribe [:soa/val]) nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo
+                              :cljs cljs.core/ExceptionInfo) e
+                      (ex-data e)))]
+      (is (some? data) "an ambient subscribe under no scope throws")
+      (is (= :rf.error/no-frame-context (:rf.error/id data)))
+      (is (= :subscribe (:operation data)))
+      (is (= 're-frame.subs/subscribe (:where data))
+          ":where still names the resolving fn")
+      (is (= :soa/val (:event-id data))
+          ":event-id still carries the sub-id off the query the caller held"))))
+
 (deftest opts-map-frame-targets-the-named-frame
   (testing "(subscribe query-v {:frame f}) reads f's app-db"
     (setup!)
