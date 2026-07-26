@@ -443,16 +443,69 @@
 ;; checkpoint, so there the window is closed explicitly — by the caller
 ;; that wants the correction, which is the only honest boundary a host
 ;; with no scheduler has.
+;;
+;; ONE WINDOW, TWO CLOSERS (rf2-w2m25). A microtask is invisible to
+;; `react-dom/flushSync`, which returns as soon as the React work
+;; SCHEDULED inside its callback has committed — and a mark schedules no
+;; React work at all. So a write made inside `flushSync` left the DOM
+;; unchanged when the flush returned, silently, and the caller who
+;; reached for `flushSync` precisely because they were about to measure
+;; layout, move focus or drive a caret got the stale page. The window is
+;; therefore armed with TWO closers, not one:
+;;
+;;   1. `js/queueMicrotask` — the host checkpoint the spec names, which
+;;      still owns the ordinary batch and still fires first outside a
+;;      flush (microtasks are FIFO and this one is armed first).
+;;   2. The HOST CLOSER — a zero-arg thunk the React tier installs
+;;      through [[set-host-window-closer!]], which schedules the same
+;;      [[flush!]] through the HOST's own scheduler, where a synchronous
+;;      flush can see it.
+;;
+;; Both call the SAME idempotent [[flush!]]; whichever the host runs
+;; first closes the window and the other finds it empty. Neither can
+;; close it early: both are armed by the mark and neither can run while
+;; the marking stack is still unwinding, so a run-to-completion drain is
+;; still un-splittable and N epochs in one drain still coalesce into one
+;; batch (Spec 006 §Render-batch finalization, guarantees 1–2). What
+;; changes is only WHICH checkpoint may close a window a synchronous
+;; commit is waiting on.
+;;
+;; The slot is a slot rather than a direct call because this namespace is
+;; `.cljc` and host-agnostic: it knows what a checkpoint MEANS and
+;; nothing about React. The JVM host installs none and closes its window
+;; explicitly, exactly as before.
 
 (defonce ^:private pending-cells (atom #{}))
 (defonce ^:private flush-scheduled? (atom false))
+(defonce ^:private host-window-closer (atom nil))
 
 (declare flush!)
+
+(defn set-host-window-closer!
+  "Install `arm!` — a zero-arg thunk that schedules a [[flush!]] through
+  the HOST's own scheduler — as the pending window's second closer, or
+  clear it with `nil`. Returns nil.
+
+  Called once, at load, by the tier that owns the host scheduler
+  (`re-frame.freehand.checkpoint` for React). A host that has no
+  scheduler installs nothing and keeps the microtask-and-explicit-flush
+  behaviour unchanged.
+
+  INTERNAL — a host-tier seam, not application API."
+  [arm!]
+  (reset! host-window-closer arm!)
+  nil)
 
 (defn- schedule-flush!
   []
   #?(:cljs (when (compare-and-set! flush-scheduled? false true)
-             (js/queueMicrotask (fn [] (flush!))))
+             (js/queueMicrotask (fn [] (flush!)))
+             ;; Best-effort, and deliberately AFTER the microtask is armed:
+             ;; the guaranteed closer must never be lost to a host closer
+             ;; that throws. A mark is constant work and a notification
+             ;; sink — it has no caller to report a scheduling failure to.
+             (when-let [arm! @host-window-closer]
+               (try (arm!) (catch :default _ nil))))
      :clj nil))
 
 (defn- notify-listeners!
