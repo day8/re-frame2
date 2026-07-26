@@ -1974,3 +1974,193 @@
              (:rf.fx/args (:tags (first (:trace-events projected)))))
           "and so does the rest of the event vector it sits in"))))
 
+
+;; ---------------------------------------------------------------------------
+;; (5) THE CARRIER'S OTHER EDGE — over-classification (rf2-1kiuj, reopened)
+;; ---------------------------------------------------------------------------
+;;
+;; Sections (1)-(4) and their rf2-425mm / rf2-xx4ty siblings above all push in
+;; ONE direction: does the family's datum still egress raw? Three merged repairs
+;; answered yes and each shipped the same second-order defect on the way — the
+;; carrier arm fired on a LOCAL CUE that ordinary FX data hits by coincidence,
+;; and destroyed app-owned data off-box while stamping the row `:sensitive?`.
+;;
+;;   - rf2-1kiuj — `scoped-key-shape?` alone: ANY `[<x> <keyword> <map>]`
+;;     3-vector took the fail-closed unregistered-owner arm.
+;;     `[:opaque :app/not-a-resource {:account-id 42}]` came back
+;;     `[{:rf/redacted …} :app/not-a-resource {:rf/redacted …}]`.
+;;   - rf2-425mm — the `:scope` KEY alone, at arbitrary depth. An app's own
+;;     `{:request {… :scope {:tenant "alice"} …}}` had that map tokenized.
+;;   - rf2-xx4ty — a map-local `:resource/key` alone as the "this is a read
+;;     reply" test. Foreign `:value` / `:params` sitting beside a genuine
+;;     sensitive key were tokenized with it.
+;;
+;; The repair is one idea applied three times: each arm now fires on PROOF that
+;; the resource RUNTIME planted the value — its reserved keyword namespace, its
+;; `[:rf.work/resource …]` work-id head, the canonical `:rf.reply/work-kind
+;; :resource` marker, or the resource registry answering "is this one of mine?".
+;; Recognition changed; the GRAIN did not — the free `:scope` still fails closed
+;; unconditionally once recognised, and `:value` / `:params` are still
+;; owner-conditional, so the two carriers of one datum still agree for a plain
+;; owner. Each deftest below therefore carries both halves: the foreign value
+;; rides verbatim AND the runtime's own still redacts, on the same shape.
+
+(deftest fx-carrier-leaves-foreign-lookalike-vectors-verbatim
+  (testing "rf2-1kiuj — scoped-key SHAPE is necessary and not sufficient inside
+            a FOREIGN carrier. A 3-vector whose position 1 names no registered
+            resource is application data and rides byte-for-byte; the row is not
+            stamped. The two proofs that DO make a 3-vector the family's are
+            asserted beside it, so this cannot be satisfied by disabling the arm."
+    (let [foreign   [:opaque :app/not-a-resource {:account-id 42}]
+          app-event [:app/save :user {:name "alice"}]
+          sensitive (sk :rf.scope/global :secret/article {:auth-token secret})
+          gone      [:rf.scope/global :cleared/article {:auth-token secret}]
+          record    (record-with
+                      [(event :rf.fx/handled
+                              {:rf.frame/id :test/rt :frame :test/rt
+                               :rf.fx/id :app/custom
+                               :rf.fx/args {:rows [foreign] :dispatch app-event}})
+                       ;; the REGISTRY proof: a registered owner's key in a slot
+                       ;; the family never named still projects.
+                       (event :rf.fx/handled
+                              {:rf.frame/id :test/rt :frame :test/rt
+                               :rf.fx/id :app/audit
+                               :rf.fx/args {:app/anything [sensitive]}})
+                       ;; the NAMED proof: an UNREGISTERED key the runtime itself
+                       ;; named still FAILS CLOSED (a `clear-resource` / hot
+                       ;; reload leaves genuine keys in captured records).
+                       (event :rf.fx/handled
+                              {:rf.frame/id :test/rt :frame :test/rt
+                               :rf.fx/id :rf.resource/cancel-timers
+                               :rf.fx/args {:frame-id :test/rt
+                                            :resource/keys [gone]}})])
+          projected (epoch/projected-record record)
+          [custom audit cancel] (:trace-events projected)]
+      (testing "the foreign lookalikes ride verbatim"
+        (is (= foreign (first (:rows (:rf.fx/args (:tags custom)))))
+            "an app 3-vector with an unregistered keyword at position 1")
+        (is (= app-event (:dispatch (:rf.fx/args (:tags custom))))
+            "and an ordinary 3-element event vector, which has the same shape")
+        (is (not (:sensitive? (:tags custom)))
+            "so the row is NOT stamped :sensitive? — a tool reading this row
+             would otherwise believe it had seen a resource"))
+      (testing "the REGISTRY proof: a registered owner's key projects from a
+                slot no family name reaches"
+        (let [[pscope rid pparams] (first (:app/anything (:rf.fx/args (:tags audit))))]
+          (is (= :secret/article rid) "the resource-id survives for attribution")
+          (is (redacted-component? pscope))
+          (is (redacted-component? pparams))
+          (is (true? (:sensitive? (:tags audit))))))
+      (testing "the NAMED proof: an unregistered key under a `resource`-namespaced
+                key still fails closed"
+        (let [[pscope rid pparams] (first (:resource/keys (:rf.fx/args (:tags cancel))))]
+          (is (= :cleared/article rid))
+          (is (redacted-component? pscope) "scope redacted though the owner is gone")
+          (is (redacted-component? pparams))
+          (is (true? (:sensitive? (:tags cancel))))))
+      (is (= [] (secret-leak-paths projected))
+          "and no raw secret survives anywhere in the record"))))
+
+(deftest fx-carrier-leaves-app-owned-scope-maps-verbatim
+  (testing "rf2-425mm — a `:scope` ENTRY is the family's only inside a payload
+            the runtime BUILT. An app's own `:scope` — an ordinary English word
+            the FX family uses for its own data — rides verbatim; the runtime's
+            read continuation payload and its MUTATION execute payload (which
+            carries a free `:scope` with NO `:resource/key` beside it, the case
+            rf2-425mm ruled must not be gated on a sibling key) both still fail
+            closed."
+    (let [app-scope {:tenant "alice"}
+          key1      (sk session-scope :derived/profile {:slug "me"})
+          read-args {:on-success [:rf.resource.internal/succeeded
+                                  {:work/id      [:rf.work/resource key1 1]
+                                   :resource/key key1
+                                   :scope        session-scope
+                                   :generation   1}]}
+          mut-args  {:on-success [:rf.mutation.internal/succeeded
+                                  {:instance-id :m/save-1
+                                   :mutation-id :m/save
+                                   :work/id     [:rf.work/resource
+                                                 [:rf.mutation :m/save-1] 3]
+                                   :scope       session-scope
+                                   :generation  3}]}
+          app-row*  (event :rf.fx/handled
+                           {:rf.frame/id :test/rt :frame :test/rt
+                            :rf.fx/id :rf.http/managed
+                            :rf.fx/args {:request {:method :post
+                                                   :scope  app-scope
+                                                   :body   {:x 1}}}})
+          read-row* (event :rf.fx/handled
+                           {:rf.frame/id :test/rt :frame :test/rt
+                            :rf.fx/id :rf.http/managed :rf.fx/args read-args})
+          mut-row*  (event :rf.fx/handled
+                           {:rf.frame/id :test/rt :frame :test/rt
+                            :rf.fx/id :rf.http/managed :rf.fx/args mut-args})
+          project1  (fn [row] (epoch/projected-record (record-with [row])))]
+      (testing "the app's own request map is untouched"
+        (let [tags (:tags (first (:trace-events (project1 app-row*))))]
+          (is (= {:method :post :scope app-scope :body {:x 1}} (:request (:rf.fx/args tags)))
+              "byte-for-byte, :scope map included")
+          (is (not (:sensitive? tags))
+              "and the row is NOT stamped :sensitive?")))
+      (testing "the READ continuation payload's :scope still fails closed"
+        (is (= [session-scope] (carrier-scopes (record-with [read-row*])))
+            "FIXTURE — the raw payload carries the resolver's identity map")
+        (let [projected (project1 read-row*)]
+          (is (every? tokenized-scope? (carrier-scopes projected))
+              "tier keyword verbatim, identity map tokenized")
+          (is (true? (:sensitive? (:tags (first (:trace-events projected))))))))
+      (testing "and so does the MUTATION execute payload's, which has no
+                :resource/key to gate on — the work-id is what proves it"
+        (is (= [session-scope] (carrier-scopes (record-with [mut-row*])))
+            "FIXTURE — the raw mutation payload carries it too")
+        (let [projected (project1 mut-row*)]
+          (is (every? tokenized-scope? (carrier-scopes projected))
+              "gating on a sibling key here would have fixed reads and left
+               mutations leaking")
+          (is (true? (:sensitive? (:tags (first (:trace-events projected))))))))
+      (is (= [] (mapcat secret-leak-paths
+                        (map project1 [app-row* read-row* mut-row*])))
+          "no raw identity survives anywhere in any of the three records"))))
+
+(deftest fx-carrier-reply-payload-needs-the-canonical-reply-marker
+  (testing "rf2-xx4ty — `:value` / `:params` are the family's only inside a
+            CANONICAL read reply (`:rf.reply/work-kind :resource`, the marker
+            every reply the read-continuation substrate builds carries). A
+            sibling `:resource/key` says WHOSE the data would be, not that these
+            two ordinary words are the family's at all — so an app map carrying
+            a genuine sensitive key beside its own `:value` / `:params` keeps
+            them, while the key one slot over still tokenizes."
+    (let [key1      (sk session-scope :derived/profile reply-params)
+          unmarked  {:resource/key key1
+                     :value        {:public true}
+                     :params       {:format :csv}}
+          marked    (read-reply key1 session-scope reply-value)
+          record    (record-with
+                      [(event :rf.fx/handled
+                              {:rf.frame/id :test/rt :frame :test/rt
+                               :rf.fx/id :app/custom :rf.fx/args unmarked})
+                       (event :rf.fx/handled
+                              {:rf.frame/id :test/rt :frame :test/rt
+                               :rf.fx/id :dispatch
+                               :rf.fx/args (conj read-reply-target marked)})])
+          projected (epoch/projected-record record)
+          [custom reply-row] (:trace-events projected)
+          proj-un   (:rf.fx/args (:tags custom))]
+      (testing "the UNMARKED map: the key tokenizes, its foreign neighbours do not"
+        (is (= {:public true} (:value proj-un))
+            "the app's :value rides verbatim")
+        (is (= {:format :csv} (:params proj-un))
+            "and so do the app's :params")
+        (is (redacted-component? (first (:resource/key proj-un)))
+            "while the genuine sensitive key beside them still tokenizes")
+        (is (= :derived/profile (second (:resource/key proj-un)))
+            "with its resource-id intact")
+        (is (true? (:sensitive? (:tags custom)))
+            "the row IS stamped — a key redacted on it"))
+      (testing "the MARKED reply still tokenizes both slots"
+        (let [r (first (carrier-replies projected))]
+          (is (redacted-component? (:value r)))
+          (is (redacted-component? (:params r)))
+          (is (true? (:sensitive? (:tags reply-row))))))
+      (is (= [] (secret-leak-paths projected))
+          "and nothing raw survives anywhere in the record"))))
