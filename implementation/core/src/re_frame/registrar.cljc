@@ -808,9 +808,20 @@
   dispatch) — resolution targets the `active-registrar` atom, one `nil?` branch
   on the read.
 
-  Uses paired `get` calls rather than `(get-in ... [kind id])` — `get-in`
-  allocates a path vector per call, and `lookup` runs per
-  dispatch (event handler), per fx (handler), and per sub (handler)."
+  The REGISTRAR-ATOM branch uses paired `get` calls rather than
+  `(get-in ... [kind id])` — `get-in` allocates a path vector per call, and
+  `lookup` runs per dispatch (event handler), per fx (handler), and per sub
+  (handler).
+
+  The GENERATION-ROUTED branch pays that cost anyway, and cannot avoid it here:
+  the resolver is keyed by a `[kind id]` PAIR, so the routed lookup must build
+  one. Measured at ~98 B/call on the JVM (rf2-ezwnl). The remedy is to re-key
+  the resolver `{kind {id descriptor}}` so both branches read the same paired
+  `get` — but `:rf.gen/resolver`'s `{[kind id] descriptor}` shape is normative
+  (Spec API.md §`frame-generation`, Conventions.md §`:rf.gen/*`) and is read as
+  plain data by Xray, the Pair MCP runtime and Story, so that is a spec change
+  and not a local one. Until then this comment is the honest version of the
+  paragraph above: the paired-`get` claim covers ONE of the two branches."
   [kind id]
   (if-let [resolver (generation-resolver)]
     (get resolver [kind id])
