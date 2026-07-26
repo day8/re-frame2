@@ -17,10 +17,32 @@
 ;; :mvn/version pinned to the same VERSION file the core artefact
 ;; reads so machines-viz's published version equals the framework's
 ;; published version at every release.
+;;
+;; ## Two source roots: `src` ships, `page` does not (rf2-k7l2o)
+;;
+;; `src` is library surface — the MachineChart component, the grammar /
+;; layout / projection pipeline, the exporters, the share codec. `page`
+;; carries the ONE application in this tree: `viewer.cljs`, the
+;; `^:export run` entry `public/viewer.html` loads, which is compiled to
+;; a static `viewer.js` and shipped beside that HTML rather than in the
+;; jar. Only `:paths`/`:src-dirs` — i.e. only `src` — reaches a
+;; consumer.
+;;
+;; The split is load-bearing, not tidiness. The page is the only
+;; namespace here that picks a SUBSTRATE (`rf/init!` with the Reagent
+;; adapter), and picking one is an application's job: `day8/reagent-slim`
+;; publishes its adapter at the same canonical `re-frame.adapter.reagent`
+;; namespace (release.yml renames `reagent_slim.cljs` → `reagent.cljs` at
+;; publication, and states downstream apps depend on EXACTLY ONE of
+;; {day8/re-frame2-reagent, day8/reagent-slim}). Had the page stayed in
+;; `src`, this jar would have had to declare an adapter to be loadable at
+;; all, putting two `re-frame.adapter.reagent` implementations on a slim
+;; app's classpath with load order deciding the winner.
 {:paths ["src"]
  :deps  {;; Core supplies re-frame.error, trace/interop helpers, and the
-         ;; viewer's re-frame initialisation. Hosts obtain definitions and
-         ;; snapshots themselves and pass them to MachineChart.
+         ;; viewer page's re-frame initialisation. Hosts obtain
+         ;; definitions and snapshots themselves and pass them to
+         ;; MachineChart.
          day8/re-frame2 {:local/root "../../implementation/core"}
 
          ;; Share-URL encoding is EDN data → transit-write →
@@ -36,10 +58,12 @@
          ;; runtime).
          com.cognitect/transit-cljs {:mvn/version "0.8.280"}
 
-         ;; The MachineChart component and viewer require stock Reagent
-         ;; directly (`reagent.core` for component-local Ratom state,
-         ;; `reagent.dom.client` in the standalone viewer), so machines-viz
-         ;; declares the stock `reagent/reagent` dep itself. It previously
+         ;; The MachineChart component requires stock Reagent directly
+         ;; (`reagent.core` for component-local Ratom state — chart.cljs,
+         ;; the node/edge/overlay components and the React shim), so
+         ;; machines-viz declares the stock `reagent/reagent` dep itself.
+         ;; `reagent.dom.client` is the viewer PAGE's, and left the jar
+         ;; with it (rf2-k7l2o); `reagent.core` did not. It previously
          ;; inherited Reagent transitively from core, but core is now
          ;; Reagent-free (re-frame.views late-binds via the
          ;; `:adapter/current-component` hook), so every artefact that
@@ -149,8 +173,14 @@
   ;; own jar and the classpath must carry it. Version tracks
   ;; implementation/package.json's `shadow-cljs` entry, like every other pin of
   ;; it in the tree.
+  ;;
+  ;; `page` joins `test` on this alias (rf2-k7l2o): `viewer_cljs_test.cljs`
+  ;; :requires the page entry, and the page root is off `:paths` precisely so
+  ;; it never ships. A test lane is not a consumer, so putting it on the TEST
+  ;; classpath is exactly the right scope — the page keeps its coverage and
+  ;; the jar keeps its independence from any substrate adapter.
   :cljs-test
-  {:extra-paths ["test"]
+  {:extra-paths ["test" "page"]
    :extra-deps  {day8/re-frame2-test-quiet
                  {:local/root "../../implementation/test-quiet"}
                  day8/re-frame2-machines
@@ -171,8 +201,14 @@
                  ;; taken in a CI-arming PR.
                  com.pitch/uix.core   {:mvn/version "1.4.4"}
                  com.pitch/uix.dom    {:mvn/version "1.4.4"}
-                 ;; Same finding, second instance: `src/.../viewer.cljs`
-                 ;; :requires `re-frame.adapter.reagent`.
+                 ;; The viewer PAGE (`page/.../viewer.cljs`) :requires
+                 ;; `re-frame.adapter.reagent`. That require is why the page is
+                 ;; not in `src` (rf2-k7l2o — see the source-roots note at the
+                 ;; top of this file): as library surface it would have forced
+                 ;; a published adapter dep and collided with day8/reagent-slim
+                 ;; on a slim app's classpath. As a page it is an application
+                 ;; choosing its own substrate, and the coordinate it needs is
+                 ;; scoped to the lane that compiles it — here.
                  day8/re-frame2-reagent
                  {:local/root "../../implementation/adapters/reagent"}}}
 
@@ -198,6 +234,11 @@
   ;; surface (`spec/API.md` §MachineChart), which is the same
   ;; convention tools/story/deps.edn follows with `:main re-frame.story`
   ;; — for a library jar this only populates the manifest's Main-Class.
+  ;;
+  ;; `:src-dirs ["src"]` — `page` is deliberately absent (rf2-k7l2o). It
+  ;; is the line that keeps the viewer page out of the jar, so a consumer
+  ;; is never asked to resolve `re-frame.adapter.reagent`. Adding `page`
+  ;; here would republish the defect.
   :clein/build
   {:lib      day8/re-frame2-machines-viz
    :main     day8.re-frame2-machines-viz.chart

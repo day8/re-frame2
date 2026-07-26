@@ -336,6 +336,20 @@
                 ;; via thin shims under tools/xray/src/day8/re_frame2_xray/chart/).
                 "../tools/machines-viz/src"
                 "../tools/machines-viz/test"
+                ;; tools/machines-viz/page (rf2-k7l2o). The artefact's one
+                ;; APPLICATION — `viewer.cljs`, the `^:export run` entry
+                ;; public/viewer.html loads — lives on its own root, OFF the
+                ;; jar's `:paths`/`:src-dirs`, because it is the only namespace
+                ;; in the tree that picks a substrate (`rf/init!` with the
+                ;; Reagent adapter). Shipping it as library surface would have
+                ;; forced a published `re-frame.adapter.reagent` dependency on
+                ;; every consumer, colliding with day8/reagent-slim (which
+                ;; publishes ITS adapter at that same canonical ns) on a slim
+                ;; app's classpath. Listed here for the two builds that DO need
+                ;; it: `:machines-viz-viewer` below, and `:node-test`, whose
+                ;; `cljs-test$` selector reaches the page's own unit suite
+                ;; (`viewer-cljs-test`, in the `test` root above).
+                "../tools/machines-viz/page"
                 ;; tools/xray/testbeds (rf2-p8f2s — examples-split step 1).
                 ;; Tool-owned testbeds colocate their testbed app source
                 ;; (where an app is needed) with the spec that drives it.
@@ -2519,6 +2533,11 @@
   ;; Bundle-isolation holds: machines-viz is a tool jar, so emitting a tool
   ;; bundle from this consumer build introduces no production-bundle leak
   ;; (nothing under implementation/ :requires the viewer ns).
+  ;;
+  ;; rf2-k7l2o — the entry ns resolves off `../tools/machines-viz/page`, not
+  ;; `.../src`. This build IS the page's delivery vehicle: `viewer.js` beside
+  ;; `public/viewer.html` is how the page ships, and the published jar
+  ;; deliberately does not carry it.
   :machines-viz-viewer
   {:target     :browser
    :output-dir "out/machines-viz-viewer"

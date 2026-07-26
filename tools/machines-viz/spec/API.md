@@ -1617,6 +1617,30 @@ https://acme.example.com/path/to/viewer.html#machine=<base64url-transit>
   the viewer goes to my docs site" would have to fork the page;
   the canonical viewer is read-only end-to-end.
 
+### The viewer is a page, not library surface
+
+The viewer ships as a **page** — `public/viewer.html` plus the compiled
+`viewer.js` beside it. Its source lives on a source root of its own
+(`page/day8/re_frame2_machines_viz/viewer.cljs`) which the published
+`day8/re-frame2-machines-viz` jar does **not** carry, and
+`day8.re-frame2-machines-viz.viewer` is correspondingly **not** a
+namespace a consumer can `:require`. Self-hosting means serving the two
+static files, exactly as [DESIGN-RATIONALE Lock #7](./DESIGN-RATIONALE.md)
+describes; it never meant requiring the entry namespace.
+
+The reason is a contract, not a packaging preference. The viewer is the
+only namespace in this artefact that chooses a **substrate** — it calls
+`rf/init!` with the Reagent adapter — and choosing one is an
+application's job, which is why `implementation/core` is adapter-free.
+A library jar carrying that require would have to declare
+`day8/re-frame2-reagent`, and `day8/reagent-slim` publishes its own
+adapter at the same canonical `re-frame.adapter.reagent` namespace; a
+slim application adding machines-viz would then hold two implementations
+of one namespace, with classpath order deciding which its own
+`(:require [re-frame.adapter.reagent])` resolved to. Keeping the page
+off `:src-dirs` removes the require from the jar and the choice from the
+consumer (rf2-k7l2o).
+
 Source: lifted from
 [Xray 003 §Share affordance](../../xray/spec/003-Machine-Inspector.md#share-affordance).
 

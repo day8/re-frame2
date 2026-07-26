@@ -693,7 +693,8 @@ implementation-state list.
 - `MachineChart` component (per [`API.md`](./API.md) §MachineChart) —
   **shipped** (`src/.../chart.cljs`; xyflow + elkjs).
 - Read-only viewer page (per [`API.md`](./API.md) §Read-only viewer) —
-  **shipped** (`public/viewer.html` + `src/.../viewer.cljs`, rf2-8d7w1).
+  **shipped** (`public/viewer.html` + `page/.../viewer.cljs`, rf2-8d7w1;
+  the page root is not packaged in the jar, rf2-k7l2o).
 - Share-URL encoding (per [`API.md`](./API.md) §Share-URL encoding) —
   **shipped** (`src/.../share.cljs`, rf2-8d7w1).
 - PNG + SVG exporters — **shipped** (`src/.../export.cljs`, rf2-8d7w1;

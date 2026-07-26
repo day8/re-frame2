@@ -61,18 +61,35 @@ tools/machines-viz/
 ├── deps.edn                                  ; declares day8/re-frame2-machines-viz
 ├── public/viewer.html                        ; static read-only viewer host
 ├── spec/                                     ; normative contract (see below)
-└── src/day8/re_frame2_machines_viz/
-    ├── chart.cljs                            ; the MachineChart component
-    ├── chart/                                ; layout, nodes, edges, overlays, projection
-    ├── adapters/                             ; react-chart + UIx shells
-    ├── viewer.cljs                           ; read-only viewer entry
-    ├── share.cljs                            ; share-URL encode / decode
-    ├── export.cljs                           ; PNG / SVG / Mermaid / share-URL exporters
-    ├── mermaid.cljc                          ; stateDiagram-v2 emitter (pure)
-    ├── scxml.cljc                            ; SCXML import / export
-    ├── ai_generate.cljc                      ; AI-generate seam
-    └── theme/ · visual_constants.cljc        ; design tokens
+├── src/day8/re_frame2_machines_viz/          ; LIBRARY SURFACE — this ships
+│   ├── chart.cljs                            ; the MachineChart component
+│   ├── chart/                                ; layout, nodes, edges, overlays, projection
+│   ├── adapters/                             ; react-chart + UIx shells
+│   ├── share.cljs                            ; share-URL encode / decode
+│   ├── export.cljs                           ; PNG / SVG / Mermaid / share-URL exporters
+│   ├── mermaid.cljc                          ; stateDiagram-v2 emitter (pure)
+│   ├── scxml.cljc                            ; SCXML import / export
+│   ├── ai_generate.cljc                      ; AI-generate seam
+│   └── theme/ · visual_constants.cljc        ; design tokens
+└── page/day8/re_frame2_machines_viz/         ; THE APPLICATION — this does not
+    └── viewer.cljs                           ; read-only viewer entry (^:export run)
 ```
+
+**Why `page/` is a second source root (rf2-k7l2o).** `src` is library
+surface a host requires; `page` holds the one application in this tree.
+`viewer.cljs` is the `^:export run` entry `public/viewer.html` loads, and
+it ships as the compiled `viewer.js` beside that HTML — the jar was never
+its delivery vehicle. Only `src` is on `:paths` and on `:clein/build
+:src-dirs`, so only `src` reaches a consumer.
+
+The split earns its keep rather than merely tidying: the page is the only
+namespace here that picks a **substrate** (`rf/init!` with the Reagent
+adapter), and picking one is an application's job. Had it stayed in `src`,
+the jar would have had to declare `day8/re-frame2-reagent` to be loadable
+at all — and `day8/reagent-slim` publishes *its* adapter at the same
+canonical `re-frame.adapter.reagent` namespace, so a slim app taking
+machines-viz would have ended up with two implementations of that
+namespace on one classpath, load order picking the substrate.
 
 ## How to test
 

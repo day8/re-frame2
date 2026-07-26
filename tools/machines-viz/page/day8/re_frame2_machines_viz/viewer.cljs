@@ -41,7 +41,31 @@
   chart is a Reagent component); it registers no frame, dispatches no
   events, and reads no `[:rf.runtime/machines :snapshots]` runtime-db slot.
 
-  Per [`API.md`](../../spec/API.md) §Read-only viewer + §Share-URL
+  ## Why this file lives under `page/` and not `src/` (rf2-k7l2o)
+
+  It is the artefact's only APPLICATION. Everything under `src/` is
+  library surface a host requires; this namespace is an entry point a
+  browser loads, and it is the only one in the tree that picks a
+  substrate — `(rf/init! reagent-adapter/adapter)` on the line below.
+  Picking a substrate is an application's job. `implementation/core` is
+  deliberately adapter-free for exactly that reason, and a library jar
+  that named `re-frame.adapter.reagent` in its dependency graph would
+  force the choice on every consumer: `day8/reagent-slim` publishes ITS
+  adapter at the same canonical namespace (`release.yml` renames
+  `reagent_slim.cljs` → `reagent.cljs` at publication), so a slim app
+  taking machines-viz would get two `re-frame.adapter.reagent`
+  implementations on one classpath — one bound to `reagent.*`, one to
+  `reagent2.*` — with classpath order deciding which its own
+  `(:require [re-frame.adapter.reagent])` resolved to.
+
+  `page/` is a source root the jar does not carry (`:clein/build
+  :src-dirs [\"src\"]`), so the require never reaches a consumer's
+  classpath and no dependency is needed to satisfy it. The page is
+  shipped as the compiled `viewer.js` beside `public/viewer.html`, which
+  is how a static page ships anyway — the jar was never its delivery
+  vehicle.
+
+  Per [`API.md`](../../../spec/API.md) §Read-only viewer + §Share-URL
   encoding."
   (:require [reagent.core :as r]
             [reagent.dom.client :as rdc]
