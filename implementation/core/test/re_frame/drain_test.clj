@@ -5,7 +5,31 @@
   load-bearing properties directly so a future regression in router.cljc
   surfaces here, not from a far-away cascade test.
 
-  Each deftest's docstring cites the specific Spec 002 anchor."
+  Each deftest's docstring cites the specific Spec 002 anchor.
+
+  ## Posture split (rf2-d2841)
+
+  The drain's SEMANTICS — run-to-completion ordering, the exact event count a
+  `:drain-depth` bound admits, per-event durability, per-frame isolation, the
+  rejection of a nested `dispatch-sync` — are production-real and are asserted
+  here WITHOUT a posture guard, so they run in the ordinary `clojure -M:test`
+  suite AND in `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false`
+  lane).
+
+  The `:trace` stream those semantics were previously observed THROUGH is not
+  production-real: every `trace/emit-error!` site sits behind
+  `interop/debug-enabled?`, which the JVM reads once at load time, so under the
+  real gate the framework emits nothing here BY DESIGN. Those assertions are
+  correct dev-posture coverage and are kept verbatim — each simply sits inside
+  a `(when interop/debug-enabled? …)` arm marked `rf2-d2841` so it declares the
+  posture it is about instead of dragging its semantic neighbours out of the
+  production lane with it.
+
+  The production-surviving half of the drain-depth halt has its own
+  posture-independent pin at the foot of this namespace
+  (`drain-depth-exceeded-fans-out-on-the-always-on-axis-with-cycle-evidence`,
+  the always-on `:errors` axis), which is why the halt is still covered under
+  the gate rather than merely guarded away."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
@@ -109,32 +133,42 @@
   ;; The router halts the loop and clears the queue when the bound is hit;
   ;; see implementation/src/re_frame/router.cljc."
   (testing "a self-redispatching handler trips :rf.error/drain-depth-exceeded"
-    (let [traces (atom [])]
+    (let [runs   (atom 0)
+          traces (atom [])]
       (rf/register-listener! :trace ::depth (fn [ev] (swap! traces conj ev)))
       ;; Reg a frame with a small drain-depth so the test runs quickly.
       (rf/make-frame {:id :drain.test/loop :drain-depth 8})
       (rf/reg-event :loop-forever
         (fn [_ _]
+          (swap! runs inc)
           {:fx [[:dispatch [:loop-forever]]]}))
       (rf/dispatch-sync [:loop-forever] {:frame :drain.test/loop})
       (rf/unregister-listener! :trace ::depth)
-      (let [hit (some (fn [ev]
-                        (when (= :rf.error/drain-depth-exceeded
-                                 (:operation ev))
-                          ev))
-                      @traces)]
-        (is (some? hit)
-            "expected :rf.error/drain-depth-exceeded trace event")
-        (when hit
-          (let [tags (:tags hit)]
-            (is (number? (:depth tags))
-                ":depth tag is a number")
-            (is (= :drain.test/loop (:frame tags))
-                ":frame tag identifies the offending frame")
-            (is (vector? (:last-event tags))
-                ":last-event tag carries the most-recently-dequeued event")
-            (is (= [:loop-forever] (:last-event tags))
-                ":last-event is the recursive event that drove the cascade"))))))
+      ;; SEMANTIC, posture-independent: the bound really halted the runaway.
+      ;; `dispatch-sync` returning at all is the witness — an unbounded drain
+      ;; never returns — and it returned after exactly the bound's worth of
+      ;; handler bodies.
+      (is (= 8 @runs)
+          "the drain-depth bound halted the runaway after exactly 8 handler bodies")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [hit (some (fn [ev]
+                          (when (= :rf.error/drain-depth-exceeded
+                                   (:operation ev))
+                            ev))
+                        @traces)]
+          (is (some? hit)
+              "expected :rf.error/drain-depth-exceeded trace event")
+          (when hit
+            (let [tags (:tags hit)]
+              (is (number? (:depth tags))
+                  ":depth tag is a number")
+              (is (= :drain.test/loop (:frame tags))
+                  ":frame tag identifies the offending frame")
+              (is (vector? (:last-event tags))
+                  ":last-event tag carries the most-recently-dequeued event")
+              (is (= [:loop-forever] (:last-event tags))
+                  ":last-event is the recursive event that drove the cascade")))))))
 
   (testing "after the abort the queue is cleared (no stuck pending work)"
     (let [traces (atom [])]
@@ -188,15 +222,19 @@
           "the durable per-event writes survive; there is no whole-drain rollback")
       ;; Sanity: the depth-exceeded trace fired and tags :rollback? false
       ;; (no rollback under per-event epochs).
-      (let [hit (some (fn [ev]
-                        (when (= :rf.error/drain-depth-exceeded
-                                 (:operation ev))
-                          ev))
-                      @traces)]
-        (is (some? hit) "drain-depth-exceeded trace was emitted")
-        (when hit
-          (is (false? (get-in hit [:tags :rollback?]))
-              ":rollback? false — per rf2-nj6p7 there is no whole-drain rollback")))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; no-rollback SEMANTICS are already pinned above, posture-independently,
+      ;; by the surviving `{:step :mid-drain :counter 4}` app-db value.
+      (when interop/debug-enabled?
+        (let [hit (some (fn [ev]
+                          (when (= :rf.error/drain-depth-exceeded
+                                   (:operation ev))
+                            ev))
+                        @traces)]
+          (is (some? hit) "drain-depth-exceeded trace was emitted")
+          (when hit
+            (is (false? (get-in hit [:tags :rollback?]))
+                ":rollback? false — per rf2-nj6p7 there is no whole-drain rollback"))))))
 
   (testing "earlier clean drains stay durable; an overflow keeps prior-event writes"
     ;; A drain that has already settled cleanly once, then is re-engaged
@@ -252,17 +290,22 @@
         (is (= n @runs)
             (str "exactly " n " handler bodies ran for drain-depth " n
                  " (got " @runs ")"))
-        (let [hit (some (fn [ev]
-                          (when (= :rf.error/drain-depth-exceeded
-                                   (:operation ev))
-                            ev))
-                        @traces)]
-          (is (some? hit)
-              (str "drain-depth-exceeded trace fired for drain-depth " n))
-          (when hit
-            (is (= n (get-in hit [:tags :depth]))
-                (str ":depth tag equals drain-depth " n
-                     " (the halting event's depth = N)"))))))))
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+        ;; off-by-one this deftest exists to catch is pinned by `(= n @runs)`
+        ;; above, which is posture-independent; the `:depth` tag is the
+        ;; dev-trace restatement of the same number.
+        (when interop/debug-enabled?
+          (let [hit (some (fn [ev]
+                            (when (= :rf.error/drain-depth-exceeded
+                                     (:operation ev))
+                              ev))
+                          @traces)]
+            (is (some? hit)
+                (str "drain-depth-exceeded trace fired for drain-depth " n))
+            (when hit
+              (is (= n (get-in hit [:tags :depth]))
+                  (str ":depth tag equals drain-depth " n
+                       " (the halting event's depth = N)")))))))))
 
 ;; ---- 3. dispatch-sync-in-handler ------------------------------------------
 
@@ -285,27 +328,36 @@
           {}))
       (rf/dispatch-sync [:nested-direct])
       (rf/unregister-listener! :trace ::dsih-direct)
-      (let [err (some (fn [ev]
-                        (when (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
-                                   (= :error (:op-type ev))
-                                   (= :no-recovery (:recovery ev)))
-                          ev))
-                      @traces)]
-        (is (some? err)
-            "expected :rf.error/dispatch-sync-in-handler with :no-recovery")
-        ;; rf2-kg0et6 — the rejected inner event vector MUST ride the
-        ;; schema-required `:rf.event/v` tag (Spec-Schemas
-        ;; §DispatchSyncInHandlerTags; Spec 009 §Error event catalogue),
-        ;; NOT the undocumented bare `:event`. Pin both directions so the
-        ;; documented key can't silently drift back.
-        (when err
-          (let [tags (:tags err)]
-            (is (= [:leaf] (:rf.event/v tags))
-                "the rejected inner event vector rides the schema-required :rf.event/v tag")
-            (is (not (contains? tags :event))
-                "the undocumented bare :event tag is not emitted")
-            (is (= :rf/default (:frame tags))
-                "the :frame tag carries the enclosing frame (the default frame here)"))))))
+      ;; SEMANTIC, posture-independent (rf2-d2841). The ban is not a warning:
+      ;; the nested event is REJECTED, so `:leaf`'s handler never runs and its
+      ;; `:db` write never lands. That is the half a production build really
+      ;; enforces, and until rf2-d2841 nothing asserted it in either posture —
+      ;; the whole contract hung off the dev trace below.
+      (is (nil? (:leaf? (rf/app-db-value :rf/default)))
+          "the rejected inner event's handler never ran — no :db write landed")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [err (some (fn [ev]
+                          (when (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
+                                     (= :error (:op-type ev))
+                                     (= :no-recovery (:recovery ev)))
+                            ev))
+                        @traces)]
+          (is (some? err)
+              "expected :rf.error/dispatch-sync-in-handler with :no-recovery")
+          ;; rf2-kg0et6 — the rejected inner event vector MUST ride the
+          ;; schema-required `:rf.event/v` tag (Spec-Schemas
+          ;; §DispatchSyncInHandlerTags; Spec 009 §Error event catalogue),
+          ;; NOT the undocumented bare `:event`. Pin both directions so the
+          ;; documented key can't silently drift back.
+          (when err
+            (let [tags (:tags err)]
+              (is (= [:leaf] (:rf.event/v tags))
+                  "the rejected inner event vector rides the schema-required :rf.event/v tag")
+              (is (not (contains? tags :event))
+                  "the undocumented bare :event tag is not emitted")
+              (is (= :rf/default (:frame tags))
+                  "the :frame tag carries the enclosing frame (the default frame here)")))))))
 
   (testing "calling dispatch-sync TRANSITIVELY through a user fx is also caught"
     ;; Some fx handlers naively call dispatch-sync to chain another event.
@@ -327,10 +379,17 @@
           {:fx [[:user.fx/sync-dispatch [:leaf2]]]}))
       (rf/dispatch-sync [:nested-via-fx])
       (rf/unregister-listener! :trace ::dsih-fx)
-      (is (some (fn [ev]
-                  (= :rf.error/dispatch-sync-in-handler (:operation ev)))
-                @traces)
-          "the transitive (via-fx) dispatch-sync still trips the in-handler guard"))))
+      ;; SEMANTIC, posture-independent (rf2-d2841): the guard keys off the
+      ;; router's :in-drain? flag rather than the call-stack depth, so the
+      ;; transitive call is rejected too — `:leaf2`'s handler never runs.
+      (is (nil? (:leaf2? (rf/app-db-value :rf/default)))
+          "the transitive (via-fx) dispatch-sync was rejected — no :db write landed")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (= :rf.error/dispatch-sync-in-handler (:operation ev)))
+                  @traces)
+            "the transitive (via-fx) dispatch-sync still trips the in-handler guard")))))
 
 ;; ---- 4. async vs sync interleaving ----------------------------------------
 
@@ -528,16 +587,20 @@
           ":A's app-db remains exactly its :initial-events state")
 
       ;; --- (c) the depth-exceeded trace carries :B, not :A.
-      (let [hit (some (fn [ev]
-                        (when (= :rf.error/drain-depth-exceeded
-                                 (:operation ev))
-                          ev))
-                      @traces)]
-        (is (some? hit) "drain-depth-exceeded trace was emitted")
-        (is (= :drain.iso/B (get-in hit [:tags :frame]))
-            "the trace's :frame tag is :B (the overflowing frame), not :A")
-        (is (false? (get-in hit [:tags :rollback?]))
-            ":rollback? false — per rf2-nj6p7 there is no whole-drain rollback"))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The isolation
+      ;; CONTRACT is (a) + (b) above, both posture-independent; the trace's
+      ;; `:frame` tag is the dev restatement of which frame overflowed.
+      (when interop/debug-enabled?
+        (let [hit (some (fn [ev]
+                          (when (= :rf.error/drain-depth-exceeded
+                                   (:operation ev))
+                            ev))
+                        @traces)]
+          (is (some? hit) "drain-depth-exceeded trace was emitted")
+          (is (= :drain.iso/B (get-in hit [:tags :frame]))
+              "the trace's :frame tag is :B (the overflowing frame), not :A")
+          (is (false? (get-in hit [:tags :rollback?]))
+              ":rollback? false — per rf2-nj6p7 there is no whole-drain rollback")))
 
       (rf/unregister-listener! :trace ::iso))))
 

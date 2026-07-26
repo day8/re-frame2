@@ -2,9 +2,28 @@
   "Smoke tests — exercise the foundation end-to-end on the JVM via the
   plain-atom adapter. These are the bare-minimum 'does the dispatch
   pipeline actually work?' tests. Conformance fixtures are a separate
-  TODO."
+  TODO.
+
+  ## Posture split (rf2-d2841)
+
+  Every assertion here is posture-independent — it must hold in the ordinary
+  `clojure -M:test` suite AND under the real production gate
+  (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
+  inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`.
+
+  Those arms observe the DEV `:trace` stream (and the debug-gated view
+  annotations), whose emit sites are gated on `interop/debug-enabled?` — read
+  once at namespace-load time on the JVM, constant-folded away by Closure under
+  `goog.DEBUG=false`. Under the gate the framework emits none of it BY DESIGN,
+  so the assertions are correct dev-posture coverage; they are kept verbatim and
+  merely declare the posture they are about, so the semantics they used to be
+  bundled with can run in the production lane. Where a semantic sibling did not
+  previously exist — the `dispatch-sync`-in-handler ban, the machine
+  spawn/destroy fx — one was ADDED against a production-visible witness rather
+  than the trace being dropped."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.routing :as routing]
             [re-frame.machines :as machines]
             [re-frame.frame :as frame]
@@ -124,22 +143,27 @@
       (is (nil? (rf/compute-sub [:boom] {}))
           "compute-sub still returns nil (recovery :replaced-with-default)")
       (rf/unregister-listener! :trace ::boom)
-      (let [ev (some (fn [e]
-                       (when (= :rf.error/sub-exception (:operation e)) e))
-                     @traces)]
-        (is (some? ev) "an :rf.error/sub-exception trace was emitted")
-        (when ev
-          (is (= :error (:op-type ev)) "op-type is :error")
-          ;; `:recovery` is hoisted onto the envelope by build-event.
-          (is (= :replaced-with-default (:recovery ev)))
-          (let [t (:tags ev)]
-            (is (= :boom (:failing-id t)))
-            (is (= :boom (:rf.sub/id t)))
-            (is (= [:boom] (:sub-query t)))
-            (is (= :compute-sub (:where t))
-                ":where distinguishes the pure-compute call site from the reactive memo path")
-            (is (instance? Throwable (:exception t)))
-            (is (= "boom" (:exception-message t))))))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; production-real half — the throw is CAUGHT and recovery is
+      ;; `:replaced-with-default` (nil), not a propagated exception — is the
+      ;; `(is (nil? …))` above, which runs in both postures.
+      (when interop/debug-enabled?
+        (let [ev (some (fn [e]
+                         (when (= :rf.error/sub-exception (:operation e)) e))
+                       @traces)]
+          (is (some? ev) "an :rf.error/sub-exception trace was emitted")
+          (when ev
+            (is (= :error (:op-type ev)) "op-type is :error")
+            ;; `:recovery` is hoisted onto the envelope by build-event.
+            (is (= :replaced-with-default (:recovery ev)))
+            (let [t (:tags ev)]
+              (is (= :boom (:failing-id t)))
+              (is (= :boom (:rf.sub/id t)))
+              (is (= [:boom] (:sub-query t)))
+              (is (= :compute-sub (:where t))
+                  ":where distinguishes the pure-compute call site from the reactive memo path")
+              (is (instance? Throwable (:exception t)))
+              (is (= "boom" (:exception-message t)))))))))
   (testing "compute-sub emits :rf.error/sub-exception when a layer-2 body throws"
     (rf/reg-sub :n   (fn [db _] (:n db)))
     (rf/reg-sub :n*2 :<- [:n] (fn [_n _q] (throw (ex-info "kaboom" {}))))
@@ -147,12 +171,14 @@
       (rf/register-listener! :trace ::boom2 (fn [ev] (swap! traces conj ev)))
       (is (nil? (rf/compute-sub [:n*2] {:n 7})))
       (rf/unregister-listener! :trace ::boom2)
-      (is (some (fn [e]
-                  (and (= :rf.error/sub-exception (:operation e))
-                       (= :n*2 (:rf.sub/id (:tags e)))
-                       (= :compute-sub (:where (:tags e)))))
-                @traces)
-          "layer-2 throw also emits :rf.error/sub-exception via compute-sub"))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [e]
+                    (and (= :rf.error/sub-exception (:operation e))
+                         (= :n*2 (:rf.sub/id (:tags e)))
+                         (= :compute-sub (:where (:tags e)))))
+                  @traces)
+            "layer-2 throw also emits :rf.error/sub-exception via compute-sub")))))
 
 (deftest subscribe-handles-missing-frame
   (testing "subscribe / subscribe-once against a missing frame don't throw"
@@ -163,11 +189,15 @@
       (is (nil? (rf/subscribe-once [:n] {:frame :missing/frame}))
           "subscribe-once returns nil")
       (rf/unregister-listener! :trace ::missing)
-      (is (some (fn [ev]
-                  (and (= :rf.error/frame-destroyed (:operation ev))
-                       (= :replaced-with-default (:recovery ev))))
-                @traces)
-          "expected :rf.error/frame-destroyed trace with :replaced-with-default"))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; production-real half — neither call THROWS, both recover to nil — is
+      ;; the two `(is (nil? …))` assertions above, which run in both postures.
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.error/frame-destroyed (:operation ev))
+                         (= :replaced-with-default (:recovery ev))))
+                  @traces)
+            "expected :rf.error/frame-destroyed trace with :replaced-with-default")))))
 
 ;; sub-cache-ref-counting and sub-hot-reload-invalidates-cache moved to
 ;; sub_cache_test.clj; flows-are-frame-scoped and
@@ -204,12 +234,20 @@
           {}))
       (rf/dispatch-sync [:nested])
       (rf/unregister-listener! :trace ::dsih)
-      (is (some (fn [ev]
-                  (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
-                       (= :error (:op-type ev))
-                       (= :no-recovery (:recovery ev))))
-                @traces)
-          "expected :rf.error/dispatch-sync-in-handler trace event"))))
+      ;; SEMANTIC, posture-independent (rf2-d2841): the ban is enforcement,
+      ;; not advice — the nested event is REJECTED, so `:outer`'s handler
+      ;; never runs and its `:db` write never lands. That is the half a
+      ;; production build carries.
+      (is (nil? (:ran? (rf/app-db-value :rf/default)))
+          "the nested event was rejected — :outer's handler never ran")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
+                         (= :error (:op-type ev))
+                         (= :no-recovery (:recovery ev))))
+                  @traces)
+            "expected :rf.error/dispatch-sync-in-handler trace event")))))
 
 (deftest sync-dispatch-from-handler-body-routes-to-handlers-frame
   ;; Per rf2-l5q3 — the router binds `frame/*current-frame*` to the
@@ -567,13 +605,20 @@
       (rf/register-listener! :trace ::vh (fn [ev] (swap! traces conj ev)))
       (verify-fn :rf/default "client-hash-Y")
       (rf/unregister-listener! :trace ::vh)
-      (is (some (fn [ev]
-                  (and (= :rf.ssr/hydration-mismatch (:operation ev))
-                       (= "server-hash-X" (:server-hash (:tags ev)))
-                       (= "client-hash-Y" (:client-hash (:tags ev)))
-                       (= :warned-and-replaced (:recovery ev))))
-                @traces)
-          "expected :rf.ssr/hydration-mismatch trace with both hashes"))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; production-real half — `rf/hydrate` really stashed the server hash
+      ;; under `[:rf.runtime/ssr :hydration]`, which is the state
+      ;; `verify-hydration!` compares against — is asserted above, in both
+      ;; postures. The MISMATCH REPORT is a developer diagnostic: the recovery
+      ;; is `:warned-and-replaced`, i.e. the client render wins either way.
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.ssr/hydration-mismatch (:operation ev))
+                         (= "server-hash-X" (:server-hash (:tags ev)))
+                         (= "client-hash-Y" (:client-hash (:tags ev)))
+                         (= :warned-and-replaced (:recovery ev))))
+                  @traces)
+            "expected :rf.ssr/hydration-mismatch trace with both hashes")))))
 
 (deftest render-tree-hash-is-stable
   (testing "render-tree-hash is deterministic and order-sensitive on vectors"
@@ -606,22 +651,35 @@
                    {:flow/login    {:state :authed   :data {}}
                     :flow/checkout {:state :pending  :data {}}})}))
     (rf/dispatch-sync [:seed-machines] {:frame :tenant-a})
+    ;; SEMANTIC, posture-independent (rf2-d2841): the two active machines were
+    ;; really there to be signalled, and the teardown really happened.
+    (is (= #{:flow/login :flow/checkout}
+           (set (keys (get-in (:rf.db/runtime (rf/frame-state-value :tenant-a))
+                              [:rf.runtime/machines :snapshots]))))
+        "two machine snapshots are active on :tenant-a before the destroy")
     (let [traces (atom [])]
       (rf/register-listener! :trace ::df (fn [ev] (swap! traces conj ev)))
       (rf/destroy-frame! :tenant-a)
       (rf/unregister-listener! :trace ::df)
-      (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
-                                        (:operation %))
-                                   @traces)]
-        (is (= 2 (count machine-traces))
-            "one trace per active machine snapshot")
-        (is (every? #(= :tenant-a (:frame (:tags %))) machine-traces)
-            "all traces carry the destroyed frame's id")
-        (is (= #{:authed :pending}
-               (set (map #(:last-state (:tags %)) machine-traces)))
-            "each trace carries its machine's last-state")
-        (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) machine-traces)
-            "each trace carries :reason :parent-frame-destroyed")))))
+      (is (not (contains? (rf/frame-ids) :tenant-a))
+          ":tenant-a and its machine snapshots are gone after destroy-frame!")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; per-machine SIGNAL is a developer/tooling notification: it rides the
+      ;; dev `:trace` stream only, so under the production gate there is
+      ;; nothing to count.
+      (when interop/debug-enabled?
+        (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
+                                          (:operation %))
+                                     @traces)]
+          (is (= 2 (count machine-traces))
+              "one trace per active machine snapshot")
+          (is (every? #(= :tenant-a (:frame (:tags %))) machine-traces)
+              "all traces carry the destroyed frame's id")
+          (is (= #{:authed :pending}
+                 (set (map #(:last-state (:tags %)) machine-traces)))
+              "each trace carries its machine's last-state")
+          (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) machine-traces)
+              "each trace carries :reason :parent-frame-destroyed"))))))
 
 (deftest spawn-id-is-frame-scoped
   (testing "actor-id allocation is scoped per-parent-snapshot — independent frames don't share an actor-id sequence"
@@ -656,30 +714,35 @@
         (rf/dispatch-sync [:flow [:start]] {:frame :left})
         (rf/dispatch-sync [:flow [:start]] {:frame :right})
         (rf/unregister-listener! :trace ::sids)
-        (let [spawn-traces (filter #(= :rf.machine.spawn/spawned (:operation %)) @traces)
-              ids          (mapv #(get-in % [:tags :id-prefix]) spawn-traces)]
-          (is (= 2 (count spawn-traces))
-              "two :rf.machine.spawn/spawned traces — one per frame")
-          (is (every? #(= :worker %) ids)
-              "both spawned the :worker machine")
-          ;; Per rf2-gr8q the spawn-counter is no longer a per-process
-          ;; atom — it lives inside each parent machine's snapshot at
-          ;; `:rf/spawn-counter`. Frame-scoping is inherited from
-          ;; per-frame app-db isolation: each frame owns its own copy of
-          ;; the :flow machine's snapshot at [:rf.runtime/machines :snapshots :flow]; each
-          ;; copy's counter advances independently. Read the counter
-          ;; from each frame's snapshot directly.
-          (let [snap-left  (get-in (:rf.db/runtime (rf/frame-state-value :left)) [:rf.runtime/machines :snapshots :flow])
-                snap-right (get-in (:rf.db/runtime (rf/frame-state-value :right)) [:rf.runtime/machines :snapshots :flow])]
-            (is (= 1 (get-in snap-left  [:rf/spawn-counter :worker]))
-                "left frame's :flow snapshot counts one :worker spawn")
-            (is (= 1 (get-in snap-right [:rf/spawn-counter :worker]))
-                "right frame's :flow snapshot counts one :worker spawn")
-            ;; Sanity: both allocations are independent — neither
-            ;; reached count 2 (cross-frame contamination).
-            (is (every? #(= 1 (get-in % [:rf/spawn-counter :worker]))
-                        [snap-left snap-right])
-                "the per-frame counters didn't share an allocator")))))))
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+        ;; frame-scoping CONTRACT this deftest is named for is the
+        ;; `:rf/spawn-counter` pair below, read straight out of each frame's
+        ;; runtime-db — production-real state, asserted in both postures.
+        (when interop/debug-enabled?
+          (let [spawn-traces (filter #(= :rf.machine.spawn/spawned (:operation %)) @traces)
+                ids          (mapv #(get-in % [:tags :id-prefix]) spawn-traces)]
+            (is (= 2 (count spawn-traces))
+                "two :rf.machine.spawn/spawned traces — one per frame")
+            (is (every? #(= :worker %) ids)
+                "both spawned the :worker machine")))
+        ;; Per rf2-gr8q the spawn-counter is no longer a per-process
+        ;; atom — it lives inside each parent machine's snapshot at
+        ;; `:rf/spawn-counter`. Frame-scoping is inherited from
+        ;; per-frame app-db isolation: each frame owns its own copy of
+        ;; the :flow machine's snapshot at [:rf.runtime/machines :snapshots :flow]; each
+        ;; copy's counter advances independently. Read the counter
+        ;; from each frame's snapshot directly.
+        (let [snap-left  (get-in (:rf.db/runtime (rf/frame-state-value :left)) [:rf.runtime/machines :snapshots :flow])
+              snap-right (get-in (:rf.db/runtime (rf/frame-state-value :right)) [:rf.runtime/machines :snapshots :flow])]
+          (is (= 1 (get-in snap-left  [:rf/spawn-counter :worker]))
+              "left frame's :flow snapshot counts one :worker spawn")
+          (is (= 1 (get-in snap-right [:rf/spawn-counter :worker]))
+              "right frame's :flow snapshot counts one :worker spawn")
+          ;; Sanity: both allocations are independent — neither
+          ;; reached count 2 (cross-frame contamination).
+          (is (every? #(= 1 (get-in % [:rf/spawn-counter :worker]))
+                      [snap-left snap-right])
+              "the per-frame counters didn't share an allocator"))))))
 
 (deftest spawn-and-destroy-machine-fx
   (testing ":rf.machine/spawn and :rf.machine/destroy traverse fx without :rf.error/no-such-fx"
@@ -699,12 +762,27 @@
                         [:rf.machine/destroy :worker#1]]}))
       (rf/dispatch-sync [:do-spawn])
       (rf/unregister-listener! :trace ::spawn)
-      (is (some #(= :rf.machine.spawn/spawned (:operation %)) @traces)
-          "expected :rf.machine.spawn/spawned trace")
-      (is (some #(= :rf.machine/destroyed (:operation %)) @traces)
-          "expected :rf.machine/destroyed trace")
-      (is (not-any? #(= :rf.error/no-such-fx (:operation %)) @traces)
-          ":rf.machine/spawn / :rf.machine/destroy should not raise no-such-fx"))))
+      ;; SEMANTIC, posture-independent (rf2-d2841). "Traversed fx without
+      ;; :rf.error/no-such-fx" read through the trace stream is a VACUOUS pass
+      ;; under the production gate — an empty trace ring satisfies `not-any?`
+      ;; just as well as a correct one. So pin what each fx actually DID, in
+      ;; the frame's runtime-db, which a production build carries: the spawn
+      ;; allocated `:worker#1` (the counter advanced) and the destroy removed
+      ;; its snapshot. Had either fx gone unhandled, neither would hold.
+      (let [machines-rt (:rf.runtime/machines
+                         (:rf.db/runtime (rf/frame-state-value :rf/default)))]
+        (is (= {:worker 1} (:spawn-counter machines-rt))
+            ":rf.machine/spawn was handled — it allocated :worker#1")
+        (is (= {} (:snapshots machines-rt))
+            ":rf.machine/destroy was handled — :worker#1's snapshot is gone"))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some #(= :rf.machine.spawn/spawned (:operation %)) @traces)
+            "expected :rf.machine.spawn/spawned trace")
+        (is (some #(= :rf.machine/destroyed (:operation %)) @traces)
+            "expected :rf.machine/destroyed trace")
+        (is (not-any? #(= :rf.error/no-such-fx (:operation %)) @traces)
+            ":rf.machine/spawn / :rf.machine/destroy should not raise no-such-fx")))))
 
 (deftest login-machine-flow
   (testing "Spec 005 machine pattern: login flow as a state machine, end-to-end"
@@ -888,8 +966,16 @@
     (let [html (rf/render-to-string [(rf/view :greet) "world"])]
       (is (clojure.string/includes? html "hello <strong>world</strong>")
           "render-to-string resolves a callable head")
-      (is (clojure.string/starts-with? html "<p ")
-          "the resolved view's <p> root is present (now carrying dev annotations)"))
+      ;; SEMANTIC, posture-independent (rf2-d2841): the resolved view's root
+      ;; really is a <p> element — with attributes in dev, bare in production.
+      (is (re-find #"^<p[ >]" html)
+          "the resolved view's <p> root is present")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The two
+      ;; view annotations are debug-gated, so the root is bare `<p>` under
+      ;; the production gate and attributed `<p …>` in dev.
+      (when interop/debug-enabled?
+        (is (clojure.string/starts-with? html "<p ")
+            "in DEV the resolved root also carries the debug-gated view annotations")))
     (is (fn? (rf/view :greet))
         "view returns the registered render fn")
     (is (nil? (rf/view :no-such-view))))
