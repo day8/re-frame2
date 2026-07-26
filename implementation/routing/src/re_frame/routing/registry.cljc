@@ -1602,6 +1602,44 @@
               :slot     :fragment
               :value    fragment}))))
 
+(defn- uncaptured-param-keys
+  "The `:params` keys whose route PATTERN has no `:name` / `*name` segment to
+  put them in — the address keys `route-url` would otherwise ignore in silence
+  (rf2-0iuh3). Returns them in the total canonical order
+  (`identity/canonical-bytes`) the rest of routing reports key sets in, or nil
+  when every supplied key is captured.
+
+  The capture vocabulary is the compiled pattern's `:names`
+  (`match/parse-pattern`, precomputed at registration into
+  `:rf.route/compiled`) — the SAME left-to-right capture list `match-against`
+  zips a matched URL's groups onto, so what counts as a path param on the
+  emission side is exactly what counts on the matching side. An optional
+  group's inner name is captured whether or not the group ends up emitted:
+  elision is a value-level decision, not a vocabulary one.
+
+  The reserved `:rf.route/not-found` route is EXEMPT, and it is the only
+  exemption. Its slice `:params` are not path captures at all — they are the
+  framework's fact record of the miss (`{:url … :reason …}`, built by the one
+  producer `plan/not-found-params`), so the fallback route's pattern is not
+  their source and has no say over their vocabulary. Without the exemption the
+  address-bar restore after a URL-driven rejection
+  (`decisions/current-slice->url`) would silently stop rebuilding a registered
+  not-found route's URL.
+
+  Nil-safe over a non-map `:params`: such an address keeps its existing
+  failure mode (a missing required segment) rather than throwing a host
+  `ClassCastException` out of `keys`."
+  [route-id route-meta pattern path-params]
+  (when (and (map? path-params)
+             (seq path-params)
+             (not= :rf.route/not-found route-id))
+    (let [names      (or (:names (:rf.route/compiled route-meta))
+                         (:names (match/parse-pattern pattern)))
+          captured   (into #{} (map keyword) names)
+          uncaptured (remove captured (keys path-params))]
+      (when (seq uncaptured)
+        (vec (sort-by identity/canonical-bytes uncaptured))))))
+
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
   single ADDRESS map `{:to <route-id> :params <path-params> :query
@@ -1613,6 +1651,32 @@
   (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than
   silently ignored. There is no in-place form (a pure helper cannot read the
   current route); callers project their request/target into the address map.
+
+  The same closure holds one level down, over the CONTENTS of `:params`
+  (rf2-0iuh3): a path param the route's pattern does not capture is rejected
+  LOUD (`:rf.error/route-url-validation`, `:reason :uncaptured-params`) rather
+  than dropped on the floor. `/probe/:id` with `{:id \"7\" :extra \"x\"}` used
+  to build `/probe/7` and say nothing, which split the navigation doors: the
+  programmatic door committed `:params {:id \"7\" :extra \"x\"}` (a slice its
+  own address bar could not spell, and a reload could not reproduce) while a
+  `route-link` CLICK resolved through the URL and committed `{:id \"7\"}` —
+  and `[:rf.route/prefetch …]` followed the programmatic answer, so hovering a
+  link warmed one resource identity and clicking that same link activated
+  another. This is the emission boundary all three named-address doors already
+  share (the programmatic door's URL build, `route-link`'s href synthesis, and
+  prefetch's destination gate), so one rule here settles all three; the
+  URL-driven doors need no rule, because a URL physically cannot carry an
+  uncaptured param.
+
+  Rejecting rather than truncating is the same fail-closed-on-emission rule
+  this fn already applies to every other input that breaks the
+  `route-url` / `match-url` prism — the empty-string segment and the
+  sequential-optional-group prefix chain below both refuse to emit a URL that
+  cannot round-trip, and Spec 012 §Validity rules rule 2 names silently-ignored
+  address keys as \"the exact failure class this grammar exists to kill\".
+  Truncation would also lose a typo class nothing else catches: on
+  `/docs{/:section}?`, `{:sction \"x\"}` elides the group and builds `/docs`
+  clean, so `:rf.error/missing-route-param` never fires.
 
   Optional groups ({...}?) are emitted only when ALL their inner params
   are supplied in `:params`; otherwise the group is silently elided.
@@ -1746,6 +1810,32 @@
                 'rf.routing/route-url
                 (str "no route is registered under id " route-id)
                 {:route-id route-id})))
+     ;; rf2-0iuh3 — the address closure, one level down. A `:params` key the
+     ;; pattern does not capture has no URL to go to and no `match-url` reading
+     ;; that recovers it, so it is rejected here rather than ignored (see this
+     ;; fn's docstring for the door split silence produced). Checked BEFORE the
+     ;; `:params` schema below: an unknown key is a fact about the ROUTE, not
+     ;; about the author's declared value shape, and naming it is the more
+     ;; useful diagnostic when both are wrong. Reports STRUCTURE only — the
+     ;; offending keys and the slot, never a value — so an uncaptured
+     ;; `{:token "…"}` cannot ride an error surface (the navigate door's
+     ;; `redact-route-error-tags` scrubs `:value`-bearing ex-data only on a
+     ;; `:sensitive?` route; this shape has nothing to scrub on any route).
+     (when-let [uncaptured (uncaptured-param-keys route-id route-meta pattern path-params)]
+       (throw (route-error
+                :rf.error/route-url-validation
+                'rf.routing/route-url
+                (str "route " route-id " has no path segment for param(s) "
+                     (pr-str uncaptured) " — its pattern " (pr-str pattern)
+                     " captures "
+                     (pr-str (mapv keyword (:names (:rf.route/compiled route-meta))))
+                     ", so route-url cannot put them in the URL and match-url "
+                     "cannot read them back. Drop them from :params, move them "
+                     "to :query, or add the segment to the route's pattern.")
+                {:route-id route-id
+                 :slot     :params
+                 :keys     uncaptured
+                 :reason   :uncaptured-params})))
      ;; Per Spec 012 §Bidirectional URL ↔ params: validate the caller's
      ;; inputs against the route's :params / :query schemas BEFORE
      ;; emitting the URL. A schema mismatch is a caller bug; raise with
