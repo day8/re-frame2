@@ -96,6 +96,20 @@ donor in order to retire it. Nothing else is excluded. Incidental prose
 elsewhere is simply not a signal, because neither detector fires on it, and the
 gate deliberately does not police it.
 
+Both signals are **spellings of the donor's name**, so the derived set is a
+floor and not the whole open roster. A file can depend on the donor without
+naming it: a `.cjs` runner that compiles a donor build id, an npm entry point,
+a script that reads a donor output directory. Neither detector fires on any of
+those, and no `.cjs` file can ever raise the require signal at all — that
+detector only reads `.clj`, `.cljs`, `.cljc`, and `.edn`. Those rows are placed
+by hand, and the gate holds them only once they exist: it can prove a row has
+not gone stale, and it can prove a row has not been deleted, but it cannot tell
+you that a row was never written. `implementation/scripts/run-ui-g8.cjs` was
+exactly that hole — its whole coupling to the donor is the `:ui-g8` build id,
+so it went unrowed while its `:ui-g13` sibling was rowed (rf2-vfv8r). When you
+add a donor build id, an npm entry point, or a runner, the row is yours to
+write.
+
 ## How coverage is enforced
 
 ```
@@ -307,10 +321,13 @@ release train have no Freehand successor and are DELETEd outright.
 | `implementation/scripts/check-ui-warm-watch.cjs` | the warm-watch recompile probe runner | MOVE | F6 | pending |
 | `implementation/scripts/check-ui-mounted-prod-elision.cjs` | proof that mounted-view debug machinery elides in production | MOVE | F6 | pending |
 | `implementation/scripts/run-ui-bench.cjs` | the parity-bench runner | MOVE | F6 | pending |
+| `implementation/scripts/run-ui-g8.cjs` | the controlled-input evidence runner: compiles the `:ui-g8` build and drives the donor's input-latency fixture in Chromium and WebKit | MOVE | F6 | pending |
 | `implementation/scripts/run-ui-g13.cjs` | the mass-mount evidence runner | MOVE | F6 | pending |
 | `implementation/scripts/lib/g13-timing-evidence.cjs` | the mass-mount timing-evidence library | MOVE | F6 | pending |
 | `implementation/scripts/lib/g8-latency-evidence.cjs` | the input-latency evidence library | MOVE | F6 | pending |
 | `implementation/scripts/bundle-isolation-positive-control/*` | the positive control proving the donor client sentinel is emitted | MOVE | F6 | pending |
+| `implementation/scripts/_g8-latency-evidence.test.cjs` | the unit tests for the input-latency evidence library | MOVE | F6 | pending |
+| `implementation/scripts/_g13-timing-evidence.test.cjs` | the unit tests for the mass-mount timing-evidence library | MOVE | F6 | pending |
 | `implementation/scripts/_release-ui-required-gate.test.cjs` | the guard asserting the donor is a required artifact of the release train; the donor is never published, so nothing succeeds it | DELETE | F6 | done |
 | `implementation/scripts/_ui-deps-edn-boundary.test.cjs` | the guard scoping optional artifacts out of the donor's production dependencies | REPLACE | F6 | pending |
 | `.github/scripts/verify-version-lockstep.sh` | the release inventory's assertion that the donor artifact is publishable; the surrounding inventory serves other artifacts and stays | DELETE | F6 | done |

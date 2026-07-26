@@ -196,7 +196,16 @@ DONOR_EVIDENCE_RE = re.compile(
     r"|re-frame2-ui"     # the artifact coordinate
     r"|re_frame2_ui"     # the munged coordinate
     r"|implementation/ui"  # the donor tree
-    r"|node-test-ui"     # the donor build ids and npm entry points
+    # The donor build ids and npm entry points. A runner can couple to the donor
+    # entirely through its BUILD ID and never spell `re-frame.ui` at all — that is
+    # how `implementation/scripts/run-ui-g8.cjs` came to carry no recognised donor
+    # material while its `:ui-g13` sibling passed on an incidental prose mention
+    # (rf2-vfv8r). The donor-owned ids are enumerated in `implementation/deps.edn`
+    # and `implementation/shadow-cljs.edn`; keep this alternation in step with them.
+    r"|node-test-ui"
+    r"|ui-bench"
+    r"|ui-g8"
+    r"|ui-g13"
     r"|check-ui-"
     r"|run-ui-"
     r"|test:ui"
@@ -1139,10 +1148,13 @@ ESTABLISHED_ROWS = (
     "implementation/scripts/check-ui-warm-watch.cjs",
     "implementation/scripts/check-ui-mounted-prod-elision.cjs",
     "implementation/scripts/run-ui-bench.cjs",
+    "implementation/scripts/run-ui-g8.cjs",
     "implementation/scripts/run-ui-g13.cjs",
     "implementation/scripts/lib/g13-timing-evidence.cjs",
     "implementation/scripts/lib/g8-latency-evidence.cjs",
     "implementation/scripts/bundle-isolation-positive-control/*",
+    "implementation/scripts/_g8-latency-evidence.test.cjs",
+    "implementation/scripts/_g13-timing-evidence.test.cjs",
     "implementation/scripts/_release-ui-required-gate.test.cjs",
     "implementation/scripts/_ui-deps-edn-boundary.test.cjs",
     ".github/scripts/verify-version-lockstep.sh",
