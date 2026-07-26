@@ -163,7 +163,18 @@
             reached — those rows assert themselves."
     (is (= [] (filterv #(seq (get-in (roster/by-id %) [:fh/record :open]))
                        roster/spine-ids))
-        "no spine member is holding an open question")))
+        "no spine member is holding an open question")
+    (testing "and whatever a FUTURE note says, its shape holds: keyed by the
+              bead that owns the question, stated in words. Vacuous today by
+              design — the row above is what keeps it that way — and it is
+              the half that survives the list going empty, so a note added
+              later cannot be an unattributable shrug."
+      (doseq [id   roster/spine-ids
+              :let [open (get-in (roster/by-id id) [:fh/record :open])]]
+        (is (every? keyword? (keys open))
+            (str id " keys each open question by the bead that owns it"))
+        (is (every? (every-pred string? seq) (vals open))
+            (str id " states each open question in words"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Applicability parsing — the join's one piece of grammar

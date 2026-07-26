@@ -51,6 +51,38 @@
   same cache-invalidation reason. The JVM suite and the ClojureScript suite
   therefore project the same bytes.
 
+  ### The cache edge, MEASURED rather than inherited
+
+  A macro that inlines a data file can DECOUPLE from it. If the compiling
+  namespace carries no build-dependency edge back to the file the macro
+  read, editing the data does not invalidate the cache, the compiled suite
+  goes on asserting the PREVIOUS content, and it reports green — the worst
+  failure available to a table-driven gate, because it is indistinguishable
+  from success. This corpus has paid for that lesson more than once, which
+  is why `spec-resource` exists and why nothing here calls `slurp`.
+
+  `conformance-index.md` is a NEW read through that reader — every earlier
+  consumer read `.edn` fixtures — so the edge was measured rather than
+  assumed, the only way that counts: mutate the file, clear NOTHING, and
+  require red.
+
+      1. warm cache, unmodified          1271 tests, 0 failures   (1 compiled)
+      2. FH-CTRL-018's applicability
+         cell edited in the index,
+         `.shadow-cljs` left alone       1 failure                (2 compiled)
+      3. reverted, cache still warm      1271 tests, 0 failures   (2 compiled)
+
+  Step 2 red on `a-browser-only-law-does-not-claim-the-jvm`, reading
+  `{:modes #{:compiled :interpreted} :hosts #{:browser :jvm}}` where the
+  suite expected `{:modes #{:interpreted} :hosts #{:browser}}` — the
+  mutation itself, arriving through the cache. The edge holds in both
+  directions.
+
+  If a future change makes step 2 pass, the roster has decoupled from the
+  index. The fix is to restore the dependency edge; it is NOT to clear the
+  cache, because clearing the cache is the broken state's own behaviour and
+  hides exactly the defect being looked for.
+
   Dev/test scope ONLY. This namespace lives under `test/` and nothing in a
   production bundle may reach it."
   #?(:clj (:require [clojure.edn :as edn]
