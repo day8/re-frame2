@@ -619,10 +619,12 @@
   topology + active-state configuration off the DOM seam, projects them
   into a `ChartState`, and delegates to `share/encode-share-url`.
 
-  `opts` REQUIRES `:host` — the absolute URL of the viewer page you host,
-  passed straight to `share/encode-share-url`. There is no default host
-  (rf2-8m344), so there is no `opts`-free arity: a share-URL that does not
-  name a real viewer is a dead link. `opts` may also carry `:frame-id`
+  `opts` REQUIRES `:host` — the URL of the viewer page you host, passed
+  straight to `share/encode-share-url` and subject to its rules: there is
+  no default host (rf2-8m344), so there is no `opts`-free arity (a
+  share-URL that does not name a real viewer is a dead link), and the host
+  must carry no URL fragment of its own, since the machine payload IS the
+  fragment (`:reason :host-carries-fragment`, rf2-xld5m). `opts` may also carry `:frame-id`
   (the chart element doesn't know its frame; a host that does can supply a
   frame-target id for payload provenance). `:frame-id` is OPTIONAL
   (v2 / EP-0023) — omit it to share a topology that does not name a live
