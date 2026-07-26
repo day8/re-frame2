@@ -282,6 +282,55 @@
   safe to read: it says the map is a RESOURCE reply and names whose."
   #{:params :value})
 
+(def ^:private reply-error-slot
+  "The FAILURE ENVELOPE slot of a canonical resource-FAMILY continuation reply
+  (rf2-rnsv2): `:error`, the closed `:rf.http/*` envelope
+  `reply/failure-reply` stamps on both the `:status :error` and the
+  `:status :cancelled` (abort) reply. `error-envelope-slot` above is the same
+  envelope's ROW spelling; this is its CARRIER spelling, and the two are
+  deliberately separate sets — the row also spells it `:page-error` on the
+  load-more failure, while a reply never does.
+
+  ## Grain: MARKER-GATED, UNCONDITIONAL INSIDE THE MARKER
+
+  Tokenized whenever the map carrying it is provably a family reply
+  (`family-reply?`), with no owner read and no status read. That is what keeps
+  the envelope's two carriers in agreement: `error-envelope-slot` is consumed
+  UNCONDITIONALLY on the family's own `:rf.resource/failed` /
+  `:rf.resource/page-failed` / `:rf.mutation/failed` rows, so an owner-
+  conditional carrier arm would tokenize the row copy of an envelope and let the
+  carrier copy of the SAME bytes ride — the rf2-irwsq disagreement, in mirror
+  image.
+
+  ## …which is why `:error` IS NOT IN `reply-payload-slot`
+
+  That set is consumed under `(and owner-redacts? …)` in `project-embedded-keys`
+  below, so dropping `:error` into it is a one-token edit that LOOKS like
+  reusing the proven rf2-xx4ty pattern and in fact implements the
+  owner-conditional remedy the paragraph above rejects. The two sets differ in
+  GRAIN, not merely in membership, and that is the whole reason there are two:
+  `:value` / `:params` are the OWNER'S data, so the owner's coarse claim decides
+  (and an unconditional arm would over-redact a plain resource's reply);
+  `:error` is the TRANSPORT'S envelope, which no owner classification speaks
+  for and which the family's own rows tokenize regardless of owner.
+
+  The envelope really does carry app data: `re-frame.http.privacy` enumerates
+  `:body` / `:body-text` / `:decoded` / `:detail` / `:headers` / `:cause` as its
+  app-bearing slots, `:detail` being the app's own domain failure map — so a
+  422 validation failure echoes the SUBMITTED FORM FIELDS straight back out.
+  And it arrives here RAW: the transport's `dispatch-failure!` hands the
+  unredacted envelope to `:on-failure`, `privacy/prepare-emit-failure` touching
+  only HTTP's own trace row.
+
+  Two non-traps, stated so nobody 'fixes' them. `:status` is NOT the gate — an
+  abort settles `:status :cancelled` and still carries `:error`, so the slot
+  name inside a recognized reply is the whole test. And tokenizing the envelope
+  whole loses the HTTP status code off-box, which is already true of the
+  family's own rows (they carry `:status-before` / `:status-after`, not the HTTP
+  code); preserving envelope scalars on the carrier ONLY would re-create the
+  disagreement this exists to prevent."
+  #{:error})
+
 (defn- row-owner-redacts?
   "Whether the resource OWNER named by this trace row's `:resource/key`
   classifies non-`:serialize` (sensitive / large, or UNREGISTERED →
@@ -519,6 +568,36 @@
   its payload is redacted at source (`classification/redact-continuation-reply`)."
   [m]
   (= resources-reply/work-kind-resource (:rf.reply/work-kind m)))
+
+(def ^:private family-reply-kinds
+  "The resource FAMILY's two canonical reply `:rf.reply/work-kind`s — a read
+  completion (`:resource`) and a mutation completion (`:mutation`)
+  (`resources.reply/work-kind-resource` / `work-kind-mutation`). Read by
+  `family-reply?` below.
+
+  ENUMERATED, never `(some? (:rf.reply/work-kind m))`. `:rf.reply/work-kind` is
+  the SHARED `re-frame.reply` substrate's marker, not this family's: managed
+  HTTP stamps `:http` on its own canonical reply (`re-frame.http.reply`), and an
+  HTTP reply riding these same carriers is the HTTP family's data to classify.
+  The resources projector speaks only for what the resources runtime planted."
+  #{resources-reply/work-kind-resource
+    resources-reply/work-kind-mutation})
+
+(defn- family-reply?
+  "Whether MAP `m` is a canonical reply of the resource FAMILY — a read
+  completion OR a mutation completion — by the same marker `resource-reply?`
+  reads, widened to both work kinds (rf2-rnsv2).
+
+  The widening exists because the two halves diverge on the OWNER'S data and
+  agree on the TRANSPORT ENVELOPE. `:value` / `:params` are the owner's, and the
+  mutation redacts its own at the source (`classification/redact-continuation-
+  reply`), so `resource-reply?` deliberately excludes `:mutation` there.
+  `:error` is the transport's `:rf.http/*` failure envelope — no projection of
+  owner data, so no source-side redaction reaches it on EITHER half — and both
+  halves stamp it identically through the one `reply/failure-reply`. One datum,
+  one rule, hence one predicate over both kinds."
+  [m]
+  (boolean (family-reply-kinds (:rf.reply/work-kind m))))
 
 (defn- redact-reply-declarations
   "The READ-CONTINUATION analogue of the mutation's source-side
@@ -823,7 +902,51 @@
   owner's spec, and the two arms compose by grain rather than overlap: coarse
   claim ⇒ the whole `:value` / `:params` tokenize; declaration only ⇒ the
   declared paths substitute in place and their undeclared siblings ride;
-  neither ⇒ the reply is byte-identical. Pure."
+  neither ⇒ the reply is byte-identical. Pure.
+
+  ## …AND the FAILURE ENVELOPE, on BOTH halves of the family (rf2-rnsv2)
+
+  Everything above is about the reply the read SUCCEEDED with. A read that
+  FAILS settles the same carriers with the same canonical reply — `failure-reply`
+  composes the same `base-reply` — carrying the transport's classified
+  `:rf.http/*` envelope under `:error`. That envelope is the app's own data
+  coming back out: HTTP's own redactor enumerates `:body` / `:body-text` /
+  `:decoded` / `:detail` / `:headers` as its app-bearing slots, and a 422's
+  `:detail` is the app's domain failure map — the SUBMITTED FORM FIELDS. It
+  arrives raw, because the transport redacts only its OWN trace row and hands
+  `:on-failure` the envelope verbatim. Every other slot of that reply was
+  already classified by the arms above; `:error` alone rode the `:else` walk out
+  as an ordinary map.
+
+  ### The grain here is neither of the two above, and that is the point
+
+  `:error` is UNCONDITIONAL INSIDE THE FAMILY MARKER — no owner read at all.
+  The full argument is on `reply-error-slot`; the one-line form is that the
+  family's own rows tokenize this envelope regardless of owner
+  (`error-envelope-slot`, consumed unconditionally), so an owner-conditional
+  carrier arm would leave a `:serialize` owner's envelope raw on the carrier
+  while the identical bytes on `:rf.resource/failed` tokenize. The three grains
+  now in this walk each answer to WHOSE datum it is: `:scope` is the runtime's
+  (unconditional inside the payload proof), `:value` / `:params` are the OWNER'S
+  (conditional on the owner's claim), `:error` is the TRANSPORT'S (unconditional
+  inside the reply proof — no owner speaks for it).
+
+  ### …and it is the one arm that spans reads AND mutations
+
+  `resource-reply?` excludes `:rf.reply/work-kind :mutation` deliberately,
+  because the mutation redacts its OWN `:value` / `:params` / `:scope` at the
+  source. `redact-continuation-reply` re-roots the spec's projection-relative
+  declarations and never touches `:error` — correctly, since `:error` is not a
+  projection of owner data and no declaration can name it. So the mutation
+  failure continuation leaked the identical envelope by the identical route,
+  seen by nobody. The `:error` arm therefore gates on `family-reply?` — both
+  work kinds — while the arm above it keeps `resource-reply?`. One keyword
+  wider, and it is what stops this repair shipping its own sibling leak.
+
+  On `failed-handler`'s branch the carrier is not merely a disagreeing second
+  copy but the ONLY off-box copy: that settle row (`:rf.resource/failed` /
+  `:rf.resource/refresh-failed`) stamps `:status-before` / `:status-after` and
+  no `:error` at all."
   [v frame-id named?]
   (cond
     (redacted-token? v) [v true]
@@ -843,9 +966,13 @@
           ;; exactly as `project-tags*` reads it once per row for the cursor).
           ;; Gated on the canonical reply MARKER (audit #7059), not on the mere
           ;; presence of a sibling key.
-          owner-redacts? (and (map? v)
-                              (resource-reply? v)
-                              (row-owner-redacts? v frame-id))
+          ;; the two RECOGNITION reads, hoisted out of the classification so
+          ;; each arm below takes only the proof it needs: the `:value` /
+          ;; `:params` arm is a READ reply PLUS the owner's coarse claim, the
+          ;; `:error` arm (rf2-rnsv2) is the FAMILY marker alone.
+          reply?         (and (map? v) (resource-reply? v))
+          fam-reply?     (and (map? v) (family-reply? v))
+          owner-redacts? (and reply? (row-owner-redacts? v frame-id))
           ;; rf2-ko5lm — …and, when that COARSE read says nothing (a
           ;; `:serialize` owner, which is what a spec declaring only
           ;; projection-relative paths classifies as), the owner's DECLARED
@@ -855,7 +982,7 @@
           ;; `:rf/redacted` / size-marker sentinels ride out as the scalars they
           ;; are. Reference-preserving — and stamp-precise: a declaration that
           ;; matched nothing in THIS reply leaves the row unstamped.
-          v        (if (and (map? v) (not owner-redacts?) (resource-reply? v))
+          v        (if (and reply? (not owner-redacts?))
                      (let [v' (redact-reply-declarations v)]
                        (if (= v' v) v (note! true v')))
                      v)
@@ -873,6 +1000,19 @@
                        (and payload? (= :scope k))
                        (let [[pv s] (project-unknown-slot-value x frame-id)]
                          (note! s pv))
+
+                       ;; rf2-rnsv2 — the TRANSPORT FAILURE ENVELOPE of a family
+                       ;; reply (read OR mutation). Tokenized UNCONDITIONALLY
+                       ;; inside the marker, matching `error-envelope-slot`'s
+                       ;; unconditional treatment on the family's own
+                       ;; `:rf.resource/failed` / `:rf.mutation/failed` rows, so
+                       ;; the two carriers of one envelope agree. Deliberately
+                       ;; NOT a member of `reply-payload-slot` — that set is
+                       ;; owner-conditional and this must not be (see the
+                       ;; `reply-error-slot` docstring). Placed FIRST so the
+                       ;; precedence is explicit.
+                       (and fam-reply? (reply-error-slot k) (some? x))
+                       (note! true (if (redacted-token? x) x (ssr/redact-value x)))
 
                        ;; the owner's own reply data — tokenized
                        ;; content-addressed iff THIS reply's owner redacts, so a
@@ -1123,10 +1263,16 @@
   (rf2-ko5lm) that same reply's owner-DECLARED projection-relative paths, which
   a coarse-only owner read cannot see, substituted through the mutation half's
   own `redact-continuation-reply` so the continuation echo classifies exactly
-  as the durable entry it echoes.
+  as the durable entry it echoes, and (rf2-rnsv2) the transport FAILURE ENVELOPE
+  under `:error` on the failing / cancelled counterpart of that same reply —
+  the decoded error body, which routinely echoes the SUBMITTED FORM FIELDS —
+  tokenized UNCONDITIONALLY inside the family reply marker, on the MUTATION
+  continuation as well as the read one, because the envelope belongs to the
+  transport rather than to any resource owner and the family's own rows tokenize
+  it regardless of owner.
 
   \"Speaks only for the data it planted\" is enforced, not merely intended:
-  each of those three arms fires on PROOF that the runtime planted the value —
+  each of those arms fires on PROOF that the runtime planted the value —
   the family's reserved keyword namespace, its work-id head, the canonical
   reply marker, or the resource registry — never on a local cue that ordinary
   application data hits by coincidence. See `project-embedded-keys` §`named?`.
