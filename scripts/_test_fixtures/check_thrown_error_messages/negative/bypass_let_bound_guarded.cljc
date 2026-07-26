@@ -38,6 +38,18 @@
                            :where       'rf/nested-other
                            :detail      detail})))))
 
+;; An `fn` carrying a SELF-REFERENCE NAME that is NOT the message symbol, with
+;; clean parameters. Reading the run from the head to the binding vector must
+;; not turn every named `fn` into a refusal — only one that names the symbol
+;; shadows it (rf2-u3otj, the #7064 audit).
+(defn self-named-other
+  [reason]
+  (let [msg (str reason " [:rf.error/self-named-other]")]
+    (fn raise [x]
+      (throw (ex-info msg {:rf.error/id :rf.error/self-named-other
+                           :where       'rf/self-named-other
+                           :extra       x})))))
+
 ;; A `try` body, and a reader conditional selecting the platform branch.
 (defn platform
   [reason]
