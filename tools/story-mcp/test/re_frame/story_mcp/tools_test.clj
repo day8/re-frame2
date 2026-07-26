@@ -4672,9 +4672,17 @@
     (drive-events-during-recording [[:counter/inc]])
     (with-redefs [story/reg-variant*
                   (fn [_id _body]
+                    ;; The CANONICAL thrown-error shape, which is what
+                    ;; `registrar/validate-shape!` really throws:
+                    ;; `:rf.error/id`, not a bare `:rf.error`. This mock
+                    ;; used to fabricate the bare key — the same key the
+                    ;; relay harvested — so it proved the relay against a
+                    ;; shape no producer emits and the dead arm looked
+                    ;; alive (rf2-2nbck). The wire slot below is still
+                    ;; `:rf.error`: that rename is the relay's job.
                     (throw (ex-info "Registration failed: boom"
-                                    {:rf.error :rf.error/variant-shape
-                                     :explain  {:why :forced-test-failure}})))]
+                                    {:rf.error/id :rf.error/variant-shape
+                                     :explain     {:why :forced-test-failure}})))]
       (let [r (invoke "record-as-variant"
                       {:variant-id     "story.button/primary"
                        :new-variant-id "story.button/recorded"  ; valid grammar

@@ -57,14 +57,27 @@
   surface's error slot from colliding with `explain-variant`'s unrelated
   plan-`:explain` projection.
 
+  The OTHER slot needs renaming, not projecting. A thrown error's
+  machine-readable discriminator is `:rf.error/id` — the canonical
+  thrown-error shape of `spec/009-Instrumentation.md`, which is what
+  `re-frame.story.registrar` actually throws. But story-mcp's own wire
+  vocabulary for that same fact is the BARE `:rf.error` key, the one
+  `Principles.md` §Error envelopes names as the error payload's
+  discriminator and every tool-EMITTED error already sets. Relaying the
+  thrown spelling verbatim would put a SECOND word for one fact on the
+  wire, so the thrown key is renamed to the wire key here — the same
+  in-vocabulary move `:explain` → `:explain-humanized` makes just above,
+  and the reason both live in one function: this is where ex-data
+  vocabulary becomes wire vocabulary (rf2-2nbck).
+
   Every other `ex-data` slot rides through untouched — `:reason`,
   `:where`, `:recovery`, `:kind`, `:id` are all plain data."
   [d]
-  (if-let [explain (:explain d)]
-    (-> d
-        (dissoc :explain)
-        (assoc :explain-humanized (me/humanize explain)))
-    d))
+  (cond-> d
+    (:explain d)      (-> (dissoc :explain)
+                          (assoc :explain-humanized (me/humanize (:explain d))))
+    (:rf.error/id d)  (-> (dissoc :rf.error/id)
+                          (assoc :rf.error (:rf.error/id d)))))
 
 (defn text-result
   "Build a success result with a single text content item. `structured`
