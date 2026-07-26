@@ -331,6 +331,53 @@
   disagreement this exists to prevent."
   #{:error})
 
+(def ^:private reply-correlation-slot
+  "The CORRELATION-FACTS slot of a canonical resource-FAMILY continuation reply
+  (rf2-l6wjl): `:correlation`, the map `reply/base-reply` stamps beside the
+  reply's own top-level facts — `{:scope … :generation … :rf.reply/resource-key
+  …}` for a read completion, `{:scope … :generation … :mutation/id …
+  :instance/id …}` for a mutation one.
+
+  ## Grain: MARKER-GATED, the FAMILY rule inside the marker
+
+  Read under `family-reply?` — both work kinds — and never under an owner read.
+  The only entry it treats specially is `:scope`, which takes the same
+  `project-unknown-slot-value` the free `:scope` beside it takes, so the
+  reply's THREE copies of one resolved identity (top-level `:scope`, this one,
+  and the scope embedded in `:rf.reply/work-id`) project under one rule. That
+  is rf2-425mm's principle — the two carriers of one scope must agree — and
+  rf2-1zc33's: a free `:scope` belongs to no owner whose declaration could
+  exempt it, so no owner read can speak for it.
+
+  ## Why the payload proof could not reach it
+
+  `carrier-family-payload?` proves a map is the runtime's from its IMMEDIATE
+  entries, and the two halves of the family diverge exactly there. A READ
+  completion's correlation carries `:rf.reply/resource-key` — a
+  `family-named-key?` — so it proved itself and its `:scope` cleaned. A MUTATION
+  completion's carries no `resource`-namespaced key and no work-id value (the
+  work-id sits at the reply ROOT, not in here), so it proved nothing and its
+  `:scope` rode off-box RAW, one slot from the top-level `:scope` that had just
+  tokenized the very same bytes. Same family, same substrate, same datum, two
+  rules — the rf2-irwsq shape across the family's two halves.
+
+  The proof this arm uses instead is CONSTRUCTION, not vocabulary: inside a map
+  that carries the canonical reply marker, `:correlation` is the slot
+  `base-reply` built, exactly as position 1 of a `[:rf.work/resource …]` vector
+  is family-planted by construction. That is strictly stronger than a registry
+  lookup would be — it still holds for a mutation whose registration was
+  hot-reloaded away, which is precisely when a fail-closed arm has to work.
+
+  ## …which is why `:correlation` IS NOT IN `reply-payload-slot`
+
+  Same trap `reply-error-slot` records. That set is consumed under
+  `(and owner-redacts? …)`, so dropping `:correlation` into it is a one-token
+  edit that LOOKS like reusing the proven rf2-xx4ty pattern and in fact makes
+  the scope's carriers disagree again for any `:serialize` owner — and it would
+  tokenize the whole correlation map, destroying the `:generation` /
+  `:mutation/id` / `:instance/id` identities every tool joins on."
+  :correlation)
+
 (defn- row-owner-redacts?
   "Whether the resource OWNER named by this trace row's `:resource/key`
   classifies non-`:serialize` (sensitive / large, or UNREGISTERED →
@@ -537,9 +584,9 @@
   immediate entries: a `resource`-namespaced key, or a value that is a
   `[:rf.work/resource …]` work-id.
 
-  This is what the free `:scope` arm reads (rf2-1kiuj audit #7054). All THREE
-  payloads the runtime plants a `:scope` in satisfy it, by three different
-  markers, and no two of them share one:
+  This is what the free `:scope` arm reads (rf2-1kiuj audit #7054). Three of
+  the four payloads the runtime plants a `:scope` in satisfy it, by three
+  different markers, and no two of them share one:
 
     - the READ continuation (`transport.http/build-managed-args`) —
       `{:work/id <work-id> :resource/key <key> :scope <scope> …}`;
@@ -547,11 +594,21 @@
       :scope <scope> …}`, with NO resource key at all, which is exactly why the
       work-id is a marker and the key alone is not (rf2-425mm settled that
       mutations must not be left leaking);
-    - a completion reply's `:correlation` facts (`resources.reply`) —
+    - a READ completion reply's `:correlation` facts (`resources.reply`) —
       `{:scope <scope> :generation … :rf.reply/resource-key <key>}`, whose only
       marker is that reserved reply spelling.
 
-  An app's own `{:request {… :scope {:tenant \"…\"} …}}` carries none of them,
+  THE FOURTH DOES NOT, and this docstring once claimed it did. A MUTATION
+  completion reply's `:correlation` is `{:scope … :generation … :mutation/id …
+  :instance/id …}` — no `resource`-namespaced key, no work-id value, since the
+  work-id sits at the reply ROOT rather than in here. So the read half of one
+  slot proved itself and the mutation half did not, and the mutation's
+  correlation scope egressed raw (rf2-l6wjl). It is reached by a marker-gated
+  arm of its own — see `reply-correlation-slot` — because the proof available
+  there is the reply's canonical `:rf.reply/work-kind`, not its correlation
+  map's vocabulary.
+
+  An app's own `{:request {… :scope {:tenant \"…\"} …}}` carries none of these,
   so its `:scope` — an ordinary English word the FX family uses for its own
   data — is nobody's business here and rides verbatim."
   [m]
@@ -1001,6 +1058,34 @@
                        (let [[pv s] (project-unknown-slot-value x frame-id)]
                          (note! s pv))
 
+                       ;; rf2-l6wjl — that same resolved scope's SECOND
+                       ;; spelling, inside the reply's `:correlation` facts.
+                       ;; `carrier-family-payload?` reaches a READ reply's
+                       ;; correlation (it wears `:rf.reply/resource-key`) and
+                       ;; not a MUTATION reply's (which wears no reserved
+                       ;; vocabulary at all), so one half of the family cleaned
+                       ;; the slot and the other rode it raw. Gated on the
+                       ;; canonical reply MARKER instead: inside a proven family
+                       ;; reply, `:correlation` is the map `base-reply` built.
+                       ;; Deliberately NOT a member of `reply-payload-slot` —
+                       ;; that set is owner-conditional and this must not be
+                       ;; (see the `reply-correlation-slot` docstring). Only
+                       ;; `:scope` takes the family rule; every sibling fact
+                       ;; takes the ordinary walk, NAMED iff the family reserved
+                       ;; its key, which is what keeps a read correlation's
+                       ;; `:rf.reply/resource-key` projecting exactly as before.
+                       ;; The keys themselves are `base-reply`'s literal
+                       ;; keywords, so they ride as-is.
+                       (and fam-reply? (= reply-correlation-slot k) (map? x))
+                       (reduce-kv
+                         (fn [m ck cx]
+                           (assoc m ck
+                                  (if (= :scope ck)
+                                    (let [[pv s] (project-unknown-slot-value cx frame-id)]
+                                      (note! s pv))
+                                    (proj cx (family-named-key? ck)))))
+                         {} x)
+
                        ;; rf2-rnsv2 — the TRANSPORT FAILURE ENVELOPE of a family
                        ;; reply (read OR mutation). Tokenized UNCONDITIONALLY
                        ;; inside the marker, matching `error-envelope-slot`'s
@@ -1269,7 +1354,10 @@
   tokenized UNCONDITIONALLY inside the family reply marker, on the MUTATION
   continuation as well as the read one, because the envelope belongs to the
   transport rather than to any resource owner and the family's own rows tokenize
-  it regardless of owner.
+  it regardless of owner — and (rf2-l6wjl) that reply's `:correlation` facts,
+  whose `:scope` is the SAME resolved identity the free `:scope` beside it
+  carries, gated on the same family marker so the reply's three copies of one
+  scope project under one rule instead of two.
 
   \"Speaks only for the data it planted\" is enforced, not merely intended:
   each of those arms fires on PROOF that the runtime planted the value —
