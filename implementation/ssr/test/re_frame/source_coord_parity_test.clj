@@ -24,9 +24,26 @@
   (`implementation/adapters/reagent/test/re_frame/source_coord_parity_cljs_test.cljs`)
   exercises the CLJS formatters against the SAME fixtures and asserts the
   SAME literals. The literals ARE the cross-host byte-comparison point —
-  if either host's formatter drifts, its test fails."
+  if either host's formatter drifts, its test fails.
+
+  ## Posture split (rf2-lwtlk)
+
+  The FORMATTERS are ordinary pure functions and the neutral-owner aliasing
+  is ordinary Var identity: neither is gated, so every deftest above the
+  end-to-end one runs unchanged in both postures and always did.
+
+  The end-to-end render is the exception. The attributes only reach server
+  markup because `reg-view` installs the annotation wrapper, and it installs
+  it only under `interop/debug-enabled?` — read once at namespace-load time,
+  so under the real `-Dre-frame.debug=false` gate the markup is bare by
+  design. Those three assertions are kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm; alongside them sits the
+  posture-independent half — that the callable head renders the registered
+  view's own `<p>body</p>` root at all — plus a `when-not` arm pinning the
+  exact bare bytes the production gate emits."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.source-coords :as source-coords]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]
@@ -146,14 +163,31 @@
           ;; a hardcoded copy of it.
           coord   (jvm-annot/format-source-coord fixture-id fixture-coords)
           view-id (jvm-annot/format-view-id fixture-id)]
-      (is (.contains html (str "data-rf2-source-coord=\"" coord "\""))
-          (str "server markup must carry the source-coord attribute; got: "
-               (pr-str html)))
-      (is (.contains html (str "data-rf-view=\"" view-id "\""))
-          (str "server markup must carry the view-id attribute (rf2-8vi4q); "
-               "got: " (pr-str html)))
-      (is (= (str "<p data-rf2-source-coord=\"" coord "\""
-                  " data-rf-view=\"" view-id "\">body</p>")
-             html)
-          (str "the full annotated root, both attributes present; got: "
-               (pr-str html))))))
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): `(rf/view id)` resolves to
+      ;; the registered view and the view renders its own root and body. The
+      ;; gate can remove the attributes; it can never remove the element.
+      (is (.startsWith html "<p") (pr-str html))
+      (is (.endsWith html ">body</p>") (pr-str html))
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (.contains html (str "data-rf2-source-coord=\"" coord "\""))
+            (str "server markup must carry the source-coord attribute; got: "
+                 (pr-str html)))
+        (is (.contains html (str "data-rf-view=\"" view-id "\""))
+            (str "server markup must carry the view-id attribute (rf2-8vi4q); "
+                 "got: " (pr-str html)))
+        (is (= (str "<p data-rf2-source-coord=\"" coord "\""
+                    " data-rf-view=\"" view-id "\">body</p>")
+               html)
+            (str "the full annotated root, both attributes present; got: "
+                 (pr-str html))))
+
+      ;; rf2-lwtlk — the REAL-gate arm. Under `-Dre-frame.debug=false` the
+      ;; wrapper is never installed, so the same callable head renders the
+      ;; SAME element with neither attribute. Pinned by `=` rather than by a
+      ;; `not contains?` pair, which would pass vacuously.
+      (when-not interop/debug-enabled?
+        (is (= "<p>body</p>" html)
+            (str "under the production gate the callable head must render the "
+                 "bare root, both annotations elided; got: " (pr-str html)))))))

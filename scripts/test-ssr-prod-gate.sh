@@ -108,15 +108,16 @@ known_red=(
   re-frame.ssr-flush-response-result-test         #  12
   re-frame.ssr-head-resolution-no-project-test    #   2
 
-  # ── rf2-lwtlk — SOURCE-COORD ANNOTATION.  These assert
-  #    `data-rf2-source-coord` / `data-rf-view` on rendered HTML.  Those
-  #    attributes are prod-elided at the core `reg-view` registration
-  #    boundary and merely serialised by the SSR emitter, so their absence
-  #    under the gate is the elision working as specified — the same shape as
-  #    core's `source-coord-prod-elision-test` cluster.
-  re-frame.source-coord-parity-test               #   3
-  re-frame.ssr-keyword-head-contract-test         #   1
-  re-frame.ssr-source-coord-test                  #  14
+  # ── rf2-lwtlk — SOURCE-COORD ANNOTATION.  CLEARED.  All three namespaces
+  #    (`source-coord-parity-test`, `ssr-keyword-head-contract-test`,
+  #    `ssr-source-coord-test`) now split their posture: the
+  #    `data-rf2-source-coord` / `data-rf-view` assertions are kept verbatim
+  #    inside `(when interop/debug-enabled? …)` arms, the RENDER they were
+  #    entangled with is asserted posture-independently, and each gained a
+  #    `when-not` arm that pins the bare bytes the REAL gate emits.  The
+  #    negative annotation assertions moved into the dev arm WITH the
+  #    positives: "the outer view did not stamp itself" is vacuously true
+  #    where nothing stamps anything.
 
   # ── rf2-lwtlk — dev-instrumentation assertions written inline with the
   #    semantics they sit next to: "exactly one `:rf.ssr/schema-digest-

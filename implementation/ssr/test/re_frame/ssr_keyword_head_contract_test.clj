@@ -47,10 +47,25 @@
   The client half of the same contract is pinned substrate-side in
   `implementation/adapters/reagent/test/re_frame/ssr_keyword_head_contract_cljs_test.cljs`,
   which asserts the SAME head paints the SAME element AND the same bytes.
-  Together the two files are the cross-host proof."
+  Together the two files are the cross-host proof.
+
+  ## Posture split (rf2-lwtlk)
+
+  The head grammar itself is production-real and is asserted throughout
+  without a posture guard. The single exception is inside
+  `views-are-referenced-by-callable-head`, whose `(rf/view :id)` arm pins the
+  registration-boundary annotations byte for byte. Those attributes exist
+  only under `interop/debug-enabled?` (read once at namespace-load time), so
+  under `-Dre-frame.debug=false` the registered handle renders the same view
+  subtree without them. The annotated literal is kept verbatim in a
+  `(when interop/debug-enabled? …)` arm; the arm's actual claim — that BOTH
+  spellings resolve the same view — is restated posture-independently by
+  comparing the two renders directly, which is a stronger statement than the
+  `str/includes?` triple it replaces and holds in both postures."
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.streaming :as streaming]
             [re-frame.ssr.test-fixture :as tf]))
@@ -173,15 +188,18 @@
       (is (= "<div class=\"card\"><h3>:revenue</h3></div>"
              (emit/render-to-string [card-view :revenue] nil))))
 
-    (testing "`(rf/view :id)` — the REGISTERED handle — resolves the view AND
-              carries both dev annotations (rf2-8vi4q). In idiomatic usage
-              the symbol `reg-view` defs IS `(rf/view id)`, so THIS is what a
-              real Var reference emits."
-      (is (= (str "<div class=\"card\""
-                  " data-rf2-source-coord=\"dashboard:card:?:?\""
-                  " data-rf-view=\":dashboard/card\">"
-                  "<h3>:revenue</h3></div>")
-             (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil))))
+    ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The registered
+    ;; handle carries the annotations only under `interop/debug-enabled?`.
+    (when interop/debug-enabled?
+      (testing "`(rf/view :id)` — the REGISTERED handle — resolves the view AND
+                carries both dev annotations (rf2-8vi4q). In idiomatic usage
+                the symbol `reg-view` defs IS `(rf/view id)`, so THIS is what a
+                real Var reference emits."
+        (is (= (str "<div class=\"card\""
+                    " data-rf2-source-coord=\"dashboard:card:?:?\""
+                    " data-rf-view=\":dashboard/card\">"
+                    "<h3>:revenue</h3></div>")
+               (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))
 
     (testing "both spellings resolve to the SAME view subtree — the class and
               child agree; the registered handle merely adds the debug-gated
@@ -191,7 +209,20 @@
       (is (str/includes? (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)
                          "class=\"card\""))
       (is (str/includes? (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)
-                         "<h3>:revenue</h3>")))))
+                         "<h3>:revenue</h3>")))
+
+    ;; rf2-lwtlk — the REAL-gate arm. With no annotation wrapper installed the
+    ;; two spellings are not merely "the same subtree modulo attributes", they
+    ;; are byte-identical — which is the head-grammar claim in its purest
+    ;; form, and is only observable in this posture.
+    (when-not interop/debug-enabled?
+      (testing "under -Dre-frame.debug=false the registered handle and the bare
+                Var render byte-identically — nothing but the debug-gated
+                attributes ever separated them"
+        (is (= (emit/render-to-string [card-view :revenue] nil)
+               (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))
+        (is (= "<div class=\"card\"><h3>:revenue</h3></div>"
+               (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))))
 
 ;; ===========================================================================
 ;; The streaming shell walker — `render-shell`
