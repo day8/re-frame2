@@ -58,13 +58,14 @@ Four findings, and the third is the one that changes what to do about it.
    render leg is **4.0–5.4 ms against Reagent's 0.6–0.7 ms** — a genuine
    **≈7–8× on re-rendering 300 boundaries**, which no accounting moves.
 
-And one property that is not a number: **Freehand cannot commit a state
-change synchronously.** A write made inside `react-dom/flushSync` has not
-reached the DOM when the flush returns; the notification rides a
-microtask. Reagent and plain React both commit in that window. It is
+And one property that is not a number: **Freehand could not commit a
+state change synchronously.** A write made inside `react-dom/flushSync`
+had not reached the DOM when the flush returned; the notification rode a
+microtask. Reagent and plain React both commit in that window. It was
 filed as `rf2-w2m25`, it forced this report's whole measurement shape,
-and it is the finding most likely to matter to somebody writing an
-application.
+and it was the finding most likely to matter to somebody writing an
+application. **`rf2-w2m25` is now fixed** — see §2b — but every figure
+below was taken before the fix, through the window it forced.
 
 **What this does *not* say.** It does not say Freehand should adopt
 ratoms, and it does not say the compiled tier is vindicated. The mount
@@ -339,28 +340,38 @@ when a narrow one moves one.
 > because it is the same class of mistake as the predecessor report's
 > heap sampler.
 
-### 2b. Freehand cannot commit synchronously
+### 2b. Freehand could not commit synchronously — FIXED
 
 Not a timing result, and probably the most consequential thing here.
 
-A write made inside `react-dom/flushSync` has **not** reached the DOM when
-the flush returns — through any door: `frame/replace-app-db!`,
+> **Resolved.** `rf2-w2m25` landed after this report was taken: the
+> ViewCell pending window gained a second closer that React can see, so a
+> write made inside `react-dom/flushSync` now commits before the flush
+> returns, through every door named below. The microtask closer is
+> untouched, so ordinary batching is unchanged. The rest of this section
+> is kept in the past tense as the record of what was measured, because
+> it is what shaped this report's whole instrument. The figures in §2 were
+> **not** re-taken and still carry the microtask yield the defect forced.
+
+A write made inside `react-dom/flushSync` had **not** reached the DOM when
+the flush returned — through any door: `frame/replace-app-db!`,
 `rf/dispatch-sync` with an explicit `:frame`, or a
-`capture-frame` handle's `dispatch-sync`. The store is written and the
-subscription recomputes; React learns about it on a microtask. Reagent
+`capture-frame` handle's `dispatch-sync`. The store was written and the
+subscription recomputed; React learnt about it on a microtask. Reagent
 (`swap!` + `reagent.core/flush`) and plain React (`root.render` inside
 `flushSync`) both commit inside that window. The UIx adapter's own
 `flush-views!` did not commit the write when measured, and `react/act`
 did but cost ≈600 ms a call.
 
-The consequence for an application author is that **there is no public
-door that makes a state change observable in the DOM before the current
-task ends** — which anything that measures, scrolls, focuses or asserts
-immediately after a write has to work around, undocumented. Filed as
-`rf2-w2m25` (P1), and pinned as a regression test by
-`a-freehand-write-does-not-commit-inside-flushsync`, so if Freehand gains
-a synchronous commit the test goes red and this row should be re-taken
-without the microtask yield.
+The consequence for an application author was that **there was no public
+door that made a state change observable in the DOM before the current
+task ended** — which anything that measures, scrolls, focuses or asserts
+immediately after a write had to work around, undocumented. Filed as
+`rf2-w2m25` (P1) and now fixed; the case is pinned in **both** directions
+by `a-freehand-write-commits-inside-flushsync`, which asserts the commit
+lands inside the flush AND that the microtask window this row is measured
+through still lands its write. The update row is therefore re-takeable
+without the microtask yield; it has not been re-taken.
 
 ---
 
@@ -412,9 +423,12 @@ Stated plainly, because the omissions are load-bearing.
    suggests the cost is in the ViewCell wrapper rather than in the
    markup walk — the same term §1a of the predecessor report priced at
    2,348 bytes of standing heap per kept ViewCell.
-3. **A synchronous commit door.** `rf2-w2m25`. It would also let the
-   update row be re-taken without a microtask yield, which would tighten
-   every figure in §2.
+3. **~~A synchronous commit door.~~ DONE — `rf2-w2m25`.** Re-take the
+   update row without the microtask yield, which would tighten every
+   figure in §2. Note that the fix arms one extra React commit per render
+   batch (a two-fiber detached root rendering nil); it lands outside the
+   current window but would move inside a re-taken one, so whoever
+   re-takes the row should report it rather than absorb it.
 4. **The memory row.** See above.
 
 ## Provenance
