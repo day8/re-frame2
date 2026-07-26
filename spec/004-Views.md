@@ -1477,6 +1477,22 @@ Normatively, for both forms:
   Honouring one in a forwarded map would decide element identity from a value the
   compiler cannot see, so it is refused rather than silently honoured in one mode and
   dropped in the other.
+- **Both forms fold onto an element, and neither is legal at a `v/defhost` head.**
+  Their entire content is the attribute grammar — the refusals above, the slot
+  canonicalization [004B §Attribute names](004B-UI-Tree-and-Conversion.md#attribute-names)
+  applies to an alias of an accepted key, the `.class#id` sugar, the controlled door —
+  and a host prop is none of those. It is an exact unqualified keyword handed shallowly
+  to a foreign API ([§Three disjoint planes](#three-disjoint-planes)), so running one
+  through the element rule is wrong in both directions at once. It **admits** what the
+  host head refuses, because an alias of a slot-owning key is rewritten on the way
+  through: `:className` — the name a React library actually wants — arrives as `class`,
+  a prop the component does not read, and `"class"` walks past the exactness check that
+  would have caught it. And it **refuses** what the host head accepts, because
+  `:class-name`, a mixed-case `data-*` and `:key` name nothing on a foreign prop ABI
+  that the attribute table is entitled to judge. Forward to a host with an ordinary
+  map — `merge`, caller's remainder as the base and the props you own second — and the
+  host's own naming law then judges every key that arrives, which is the only law that
+  was ever true there.
 
 And for `v/spread-safe` alone:
 
@@ -1742,8 +1758,12 @@ Three of those slots are chosen against a way the node could lie.
 
 - **`:children` is the SSR PROJECTION and nothing else** — the declared
   fallback, or empty. It is the slot that folds to HTML, so it MUST carry only
-  what the server can honestly emit. It is retained when empty, like a fragment:
-  it is the node's discriminator.
+  what the server can honestly emit. It is retained when empty, like a fragment,
+  and for the fragment's reason: the serialiser folds a host by splicing that
+  slot, so a node without it is a map with nothing to emit and nothing to say so
+  ([004B §The SSR consumption boundary](004B-UI-Tree-and-Conversion.md#the-ssr-consumption-boundary)).
+  The variant, its discriminator and its place in the closed node set are 004B's
+  ([004B §The node schema](004B-UI-Tree-and-Conversion.md#the-node-schema--version-1)).
 - **The caller's trailing children are COUNTED, not walked.** They cross into
   the registered component's own React tree, and where that tree places them is
   React's business, so a server tree that showed them would invite an assertion
