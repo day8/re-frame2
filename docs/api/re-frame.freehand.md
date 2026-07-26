@@ -1244,10 +1244,19 @@ an open flag is writable and not buffered, so it takes the key and no generation
   retirement after unmount and HMR. Children are ordinary React children in the
   registered component's tree, under the declared policy.
 
+  A prop **name** is exact as well: an unqualified keyword, spelled as the
+  library spells the prop. A qualified keyword would cross with its namespace
+  silently dropped, and a string would give one React prop a second spelling —
+  and since every law here is enforced by the name, a second spelling is how
+  `"children"`, `:x/key` or an undeclarable `"onSelect"` would reach React under
+  a reserved name while passing the check that looked for the keyword.
+
   `:map-props` is one optional whole-ordinary-props adapter, run in the browser
   only, for preparing non-portable host values. Callback carriers, children and
   the key are withheld from it and installed afterwards, so it can neither supply
-  nor replace a reserved fact; a returned map that names one is refused.
+  nor replace a reserved fact; a returned map that names one is refused. It
+  answers under the same naming law: the adapter owns the ordinary plane's
+  values, and the names stay the caller's.
 
   A structural render emits an honest marker — the declared host id, the declared
   SSR policy, a **count** of the children that crossed into React's tree, and the

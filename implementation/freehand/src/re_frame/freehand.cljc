@@ -2160,6 +2160,15 @@
      only at a position the declaration named, because that is what makes
      the site finite, checkable and able to carry the committed identity.
 
+     **A prop NAME is exact too** — an unqualified keyword, spelled as the
+     library spells the prop, which is the same law `:callbacks` states
+     above. A qualified keyword would cross with its namespace silently
+     dropped and a string would give one React prop a second spelling; and
+     because every law here is enforced BY the name, a second spelling is
+     how `\"children\"`, `:x/key` or an undeclarable `\"onSelect\"` would
+     reach React under a reserved name while passing the check that looked
+     for the keyword.
+
      **`:callbacks` names the finite positions**, and each takes the
      matching `v/event` / `v/handler` carrier. It is never inferred from an
      `on*` name, and a bare event vector there is refused rather than
@@ -2183,9 +2192,12 @@
      non-portable host values. Callback carriers and trailing children are
      withheld from it and installed afterwards, so it cannot supply or
      replace a declared callback, the children, the key or any other
-     reserved fact; a returned map that names one is refused. The
-     structural tree records the AUTHORED props, not the adapter's output —
-     an adapter exists to make values a tree could not print.
+     reserved fact; a returned map that names one is refused. It answers
+     under the caller's own naming law, which is what makes that refusal
+     total: the adapter owns the ordinary plane's VALUES, and the names
+     stay the caller's. The structural tree records the AUTHORED props, not
+     the adapter's output — an adapter exists to make values a tree could
+     not print.
 
      ## Structure and SSR
 
