@@ -13,11 +13,34 @@
     - :rf.error/no-such-head raised for unregistered ids
     - reg-head is idempotent — re-registering replaces the slot
 
-  Mirrors the reset-runtime fixture pattern from ssr_end_to_end_test.clj."
+  Mirrors the reset-runtime fixture pattern from ssr_end_to_end_test.clj.
+
+  ## Posture split (rf2-lwtlk)
+
+  Two assertions here were about DEV-ONLY surfaces and dragged the rest of
+  the namespace out of `scripts/test-ssr-prod-gate.sh` with them.
+
+  `reg-head-accepts-metadata-arity` asserted `:doc` on the registry slot.
+  `:doc` is a pure-documentation key: `registrar/strip-pure-documentation`
+  drops it when `interop/debug-enabled?` is false, per Spec 001 §Production
+  elision contract. So its absence under the gate is the elision working.
+  The `:doc` assertion is kept verbatim in a `(when interop/debug-enabled? …)`
+  arm; what the deftest is really for — that the 3-arity is a REGISTRATION
+  arity, storing a working `:handler-fn` under the id — is asserted outside
+  it, and a `when-not` arm pins the elision itself under the real gate.
+
+  `head-cleanup-throw-emits-warning-trace` asserted the
+  `:rf.ssr.head/cleanup-failed` warning, which is emitted through the gated
+  trace bus. Kept verbatim in a dev arm. Its production-real half — that the
+  destroy COMPLETES rather than propagating the hook's throw — was previously
+  witnessed only by an `(is false …)` in a catch, which contributes no
+  assertion at all on the happy path; it now has a positive flag witness that
+  the throwing path could never set."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
@@ -52,8 +75,30 @@
                  {:doc "Article-page head model"}
                  (fn [_db _route] {:title "x"}))
     (let [m (registrar/lookup :head :head/with-meta)]
-      (is (= "Article-page head model" (:doc m))
-          ":doc metadata is preserved on the registry slot"))))
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): the 3-arity is above all a
+      ;; REGISTRATION arity — the extra metadata argument must not displace
+      ;; the head-fn, and the slot must be usable.
+      (is (some? m) "the 3-arity registered a slot")
+      (is (fn? (:handler-fn m))
+          "the head-fn is stored under :handler-fn, not shifted by the metadata arg")
+      (is (= {:title "x"} ((:handler-fn m) {} nil))
+          "the stored head-fn is the one passed, and it runs")
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). `:doc` is a
+      ;; pure-documentation key, dropped by
+      ;; `registrar/strip-pure-documentation` under the production gate per
+      ;; Spec 001 §Production elision contract.
+      (when interop/debug-enabled?
+        (is (= "Article-page head model" (:doc m))
+            ":doc metadata is preserved on the registry slot"))
+
+      ;; rf2-lwtlk — the REAL-gate arm: the elision itself, witnessed on a JVM
+      ;; actually started with `-Dre-frame.debug=false` rather than through a
+      ;; `with-redefs` rebind that a load-time gate cannot see (rf2-9c2jf).
+      (when-not interop/debug-enabled?
+        (is (nil? (:doc m))
+            ":doc is elided from the registry slot in production builds
+             (Spec 001 §Production elision contract)")))))
 
 (deftest reg-head-is-idempotent
   (testing "re-registering the same id replaces the slot (registrar contract)"
@@ -680,30 +725,44 @@
         (rf/register-listener! :trace ::head-clean (fn [ev] (swap! traces conj ev)))
         ;; Drive the destroy hook directly — that's the path Mark-3
         ;; teardown takes per the late-bind chaining.
-        (try (ssr-request :test/frame-id)
-             (catch Throwable _
-               ;; The hook must NOT propagate the exception — fail the
-               ;; test if it does.
-               (is false "on-frame-destroyed! must catch head-cleanup throws")))
+        ;;
+        ;; SEMANTIC, posture-independent (rf2-lwtlk): the `:warned-and-skipped`
+        ;; policy's PRODUCTION half is that teardown continues — the trace is
+        ;; only how a developer finds out. The `(is false …)` below fires only
+        ;; on the failing path, i.e. contributes no assertion when the code is
+        ;; correct, so the completion is witnessed positively by a flag the
+        ;; throwing path can never reach.
+        (let [completed? (atom false)]
+          (try (ssr-request :test/frame-id)
+               (reset! completed? true)
+               (catch Throwable _
+                 ;; The hook must NOT propagate the exception — fail the
+                 ;; test if it does.
+                 (is false "on-frame-destroyed! must catch head-cleanup throws")))
+          (is (true? @completed?)
+              "on-frame-destroyed! returned normally despite the head-cleanup
+               hook throwing — the destroy completed"))
         (rf/unregister-listener! :trace ::head-clean)
 
-        (let [hits (filterv #(= :rf.ssr.head/cleanup-failed (:operation %)) @traces)]
-          (is (= 1 (count hits))
-              (str "expected one :rf.ssr.head/cleanup-failed trace; saw: "
-                   (pr-str (mapv :operation @traces))))
-          (when (seq hits)
-            (let [ev (first hits)]
-              (is (= :warning (:op-type ev)))
-              (is (= :test/frame-id (-> ev :tags :frame))
-                  ":frame tag identifies which frame's cleanup failed")
-              (is (= :ssr/head-on-frame-destroyed (-> ev :tags :hook))
-                  ":hook tag identifies which hook misbehaved")
-              (is (string? (-> ev :tags :reason))
-                  ":reason carries the throwable's message")
-              (is (string? (-> ev :tags :ex-class))
-                  ":ex-class carries the throwable's class name")
-              (is (= :warned-and-skipped (:recovery ev))
-                  ":recovery names the policy — observed and continued"))))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+        (when interop/debug-enabled?
+          (let [hits (filterv #(= :rf.ssr.head/cleanup-failed (:operation %)) @traces)]
+            (is (= 1 (count hits))
+                (str "expected one :rf.ssr.head/cleanup-failed trace; saw: "
+                     (pr-str (mapv :operation @traces))))
+            (when (seq hits)
+              (let [ev (first hits)]
+                (is (= :warning (:op-type ev)))
+                (is (= :test/frame-id (-> ev :tags :frame))
+                    ":frame tag identifies which frame's cleanup failed")
+                (is (= :ssr/head-on-frame-destroyed (-> ev :tags :hook))
+                    ":hook tag identifies which hook misbehaved")
+                (is (string? (-> ev :tags :reason))
+                    ":reason carries the throwable's message")
+                (is (string? (-> ev :tags :ex-class))
+                    ":ex-class carries the throwable's class name")
+                (is (= :warned-and-skipped (:recovery ev))
+                    ":recovery names the policy — observed and continued")))))
         (finally
           ;; Restore the prior hook so subsequent tests see normal behaviour.
           (if prior-hook

@@ -26,10 +26,30 @@
   value's SHAPE (sequential collection vs keyword).
 
   These tests run on both JVM and Node — the policy logic is
-  platform-neutral .cljc."
+  platform-neutral .cljc.
+
+  ## Posture split (rf2-lwtlk)
+
+  This namespace guards `project-routing-egress` — what leaves the server
+  inside a hydration payload — so its exclusion from
+  `scripts/test-ssr-prod-gate.sh` was checked rather than assumed. The one
+  assertion that was red under `-Dre-frame.debug=false` is the
+  `:rf.ssr/invalid-version` WARNING trace in
+  `resolve-version-coerces-and-rejects-to-integer`: the dev half. The
+  REJECTION it accompanies — a semver string never reaches `:rf/version`,
+  which falls back to the integer v1 — is asserted immediately above it and
+  passes in both postures, so nothing that decides what egresses was
+  affected. The always-on privacy witness for the egress itself is
+  `re-frame.ssr-routing-egress-production-test` (rf2-u2x6w), which has been
+  in the lane and green throughout.
+
+  The trace assertions are kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm. Everything else in this namespace
+  is pure policy logic and was always posture-independent."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
+            [re-frame.interop :as interop]
             [re-frame.ssr.payload-policy :as payload-policy]
             #?(:clj  [re-frame.test-support :refer [with-trace-recorder!]]
                :cljs [re-frame.test-support :refer-macros [with-trace-recorder!]])))
@@ -476,17 +496,21 @@
         ;; :rf.ssr/invalid-version warning carrying the rejected source value and
         ;; a top-level :recovery :rejected-and-fell-back, so a stray non-integer
         ;; :version surfaces in dev/CI rather than defaulting quietly.
-        (let [hits (filterv #(= :rf.ssr/invalid-version (:operation %)) @traces)]
-          (is (= 1 (count hits))
-              (str "expected exactly one :rf.ssr/invalid-version trace; saw: "
-                   (pr-str (mapv :operation @traces))))
-          (when (seq hits)
-            (let [ev (first hits)]
-              (is (= :warning (:op-type ev)))
-              (is (= "1.0.0" (-> ev :tags :value))
-                  "the rejected source value rides the trace")
-              (is (= :rejected-and-fell-back (:recovery ev))
-                  ":recovery rides at top-level per Spec 009")))))))
+        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+        ;; REJECTION is pinned above and is what governs the wire; this is
+        ;; the developer-facing announcement of it.
+        (when interop/debug-enabled?
+          (let [hits (filterv #(= :rf.ssr/invalid-version (:operation %)) @traces)]
+            (is (= 1 (count hits))
+                (str "expected exactly one :rf.ssr/invalid-version trace; saw: "
+                     (pr-str (mapv :operation @traces))))
+            (when (seq hits)
+              (let [ev (first hits)]
+                (is (= :warning (:op-type ev)))
+                (is (= "1.0.0" (-> ev :tags :value))
+                    "the rejected source value rides the trace")
+                (is (= :rejected-and-fell-back (:recovery ev))
+                    ":recovery rides at top-level per Spec 009"))))))))
 
   (testing "no :version → the SSR-owned pattern-protocol constant (v1 = 1)"
     ;; rf2-qfb1i: the late-bind version hook was removed — with no explicit

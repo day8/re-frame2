@@ -21,10 +21,34 @@
   fire from a documented emit-site with the documented tags. The status-
   stamping behaviour is covered by the cross-cutting end-to-end suites
   (`ssr_end_to_end_test`, `ssr_error_projector_substrate_test`,
-  `ssr-ring/ring_e2e_validator_test`); this suite isolates the trace."
+  `ssr-ring/ring_e2e_validator_test`); this suite isolates the trace.
+
+  ## Posture split (rf2-lwtlk)
+
+  `project-render-exception!` does TWO things and only one of them survives
+  production. The PROJECTION — returning a public-error map with the
+  projector's `:status` — is always-on, and it is what a server actually
+  ships. The TRACE is emitted through `trace/emit-error!`, whose site is
+  gated on `interop/debug-enabled?`, read once at namespace-load time; under
+  `-Dre-frame.debug=false` nothing is emitted, by design.
+
+  So every assertion about the trace — its count, its envelope, its
+  catalogued tags — sits inside a `(when interop/debug-enabled? …)` arm,
+  verbatim. The projection assertions sit outside and now run in
+  `scripts/test-ssr-prod-gate.sh`.
+
+  The NEGATIVE trace assertions moved into the arm too, and that is the
+  load-bearing half of this split. `(zero? (count @traces))` in the
+  non-server-frame and `:on-view-exception :throw` deftests is satisfied
+  automatically under the gate, where the ring is empty for every input —
+  a green that proves nothing. Each is replaced outside the arm by a
+  production-visible witness of the same claim: the client-frame call
+  returns `nil` without projecting, and the escape-hatch re-throws the
+  original Throwable instead of returning a public-error map."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]))
 
@@ -57,43 +81,47 @@
             (is (= 500 (:status public))
                 "the default projector maps the synthesised category to 500"))
 
-          (testing "exactly one `:rf.error/ssr-render-failed` trace
-                    fired (Spec 009 §Error event catalogue)"
-            (is (= 1 (count @traces))
-                (str "expected one trace; saw " (count @traces)
-                     " — operations: "
-                     (pr-str (mapv :operation @traces)))))
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+          ;; projection above is the production-real half and is asserted
+          ;; outside it; everything from here down is the trace envelope.
+          (when interop/debug-enabled?
+            (testing "exactly one `:rf.error/ssr-render-failed` trace
+                      fired (Spec 009 §Error event catalogue)"
+              (is (= 1 (count @traces))
+                  (str "expected one trace; saw " (count @traces)
+                       " — operations: "
+                       (pr-str (mapv :operation @traces)))))
 
-          (when (seq @traces)
-            (let [ev (first @traces)]
-              (testing "envelope shape per Spec 009 §Error event catalogue"
-                (is (= :error (:op-type ev))
-                    "severity discriminator is `:error`")
-                (is (= :rf.error/ssr-render-failed (:operation ev))
-                    "category keyword names the catalogued operation"))
+            (when (seq @traces)
+              (let [ev (first @traces)]
+                (testing "envelope shape per Spec 009 §Error event catalogue"
+                  (is (= :error (:op-type ev))
+                      "severity discriminator is `:error`")
+                  (is (= :rf.error/ssr-render-failed (:operation ev))
+                      "category keyword names the catalogued operation"))
 
-              (testing "tags shape per Spec 009 §Error event catalogue row
-                        (`:frame`, `:exception`, `:exception-message`,
-                        `:ex-class`)"
-                (is (= f (-> ev :tags :frame))
-                    "`:frame` identifies the server frame the render
-                     failed on")
-                (is (identical? t (-> ev :tags :exception))
-                    "`:exception` carries the caught Throwable verbatim")
-                (is (= "synthetic render-time failure"
-                       (-> ev :tags :exception-message))
-                    "`:exception-message` is the throwable's message
-                     (cheap-to-log replica of the throw)")
-                (is (= "clojure.lang.ExceptionInfo"
-                       (-> ev :tags :ex-class))
-                    "`:ex-class` carries the throwable's class name as a
-                     string — class-aware filtering without ferrying
-                     the live Throwable through trace consumers")
-                (is (= :projected-to-public-error
-                       (:recovery ev))
-                    "`:recovery` is hoisted to the envelope top-level
-                     (per Spec 009 §Error event shape) — the catalogue
-                     row's locked policy")))))
+                (testing "tags shape per Spec 009 §Error event catalogue row
+                          (`:frame`, `:exception`, `:exception-message`,
+                          `:ex-class`)"
+                  (is (= f (-> ev :tags :frame))
+                      "`:frame` identifies the server frame the render
+                       failed on")
+                  (is (identical? t (-> ev :tags :exception))
+                      "`:exception` carries the caught Throwable verbatim")
+                  (is (= "synthetic render-time failure"
+                         (-> ev :tags :exception-message))
+                      "`:exception-message` is the throwable's message
+                       (cheap-to-log replica of the throw)")
+                  (is (= "clojure.lang.ExceptionInfo"
+                         (-> ev :tags :ex-class))
+                      "`:ex-class` carries the throwable's class name as a
+                       string — class-aware filtering without ferrying
+                       the live Throwable through trace consumers")
+                  (is (= :projected-to-public-error
+                         (:recovery ev))
+                      "`:recovery` is hoisted to the envelope top-level
+                       (per Spec 009 §Error event shape) — the catalogue
+                       row's locked policy"))))))
         (finally
           (rf/unregister-listener! :trace ::srf))))))
 
@@ -114,11 +142,17 @@
         (let [f      (frame/make-anon-frame-record! {})
               t      (ex-info "should not fire" {})
               result (ssr/project-render-exception! f t)]
+          ;; SEMANTIC, posture-independent (rf2-lwtlk): `nil` rather than a
+          ;; public-error map IS the short-circuit, observable in production.
           (is (nil? result)
               "client-frame call returns nil — projector not invoked")
-          (is (zero? (count @traces))
-              "no `:rf.error/ssr-render-failed` trace fires for a
-               non-server frame"))
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+          ;; under the gate: the ring is empty for every input there, so
+          ;; `zero?` cannot distinguish a short-circuit from a full run.
+          (when interop/debug-enabled?
+            (is (zero? (count @traces))
+                "no `:rf.error/ssr-render-failed` trace fires for a
+                 non-server frame")))
         (finally
           (rf/unregister-listener! :trace ::srf-client))))))
 
@@ -139,13 +173,20 @@
                    :ssr      {:public-error-id   :rf.ssr/default-error-projector
                               :on-view-exception :throw}})
               t (ex-info "eager dev failure" {:reason :test})]
+          ;; SEMANTIC, posture-independent (rf2-lwtlk): the re-throw IS the
+          ;; escape-hatch, and it is what a host observes in either posture.
+          ;; That it threw rather than returned also witnesses that the
+          ;; projection path was skipped — no public-error map came back.
           (is (thrown-with-msg? clojure.lang.ExceptionInfo
                                 #"eager dev failure"
                                 (ssr/project-render-exception! f t))
               "the original throwable surfaces unchanged to the host")
-          (is (zero? (count @traces))
-              "the projection path (and its trace) is skipped when the
-               dev escape-hatch is on — the host's outer handler owns it"))
+          ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+          ;; under the gate, where no trace fires on any path.
+          (when interop/debug-enabled?
+            (is (zero? (count @traces))
+                "the projection path (and its trace) is skipped when the
+                 dev escape-hatch is on — the host's outer handler owns it")))
         (finally
           (rf/unregister-listener! :trace ::srf-throw))))))
 

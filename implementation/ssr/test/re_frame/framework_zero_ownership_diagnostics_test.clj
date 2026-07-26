@@ -55,10 +55,44 @@
   The control deftest at the bottom proves the recorder + diagnostic are
   LIVE in this fixture: an ordinary (non-framework) app handler returning
   `:rf.db/runtime` DOES fire the warning, so the framework-quiet assertions
-  above are not vacuously empty."
+  above are not vacuously empty.
+
+  ## Posture split (rf2-lwtlk)
+
+  This namespace is the sharpest instance of the vacuous-pass trap the
+  production-gate lane exists to close, and the split has to be read with
+  that in mind. Every `(is (empty? @diags) …)` above is a NEGATIVE assertion
+  over the trace ring. The three ownership diagnostics are emitted through
+  `trace/emit-error!` / the warning bus, gated on `interop/debug-enabled?`
+  and read once at namespace-load time — so under `-Dre-frame.debug=false`
+  the ring is empty for EVERY input, and `empty?` is satisfied without the
+  framework having demonstrated anything at all. The control deftest is
+  precisely the assertion that fails first in that posture, which is the
+  system telling the truth: with the recorder dead, the sweep is vacuous.
+
+  So all five `empty?` assertions are kept VERBATIM inside
+  `(when interop/debug-enabled? …)` arms marked `rf2-lwtlk`. They are correct
+  dev-posture coverage and nothing about them is weakened; they simply stop
+  claiming to have run under a gate that makes them unfalsifiable.
+
+  What remains outside the arms is production-real and substantial: every
+  deftest already pins the runtime-db WRITE its flow performs — the route
+  slice after navigate / transitioned / handle-url-change / on-match, the
+  pending-navigation slot through the can-leave protocol, the machine
+  snapshots through bootstrap / spawn / destroy, the elision declarations,
+  the `:rf/hydrate` app-db replacement and server-hash. Those are the flows
+  themselves and they run in the lane.
+
+  The control deftest gains a PRODUCTION witness rather than being guarded
+  away wholesale (which would report green for a deftest that executed
+  nothing). Per the Mike ruling this file cites, `:rf.db/runtime` is
+  reserved BY CONVENTION and surfaced through a dev diagnostic rather than
+  ENFORCED — so in production the sneaky write LANDS. That is the policy's
+  production face and nothing asserted it in either posture before."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
             [re-frame.elision :as elision]
             ;; The routing / ssr / machines subsystem namespaces are loaded
             ;; (and re-installed between tests) by `tf/reset-runtime`, so
@@ -142,9 +176,13 @@
                                    [:rf.runtime/routing :current :route-id]))
           "the :on-match route settled onto the slice")
 
-      (is (empty? @diags)
-          (str "routing navigation events are framework-authority writers — "
-               "no ownership diagnostic; got " (diagnostic-ids diags))))))
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+      ;; under the gate: the diagnostic ring is empty for every input there.
+      ;; The four route-slice writes above are the posture-independent half.
+      (when interop/debug-enabled?
+        (is (empty? @diags)
+            (str "routing navigation events are framework-authority writers — "
+                 "no ownership diagnostic; got " (diagnostic-ids diags)))))))
 
 (deftest can-leave-pending-nav-fires-no-ownership-diagnostic
   (testing "the pending-nav protocol (url-requested / cancel / continue) stays silent"
@@ -177,9 +215,12 @@
       (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))
           ":rf.route/continue completed the navigation")
-      (is (empty? @diags)
-          (str "url-requested / cancel / continue are framework-authority "
-               "writers — no ownership diagnostic; got " (diagnostic-ids diags))))))
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+      ;; under the gate; the pending-slot writes above are the residue.
+      (when interop/debug-enabled?
+        (is (empty? @diags)
+            (str "url-requested / cancel / continue are framework-authority "
+                 "writers — no ownership diagnostic; got " (diagnostic-ids diags)))))))
 
 ;; ===========================================================================
 ;; Machines — :rf/machine? implies framework-write authority
@@ -224,10 +265,22 @@
       ;; (c) explicit destroy — the destroy fx clears the actor from runtime-db.
       (rf/dispatch-sync [:zod/parent [:kill]])
 
-      (is (empty? @diags)
-          (str "machine reg / dispatch / spawn / destroy are framework-"
-               "authority writers (via :rf/machine?) — no ownership "
-               "diagnostic; got " (diagnostic-ids diags))))))
+      ;; SEMANTIC, posture-independent (rf2-lwtlk): the explicit destroy
+      ;; above had no witness at all — its only assertion was the vacuous
+      ;; `empty?`. The parent's `:tearing` entry fires
+      ;; `[:rf.machine/destroy :zod/child]`, so the child's snapshot must be
+      ;; gone from runtime-db while the parent's remains.
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                        [:rf.runtime/machines :snapshots :zod/child]))
+          "the explicit destroy fx cleared the child actor from runtime-db")
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+      ;; under the gate.
+      (when interop/debug-enabled?
+        (is (empty? @diags)
+            (str "machine reg / dispatch / spawn / destroy are framework-"
+                 "authority writers (via :rf/machine?) — no ownership "
+                 "diagnostic; got " (diagnostic-ids diags)))))))
 
 ;; ===========================================================================
 ;; Elision — frame-owned classification install goes through privileged
@@ -261,10 +314,14 @@
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/elision]))
           "the commit-plane effect wrote its declaration registry into runtime-db")
-      (is (empty? @diags)
-          (str "commit-plane classification effects write runtime-db through "
-               "the privileged frame-state commit — no ownership diagnostic; got "
-               (diagnostic-ids diags))))))
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+      ;; under the gate; the three elision-registry pins above are the
+      ;; posture-independent half.
+      (when interop/debug-enabled?
+        (is (empty? @diags)
+            (str "commit-plane classification effects write runtime-db through "
+                 "the privileged frame-state commit — no ownership diagnostic; got "
+                 (diagnostic-ids diags)))))))
 
 ;; ===========================================================================
 ;; SSR hydrate — :rf/hydrate is stamped :rf/framework-authority? true
@@ -288,10 +345,14 @@
       (is (= "deadbeef" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                 [:rf.runtime/ssr :hydration :server-hash]))
           ":rf/hydrate stashed the server-hash into the runtime-db partition")
-      (is (empty? @diags)
-          (str ":rf/hydrate is a framework-authority writer "
-               "(:rf/framework-authority? true) — no ownership diagnostic; got "
-               (diagnostic-ids diags))))))
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
+      ;; under the gate; the app-db replacement + server-hash pins above are
+      ;; the posture-independent half.
+      (when interop/debug-enabled?
+        (is (empty? @diags)
+            (str ":rf/hydrate is a framework-authority writer "
+                 "(:rf/framework-authority? true) — no ownership diagnostic; got "
+                 (diagnostic-ids diags)))))))
 
 ;; ===========================================================================
 ;; Control — an ordinary app handler DOES fire the diagnostic
@@ -306,7 +367,25 @@
                      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :hijacked}}}}))
     (let [diags (record-ownership-diagnostics! ::app-sneaky)]
       (rf/dispatch-sync [:app/sneaky-runtime-write])
-      (is (= [:rf.warning/app-handler-runtime-effect] (diagnostic-ids diags))
-          "a non-framework handler writing :rf.db/runtime trips exactly the warning")
-      (is (= :app/sneaky-runtime-write (-> @diags first :tags :rf.trace/event-id))
-          "the diagnostic names the offending app event-id"))))
+
+      ;; SEMANTIC, posture-independent (rf2-lwtlk), and the reason this
+      ;; deftest is not simply guarded away: `:rf.db/runtime` is reserved BY
+      ;; CONVENTION and surfaced through a DIAGNOSTIC, not enforced (Mike
+      ;; ruling #4, cited in the ns docstring). So the write LANDS — in dev,
+      ;; noisily; in production, silently. That is the policy's production
+      ;; face, and nothing asserted it in either posture before. If a future
+      ;; change turns the warning into a rejection, this is where it surfaces.
+      (is (= :hijacked (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                               [:rf.runtime/routing :current :route-id]))
+          "the diagnostic is advisory, not enforcement — the app handler's
+           :rf.db/runtime write reaches runtime-db in both postures")
+
+      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). This is the
+      ;; CONTROL for the five `empty?` assertions above, and it is the one
+      ;; that goes red first under the gate — correctly, because with the
+      ;; diagnostic elided there is nothing for a control to control.
+      (when interop/debug-enabled?
+        (is (= [:rf.warning/app-handler-runtime-effect] (diagnostic-ids diags))
+            "a non-framework handler writing :rf.db/runtime trips exactly the warning")
+        (is (= :app/sneaky-runtime-write (-> @diags first :tags :rf.trace/event-id))
+            "the diagnostic names the offending app event-id")))))
