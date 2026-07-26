@@ -535,11 +535,52 @@
 
 (defn make-update-arms
   "B6's published arms, plus the two B9 rungs. The published arms are
-  re-taken in the same run so the anchor and the ablation share a box."
-  []
-  (conj (rows/make-update-arms)
-        (b9-update-arm :b9-ref cell-leaf-ref :b9-ref/grid false)
-        (b9-update-arm :b9-nc  cell-leaf-nc  :b9-nc/grid  true)))
+  re-taken in the same run so the anchor and the ablation share a box.
+
+  `reversed?` runs the whole arm list back to front. B6 already rotates
+  the arm order on the SAMPLE index, so no arm is permanently first into
+  a cold cache — but a large-object arm has been observed to inflate its
+  successor 2× reproducibly on this surface (`rf2-88pie`), and the only
+  way to see that is to run both orders."
+  ([] (make-update-arms false))
+  ([reversed?]
+   (let [arms (conj (rows/make-update-arms)
+                    (b9-update-arm :b9-ref cell-leaf-ref :b9-ref/grid false)
+                    (b9-update-arm :b9-nc  cell-leaf-nc  :b9-nc/grid  true))]
+     (if reversed? (vec (reverse arms)) arms))))
+
+;; --- the MOUNT row, over B6's W2 storm shape --------------------------------
+;;
+;; The update row prices the contract on a write. Mount is the other axis
+;; the release gate carries, and `useSyncExternalStore` is paid on every
+;; mount whether anything ever moves or not — so the storm witness runs
+;; the same six arms through B6's mount measurement.
+
+(defn- b9-mount-arm [id leaf]
+  {:id      id
+   :mount   (fn [container _props _n]
+              (let [r (react-dom-client/createRoot container)]
+                (.render r (storm-of leaf))
+                r))
+   :unmount (fn [r] (.unmount r))})
+
+(defn mount-witness
+  "B6's W2 witness — 300 sub-free leaf boundaries, 301 elements — with the
+  two B9 rungs added to its published arms.
+
+  W2 is deliberately the shape that MAXIMISES Freehand's compiled elision,
+  and B6 flags it as overstating Freehand's advantage. That warning is
+  irrelevant to the pair measured here, which is interpreted-shaped on
+  both sides and differs only in the contract."
+  [reversed?]
+  (let [w    (first (filter #(= :W2 (:id %)) rows/mount-witnesses))
+        arms (into (vec (:arms w))
+                   [(b9-mount-arm :b9-ref-storm storm-leaf-ref)
+                    (b9-mount-arm :b9-nc-storm  storm-leaf-nc)])]
+    (assoc w
+           :id :W2-B9
+           :headline? false
+           :arms (if reversed? (vec (reverse arms)) arms))))
 
 ;; ===========================================================================
 ;; 8. The sync-lane probe — the claim in the docstring, measured
