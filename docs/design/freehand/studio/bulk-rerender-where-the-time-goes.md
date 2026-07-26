@@ -290,6 +290,97 @@ should be re-taken once #7133 lands.
 
 ---
 
+## 6. The re-take, 2026-07-27 — the window moved (`rf2-huhno`)
+
+#7133 has landed, and so have two changes that pull the other way:
+`rf2-wxrrp` (`e5cf299fc2`, *fold the commit-side read, the tear check and
+the bundle into one pass*) and `rf2-40kdm` (#7147, *split the render
+candidate's ledger into two fields*). Re-taken against `main` at
+`7c41225b4b`, which carries all three. Same instrument, same window, same
+`--writes 500`, three rounds.
+
+**The headline is not the totals. It is that the window RESTRUCTURED.**
+
+| leg, p50 ms | §1 (pre-#7133) | re-take | |
+|---|---:|---:|---|
+| **total** | **4.0** [3.9–4.5] | **4.8** [4.6–4.9] | **+20%**, disjoint |
+| write | 0.7–0.8 | 0.9–1.0 | +25% |
+| **gap** (the microtask) | **~0.2** | **3.6–3.9** | **×18** |
+| **force** (the empty `flushSync`) | **3.0–3.5** | **~0.0** | **collapsed** |
+
+**Freehand's render has moved out of the measured `flushSync` and into
+the microtask before it.** The empty `react-dom/flushSync` that used to
+carry 3.0–3.5 ms now costs 0.0 — by the time it runs there is nothing
+left to do, because #7133's flush already committed. Nothing has
+disappeared; the same work is in the gap.
+
+That matters beyond bookkeeping. §1's table and `b6-rows`' own commentary
+both treat `:gap-ms` as a near-empty constant priced by the floor and
+Reagent arms reporting `0.0`. **For Freehand that is no longer true**,
+and a reader who takes the force leg as "Freehand's React time" will now
+read 0.0 and conclude the substrate became free.
+
+### The phase shares, same capture method
+
+One 500-write capture, shares converted at the capture's own wall ÷
+writes. Idle 0.07%, GC 1.92%.
+
+| | §2 (pre-#7133) | re-take |
+|---|---:|---:|
+| capture wall ÷ writes | 4.055 ms | 5.148 ms |
+| React **render** (`Kh`) | 37.70% → 1.53 ms | 39.44% → **2.03 ms** |
+| React **commit** layout effects (`Wk`) | 30.48% → 1.23 ms | 26.77% → **1.38 ms** |
+
+The commit phase's *share* fell (30.48% → 26.77%) while its *milliseconds*
+rose (1.23 → 1.38). Both are true and the second is the one to quote: the
+share fell only because the window around it grew. **#7133's extra commit
+pass is visible and it costs about 0.15 ms**, which is roughly what an
+extra pass over the tree should cost and is not the +0.8 ms the total
+moved.
+
+### The published interleaved row, and the ratio that did not move
+
+`b6_prod_run.cjs`, six rounds, arms interleaved at the sample level.
+**0 unverified writes.**
+
+| broad update | published | re-take |
+|---|---:|---:|
+| Freehand interpreted, p50 | 5.4–7.4 ms | 6.9–9.0 ms |
+| Reagent, p50 | — | 0.7–0.9 ms |
+| floor, p50 | — | 0.2–0.3 ms |
+| **Freehand ÷ Reagent** | **10.5×** | **9.9×** |
+
+**The ratio is unchanged within this suite's noise — 10.5× against 9.9×
+— and the absolute got worse.** The operator's standard is a comparison,
+so the conclusion of this page stands exactly as written: the broad
+update is ≈10× Reagent and it is architectural.
+
+Note the `:ratio-to-floor` column is not quoted, and deliberately. The
+broad floor's p50 is 0.2–0.3 ms — two or three of Chrome's 100 µs
+quanta — so the published ratio steps ±33% between rounds and reads
+33.44 [25.67–45.00] for a quantity the direct p50s put at ≈30. The
+Freehand ÷ Reagent ratio above is taken from the p50s directly, which is
+the sharp instrument at this scale.
+
+### What the re-take does NOT settle
+
+`rf2-huhno` also asked whether the row should be re-taken **without** the
+microtask yield, on the reasoning that #7133 gives Freehand a synchronous
+commit and the yield is now historical. **The measurement says the yield
+is still load-bearing for this window, and dropping it is not the
+tightening it sounds like:** the 3.6–3.9 ms now in the gap is Freehand's
+notification and React's render and commit *running inside that
+microtask*. Remove the yield and the work does not vanish — it either
+moves into the `flushSync` or, if the notification has not yet fired,
+lands after the measured window and the DOM read-back fails, which is the
+exact fault `b6-rows` records from the first attempt at this row.
+
+Deciding it needs the non-vacuity check `rf2-0fgth` added, run against a
+yield-free window. Filed as `rf2-vxfjt`; it is a change to the published
+window and does not belong in a re-take.
+
+---
+
 ## Appendix: the W1 interpreted-mount discrepancy, resolved
 
 Two numbers for "interpreted Freehand's W1 mount" were 57% apart and both
