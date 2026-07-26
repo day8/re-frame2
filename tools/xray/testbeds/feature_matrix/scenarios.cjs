@@ -1146,12 +1146,71 @@ function occurrenceOf(row) {
   return match[1];
 }
 
+// The stronger fact this deck can now state (rf2-2t126): a dispatch moves
+// app-db, the Freehand cell that read it REPAINTS, and the DOM shows the new
+// value — on a page that is simultaneously hosting Xray's shell.
+//
+// It was not assertable before. Under a ratom-family adapter a mounted cell's
+// committed read received no change notification at all: the observation port
+// installed its watch on a `reagent.ratom/Reaction` that had captured no
+// sources, because a `Reaction` learns them only through `deref-capture` and a
+// ViewCell, not being a component, supplies no capture context. The port now
+// ACTIVATES the value through `:adapter/activate-derived-value!` (rf2-8cnxg /
+// rf2-jt8vz), and this is the only browser-level proof that the activation
+// holds end to end in a real DOM — the substrate contract tests cover the
+// port, not a cell repainting on the very page Xray is reading.
+//
+// "WITHOUT a remount" is half the claim, so it is asserted rather than
+// assumed. `Mount root` reads current values whatever the notification channel
+// is doing — it is the route the rest of this scenario deliberately uses, and
+// it would satisfy an advance-check on a cell that was never notified at all.
+// The probe is therefore pinned to the readout's DOM NODE: a repaint writes
+// new text into the node already standing there, while any remount replaces it
+// and loses the mark.
+async function expectReactiveRepaint(page) {
+  const PROBE = '__rf2FreehandRepaintProbe';
+  const before = await page.evaluate((probe) => {
+    const el = document.querySelector('[data-testid="fh-count"]');
+    if (!el) return null;
+    el[probe] = true;
+    return (el.textContent || '').trim();
+  }, PROBE);
+  if (before === null) {
+    throw new Error('no [data-testid="fh-count"] readout to watch for a repaint');
+  }
+  if (!/^\d+$/.test(before)) {
+    throw new Error(`the readout is not a count: ${JSON.stringify(before)}`);
+  }
+  const expected = String(Number(before) + 1);
+
+  await page.locator('[data-testid="fh-bump"]').click();
+  await expectTextEquals(page.locator('[data-testid="fh-count"]'), expected, 8000);
+
+  const sameNode = await page.evaluate((probe) => {
+    const el = document.querySelector('[data-testid="fh-count"]');
+    return Boolean(el && el[probe]);
+  }, PROBE);
+  if (!sameNode) {
+    throw new Error(
+      `the readout advanced to ${expected}, but on a REPLACED DOM node — that ` +
+        'is a fresh mount reading a current value, not a reactively-driven ' +
+        'repaint of the cell that was already standing there.',
+    );
+  }
+  return expected;
+}
+
 async function runFreehandViewsPopulatedRoster(page) {
   // The Freehand root paints before Xray is asked to read it.
   await expectTextEquals(page.locator('[data-testid="fh-count"]'), '0', 10000);
 
   await openXray(page);
   await clickTab(page, 'views', 'rf-xray-reactive');
+
+  // Asserted with the shell mounted, and before the roster is read, so a
+  // failure here names the SUBSTRATE (the cell never heard about the write)
+  // rather than the projection (Xray read it wrong).
+  await expectReactiveRepaint(page);
 
   const rows = await pumpEpochAndReadRoster(
     page,
@@ -3837,7 +3896,7 @@ const SCENARIOS = [
     // whole point of the bead is that the PR-time gate is blind here, and a
     // nightly-only scenario leaves it blind. It adds one staged surface to
     // the smoke compile and buys the arm the other three cannot see.
-    name: 'freehand-views populated Views roster: three connected occurrences, per-view facts, declared sites, and fresh occurrence keys across a remount (rf2-6pohj)',
+    name: 'freehand-views populated Views roster: three connected occurrences, per-view facts, declared sites, a reactively-driven repaint (rf2-2t126), and fresh occurrence keys across a remount (rf2-6pohj)',
     url: '/testbeds/freehand-views/',
     smoke: true,
     panels: ['views'],
