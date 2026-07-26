@@ -239,9 +239,20 @@
 
 ;; --- the focused loop, for CPU and ALLOCATION profiles ----------------------
 
+(def ^:private loop-seq
+  "A MONOTONIC mount counter for the focused loop.
+
+  The disambiguator used to be the loop index, which restarts at 0 on every
+  round; the second round of an allocation run then asked to mount a root
+  identity the first round already used and `v/mount` refused it. The counter
+  never repeats, so a round is not distinguishable from any other by anything
+  except which arm it ran."
+  (atom 0))
+
 (defn- profile-loop! [arm n]
-  (dotimes [i n]
-    (let [container (js/document.createElement "div")]
+  (dotimes [_ n]
+    (let [i         (swap! loop-seq inc)
+          container (js/document.createElement "div")]
       (.appendChild js/document.body container)
       (let [holder (atom nil)]
         (react-dom/flushSync
@@ -258,6 +269,57 @@
                    (.unmount (.-react-root ^root/Root @holder)))))
         (.remove container)))))
 
+;; --- the RETAINED-HEAP instrument -------------------------------------------
+;;
+;; Mount K roots of one arm and KEEP THEM MOUNTED. The driver reads the heap
+;; around that, so the reading is RETAINED bytes per live boundary rather than
+;; bytes allocated in passing.
+;;
+;; That is deliberate, and it is a correction. The mount/unmount loop above was
+;; built to be an ALLOCATION counter — "a collection inside the window cannot
+;; make it smaller" — and that premise is false. V8's sampling heap profiler
+;; drops the samples of objects that have since been collected: the same 80,000
+;; objects report 4.77 MB when a global holds them and 0.00 MB when nothing
+;; does. Pointed at a loop that unmounts everything it mounts, it was reporting
+;; the retained residue of a discarded page and calling it allocation, which is
+;; why every arm came back at 10-25 KB for a 301-element React tree.
+;;
+;; Retention happens to be the RIGHT question for this ablation anyway. A
+;; ViewCell is not a transient: it is a cell object, a hook record, a
+;; subscription registration and two layout effects that live for as long as
+;; the boundary is mounted. `kept - elided` over live boundaries is the standing
+;; heap cost of a ViewCell, and unlike wall clock on this box it is a near
+;; deterministic number.
+
+(def ^:private retained (atom []))
+
+(defn- retain! [arm k]
+  (dotimes [_ k]
+    (let [i         (swap! loop-seq inc)
+          container (js/document.createElement "div")]
+      (.appendChild js/document.body container)
+      (let [holder (atom nil)]
+        (react-dom/flushSync
+          (fn []
+            (reset! holder
+                    (if (= :react (:kind arm))
+                      (doto (rdc/createRoot container) (.render ((:el arm))))
+                      (v/mount [(:view arm) (:props arm)] container
+                               {:frame fid
+                                :disambiguator (keyword "studio" (str (:id arm) "-r" i))})))))
+        (swap! retained conj {:container container :mounted @holder :kind (:kind arm)}))))
+  (count @retained))
+
+(defn- release-all! []
+  (doseq [{:keys [container mounted kind]} @retained]
+    (react-dom/flushSync
+      (fn [] (if (= :react kind)
+               (.unmount ^js mounted)
+               (.unmount (.-react-root ^root/Root mounted)))))
+    (.remove container))
+  (reset! retained [])
+  0)
+
 ;; --- entry ------------------------------------------------------------------
 
 (defn ^:export -main []
@@ -270,8 +332,25 @@
               :disambiguator :studio/boot}))
   ;; The driver's allocation window: start the CDP heap sampler, call this,
   ;; stop it. Everything between is one arm.
+  ;; The message, not the mangled object: an :advanced build throws an
+  ;; ExceptionInfo whose class name Closure has renamed, and Playwright reports
+  ;; only that name. A first alloc run failed with `page.evaluate: Dj`, which
+  ;; named nothing. `ex-message` survives minification because it is data.
   (set! (.-__studioRun__ js/window)
-        (fn [id n] (profile-loop! (first (filterv #(= id (:id %)) (arms))) n) true))
+        (fn [id n]
+          (try
+            (profile-loop! (first (filterv #(= id (:id %)) (arms))) n)
+            true
+            (catch :default e
+              (throw (js/Error. (str "arm " id ": " (ex-message e)
+                                     " " (pr-str (ex-data e)))))))))
+  (set! (.-__studioRetain__ js/window)
+        (fn [id k]
+          (try
+            (retain! (first (filterv #(= id (:id %)) (arms))) k)
+            (catch :default e
+              (throw (js/Error. (str "retain " id ": " (ex-message e))))))))
+  (set! (.-__studioReleaseAll__ js/window) (fn [] (release-all!)))
   (set! (.-__STUDIO_VERDICTS__ js/window) (clj->js (verdicts)))
   (let [params (js/URLSearchParams. (.-search js/location))
         target (.get params "profile")]
