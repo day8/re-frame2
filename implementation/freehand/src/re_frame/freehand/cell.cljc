@@ -220,7 +220,15 @@
 ;; The render candidate — a value the caller holds
 ;; ---------------------------------------------------------------------------
 
-(deftype RenderCandidate [cell generation frame incarnation reads events sites thread])
+;; THE LEDGER IS TWO FIELDS, NOT ONE WRAPPER. `order` is the render order —
+;; the site keys as the walk reached them — and `by-site` is what each of
+;; those sites read. They are written by the same [[record-read!]] and read
+;; by the same [[commit!]], but nothing ever wants them as one value: the
+;; commit destructures them apart again on the first line. Holding them in
+;; one map instead cost a rebuilt wrapper per read — `update :order conj`
+;; answered one throwaway map and `assoc-in [:by-site …]` answered another,
+;; and neither was ever read.
+(deftype RenderCandidate [cell generation frame incarnation order by-site events sites thread])
 
 (defn candidate?
   "True when `x` is a [[candidate]]."
@@ -247,7 +255,8 @@
                        (:generation s)
                        frame
                        (when (some? frame) (frame/frame-incarnation-token frame))
-                       (volatile! {:order [] :by-site {}})
+                       (volatile! [])
+                       (volatile! {})
                        (events/candidate (:events s))
                        (volatile! 0)
                        (render-thread))))
@@ -283,7 +292,7 @@
   recorded — an inspection seam for tools and tests, never a
   publication."
   [^RenderCandidate cand]
-  (:by-site @(.-reads cand)))
+  @(.-by-site cand))
 
 ;; ---------------------------------------------------------------------------
 ;; Ambient capture — the one thing that cannot be threaded
@@ -365,19 +374,15 @@
   and no disposal obligation."
   [^RenderCandidate cand site-key query]
   (let [^ViewCell owner-cell (.-cell cand)
-        reads     (.-reads cand)
         prior     (get (:deps @(st owner-cell)) site-key)
         query*    (if (and prior (eq/rf= query (:query prior))) (:query prior) query)
         target    (obs/resolve-target {:query-v query*})
         ev        (obs/probe target)
         v         (:value ev)
         v*        (if (and prior (eq/rf= v (:value prior))) (:value prior) v)]
-    (vswap! reads
-            (fn [r]
-              (-> r
-                  (update :order conj site-key)
-                  (assoc-in [:by-site site-key]
-                            {:query query* :target target :evidence ev :value v*}))))
+    (vswap! (.-order cand) conj site-key)
+    (vswap! (.-by-site cand) assoc site-key
+            {:query query* :target target :evidence ev :value v*})
     v*))
 
 (defn observe!
@@ -409,7 +414,7 @@
     (when (nil? cand)
       (read-outside-render! query))
     (ensure-render-thread! cand query)
-    (record-read! cand (count (:order @(.-reads cand))) query)))
+    (record-read! cand (count @(.-order cand)) query)))
 
 (defn observe-site!
   "The SAME render-time read as [[observe!]], recorded under the site key
@@ -1260,9 +1265,10 @@
         s0                   @(st owner-cell)]
     (if-not (current? cand s0)
       :abandoned
-      (let [{:keys [order by-site]} @(.-reads cand)
-            prior  (:deps s0)
-            fid    (.-frame cand)
+      (let [order   @(.-order cand)
+            by-site @(.-by-site cand)
+            prior   (:deps s0)
+            fid     (.-frame cand)
             {:keys [staged acquired]} (stage! owner-cell prior order by-site)
             ;; The commit-side reads are part of the pre-publication
             ;; TRANSACTION, not a step past it. `obs/read` is a fail-loud
@@ -1324,7 +1330,7 @@
             ;; live against this exact frame with no host yield between
             ;; them — nothing can observe a partial bundle.
             ;; `order` is the candidate's own render order and is already a
-            ;; vector — the reads volatile opens at `[]` and only ever
+            ;; vector — the order volatile opens at `[]` and only ever
             ;; `conj`es — so it is published as it stands. Sharing it is safe
             ;; whatever the candidate does next: a persistent vector's `conj`
             ;; answers a new vector and cannot reach this one.
