@@ -34,9 +34,45 @@
   (`routing_nav_fx_schemas_cljs_test.cljs`): all four fx are
   `:platforms #{:client}`, so on the JVM `handle-one-fx` short-circuits
   to `:rf.fx/skipped-on-platform` BEFORE the validation branch — the
-  args gate can only actually fire on the client host."
+  args gate can only actually fire on the client host.
+
+  ## Posture split (rf2-o5dbf)
+
+  Layers 1 and 2 are production-real and carry no posture guard. The
+  `:schema` WIRING is registrar state, and the ADJUDICATION is `m/validate`
+  against the registered schema — a pure Malli call with nothing gated
+  between the test and the verdict. Both run in the ordinary
+  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
+  `-Dre-frame.debug=false` lane).
+
+  Layer 3, the BOUNDARY, is dev-only BY DESIGN, and it is worth being precise
+  about why because it looks like a defect and is not.
+  `re-frame.schemas.validate/validate-fx!` is literally
+
+      (if interop/debug-enabled? (run-validation …) true)
+
+  so under `-Dre-frame.debug=false` the hot-path fx-args gate returns `true`
+  — accept, do not skip — for EVERY input, conforming or not. That is Spec 010
+  §Production builds: the per-step `validate-*!` hot-path fns are dev-only,
+  and production-build validation is the opt-in boundary interceptor
+  `:rf.schema/at-boundary`, which routes through `validate-with-registered-fn`
+  OUTSIDE the gate. So the layer-3 assertions are kept VERBATIM inside
+  `(when interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+
+  Note what that short-circuit does to the POSITIVE control. Every
+  `(is (true? (validate-through-hook …)))` still passes under the gate — but
+  for the wrong reason: `true` because validation did not run, not because the
+  args conform. A passing run says nothing. Those are inside the arm too, and
+  outside it the same shapes are adjudicated by `m/validate` against the LIVE
+  registration's `:schema`, which is the always-on half of the wired gate: it
+  proves the schema is installed AND that its verdict on those exact args is
+  the one the hook would relay. The `(is (empty? (filter …
+  :rf.error/schema-validation-failure …)))` leg is the ordinary
+  negative-over-the-ring case and is guarded for the ordinary reason. Nothing
+  was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.routing.nav-fx :as nav-fx]
@@ -315,11 +351,24 @@
 
 (defn- validate-through-hook
   "Call the live `:schemas/validate-fx!` hook with the LIVE registration
-  meta for `fx-id`. Returns the boolean `handle-one-fx` honours."
+  meta for `fx-id`. Returns the boolean `handle-one-fx` honours.
+
+  DEV-ONLY VERDICT (rf2-o5dbf): under `-Dre-frame.debug=false` this returns
+  `true` unconditionally — see the ns docstring's posture split. Use
+  `schema-verdict` below for the always-on half."
   [fx-id args]
   (let [validate-fx! (late-bind/get-fn :schemas/validate-fx!)]
     (validate-fx! fx-id :test/originating-event args
                   (registrar/lookup :fx fx-id))))
+
+(defn- schema-verdict
+  "The ALWAYS-ON half of the wired gate (rf2-o5dbf): `m/validate` run against
+  the `:schema` on `fx-id`'s LIVE registration — the very schema
+  `validate-fx!` would consult. Pure Malli, no `interop/debug-enabled?`
+  anywhere between the call and the answer, so it holds under the production
+  gate. Read it as \"what the hook WOULD relay if the hot path were running\"."
+  [fx-id args]
+  (m/validate (:schema (registrar/lookup :fx fx-id)) args))
 
 (deftest validate-fx-hook-is-wired-for-the-nav-fx
   (testing "the schemas artefact is on the routing test classpath and has
@@ -329,21 +378,32 @@
 (deftest nav-fx-args-pass-the-real-validation-hook-when-conforming
   (testing "POSITIVE control through the WIRED path: everything the runtime
             legitimately emits passes, fractional :saved-pos included"
-    (with-trace-recorder! [traces]
-      (is (true? (validate-through-hook :rf.nav/push-url "/cart")))
-      (is (true? (validate-through-hook :rf.nav/replace-url "/checkout")))
-      (is (true? (validate-through-hook :rf.nav/capture-scroll {:url "/cart"})))
-      (is (true? (validate-through-hook
-                   :rf.nav/scroll
-                   {:strategy  :restore
-                    :from      {:id :route/cart}
-                    :to        {:id :route/checkout}
-                    :saved-pos [0.5 1234.75]
-                    :fragment  "section-3"}))
-          "the full five-slot args with a FRACTIONAL :saved-pos pass")
-      (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
-                          @traces))
-          "no schema-validation-failure trace fires for conforming nav args"))))
+    (let [full-scroll {:strategy  :restore
+                       :from      {:id :route/cart}
+                       :to        {:id :route/checkout}
+                       :saved-pos [0.5 1234.75]
+                       :fragment  "section-3"}]
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the LIVE registration's own
+      ;; schema accepts each of these. Under the gate `validate-through-hook`
+      ;; returns true for EVERYTHING, so without this the positive control
+      ;; would pass for the wrong reason and prove nothing.
+      (is (true? (schema-verdict :rf.nav/push-url "/cart")))
+      (is (true? (schema-verdict :rf.nav/replace-url "/checkout")))
+      (is (true? (schema-verdict :rf.nav/capture-scroll {:url "/cart"})))
+      (is (true? (schema-verdict :rf.nav/scroll full-scroll))
+          "the full five-slot args with a FRACTIONAL :saved-pos pass the registered schema")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring): the WIRED
+      ;; hot path, plus a NEGATIVE over the trace ring.
+      (when interop/debug-enabled?
+        (with-trace-recorder! [traces]
+          (is (true? (validate-through-hook :rf.nav/push-url "/cart")))
+          (is (true? (validate-through-hook :rf.nav/replace-url "/checkout")))
+          (is (true? (validate-through-hook :rf.nav/capture-scroll {:url "/cart"})))
+          (is (true? (validate-through-hook :rf.nav/scroll full-scroll))
+              "the full five-slot args with a FRACTIONAL :saved-pos pass")
+          (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
+                              @traces))
+              "no schema-validation-failure trace fires for conforming nav args"))))))
 
 (deftest schema-less-nav-fx-meta-adjudicates-nothing
   (testing "rf2-sqams RED-BEFORE control: the pre-sqams registration meta —
@@ -360,13 +420,26 @@
                               :rf.nav/capture-scroll {:position [0 0]}}]
       (let [validate-fx!    (late-bind/get-fn :schemas/validate-fx!)
             pre-sqams-meta  (dissoc (registrar/lookup :fx fx-id) :schema)]
-        (is (true? (validate-fx! fx-id :test/originating-event
-                                 bad-args pre-sqams-meta))
-            (str fx-id " with a schema-less meta soft-passes " (pr-str bad-args)
-                 " — the pre-sqams behaviour"))
-        (is (false? (validate-through-hook fx-id bad-args))
-            (str fx-id " with the LIVE (schema-bearing) meta rejects the same "
-                 "args — the boundary the spec promises now exists"))))))
+        ;; SEMANTIC, posture-independent (rf2-o5dbf): the control's real
+        ;; subject is that a `:schema` IS installed and DOES reject these
+        ;; args. That is what a future edit dropping a `:schema` would break,
+        ;; and it is checkable without the hot path.
+        (is (some? (:schema (registrar/lookup :fx fx-id)))
+            (str fx-id " still carries a :schema on its live registration"))
+        (is (false? (schema-verdict fx-id bad-args))
+            (str fx-id "'s registered schema rejects " (pr-str bad-args)
+                 " — the boundary the spec promises now exists"))
+        ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). Both legs
+        ;; go through the hot path, which returns `true` unconditionally under
+        ;; -Dre-frame.debug=false, so neither can discriminate there.
+        (when interop/debug-enabled?
+          (is (true? (validate-fx! fx-id :test/originating-event
+                                   bad-args pre-sqams-meta))
+              (str fx-id " with a schema-less meta soft-passes " (pr-str bad-args)
+                   " — the pre-sqams behaviour"))
+          (is (false? (validate-through-hook fx-id bad-args))
+              (str fx-id " with the LIVE (schema-bearing) meta rejects the same "
+                   "args — the boundary the spec promises now exists")))))))
 
 (deftest nav-fx-args-fail-the-real-validation-hook-when-malformed
   (testing "ADVERSARIAL through the WIRED path: at least one malformed shape
@@ -377,20 +450,27 @@
                               :rf.nav/replace-url    42
                               :rf.nav/scroll         {:strategy :smooth}
                               :rf.nav/capture-scroll {:position [0 0]}}]
-      (with-trace-recorder! [traces]
-        (is (false? (validate-through-hook fx-id bad-args))
-            (str fx-id " with " (pr-str bad-args) " fails the wired gate"))
-        (let [violations (filter #(= :rf.error/schema-validation-failure
-                                     (:operation %))
-                                 @traces)]
-          (is (= 1 (count violations))
-              (str fx-id " emitted exactly one schema-validation-failure"))
-          (let [v (first violations)]
-            (is (= :fx-args (-> v :tags :where))
-                "the violation is tagged :where :fx-args (Spec 010 step 5)")
-            (is (= fx-id (-> v :tags :rf.fx/id)))
-            (is (= fx-id (-> v :tags :failing-id)))
-            (is (= :test/originating-event (-> v :tags :event-id))
-                "the originating event-id threads through")
-            (is (= :skipped (:recovery v))
-                "recovery is :skipped — the offending fx alone is dropped")))))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the VERDICT the wired gate
+      ;; relays is the registered schema's own, and it is `false` for each of
+      ;; these shapes in either posture. Only the relaying is dev-gated.
+      (is (false? (schema-verdict fx-id bad-args))
+          (str fx-id "'s registered schema rejects " (pr-str bad-args)))
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (with-trace-recorder! [traces]
+          (is (false? (validate-through-hook fx-id bad-args))
+              (str fx-id " with " (pr-str bad-args) " fails the wired gate"))
+          (let [violations (filter #(= :rf.error/schema-validation-failure
+                                       (:operation %))
+                                   @traces)]
+            (is (= 1 (count violations))
+                (str fx-id " emitted exactly one schema-validation-failure"))
+            (let [v (first violations)]
+              (is (= :fx-args (-> v :tags :where))
+                  "the violation is tagged :where :fx-args (Spec 010 step 5)")
+              (is (= fx-id (-> v :tags :rf.fx/id)))
+              (is (= fx-id (-> v :tags :failing-id)))
+              (is (= :test/originating-event (-> v :tags :event-id))
+                  "the originating event-id threads through")
+              (is (= :skipped (:recovery v))
+                  "recovery is :skipped — the offending fx alone is dropped"))))))))
