@@ -531,19 +531,24 @@
   caller has tokenized the whole payload before reaching this. Reference-
   preserving when the spec declares neither axis. Pure.
 
-  ## Two residues, filed rather than fixed
+  ## Feeds read index-free (rf2-zaopo, closed)
+
+  `redact-with-paths` matched paths EXACTLY, so on an INFINITE feed a
+  `[:data :email]` decl reached nothing in the merged-items vector
+  `infinite-reply-value` delivers under `:value` (`[:value <i> :email]`) while
+  the durable side matched it on every page (`project-entry-data`).
+  `redact-continuation-reply` now opts into the walker's `:index-free?` mode,
+  which is the reading a projection-relative declaration always had on the
+  durable side. Opt-IN, so the walker's other callers — which declare concrete
+  paths — keep the exact match.
+
+  ## One residue, filed rather than fixed
 
     - rf2-dl7bz — a `:params`-rooted declaration also names bytes that ride
       the SIBLING `:resource/key`, and a `:serialize` owner's key rides
       verbatim at trace egress by documented decision
       (`ssr/project-scoped-key`). This closes the reply's copy; the key's copy
-      is the family's universal carrier and is its own ruling.
-    - rf2-zaopo — `redact-with-paths` matches paths EXACTLY, so on an INFINITE
-      feed a `[:data :email]` decl does not reach the merged-items vector
-      `infinite-reply-value` delivers under `:value` (`[:value <i> :email]`).
-      The durable side forks index-free (`project-entry-data`); the carrier
-      walker does not, and teaching it to is a core-primitive change with four
-      callers."
+      is the family's universal carrier and is its own ruling."
   [reply]
   (let [rid  (second (:resource/key reply))
         spec (when (keyword? rid) (registry/resource-meta rid))]
