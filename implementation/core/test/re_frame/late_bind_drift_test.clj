@@ -397,3 +397,46 @@
                  "Update BOTH the directory description roster and the "
                  "epoch-destroy-bundle-roster expectation in lockstep (the "
                  "producer/consumer ABI is the runtime authority)."))))))
+
+(def ^:private reprojection-hook-keys
+  "The two live-frame reprojection hooks whose descriptions rf2-9c2jf made
+  false. `make-frame` seals a generation UNCONDITIONALLY, so gating the
+  MAINTAINER of that generation froze every frame's view of the registration
+  pool at construction time — under `-Dre-frame.debug=false` a `reg-*` after
+  `make-frame` dispatched as `:rf.error/no-such-handler` while
+  `registrar/lookup` held the handler. The gate is gone; the directory rows
+  described it for another two PRs anyway (rf2-h8l4x)."
+  [:live-frame/mark-projection-dirty! :live-frame/flush-projection!])
+
+(def ^:private retired-gate-phrases
+  "Phrasings that assert the RETIRED debug gate on the reprojection wiring.
+  Matched case-insensitively against the two `reprojection-hook-keys`
+  descriptions. Narrow on purpose — this is a tripwire on two rows that have
+  already drifted once, not a general description-accuracy framework."
+  ["dev-only" "debug-gated" "stops mutating after boot"])
+
+(deftest reprojection-hooks-are-not-described-as-dev-only
+  (testing "The two live-frame reprojection rows describe an UNGATED maintainer (rf2-h8l4x / rf2-9c2jf)"
+    ;; `late_bind_drift_test` pins key/publisher parity, which is precisely why
+    ;; this drift survived PR #7114: the keys never moved, only the story about
+    ;; them stayed false. The directory is the normative inventory an author
+    ;; consults to learn whether a hook is production-live, so a row that
+    ;; re-acquires the retired rationale re-seeds the defect class.
+    (doseq [k reprojection-hook-keys]
+      (let [desc (:description (directory/entry k))]
+        (is (some? desc) (str k " must have a directory entry"))
+        (let [lowered (str/lower-case (or desc ""))
+              stale   (filter #(str/includes? lowered %) retired-gate-phrases)]
+          (is (empty? stale)
+              (str k " re-asserts the retired debug gate: "
+                   (pr-str (vec stale)) "\n"
+                   "rf2-9c2jf removed it — keeping a frame's sealed generation in "
+                   "step with the registration pool is a CORRECTNESS invariant, not "
+                   "a diagnostic, and the production elision is preserved by "
+                   "REACHABILITY from `make-frame` (only "
+                   "`ensure-reprojection-installed!` publishes these keys) rather "
+                   "than by an `interop/debug-enabled?` gate."))
+          (is (str/includes? (or desc "") "rf2-9c2jf")
+              (str k " dropped its rf2-9c2jf citation. The row must keep saying WHY "
+                   "the maintainer is ungated, or the next author reinstates the "
+                   "gate and reproduces the release blocker.")))))))
