@@ -692,7 +692,7 @@ state-reading view needs; none simulates behaviour.
 | `(t/with-render body…)` | the value of `body`, run inside a **discardable render** — the bracket a view that reads state is rendered in |
 | `(t/find tree pred)` | the first node the predicate matches, or nil |
 | `(t/find-all tree pred)` | every matching node, in document order |
-| `(t/attrs node)` | the merged attribute projection — `:attrs` + `:events` on an element, `:props` on a view boundary, `{}` on a fragment, nil on nil |
+| `(t/attrs node)` | the merged attribute projection — `:attrs` + `:events` on an element, `:props` on a view boundary **and on a declared `v/defhost` crossing** (the authored ordinary props, each filled callback position recorded as its opaque role marker), `{}` on a fragment, nil on nil |
 | `(t/text node)` | the node's text descendants, concatenated in document order |
 
 `find` / `find-all` are conveniences over the whole traversal API, which is ordinary

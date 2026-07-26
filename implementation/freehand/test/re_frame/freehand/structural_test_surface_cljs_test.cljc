@@ -48,6 +48,31 @@
    (v/presence {:timeout-ms 250}
      [:span {:key "x"} "inside"])])
 
+;; A declared host, and a view that crosses it. On the JVM the declaration
+;; drops the component — a `v/defhost` expansion carries it only in
+;; ClojureScript — so one `.cljc` declaration answers a structural render
+;; here and a real mount in the browser.
+(def DatePicker "some-date-picker/DatePicker")
+
+(v/defhost date-picker
+  "A third-party date picker — the third legal vector head (D022)."
+  DatePicker
+  {:callbacks {:onChange :event}
+   :children  :none
+   :ssr       :client-only})
+
+(v/defview booking-date
+  "The crossing, with one ordinary prop and one declared callback position."
+  [{:keys [date]}]
+  [date-picker {:selected date
+                :onChange (v/event [js-date] [:booking/date-picked js-date])}])
+
+(v/defview bare-crossing
+  "The same host with nothing in its ordinary plane — the smallest node the
+  crossing can produce."
+  [_]
+  [date-picker {}])
+
 ;; ---------------------------------------------------------------------------
 ;; The surface — render / find / find-all / text / attrs
 ;; ---------------------------------------------------------------------------
@@ -107,6 +132,46 @@
       (is (= {} (t/attrs (t/render [nothing {}])))
           "a nothing-view boundary has no props, so attrs is the empty map")
       (is (nil? (t/attrs nil)) "nil threads through a missed traversal"))))
+
+(deftest attrs-reaches-a-declared-hosts-props
+  (testing "a `v/defhost` crossing is its own node variant, and its `:props`
+            are the most assertable half of the crossing — Spec 004
+            §Structure and SSR calls the recorded callback marker `the
+            permitted public evidence`. So the ONE attribute read the surface
+            advertises must reach them. Before rf2-c20nr the host node fell
+            through the discriminator to the fragment arm and `attrs`
+            answered `{}` — silently, because that arm is documented total."
+    (let [host (t/find (t/render [booking-date {:date "2026-01-05"}])
+                       #(contains? % :rf.ui/host))]
+      (is (some? host) "the crossing is a node in the tree")
+      (is (= {:selected "2026-01-05"
+              :onChange {:rf.ui/opaque :v/event}}
+             (t/attrs host))
+          "the authored ordinary prop AND the declared callback's role marker")
+      (is (= ::date-picker (:rf.ui/host host))
+          "the host identity stays a FIELD read, as the node schema has it")
+      (is (= :client-only (:rf.ui/host-ssr host))
+          "and so does the declared SSR policy"))
+    (is (= {} (t/attrs (t/find (t/render [bare-crossing {}])
+                               #(contains? % :rf.ui/host))))
+        "a crossing with an empty ordinary plane records no :props, and the
+         projection is the empty map rather than nil")))
+
+(deftest attrs-is-empty-for-the-marker-fragments-because-they-have-none
+  (testing "rf2-c20nr asked whether `:rf.ui/presence` and `:rf.ui/boundary`
+            share the host's gap. They do not, and the reason is worth
+            pinning: per 004B §Reserved `:rf.ui/*` keys both are FRAGMENT
+            nodes carrying diagnostic metadata, so `{}` is the true answer
+            and their metadata is an ordinary keyword field read."
+    (let [presence (t/find (t/render [marked {}]) #(contains? % :rf.ui/presence))]
+      (is (= {} (t/attrs presence)) "a presence marker has no attributes")
+      (is (= {:phase :present :timeout-ms 250} (:rf.ui/presence presence))
+          "its metadata is a field, and reads as one"))
+    (let [boundary (t/find (t/render (v/client-only {:fallback [:p "later"]}
+                                                    [:div.chart]))
+                           #(contains? % :rf.ui/boundary))]
+      (is (= {} (t/attrs boundary)) "and neither does a client-only boundary")
+      (is (= :client-only (:rf.ui/boundary boundary))))))
 
 (deftest text-descends-in-document-order
   (testing "text collects string leaves under a node, descending through
