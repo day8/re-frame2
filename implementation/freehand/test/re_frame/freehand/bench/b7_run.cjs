@@ -57,7 +57,7 @@ const http = require('node:http');
 const path = require('node:path');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
-const OUT = path.join(IMPL, 'out', 'b7');
+const OUT = path.join(IMPL, process.env.B7_OUT_DIR || path.join('out', 'b7'));
 const PORT = Number(process.env.B7_PORT || 8131);
 
 const ROUNDS = Number(process.env.B7_ROUNDS || 6);
@@ -68,7 +68,12 @@ const CONTROL_DOUBLES = Number(process.env.B7_CONTROL_DOUBLES || 587500);
 const CONTROL_PREDICTED = CONTROL_DOUBLES * 8;
 const WANT_SNAPSHOT = process.env.B7_SNAPSHOT !== '0';
 
-const HEAP_ARMS = [
+// The published arm set. `B7_ARMS` (comma-separated) overrides it, and
+// `B7_INIT_FN` points the bundle at a different `:init-fn` — the two seams
+// an ABLATION LADDER needs in order to ride this collector rather than
+// grow a second one. Neither has a default that changes anything: with
+// both unset this file is byte-for-byte the published instrument.
+const HEAP_ARMS = (process.env.B7_ARMS || [
   'storm/floor',
   'storm/freehand',
   'storm/reagent',
@@ -76,7 +81,10 @@ const HEAP_ARMS = [
   'reactive/floor',
   'reactive/freehand',
   'reactive/reagent',
-];
+].join(',')).split(',').map((s) => s.trim()).filter(Boolean);
+
+const INIT_FN = process.env.B7_INIT_FN || 're-frame.freehand.bench.b7-app/-main';
+const OUT_DIR = process.env.B7_OUT_DIR || 'out/b7';
 
 const ONLY = (() => {
   const i = process.argv.indexOf('--only');
@@ -91,8 +99,8 @@ const ONLY = (() => {
 // whitespace when the EDN contains a newline and then reports `EOF while
 // reading` from a fragment.
 const CONFIG_MERGE =
-  '{:output-dir "out/b7" :asset-path "." ' +
-  ':modules {:main {:init-fn re-frame.freehand.bench.b7-app/-main}}}';
+  `{:output-dir "${OUT_DIR}" :asset-path "." ` +
+  `:modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
   console.error('[b7] building :advanced bundle ...');
