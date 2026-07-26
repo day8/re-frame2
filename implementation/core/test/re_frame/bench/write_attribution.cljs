@@ -114,7 +114,10 @@
   Environment: WA_N (subscriptions, default 300), WA_SAMPLES,
   WA_WARMUP, WA_ORDER=rev (run the arms back-to-front — if the answer
   survives that, arm order is not a confound)."
-  (:require [re-frame.core :as rf]
+  (:require [goog.object :as gobj]
+            [goog.string :as gstring]
+            [goog.string.format]
+            [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.live-frame :as live-frame]
@@ -132,12 +135,12 @@
   (.-heapUsed (js/process.memoryUsage)))
 
 (defn- collect! []
-  (when-let [g (goog.object/get js/globalThis "gc")]
+  (when-let [g (gobj/get js/globalThis "gc")]
     (g)
     (g)))
 
 (defn- env [k d]
-  (or (goog.object/get (.-env js/process) k) d))
+  (or (gobj/get (.-env js/process) k) d))
 
 (defn- env-int [k d] (js/parseInt (env k (str d)) 10))
 
@@ -396,11 +399,11 @@
     (vreset! ctl-small (packed-doubles ctl-small-d))
     (vreset! ctl-large (packed-doubles ctl-large-d))
     (build-rig! n n ns-per-frame)
-    (println (format ";; rf2-jr76s WRITE attribution — node V8, :advanced"))
-    (println (format ";; debug-enabled? = %s   gc-exposed? = %s"
+    (println (gstring/format ";; rf2-jr76s WRITE attribution — node V8, :advanced"))
+    (println (gstring/format ";; debug-enabled? = %s   gc-exposed? = %s"
                      interop/debug-enabled?
-                     (some? (goog.object/get js/globalThis "gc"))))
-    (println (format ";; n=%d samples=%d warmup=%d order=%s frames=%s"
+                     (some? (gobj/get js/globalThis "gc"))))
+    (println (gstring/format ";; n=%d samples=%d warmup=%d order=%s frames=%s"
                      n samples warmup (if rev? "REVERSED" "forward")
                      (pr-str ns-per-frame)))
     ;; Agreement gate: every held subscription must read what the writer
@@ -409,7 +412,7 @@
           v (next-gen!)]
       (frame/replace-app-db! f (update (frame/frame-app-db-value f) :cells assoc 3 v))
       (let [got (binding [frame/*current-frame* f] (deref (subs/subscribe [(keyword "wa" "cell3")])))]
-        (println (format ";; agreement at cell3: wrote %d read %s -> %s"
+        (println (gstring/format ";; agreement at cell3: wrote %d read %s -> %s"
                          v (pr-str got) (if (= v got) "AGREE" "*** DISAGREE ***")))
         (when-not (= v got)
           (throw (ex-info "graph not wired; measurement is meaningless" {:wrote v :read got})))))
@@ -435,7 +438,7 @@
                    (dotimes [_ warmup] (f))
                    (let [reps (calibrate f 2000000)
                          r    (measure f reps samples)]
-                     (println (format ";; %-12s reps=%-6d %12s B/call  [%s – %s]  per-unit %10s B  (%d ok, %d dropped)"
+                     (println (gstring/format ";; %-12s reps=%-6d %12s B/call  [%s – %s]  per-unit %10s B  (%d ok, %d dropped)"
                                       label reps (fmt (:p50 r)) (fmt (:lo r)) (fmt (:hi r))
                                       (fmt (/ (:p50 r) per)) (:accepted r) (:dropped r)))
                      (assoc acc label (assoc r :per per))))
@@ -445,31 +448,31 @@
       (println ";;")
       (println ";; CONTROL — slope across two decades, predicted 8.000 B/double")
       (let [slope (/ (- (b "CTL-L") (b "CTL-S")) (- ctl-large-d ctl-small-d))]
-        (println (format ";;   small D=%d %s B    large D=%d %s B"
+        (println (gstring/format ";;   small D=%d %s B    large D=%d %s B"
                          ctl-small-d (fmt (b "CTL-S")) ctl-large-d (fmt (b "CTL-L"))))
-        (println (format ";;   measured slope %.4f B/double   predicted 8.0000   %+.3f%%"
+        (println (gstring/format ";;   measured slope %.4f B/double   predicted 8.0000   %+.3f%%"
                          slope 8.0 (* 100.0 (/ (- slope 8.0) 8.0)))))
       (println ";;")
       (println ";; THE LADDER — bytes per WRITE")
       (doseq [[lbl v] [["MKDB      the application's own new-db value" (b "MKDB")]
                        ["BAREATOM  + reset! on a watch-free atom"      (b "BAREATOM")]
                        ["SPINE0    + the substrate's replace-container!" (b "SPINE0")]]]
-        (println (format ";;   %-46s %10s B" lbl (fmt v))))
+        (println (gstring/format ";;   %-46s %10s B" lbl (fmt v))))
       (doseq [cnt ns-per-frame]
-        (println (format ";;   %-46s %10s B"
+        (println (gstring/format ";;   %-46s %10s B"
                          (str "RFWRITE-" cnt "  frame/replace-app-db!, " cnt " subs")
                          (fmt (b (str "RFWRITE-" cnt))))))
       (println ";;")
       (let [lo (first ns-per-frame) hi (last ns-per-frame)
             slope (/ (- (b (str "RFWRITE-" hi)) (b (str "RFWRITE-" lo))) (- hi lo))]
-        (println (format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write" (fmt slope)))
+        (println (gstring/format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write" (fmt slope)))
         (println ";;")
         (println ";; WHERE THE PER-SUBSCRIPTION BYTES GO (each arm × n, reported per sub)")
         (doseq [l ["P-BODY" "P-EQDB" "P-SCOPE" "P-EMIT" "P-MEMO" "Q-SCHED" "P-VALS"]]
           (let [v (/ (b l) n)]
-            (println (format ";;   %-10s %10s B/sub   %5.1f%% of the slope"
+            (println (gstring/format ";;   %-10s %10s B/sub   %5.1f%% of the slope"
                              l (fmt v) (* 100.0 (/ v slope))))))
-        (println (format ";;   %-10s %10s B/sub"
+        (println (gstring/format ";;   %-10s %10s B/sub"
                          "RESIDUAL" (fmt (- slope (/ (b "P-MEMO") n)
                                             (/ (b "Q-SCHED") n) (/ (b "P-VALS") n)))))))
-    (println (format ";; sink %s %s" @sink (some? @sink2)))))
+    (println (gstring/format ";; sink %s %s" @sink (some? @sink2)))))
