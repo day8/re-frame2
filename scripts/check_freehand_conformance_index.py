@@ -270,7 +270,7 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 # it does not exist.
 #
 # But a site is not a proof.  What makes a row proven is that an ASSERTION runs
-# against the fixture, and ten shapes are indistinguishable from a proof to a
+# against the fixture, and twelve shapes are indistinguishable from a proof to a
 # scan that stops short of the assertions:
 #
 #     ;; (conf/fixture :FH-CALL-001)              a comment
@@ -291,6 +291,8 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 #     (deftest t (is (= `fx 1)))                  and not a reference to it
 #     (def fx (conf/fixture :FH-CALL-001))        the quoted datum ANNOTATED, so
 #     (deftest t (is (vector? '^{:a 1} [fx])))    the quote's EXTENT was miscounted
+#     (def fx (conf/fixture :FH-CALL-001))        the quoted datum TAGGED — the
+#     (deftest t (is (= '#js [fx] 1)))            same extent, one prefix along
 #
 # The first three are the false greens the first merged-PR audit found; the
 # fourth was the same mistake waiting; the next two are what the SECOND audit
@@ -300,10 +302,12 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 # the ninth is the FOURTH, because a name is not any run of symbol characters —
 # `:fx` was read as `fx`, and a datum stood in for a Var; the tenth is the FIFTH,
 # because a token is not a reference either — `` `fx `` IS the token `fx`, and
-# quoted data is data; and the last is the SIXTH, because knowing WHICH datum is
+# quoted data is data; the eleventh is the SIXTH, because knowing WHICH datum is
 # quoted still leaves HOW FAR it reaches, and `^` reaches over two datums rather
-# than one.  Each one lets a law be retired by deletion — comment out the proof,
-# keep the line — with the gate still calling the row proven.
+# than one; and the last is the SEVENTH, because `^` was never the only prefix of
+# that shape — `#tag datum` is two datums as well, and `#js` is the one a CLJS
+# author writes daily.  Each one lets a law be retired by deletion — comment out
+# the proof, keep the line — with the gate still calling the row proven.
 #
 # So the scan reads FORMS, then the ASSERTIONS, then the NAMES — and it reads a
 # name from a TOKEN BOUNDARY, in an EVALUATED position.  Three reductions come
@@ -320,10 +324,11 @@ _SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 #
 # All three ask `_datum_end` how far a datum reaches, so its arithmetic is the one
 # place a mistake reaches all of them: `#_` discards a datum, a reader conditional
-# pairs its arms as datums, and a quote blanks one.  `^` is the shape that gets
-# that arithmetic wrong if it is filed with the one-datum prefixes, because it
-# consumes its metadata AND the target that metadata annotates — see
-# `_META_PREFIX`.
+# pairs its arms as datums, and a quote blanks one.  Two shapes get that arithmetic
+# wrong if they are filed with the one-datum prefixes, because each consumes a
+# datum AND the datum after it: `^`, which takes its metadata and then the target
+# that metadata annotates, and `#tag`, which takes the tag and then the datum the
+# tag reads — see `_META_PREFIX` and `_TAG_DISPATCH_RE`.
 #
 # Then `_top_level_forms` splits what survives on balanced parens; `_SYMBOL_RE`
 # matches a symbol only where one STARTS, so a keyword stays data; `_read_tree`
@@ -499,7 +504,9 @@ _OPENERS = {"(": ")", "[": "]", "{": "}"}
 # `'`, `` ` ``, `~`, `~@` and `@`.  One fact and therefore one authority —
 # `_datum_end` needs it to find a datum's extent and `_evaluated` needs it to
 # find where a quoted datum begins.  `~@` is two of these characters and both are
-# in the set, so one loop reads it.
+# in the set, so one loop reads it.  `#` is in the set for the DELIMITED dispatch
+# forms only — `#(`, `#{`, `#"`, `#'` — because a `#` that heads a TAG reaches
+# over two datums instead; see `_TAG_DISPATCH_RE`.
 _PREFIXES = "#'`~@"
 # `^` is the prefix that is NOT one of them, and reading it as one was a false
 # green a merged-PR audit had to reproduce.  `^` consumes TWO datums — its
@@ -513,18 +520,51 @@ _PREFIXES = "#'`~@"
 # constant, and its own step in `_datum_end`, because "belongs to the datum that
 # follows" is exactly the sentence that is untrue of it.
 _META_PREFIX = "^"
+# AND `^` WAS NEVER THE ONLY ONE.  A TAGGED LITERAL is `#tag datum` — the same
+# two-datum shape, one prefix along — and it was read as consuming the tag alone,
+# so `_datum_end("#js {:a fx}")` came back `#js`.  Both false-green axes of the
+# family follow from that and were reproduced: `'#js [fx]` blanked `'#js` and left
+# `[fx]` standing as a live reference, so a `deftest` naming the fixture only
+# inside quoted data proved a row; and `#_#?(:clj (def fx …))` discarded only the
+# `#?`, so the `(:clj (def fx …))` list survived to bind a fixture the reader
+# never sees.  The arithmetic is `^`'s, so it is the same step in `_datum_end`.
+#
+# WHAT THE TAG NEEDS AND `^` DID NOT IS AN EXCLUSION LIST, because `#` heads the
+# delimited dispatch forms too and each of those is ONE datum.  So the rule is
+# stated positively — a `#` heads a two-datum dispatch when a SYMBOL could start
+# where it points, or a `:` does — and then three shapes are named out of it:
+#
+#     #'x            a VAR QUOTE, one datum, and `'` is inside `_SYMBOL_HEAD`
+#     #_x            a DISCARD, skipped upstream, and `_` is in there as well
+#     ##Inf  ##NaN   a SYMBOLIC VALUE, one token, whose second `#` would
+#                    otherwise read as a tag over `Inf` and swallow what follows
+#
+# The first two are why this needs an exclusion list at all: the naive "a symbol
+# character follows the `#`" rule mis-reads `#'x`, because `'` and `_` are both
+# symbol characters.  The third is a LOOKBEHIND rather than a lookahead, and it is
+# not hypothetical — `##NaN` is written straight into the adapter suites.
+#
+# `#(`, `#{` and `#"` need no naming: `(`, `{` and `"` are not symbol heads, so
+# they never match, and each stays the delimited datum it already was.  What falls
+# IN is `#?` and `#?@`, because `?` is a symbol head and a reader conditional
+# really is `#?` over the arm list; `#js`, `#inst`, `#uuid`, `#queue` and any
+# qualified `#foo/Bar`; and `#:ns{…}` / `#::{…}`, the namespaced map, which is the
+# same two-datum reach spelled with a `:` instead of a tag name.
+_TAG_DISPATCH_RE = re.compile(rf"(?<!#)#(?=[:{_SYMBOL_HEAD}])(?!['_])")
 
 
 def _prefix_end(text: str, start: int) -> int:
     """The index of the datum the run of reader prefixes at `start` introduces.
 
     `start` itself when there is no prefix there, so this is safe to call on any
-    position a datum may begin at.  `^` is not among them and stops the run: the
-    datum a `^` introduces begins AT the `^`, and how far it then reaches is
-    `_datum_end`'s question rather than this one's.
+    position a datum may begin at.  The two-datum prefixes are not among them and
+    stop the run: the datum a `^` or a `#tag` introduces begins AT the `^` or the
+    `#`, and how far it then reaches is `_datum_end`'s question rather than this
+    one's.  `^` is outside `_PREFIXES` outright; a tag `#` is inside it and has to
+    be told apart from `#'`, `#(`, `#{` and `#"`, which are one datum each.
     """
     i, n = start, len(text)
-    while i < n and text[i] in _PREFIXES:
+    while i < n and text[i] in _PREFIXES and not _TAG_DISPATCH_RE.match(text, i):
         i += 1
     return i
 
@@ -535,10 +575,12 @@ def _datum_end(text: str, start: int) -> int:
     Whitespace and stacked `#_`s are skipped first, so `#_ #_ a b` discards both
     `a` and `b` the way the reader does.
 
-    A `^` reaches over TWO datums, and the step is recursive so that the shapes
-    which stack fall out of one rule rather than three: `^:private ^:const x`
+    `^` and `#tag` each reach over TWO datums — the metadata and its target, the
+    tag and the datum it reads — and the step is recursive so that the shapes
+    which stack fall out of one rule rather than five: `^:private ^:const x`
     annotates twice, `^{:doc "d"} 'x` annotates a datum carrying its own prefix,
-    and `^:m ^:n [a b]` ends where the vector ends.
+    `^:m ^:n [a b]` ends where the vector ends, `#js ^{:m 1} [a]` tags an
+    annotated one, and `#?(:cljs #js [a])` nests a tag inside a conditional.
     """
     i = start
     n = len(text)
@@ -552,8 +594,10 @@ def _datum_end(text: str, start: int) -> int:
     if i >= n:
         return n
     i = _prefix_end(text, i)
-    if i < n and text[i] == _META_PREFIX:
-        # The metadata datum, and then the datum it annotates.
+    if i < n and (text[i] == _META_PREFIX or _TAG_DISPATCH_RE.match(text, i)):
+        # A two-datum prefix: the metadata datum and then the datum it
+        # annotates, or the tag datum and then the datum the tag reads.  One
+        # step, because it is one piece of arithmetic.
         return _datum_end(text, _datum_end(text, i + 1))
     if i < n and text[i] in _OPENERS:
         return _form_end(text, i)
@@ -2362,6 +2406,114 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
+        # Red: A QUOTED DATUM MAY BE TAGGED, which is the annotated shape one
+        # prefix along and the commoner of the two by two orders of magnitude —
+        # `#js` is the reader macro a CLJS author writes daily.  `#tag datum` is
+        # two datums exactly as `^meta target` is, and read as consuming the tag
+        # alone the quote's blank ended after `'#js` and left `[fx]` standing in
+        # code.  This assertion is true in Clojure with no `fx` binding in the
+        # image at all.
+        "census_tagged_reader_quote_shaped_like_the_fixture_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (vector? '#js [fx])))\n"},
+            (),
+            (),
+        ),
+        # Red: the syntax-quoted twin.  One extent calculation serves both
+        # spellings, so pinning both is what says the fix is the arithmetic rather
+        # than a patch on the `'` branch.
+        "census_tagged_syntax_quote_shaped_like_the_fixture_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (vector? `#js [fx])))\n"},
+            (),
+            (),
+        ),
+        # Red: THE TAG EXTENT READ BY THE DISCARD PASS, which is the second axis
+        # of the same arithmetic and the one that hides a whole binding.  `#_`
+        # discards the next datum, and the next datum here is the READER
+        # CONDITIONAL — `#?` plus its arm list.  Counted the short way only the
+        # `#?` went, so the `(:clj (def fx …))` list survived to bind a fixture
+        # the reader never sees: `census_discarded_proof_site` defeated by one
+        # conditional.
+        "census_reader_conditional_on_a_discarded_proof_site": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "#_#?(:clj (def fx (conf/fixture :FH-CALL-001)))\n"
+                                 "(deftest t (is (seq fx)))\n"},
+            (),
+            (),
+        ),
+        # Green, and the control for OVER-tightening on this axis.  A tag is not a
+        # quote: `#js [fx]` in an evaluated position really does read the Var, tag
+        # and all.  Read the extent as "the tag swallows the target" rather than
+        # "the tag's DATUM is the pair" and this honest row reds — the same trap
+        # the annotated-datum control above guards, one prefix along.
+        "census_tagged_literal_in_an_evaluated_position_reads_the_fixture": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (seq #js [fx])))\n"},
+            (),
+            (),
+        ),
+        # Green, and the half of the tag fix that RECOVERS an edge.  `~` unquotes
+        # the datum after it, and when that datum is tagged the datum is the pair,
+        # so `~#js [fx]` evaluates the Var inside the template.  Counted the short
+        # way the unquote reached only the tag `js` and `fx` stayed blanked with
+        # the rest of the quote, so this honest row red at `DEAD PROOF SITE`: one
+        # arithmetic error in one place cost a green here and gave one away above.
+        "census_tagged_literal_in_an_unquote_island_reads_the_fixture": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (= `(a ~#js [fx]) 1)))\n"},
+            (),
+            (),
+        ),
+        # Green, and the control that says the tag's TARGET may be a string.  A
+        # `#inst` reads the literal beside it and stops there, so the quote covers
+        # `'#inst "2020"` and no more — `(first fx)` is a live read in the same
+        # statement and the row is proven.  Drop the string branch from the extent
+        # step and the quote runs on through the call, reddening an honest row.
+        "census_tagged_instant_extent_stops_at_its_string": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 '  (is (= \'#inst "2020" (first fx))))\n'},
+            (),
+            (),
+        ),
+        # Green, and the control the EXCLUSION LIST exists for.  `#'fx` is a VAR
+        # QUOTE and ONE datum, so `'#'fx` reaches exactly that far and the
+        # `(seq fx)` beside it stays live code.  Both `'` and `_` are inside
+        # `_SYMBOL_HEAD`, so a tag rule written as "a symbol character follows the
+        # `#`" reads `#'fx` as the tag `'fx` over the next datum, swallows the
+        # call, and reds this row.  The list is the reviewable half of the fix and
+        # this is what checks it.
+        "census_var_quote_inside_a_quote_is_one_datum": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (= '#'fx (seq fx))))\n"},
+            (),
+            (),
+        ),
+        # Green, and the tag extent read by a THIRD pass.  A reader conditional
+        # pairs its arms as datums, so an arm VALUE that is a tagged literal
+        # shifts every pair after it: read as two datums, `#js {}` made `:clj` an
+        # arm VALUE and the `(conf/fixture …)` beside it belonged to nobody, so
+        # the JVM branch came back empty and the fixture site vanished.  Loud
+        # rather than silent — but a lane losing a real proof is the same
+        # arithmetic failing the other way.
+        "census_reader_conditional_arm_after_a_tagged_literal": (
+            {"CALL": _row(applicability="common jvm ssr")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(def fx #?(:cljs #js {}\n"
+                                 "           :clj (conf/fixture :FH-CALL-001)))\n"
+                                 "(deftest t (is (seq fx)))\n"},
+            (),
+            (),
+        ),
         # Red: the same reduction on the OTHER surface a datum reaches a fixture
         # through.  Here the quoted datum is the `(conf/fixture …)` CALL itself,
         # so the id is read straight off the assertion without a binding in
@@ -2739,6 +2891,52 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
+        # Red: THE TAG EXTENT ON THE WITNESS AXIS.  The fixture is genuinely read
+        # — `(map? fx)` is a real reference in the same statement — so nothing but
+        # the mode witness is in question.  The declaration is named ONLY inside a
+        # quoted TAGGED vector, and the short extent left `[panel]` standing in
+        # code, so a `compiled jvm` row was witnessed by a datum.
+        "census_tagged_reader_quote_shaped_like_the_compiled_declaration": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (and (map? fx)\n"
+                                 "           (vector? '#js [panel]))))\n"},
+            (),
+            (),
+        ),
+        # Red: the syntax-quoted twin on the witness axis.  Four reds is what this
+        # family costs too — two spellings x two axes — because one extent
+        # calculation serves both and a pin on one axis alone would not say so.
+        "census_tagged_syntax_quote_shaped_like_the_compiled_declaration": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (and (map? fx)\n"
+                                 "           (vector? `#js [panel]))))\n"},
+            (),
+            (),
+        ),
+        # Green, and the over-tightening control for the pair above.  The same
+        # vector UNQUOTED: `#js [panel]` evaluates its element, so the assertion
+        # really does reach the declaration and the `compiled` claim really is
+        # witnessed.  One `'` apart from the first red above, and the rule has to
+        # keep them apart in both directions.
+        "census_tagged_literal_in_an_evaluated_position_witnesses_the_mode": (
+            {"CALL": _row(applicability="compiled jvm")},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "(v/defview panel {:compiled true} [_] [:div])\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t\n"
+                                 "  (is (and (map? fx)\n"
+                                 "           (vector? #js [panel]))))\n"},
+            (),
+            (),
+        ),
         # Green: the narrowing control on THIS axis.  The declaration is named
         # inside a template and UNQUOTED, so the assertion really does evaluate
         # the Var and really does reach the compiled tier.  One `~` apart from
@@ -3037,6 +3235,79 @@ def _build_self_test_fixtures(base: Path) -> None:
     )
 
 
+# HOW FAR A DATUM REACHES, pinned directly.
+#
+# Every other self-test here builds a mini-repo and reads a defect count off it,
+# which is the right shape for a rule about PROOFS.  `_datum_end`'s exclusion list
+# is a rule about the READER, and most of it has no census-level symptom at all:
+# nothing writes `'#{a b}` beside a fixture, so a mini-repo could not tell a
+# correct reading of it from a lucky one.  A rule proven only where it happens to
+# show is not checked, and this arithmetic is the one place a mistake reaches
+# `_strip`, `_read_as` and `_evaluated` alike.
+#
+# Both directions, because both are wrong.  Reading a two-datum prefix short
+# leaves the target standing in code and hands a quote-only mention a SILENT
+# GREEN; reading a one-datum dispatch long swallows the live reference beside it
+# and reds an honest row.
+_EXTENT_CASES: tuple[tuple[str, str], ...] = (
+    # TWO DATUMS: the prefix reaches its target.  The first four are the extents
+    # a merged-PR audit reproduced short.
+    ("#js {:a fx} tail", "#js {:a fx}"),
+    ('#inst "2020" tail', '#inst "2020"'),
+    ("#?(:clj x :cljs y) tail", "#?(:clj x :cljs y)"),
+    ("#?@(:clj [x]) tail", "#?@(:clj [x])"),
+    ("#uuid \"0-0\" tail", "#uuid \"0-0\""),
+    ("#foo.bar/Baz [x] tail", "#foo.bar/Baz [x]"),
+    # A namespaced map is the same reach spelled with a `:` where the tag goes.
+    ("#:ns{:a 1} tail", "#:ns{:a 1}"),
+    ("#::{:a 1} tail", "#::{:a 1}"),
+    # The compositions: a tag under a quote, under a syntax quote, over and under
+    # an annotation, stacked on itself, and nested inside a conditional.
+    ("'#js [fx] tail", "'#js [fx]"),
+    ("`#js [fx] tail", "`#js [fx]"),
+    ("#js ^{:m 1} [a] tail", "#js ^{:m 1} [a]"),
+    ("^{:m 1} #js [a] tail", "^{:m 1} #js [a]"),
+    ("#js #js [a] tail", "#js #js [a]"),
+    ("#?(:clj #js [a]) tail", "#?(:clj #js [a])"),
+    # `^`, unchanged — the rule this one is modelled on.
+    ("^:private x tail", "^:private x"),
+    # ONE DATUM: the dispatch reaches no further than itself.  `'` and `_` are
+    # both symbol characters, so the first two are what the exclusion list is for;
+    # `##Inf` is why the rule also looks BEHIND the `#`, and it is written live in
+    # the adapter suites rather than hypothetical.
+    ("#'fx tail", "#'fx"),
+    ("'#'fx tail", "'#'fx"),
+    ("#(inc %) tail", "#(inc %)"),
+    ("#{a b} tail", "#{a b}"),
+    ('#"re" tail', '#"re"'),
+    ("##Inf tail", "##Inf"),
+    ("##-Inf tail", "##-Inf"),
+    ("##NaN tail", "##NaN"),
+    ("'fx tail", "'fx"),
+    ("[fx] tail", "[fx]"),
+    # `#_` is not a prefix over a datum at all — it is SKIPPED, and the extent
+    # runs to the end of the datum after it.  Stated here because "unchanged" is a
+    # claim, and this is the shape it is a claim about.
+    ("#_x y tail", "#_x y"),
+)
+
+
+def _run_extent_self_tests(verbose: bool = False) -> int:
+    """Check `_EXTENT_CASES`.  Returns the failure count."""
+    failures = 0
+    for text, expected in _EXTENT_CASES:
+        got = text[:_datum_end(text, 0)]
+        if got != expected:
+            sys.stderr.write(
+                f"self-test FAIL: _datum_end({text!r}) expected {expected!r}, "
+                f"got {got!r}\n"
+            )
+            failures += 1
+        elif verbose:
+            sys.stderr.write(f"self-test PASS: _datum_end({text!r}) -> {got!r}\n")
+    return failures
+
+
 def _run_self_tests(verbose: bool = False) -> int:
     cases: list[tuple[str, int]] = [
         ("clean", 0),
@@ -3105,6 +3376,18 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_metadata_on_a_discarded_proof_site", 1, "DEAD PROOF SITE"),
         ("census_metadata_on_an_evaluated_fixture_reference", 0, None),
         ("census_metadata_on_an_unquote_island_reads_the_fixture", 0, None),
+        ("census_tagged_reader_quote_shaped_like_the_fixture_binding", 1,
+         "DEAD PROOF SITE"),
+        ("census_tagged_syntax_quote_shaped_like_the_fixture_binding", 1,
+         "DEAD PROOF SITE"),
+        ("census_reader_conditional_on_a_discarded_proof_site", 1,
+         "DEAD PROOF SITE"),
+        ("census_tagged_literal_in_an_evaluated_position_reads_the_fixture",
+         0, None),
+        ("census_tagged_literal_in_an_unquote_island_reads_the_fixture", 0, None),
+        ("census_tagged_instant_extent_stops_at_its_string", 0, None),
+        ("census_var_quote_inside_a_quote_is_one_datum", 0, None),
+        ("census_reader_conditional_arm_after_a_tagged_literal", 0, None),
         ("census_quoted_fixture_call_is_not_a_read", 1, "DEAD PROOF SITE"),
         ("census_unquote_inside_a_syntax_quote_reads_the_fixture", 0, None),
         ("census_nested_syntax_quote_does_not_read_the_fixture", 1,
@@ -3142,6 +3425,12 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_metadata_quote_form_shaped_like_the_compiled_declaration", 1,
          "UNWITNESSED MODE"),
         ("census_metadata_on_an_evaluated_declaration_reference", 0, None),
+        ("census_tagged_reader_quote_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
+        ("census_tagged_syntax_quote_shaped_like_the_compiled_declaration", 1,
+         "UNWITNESSED MODE"),
+        ("census_tagged_literal_in_an_evaluated_position_witnesses_the_mode",
+         0, None),
         ("census_unquote_inside_a_syntax_quote_witnesses_the_mode", 0, None),
         ("census_quoted_compiled_marker_does_not_witness", 1,
          "UNWITNESSED MODE"),
@@ -3169,7 +3458,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("census_dangling_citation", 1, "DANGLING CITATION"),
         ("census_retired_row_answers_a_citation", 0, None),
     ]
-    failures = 0
+    failures = _run_extent_self_tests(verbose)
     with tempfile.TemporaryDirectory(prefix="fh_index_selftest_") as tmp:
         base = Path(tmp)
         _build_self_test_fixtures(base)
@@ -3216,7 +3505,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         return 1
     if verbose:
         sys.stderr.write(
-            f"all {len(cases) + len(census_cases)} self-tests passed.\n"
+            f"all {len(_EXTENT_CASES) + len(cases) + len(census_cases)} "
+            "self-tests passed.\n"
         )
     return 0
 
