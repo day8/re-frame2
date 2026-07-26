@@ -6,12 +6,13 @@
 # (rf2-ia8o7). They are mirror images, so one harness covers both.
 #
 # The harness has since grown to cover the whole local-durability surface those
-# two blocks belong to — EIGHT layers. Layers 1-4 are the pre-commit hook
+# two blocks belong to — NINE layers. Layers 1-4 are the pre-commit hook
 # itself; 5 is the CI arm that shares its classifier; 6-7 are the installer
 # that puts the hooks on disk and the advisory that notices when they go stale;
-# 8 is the checkpoint helper on the other side of the same boundary. It keeps
-# its name because `.github/workflows/test.yml` runs it by name, unconditionally,
-# on every pull request.
+# 8 is the checkpoint helper on the other side of the same boundary; 9 is the
+# truncation floor the hook grew after that helper's guard was routed around
+# twice. It keeps its name because `.github/workflows/test.yml` runs it by name,
+# unconditionally, on every pull request.
 #
 #   1. Library unit tests — invoke
 #      scripts/git-hooks/lib/check-mayor-commit-boundary.sh directly with
@@ -58,6 +59,13 @@
 #      pre-pull checkout, a broken export commits nothing, and a memory reorder
 #      is not a commit — nor does one ride along with a real change
 #      (rf2-51uz1.1), while the >1/10 shrink guard still refuses.
+#
+#   9. The TRUNCATION FLOOR in the hook (rf2-or8te) — layer 8's guard repeated
+#      where no committer can route around it. Layer 8 proves the checkpoint
+#      helper refuses an empty export; twice that was not enough, because the
+#      commit that emptied the tracker was a plain `git add` from the MAYOR
+#      checkout and never went through the helper. Driven in the layer-2
+#      sandbox's PRIMARY worktree, which is where both incidents happened.
 #
 # Usage:
 #   sh scripts/git-hooks/test-pre-commit.sh
@@ -870,6 +878,7 @@ installed_ok=1
 for spec in \
   "pre-commit:# --- BEGIN re-frame2 mayor commit boundary (rf2-ydl2p) ---" \
   "pre-commit:# --- BEGIN re-frame2 worker beads boundary (rf2-ia8o7) ---" \
+  "pre-commit:# --- BEGIN re-frame2 beads truncation floor (rf2-or8te) ---" \
   "post-merge:# --- BEGIN re-frame2 MCP-staleness check (rf2-6jj3r) ---" \
   "post-merge:# --- BEGIN re-frame2 hook-install staleness check (rf2-zt65l) ---" \
   "post-rewrite:# --- BEGIN re-frame2 hook-install staleness check, rebase path (rf2-zt65l) ---"; do
@@ -1494,6 +1503,209 @@ esac
 rm -rf "$CBOX"
 
 fi
+
+# ----------------------------------------------------------------------------
+# Layer 9: the truncation floor in the pre-commit hook (rf2-or8te).
+#
+# Layer 8 proves the CHECKPOINT HELPER refuses an empty export. It has refused
+# one since 2026-06-10. Twice, that was not enough, because the commit that
+# emptied the tracker never went through the helper:
+#
+#     2026-06-10  7aea52459   7172 rows deleted
+#     2026-07-26  4d8042d80d  2573 rows deleted
+#
+# Both were a plain `git add` from the MAYOR checkout — the one place the
+# rf2-ia8o7 block deliberately no-ops, because committing the tracker there is
+# the intended flow. So the floor now also lives in the hook, and this layer
+# drives it from the PRIMARY worktree of the layer-2 sandbox: the same
+# checkout, the same guard-blind path, the same `git add`.
+#
+# The three cases the bead names are 9a (a truncated export is refused), 9c (a
+# genuine one passes) and 9d (a real mass delete gets through the named
+# escape). 9b pins that the floor is a FLOOR and not "any shrink", and 9e/9f
+# pin the two no-false-positive cases — a fresh checkout whose HEAD carries no
+# rows, and a commit that does not touch the tracker at all. A guard that costs
+# ordinary commits gets bypassed with --no-verify, which is worse than none.
+# ----------------------------------------------------------------------------
+
+printf '\n[9] truncation floor: the mayor checkout cannot commit an emptied tracker\n'
+
+TERR=/tmp/rf2-pc-trunc.err
+
+# write_tracker COUNT PATH [TAG] — COUNT distinct JSONL rows.
+write_tracker() {
+  awk -v n="$1" -v tag="${3:-seed}" \
+    'BEGIN{for(i=1;i<=n;i++) printf "{\"_type\":\"issue\",\"id\":\"%s-%04d\"}\n", tag, i}' \
+    > "$2"
+}
+
+# stage_tracker COUNT [TAG] — write and `git add` in the mayor checkout,
+# exactly as the two incidents did. Verifies the mutation actually landed in
+# the INDEX before any verdict is read: a planted edit that silently failed to
+# apply is indistinguishable from a guard that missed the defect.
+stage_tracker() {
+  write_tracker "$1" "$MAYOR/.beads/issues.jsonl" "${2:-seed}"
+  git -C "$MAYOR" add .beads/issues.jsonl
+  staged_rows=$(git -C "$MAYOR" show :.beads/issues.jsonl 2>/dev/null | awk 'END{print NR}')
+  if [ "$staged_rows" != "$1" ]; then
+    fail "(9-setup) index carries $staged_rows rows, expected $1 — the mutation did not apply"
+    return 1
+  fi
+  return 0
+}
+
+trunc_commit() {
+  # Commit whatever is staged in the mayor checkout. Extra args pass through
+  # (that is how 9d exercises --no-verify).
+  cd "$MAYOR"
+  git commit -q -m 'mayor: tracker' "$@" -- .beads/issues.jsonl
+}
+
+# Seed a substantial HEAD. A GROWTH from the 1-row tracker layer 4 left behind
+# must not be refused, so this doubles as the first control.
+if stage_tracker 200 base; then
+  rc_s=$(mktemp); run_scenario "$rc_s" trunc_commit
+  head_rows=$(git -C "$MAYOR" show HEAD:.beads/issues.jsonl 2>/dev/null | awk 'END{print NR}')
+  if [ "$(cat "$rc_s")" = "0" ] && [ "$head_rows" = "200" ]; then
+    pass "(9-seed) a 1 -> 200 row growth commits: the floor only looks downward"
+  else
+    fail "(9-seed) could not seed a 200-row HEAD (exit $(cat "$rc_s"), HEAD $head_rows rows)"
+    cat /tmp/rf2-pc-smoke.err >&2 || true
+  fi
+  rm -f "$rc_s"
+fi
+
+# 9a: THE INCIDENT. An emptied export, staged with a plain `git add` in the
+# primary worktree. Refused, and the message has to carry four things: the two
+# row counts, the regeneration rule, the repair, and the named escape.
+before=$(git -C "$MAYOR" rev-parse HEAD)
+if stage_tracker 0 empty; then
+  rc_t=$(mktemp); ( trunc_commit 2>"$TERR" ) && echo 0 > "$rc_t" || echo $? > "$rc_t"
+  after=$(git -C "$MAYOR" rev-parse HEAD)
+  if [ "$(cat "$rc_t")" = "0" ]; then
+    fail "(9a) FALSE GREEN: a 0-row tracker was committed over a 200-row HEAD"
+  elif [ "$before" != "$after" ]; then
+    fail "(9a) refused, but HEAD moved anyway"
+  elif grep -q 'TRUNCATED' "$TERR" \
+       && grep -q 'staged: 0 rows' "$TERR" \
+       && grep -q 'HEAD:   200 rows' "$TERR" \
+       && grep -q 'REGENERATION event' "$TERR" \
+       && grep -q 'TIME-TRAVELS' "$TERR" \
+       && grep -q 'beads-checkpoint.sh' "$TERR" \
+       && grep -q 'git commit --no-verify' "$TERR"; then
+    pass "(9a) an emptied tracker is refused in the PRIMARY worktree, with counts, rule, repair, escape"
+  else
+    fail "(9a) refused, but the diagnostic is incomplete"
+    cat "$TERR" >&2
+  fi
+  rm -f "$rc_t"
+fi
+( cd "$MAYOR" && git reset -q HEAD -- .beads/issues.jsonl && git checkout -q HEAD -- .beads ) || true
+
+# 9b: A FLOOR, NOT A RATCHET. 179 of 200 rows loses more than a tenth and is
+# refused; the empty-only regeneration stanza must NOT appear, because this is
+# not an empty export and calling it one would be wrong advice.
+before=$(git -C "$MAYOR" rev-parse HEAD)
+if stage_tracker 179 base; then
+  rc_t=$(mktemp); ( trunc_commit 2>"$TERR" ) && echo 0 > "$rc_t" || echo $? > "$rc_t"
+  after=$(git -C "$MAYOR" rev-parse HEAD)
+  if [ "$(cat "$rc_t")" = "0" ]; then
+    fail "(9b) FALSE GREEN: a 179-of-200 shrink was committed"
+  elif [ "$before" != "$after" ]; then
+    fail "(9b) refused, but HEAD moved anyway"
+  elif grep -q 'staged: 179 rows' "$TERR" \
+       && ! grep -q 'REGENERATION event' "$TERR"; then
+    pass "(9b) a >1/10 shrink is refused, and is not mislabelled an empty export"
+  else
+    fail "(9b) refused, but with the wrong diagnostic"
+    cat "$TERR" >&2
+  fi
+  rm -f "$rc_t"
+fi
+( cd "$MAYOR" && git reset -q HEAD -- .beads/issues.jsonl && git checkout -q HEAD -- .beads ) || true
+
+# 9c: A GENUINE EXPORT PASSES. 180 of 200 is exactly the threshold the
+# checkpoint script uses (export_rows * 10 < head_rows * 9), so this pins the
+# boundary rather than a comfortable margin.
+before=$(git -C "$MAYOR" rev-parse HEAD)
+if stage_tracker 180 base; then
+  rc_t=$(mktemp); ( trunc_commit 2>"$TERR" ) && echo 0 > "$rc_t" || echo $? > "$rc_t"
+  after=$(git -C "$MAYOR" rev-parse HEAD)
+  head_rows=$(git -C "$MAYOR" show HEAD:.beads/issues.jsonl 2>/dev/null | awk 'END{print NR}')
+  if [ "$(cat "$rc_t")" = "0" ] && [ "$before" != "$after" ] && [ "$head_rows" = "180" ]; then
+    pass "(9c) a genuine export at exactly 9/10 of HEAD commits normally"
+  else
+    fail "(9c) FALSE POSITIVE: an export at the threshold was refused (exit $(cat "$rc_t"), HEAD $head_rows rows)"
+    cat "$TERR" >&2
+  fi
+  rm -f "$rc_t"
+fi
+
+# 9d: THE ESCAPE. A genuine mass delete is the operator's call, not the hook's.
+# Re-seed a full HEAD, then empty it through the escape the message names.
+if stage_tracker 200 base; then
+  rc_t=$(mktemp); ( trunc_commit 2>"$TERR" ) && echo 0 > "$rc_t" || echo $? > "$rc_t"
+  rm -f "$rc_t"
+fi
+before=$(git -C "$MAYOR" rev-parse HEAD)
+if stage_tracker 0 empty; then
+  rc_t=$(mktemp); ( trunc_commit --no-verify 2>"$TERR" ) && echo 0 > "$rc_t" || echo $? > "$rc_t"
+  after=$(git -C "$MAYOR" rev-parse HEAD)
+  head_rows=$(git -C "$MAYOR" show HEAD:.beads/issues.jsonl 2>/dev/null | awk 'END{print NR}')
+  if [ "$(cat "$rc_t")" = "0" ] && [ "$before" != "$after" ] && [ "$head_rows" = "0" ]; then
+    pass "(9d) the named escape works: --no-verify lands a deliberate mass delete"
+  else
+    fail "(9d) the escape named in the refusal message does not work (exit $(cat "$rc_t"), HEAD $head_rows rows)"
+    cat "$TERR" >&2
+  fi
+  rm -f "$rc_t"
+fi
+
+# 9e: NO NAG ON A FRESH CHECKOUT. A HEAD with no rows can lose none, so a
+# first-ever add of a small or empty tracker must not be refused — otherwise
+# every fresh clone meets the guard before it meets the tracker.
+#
+# The 0-row HEAD is established here rather than inherited from 9d. Sharing
+# 9d's side effect made a 9d regression cascade into a MISLEADING 9e failure:
+# with HEAD left at 200 rows, a 3-row stage is a genuine shrink and refusing it
+# is correct, yet 9e would report a false positive.
+( cd "$MAYOR" && write_tracker 0 .beads/issues.jsonl empty \
+    && git add .beads/issues.jsonl \
+    && git commit -q --no-verify -m 'mayor: establish an empty HEAD' -- .beads/issues.jsonl ) \
+  >/dev/null 2>&1 || true
+before=$(git -C "$MAYOR" rev-parse HEAD)
+if stage_tracker 3 fresh; then
+  rc_t=$(mktemp); ( trunc_commit 2>"$TERR" ) && echo 0 > "$rc_t" || echo $? > "$rc_t"
+  after=$(git -C "$MAYOR" rev-parse HEAD)
+  if [ "$(cat "$rc_t")" = "0" ] && [ "$before" != "$after" ]; then
+    pass "(9e) a 3-row tracker over a 0-row HEAD passes: nothing to lose, no nag"
+  else
+    fail "(9e) FALSE POSITIVE: the floor fired over an empty HEAD (exit $(cat "$rc_t"))"
+    cat "$TERR" >&2
+  fi
+  rm -f "$rc_t"
+fi
+
+# 9f: and a commit that never touches the tracker is untouched by the block.
+# The index is cleared of the tracker first, deliberately: the block keys on
+# what is STAGED, so a tracker left in the index from an earlier case would
+# make this pass or fail for a reason that has nothing to do with MEMORY.md.
+( cd "$MAYOR" && git reset -q HEAD -- .beads/issues.jsonl \
+    && git checkout -q HEAD -- .beads ) >/dev/null 2>&1 || true
+scenario_9f() {
+  cd "$MAYOR"
+  printf 'operator memory\n' > MEMORY.md
+  git add MEMORY.md
+  git commit -q -m 'mayor: memory only'
+}
+rc_t=$(mktemp); ( scenario_9f 2>"$TERR" ) && echo 0 > "$rc_t" || echo $? > "$rc_t"
+if [ "$(cat "$rc_t")" = "0" ]; then
+  pass "(9f) a commit staging no tracker path is untouched by the floor"
+else
+  fail "(9f) FALSE POSITIVE: an unrelated permitted commit was refused (exit $(cat "$rc_t"))"
+  cat "$TERR" >&2
+fi
+rm -f "$rc_t" "$TERR"
 
 # ----------------------------------------------------------------------------
 # Summary

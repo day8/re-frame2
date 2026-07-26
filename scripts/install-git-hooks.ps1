@@ -30,6 +30,12 @@
 #                       that touch the beads DATABASE. Mirror image of the
 #                       block above; derives the primary worktree from
 #                       `git worktree list` rather than a marker file.
+#   - pre-commit       (rf2-or8te) refuses a commit from ANY worktree that
+#                       would empty `.beads/issues.jsonl` or lose more than
+#                       a tenth of it. Neither block above could see that
+#                       failure: an empty export reached main twice from
+#                       the MAYOR checkout, by plain `git add`, where they
+#                       no-op.
 #   - mayor-marker     (rf2-ydl2p) sentinel at <common-dir>/mayor-marker;
 #                       hook activation gate. Worker worktrees have a
 #                       distinct per-worktree git dir, so they never see
@@ -84,6 +90,11 @@ $hookBlocks = @{
         'pre-commit',
         '# --- BEGIN re-frame2 worker beads boundary (rf2-ia8o7) ---',
         '# --- END re-frame2 worker beads boundary (rf2-ia8o7) ---'
+    )
+    'beads-truncation-floor' = @(
+        'pre-commit',
+        '# --- BEGIN re-frame2 beads truncation floor (rf2-or8te) ---',
+        '# --- END re-frame2 beads truncation floor (rf2-or8te) ---'
     )
 }
 
@@ -256,6 +267,7 @@ try {
     Install-Block -BlockId 'hook-staleness-rebase'
     Install-Block -BlockId 'mayor-commit-boundary'
     Install-Block -BlockId 'worker-beads-boundary'
+    Install-Block -BlockId 'beads-truncation-floor'
     Install-MayorMarker
 }
 catch {
