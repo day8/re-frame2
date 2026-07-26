@@ -171,103 +171,101 @@
     (do
       (register!)
       (rf/dispatch-sync [:obs/set-n ##NaN])
-      (do
-        (ratom/flush!)                       ;; settle any pending queue first
-        (let [baseline (reactive/current-live-cells)
-              renders  (atom 0)
-              commits  (atom 0)
-              notes    (atom [])
-              probe*   (atom nil)
-              nan-rm*  (atom nil)
-              cleanup! (fn []
-                         (when-let [rm @nan-rm*] (rm))
-                         (when-let [p @probe*] (obs/release! p)))]
-          (async done
-            (->
-             (uit/with-root
-               [root [nan-commit-profiler {:commits commits}
-                      [ui/frame-provider {:frame fid}
-                       [mounted-nan-view {:renders renders}]]]]
-               (let [mounted           (remove baseline (reactive/current-live-cells))
-                     cell              (first mounted)
-                     reaction          (node-reaction)
-                     [nan-hits nan-rm] (install-nan-sentinel! reaction)
-                     ;; An INDEPENDENT probe handle on the SAME node: its
-                     ;; `on-change` is the `{:cause :subscription}` note channel that
-                     ;; the mounted cell's own (cell-dirtying) `on-change`
-                     ;; cannot surface. Same port, same node, same notify sweep
-                     ;; — the standard public `acquire!`, not a test bridge.
-                     probe             (obs/acquire!
-                                        (obs/resolve-target
-                                         {:frame fid :query-v [:obs/n]})
-                                        (fn [ev] (swap! notes conj ev)))
-                     ver0              (:version (obs/read probe))
-                     rev0              (reactive/revision cell)
-                     renders0          @renders
-                     commits0          @commits]
-                 (reset! nan-rm* nan-rm)
-                 (reset! probe* probe)
-                 (testing "preconditions — a REAL mounted ViewCell over the Reagent host"
-                   (is (= 1 (count mounted))
-                       "the compiled sub-reading view mounted exactly one ViewCell")
-                   (is (satisfies? IWatchable reaction)
-                       "the mounted cell reads a Reagent Reaction — an IWatchable host,
-                        so the port armed its per-handle value-movement watch")
-                   (is (obs/owned? (reactive/committed-handle cell (tk [:obs/n])))
-                       "…through a REAL owned observation handle taken by the mounted commit")
-                   (is (nan-num? (get (reactive/committed-values cell) (tk [:obs/n])))
-                       "the mounted cell committed the host's NaN")
-                   (is (= "NaN" (mounted-text root))
-                       "and the MOUNTED DOM carries it — a real render, not a proxy")
-                   (is (= 1 renders0) "the mount rendered the compiled view exactly once")
-                   (is (= 1 commits0) "…in exactly one React commit")
-                   (is (empty? @notes) "acquire! on a warm NaN node fans nothing"))
-                 (->
-                  (move! ##NaN)
-                  (.then
-                   (fn []
-                     (testing "NaN→NaN fires the host watch yet moves NOTHING at the mount"
-                       (is (pos? @nan-hits)
-                           "the Reagent host watch FIRED for NaN→NaN — make-watch-handler
-                            genuinely ran, so the green assertions below are non-vacuous")
-                       (is (empty? @notes)
-                           "ZERO {:cause :subscription} notes — node-value= suppressed the fan-out
-                            (a raw not= at the seam would fan a phantom movement)")
-                       (is (= ver0 (:version (obs/read probe)))
-                           "node version UNMOVED — NaN=NaN under the movement law")
-                       (is (= rev0 (reactive/revision cell))
-                           "mounted ViewCell revision UNMOVED — the cell was never dirtied")
-                       (is (= renders0 @renders)
-                           "ZERO further MOUNTED renders — the compiled view's body
-                            did not re-run at the live mount")
-                       (is (= commits0 @commits)
-                           "ZERO further React commits of the mounted tree")
-                       (is (= "NaN" (mounted-text root))
-                           "the mounted DOM is untouched"))
-                     (move! 5)))
-                  (.then
-                   (fn []
-                     (testing "positive control — a REAL move moves all four EXACTLY once"
-                       (is (= 1 (count @notes))
-                           "exactly one {:cause :subscription} note for the real movement")
-                       (is (= :subscription (:cause (first @notes))))
-                       (is (= (inc ver0) (:version (obs/read probe)))
-                           "the real move advanced the node version EXACTLY once")
-                       (is (= (inc rev0) (reactive/revision cell))
-                           "…and the mounted cell's revision exactly once")
-                       (is (= (inc renders0) @renders)
-                           "…and drove EXACTLY ONE attributable mounted render")
-                       (is (= (inc commits0) @commits)
-                           "…committed through React exactly once")
-                       (is (= "5" (mounted-text root))
-                           "the mounted DOM shows the moved value")))))))
-             ;; `with-root` unmounts the React root and removes its container as
-             ;; part of this awaited chain, so the mount is EXPLICITLY torn down
-             ;; before the fixture's `:after` restores the adapter.
-             (.then (fn []
-                      (cleanup!)
-                      (done))
-                    (fn [e]
-                      (cleanup!)
-                      (is false (str "mounted NaN proof rejected: " e))
-                      (done))))))))))
+            (let [baseline (reactive/current-live-cells)
+            renders  (atom 0)
+            commits  (atom 0)
+            notes    (atom [])
+            probe*   (atom nil)
+            nan-rm*  (atom nil)
+            cleanup! (fn []
+                       (when-let [rm @nan-rm*] (rm))
+                       (when-let [p @probe*] (obs/release! p)))]
+        (async done
+          (->
+           (uit/with-root
+             [root [nan-commit-profiler {:commits commits}
+                    [ui/frame-provider {:frame fid}
+                     [mounted-nan-view {:renders renders}]]]]
+             (let [mounted           (remove baseline (reactive/current-live-cells))
+                   cell              (first mounted)
+                   reaction          (node-reaction)
+                   [nan-hits nan-rm] (install-nan-sentinel! reaction)
+                   ;; An INDEPENDENT probe handle on the SAME node: its
+                   ;; `on-change` is the `{:cause :subscription}` note channel that
+                   ;; the mounted cell's own (cell-dirtying) `on-change`
+                   ;; cannot surface. Same port, same node, same notify sweep
+                   ;; — the standard public `acquire!`, not a test bridge.
+                   probe             (obs/acquire!
+                                      (obs/resolve-target
+                                       {:frame fid :query-v [:obs/n]})
+                                      (fn [ev] (swap! notes conj ev)))
+                   ver0              (:version (obs/read probe))
+                   rev0              (reactive/revision cell)
+                   renders0          @renders
+                   commits0          @commits]
+               (reset! nan-rm* nan-rm)
+               (reset! probe* probe)
+               (testing "preconditions — a REAL mounted ViewCell over the Reagent host"
+                 (is (= 1 (count mounted))
+                     "the compiled sub-reading view mounted exactly one ViewCell")
+                 (is (satisfies? IWatchable reaction)
+                     "the mounted cell reads a Reagent Reaction — an IWatchable host,
+                      so the port armed its per-handle value-movement watch")
+                 (is (obs/owned? (reactive/committed-handle cell (tk [:obs/n])))
+                     "…through a REAL owned observation handle taken by the mounted commit")
+                 (is (nan-num? (get (reactive/committed-values cell) (tk [:obs/n])))
+                     "the mounted cell committed the host's NaN")
+                 (is (= "NaN" (mounted-text root))
+                     "and the MOUNTED DOM carries it — a real render, not a proxy")
+                 (is (= 1 renders0) "the mount rendered the compiled view exactly once")
+                 (is (= 1 commits0) "…in exactly one React commit")
+                 (is (empty? @notes) "acquire! on a warm NaN node fans nothing"))
+               (->
+                (move! ##NaN)
+                (.then
+                 (fn []
+                   (testing "NaN→NaN fires the host watch yet moves NOTHING at the mount"
+                     (is (pos? @nan-hits)
+                         "the Reagent host watch FIRED for NaN→NaN — make-watch-handler
+                          genuinely ran, so the green assertions below are non-vacuous")
+                     (is (empty? @notes)
+                         "ZERO {:cause :subscription} notes — node-value= suppressed the fan-out
+                          (a raw not= at the seam would fan a phantom movement)")
+                     (is (= ver0 (:version (obs/read probe)))
+                         "node version UNMOVED — NaN=NaN under the movement law")
+                     (is (= rev0 (reactive/revision cell))
+                         "mounted ViewCell revision UNMOVED — the cell was never dirtied")
+                     (is (= renders0 @renders)
+                         "ZERO further MOUNTED renders — the compiled view's body
+                          did not re-run at the live mount")
+                     (is (= commits0 @commits)
+                         "ZERO further React commits of the mounted tree")
+                     (is (= "NaN" (mounted-text root))
+                         "the mounted DOM is untouched"))
+                   (move! 5)))
+                (.then
+                 (fn []
+                   (testing "positive control — a REAL move moves all four EXACTLY once"
+                     (is (= 1 (count @notes))
+                         "exactly one {:cause :subscription} note for the real movement")
+                     (is (= :subscription (:cause (first @notes))))
+                     (is (= (inc ver0) (:version (obs/read probe)))
+                         "the real move advanced the node version EXACTLY once")
+                     (is (= (inc rev0) (reactive/revision cell))
+                         "…and the mounted cell's revision exactly once")
+                     (is (= (inc renders0) @renders)
+                         "…and drove EXACTLY ONE attributable mounted render")
+                     (is (= (inc commits0) @commits)
+                         "…committed through React exactly once")
+                     (is (= "5" (mounted-text root))
+                         "the mounted DOM shows the moved value")))))))
+           ;; `with-root` unmounts the React root and removes its container as
+           ;; part of this awaited chain, so the mount is EXPLICITLY torn down
+           ;; before the fixture's `:after` restores the adapter.
+           (.then (fn []
+                    (cleanup!)
+                    (done))
+                  (fn [e]
+                    (cleanup!)
+                    (is false (str "mounted NaN proof rejected: " e))
+                    (done)))))))))
