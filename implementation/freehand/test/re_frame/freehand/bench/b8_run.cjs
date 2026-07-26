@@ -145,6 +145,42 @@ async function main() {
   };
   const readCdp = async () => (await cdp.send('Runtime.getHeapUsage')).usedSize;
 
+  // --- does the bundle read the keys it writes? -------------------------
+  // Closure's advanced renaming does not touch a quoted string key, but it
+  // DOES rename a `(.-foo o)` accessor — and the first draft of this
+  // harness shipped both. `(.-h r)` became `k.Me` while the literal kept
+  // `h`; `(.-bad a)` became `e.Mc` while the literal kept `bad`. The first
+  // threw. The second would not have: `undefined + 1` is `NaN`, the
+  // literal's `bad: 0` would have stood, and the driver would have read
+  // ZERO unverified writes for the rest of time. `decreases` — the gate
+  // that rejects a window with a collection in it — would have read a
+  // constant zero and accepted every window.
+  //
+  // So the bundle is asked, in the build about to be measured, to write
+  // known values through the measured path's own accessors and read them
+  // back. Nothing is measured until it does.
+  const integ = await page.evaluate(() => window.B8.integrity());
+  const wantKeys = [
+    'control', 'write', 'gap', 'force', 'total', 'bad', 'decreases', 'worstDrop', 'first', 'last',
+  ];
+  const gotKeys = integ && typeof integ.keys === 'string' ? integ.keys.split(',') : [];
+  const missing = wantKeys.filter((k) => !gotKeys.includes(k));
+  if (
+    !integ ||
+    integ.control !== 7 ||
+    integ.decreases !== 3 ||
+    integ.worstDrop !== -11 ||
+    integ.bad !== 5 ||
+    missing.length
+  ) {
+    throw new Error(
+      `harness integrity probe FAILED — the :advanced bundle does not read the keys it writes. ` +
+        `got ${JSON.stringify(integ)}; expected control=7 decreases=3 worstDrop=-11 bad=5; ` +
+        `missing keys: ${JSON.stringify(missing)}`
+    );
+  }
+  console.error(`[b8] integrity probe ok — keys ${gotKeys.join(',')}`);
+
   // --- is the precise-memory flag actually on? --------------------------
   // Without it Chrome quantises usedJSHeapSize to 100 KB and every figure
   // below would be a rounding artefact. Quantised readings are exact
@@ -211,7 +247,7 @@ async function main() {
             gap: r.gap,
             force: r.force,
             decreases: r.decreases,
-            worstDrop: r['worst-drop'],
+            worstDrop: r.worstDrop,
           },
       bad: r.bad,
       // THE GATE. Any decrease means a collection ran inside the window and
@@ -283,7 +319,7 @@ async function main() {
   const sampler = await samplerControl(KINDS[0]);
 
   await browser.close();
-  return { rows, sampler, precise: { probes } };
+  return { rows, sampler, integrity: integ, precise: { probes } };
 }
 
 // ---------------------------------------------------------------------------

@@ -87,7 +87,75 @@
 
   Normative owner: `docs/design/freehand/decisions/`
   `D021-performance-budgets-and-release-evidence.md`."
-  (:require [re-frame.freehand.bench.b6-rows :as rows]))
+  (:require [goog.object :as gobj]
+            [re-frame.freehand.bench.b6-rows :as rows]))
+
+;; ---------------------------------------------------------------------------
+;; Why every property below is a STRING LITERAL through `goog.object`
+;; ---------------------------------------------------------------------------
+;;
+;; The first draft of this namespace used `#js {:h …}` literals and
+;; `(.-h o)` accessors, and under `:advanced` it produced this:
+;;
+;;     construction   return {h:[f,g,k,l,p], ok:…}
+;;     read           var l = k.Me, p = l[0]
+;;
+;; `(.-h r)` was renamed to `Me`; the literal key was not. `k.Me` is
+;; `undefined` and `undefined[0]` throws, which is how it was caught.
+;;
+;; THE CRASH WAS LUCK, AND THAT IS THE POINT. In the same build:
+;;
+;;     (.-decreases a) -> e.fc      literal key `decreases`
+;;     (.-worstDrop a) -> e.oc      literal key `worstDrop`
+;;     (.-bad a)       -> e.Mc      literal key `bad`
+;;     (.-control a)   -> e.control literal key `control`   (survived)
+;;     (.-ok r)        -> k.ok      literal key `ok`        (survived)
+;;
+;; The survivors survived by ACCIDENT: `ok`, `control`, `write`, `gap`,
+;; `force`, `total`, `first` and `last` all appear in Closure's browser
+;; externs (`Response.ok`, `Touch.force`, `document.write`, CSS `gap`, …)
+;; and Closure will not rename a name it finds there. `h`, `decreases`,
+;; `worstDrop` and `bad` do not, so they were renamed.
+;;
+;; None of the survivors would have thrown. `e.Mc += 1` on an undefined
+;; slot yields `NaN` and leaves the literal's `bad: 0` untouched, so the
+;; driver would have read **zero unverified writes, always**. `decreases`
+;; is worse: it is the GATE that rejects a window with a collection in
+;; it, and it would have read a constant zero — every window accepted,
+;; including the ones whose totals a collection had silently truncated.
+;;
+;; That is a plausible wrong number produced by a harness that looks
+;; green, which is the failure mode this whole surface exists to avoid.
+;; So: string literals through `goog.object`, which compile to a dynamic
+;; index and are never renamed — and [[integrity-probe]], which proves it
+;; from inside the shipped bundle before any figure is taken.
+
+(defn- bump! [o k v] (gobj/set o k (+ (gobj/get o k) v)))
+
+(defn- fresh-acc []
+  (js-obj "control" 0 "write" 0 "gap" 0 "force" 0 "total" 0
+          "bad" 0 "decreases" 0 "worstDrop" 0 "first" 0 "last" 0))
+
+(defn integrity-probe
+  "Prove, inside the `:advanced` bundle, that this namespace reads the
+  keys it writes.
+
+  Runs before any measurement. Writes known values through exactly the
+  accessors the measured path uses and hands back both the values and
+  the object's own key list, so the driver can assert on names it never
+  sees renamed. A renaming mismatch makes this return `null` or the
+  wrong number, and the driver refuses to measure."
+  []
+  (let [o (fresh-acc)]
+    (bump! o "control" 7)
+    (bump! o "decreases" 3)
+    (bump! o "worstDrop" -11)
+    (bump! o "bad" 5)
+    (js-obj "control"   (gobj/get o "control")
+            "decreases" (gobj/get o "decreases")
+            "worstDrop" (gobj/get o "worstDrop")
+            "bad"       (gobj/get o "bad")
+            "keys"      (.join (js/Object.keys o) ","))))
 
 ;; ---------------------------------------------------------------------------
 ;; The reader
@@ -187,13 +255,14 @@
                        ((:force! arm))
                        (let [h3    (mem)
                              probe (if (= i :all) 0 i)]
-                         #js {:h #js [h0 hc h1 h2 h3]
-                              :ok (or (boolean (:skip-verify? arm))
-                                      (and (= (str val) (rows/cell-text container probe))
-                                           (or (not= i :all)
-                                               (= (str val)
-                                                  (rows/cell-text container
-                                                                  (dec rows/cells-n))))))})))))))))
+                         (js-obj "readings" (array h0 hc h1 h2 h3)
+                                 "ok" (or (boolean (:skip-verify? arm))
+                                          (and (= (str val) (rows/cell-text container probe))
+                                               (or (not= i :all)
+                                                   (= (str val)
+                                                      (rows/cell-text
+                                                        container
+                                                        (dec rows/cells-n)))))))))))))))
 
 (defn run-window!
   "N writes over one arm, inside one collection-free window.
@@ -204,40 +273,36 @@
   collection in it and is not a measurement of allocation; the driver
   drops it."
   [mnt kind n]
-  ;; camelCase deliberately: ClojureScript munges `-` to `_` in `(.-a-b x)`
-  ;; property access, which would silently miss a `#js {:a-b …}` key.
-  (let [acc #js {:control 0 :write 0 :gap 0 :force 0 :total 0
-                 :bad 0 :decreases 0 :worstDrop 0 :first 0 :last 0}
-        prev (volatile! nil)]
+  (let [acc  (fresh-acc)
+        prev (volatile! nil)
+        drop! (fn [a x y]
+                (when (< y x)
+                  (bump! a "decreases" 1)
+                  (gobj/set a "worstDrop" (min (gobj/get a "worstDrop") (- y x)))))]
     (rows/chain acc (range n)
       (fn [a _]
         (let [val (rows/next-gen!)
               i   (if (= kind :broad) :all (mod val rows/cells-n))]
           (-> (alloc-write! mnt i val)
               (.then (fn [r]
-                       (let [h  (.-h r)
+                       (let [h  (gobj/get r "readings")
                              h0 (aget h 0) hc (aget h 1) h1 (aget h 2)
                              h2 (aget h 3) h3 (aget h 4)]
                          ;; Decreases are counted across the WHOLE window,
                          ;; including the seam between one write's last
                          ;; reading and the next write's first.
-                         (when-some [p @prev]
-                           (when (< h0 p)
-                             (set! (.-decreases a) (inc (.-decreases a)))
-                             (set! (.-worstDrop a) (min (.-worstDrop a) (- h0 p)))))
-                         (doseq [[x y] [[h0 hc] [hc h1] [h1 h2] [h2 h3]]]
-                           (when (< y x)
-                             (set! (.-decreases a) (inc (.-decreases a)))
-                             (set! (.-worstDrop a) (min (.-worstDrop a) (- y x)))))
-                         (when (nil? @prev) (set! (.-first a) h0))
+                         (when-some [p @prev] (drop! a p h0))
+                         (drop! a h0 hc) (drop! a hc h1)
+                         (drop! a h1 h2) (drop! a h2 h3)
+                         (when (nil? @prev) (gobj/set a "first" h0))
                          (vreset! prev h3)
-                         (set! (.-last a) h3)
-                         (set! (.-control a) (+ (.-control a) (- hc h0)))
-                         (set! (.-write a) (+ (.-write a) (- h1 hc)))
-                         (set! (.-gap a) (+ (.-gap a) (- h2 h1)))
-                         (set! (.-force a) (+ (.-force a) (- h3 h2)))
-                         (set! (.-total a) (+ (.-total a) (- h3 h0)))
-                         (when-not (.-ok r) (set! (.-bad a) (inc (.-bad a))))
+                         (gobj/set a "last" h3)
+                         (bump! a "control" (- hc h0))
+                         (bump! a "write"   (- h1 hc))
+                         (bump! a "gap"     (- h2 h1))
+                         (bump! a "force"   (- h3 h2))
+                         (bump! a "total"   (- h3 h0))
+                         (when-not (gobj/get r "ok") (bump! a "bad" 1))
                          a)))))))))
 
 (defn run-published-window!
@@ -251,12 +316,13 @@
   and one not reading it at all, must allocate the same bytes to within
   the instrument's own footprint."
   [mnt kind n]
-  (rows/chain #js {:bad 0} (range n)
-    (fn [a _]
-      (let [val (rows/next-gen!)
-            i   (if (= kind :broad) :all (mod val rows/cells-n))]
-        (control-alloc!)
-        (-> (rows/timed-write! mnt i val)
-            (.then (fn [{:keys [ok? ok2?]}]
-                     (when-not (and ok? ok2?) (set! (.-bad a) (inc (.-bad a))))
-                     a)))))))
+  (let [skip? (boolean (:skip-verify? (:arm mnt)))]
+    (rows/chain (js-obj "bad" 0) (range n)
+      (fn [a _]
+        (let [val (rows/next-gen!)
+              i   (if (= kind :broad) :all (mod val rows/cells-n))]
+          (control-alloc!)
+          (-> (rows/timed-write! mnt i val)
+              (.then (fn [{:keys [ok? ok2?]}]
+                       (when-not (or skip? (and ok? ok2?)) (bump! a "bad" 1))
+                       a))))))))
