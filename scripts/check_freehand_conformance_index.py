@@ -2430,17 +2430,59 @@ def _build_census_fixtures(base: Path) -> None:
             (),
             (),
         ),
-        # Red: THE TAG EXTENT READ BY THE DISCARD PASS, which is the second axis
-        # of the same arithmetic and the one that hides a whole binding.  `#_`
-        # discards the next datum, and the next datum here is the READER
-        # CONDITIONAL — `#?` plus its arm list.  Counted the short way only the
-        # `#?` went, so the `(:clj (def fx …))` list survived to bind a fixture
-        # the reader never sees: `census_discarded_proof_site` defeated by one
-        # conditional.
+        # Red: THE TAG EXTENT READ BY THE DISCARD PASS, which is the second axis of
+        # the same arithmetic and the one that hides a whole binding.  `#_`
+        # discards the next datum, and the next datum here is `#js (def fx …)` —
+        # the tag AND the form it tags.  Counted the short way only `#_#js` went,
+        # so the `(def fx …)` survived AT TOP LEVEL, bound the fixture, and the
+        # `deftest` beside it proved the row off a binding the reader never makes:
+        # `census_discarded_proof_site` defeated by one tag.  The exact shape of
+        # `census_metadata_on_a_discarded_proof_site`, one prefix along.
+        "census_tagged_literal_on_a_discarded_proof_site": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "#_#js (def fx (conf/fixture :FH-CALL-001))\n"
+                                 "(deftest t (is (seq fx)))\n"},
+            (),
+            (),
+        ),
+        # Red — AND RED BEFORE THIS FIX TOO, which is worth saying rather than
+        # leaving for the next audit to discover.  This is the `#?` spelling of the
+        # case above, the one the bead named, and it does NOT discriminate: the
+        # extent fix does not change its verdict.
+        #
+        # WHY, measured rather than assumed.  Read short, `#_#?(:clj (def fx …))`
+        # discards only the `#?` and leaves `(:clj (def fx …))` standing — so the
+        # fixture site really does survive into the stripped text, exactly as the
+        # bead says.  But `_DEFINER_RE` is anchored to the HEAD of a top-level
+        # form, and the survivor's head is `:clj`, not `def`.  No binding is
+        # registered, `fx` resolves to nothing, and the row reds either way.  The
+        # conditional wrapper the miscount leaves behind is inert.
+        #
+        # So it is kept as a REGRESSION GUARD, not as evidence: it pins that the
+        # top-level anchoring is the second line of defence here, and it is the
+        # case that would fire if `_DEFINER_RE` were ever loosened to match a
+        # `def` at depth.  A case that cannot fail for the reason it was written
+        # for is worth keeping only if it says so, because a probe that does not
+        # discriminate is indistinguishable from a gate that did not fire.
         "census_reader_conditional_on_a_discarded_proof_site": (
             {"CALL": _row()},
             {"a_cljs_test.cljc": "(ns x)\n"
                                  "#_#?(:clj (def fx (conf/fixture :FH-CALL-001)))\n"
+                                 "(deftest t (is (seq fx)))\n"},
+            (),
+            (),
+        ),
+        # Green, and the over-tightening control on the DISCARD pass.  A `#_` over
+        # a tagged literal takes the tag and its target and stops: the `(def fx …)`
+        # on the next line is a THIRD datum and survives.  Read the tag as reaching
+        # one datum too far and the discard swallows the binding, reddening an
+        # honest row — the same failure as the red above, in the other direction.
+        "census_discarded_tagged_literal_spares_the_binding": (
+            {"CALL": _row()},
+            {"a_cljs_test.cljc": "(ns x)\n"
+                                 "#_#js {:stub 1}\n"
+                                 "(def fx (conf/fixture :FH-CALL-001))\n"
                                  "(deftest t (is (seq fx)))\n"},
             (),
             (),
@@ -3380,8 +3422,13 @@ def _run_self_tests(verbose: bool = False) -> int:
          "DEAD PROOF SITE"),
         ("census_tagged_syntax_quote_shaped_like_the_fixture_binding", 1,
          "DEAD PROOF SITE"),
+        ("census_tagged_literal_on_a_discarded_proof_site", 1,
+         "DEAD PROOF SITE"),
+        # Red before this fix as well — kept as a regression guard on the
+        # top-level anchoring, and labelled as such at the fixture.
         ("census_reader_conditional_on_a_discarded_proof_site", 1,
          "DEAD PROOF SITE"),
+        ("census_discarded_tagged_literal_spares_the_binding", 0, None),
         ("census_tagged_literal_in_an_evaluated_position_reads_the_fixture",
          0, None),
         ("census_tagged_literal_in_an_unquote_island_reads_the_fixture", 0, None),
