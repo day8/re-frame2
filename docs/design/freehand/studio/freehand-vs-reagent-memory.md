@@ -364,6 +364,16 @@ stated ranges, which had not previously been shown.
 - Build: `:advanced`, `goog.DEBUG false`, via `--config-merge` on the
   existing `:freehand-release` build id. `implementation/shadow-cljs.edn`
   is unchanged.
+- **Base commit, and one thing that landed after it.** Every figure was
+  taken against `aa77d1d573`. `rf2-wxrrp` (`e5cf299fc2`, *fold the
+  commit-side read, the tear check and the bundle into one pass*) merged
+  to `main` while this ran and is **not** in these numbers. It is an
+  update-path change, so the mount and standing-heap rows here are
+  unlikely to move — but "unlikely" is not "measured", and a ViewCell
+  that folds three passes into one could plausibly retain differently.
+  Whoever next touches this instrument should re-take the two Freehand
+  arms on a base that includes it before quoting these figures as
+  current.
 - Source:
   `implementation/freehand/test/re_frame/freehand/bench/b7_heap.cljs`
   (the arms and the retention door),
