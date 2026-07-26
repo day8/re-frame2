@@ -256,7 +256,8 @@
   (testing "Pin the table before trusting a row of it."
     (is (= "FH-REACT-007" (:fh/id react-007)))
     (is (<= 5 (count (:accepts react-007))))
-    (is (<= 7 (count (:rejects react-007))))))
+    (is (<= 12 (count (:rejects react-007))))
+    (is (seq (get-in react-007 [:prop-names :rejects])))))
 
 (deftest fh-react-007-the-declaration-matches-the-fixture
   (testing "Per FH-REACT-007: the host under test declares the positions
@@ -296,6 +297,59 @@
               #(descriptor/normalize-host-call planes-host [{:onSelect [:chart/selected]}]))]
       (is (str/includes? m "not a bare event vector"))
       (is (str/includes? m "v/event")))))
+
+(deftest fh-react-007-a-prop-name-is-exact
+  (testing "Per FH-REACT-007 §prop-names: a host prop name is an unqualified
+            keyword, because the crossing names the prop by `name` and every
+            law at this boundary — `:children`, `:key`, each declared
+            position, and what a `:map-props` adapter may not supply — is
+            enforced BY that name. A key with a second spelling reaches React
+            under the reserved name while passing the check that looked for
+            the keyword, so exactness is what makes those checks total rather
+            than a style rule about how to spell a map."
+    (let [{:keys [accepts rejects]} (:prop-names react-007)]
+      (is (= [] (descriptor/inexact-host-prop-names (zipmap accepts (repeat 1))))
+          "an unqualified keyword has an exact crossing name")
+      (is (= (vec (sort-by pr-str rejects))
+             (descriptor/inexact-host-prop-names (zipmap rejects (repeat 1))))
+          "and nothing else does — every rejected spelling is reported, not just the first")
+      (is (= "onSelect" (descriptor/host-prop-name :onSelect))
+          "the crossing projection is the bare name")
+      (is (= (count accepts) (count (into #{} (map descriptor/host-prop-name) accepts)))
+          "and it is injective over the names it accepts — which is the whole claim"))))
+
+(deftest fh-react-007-a-second-spelling-is-refused-at-the-call
+  (testing "Per FH-REACT-007: each of these shipped as a real bypass. The
+            planes were split by comparing Clojure keys while the crossing
+            collapsed them by name, so `\"children\"` walked past both the
+            `:children` rejection and the `:none` policy, `\"onSelect\"` was
+            treated as ordinary DATA and handed to React as the callback
+            prop with none of D008's identity, and `\"key\"` keyed the inner
+            element while the outer phase boundary stayed unkeyed."
+    (doseq [[props case] [[{"children" ["nope"]} "\"children\""]
+                          [{"key" "k"}           "\"key\""]
+                          [{:x/key "k"}          ":x/key"]
+                          [{"onSelect" [:chart/selected]} "\"onSelect\""]
+                          [{:x/spec "bar"}       ":x/spec"]]]
+      (is (= :rf.error/view-bad-props
+             (conf/caught-id #(descriptor/normalize-host-call planes-host [props])))
+          case))))
+
+(deftest fh-react-007-the-inexact-refusal-names-every-offender-and-the-recovery
+  (testing "Per FH-REACT-007 §prop-names: the refusal reports EVERY badly
+            spelled key rather than the first one found, because a call that
+            got the spelling wrong once usually got it wrong twice, and it
+            names the recovery."
+    (let [call #(descriptor/normalize-host-call
+                  planes-host [{"spec" "bar" :x/rows 3 :variant :compact}])
+          m    (conf/caught-message call)]
+      (is (str/includes? m "\"spec\"") "the string key is named")
+      (is (str/includes? m ":x/rows") "and so is the qualified one")
+      (is (not (str/includes? m ":variant")) "the well-spelled key is not accused")
+      (is (str/includes? m "unqualified keyword") "the law is stated")
+      (is (= (get-in react-007 [:prop-names :recovery])
+             (:recovery (conf/caught-data call)))
+          "and the recovery is the fixture's"))))
 
 (deftest fh-react-007-the-children-policy-is-the-common-law
   (testing "Per FH-REACT-007: a host's children policy is the same closed

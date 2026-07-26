@@ -60,7 +60,45 @@
    :error-id :rf.error/view-bad-props}
   {:case     "a non-map props slot"
    :props    :fixture/not-a-map
+   :error-id :rf.error/view-bad-props}
+
+  ;; Every row from here down is ONE defect: a prop key with a SECOND
+  ;; spelling. The planes above are split by comparing Clojure keys, and the
+  ;; crossing names the prop by `name`, so `:children`, "children" and
+  ;; :x/children were one React prop name reached by three keys of which only
+  ;; the first was ever checked. Each row is a real bypass that shipped.
+  {:case     "\"children\" — the reserved slot under a second spelling, which reached React as props.children past the :children rejection AND the :none policy"
+   :props    {"children" ["nope"]}
+   :error-id :rf.error/view-bad-props}
+  {:case     "\"key\" — became an inner React key while the outer phase boundary stayed unkeyed, because :keyed? tracks the keyword"
+   :props    {"key" "k"}
+   :error-id :rf.error/view-bad-props}
+  {:case     ":x/key — a qualified keyword drops its namespace at the crossing and lands on the same reserved name"
+   :props    {:x/key "k"}
+   :error-id :rf.error/view-bad-props}
+  {:case     "\"onSelect\" — a declared position under a second spelling, which passed the ordinary-plane DATA check and arrived as the callback prop with none of D008's identity"
+   :props    {"onSelect" [:chart/selected]}
+   :error-id :rf.error/view-bad-props}
+  {:case     ":x/spec — no collision, and still refused: the namespace would be dropped silently, and exactness is what makes every check above total"
+   :props    {:x/spec "bar"}
    :error-id :rf.error/view-bad-props}]
+
+ ;; The naming law the rows above rest on. Stated positively so a regression
+ ;; that removes the check reds this row rather than passing through an
+ ;; absence list.
+ :prop-names
+ {:law      "a host prop name is EXACT: an unqualified keyword, which is the same spelling the declaration requires of every :callbacks position"
+  ;; Exactness only. `:key` is exact and legal HERE — that it is then
+  ;; stripped as the ABI's own slot is a different law, two rows above.
+  :accepts  [:spec :onWhatever :data-testid :aria-label :key]
+  :rejects  ["spec" :x/spec "children" "key" 3]
+  :recovery :spell-host-props-as-unqualified-keywords
+  :error-id :rf.error/view-bad-props
+  ;; A `:map-props` adapter answers the ordinary plane, so it answers under
+  ;; the same law — and is checked BEFORE the reserved filter, which is what
+  ;; makes that filter total. Browser-side: the adapter never runs on the JVM.
+  :map-props-adapter {:rejects  ["key" "onSelect" :x/spec]
+                      :error-id :rf.error/ui-tree-malformed}}
 
  ;; The children policy is the same closed roster an internal boundary uses,
  ;; and it is reported through the same diagnostic.
