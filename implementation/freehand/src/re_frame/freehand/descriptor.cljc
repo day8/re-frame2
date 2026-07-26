@@ -640,6 +640,42 @@
     {:recovery recovery
      :extra    (assoc extra :view-id host-id)}))
 
+(defn host-prop-name
+  "The ONE name `k` crosses under — the name the registered React component
+  reads off its props object.
+
+  There is a single projection because there is a single boundary: the
+  React emitter writes this name, and [[inexact-host-prop-names]] refuses
+  every key this projection could not carry faithfully. Together they are
+  what makes `name` sufficient here."
+  [k]
+  (name k))
+
+(defn inexact-host-prop-names
+  "The keys of `m` that have NO exact crossing name — every key that is not
+  an unqualified keyword — sorted, for a diagnostic.
+
+  The declaration already spells `:callbacks` positions as unqualified
+  keywords, \"EXACT foreign prop names, spelled as the library spells
+  them\". This is that same law on the other side of the call, and it is
+  what makes [[host-prop-name]] total: a qualified keyword would cross with
+  its namespace silently dropped, and a string would give one React prop a
+  SECOND spelling.
+
+  A second spelling is not a cosmetic matter. Every law this boundary
+  enforces — `:children` is the trailing-forms slot, `:key` is the ABI's,
+  a declared callback position takes a carrier and nothing else, a
+  `:map-props` adapter may not supply a reserved fact — is enforced by
+  NAME. So `\"children\"`, `:x/key` and a `\"onSelect\"` no declaration can
+  see would each arrive at React under the reserved name while passing
+  every check that looked for the keyword. Refusing the spelling closes all
+  of them at once, and closes them where the name is authored rather than
+  at each check in turn."
+  [m]
+  (vec (sort-by pr-str
+                (remove #(and (keyword? %) (nil? (namespace %)))
+                        (keys m)))))
+
 (defn- host-callback-value
   "Validate one declared callback position's supplied `value` against its
   declared `role`, and answer it. `nil` is a legal empty position — a
@@ -698,6 +734,9 @@
     inside it is rejected — the same two laws [[normalize-call]] enforces
     for an internal boundary, because they are the boundary CALL ABI and
     not a per-kind rule;
+  - **every prop name is EXACT** — an unqualified keyword, checked FIRST so
+    that every law below can be enforced by name (see
+    [[inexact-host-prop-names]]);
   - **`:key` is stripped** and returned separately, with `:keyed?`
     reporting presence;
   - **declared positions leave the ordinary plane.** A key the declaration
@@ -725,6 +764,23 @@
              "needs no props.")
         :supply-one-props-map
         {:props (error/diag-value-summary props)}))
+    ;; FIRST, because every check after it reads a NAME. A key with two
+    ;; spellings would reach React under the reserved name while passing the
+    ;; check that looked for the keyword.
+    (let [inexact (inexact-host-prop-names props)]
+      (when (seq inexact)
+        (bad-host-props-error!
+          host-id
+          (str "a host prop name is EXACT — an unqualified keyword, spelled as the "
+               "library spells the prop. " (pr-str inexact)
+               (if (= 1 (count inexact)) " is not one." " are not.")
+               " Every key here crosses as its bare name, so a qualified keyword "
+               "would arrive with its namespace silently dropped and a string "
+               "would give one React prop a second spelling — and a second "
+               "spelling is a way past the checks this call makes BY name: "
+               ":children, :key and each declared callback position.")
+          :spell-host-props-as-unqualified-keywords
+          {:props inexact})))
     (when (contains? props :children)
       (bad-host-props-error!
         host-id

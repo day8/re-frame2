@@ -940,14 +940,22 @@
   props. `:selected` reaches React as `selected`, and a name the library
   spells `onChange` is written `:onChange`. D022: \"There is no automatic
   case conversion, deep Clojure-to-JavaScript conversion, callback
-  inference, or per-prop conversion language.\""
+  inference, or per-prop conversion language.\"
+
+  Both planes are named by `descriptor/host-prop-name`, the SINGLE crossing
+  projection, and the two planes cannot collide on one name: the ordinary
+  plane has had the declared positions removed from it, and every key in
+  either plane is an unqualified keyword — the exactness
+  `descriptor/inexact-host-prop-names` enforces on the caller's map and on
+  a `:map-props` adapter's answer alike. So this writer never has to ask
+  what a name might already mean."
   [cand ordinary callbacks]
   (let [o (js-obj)]
-    (reduce-kv (fn [_ k v] (gobj/set o (if (keyword? k) (name k) (str k)) v) nil)
+    (reduce-kv (fn [_ k v] (gobj/set o (descriptor/host-prop-name k) v) nil)
                nil ordinary)
     (reduce-kv
       (fn [_ k carrier]
-        (gobj/set o (name k)
+        (gobj/set o (descriptor/host-prop-name k)
                   (if (some? cand)
                     ;; The site key is this walk's ordinal, exactly as an
                     ;; element handler's is — so the position keeps ONE proxy
@@ -989,6 +997,20 @@
              (type-name ordinary) ". It prepares the ordinary-props MAP and must "
              "answer one — it is not a place to build the element.")
         {:host host-id}))
+    ;; The adapter's answer is held to the caller's own naming law, and
+    ;; BEFORE the reserved check below — which is what makes that check
+    ;; total. Asked the other way round, an adapter returning `"key"` or
+    ;; `"onSelect"` would pass a filter looking for the keyword and then
+    ;; reach React under the reserved name anyway.
+    (let [inexact (descriptor/inexact-host-prop-names ordinary)]
+      (when (seq inexact)
+        (malformed!
+          (str "The :map-props adapter on " host-id " returned " (pr-str inexact)
+               ". A host prop name is EXACT — an unqualified keyword, spelled as "
+               "the library spells the prop — because the name is what every "
+               "reserved-fact check reads. The adapter prepares VALUES the "
+               "authored map could not hold; the names stay the caller's.")
+          {:host host-id :props inexact})))
     (let [reserved (vec (sort (filter (fn [k] (or (contains? (:callbacks entry) k)
                                                   (= :key k)
                                                   (= :children k)))
