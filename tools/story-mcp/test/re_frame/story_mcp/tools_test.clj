@@ -33,7 +33,8 @@
             [re-frame.story-mcp.tools.lifecycle :as lifecycle]
             [re-frame.story-mcp.tools.recorder :as recorder-tool]
             [re-frame.story-mcp.tools.registry :as registry]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom])
+  (:import (java.util.concurrent CountDownLatch TimeUnit)))
 
 ;; ResultIO mirror over story-mcp's CLJ-map result shape — used by the
 ;; cap-honours-default test to sum tokens without reaching into cap's
@@ -1784,8 +1785,32 @@
 
   Returns the worker thread so a test can `.join` (with timeout) when
   it needs determinism on whether the worker has finished pushing.
-  Most callers just spawn-and-forget — the `:duration-ms` window the
-  tool sleeps in is more than long enough for the polled push.
+
+  rf2-zrdog — why the caller blocks on a start latch. Polling
+  `recording?` fixes the *stop* end of the race but not the *start*
+  end: the caller used to spawn the thread and immediately invoke the
+  tool, so the window the worker had to hit was a fixed 100ms of wall
+  clock measured from `start-recording!`, while the worker's
+  start-to-first-poll latency was whatever the OS scheduler felt like.
+  Idle, that latency measures under 1ms and the push always lands. With
+  the cores saturated — which is exactly what a full-namespace
+  aggregate run does — it was measured at 82ms, leaving 18ms of margin
+  against the window; one more scheduling hiccup and the worker reaches
+  its first poll after `stop-recording!` has already closed the window.
+  `record-event!` then no-ops (`append` appends only while
+  `:recording?`), the capture comes back empty, and the test fails on
+  `(pos? 0)` having done nothing wrong. That is a load-dependent flake,
+  not shared recorder state — the recorder atom is reset per test by the
+  fixture and no leftover worker was ever observed firing into another
+  test's window.
+
+  So the handoff is synchronised rather than assumed: the worker counts
+  down `polling` as its first act, and this fn does not return until
+  that latch trips. By the time the caller opens the window the thread
+  is live and in its poll loop, and the unbounded thread-start term is
+  out of the race entirely. The latch wait carries the same 5s bound as
+  the poll itself so a thread that never starts fails the test rather
+  than hanging the suite.
 
   EP-0017: the 2-arity `(drive-events-during-recording
   events cofx-vec)` pushes a parallel, index-aligned vector of captured
@@ -1795,30 +1820,40 @@
   same way the live trace listener does."
   ([events] (drive-events-during-recording events nil))
   ([events cofx-vec]
-   (let [cofx-vec (vec (or cofx-vec []))]
-     (doto (Thread.
-             ^Runnable
-             (fn []
-               ;; Poll `recording?` with a 1ms park between probes — fine-
-               ;; grained so the worker fires promptly once the window opens.
-               ;; Bails after 5s if the recorder never opens (a tool bug;
-               ;; the test assertions will catch it).
-               (let [deadline (+ (System/nanoTime) (* 5 1000000000))]
-                 (loop []
-                   (cond
-                     (recorder/recording?)
-                     (doseq [[i ev] (map-indexed vector events)]
-                       (recorder/record-event! ev (get cofx-vec i)))
+   (let [cofx-vec (vec (or cofx-vec []))
+         ;; Trips the moment the worker is live and about to poll, so the
+         ;; caller can open the recording window knowing the thread is
+         ;; already running rather than merely created (rf2-zrdog).
+         polling  (CountDownLatch. 1)
+         worker   (doto (Thread.
+                          ^Runnable
+                          (fn []
+                            (.countDown polling)
+                            ;; Poll `recording?` with a 1ms park between probes —
+                            ;; fine-grained so the worker fires promptly once the
+                            ;; window opens. Bails after 5s if the recorder never
+                            ;; opens (a tool bug; the test assertions will catch it).
+                            (let [deadline (+ (System/nanoTime) (* 5 1000000000))]
+                              (loop []
+                                (cond
+                                  (recorder/recording?)
+                                  (doseq [[i ev] (map-indexed vector events)]
+                                    (recorder/record-event! ev (get cofx-vec i)))
 
-                     (< (System/nanoTime) deadline)
-                     (do (Thread/sleep 1)
-                         (recur))
+                                  (< (System/nanoTime) deadline)
+                                  (do (Thread/sleep 1)
+                                      (recur))
 
-                     ;; Timed out; bail. The test's :recorded-event-count
-                     ;; assertion will surface the miss.
-                     :else nil)))))
-       (.setDaemon true)
-       (.start)))))
+                                  ;; Timed out; bail. The test's
+                                  ;; :recorded-event-count assertion will
+                                  ;; surface the miss.
+                                  :else nil)))))
+                    (.setDaemon true)
+                    (.start))]
+     ;; Bounded so a thread that never starts fails the assertion below
+     ;; rather than hanging the suite.
+     (.await polling 5 TimeUnit/SECONDS)
+     worker)))
 
 (deftest record-as-variant-not-found
   (testing "unknown source variant ⇒ tool-execution error"
