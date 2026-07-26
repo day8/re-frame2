@@ -11,13 +11,35 @@
   host-symmetric order. The non-map / missing-`:to` route-url guards are pinned
   here too so a future host divergence would fail the CLJS runner. The
   JVM-rich behavioural cases (slice-unchanged, no-push, the other `:reason`
-  discriminators) live in routing_navigation_test.clj + routing_registry_test.clj."
+  discriminators) live in routing_navigation_test.clj + routing_registry_test.clj.
+
+  ## Posture split (rf2-o5dbf)
+
+  Both boundaries are ALWAYS-ON and production-surviving, and both are
+  asserted here WITHOUT a posture guard. `route-url` THROWS, so its three
+  tests were already posture-independent. `navigate` rejects by returning
+  `{}` from the handler after the always-on structural gate
+  (`re-frame.routing.address/classify`) — a distinct channel from the
+  dev-only schemas validation one (navigate.cljc §236-250) — so the
+  rejection, the canonical `:keys` ordering and the unchanged slice are all
+  readable in production. The total-order property in particular is a
+  property of `classify` itself, a pure always-on function, and is now
+  asserted on it directly.
+
+  What is dev-only is the `:rf.error/navigate-bad-request` TRACE the gate
+  emits: `trace/emit-error!` sits behind `interop/debug-enabled?`, read once
+  at load time, so under `-Dre-frame.debug=false` the framework emits nothing
+  BY DESIGN. Those assertions are kept VERBATIM inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-o5dbf`. Nothing was
+  deleted or weakened."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.identity :as identity]
+   [re-frame.interop :as interop]
    [re-frame.routing :as routing]
+   [re-frame.routing.address :as address]
    [re-frame.test-support :as test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
@@ -83,8 +105,27 @@
             on both hosts"
     ;; :a/b, "s", and 3 are unknown keys of DIFFERENT kinds — a plain
     ;; `(sort #{:a/b \"s\" 3})` throws a ClassCastException on the JVM.
-    (let [err (navigate-error {:to :route/gate :a/b 1 "s" 2 3 4})]
-      (is (some? err) ":rf.error/navigate-bad-request emitted (no raw compare throw)")
-      (is (= :unknown-keys (-> err :tags :reason)))
+    (let [request {:to :route/gate :a/b 1 "s" 2 3 4}
+          ;; SEMANTIC, posture-independent (rf2-o5dbf): the total order is a
+          ;; property of the ALWAYS-ON structural gate, not of the diagnostic.
+          ;; Assert it on `classify` directly — this is the assertion that
+          ;; would have caught the raw-`compare` throw, and it survives
+          ;; -Dre-frame.debug=false because `classify` does.
+          bad     (address/classify request nil)
+          err     (navigate-error request)]
+      (is (= :unknown-keys (:reason bad))
+          "the always-on structural gate classifies the request :unknown-keys")
       (is (= (vec (sort-by identity/canonical-bytes #{:a/b "s" 3}))
-             (-> err :tags :keys))))))
+             (:keys bad))
+          "…and orders the offending keys by CEDN-1 identity (no raw compare throw)")
+      ;; …and the REJECTION really held: the dispatch above completed without
+      ;; a host throw and left no route slice behind.
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                        [:rf.runtime/routing :current]))
+          "the rejected navigate left the route slice unchanged (no commit)")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some? err) ":rf.error/navigate-bad-request emitted (no raw compare throw)")
+        (is (= :unknown-keys (-> err :tags :reason)))
+        (is (= (vec (sort-by identity/canonical-bytes #{:a/b "s" 3}))
+               (-> err :tags :keys)))))))
