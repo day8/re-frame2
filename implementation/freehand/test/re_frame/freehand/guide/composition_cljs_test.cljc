@@ -156,11 +156,11 @@
       :on-input (conj on-change ::v/value)}
      caller-attrs)
 
-   ;; foreign leaf — open remainder, owned contract wins
+   ;; foreign host head — caller's remainder first, owned contract second so it wins
    (v/spread
+     (dissoc props :date :on-pick)
      {:selected date
-      :on-change (v/event [v] [:picker/picked v])}
-     (dissoc props :date :on-pick))])
+      :onChange (v/event [js-date] [:picker/picked js-date])})])
 
 ;; composition.md blocks 9 and 12 — the worked library field. The two blocks
 ;; show the same declaration (block 9 with its caller, block 12 alone), so
@@ -190,16 +190,24 @@
                               :data-analytics "signup-email"}}}]))
 
 ;; composition.md block 10 — the foreign-widget sketch. `DatePicker` stands
-;; in for whatever npm component the consumer imported: the block is a
-;; sketch the guide never renders, and what it pins here is `v/spread` and
-;; `v/event` at a foreign head.
+;; in for whatever npm component the consumer imported, and on the JVM the
+;; declaration drops it: a `v/defhost` expansion carries its component only
+;; in ClojureScript, which is exactly what lets one `.cljc` declaration
+;; answer a structural render here and a real mount in the browser.
 (def DatePicker "some-date-picker/DatePicker")
 
+(v/defhost date-picker
+  "A third-party date picker."
+  DatePicker
+  {:callbacks {:onChange :event}
+   :children  :none
+   :ssr       :client-only})
+
 (v/defview date-field [{:keys [date on-pick] :as props}]
-  [DatePicker
-   (v/spread {:selected date
-              :on-change (v/event [v] (on-pick v))}
-             (dissoc props :date :on-pick))])
+  [date-picker
+   (v/spread (dissoc props :date :on-pick)
+             {:selected date
+              :onChange (v/event [js-date] (conj on-pick js-date))})])
 
 ;; composition.md block 13 — the caller reaching both parts.
 (def field-call-with-parts
@@ -308,6 +316,55 @@
           "the caller's annotation landed")
       (is (= "control" (:data-part attrs))
           "under the component's own part name"))))
+
+(deftest the-foreign-widget-crosses-through-a-declared-host-head
+  (testing "composition.md block 10 — the sketch that used to raise
+            `:rf.error/view-bad-head` by putting the imported component at
+            the head. `v/defhost` mints the third legal head, and the block
+            is rendered here with a COLLIDING `:selected` because a merge-law
+            assertion that never sees a collision asserts nothing: the owned
+            literal sits in `v/spread`'s overrides position, so it wins."
+    (let [tree (t/render [date-field {:date     "2026-01-05"
+                                      :on-pick  [:booking/date-picked]
+                                      :class    "wide"
+                                      :selected "caller-tries-to-clobber"}])
+          host (t/find tree #(contains? % :rf.ui/host))]
+      (is (some? host)
+          "the crossing is a node in the tree, not an exception")
+      (is (= ::date-picker (:rf.ui/host host))
+          "recorded under the declaration's own qualified id")
+      (is (= :client-only (:rf.ui/host-ssr host))
+          "carrying the declared SSR policy, and no server content")
+      (is (= [] (:children host))
+          "which is what `:client-only` projects")
+      (is (= "2026-01-05" (:selected (:props host)))
+          "the owned literal won the collision")
+      (is (= "wide" (:class (:props host)))
+          "and the caller's remainder still forwarded underneath it")
+      (is (= {:rf.ui/opaque :v/event} (:onChange (:props host)))
+          "the declared callback records as its opaque role marker"))))
+
+(deftest the-two-forwarding-shapes-put-the-owned-map-where-each-form-wants-it
+  (testing "composition.md block 8 — the page's two `Shape` calls differ in
+            argument ORDER, and that is the whole claim. `v/spread-safe`
+            takes the owned map FIRST and denies the caller the controlled
+            keys; `v/spread` is later-arg-wins, so the owned map goes SECOND
+            or the caller silently replaces it."
+    (let [[safe general] (spread-forms {:value        "ada@example.com"
+                                        :on-change    [:account/email-changed]
+                                        :caller-attrs {:class "wide-control"
+                                                       :selected "ignored-here"}
+                                        :date         "2026-01-05"
+                                        :props        {:date "2026-01-05"
+                                                       :on-pick [:picker/picked]
+                                                       :selected "caller-tries-to-clobber"
+                                                       :class "wide"}})]
+      (is (= "ada@example.com" (:value safe))
+          "spread-safe: the owned controlled value survives the caller map")
+      (is (= "2026-01-05" (:selected general))
+          "spread: the owned literal is the OVERRIDE, so it wins")
+      (is (= "wide" (:class general))
+          "and the caller's remainder is otherwise forwarded whole"))))
 
 (deftest a-narrow-read-stays-at-the-boundary-that-needs-it
   (testing "state.md's first claim — a view reads what it shows, and the

@@ -230,7 +230,7 @@ wrong plane — use trailing children, compound regions, slots, or child views.
 | Form | Where | Promise |
 |---|---|---|
 | **`v/spread-safe`** | internal DOM / library element that must keep controlled + identity invariants | caller attrs sit **under** owned literals; forbidden keys cannot clobber the contract; **preserves the controlled-input door** |
-| **`v/spread`** | **foreign** host head (open prop ABI) | owned literals still win collisions; forwarded map is otherwise opaque — **does not** claim the door |
+| **`v/spread`** | **foreign** host head (open prop ABI) | later-arg-wins, so the owned literals go in the **overrides** position; the forwarded remainder is otherwise opaque — **does not** claim the door |
 
 Same meaning in interpreted and compiled mode. The classic “attrs-forwarding
 wrapper” (`labelled-field` → inner `input`) is ordinary vocabulary, not a
@@ -246,11 +246,11 @@ compiled-only trick.
    :on-input (conj on-change ::v/value)}
   caller-attrs)
 
-;; foreign leaf — open remainder, owned contract wins
+;; foreign host head — caller's remainder first, owned contract second so it wins
 (v/spread
+  (dissoc props :date :on-pick)
   {:selected date
-   :on-change (v/event [v] [:picker/picked v])}
-  (dissoc props :date :on-pick))
+   :onChange (v/event [js-date] [:picker/picked js-date])})
 ```
 
 `v/spread` takes one or two arguments: `(v/spread base)` forwards a map alone, and
@@ -330,18 +330,42 @@ steal the door. Full parts/theming policy: [Theming and parts](#theming-and-part
 
 ### Worked sketch — foreign widget
 
+A foreign React component is not a vector head. `v/defhost` declares one and mints
+the head, and it is the only thing that does:
+
 ```clojure
+(v/defhost date-picker
+  "A third-party date picker."
+  DatePicker                                  ; the imported React component
+  {:callbacks {:onChange :event}
+   :children  :none
+   :ssr       :client-only})
+
 (v/defview date-field [{:keys [date on-pick] :as props}]
-  [DatePicker
-   (v/spread {:selected date
-              :on-change (v/event [v] (on-pick v))}
-             (dissoc props :date :on-pick))])
+  [date-picker
+   (v/spread (dissoc props :date :on-pick)
+             {:selected date
+              :onChange (v/event [js-date] (conj on-pick js-date))})])
 ```
 
-Use **`v/spread`** (not `spread-safe`) when the head is foreign and open. The
-literal owned keys still win collisions so a forwarded map cannot clobber your
-committed callback. Callback phase/identity still follows the
-[escape roster](events-and-handlers.md#the-escape-roster).
+Three things about that call site are easy to get wrong.
+
+**The head is the declaration, not the component.** Putting `DatePicker` itself at
+the head raises `:rf.error/view-bad-head`, which names the three legal forms; the
+descriptor `v/defhost` binds is the third of them.
+
+**Use `v/spread`, not `spread-safe`, and put the owned literals second.** `v/spread`
+is later-arg-wins, so the forwarded remainder goes in the base position and the keys
+you own go in the overrides — reverse them and a caller's `:selected` silently
+replaces yours. `spread-safe` is the wrong tool here: its bound is a promise about a
+controlled element you own, and a foreign component owns its own timing.
+
+**Host prop names pass exactly.** `:onChange` reaches React as `onChange` — there is
+no camelisation on this path, so `:on-change` would arrive as `on-change` and the
+library would never see it. A callback reaches a host only at a position the
+declaration named, and it arrives as a carrier from the
+[escape roster](events-and-handlers.md#the-escape-roster); a function in an ordinary
+prop is refused.
 
 ### Choosing quickly
 
@@ -349,7 +373,7 @@ committed callback. Callback phase/identity still follows the
 |---|---|
 | Forwarding onto an **internal** `input` / DOM node / library leaf that is controlled | `v/spread-safe` |
 | Merging `:parts` attrs onto a declared `data-part` | `v/spread-safe` |
-| Forwarding remainder props onto a **foreign** React/host component | `v/spread` |
+| Forwarding remainder props onto a **declared `v/defhost` head** | `v/spread`, owned literals in the overrides position |
 | Replacing a label, row body, or trigger structure | composition ladder — not a spread |
 | Hoping a dynamic map keeps the door without `spread-safe` | it won’t — fix the merge |
 
