@@ -447,9 +447,9 @@
    "render!"        [:omitted "imperative render under ui/mount; author uses ui/mount"]
    "unmount!"       [:omitted "teardown primitive paired with ui/mount"]
    "route-link"     [:omitted "router integration; see the routing docs + the route-link roster entry"]
-   "presence"       [:omitted "enter/exit presence choreography; see docs/core/freehand/presence.md + the presence-* diagnostics"]
-   "presence-phase" [:omitted "presence phase accessor; see docs/core/freehand/presence.md"]
-   "error-boundary" [:omitted "error-boundary form; see docs/core/freehand/host-boundaries.md + the bad-error-boundary diagnostic"]})
+   "presence"       [:omitted "enter/exit presence choreography; see docs/core/freehand/host/presence.md + the presence-* diagnostics"]
+   "presence-phase" [:omitted "presence phase accessor; see docs/core/freehand/host/presence.md"]
+   "error-boundary" [:omitted "error-boundary form; see docs/core/freehand/host/host-boundaries.md + the bad-error-boundary diagnostic"]})
 
 (defn- assert-disposition-covers-manifest!
   "Reds when `authoring-disposition` and the manifest's re-frame.ui var set

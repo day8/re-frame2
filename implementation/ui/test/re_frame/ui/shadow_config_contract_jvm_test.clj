@@ -52,7 +52,7 @@
   version it published lives in the two REAL pins (`implementation/package.json`
   and the scaffold's `deps.edn`), which are still compared to each other below.
   A published page was always a restatement; deleting it removes a copy, not a
-  source. The Freehand install page (`docs/core/freehand/install.md`) is NOT its
+  source. The Freehand install page (`docs/core/freehand/get-running/install.md`) is NOT its
   successor here — it configures a DIFFERENT hook
   (`re-frame.freehand.compiler.build-hook`) and belongs to its own contract.
 

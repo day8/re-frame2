@@ -30,7 +30,7 @@
 ;; carries the seeded count — no dispatch-sync, no empty-then-flash. The
 ;; root's identity is DERIVED from the mounted view's registered id, so
 ;; re-entering `v/mount` re-renders the root that is already live rather than
-;; allocating a second one (docs/core/freehand/install.md §Two roots on one
+;; allocating a second one (docs/core/freehand/get-running/install.md §Two roots on one
 ;; page).
 ;;
 ;; `run` RE-ENTERS it on every hot reload, and `^:dev/after-load` is the

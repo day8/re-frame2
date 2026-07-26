@@ -1,6 +1,6 @@
 (ns re-frame.freehand.guide.compilation-cljs-test
-  "Executable fixtures for `docs/core/freehand/compilation.md` and
-  `docs/core/freehand/debugging.md`.
+  "Executable fixtures for `docs/core/freehand/advanced/compilation.md` and
+  `docs/core/freehand/operate/debugging.md`.
 
   Compilation is the chapter with the sharpest failure mode. `{:compiled
   true}` submits a body to a closed grammar, so a sample that drifts out of

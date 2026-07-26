@@ -1,5 +1,5 @@
 (ns re-frame.freehand.guide.testing-cljs-test
-  "Executable fixtures for `docs/core/freehand/testing.md`.
+  "Executable fixtures for `docs/core/freehand/operate/testing.md`.
 
   Every fenced block on that page is a test, so this namespace is the one
   place where transcription is exact: each of the guide's four `deftest`s

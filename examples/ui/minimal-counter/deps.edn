@@ -1,7 +1,7 @@
 ;; minimal-counter — the smallest runnable Freehand project.
 ;;
 ;; CHECKOUT-RELATIVE BY DESIGN. day8/re-frame2-freehand is not published and
-;; carries no date at which it will be (docs/core/freehand/install.md), so
+;; carries no date at which it will be (docs/core/freehand/get-running/install.md), so
 ;; resolving it from an enclosing monorepo checkout is the only supported
 ;; shape today — treat the coord as the SHAPE of the dependency, not as
 ;; something you can paste into a fresh project. day8/re-frame2 does ship to

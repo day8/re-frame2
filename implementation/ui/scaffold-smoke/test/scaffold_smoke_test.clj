@@ -124,7 +124,7 @@
           (mapcat :build-hooks (vals (:builds config)))))
 
 (deftest shadow-config-wires-no-build-hook
-  ;; docs/core/freehand/install.md §Shadow build settings: interpreted views
+  ;; docs/core/freehand/get-running/install.md §Shadow build settings: interpreted views
   ;; need no build configuration at all. The COMPILED tier is what needs one —
   ;; its analyzer and whole-build registries run at build time behind
   ;; `(re-frame.freehand.compiler.build-hook/hook)` — and this scaffold declares
