@@ -1,0 +1,75 @@
+;; rf2-odlm3 — tools/machines-viz's OWN CLJS test lane.
+;;
+;; WHY THIS FILE EXISTS. machines-viz's test tree is borrowed onto the
+;; consolidated `implementation/shadow-cljs.edn` `:node-test` classpath via a
+;; `../`-escaping `:source-paths` entry, and that build's `cljs-test$` selector
+;; reaches only the `*_cljs_test` half of it. The rest — suites whose namespace
+;; ends `-test` — compile into that bundle and are never selected, so they run
+;; on the JVM only while the CLJS lane reports a green count that says nothing
+;; about them.
+;;
+;; The fix is NOT to rename them into the shared bundle. That arms them inside
+;; a ~11.5k-test run they can contaminate (rf2-ezbzvm: nine such files, enabled
+;; at once, exposed two fixtures calling `registrar/clear-all!` without
+;; restoring, breaking SIBLING namespaces), and it leaves the bijection gate
+;; blind either way — a borrowed root is held by that gate's B1 rule only.
+;;
+;; A lane declared HERE does both jobs at once:
+;;
+;;   * ARMING IS CONTAINED. This build has its own bundle, its own classpath
+;;     (the artefact's own deps.edn) and its own exit code. A fixture that
+;;     leaks here cannot reach the consolidated suite.
+;;   * THE OWNERSHIP LINE MOVES. `scripts/check_test_lane_bijection.py` reads
+;;     every `shadow-cljs.edn` in the tree and calls a source root that stays
+;;     inside the shadow project a tree the CLJS build OWNS. Roots resolved
+;;     from THIS config's sibling deps.edn are inside tools/machines-viz, so
+;;     rule B2 — "a `.cljc` test on a CLJS-owned root must be selected by a
+;;     CLJS lane" — now reaches this tree with NO gate change, and holds the
+;;     result permanently.
+;;
+;; THE SELECTOR IS `-test$` UNDER THE ARTEFACT'S OWN NAMESPACE PREFIX, not
+;; `cljs-test$`. Two consequences, both wanted:
+;;
+;;   * no rename. These files keep the names their JVM lane knows them by and
+;;     stay OUT of the shared bundle's `cljs-test$`, so arming them here does
+;;     not arm them there.
+;;   * the ratchet is automatic. A new suite under this prefix is selected on
+;;     arrival rather than on the audit that finds it, and a new `.cljc` that
+;;     lands OUTSIDE the prefix reddens B2 — which is the gate saying "name it
+;;     under the artefact, or declare `-jvm-test`", exactly the two outcomes
+;;     rf2-odlm3 asks every file in this tree to take.
+;;
+;; `-dom-cljs-test` namespaces match too and self-gate on `(browser?)` under
+;; Node, as they already do in the consolidated build. A `.clj` suite is not
+;; compiled by shadow-cljs at all, so the `-jvm-test` escape hatch is
+;; unaffected.
+;;
+;; RUNNING IT: `npm run test:tools-machines-viz` from implementation/.
+;; The artefact has no npm surface and needs none — `:js-package-dirs` points
+;; shadow-cljs at the one node_modules this repo installs, and the bundle is
+;; emitted into implementation/out/ so Node's own upward resolution finds the
+;; same tree at run time without a NODE_PATH.
+;;
+;; `:cljs-test`, not `:test`: shadow-cljs resolves a `:deps {:aliases [...]}`
+;; classpath by shelling out to `clojure -A:<alias>`, which INHERITS the
+;; alias's `:main-opts` and then hands shadow's own arguments to cognitect's
+;; test-runner. The two aliases carry the same paths; see deps.edn.
+{:deps {:aliases [:cljs-test]}
+
+ ;; The repo installs exactly one node_modules (implementation/). Pointing at
+ ;; it keeps this lane free of a second lockfile to drift against the first.
+ :js-options {:js-package-dirs ["../../implementation/node_modules"]}
+
+ :builds
+ {:machines-viz-node-test
+  {:target    :node-test
+   :output-to "../../implementation/out/node-test-tools-machines-viz.js"
+   :ns-regexp "^day8\\.re-frame2-machines-viz\\..*-test$"
+   ;; The silent-on-success reporter every other lane uses; on the classpath
+   ;; via the `day8/re-frame2-test-quiet` :local/root in `:cljs-test`.
+   :main      re-frame.test-quiet.shadow-node/main
+   ;; The same two suppressions the consolidated `:node-test` build carries and
+   ;; for the same reasons: test code redefines freely, and externs inference is
+   ;; irrelevant to an un-minified Node run.
+   :compiler-options {:warnings      {:redef false}
+                      :infer-externs false}}}}

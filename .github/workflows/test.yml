@@ -78,6 +78,7 @@ jobs:
       tools_jvm: ${{ steps.detect.outputs.tools_jvm }}
       tools_jvm_machines_viz: ${{ steps.detect.outputs.tools_jvm_machines_viz }}
       tools_jvm_testbed_support: ${{ steps.detect.outputs.tools_jvm_testbed_support }}
+      tools_cljs_machines_viz: ${{ steps.detect.outputs.tools_cljs_machines_viz }}
       template_expensive: ${{ steps.detect.outputs.template_expensive }}
       mcp_conformance: ${{ steps.detect.outputs.mcp_conformance }}
       mcp_live: ${{ steps.detect.outputs.mcp_live }}
@@ -3500,6 +3501,75 @@ jobs:
       - name: Run JVM tests (tools/machines-viz artefact)
         run: clojure -M:test
 
+  # rf2-odlm3 — the CLJS half of the two suites the job above calls out as
+  # JVM-only. Both are `.cljc`, so "JVM-only" was a description of the LANES,
+  # not of the files: `engine_grammar_parity_test.cljc` carries `:cljs` reader
+  # arms and the grammar it mirrors is compiled for the browser. The
+  # consolidated `:node-test` bundle does not contain either namespace — its
+  # `cljs-test$` selector never reaches a name ending `-test` — so the always-on
+  # `cljs` job is not their lane however green it is.
+  #
+  # `tools/machines-viz/shadow-cljs.edn` declares the artefact's own
+  # `:machines-viz-node-test` build for them: its own bundle, its own classpath,
+  # its own exit code, so arming these suites cannot contaminate the shared
+  # ~11.5k-test run (the rf2-ezbzvm failure mode). Declaring the build inside
+  # tools/machines-viz also moves the ownership line the test-lane bijection
+  # gate reads, so rule B2 now holds this tree with no gate change.
+  #
+  # Its OWN output, like the two jobs either side of it and for the same reason:
+  # no existing output gates a job that runs this build.
+  #
+  # It needs Node as well as the JVM — the bundle is a Node script, and
+  # shadow-cljs resolves npm from implementation/node_modules (the one install
+  # this repo has; the artefact deliberately gains no second lockfile).
+  cljs-tools-machines-viz:
+    name: CLJS tools/machines-viz (shadow-cljs :machines-viz-node-test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.tools_cljs_machines_viz == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-cljs-tools-machines-viz-${{ hashFiles('tools/machines-viz/deps.edn', 'tools/machines-viz/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-tools-machines-viz-
+            ${{ runner.os }}-cljs-
+
+      # shadow-cljs reads npm packages out of implementation/node_modules
+      # (`:js-options :js-package-dirs`), and the emitted bundle resolves the
+      # same tree at run time because it lands in implementation/out/.
+      - name: npm ci
+        working-directory: implementation
+        run: npm ci
+
+      - name: Run CLJS tests (tools/machines-viz artefact lane)
+        working-directory: implementation
+        run: npm run test:tools-machines-viz
+
   jvm-tools-testbed-support:
     name: JVM tools/testbed-support (clojure -M:test)
     needs: detect_changed_surfaces
@@ -4491,6 +4561,9 @@ jobs:
       # them. A job absent from this list is advisory, whatever its own gate says.
       - jvm-tools-machines-viz
       - jvm-tools-testbed-support
+      # rf2-odlm3 — required for the CLJS half of the same ratchet: the parity
+      # suite is `.cljc` and its `:cljs` arms have never run anywhere.
+      - cljs-tools-machines-viz
       - jvm-tools-template
       - node-test-tools-re-frame2-pair-mcp
       - node-test-tools-story-mcp

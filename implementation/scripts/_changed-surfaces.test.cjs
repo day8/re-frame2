@@ -590,6 +590,93 @@ test('a sibling per-feature artefact does NOT arm the machines-viz lane (rf2-wq1
   }
 });
 
+// rf2-odlm3 — tools/machines-viz's OWN CLJS lane. The two suites the JVM job
+// above exists for (`engine_grammar_parity_test.cljc`,
+// `mermaid_public_smoke_test.cljc`) are `.cljc`, so "JVM-only" described the
+// LANES, not the files: the consolidated `:node-test` bundle does not contain
+// either namespace, because its `cljs-test$` selector never reaches a name
+// ending `-test`. `tools/machines-viz/shadow-cljs.edn` declares the artefact's
+// own `:machines-viz-node-test` build for them — its own bundle, so arming them
+// cannot contaminate the shared run — and declaring it INSIDE the artefact also
+// moves the ownership line the test-lane bijection gate reads.
+
+test('a machines-viz change schedules the artefact CLJS lane (rf2-odlm3)', () => {
+  const result = classify('tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs');
+  assert.equal(result.tools_cljs_machines_viz, 'true');
+});
+
+test('an engine change schedules BOTH halves of the parity ratchet (rf2-odlm3)', () => {
+  const result = classify('implementation/machines/src/re_frame/machines.cljc');
+  assert.equal(result.tools_jvm_machines_viz, 'true');
+  assert.equal(result.tools_cljs_machines_viz, 'true');
+});
+
+test('machines-viz spec-only .md does NOT schedule its CLJS lane (rf2-odlm3)', () => {
+  assert.equal(classify('tools/machines-viz/spec/API.md').tools_cljs_machines_viz, 'false');
+});
+
+test('an unrelated surface does NOT schedule the machines-viz CLJS lane (rf2-odlm3)', () => {
+  assert.equal(classify('docs/core/intro.md').tools_cljs_machines_viz, 'false');
+  assert.equal(classify('tools/story/src/re_frame/story.cljc').tools_cljs_machines_viz, 'false');
+});
+
+test('the machines-viz CLJS job is gated on its own output and runs the artefact build (rf2-odlm3)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'cljs-tools-machines-viz');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.tools_cljs_machines_viz == 'true'/,
+  );
+  assert.match(
+    block,
+    /npm run test:tools-machines-viz/,
+    'the job must invoke the artefact CLJS lane, not the consolidated one',
+  );
+  assert.match(
+    workflow,
+    /tools_cljs_machines_viz: \$\{\{ steps\.detect\.outputs\.tools_cljs_machines_viz \}\}/,
+    'the output must be plumbed out of detect_changed_surfaces',
+  );
+  const aggregator = jobBlock(workflow, 'all-required-passed');
+  assert.ok(
+    aggregator.includes('- cljs-tools-machines-viz'),
+    'a job absent from all-required-passed is advisory',
+  );
+});
+
+test('the machines-viz CLJS lane is really declared where the arm says it is (rf2-odlm3)', () => {
+  // The arm and the job are only honest while the build exists in the
+  // artefact's own config — which is what moves the bijection gate's ownership
+  // line. Read it off the file rather than asserting from memory.
+  const config = fs.readFileSync(
+    path.join(REPO_ROOT, 'tools', 'machines-viz', 'shadow-cljs.edn'),
+    'utf8',
+  );
+  assert.match(config, /:machines-viz-node-test/);
+  assert.match(config, /:target\s+:node-test/);
+  // The selector must NOT be the shared bundle's `cljs-test$`: that is the
+  // whole point — these suites are armed here WITHOUT a rename that would also
+  // arm them inside the consolidated ~11.5k-test run.
+  // Compared as a plain string, deliberately: the selector is itself a regex
+  // written into EDN, and asserting it with a THIRD layer of escaping is how a
+  // pin ends up matching nothing and passing anyway.
+  const SELECTOR = String.raw`:ns-regexp "^day8\\.re-frame2-machines-viz\\..*-test$"`;
+  assert.ok(
+    config.includes(SELECTOR),
+    `the artefact lane must select on its own prefix, not on cljs-test$ — expected ${SELECTOR}`,
+  );
+  assert.ok(
+    !config.includes('"cljs-test$"'),
+    'selecting on cljs-test$ here would mean the suites were renamed into the shared bundle',
+  );
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(IMPL_ROOT, 'package.json'), 'utf8'),
+  );
+  assert.ok(pkg.scripts['test:tools-machines-viz'], 'the named entry point must exist');
+  assert.match(pkg.scripts['test:tools-machines-viz'], /machines-viz-node-test/);
+});
+
 test('the declared :local/root edges these arms encode are still in the deps.edn files (rf2-wq17m)', () => {
   // The arms above are only honest while the dependency they mirror exists.
   // Read it off the artefact's own deps.edn rather than asserting from
