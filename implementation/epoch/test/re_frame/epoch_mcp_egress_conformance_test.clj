@@ -27,7 +27,9 @@
        (rf2-0t7o8): the tag vocabulary is operation-agnostic but the DEFECTS
        are not, so the cascade drives the operation that stamps a free `:scope`
        tag as well as the ones that carry their scope inside a key, in both the
-       identity-bearing and the scalar scope shape.
+       identity-bearing and the scalar scope shape — and, since rf2-425mm
+       landed, an `ensure` of a SESSION-scoped owner, which is the only way an
+       identity-bearing scope reaches the fx CARRIERS rather than a family row.
     2. Run the ring through `projected-record` (per-record forwarder shape,
        e.g. `register-epoch-listener!` ship!) AND `projected-history` (bulk-egress
        shape, e.g. `watch-epochs` initial snapshot).
@@ -389,34 +391,55 @@
 ;;     nothing. Both gaps are closed by the two `invalidate-tags` the cascade now
 ;;     drives.
 ;;
-;; All four are reachable from the cascade `drive-resource-family!` drives, and
-;; all four were MEASURED here by reverting the fix and re-running, because a
+;;   - rf2-425mm — and the FIFTH, which is the FOURTH one CARRIER further out.
+;;     The same free `:scope`, planted by the runtime inside the transport's
+;;     `:on-success` / `:on-failure` continuation payload, therefore riding
+;;     `:rf.fx/args` / `:rf.event/fx` on `:rf.fx/*` rows where the family
+;;     projector never runs and the carrier walk descended it as a plain map.
+;;     Reaching it needs BOTH earlier widenings at once and neither alone: an
+;;     identity-bearing scope (the `reg-resource-scope` resolver) on an
+;;     operation that LOWERS INTO FX (an `ensure`). The cascade drives that
+;;     `ensure` last.
+;;
+;; All five are reachable from the cascade `drive-resource-family!` drives, and
+;; all five were MEASURED here by reverting the fix and re-running, because a
 ;; widening that cannot red against a defect that actually shipped has proven
 ;; nothing. Counts are for THIS FILE, re-derived against the widened cascade —
-;; each mutation is stated precisely enough to reproduce:
+;; each mutation is stated precisely enough to reproduce, and EVERY run below is
+;; 504 tests / 6755 assertions, the same as green, differing only in failures.
+;; That identity is the applied-mutation check: a silently-failed edit leaves
+;; the failure count behind.
 ;;
 ;;   - revert rf2-wd9im (`project-unknown-slot-value` back to the map-only
-;;     default: drop its `scoped-key-shape?` and `coll?` arms) → 7 failures,
-;;     naming every leaking path — the lifecycle rows'
-;;     `[:tags :work/id 1 2 :auth-token]`, the release row's `:released` and its
-;;     `:aborted`, and (new) the invalidation row's `[:tags :scope 1 :username]`,
-;;     since a scope TUPLE is a vector and the map-only default lets a vector
-;;     fall through verbatim. Epoch suite under that mutation: 35 failures.
+;;     default: drop its `scoped-key-shape?` and `coll?` arms) → 9 in-file
+;;     failures (was 7 before the session `ensure`), naming every leaking path —
+;;     the lifecycle rows' `[:tags :work/id 1 2 :auth-token]`, the release row's
+;;     `:released` and its `:aborted`, the invalidation row's
+;;     `[:tags :scope 1 :username]` (a scope TUPLE is a vector and the map-only
+;;     default lets a vector fall through), and now the CARRIER scopes too,
+;;     since the rf2-425mm arm delegates to this very fn. Epoch suite: 54.
 ;;   - revert rf2-5o52l (`events.cljc`'s `:released` back to
-;;     `(vec (or owned #{}))`, i.e. key-ids) → 9 failures: 8 in the acceptance
-;;     deftest, the report printing the raw CEDN-1 string
-;;     `v[k::rf.scope/global k::secret/article m{k::auth-token s:"…"}]`, and 1 in
-;;     the PLAIN control (a key-id is not a scoped-key vector, so the plain
-;;     owner's `:released` member goes missing) — the fixture notices the change
-;;     in both directions, not just the leaking one. Epoch suite: 10 failures.
-;;   - revert rf2-1zc33 (put `:scope` back into `sibling-owned-slot`) → 3
-;;     failures, naming `[:trace-events <i> :tags :scope 1 :username]` on both
-;;     the assembled record and the real settled one, plus the per-slot
-;;     `(redacted-token? (second pscope))`. Epoch suite: 490 tests / 6628
-;;     assertions, 19 failures — the SAME test and assertion counts as green,
-;;     differing only in failures, which is what proves the mutation applied
-;;     rather than the gate quietly not firing. Before this widening the same
-;;     revert left this file GREEN.
+;;     `(vec (or owned #{}))`, i.e. key-ids) → 9 in-file failures, the report
+;;     printing the raw CEDN-1 string
+;;     `v[k::rf.scope/global k::secret/article m{k::auth-token s:"…"}]`, and one
+;;     of them in the PLAIN control (a key-id is not a scoped-key vector, so the
+;;     plain owner's `:released` member goes missing) — the fixture notices the
+;;     change in both directions, not just the leaking one. Epoch suite: 10.
+;;   - revert rf2-1zc33 (put `:scope` back into `sibling-owned-slot`) → 4
+;;     in-file failures (was 3), naming `[:trace-events <i> :tags :scope 1
+;;     :username]` on both the assembled record and the real settled one, plus
+;;     the per-slot `(redacted-token? (second pscope))` and the carrier/row
+;;     agreement assertion. Epoch suite: 20. Before the rf2-1zc33 widening the
+;;     same revert left this file GREEN.
+;;   - revert rf2-425mm (drop the `:scope` arm from `project-embedded-keys`) → 5
+;;     in-file failures, naming the bead's four paths byte-for-byte at its own
+;;     indices: `[:trace-events 10 :tags :rf.fx/args :on-success 1 :scope 1
+;;     :username]`, the `:on-failure` twin, and both again under
+;;     `[:trace-events 11 :tags :rf.event/fx 2 1 …]`. Epoch suite: 22. THIS is
+;;     the reversion the session `ensure` exists for, and the measurement that
+;;     says so is the pairing: the same revert against the PRE-widening version
+;;     of this file (`git show origin/main:…`) is GREEN at 22 tests / 198
+;;     assertions, while against the widened one it reds those five.
 ;;   - revert rf2-1kiuj (drop the `omit-off-box-fx-args-resource-keys` arm from
 ;;     `elide-trace-events-slot`) → see the reversion counts recorded on the
 ;;     bead; the whole-record and whole-history scans name every leaking carrier
@@ -449,6 +472,17 @@
 (def ^:private session-cause         [:logout :session])
 (def ^:private global-cause          [:logout :global])
 (def ^:private invalidation-tag      :mcp/article)
+
+;; rf2-0t7o8 / rf2-425mm — the same identity-bearing scope one CARRIER further
+;; out. `invalidate-tags` stamps it as a free tag on a family row; an `ensure`
+;; of a session-scoped owner also LOWERS INTO FX, so the resolved scope reaches
+;; `:rf.fx/args` / `:rf.event/fx` inside the transport's continuation payload —
+;; rows the family projector never runs on. Its params are deliberately
+;; secret-FREE: the only thing this owner can leak is its resolved SCOPE, so a
+;; failure names that axis and nothing else.
+(def ^:private session-resource-id   :secret/session-article)
+(def ^:private session-slug          "mcp-egress-session")
+(def ^:private session-owner         [:app :reader 2])
 
 (defn- install-resource-family!
   "Register the two resource owners the family scans need: one `:sensitive?`
@@ -511,6 +545,15 @@
     {:scope         :rf.scope/global
      :params-schema [:map [:slug :string]]}
     (fn [_params _ctx] {:request {:method :get :url "/public"}}))
+  ;; rf2-0t7o8 — the SESSION-scoped owner, the third of the three. Its scope is
+  ;; the `{:from-db …}` reference the resolver above answers, so an `ensure` of
+  ;; it plants an identity-bearing `[tier {identity}]` scope inside the fx
+  ;; CARRIERS as well as on the family's own rows.
+  (rf/reg-resource session-resource-id
+    {:scope         {:from-db session-scope-id}
+     :sensitive?    true
+     :params-schema [:map [:slug :string]]}
+    (fn [_params _ctx] {:request {:method :get :url "/session"}}))
   nil)
 
 (defn- resource-family-row?
@@ -550,28 +593,41 @@
   shape that must still ride verbatim). Same slot, same row type, two shapes —
   which is what makes the pair a control rather than two assertions.
 
-  NOT driven, and deliberately, two things:
+  FINALLY an `ensure` of the SESSION-SCOPED owner, and it is the CARRIER axis
+  (rf2-0t7o8, unblocked by rf2-425mm). Everything above puts the
+  identity-bearing scope on rows the family OWNS. An `ensure` also LOWERS INTO
+  FX: the runtime stamps the resolved `:scope` into the `:on-success` /
+  `:on-failure` continuation arg maps `transport.http/build-managed-args`
+  builds, and those ride `:rf.fx/args` and `:rf.event/fx` on `:rf.fx/*` rows —
+  where `resource-family-op?` never looks and the app-db-rooted walk cannot
+  classify a resolver-owned value. That is a `[tier {identity}]` scope in a
+  FREE `:scope` slot one carrier further out than `invalidate-tags` reaches,
+  and until rf2-425mm landed it egressed raw at four paths of this record.
+  Driven LAST so the earlier records' indices — and the release cascade's
+  `:released` / cancel-timers slots, which this owner must not join — are
+  untouched.
+
+  NOT driven, and deliberately, two things — both blocked on the SAME missing
+  machinery, an HTTP reply round-trip, which is why they are one omission and
+  not two:
 
   - `:rf.resource/refetch-decision`. It fires once per entry an invalidation
-    MATCHES, and an entry acquires its `:tags` at SETTLE — so reaching it means
-    an HTTP reply round-trip the `ensure` path does not need, i.e. real
-    machinery inside a conformance fixture. Its `:scope` is
+    MATCHES, and an entry acquires its `:tags` at SETTLE. Its `:scope` is
     `(first resource-key)`, the same value the `:resource/key` beside it carries
     and the same free-tag slot `:rf.resource/invalidated` proves below, so the
     marginal coverage is a second INSTANCE of an exercised mechanism. Same
     judgement, and for the same reason, as the standing ruling against adding
     `:rf.mutation/*` rows here.
-  - an `ensure` of a SESSION-SCOPED owner. That shape reds today, on a leak this
-    widening found and which is NOT this fixture's to fix (rf2-425mm): an
-    `ensure` stamps the resolved `:scope` into its `:on-success` / `:on-failure`
-    continuation arg maps, those ride `:rf.fx/args` / `:rf.event/fx`, and the
-    fx-args projector deliberately speaks only for SCOPED KEYS inside a carrier
-    — so a `[tier {identity}]` scope sitting in a free `:scope` slot there is
-    reached by nobody and the resolver's identity map egresses raw at four paths
-    of the `ensure` record. The identity-bearing scope therefore enters this
-    cascade through `invalidate-tags`, which stamps it as a free tag WITHOUT
-    lowering into fx. When rf2-425mm lands, add the `ensure` here: it is the
-    same shape one carrier further out.
+  - a call-site `:reply-to` READ CONTINUATION (rf2-xx4ty). No `ensure` here
+    carries one and no reply is replayed, so the continuation reply map — with
+    its `:value` (the decoded response body), `:params` and `:correlation` —
+    never reaches this fixture's carriers. The session `ensure` above does NOT
+    close that axis and does not pretend to: it settles no reply. Note the
+    carriers themselves ARE visible here (`fx-carrier-rows` reads the RECORD by
+    SLOT, exactly as the projector does, not through `resource-family-row?`), so
+    what is missing is the DRIVE, not the harvest. The dedicated
+    producer-driven coverage lives in `epoch_egress_resource_trace_test` §(1),
+    which replays a real reply through the internal reply event.
 
   The rows are harvested off the trace bus rather than read out of the settled
   epoch records because ONE record is one dequeued event: this cascade is five
@@ -619,6 +675,15 @@
                           :tags  #{invalidation-tag}
                           :cause global-cause}]
                         {:frame frame-id})
+      ;; rf2-0t7o8 — the free `:scope` INSIDE the fx carriers. Last, under its
+      ;; OWN owner: `release-owner` has already run, so joining `resource-owner`
+      ;; would add a third key to the release cascade's slots the assertions
+      ;; below count.
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource session-resource-id
+                          :params   {:slug session-slug}
+                          :owner    session-owner}]
+                        {:frame frame-id})
       (finally (trace-tooling/unregister-listener! k)))
     @rows))
 
@@ -645,9 +710,9 @@
   frame.
 
   Since rf2-hbmeb the record already carries its OWN family rows, so the rows of
-  the driver's LAST dispatch appear twice here — that dispatch is the global
-  `invalidate-tags`, so today it is the global `:rf.resource/invalidated` row
-  that doubles. Harmless whichever dispatch ends up last: every scan below is
+  the driver's LAST dispatch appear twice here — that dispatch is the
+  session-scoped `ensure`, so today it is that owner's lifecycle rows that
+  double. Harmless whichever dispatch ends up last: every scan below is
   either a whole-set leak scan or a `first`-match lookup by
   `[operation resource-id]`, and both read the same row either way."
   [frame-id rows]
@@ -754,6 +819,36 @@
   [record resource-id]
   (into #{} (mapcat #(embedded-keys-naming (:tags %) resource-id))
         (fx-carrier-rows record)))
+
+(defn- carrier-scopes
+  "Every value sitting under a FREE `:scope` key anywhere inside an fx-args
+  carrier of `record` (rf2-0t7o8 / rf2-425mm). The runtime writes the resolved
+  scope into the transport's `:on-success` / `:on-failure` continuation arg
+  maps, which is FOUR paths across the two carriers of one `ensure` record —
+  found by walking rather than by index so no assertion here encodes the
+  cascade's fx order or the record's row numbering."
+  [record]
+  (let [found (atom [])
+        walk  (fn walk [v]
+                (cond
+                  (map? v)  (doseq [[k vv] v]
+                              (when (= :scope k) (swap! found conj vv))
+                              (walk vv))
+                  (coll? v) (run! walk v)))]
+    (doseq [tags (map :tags (fx-carrier-rows record))
+            slot [:rf.fx/args :rf.event/fx]
+            :when (contains? tags slot)]
+      (walk (get tags slot)))
+    @found))
+
+(defn- tokenized-scope?
+  "Whether `s` is a resolved `[tier {identity}]` scope that egressed correctly:
+  the TIER keyword verbatim (a tool still reads \"session scope\") over a
+  tokenized identity map."
+  [s]
+  (and (vector? s) (= 2 (count s))
+       (= :rf.scope/session (first s))
+       (redacted-token? (second s))))
 
 ;; ============================================================================
 ;;  Forwarder-shape conformance — projected-record (per-record egress)
@@ -1675,6 +1770,63 @@
                 "digest-for-digest the same identity the family row projected —
                  a tool's per-key joins survive across the two families"))))
 
+      ;; ---- the free `:scope` INSIDE the carriers (rf2-0t7o8 / rf2-425mm) ----
+      ;;
+      ;; The last axis this fixture could not reach, and it took BOTH of the
+      ;; earlier widenings to get here: an identity-bearing scope (which needed
+      ;; the `reg-resource-scope` resolver) on an operation that LOWERS INTO FX
+      ;; (which needed the `ensure`). `invalidate-tags` above proves the free
+      ;; `:scope` on a row the family OWNS; this proves the same value one
+      ;; carrier further out, where the family projector never runs.
+      (let [sess?     (fn [r] (seq (carrier-keys-naming r session-resource-id)))
+            raw-sess  (first (filter sess? raw-hist))
+            proj-sess (first (filter sess? proj-hist))]
+        (testing "FIXTURE — the session-scoped `ensure` lowered into fx and the
+                  runtime planted its RESOLVED scope inside both carriers"
+          (is (some? raw-sess)
+              "a real record carries the session owner's key in its fx args")
+          (is (= 4 (count (carrier-scopes raw-sess)))
+              "four paths — `:on-success` and `:on-failure` under `:rf.fx/args`,
+               and the same pair again under `:rf.event/fx`; exactly the four
+               rf2-425mm named")
+          (is (every? #(= [:rf.scope/session {:username secret-password}] %)
+                      (carrier-scopes raw-sess))
+              "each one is the resolver's identity MAP, raw, on the producer's
+               own output — no assembled record, no spliced tag")
+          (is (seq (secret-leak-paths raw-sess))
+              "so the UNPROJECTED record leaks, and a green scan below is the
+               projector's doing rather than an absent shape"))
+
+        (testing "and every one of them tokenizes, tier keyword intact"
+          (is (= 4 (count (carrier-scopes proj-sess)))
+              "projection neither drops nor invents a `:scope` slot")
+          (is (every? tokenized-scope? (carrier-scopes proj-sess))
+              "`[:rf.scope/session {:rf/redacted <digest>}]` at all four")
+          (is (empty? (secret-leak-paths proj-sess))
+              "and the whole record is clean"))
+
+        (testing "and it projects EXACTLY as the SAME value does on a row the
+                  family OWNS — the two carriers of one scope cannot drift,
+                  which is the whole reason the carrier arm reuses the family
+                  rule instead of inventing one"
+          (is (= (:scope (invalidated-row proj-rows session-cause))
+                 (first (carrier-scopes proj-sess)))
+              "digest-for-digest identical to the free `:scope` on
+               `:rf.resource/invalidated`, so a tool's per-scope joins survive
+               across the two families"))
+
+        (testing "the scoped KEY beside it is classified too — one payload, TWO
+                  different family data, both reached"
+          (let [ck (first (carrier-keys-naming proj-sess session-resource-id))]
+            (is (= session-resource-id (nth ck 1))
+                "the resource-id survives for attribution")
+            (is (redacted-token? (nth ck 0))
+                "its scope component tokenizes as a WHOLE — a scoped key's scope
+                 is one opaque component, where the FREE slot keeps the tier, so
+                 the two digests differ by construction and only the treatments
+                 have to agree")
+            (is (redacted-token? (nth ck 2)) "and its params"))))
+
       ;; ---- forwarder pipelines double-project; that must not re-digest ------
       (testing "idempotent under repeated projection — a forwarder that
                 accidentally projects twice (middleware composition,
@@ -1774,4 +1926,20 @@
             (is (= plain-key (first (filter #(= plain-resource-id (second %)) keys*)))
                 "the PLAIN key rides verbatim beside a tokenized sibling — the
                  projection discriminates by OWNER within a single slot, which
-                 no blanket strip and no blanket pass-through can do")))))))
+                 no blanket strip and no blanket pass-through can do")))
+
+        ;; ---- the free `:scope` INSIDE the carriers, un-redacted side -------
+        ;; (rf2-0t7o8). The acceptance test tokenizes a `[tier {identity}]`
+        ;; scope at four carrier paths; a `:rf.scope/global` scope reaches the
+        ;; SAME four paths of the plain cascade and is a SCALAR, so it must ride
+        ;; verbatim. Without this half the carrier arm could be a blanket strip
+        ;; of every `:scope` slot and every tool's scope column would read
+        ;; `:rf/redacted` for the ordinary case.
+        (testing "a `:rf.scope/global` scope rides the carriers' free `:scope`
+                  slot verbatim"
+          (is (= 4 (count (carrier-scopes plain-rec)))
+              "FIXTURE — the plain `ensure` planted a scope at the same four
+               carrier paths the session one does")
+          (is (every? #(= :rf.scope/global %) (carrier-scopes plain-rec))
+              "each rides verbatim — the scalar the shape rule must not touch")
+          (is (empty? (cedn-tokens plain-rec))))))))
