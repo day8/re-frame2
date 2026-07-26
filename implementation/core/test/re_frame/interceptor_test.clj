@@ -22,13 +22,43 @@
   after-reverse-order / exception-interruption.
 
   Tests run on the JVM via the plain-atom adapter; per the project
-  invariant the JVM interop layer must work."
+  invariant the JVM interop layer must work.
+
+  ## Posture split (rf2-d2841)
+
+  Every assertion here is posture-independent — it holds in the ordinary
+  `clojure -M:test` suite AND under the real production gate
+  (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
+  inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`. That is
+  what lets the bulk of this namespace — chain composition, before-order /
+  after-reverse-order, the `:rf.interceptor/path` ref, ctx-delta — run in the
+  production lane.
+
+  Two surfaces are dev-only BY DESIGN and live in such arms:
+
+    * The `:trace` stream. Every `trace/emit-error!` site is gated on
+      `interop/debug-enabled?`, so `capture-error-traces` returns `[]` under
+      the gate. NOTE that this makes the NEGATIVE controls (`(empty? (filterv
+      …))`) vacuous there, which is why they sit inside the arm too rather than
+      standing outside it looking load-bearing.
+    * `:source-coord`. The `->interceptor` MACRO's production branch omits the
+      `:source-coord` kwarg entirely (core.cljc §`->interceptor`), so the coord
+      is absent under the gate — and so is the fn-path's, which is what makes
+      the macro-vs-fn discriminator dev-only as a pair.
+
+  The rf2-mszrz ATTRIBUTION contract (`:failing-id` = the true failing
+  component) is production-real on the always-on error-emit axis, which lifts
+  `:failing-id` / `:reason` onto its record whenever they differ from
+  `:event-id` (error_emit.cljc §`emit-error-both!`). Giving it a
+  posture-independent `:errors`-axis twin is the rf2-7vk3z shape and is tracked
+  separately; it is deliberately NOT bolted on here."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.interceptor :as interceptor]
+            [re-frame.interop :as interop]
             [re-frame.std-interceptors :as std-interceptors]
             [re-frame.trace :as trace]
             [re-frame.registrar :as registrar]
@@ -341,20 +371,24 @@
           "handler runs with the original event vector when the shape check fails")
 
       ;; The structured trace fired.
-      (let [bad-shape (filterv #(= :test.app/unwrap-bad-event-shape (:operation %))
-                               @traces)]
-        (is (= 1 (count bad-shape))
-            "exactly one :test.app/unwrap-bad-event-shape trace was emitted")
-        (let [ev (first bad-shape)]
-          (is (= :error (:op-type ev)))
-          (is (= [:unwrap-bad-test/consume :not-a-map]
-                 (get-in ev [:tags :event]))
-              ":event tag carries the offending event vector")
-          (is (= "[event-id payload-map]"
-                 (get-in ev [:tags :expected]))
-              ":expected describes the canonical envelope shape")
-          (is (= :no-recovery (:recovery ev))
-              ":recovery is :no-recovery — the bad path is documented as not-recoverable")))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; "keeps-event-unchanged" half of this deftest's name is the
+      ;; `@seen-event` assertion above, which runs in both postures.
+      (when interop/debug-enabled?
+        (let [bad-shape (filterv #(= :test.app/unwrap-bad-event-shape (:operation %))
+                                 @traces)]
+          (is (= 1 (count bad-shape))
+              "exactly one :test.app/unwrap-bad-event-shape trace was emitted")
+          (let [ev (first bad-shape)]
+            (is (= :error (:op-type ev)))
+            (is (= [:unwrap-bad-test/consume :not-a-map]
+                   (get-in ev [:tags :event]))
+                ":event tag carries the offending event vector")
+            (is (= "[event-id payload-map]"
+                   (get-in ev [:tags :expected]))
+                ":expected describes the canonical envelope shape")
+            (is (= :no-recovery (:recovery ev))
+                ":recovery is :no-recovery — the bad path is documented as not-recoverable"))))))
 
   (testing "a project :app/unwrap with a 3-element vector (correct id, wrong arity) traces"
     (let [traces     (atom [])
@@ -369,8 +403,10 @@
       ;; Wrong arity — three elements instead of two.
       (rf/dispatch-sync [:unwrap-bad-test/arity {:ok :map} :extra])
       (rf/unregister-listener! :trace ::unwrap-arity)
-      (is (some #(= :test.app/unwrap-bad-event-shape (:operation %)) @traces)
-          ":test.app/unwrap-bad-event-shape fires for arity mismatch too")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some #(= :test.app/unwrap-bad-event-shape (:operation %)) @traces)
+            ":test.app/unwrap-bad-event-shape fires for arity mismatch too"))
       (is (= [:unwrap-bad-test/arity {:ok :map} :extra] @seen-event)
           "handler sees the original (still-wrongly-shaped) event")))
 
@@ -779,19 +815,29 @@
   (testing "event HANDLER throw → :rf.error/handler-exception (failing-id = event)"
     (rf/reg-event :mszrz/handler-boom
                      (fn [{:keys [db]} _] {:db (throw (ex-info "handler blew up" {}))}))
-    (let [errs (capture-error-traces [:mszrz/handler-boom])
-          hx   (filterv #(= :rf.error/handler-exception (:operation %)) errs)]
-      (is (= 1 (count hx)) "exactly one handler-exception")
-      (let [ev (first hx)]
-        (is (= :mszrz/handler-boom (get-in ev [:tags :failing-id]))
-            ":failing-id is the event id")
-        (is (= :mszrz/handler-boom (get-in ev [:tags :handler-id]))
-            ":handler-id is retained for the genuine handler case")
-        (is (= "Event handler threw." (get-in ev [:tags :reason]))))
-      (is (empty? (filterv #(#{:rf.error/coeffect-exception
-                               :rf.error/interceptor-exception}
-                             (:operation %)) errs))
-          "no coeffect / interceptor category for a pure handler throw")))
+    (let [db-before (rf/app-db-value :rf/default)
+          errs      (capture-error-traces [:mszrz/handler-boom])]
+      ;; SEMANTIC, posture-independent (rf2-d2841): the no-abort contract —
+      ;; the throw is contained, `dispatch-sync` returns, and the failed
+      ;; event commits nothing.
+      (is (= db-before (rf/app-db-value :rf/default))
+          "a throwing handler commits nothing; the runtime does not abort")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The negative
+      ;; control is inside the arm too: under the gate `errs` is empty, so
+      ;; `empty?` would pass for the wrong reason.
+      (when interop/debug-enabled?
+        (let [hx (filterv #(= :rf.error/handler-exception (:operation %)) errs)]
+          (is (= 1 (count hx)) "exactly one handler-exception")
+          (let [ev (first hx)]
+            (is (= :mszrz/handler-boom (get-in ev [:tags :failing-id]))
+                ":failing-id is the event id")
+            (is (= :mszrz/handler-boom (get-in ev [:tags :handler-id]))
+                ":handler-id is retained for the genuine handler case")
+            (is (= "Event handler threw." (get-in ev [:tags :reason]))))
+          (is (empty? (filterv #(#{:rf.error/coeffect-exception
+                                   :rf.error/interceptor-exception}
+                                 (:operation %)) errs))
+              "no coeffect / interceptor category for a pure handler throw")))))
 
   ;; The former "coeffect INJECTION throw → :rf.error/coeffect-exception"
   ;; sub-test is retired with `inject-cofx` (EP-0017 slice A.3): coeffect
@@ -804,16 +850,24 @@
     (rf/reg-event :mszrz/before-boom
                      {:interceptors [:mszrz/before-icpt]}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [errs (capture-error-traces [:mszrz/before-boom])
-          ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
-      (is (= 1 (count ix)) "exactly one interceptor-exception")
-      (let [ev (first ix)]
-        (is (= :mszrz/before-icpt (get-in ev [:tags :failing-id]))
-            ":failing-id is the interceptor id")
-        (is (= :before (get-in ev [:tags :phase]))
-            ":phase is :before"))
-      (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
-          "an interceptor :before throw does NOT report as handler-exception")))
+    (let [db-before (rf/app-db-value :rf/default)
+          errs      (capture-error-traces [:mszrz/before-boom])]
+      ;; SEMANTIC, posture-independent (rf2-d2841): a throwing `:before`
+      ;; interrupts the chain — the handler never commits — without aborting
+      ;; the runtime.
+      (is (= db-before (rf/app-db-value :rf/default))
+          "a throwing :before interrupts the chain; nothing is committed")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
+          (is (= 1 (count ix)) "exactly one interceptor-exception")
+          (let [ev (first ix)]
+            (is (= :mszrz/before-icpt (get-in ev [:tags :failing-id]))
+                ":failing-id is the interceptor id")
+            (is (= :before (get-in ev [:tags :phase]))
+                ":phase is :before"))
+          (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
+              "an interceptor :before throw does NOT report as handler-exception")))))
 
   (testing "user interceptor :AFTER throw → :rf.error/interceptor-exception (failing-id = interceptor, phase :after)"
     ;; The :after chain runs after the handler; an :after throw must
@@ -824,16 +878,18 @@
     (rf/reg-event :mszrz/after-boom
                      {:interceptors [:mszrz/after-icpt]}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [errs (capture-error-traces [:mszrz/after-boom])
-          ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
-      (is (= 1 (count ix)) "exactly one interceptor-exception")
-      (let [ev (first ix)]
-        (is (= :mszrz/after-icpt (get-in ev [:tags :failing-id]))
-            ":failing-id is the interceptor id")
-        (is (= :after (get-in ev [:tags :phase]))
-            ":phase is :after — NOT collapsed into the handler"))
-      (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
-          "an interceptor :after throw does NOT report as handler-exception"))))
+    (let [errs (capture-error-traces [:mszrz/after-boom])]
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
+          (is (= 1 (count ix)) "exactly one interceptor-exception")
+          (let [ev (first ix)]
+            (is (= :mszrz/after-icpt (get-in ev [:tags :failing-id]))
+                ":failing-id is the interceptor id")
+            (is (= :after (get-in ev [:tags :phase]))
+                ":phase is :after — NOT collapsed into the handler"))
+          (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
+              "an interceptor :after throw does NOT report as handler-exception"))))))
 
 ;; ---- macro-path source-coord capture (rf2-siheh) --------------------------
 ;;
@@ -855,26 +911,42 @@
                  :id     :siheh/probe
                  :before identity)
           {:keys [ns file line] :as coord} (:source-coord icpt)]
-      (is (map? coord)
-          "the macro bakes a :source-coord map into the interceptor")
-      (is (= 're-frame.interceptor-test ns)
-          ":ns is the metadata-free consumer namespace symbol")
-      (is (integer? line) ":line is the macro call-site line")
-      (is (string? file) ":file is a string")
-      ;; rf2-wvsxg — the macro feeds the picked :file through
-      ;; absolutise-file at expansion time, so the coord ships an
-      ;; absolute on-disk path (here the classpath resolved the test
-      ;; source under the core artefact's test root).
-      (is (re-find #"interceptor_test\.clj$" file)
-          ":file resolves to this test source file")
-      (is (re-find #"^(?:/|[A-Za-z]:)" file)
-          ":file is absolute (leading slash or drive letter) — absolutised")))
+      ;; SEMANTIC, posture-independent (rf2-d2841): whichever branch the macro
+      ;; expands to, it must still BUILD a usable interceptor. A production
+      ;; branch that dropped more than the coord would be an rf2-9c2jf-class
+      ;; defect, and nothing else in the suite would see it.
+      (is (= :siheh/probe (:id icpt))
+          "the macro builds an interceptor carrying the requested :id")
+      (is (fn? (:before icpt))
+          "the macro builds an interceptor carrying the :before fn")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The macro's
+      ;; PRODUCTION branch omits the `:source-coord` kwarg entirely, by design.
+      (when interop/debug-enabled?
+        (is (map? coord)
+            "the macro bakes a :source-coord map into the interceptor")
+        (is (= 're-frame.interceptor-test ns)
+            ":ns is the metadata-free consumer namespace symbol")
+        (is (integer? line) ":line is the macro call-site line")
+        (is (string? file) ":file is a string")
+        ;; rf2-wvsxg — the macro feeds the picked :file through
+        ;; absolutise-file at expansion time, so the coord ships an
+        ;; absolute on-disk path (here the classpath resolved the test
+        ;; source under the core artefact's test root).
+        (is (re-find #"interceptor_test\.clj$" file)
+            ":file resolves to this test source file")
+        (is (re-find #"^(?:/|[A-Za-z]:)" file)
+            ":file is absolute (leading slash or drive letter) — absolutised"))))
 
   (testing "the ->interceptor* fn path captures NO :source-coord (HoF /
             programmatic — no syntactic call site to attribute)"
     (let [icpt (interceptor/->interceptor* :id :siheh/fn-probe :before identity)]
-      (is (nil? (:source-coord icpt))
-          "fn-built interceptor carries no coord"))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). This is the
+      ;; NEGATIVE half of the macro-vs-fn discriminator above; under the
+      ;; production gate neither path carries a coord, so asserting it there
+      ;; would pass for the wrong reason.
+      (when interop/debug-enabled?
+        (is (nil? (:source-coord icpt))
+            "fn-built interceptor carries no coord")))))
 
 (deftest macro-interceptor-source-coord-rides-the-exception-trace
   (testing "a throwing macro-defined interceptor threads its :source-coord
@@ -891,15 +963,19 @@
     (rf/reg-event :siheh/before-boom
                      {:interceptors [:siheh/before-icpt]}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [errs (capture-error-traces [:siheh/before-boom])
-          ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
-      (is (= 1 (count ix)) "exactly one interceptor-exception")
-      (let [coord (get-in (first ix) [:tags :source-coord])]
-        (is (map? coord)
-            "the trace carries the interceptor's :source-coord tag")
-        (is (re-find #"interceptor_test\.clj$" (:file coord))
-            ":file points at this test source")
-        (is (integer? (:line coord)) ":line is captured"))))
+    (let [errs (capture-error-traces [:siheh/before-boom])]
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring): a coord
+      ;; threaded onto a trace tag is dev-only twice over — the coord is not
+      ;; captured in production and the trace is not emitted there either.
+      (when interop/debug-enabled?
+        (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
+          (is (= 1 (count ix)) "exactly one interceptor-exception")
+          (let [coord (get-in (first ix) [:tags :source-coord])]
+            (is (map? coord)
+                "the trace carries the interceptor's :source-coord tag")
+            (is (re-find #"interceptor_test\.clj$" (:file coord))
+                ":file points at this test source")
+            (is (integer? (:line coord)) ":line is captured"))))))
 
   (testing "a throwing ->interceptor*-built interceptor threads NO
             :source-coord tag (degrades to plain text in the panel)"
@@ -913,11 +989,13 @@
     (rf/reg-event :siheh/fn-before-boom
                      {:interceptors [:siheh/fn-before-icpt]}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [errs (capture-error-traces [:siheh/fn-before-boom])
-          ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
-      (is (= 1 (count ix)) "exactly one interceptor-exception")
-      (is (nil? (get-in (first ix) [:tags :source-coord]))
-          "no :source-coord tag — the fn path captured none"))))
+    (let [errs (capture-error-traces [:siheh/fn-before-boom])]
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
+          (is (= 1 (count ix)) "exactly one interceptor-exception")
+          (is (nil? (get-in (first ix) [:tags :source-coord]))
+              "no :source-coord tag — the fn path captured none"))))))
 
 ;; ---- ctx-delta falsy-key correctness (rf2-tq8l9m) -------------------------
 

@@ -11,10 +11,23 @@
   Pre-rf2-cmfln these tests covered both `grace=0` (synchronous) and
   `grace>0` (deferred) paths; the deferred-grace mechanism has been
   retired (clean swap per pre-alpha) so the surface under test is the
-  single sync path."
+  single sync path.
+
+  ## Posture split (rf2-d2841)
+
+  Every assertion here is posture-independent — it holds in the ordinary
+  `clojure -M:test` suite AND under the real production gate
+  (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
+  inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`. Those arms
+  observe the DEV `:trace` stream, whose emit sites are gated on
+  `interop/debug-enabled?`; under the gate the framework emits none of it BY
+  DESIGN. The assertions are kept verbatim, they simply stop dragging their
+  semantic neighbours — the cache's ref-count/disposal contract, the recovery
+  value of a missing sub, the post-reload sub body — out of the production lane."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.live-frame :as live-frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -751,23 +764,28 @@
       (let [r (rf/subscribe [:missing/sub])]
         (is (nil? @r) ":replaced-with-default — the reaction yields nil"))
       (rf/unregister-listener! :trace ::no-such)
-      (let [hit (some (fn [ev]
-                        (when (= :rf.error/no-such-sub (:operation ev)) ev))
-                      @traces)]
-        (is (some? hit) "no-such-sub trace fired")
-        (when hit
-          (let [tags (:tags hit)]
-            ;; Canonical Spec-009 shape.
-            (is (= :missing/sub (:rf.sub/id tags))
-                ":rf.sub/id is the unregistered sub's id")
-            (is (= [:missing/sub] (:unresolved-input tags))
-                ":unresolved-input is the full query-vector that failed to resolve")
-            (is (= [] (:resolved-inputs tags))
-                ":resolved-inputs is empty — the miss is detected before input resolution")
-            (is (contains? tags :frame) ":frame tag retained for routing")
-            ;; The pre-fix shape MUST be gone.
-            (is (not (contains? tags :rf.sub/query-v))
-                "the pre-fix :rf.sub/query-v tag is gone (aligned to Spec 009)")))))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; production-real half of this contract is the RECOVERY — the miss does
+      ;; not throw, it yields nil — asserted above in both postures; the tag
+      ;; SHAPE is a statement about what dev tooling reads off the trace.
+      (when interop/debug-enabled?
+        (let [hit (some (fn [ev]
+                          (when (= :rf.error/no-such-sub (:operation ev)) ev))
+                        @traces)]
+          (is (some? hit) "no-such-sub trace fired")
+          (when hit
+            (let [tags (:tags hit)]
+              ;; Canonical Spec-009 shape.
+              (is (= :missing/sub (:rf.sub/id tags))
+                  ":rf.sub/id is the unregistered sub's id")
+              (is (= [:missing/sub] (:unresolved-input tags))
+                  ":unresolved-input is the full query-vector that failed to resolve")
+              (is (= [] (:resolved-inputs tags))
+                  ":resolved-inputs is empty — the miss is detected before input resolution")
+              (is (contains? tags :frame) ":frame tag retained for routing")
+              ;; The pre-fix shape MUST be gone.
+              (is (not (contains? tags :rf.sub/query-v))
+                  "the pre-fix :rf.sub/query-v tag is gone (aligned to Spec 009)"))))))))
 
 ;; ---- ref-counting and hot-reload smoke (relocated from smoke_test.clj, rf2-zqar3) ----
 
@@ -809,13 +827,18 @@
       ;; After re-registration, the next subscribe-once sees the new fn.
       (is (= 70 (rf/subscribe-once [:answer]))
           "after re-registration the new sub body is used")
-      (is (some (fn [ev]
-                  (and (= :rf.registry/handler-replaced (:operation ev))
-                       (= :rf.registry (:op-type ev))
-                       (= :sub (:kind (:tags ev)))
-                       (= :answer (:id (:tags ev)))))
-                @traces)
-          "expected :rf.registry/handler-replaced trace"))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
+      ;; INVALIDATION this deftest is named for is the `(= 70 …)` above — a
+      ;; stale cached reaction would still answer 7 — and that runs in both
+      ;; postures; the replacement NOTICE is a hot-reload developer signal.
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.registry/handler-replaced (:operation ev))
+                         (= :rf.registry (:op-type ev))
+                         (= :sub (:kind (:tags ev)))
+                         (= :answer (:id (:tags ev)))))
+                  @traces)
+            "expected :rf.registry/handler-replaced trace")))))
 
 ;; ===========================================================================
 ;; rf2-jue6sp (EP-0002 §Subscriptions And Read Helpers) — ambient read
