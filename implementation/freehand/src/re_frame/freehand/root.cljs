@@ -217,6 +217,14 @@
             [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
+            ;; LOAD ONLY, for its side effect: it installs the ViewCell
+            ;; pending window's React-visible closer, which is what makes a
+            ;; write inside `react-dom/flushSync` repaint (rf2-w2m25). Homed
+            ;; here because this is the namespace that already owns
+            ;; `react-dom/client`, and because the CLJS door requires it — so
+            ;; every mount path, `v/->react` into a foreign tree included,
+            ;; has the closer installed before a cell can be marked.
+            [re-frame.freehand.checkpoint]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.fingerprint :as fingerprint]
             [re-frame.freehand.phase :as phase]
