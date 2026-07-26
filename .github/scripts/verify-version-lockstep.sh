@@ -20,8 +20,15 @@
 #
 # Per rf2-lwtke the deployable jars under tools/* also participate in
 # lockstep — every Clojars-publishable tool (xray, story, story-mcp,
-# machines-viz) carries :clein/build :version "../../VERSION" and must
-# not hand-edit a literal :mvn/version for any day8/re-frame2-* artefact.
+# machines-viz, mcp-base) carries :clein/build :version "../../VERSION"
+# and must not hand-edit a literal :mvn/version for any day8/re-frame2-*
+# artefact.
+#
+# Per rf2-2ii52 each also has to be PACKAGEABLE, which a :version read
+# cannot tell you: the map must satisfy clein's spec (`:main`), and every
+# runtime coordinate must be one `clein pom` can express. Both classes had
+# already shipped un-noticed — see check_clein_main /
+# check_no_git_coords_in_runtime_deps below.
 # tools/machines-viz/ (rf2-o9arp) ships day8/re-frame2-machines-viz with
 # the same lockstep posture as xray — :local/root "../../implementation/core"
 # in dev, rewritten to :mvn/version at release.
@@ -297,11 +304,19 @@ done <<< "${publishable_subpaths}"
 # test (`test/day8/re_frame2_template/version_lockstep_test.clj`) which
 # reads the same sources of truth this script does (repo-root VERSION,
 # implementation/package.json).
+#
+# tools/mcp-base/ was ABSENT from this inventory until rf2-2ii52, which is
+# how it reached a fifth Clojars coordinate (day8/re-frame2-mcp-base) that
+# nothing guarded — and, separately, how it sat un-BUILDABLE (no `:main`)
+# without any gate noticing. story-mcp depends on it via :local/root, so
+# story-mcp cannot publish until mcp-base does; a lockstep gate that could
+# not see mcp-base could not see that either.
 declare -A TOOLS_PATHS=(
   [xray]="xray"
   [story]="story"
   [story-mcp]="story-mcp"
   [machines-viz]="machines-viz"
+  [mcp-base]="mcp-base"
 )
 
 # Newline-separated `tool|"day8/re-frame2-x {:local/root \"…\"}"` pairs
@@ -326,7 +341,75 @@ machines-viz|day8/re-frame2 {:local/root "../../implementation/core"}
 EOF
 )
 
-TOOLS=(xray story story-mcp machines-viz)
+TOOLS=(xray story story-mcp machines-viz mcp-base)
+
+# ---- rf2-2ii52: two failure classes this gate used to be blind to ---------
+#
+# It read `:version` and the `:local/root` coordinates, and nothing else. So
+# it reported "all 17 artefacts pinned" while `day8/re-frame2-machines-viz`
+# could not be BUILT at all, and while two artefacts carried a runtime
+# coordinate `clein pom` silently DROPS. Both are cheap to assert.
+
+# (1) clein's own spec requires `:main` in `:clein/build`. Without it every
+# clein invocation in the directory aborts before doing any work:
+#
+#   Error in the :clein/build map: {…} - failed: (contains? % :main)
+#
+# An artefact can therefore be perfectly version-pinned and still be
+# impossible to package. rf2-4u3t1 found this in machines-viz; rf2-2ii52
+# found the same thing in mcp-base. Asserting it here is what stops a third.
+check_clein_main() {
+  local deps_file="$1"
+  local rel_label="$2"
+
+  if ! grep -qE '^[[:space:]]*:main[[:space:]]' "${deps_file}"; then
+    echo "::error file=${rel_label}:::clein/build is missing :main — clein's build-opts spec requires it, so every clein invocation in this directory aborts before doing any work (artefact is un-BUILDABLE)"
+    errors=$((errors + 1))
+  fi
+}
+
+# (2) `clein pom` can only express an :mvn/version coordinate. Handed a
+# :git/url it prints "Skipping coordinate: …" and generates a pom WITHOUT
+# it — the same silent-skip it has for :local/root, which the
+# :local/root → :mvn/version rewrite exists to repair. There is no
+# equivalent repair for a git coord: if the library is not on Clojars there
+# is no version to rewrite to. Publishing anyway ships a jar whose pom omits
+# a runtime dependency, and Clojars has no yank.
+#
+# Scope is the MAIN :deps map only — alias :extra-deps (clein itself,
+# test-runner, …) are build-time and never reach the pom.
+#
+# KNOWN-UNRESOLVED, deliberately listed rather than silently tolerated:
+# `day8/de-dupe` is a runtime dep of mcp-base and story-mcp and is NOT on
+# Clojars (searched: no results; https://clojars.org/day8/de-dupe is a 404).
+# Resolving it is a product decision — publish it, vendor it, or accept that
+# these two artefacts are not Clojars-publishable — tracked on rf2-2ii52.
+# Neither artefact has a deploy workflow, so nothing can ship a broken pom
+# today. DELETE THIS LINE when the ruling lands; the gate then completes.
+GIT_COORD_KNOWN_UNRESOLVED=(day8/de-dupe)
+
+check_no_git_coords_in_runtime_deps() {
+  local deps_file="$1"
+  local rel_label="$2"
+  local main_deps
+  local lib
+
+  # The main :deps map is everything between the top-level `:deps` key and
+  # the `:aliases` key that follows it in every artefact deps.edn here.
+  main_deps="$(sed -n '/^[[:space:]]*:deps[[:space:]]/,/^[[:space:]]*:aliases/p' "${deps_file}" \
+               | sed 's/;;.*$//')"
+
+  while read -r lib; do
+    [[ -z "${lib}" ]] && continue
+    for known in "${GIT_COORD_KNOWN_UNRESOLVED[@]}"; do
+      [[ "${lib}" == "${known}" ]] && continue 2
+    done
+    echo "::error file=${rel_label}::runtime dep '${lib}' uses a :git/url coordinate — 'clein pom' SKIPS it silently, so a published jar would omit a runtime dependency (publish it to Clojars, vendor it, or add it to GIT_COORD_KNOWN_UNRESOLVED with a tracking bead)"
+    errors=$((errors + 1))
+  done < <(grep -B 0 -E '\{:git/url' <<< "${main_deps}" \
+           | grep -oE '[^[:space:]{]+[[:space:]]+\{:git/url' \
+           | sed -E 's/[[:space:]]+\{:git\/url$//')
+}
 
 for tool in "${TOOLS[@]}"; do
   subpath="${TOOLS_PATHS[$tool]}"
@@ -342,6 +425,11 @@ for tool in "${TOOLS[@]}"; do
   # Tools sit at tools/<name>/, same depth from VERSION as the
   # per-feature artefacts under implementation/<name>/.
   check_version_and_no_mvn_literal "${deps_file}" "${rel_label}" '"../../VERSION"'
+
+  # rf2-2ii52 — buildability and pom-expressibility, the two classes a
+  # :version/:local/root read cannot see.
+  check_clein_main "${deps_file}" "${rel_label}"
+  check_no_git_coords_in_runtime_deps "${deps_file}" "${rel_label}"
 
   # Belt-and-braces: assert each expected :local/root coordinate. The
   # release workflow's rewrite step (release.yml) keys off the

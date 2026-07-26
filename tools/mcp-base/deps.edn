@@ -59,8 +59,35 @@
                         :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
           :main-opts  ["-m" "noahtheduke.clein"]}
 
+  ;; rf2-2ii52 — `:main` is REQUIRED by the day8 clein fork's
+  ;; `:noahtheduke.clein.specs/build-opts` spec. Without it every clein
+  ;; invocation in this directory aborts before doing any work:
+  ;;
+  ;;   Error in the :clein/build map: {…} - failed: (contains? % :main)
+  ;;
+  ;; So `day8/re-frame2-mcp-base` was not merely un-deployed — it was
+  ;; un-BUILDABLE, the same defect rf2-4u3t1 found in machines-viz. The
+  ;; lockstep gate could not see it: it read `:version` and the
+  ;; `:local/root` coordinates, never whether clein would accept the map.
+  ;; `verify-version-lockstep.sh` now asserts `:main` on every publishable
+  ;; `:clein/build`, so this class cannot recur silently.
+  ;;
+  ;; `vocab` is the artefact's primary public surface — the shared wire
+  ;; vocabulary every consumer reaches for first, per the header above.
+  ;; Same convention as tools/story/deps.edn's `:main re-frame.story`; for
+  ;; a library jar this only populates the manifest's Main-Class.
+  ;;
+  ;; NOT YET PUBLISHABLE, and `:main` does not change that: the
+  ;; `day8/de-dupe` runtime coord above is a `:git/url`, which `clein pom`
+  ;; silently DROPS, so a jar built today would ship a pom missing a
+  ;; runtime dependency. That is an operator decision (publish de-dupe to
+  ;; Clojars / vendor it / accept unpublishable) tracked on rf2-2ii52, and
+  ;; the lockstep gate's git-coord check now names it out loud rather than
+  ;; letting a release discover it. No deploy workflow exists for this
+  ;; coordinate until that ruling lands.
   :clein/build
   {:lib      day8/re-frame2-mcp-base
+   :main     re-frame.mcp-base.vocab
    :url      "https://github.com/day8/re-frame2"
    :version  "../../VERSION"
    :license  {:name "MIT"
