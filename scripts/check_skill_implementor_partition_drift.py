@@ -107,6 +107,16 @@ user-facing implementor docs and asserts:
      `[REACT-ADAPTERS]` token below is a lifecycle-PARTITION marker, not a
      status label.)
 
+     Rule 7's arms are individually skippable — each reads a source file, and a
+     missing file used to leave its arm silently unevaluated behind a SETUP
+     error whose own text invited the edit that retires it ("update the *_FILE
+     constants"). A skipped assertion is not a passing one, so the arms are
+     declared in `LIFECYCLE_ARM_SOURCES` and the guard FAILS when any declared
+     arm did not run. Deleting a `*_FILE` constant therefore no longer buys
+     silence — it trades one loud failure for another. Retiring an arm is a
+     deliberate, self-documenting act: delete its row from
+     `LIFECYCLE_ARM_SOURCES` and record that the contract it held is unguarded.
+
 Exit code:
     0  no drift detected
     1  drift detected (printed line-by-line; GitHub-Actions ::error:: under CI)
@@ -408,6 +418,40 @@ SPEC_002_FILE = REPO_ROOT / "spec" / "002-Frames.md"
 FRAME_ROOT_ANCHOR = "#frame-root--the-ensure-component-cljs-reference"
 FRAME_PROVIDER_ANCHOR = "#frame-provider--the-scope-only-component-cljs-reference"
 
+# --- Rule 7 arm coverage (rf2-0dbvy) ----------------------------------------
+# Every Rule-7 assertion arm, and the source texts it needs in order to RUN.
+# An arm whose sources are all present is evaluated; an arm missing any source
+# is SKIPPED — and a skip is not a pass, so `lifecycle_realization_problems`
+# fails on any declared arm that did not run.
+#
+# This map is the requirement declaration, held SEPARATELY from the `*_FILE`
+# constants it depends on. That separation is the whole point: the old SETUP
+# error told the reader to "update the *_FILE constants", and deleting the two
+# `ui/` constants cleared the error AND retired the L5 causal assertion in one
+# stroke, with nothing left to notice (found by the F6e deletion probe).
+# Deleting a constant now trades the SETUP failure for an ARM-NOT-RUN failure.
+# Retiring an arm is a deliberate second edit — delete its row here, and record
+# that the contract it held is henceforth unguarded.
+LIFECYCLE_ARM_SOURCES: dict[str, tuple[str, ...]] = {
+    "L1-compiled-realization": ("phase2",),
+    "L2-react-adapters": ("phase2",),
+    "L4-spec002-links-present": ("phase2",),
+    "L4-spec002-links-resolve": ("phase2", "spec002"),
+    "L5-client-preflight-causality": ("client",),
+    "L5-frames-executor": ("frames",),
+    "L6-inventory-row": ("conventions",),
+}
+
+
+def lifecycle_arms_run(texts: dict[str, str | None]) -> set[str]:
+    """The declared arms whose every source text is present — i.e. the arms
+    that actually get evaluated for this input."""
+    return {
+        arm
+        for arm, sources in LIFECYCLE_ARM_SOURCES.items()
+        if all(texts.get(src) is not None for src in sources)
+    }
+
 # The compiled client's frame-lifecycle CALL forms. Keyed on the leading paren so
 # docstring / backtick mentions (`(run-preflight! …)`, `` `.render` ``,
 # `` `createRoot` ``) never register as calls.
@@ -593,33 +637,20 @@ def _top_level_form_regions(text: str) -> list[tuple[str, str]]:
     return regions
 
 
-def _preflight_causal_problems(client_text: str) -> list[str]:
-    """CAUSAL source assertions over the compiled client's render paths, scoped
-    PER top-level function body (rf2-8cncz — the old whole-file substring pool let
-    a preflight in one function credit another's render, and a reader-discarded /
-    dead-conditional preflight still counted as live).
-
-    A — render causality (per function): within EACH function body, every host
-        render is preceded by its OWN LIVE frame preflight. Dead forms (`#_…`,
-        `(when false …)`) are neutralized first, then a per-function credit walk
-        arms one credit per preflight; each render spends a credit (and consumes
-        any surplus). Fires if any function has a render its own body does not
-        preflight — a removed / reordered / reader-discarded / dead-conditional
-        preflight on the existing-root, fresh-mount, or `render!*` path, OR a
-        preflight migrated into `create-root*` (which cannot credit `render!*`).
-    B — one-shot allocation ordering: the fresh one-shot mount preflights BEFORE
-        it creates the React root — a contiguous `pre → create → render` triple
-        WITHIN one function body (`mount*`). The split `create-root*` allocation is
-        a render-less lone `create`, so it never forms this triple and is never
-        falsely claimed to preflight before `create-root*`. Fires if the fresh
-        mount's preflight moves after its `createRoot` (or disappears)."""
-    problems: list[str] = []
+def preflight_scan(client_text: str) -> dict[str, object]:
+    """The per-function credit walk over the compiled client, returned as a
+    POPULATION rather than a verdict: `forms` top-level forms partitioned,
+    `renders` host renders found, `caused` of them preceded by their own live
+    preflight, the `uncredited` function names, and whether the one-shot
+    `pre → create → render` triple is present. Reported by `--verbose` so a
+    scan that covered nothing is visible rather than merely exit-0."""
     total_renders = 0
     total_caused = 0
     one_shot = False
     uncredited: list[str] = []
+    regions = _top_level_form_regions(client_text)
 
-    for name, body in _top_level_form_regions(client_text):
+    for name, body in regions:
         seq = _client_call_order(_neutralize_dead_forms(body))
         armed = 0
         caused = 0
@@ -641,6 +672,42 @@ def _preflight_causal_problems(client_text: str) -> list[str]:
             for i in range(len(seq) - 2)
         ):
             one_shot = True
+
+    return {
+        "forms": len(regions),
+        "renders": total_renders,
+        "caused": total_caused,
+        "uncredited": uncredited,
+        "one_shot": one_shot,
+    }
+
+
+def _preflight_causal_problems(client_text: str) -> list[str]:
+    """CAUSAL source assertions over the compiled client's render paths, scoped
+    PER top-level function body (rf2-8cncz — the old whole-file substring pool let
+    a preflight in one function credit another's render, and a reader-discarded /
+    dead-conditional preflight still counted as live).
+
+    A — render causality (per function): within EACH function body, every host
+        render is preceded by its OWN LIVE frame preflight. Dead forms (`#_…`,
+        `(when false …)`) are neutralized first, then a per-function credit walk
+        arms one credit per preflight; each render spends a credit (and consumes
+        any surplus). Fires if any function has a render its own body does not
+        preflight — a removed / reordered / reader-discarded / dead-conditional
+        preflight on the existing-root, fresh-mount, or `render!*` path, OR a
+        preflight migrated into `create-root*` (which cannot credit `render!*`).
+    B — one-shot allocation ordering: the fresh one-shot mount preflights BEFORE
+        it creates the React root — a contiguous `pre → create → render` triple
+        WITHIN one function body (`mount*`). The split `create-root*` allocation is
+        a render-less lone `create`, so it never forms this triple and is never
+        falsely claimed to preflight before `create-root*`. Fires if the fresh
+        mount's preflight moves after its `createRoot` (or disappears)."""
+    problems: list[str] = []
+    scan = preflight_scan(client_text)
+    total_renders = scan["renders"]
+    total_caused = scan["caused"]
+    uncredited = scan["uncredited"]
+    one_shot = scan["one_shot"]
 
     if total_renders == 0:
         problems.append(
@@ -715,15 +782,22 @@ def _core_artifact_inventory_row(conventions_text: str) -> str | None:
 
 def lifecycle_realization_problems(
     *,
-    phase2: str | None,
-    client: str | None,
-    frames: str | None,
-    conventions: str | None,
-    spec002: str | None,
+    phase2: str | None = None,
+    client: str | None = None,
+    frames: str | None = None,
+    conventions: str | None = None,
+    spec002: str | None = None,
 ) -> list[str]:
     """Positive-presence assertions for the two frame-root lifecycles. Each arg
-    is the file's text (or None to skip — the caller reports a missing required
-    file as a SETUP error). Returns drift labels (empty when all present)."""
+    is the file's text, or None when that source could not be read — in which
+    case the arms depending on it do not run, and the ARM-NOT-RUN floor at the
+    end reports exactly which assertions were skipped. Returns drift labels
+    (empty only when every declared arm ran clean).
+
+    Every parameter defaults to None on purpose: deleting a `*_FILE` constant
+    (and its entry in `find_lifecycle_drift`'s `required` map) must not crash
+    with a TypeError, nor silently retire the arm — it must land on the
+    coverage floor with a message naming the assertion that stopped running."""
     problems: list[str] = []
 
     if phase2 is not None:
@@ -819,13 +893,48 @@ def lifecycle_realization_problems(
                         "elsewhere do not count)."
                     )
 
+    # --- ARM-NOT-RUN floor (rf2-0dbvy). Every arm above is conditional on a
+    # source text; a missing source means the assertion was never evaluated,
+    # and an unevaluated assertion guards nothing. Report it as a failure here
+    # rather than letting the caller's SETUP line be the only trace — because
+    # that SETUP line is exactly what a well-meaning edit deletes.
+    missing_arms = sorted(
+        set(LIFECYCLE_ARM_SOURCES)
+        - lifecycle_arms_run(
+            {
+                "phase2": phase2,
+                "client": client,
+                "frames": frames,
+                "conventions": conventions,
+                "spec002": spec002,
+            }
+        )
+    )
+    if missing_arms:
+        total = len(LIFECYCLE_ARM_SOURCES)
+        problems.append(
+            "LIFECYCLE-ARM-NOT-RUN: the frame-root lifecycle guard evaluated "
+            f"{total - len(missing_arms)} of {total} declared assertion arms; it "
+            f"did NOT evaluate {', '.join(missing_arms)}. A skipped assertion is "
+            "not a passing one — with the arm silent, the contract it holds is "
+            "unguarded and nothing else reports that. Either RE-POINT the arm's "
+            "source constant at the file that now owns the contract, so the "
+            "assertion keeps running; or RETIRE the arm deliberately by deleting "
+            "its row from LIFECYCLE_ARM_SOURCES and recording the contract as "
+            "unguarded."
+        )
+
     return problems
 
 
-def find_lifecycle_drift() -> list[str]:
+def find_lifecycle_drift() -> tuple[list[str], str]:
     """Read the Rule-7 source-of-truth files and run the presence assertions,
     reporting a missing REQUIRED file as a SETUP error (the spec + ui
-    sources are all repo-tracked, so a miss means the guard's paths drifted)."""
+    sources are all repo-tracked, so a miss means the guard's paths drifted).
+
+    Returns (problems, coverage summary). The summary states how many declared
+    arms actually ran and the L5 scan's population, so a `--verbose` run cannot
+    claim an assertion "held" that never executed."""
     problems: list[str] = []
     texts: dict[str, str | None] = {}
     required = {
@@ -840,13 +949,35 @@ def find_lifecycle_drift() -> list[str]:
             texts[key] = _slurp(path)
         else:
             texts[key] = None
+            arms = sorted(
+                arm for arm, srcs in LIFECYCLE_ARM_SOURCES.items() if key in srcs
+            )
             problems.append(
                 "SETUP: expected Rule-7 source file missing: "
-                f"{path.relative_to(REPO_ROOT)} — the lifecycle guard's path list "
-                "drifted; update the *_FILE constants."
+                f"{path.relative_to(REPO_ROOT)} — {', '.join(arms)} cannot run "
+                "against it. Two honest fixes, and only two: RE-POINT this "
+                "*_FILE constant at the source that now owns the contract, so "
+                "the assertion keeps running; or RETIRE the arm DELIBERATELY, "
+                "which means ALSO deleting its row from LIFECYCLE_ARM_SOURCES "
+                "and recording that the contract it held is now unguarded. "
+                "Deleting the constant alone does NOT quiet this guard — the "
+                "ARM-NOT-RUN floor then reports the assertion as never evaluated."
             )
     problems.extend(lifecycle_realization_problems(**texts))
-    return problems
+
+    arms_run = lifecycle_arms_run(texts)
+    summary = f"{len(arms_run)} of {len(LIFECYCLE_ARM_SOURCES)} assertion arms evaluated"
+    client_text = texts.get("client")
+    if client_text is None:
+        summary += "; L5 causal scan DID NOT RUN (0 renders checked)"
+    else:
+        scan = preflight_scan(client_text)
+        summary += (
+            f"; L5 causal scan: {scan['forms']} top-level forms, "
+            f"{scan['renders']} host renders, {scan['caused']} preflight-caused, "
+            f"one-shot pre→create→render triple {'present' if scan['one_shot'] else 'ABSENT'}"
+        )
+    return problems, summary
 
 
 def run(*, verbose: bool, ci: bool) -> int:
@@ -862,7 +993,8 @@ def run(*, verbose: bool, ci: bool) -> int:
     beadid_problems, beadid_lines = find_beadid_drift(beadid_files)
     problems.extend(beadid_problems)
 
-    problems.extend(find_lifecycle_drift())
+    lifecycle_problems, lifecycle_coverage = find_lifecycle_drift()
+    problems.extend(lifecycle_problems)
 
     if verbose:
         print(
@@ -873,11 +1005,9 @@ def run(*, verbose: bool, ci: bool) -> int:
             f"implementor no-bead-ids guard: scanned {len(beadid_files)} "
             f"user-facing leaves ({beadid_lines} lines)."
         )
-        print(
-            "implementor frame-root lifecycle guard: two realizations present + "
-            "distinct, Spec-002 links resolvable, compiled preflight-before-render "
-            "source assertion held."
-        )
+        # State the POPULATION, not a claim: an arm that did not run says so
+        # here rather than hiding behind "assertion held" (rf2-0dbvy).
+        print(f"implementor frame-root lifecycle guard: {lifecycle_coverage}.")
 
     if not problems:
         if verbose:
@@ -1301,6 +1431,54 @@ def _self_test() -> int:
             "| `day8/re-frame2-uix` | UIx adapter — frame-root / frame-provider. |\n")},
         dirty=True, label="I3 core artifact inventory row removed",
     )
+
+    # --- Rule 7 ARM-NOT-RUN floor (rf2-0dbvy) — the F6e trap. A missing source
+    # used to make its arm SKIP silently: `find_lifecycle_drift` reported the
+    # file and passed None on, and `lifecycle_realization_problems` simply did
+    # not evaluate that arm. Clearing the SETUP error by deleting the *_FILE
+    # constant then retired the assertion outright with nothing left to notice.
+    # Every one of these was GREEN before the floor and must now be RED, and the
+    # message must NAME the arm that stopped running.
+    def expect_arm_not_run(overrides: dict, *, arm: str, label: str) -> None:
+        nonlocal failures
+        got = lifecycle_realization_problems(**{**base, **overrides})
+        floor = [p for p in got if p.startswith("LIFECYCLE-ARM-NOT-RUN")]
+        if not floor:
+            print(f"SELF-TEST FAIL ({label}): expected an ARM-NOT-RUN floor, got none.")
+            failures += 1
+        elif arm not in floor[0]:
+            print(f"SELF-TEST FAIL ({label}): floor does not name `{arm}`: {floor[0]!r}")
+            failures += 1
+
+    expect_arm_not_run(
+        {"client": None}, arm="L5-client-preflight-causality",
+        label="L1 client source gone — the causal preflight assertion stops running",
+    )
+    expect_arm_not_run(
+        {"frames": None}, arm="L5-frames-executor",
+        label="L2 frames source gone — the executor presence assertion stops running",
+    )
+    expect_arm_not_run(
+        {"conventions": None}, arm="L6-inventory-row",
+        label="L3 conventions gone — the inventory-row assertion stops running",
+    )
+    expect_arm_not_run(
+        {"spec002": None}, arm="L4-spec002-links-resolve",
+        label="L4 spec002 gone — anchors still checked PRESENT but never RESOLVED",
+    )
+    expect_arm_not_run(
+        {"phase2": None}, arm="L1-compiled-realization",
+        label="L5 phase2 gone — the guide realization arms stop running",
+    )
+    # Every source present ⇒ every declared arm runs, and no floor fires.
+    ran = lifecycle_arms_run(dict(base))
+    if ran != set(LIFECYCLE_ARM_SOURCES):
+        print(
+            f"SELF-TEST FAIL (L6 full coverage): expected all "
+            f"{len(LIFECYCLE_ARM_SOURCES)} arms to run, missing "
+            f"{sorted(set(LIFECYCLE_ARM_SOURCES) - ran)}."
+        )
+        failures += 1
 
     if failures:
         print(f"self-test: {failures} failure(s).")
