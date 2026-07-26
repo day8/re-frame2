@@ -24,7 +24,7 @@ Two artefacts, and that is the whole floor: Freehand ships its own reactive-subs
 adapter, so a Freehand app needs no wrapper-library artefact. Two optional artefacts
 join the same way when you need them: `day8/re-frame2-routing` for
 [`v/route-link`](#framework-views), and `day8/re-frame2-ssr` for
-[server rendering](ssr.md).
+[server rendering](../host/ssr.md).
 
 ## Boot: adapter, then mount
 

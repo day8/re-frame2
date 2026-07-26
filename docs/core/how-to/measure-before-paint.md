@@ -2,7 +2,7 @@
 
 You are building a component-library primitive — a popover, a dropdown, a tooltip, a virtualised table — and it needs to *measure the DOM and place itself before the browser paints*. Read the trigger's rectangle, decide whether the panel opens below or flips above, and apply the position in the same frame, so the user never sees it jump.
 
-This is the one job [`app-db`](../glossary.md#app-db), [subscriptions](../glossary.md#subscription), and events cannot do for you: they are your *application's* state, settled between paints, and geometry is a *host* fact that only exists once the element is in the document. So Freehand gives host work exactly one door with before-paint timing — a [registered behavior](../freehand/host-boundaries.md#registered-behaviors) declaring `:timing :layout` — and this recipe is the sanctioned pattern for walking through it.
+This is the one job [`app-db`](../glossary.md#app-db), [subscriptions](../glossary.md#subscription), and events cannot do for you: they are your *application's* state, settled between paints, and geometry is a *host* fact that only exists once the element is in the document. So Freehand gives host work exactly one door with before-paint timing — a [registered behavior](../freehand/host/host-boundaries.md#registered-behaviors) declaring `:timing :layout` — and this recipe is the sanctioned pattern for walking through it.
 
 > **Measure in a `:layout` behavior, compute placement with a pure function, apply it, disconnect exactly.**
 
@@ -64,7 +64,7 @@ This is the one job [`app-db`](../glossary.md#app-db), [subscriptions](../glossa
    [:div.popover "…panel content…"]])
 ```
 
-`:config` is the deps vector's honest replacement: `:update` fires only when the committed config **moves by `rf=`** (value equality), and receives `:prev-config` alongside the new one. So the panel re-measures whenever the anchor moves or the viewport resizes, and a re-render that changes nothing touches no host state at all. `:config` is also data at every depth — a node, a ref, a callback or a preconstructed host instance is refused on both hosts — which is exactly what keeps this use site readable by a structural test and by [`v/describe`](../freehand/debugging.md).
+`:config` is the deps vector's honest replacement: `:update` fires only when the committed config **moves by `rf=`** (value equality), and receives `:prev-config` alongside the new one. So the panel re-measures whenever the anchor moves or the viewport resizes, and a re-render that changes nothing touches no host state at all. `:config` is also data at every depth — a node, a ref, a callback or a preconstructed host instance is refused on both hosts — which is exactly what keeps this use site readable by a structural test and by [`v/describe`](../freehand/operate/debugging.md).
 
 ---
 
@@ -102,7 +102,7 @@ This is the one job [`app-db`](../glossary.md#app-db), [subscriptions](../glossa
 
 ## See also
 
-- [Host boundaries](../freehand/host-boundaries.md) — the whole host door: behaviors, commands, React children, `v/->react`, and the [focus/measurement roster](../freehand/host-boundaries.md#focus-autofocus-and-measurement-no-neutral-refs) that says when to reach for this at all.
-- [JS libraries](../freehand/js-libraries.md#animation-checklist) — the same behavior shape driving an imperative animation player, and when `:passive` is enough.
-- [Reactivity and ownership](../freehand/reactivity-and-ownership.md) — the measure-then-compile order for ordinary reactive views (you will almost never need a behavior there).
+- [Host boundaries](../freehand/host/host-boundaries.md) — the whole host door: behaviors, commands, React children, `v/->react`, and the [focus/measurement roster](../freehand/host/host-boundaries.md#focus-autofocus-and-measurement-no-neutral-refs) that says when to reach for this at all.
+- [JS libraries](../freehand/host/js-libraries.md#animation-checklist) — the same behavior shape driving an imperative animation player, and when `:passive` is enough.
+- [Reactivity and ownership](../freehand/authoring/reactivity-and-ownership.md) — the measure-then-compile order for ordinary reactive views (you will almost never need a behavior there).
 - [Where should this value live?](../where-state-lives.md) — geometry vs. app-db.

@@ -22,7 +22,7 @@ This page is a map of walls and recoveries.
 | Reach for view-local state or a neutral hook | one reactive system | re-frame facts, controllers, or a registered behavior |
 | Derive writable state from React keys or render position | occurrence ≠ controller identity | explicit `:control` addresses |
 | Bare fn at a callback prop **Freehand walks** | unknown phase/identity | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
-| Roster carrier in a raw `createElement` `#js` prop | those props are the library's ABI; nothing materialises a carrier there | a plain closure over `(rf/capture-frame)`'s `:dispatch` — [the roster's reach](events-and-handlers.md#where-the-roster-reaches) |
+| Roster carrier in a raw `createElement` `#js` prop | those props are the library's ABI; nothing materialises a carrier there | a plain closure over `(rf/capture-frame)`'s `:dispatch` — [the roster's reach](../authoring/events-and-handlers.md#where-the-roster-reaches) |
 | Bare React component at a vector head | a component is not a descriptor | declare it with `v/defhost`, which mints one — or create the element and put it in a **child** position |
 | Neutral portal primitive | not in v1 | top-layer intrinsics, behavior, or React wrapper |
 | Automatic promotion | honesty | you add `{:compiled true}` yourself |

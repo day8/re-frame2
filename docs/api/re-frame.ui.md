@@ -13,7 +13,7 @@
     carries on the substrate — the audience of the
     [`re-frame2-ui` skill](../skills/re-frame2-ui.md). New view work starts at
     [Freehand](../core/freehand/index.md) and its
-    [install page](../core/freehand/install.md).
+    [install page](../core/freehand/get-running/install.md).
 
 `re-frame.ui` is the **compiled-view substrate** donated to the Freehand programme.
 Views are authored as `defview` + hiccup; the compiler lowers templates to direct

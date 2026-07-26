@@ -222,7 +222,7 @@ visible. You are not forced into one linear template.
 | View / element heads | runtime choices among descriptors OK | **statically named** or finite explicit branches |
 | Child markup as a value | pass Hiccup around freely | **compiler-owned** structure only |
 | Loops | ordinary `map` / seq realization | compiler-owned keyed **`for`**; reactive rows → **child views** |
-| Props maps | runtime maps OK at the edge | **literal** shape + `v/spread` / `v/spread-safe` ([composition](composition.md#spreading-props-attribute-forwarding)) |
+| Props maps | runtime maps OK at the edge | **literal** shape + `v/spread` / `v/spread-safe` ([composition](../authoring/composition.md#spreading-props-attribute-forwarding)) |
 | Events | runtime-classified common grammar | same grammar; static where knowable |
 | Parameterized rows | ordinary pure fn OK | lexically visible `v/render-fn` / `v/slot` |
 | Presence / top-layer | runtime plans | statically recognized forms |
@@ -243,12 +243,12 @@ There is **no** `v/interp` and no “compiled except this unknown subtree.”
 | `(sub …)` inside an unbounded loop | Reactive sites must be finite | Extract a keyed child view that subscribes for one row |
 | Event site capturing a **loop binding** as a closed-over value for many rows | One lexical committed slot cannot mean N instances | Keyed child whose **props** carry `id` / row data |
 | Hiding `sub` inside an unaudited macro or deep helper | Manifest would lie | Visible `v/sub` in the view, or value computed in a pure helper and passed in |
-| Wholly dynamic props map on an **internal** view | Per-slot memo / analysis need known keys | Literal props; `v/spread-safe` (controlled) or `v/spread` (an open element) — [composition](composition.md#spreading-props-attribute-forwarding) |
+| Wholly dynamic props map on an **internal** view | Per-slot memo / analysis need known keys | Literal props; `v/spread-safe` (controlled) or `v/spread` (an open element) — [composition](../authoring/composition.md#spreading-props-attribute-forwarding) |
 | Dynamic head registry — runtime choose among unknown views | Head must be finite | `case`/`cond` over known descriptors, or interpreted parent |
 | Bare fn on a **foreign** callback prop | Phase/identity unknown | `v/event` / `v/handler` / `v/render-fn` / `v/raw-fn` |
 | Bare React component at a vector head | A component is not a descriptor | declare it with `v/defhost`, which mints one — or create the element and put it in a **child** position |
 | Inline interpreter fallback for “this bit of runtime Hiccup” | Unpredictable cost and false manifests | `[v/markup {:value hiccup}]` or keep parent interpreted |
-| View-local cells, neutral hooks, refs or effects in the view body | One state system; host work is explicit | re-frame state or [host boundaries](host-boundaries.md) |
+| View-local cells, neutral hooks, refs or effects in the view body | One state system; host work is explicit | re-frame state or [host boundaries](../host/host-boundaries.md) |
 | Author `:reads […]` block (v1) | Not in the grammar | Inline `(v/sub …)` only |
 
 **Also named by the checker (donor-class structural rules):** keywords in child
@@ -370,7 +370,7 @@ If the row needs a subscription or its own events, extract
 the compiler cannot see.
 
 Full children taxonomy (trailing children, compound regions, when to promote to a
-declared view): **[Composition](composition.md)**.
+declared view): **[Composition](../authoring/composition.md)**.
 
 ---
 
