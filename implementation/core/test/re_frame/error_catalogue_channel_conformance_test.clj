@@ -1047,22 +1047,24 @@
   omission fails immediately, and `tags-column-baseline-stays-honest` fails the
   moment a listed row is fixed, forcing the drop in the SAME PR.
 
-  ONE entry, owned elsewhere:
+  EMPTY, and that is the finished state — rf2-zk1xu reconciled the corpus
+  rather than leaving debt parked here. The last entry was
+  `:rf.ssr/hydration-mismatch`, whose Tags cell spelled the optional wire key
+  `:first-diff-path?`; the trailing `?` was never part of the key (Spec 011
+  §The `:first-diff-path` tag names `:first-diff-path`,
+  `re-frame.ssr.hydrate/verify-hydration!` conditionally `assoc`es
+  `:first-diff-path`, and `HydrationMismatchTags` declares
+  `[:first-diff-path {:optional true} [:vector :any]]`) — it was the row author
+  writing optionality into the key rather than into prose. The cell now names
+  the literal key and states optionality in prose, which is also rf2-zk1xu's
+  'prove the Tags-column key parser observes the literal key' clause: with the
+  `?` gone, `tags-cell-key-re` reads `:first-diff-path` and the diff empties.
 
-    `:rf.ssr/hydration-mismatch` — the Tags cell spells the optional wire key
-    `:first-diff-path?`. The trailing `?` is not part of the key: Spec 011
-    §The `:first-diff-path` tag names `:first-diff-path`,
-    `re-frame.ssr.hydrate/verify-hydration!` conditionally `assoc`es
-    `:first-diff-path`, and `HydrationMismatchTags` declares
-    `[:first-diff-path {:optional true} [:vector :any]]`. The `?` is the
-    row author writing optionality into the key rather than into prose. This
-    is the last of the 23 findings rf2-zk1xu adjudicated (PR #7030 corrected
-    the other 22 across 18 rows and 3 schemas) and is that bead's named
-    bounded completion — including the clause 'prove the Tags-column key
-    parser observes the literal key', which is THIS arm. Fixing the cell to
-    the literal `:first-diff-path` (optionality stated in prose) empties this
-    set; drop the entry in that same PR."
-  #{:rf.ssr/hydration-mismatch})
+  An empty baseline means `tags-column-keys-are-documented` is now an
+  unqualified invariant: the next undocumented schema key reds it outright.
+  Do NOT re-add an entry to buy a red back off — the set shrinks only, so a
+  new omission is a corpus fix, not a baseline edit."
+  #{})
 
 (deftest tags-column-pairing-is-live
   (testing "Sanity, in the shape the sibling scans use: the arm actually reaches
