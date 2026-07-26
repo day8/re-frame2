@@ -105,21 +105,29 @@ known_red=(
   #        namespace already pins posture-independently.
   #    All four now carry a "## Posture split (rf2-o5dbf)" ns docstring.
 
-  # ── rf2-o5dbf — the CLASSIFICATION / PRIVACY suites.  rf2-u2x6w already
-  #    carved the always-on production legs of the egress contract into
-  #    `re-frame.routing-sub-egress-production-test`, which is IN this lane
-  #    and green; what is left here should be the dev-trace half.  "Should
-  #    be" is a claim to verify, not to assume — sub-classification is the
-  #    one invariant in this artefact whose failure is a privacy incident.
+  # ── rf2-o5dbf — the CLASSIFICATION / PRIVACY suites, CLEARED 2026-07-27.
+  #    The claim to verify was that what remained in `routing-egress-test`
+  #    beyond rf2-u2x6w's carve-out was the dev-trace half.  VERIFIED, and
+  #    the split is now explicit in both namespaces' docstrings: the
+  #    `:sensitive` RETENTION (`rf/handler-meta`, both public arities), the
+  #    pure carrier scrub (`egress/redact-url-carriers` /
+  #    `redact-url-tag`), the in-process rawness, the lowering / re-rooting
+  #    into the elision registry and the real SSR `payload-policy` consumer
+  #    are all production-real and now run under the gate.  Only readings OFF
+  #    THE TRACE BUS are dev-gated.
   #
-  #    NOTE, and this is the trap `test-core-prod-gate.sh` documents as the
-  #    `conformance-test` case: excluding `routing-egress-test` takes its
-  #    ALWAYS-ON legs out of the lane along with its dev-trace ones.  That is
-  #    survivable here only because rf2-u2x6w moved those legs into the
-  #    dedicated namespace above.  Do not exclude a namespace whose always-on
-  #    witnesses have no other home.
-  re-frame.routing-egress-test                    # 43
-  re-frame.routing-classification-test            # 12
+  #    Both suites also carried VACUOUS PASSES that this roster line was
+  #    hiding: `(not (re-find #"SECRET100" (pr-str payload)))` over a nil
+  #    trace payload, and four `(is (empty? warnings))` advisory-quiet tests
+  #    over an empty trace ring.  Each would have reported a privacy
+  #    guarantee the framework never executed the moment the line came off.
+  #    They are inside the posture arm now, and the always-on DETECTION
+  #    (`classification/unpromoted-query-keys`) is asserted in their place.
+  #
+  #    The `conformance-test` trap `test-core-prod-gate.sh` documents no
+  #    longer applies to these two, but the rule still does: do not exclude a
+  #    namespace whose always-on witnesses have no other home.
+  #    `re-frame.routing-sub-egress-production-test` stays IN the lane.
 
   # ── rf2-o5dbf — dev-instrumentation assertions written inline with the
   #    semantics they sit next to: "exactly one `:rf.route/cleared` trace

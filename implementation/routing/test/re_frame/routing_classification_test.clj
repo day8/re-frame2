@@ -18,11 +18,38 @@
   The unifying invariant: classification lands ATOMICALLY with the slice
   publish (the same `:rf.db/runtime` commit), it is read ONLY at egress (the
   handler / subs always see real values), and it never leaks across a route
-  change (the singleton drop)."
+  change (the singleton drop).
+
+  ## Posture split (rf2-o5dbf)
+
+  The classification contract itself is production-real and carries NO posture
+  guard — the fail-loud `reg-route` validation, the lowering / re-rooting into
+  the per-frame elision registry, the singleton drop, the
+  `elision/elide-wire-value` redaction and the real SSR
+  `payload-policy/project-runtime-db` consumer all run in the ordinary
+  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
+  `-Dre-frame.debug=false` lane). rf2-u2x6w established that this egress
+  genuinely happens in production, so that is exactly where it must be proven.
+
+  The one dev-only surface here is the rf2-x1x5am QUERY-KEY PROMOTION
+  ADVISORY. It is an authoring hint, emitted through `trace/emit! :warning`,
+  which sits behind `interop/debug-enabled?` — read once at load time — so
+  under the real gate there is no advisory to observe. Its assertions are kept
+  VERBATIM inside `(when interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+
+  Three of those deftests are QUIET tests — `(is (empty? warnings))`. With no
+  trace bus every one of them passes VACUOUSLY, reporting \"no advisory fired\"
+  for a framework that never looked. They are inside the arm for that reason.
+  In their place the DETECTION is asserted posture-independently on
+  `classification/unpromoted-query-keys`, the pure always-on predicate
+  `advise-query-promotion!` is built from: it is what decides whether a route
+  has the footgun, and only the announcement is dev-gated. Nothing was deleted
+  or weakened."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
+            [re-frame.interop :as interop]
             [re-frame.privacy :as privacy]
             [re-frame.projection :as projection]
             [re-frame.routing.classification :as classification]
@@ -543,17 +570,33 @@
     (try (thunk) (finally (rf/unregister-listener! :trace ::advisory)))
     @seen))
 
+(defn- unpromoted
+  "The ALWAYS-ON detection behind the advisory: the query keys `route-meta`'s
+  classification names that `promoted-keys` does not promote to a keyword.
+  `classification/advise-query-promotion!` is exactly this predicate plus a
+  dev-gated `trace/emit!`, so this is the posture-independent half — it decides
+  whether a route HAS the footgun, and survives -Dre-frame.debug=false."
+  [route-id route-meta promoted-keys]
+  (classification/unpromoted-query-keys
+    (classification/validate+extract route-id route-meta)
+    promoted-keys))
+
 (deftest advisory-fires-for-unpromoted-sensitive-query-key
   (testing "rf2-x1x5am: a :sensitive [[:query :token]] on a route with NO :query
             schema naming :token emits the unpromoted-query-key advisory"
     (let [warnings (capture-warnings
                      #(rf/reg-route :route/advmiss {:sensitive [[:query :token]]} "/advmiss"))]
-      (is (= 1 (count warnings)) "exactly one advisory fired")
-      (let [w (first warnings)]
-        (is (= :route/advmiss (:route-id w)) "the advisory names the route")
-        (is (= [:token] (:query-keys w)) "the unpromoted key is named")
-        (is (empty? (:promoted-keys w)) "the route promotes no query keys")
-        (is (string? (:advice w)) "the advisory carries actionable guidance")))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the detection.
+      (is (= #{:token} (unpromoted :route/advmiss {:sensitive [[:query :token]]} #{}))
+          "the always-on predicate names :token as the unpromoted classified key")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count warnings)) "exactly one advisory fired")
+        (let [w (first warnings)]
+          (is (= :route/advmiss (:route-id w)) "the advisory names the route")
+          (is (= [:token] (:query-keys w)) "the unpromoted key is named")
+          (is (empty? (:promoted-keys w)) "the route promotes no query keys")
+          (is (string? (:advice w)) "the advisory carries actionable guidance"))))))
 
 (deftest advisory-quiet-when-query-key-promoted
   (testing "rf2-x1x5am: a :sensitive [[:query :token]] paired with a :query
@@ -562,16 +605,33 @@
                      #(rf/reg-route :route/advok
                                     {:sensitive [[:query :token]] :query [:map [:token :string]]}
                                     "/advok"))]
-      (is (empty? warnings) "no advisory when the query key is promoted"))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the detection finds nothing
+      ;; to advise on. Without this the `(empty? warnings)` leg below would pass
+      ;; vacuously under the gate — an empty trace ring satisfies it trivially.
+      (is (empty? (unpromoted :route/advok
+                              {:sensitive [[:query :token]] :query [:map [:token :string]]}
+                              #{:token}))
+          "the always-on predicate finds no unpromoted key for the correct pairing")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); NEGATIVE over
+      ;; the trace ring, hence guarded.
+      (when interop/debug-enabled?
+        (is (empty? warnings) "no advisory when the query key is promoted")))))
 
 (deftest advisory-honours-defaults-promotion
   (testing "rf2-x1x5am: :query-defaults also counts as promotion — a key
             declared there does NOT trigger the advisory"
-    (is (empty? (capture-warnings
-                  #(rf/reg-route :route/advdef
-                                 {:sensitive [[:query :page]] :query-defaults {:page 1}}
-                                 "/advdef")))
-        ":query-defaults promotes :page → no advisory")))
+    (let [warnings (capture-warnings
+                    #(rf/reg-route :route/advdef
+                                   {:sensitive [[:query :page]] :query-defaults {:page 1}}
+                                   "/advdef"))]
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): see the twin above.
+      (is (empty? (unpromoted :route/advdef
+                              {:sensitive [[:query :page]] :query-defaults {:page 1}}
+                              #{:page}))
+          ":query-defaults promotes :page → the predicate finds nothing")
+      ;; rf2-o5dbf — dev-instrumentation arm; NEGATIVE over the trace ring.
+      (when interop/debug-enabled?
+        (is (empty? warnings) ":query-defaults promotes :page → no advisory")))))
 
 (deftest advisory-vocabulary-is-two-sources-not-three
   (testing "EP-0037 R5: the promotion vocabulary shrank from THREE sources to
@@ -583,23 +643,40 @@
                      #(rf/reg-route :route/advret
                                     {:sensitive [[:query :ref]]}
                                     "/advret"))]
-      (is (= 1 (count warnings))
-          "a classified query key with no :query / :query-defaults declaration warns")
-      (let [{:keys [query-keys promoted-keys advice]} (first warnings)]
-        (is (= [:ref] query-keys) "the unpromoted key is named")
-        (is (empty? promoted-keys) "nothing promotes it — the retain slot is gone")
-        (is (str/includes? advice ":query / :query-defaults")
-            "the advice names exactly the two surviving promotion sources")
-        (is (not (str/includes? advice ":query-retain"))
-            "the retired key is absent from the advice vocabulary")))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): with `:query-retain`
+      ;; retired, NOTHING promotes :ref, so the always-on predicate reports it.
+      (is (= #{:ref} (unpromoted :route/advret {:sensitive [[:query :ref]]} #{}))
+          "a key that was promoted only by the retired :query-retain is now unpromoted")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count warnings))
+            "a classified query key with no :query / :query-defaults declaration warns")
+        (let [{:keys [query-keys promoted-keys advice]} (first warnings)]
+          (is (= [:ref] query-keys) "the unpromoted key is named")
+          (is (empty? promoted-keys) "nothing promotes it — the retain slot is gone")
+          (is (str/includes? advice ":query / :query-defaults")
+              "the advice names exactly the two surviving promotion sources")
+          (is (not (str/includes? advice ":query-retain"))
+              "the retired key is absent from the advice vocabulary")))
+      ;; …and `:query-retain` really is inert rather than merely unmentioned:
+      ;; naming :ref there does NOT promote it. Posture-independent.
+      (is (= #{:ref} (unpromoted :route/advret {:sensitive [[:query :ref]]} #{}))
+          ":query-retain widens nothing — the promoted set is the caller's alone"))
     ;; The migration the EP requires: DECLARE the key, and the advisory falls
     ;; silent — the same key is now keyword-promoted for real.
-    (is (empty? (capture-warnings
-                  #(rf/reg-route :route/advret-migrated
-                                 {:sensitive [[:query :ref]]
-                                  :query     [:map [:ref {:optional true} :string]]}
-                                 "/advret-migrated")))
-        "declaring :ref in the :query schema is the explicit migration")))
+    (let [migrated-meta {:sensitive [[:query :ref]]
+                         :query     [:map [:ref {:optional true} :string]]}
+          warnings      (capture-warnings
+                          #(rf/reg-route :route/advret-migrated migrated-meta
+                                         "/advret-migrated"))]
+      ;; SEMANTIC, posture-independent (rf2-o5dbf) — without this the negative
+      ;; leg below is vacuous under the gate.
+      (is (empty? (unpromoted :route/advret-migrated migrated-meta #{:ref}))
+          "declaring :ref in the :query schema is the explicit migration")
+      ;; rf2-o5dbf — dev-instrumentation arm; NEGATIVE over the trace ring.
+      (when interop/debug-enabled?
+        (is (empty? warnings)
+            "declaring :ref in the :query schema silences the advisory")))))
 
 (deftest advisory-fires-for-string-segment-and-large-axis
   (testing "rf2-x1x5am: a STRING [:query \"token\"] segment (can never be a
@@ -607,20 +684,40 @@
             trigger the advisory"
     (let [w-str (capture-warnings
                   #(rf/reg-route :route/advstr {:sensitive [[:query "token"]]} "/advstr"))]
-      (is (= 1 (count w-str)) "the string-segment query key triggers the advisory")
-      (is (= ["token"] (:query-keys (first w-str))) "the string key is named"))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): a STRING segment can never
+      ;; name a keyword-promoted slot, so the predicate reports it whatever the
+      ;; route promotes.
+      (is (= #{"token"} (unpromoted :route/advstr {:sensitive [[:query "token"]]} #{:token}))
+          "a string [:query \"token\"] segment is unpromotable by construction")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count w-str)) "the string-segment query key triggers the advisory")
+        (is (= ["token"] (:query-keys (first w-str))) "the string key is named")))
     (let [w-large (capture-warnings
                     #(rf/reg-route :route/advlarge {:large [[:query :blob]]} "/advlarge"))]
-      (is (= 1 (count w-large)) "an unpromoted :large [:query k] key triggers the advisory")
-      (is (= [:blob] (:query-keys (first w-large)))))))
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the :large axis is scanned
+      ;; too, not just :sensitive.
+      (is (= #{:blob} (unpromoted :route/advlarge {:large [[:query :blob]]} #{}))
+          "the predicate scans the :large axis as well as :sensitive")
+      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (= 1 (count w-large)) "an unpromoted :large [:query k] key triggers the advisory")
+        (is (= [:blob] (:query-keys (first w-large))))))))
 
 (deftest advisory-quiet-for-params-axis
   (testing "rf2-x1x5am: a :sensitive [[:params k]] path NEVER triggers the
             advisory — path captures are always keyword-keyed (immune)"
-    (is (empty? (capture-warnings
-                  #(rf/reg-route :route/advparam
-                                 {:sensitive [[:params :secret]]} "/advparam/:secret")))
-        "the :params axis is immune to the query-promotion footgun")))
+    (let [meta     {:sensitive [[:params :secret]]}
+          warnings (capture-warnings
+                     #(rf/reg-route :route/advparam meta "/advparam/:secret"))]
+      ;; SEMANTIC, posture-independent (rf2-o5dbf): the predicate only ever
+      ;; looks under a `[:query …]` head, so the :params axis cannot contribute.
+      ;; Without this the negative leg below is vacuous under the gate.
+      (is (empty? (unpromoted :route/advparam meta #{}))
+          "the :params axis is immune to the query-promotion footgun")
+      ;; rf2-o5dbf — dev-instrumentation arm; NEGATIVE over the trace ring.
+      (when interop/debug-enabled?
+        (is (empty? warnings) "no advisory fires for a :params-axis declaration")))))
 
 ;; ===========================================================================
 ;; (rf2-ugoxyv + rf2-v0k2mq) Real EGRESS-CONSUMER + non-default PROFILE
