@@ -316,25 +316,65 @@
   vocabulary so a row's nested scoped keys never leak."
   #{:patch-summary :invalidation})
 
-(defn- scoped-key-shape?
-  "Whether `v` has the SHAPE of a scoped resource key
-  `[scope resource-id canonical-params]`: a 3-vector whose position 1 is the
-  resource-id KEYWORD and whose position 2 is the canonical params MAP. Read
-  ONLY by the shape-driven fail-closed default below, to recognise a scoped key
-  sitting in a slot the vocabulary does not name (rf2-wd9im).
-
-  The params `map?` test is what discriminates a real key from the family's
-  OTHER 3-element vectors, and it is the whole reason a shape read is safe here:
-  `:owner [:app :l 1]` (a view path) and `:cause [:mutation :m/save 7]` both
-  have a keyword at position 1 and a SCALAR at position 2, and both MUST ride
-  verbatim — tokenizing them would destroy attribution for no security gain.
-  A `:params-schema` may admit non-map params (a vector / an explicit nil), and
-  such a key is deliberately NOT recognised here; it falls to the recursive walk
-  instead, which still tokenizes every map the key contains (a `{:from-db …}`
-  resolved scope's value map included). The walk is the guarantee, this
-  predicate is the fidelity arm."
+(defn- scoped-key-frame?
+  "The positional SKELETON of a scoped resource key
+  `[scope resource-id canonical-params]`: a 3-vector with the resource-id
+  KEYWORD at position 1. Necessary for both readers below, sufficient for
+  neither — each adds its own proof that the 3-vector is the resource family's
+  (`scoped-key-shape?` on a family ROW, `carrier-family-value?` inside a
+  FOREIGN carrier)."
   [v]
-  (and (vector? v) (= 3 (count v)) (keyword? (nth v 1)) (map? (nth v 2))))
+  (and (vector? v) (= 3 (count v)) (keyword? (nth v 1))))
+
+(defn- scoped-key-shape?
+  "Whether `v` is recognisably a scoped resource key
+  `[scope resource-id canonical-params]` — the `scoped-key-frame?` skeleton
+  PLUS a proof that the 3-vector is a key rather than one of the family's other
+  3-element vectors. Read by the shape-driven fail-closed default below, to
+  recognise a scoped key sitting in a slot the vocabulary does not name
+  (rf2-wd9im).
+
+  ## What has to be discriminated, and the two proofs that do it
+
+  `:owner [:app :l 1]` (a view path) and `:cause [:mutation :m/save 7]` both
+  wear the skeleton — keyword at position 1 — and both MUST ride verbatim, since
+  tokenizing them destroys attribution for no security gain. So the skeleton
+  alone is never enough. Either proof suffices:
+
+    - a MAP at position 2. The canonical params of the overwhelming majority of
+      resources, and nothing structural in the family puts a map there;
+    - the resource REGISTRY knows position 1. The family's own authority
+      answering \"is this one of mine?\" — the same proof `carrier-family-value?`
+      reads one carrier out, for the same question.
+
+  ## Why the registry proof had to be added (merged-PR audit #7013)
+
+  `map?` at position 2 was the ONLY test, and `:params-schema` is REQUIRED but
+  free: `[:vector :string]`, `:string`, `[:maybe [:map …]]` are all legal, so a
+  REGISTERED owner's canonical params are legally a vector, a scalar, or nil.
+  Such a key wore the skeleton and failed the only proof, so on a family row it
+  fell through the recursive walk as a bag of structural scalars — owner-aware
+  projection never ran, the row was not stamped `:sensitive?`, and a
+  `:sensitive?` owner's resolved scope + canonical params egressed RAW under
+  `:blocking` / `:identities` and inside every `:work/id`. The identical leak
+  rf2-wd9im closed for map params, one params shape over. The registry is not a
+  roster and cannot rot: it costs one lookup and it says nothing about `:owner`'s
+  `:l` or `:cause`'s `:m/save` (a MUTATION id is not in the RESOURCE registrar).
+
+  ## The one case deliberately left to the walk
+
+  A non-map-params key naming an UNREGISTERED owner. Both proofs are gone — no
+  map at position 2, no registry entry — and nothing distinguishes it from
+  `[:app :l 1]`, so redacting it would mean redacting every structural 3-vector
+  in the family. It stays with the walk, which still tokenizes every MAP inside
+  it. The fail-closed arm is unreachable only for an unnamed slot on a family
+  row: a NAMED slot projects by position rather than by shape
+  (`scoped-key-slot` / `scoped-keys-slot`), and inside a carrier `named?` does
+  the same."
+  [v]
+  (and (scoped-key-frame? v)
+       (or (map? (nth v 2))
+           (some? (registry/resource-meta (nth v 1))))))
 
 (defn- project-unknown-slot-value
   "SHAPE-DRIVEN fail-closed projection of ONE tag value under a slot the
@@ -584,9 +624,18 @@
       registered owner's key still projects from a carrier slot nobody has
       looked at yet.
 
-  A shape match with neither proof is somebody else's data and rides verbatim."
+  A shape match with neither proof is somebody else's data and rides verbatim.
+
+  Note this reads the bare `scoped-key-frame?` SKELETON and not
+  `scoped-key-shape?`: the params `map?` test that predicate uses as ONE of its
+  two proofs would be a THIRD requirement here, and a redundant one — either
+  proof above is already stronger. Requiring it is what made the `named?` arm
+  above contradict its own docstring: a genuine `:resource/key` whose owner was
+  cleared or hot-reloaded away, carrying legal NON-MAP canonical params, failed
+  the map test and rode a carrier verbatim, so the fail-closed arm `named?`
+  exists to keep reachable was not reached (merged-PR audit #7013)."
   [v named?]
-  (and (scoped-key-shape? v)
+  (and (scoped-key-frame? v)
        (or named? (some? (registry/resource-meta (nth v 1))))))
 
 (def ^:private fx-carrier-slot
