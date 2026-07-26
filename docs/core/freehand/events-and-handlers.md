@@ -356,9 +356,18 @@ position. Its `#js` props are the library's own ABI and the child fold passes th
 finished element through untouched, so nothing materialises a roster carrier that
 sits inside them — the library receives the carrier object itself, which is
 deliberately **not the function it wraps** (`v/event` returns a marker) and so
-cannot answer the call. Calling one raises a Freehand error naming the form you
-wrote, this position, and the closure below, rather than the host's own
-`cb.call is not a function`. So a callback there is an ordinary closure, and it closes over
+cannot answer the call.
+
+What you see when it fails depends on who is calling. Reach the carrier from
+ClojureScript and you get a Freehand error naming the form you wrote, this position,
+and the closure below. Reach it the way a JavaScript library actually does —
+`props.onPing(…)`, a native call on a value that is not a native function — and you
+get the host's own `cb.call is not a function`, because a call JavaScript never
+dispatches is a call nothing can intercept. The carrier is a marker object, not a
+function, and making it one would quietly turn it into a function for everything else
+that asks. Either way it cannot work, which is the part worth knowing.
+
+So a callback there is an ordinary closure, and it closes over
 `(rf/capture-frame)`'s `:dispatch` rather than calling `rf/dispatch`: the render
 scope has unwound by the time the library calls back, and the captured bundle is
 fenced to the exact frame incarnation it was taken from.

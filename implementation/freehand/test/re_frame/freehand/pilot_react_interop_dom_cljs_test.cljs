@@ -623,10 +623,13 @@
             the inward path is a closure and not a roster form.
 
             What that failure SAYS is rf2-yn5nj's half: the carrier carries the
-            host call protocol in order to THROW, so the call raises the typed
-            `:rf.error/view-bad-event` naming the form, the position and the
-            recovery — where it used to raise the host's own `cb.call is not a
-            function`, a message that named none of them."
+            host call protocol in order to THROW, so a call that goes THROUGH
+            that protocol raises the typed `:rf.error/view-bad-event` naming the
+            form, the position and the recovery — where it used to raise the
+            host's own `cb.call is not a function`, a message that named none of
+            them. Every ClojureScript caller goes through it; a native
+            JavaScript one does not, and the deftest below is where that is
+            asked rather than assumed."
     (let [carrier (.-onPing rpilot/dead-carrier-props)]
       (is (events/callback? carrier)
           "the authored value is a roster carrier")
@@ -641,9 +644,9 @@
              (:rf.error/id (ex-data (try (carrier "click:dead")
                                          nil
                                          (catch :default e e)))))
-          "and invoking it the way a library would raises the TYPED diagnostic
-           rather than the host's own `cb.call is not a function`, which named
-           neither the carrier nor the fix")
+          "and invoking it FROM CLOJURESCRIPT raises the TYPED diagnostic rather
+           than the host's own `cb.call is not a function`, which named neither
+           the carrier nor the fix")
       (let [message (try (carrier "click:dead")
                          nil
                          (catch :default e (ex-message e)))]
@@ -660,6 +663,54 @@
         (is (identical? carrier (unchecked-get (.-props kid) "onPing"))
             "so the carrier is still the carrier on the other side — there is no
              materialisation point on this path at all")))))
+
+(deftest a-native-javascript-call-is-outside-the-carrier-diagnostic
+  (testing "rf2-yn5nj / `MERGED-PR AUDIT #7034` — THE BOUNDARY, asked rather
+            than assumed. The typed diagnostic is reached THROUGH the host's
+            call protocol, and in ClojureScript `IFn` is a protocol rather than
+            the language's call mechanism: a `deftype` carrying it gains
+            `-invoke` arities and `.call` / `.apply` prototype shims, never the
+            `Function` internal call slot. So the ClojureScript call in the
+            deftest above lands on the diagnostic, while an actual JavaScript
+            component running `props.onPing(…)` — the position that message
+            names, executed the way that position really executes — finds an
+            object and gets the host's own TypeError.
+
+            The caller is authored in JAVASCRIPT for exactly that reason. A
+            ClojureScript function application cannot express the call under
+            test, because the compiler emits the protocol dispatch a native
+            caller is defined by skipping — which is why `acme-widget`, itself
+            written in ClojureScript, could not prove this and reads as though
+            it had.
+
+            What this row does NOT ask for is a natively-callable carrier.
+            `(fn? carrier)` is false on purpose and every nominal reader
+            depends on it staying false; the law rf2-c1vvn established is that
+            the call must never SUCCEED, and it does not here either. So Spec
+            004's guarantee at a raw `createElement` prop is the failure, the
+            didactic message rides as far as the host protocol reaches, and the
+            captured-frame closure below is the contract rather than the
+            stylistic preference it would be if the diagnostic were total."
+    (let [carrier   (.-onPing rpilot/dead-carrier-props)
+          ;; A genuinely JavaScript-authored caller: its body is a literal
+          ;; native call expression, so nothing in it can route through the
+          ;; ClojureScript call protocol the way `(carrier "…")` does.
+          js-caller (js/Function. "f" "return f('click:dead');")
+          thrown    (try (js-caller carrier) ::no-throw (catch :default e e))]
+      (is (= "object" (goog/typeOf carrier))
+          "the carrier is a plain OBJECT — no [[Call]] slot — which is the same
+           fact `(not (fn? carrier))` reports one deftest up, stated the way
+           JavaScript sees it")
+      (is (not= ::no-throw thrown)
+          "a native call on it still cannot SUCCEED — the law that matters is
+           intact by this route too")
+      (is (instance? js/TypeError thrown)
+          "and what it raises is the HOST's own TypeError")
+      (is (nil? (:rf.error/id (ex-data thrown)))
+          "NOT `:rf.error/view-bad-event` — a native call never reaches
+           `carrier-called-directly!` at all, so the typed diagnostic covers
+           ClojureScript-authored callers and the JVM's whole call protocol,
+           and this one position is where it cannot follow"))))
 
 (deftest a-foreign-component-calls-back-through-a-captured-frame
   (testing "The LIVE inward path, mounted. A real DOM click on the third-party

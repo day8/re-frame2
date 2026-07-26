@@ -430,7 +430,28 @@
   child fold hands a finished React element through untouched — so
   Freehand never walks them and nothing materializes a carrier there
   (rf2-c1vvn, pinned by
-  `re-frame.freehand.pilot-react-interop-dom-cljs-test`)."
+  `re-frame.freehand.pilot-react-interop-dom-cljs-test`).
+
+  HOW FAR IT REACHES, and the limit is the HOST's rather than ours
+  (`MERGED-PR AUDIT #7034`). This throw is reached through the call
+  protocol [[call-protocol]] declares, so it covers exactly the callers
+  that go through one. On the JVM `clojure.lang.IFn` IS the call
+  protocol, so that is every caller there is. In ClojureScript `IFn` is
+  a PROTOCOL rather than the language's call mechanism: a `deftype`
+  carrying it gains `-invoke` arities and `.call` / `.apply` prototype
+  shims, but not the `Function` internal call slot — which is precisely
+  why `(fn? carrier)` is false and must stay false. So a ClojureScript
+  call site lands here, and a JavaScript one running a native
+  `props.onPing(…)` does not: it finds an object, and the host answers
+  with its own `TypeError` as before.
+
+  That gap is NOT closed by making the carrier natively callable. Doing
+  so would buy one message at the price of turning the carrier into a
+  function for every reader that asks — the silent reclassification this
+  whole deftype exists to prevent. The law is that the call must never
+  SUCCEED, and it does not on either host by either route; the didactic
+  message rides as far as the host's protocol reaches, and the recovery
+  the message names is what makes the question moot."
   [role]
   (error/throw-error!
     :rf.error/view-bad-event
