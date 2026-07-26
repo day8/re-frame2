@@ -65,6 +65,11 @@ tools_jvm_testbed_support=false
 # selects. Its own output for the same reason as the two above: no existing
 # output gates a job that runs this build.
 tools_cljs_machines_viz=false
+# rf2-8m344 - the read-only viewer PAGE (public/viewer.html + the
+# `:machines-viz-viewer` bundle). Its own output for the same reason as the
+# per-artefact outputs above: no existing output gates a job that BUILDS
+# this bundle, and until this one existed no job did.
+machines_viz_viewer_page=false
 template_expensive=false
 mcp_conformance=false
 mcp_live=false
@@ -91,6 +96,7 @@ mark_all() {
   tools_jvm_machines_viz=true
   tools_jvm_testbed_support=true
   tools_cljs_machines_viz=true
+  machines_viz_viewer_page=true
   template_expensive=true
   mcp_conformance=true
   mcp_live=true
@@ -1317,6 +1323,18 @@ else
           implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
             ui_gates=true ;;
         esac
+        # rf2-8m344 — the `:machines-viz-viewer` build is DECLARED here, in
+        # implementation/shadow-cljs.edn, while the page it emits a bundle for
+        # lives under tools/machines-viz/public/. That split is exactly how the
+        # build ended up compiled by no workflow, no npm script and no gate
+        # while README.md and spec/API.md documented `shadow-cljs release
+        # machines-viz-viewer` as the way a consumer self-hosts the page. A
+        # rename of the module or the output-dir here silently breaks that
+        # recipe, so this file arms the page gate.
+        case "$file" in
+          implementation/shadow-cljs.edn)
+            machines_viz_viewer_page=true ;;
+        esac
         # rf2-xwa4n — the F4g evidence-elision gate is DEFINED by this trio:
         # shadow-cljs.edn declares BOTH halves of the probe pair (`:freehand-
         # release` and its `:closure-defines {goog.DEBUG true}` control twin
@@ -1549,6 +1567,11 @@ else
             # `cljs` job above is not their lane however green it is.
             # `:machines-viz-node-test` is, and this output is what schedules it.
             tools_cljs_machines_viz=true
+            # rf2-8m344 - and the PAGE gate. The viewer entry lives on this
+            # artefact's `page/` root, the HTML on its `public/` root, and the
+            # bundle recompiles against `src/` + `deps.edn`, so every non-spec-md
+            # change here can break the self-hosting recipe the README documents.
+            machines_viz_viewer_page=true
             ;;
         esac
         ;;
@@ -1717,6 +1740,7 @@ emit tools_jvm "$tools_jvm"
 emit tools_jvm_machines_viz "$tools_jvm_machines_viz"
 emit tools_jvm_testbed_support "$tools_jvm_testbed_support"
 emit tools_cljs_machines_viz "$tools_cljs_machines_viz"
+emit machines_viz_viewer_page "$machines_viz_viewer_page"
 emit template_expensive "$template_expensive"
 emit mcp_conformance "$mcp_conformance"
 emit mcp_live "$mcp_live"

@@ -112,9 +112,26 @@ Hosting the page yourself is two files and no server:
 
 ```bash
 cd implementation
+npm run build:machines-viz-viewer
+```
+
+That compiles the bundle to `out/machines-viz-viewer/viewer.js`, copies
+`viewer.html` beside it, and checks the pair actually fits — that the
+`<script src>` the page loads names a file the build emitted, and that
+the global the page's boot script calls is one the bundle installs. The
+long hand is the same two steps:
+
+```bash
 npx shadow-cljs release machines-viz-viewer      # → out/machines-viz-viewer/viewer.js
 cp ../tools/machines-viz/public/viewer.html out/machines-viz-viewer/
 ```
+
+**This recipe is gated.** The `machines-viz-viewer-page` job in
+`.github/workflows/test.yml` runs the same command on every change to
+this artefact or to the build that declares the viewer bundle, and it is
+a required check — so the instructions above cannot quietly stop working
+the way the 404 host did (rf2-8m344). CI builds and stages the page; it
+still deploys nothing, because there is nowhere to deploy it to.
 
 Serve that directory from anywhere that serves static files — your docs
 site, an S3 bucket, a GitHub Pages branch of your own. Then point

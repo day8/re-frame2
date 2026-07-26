@@ -79,6 +79,7 @@ jobs:
       tools_jvm_machines_viz: ${{ steps.detect.outputs.tools_jvm_machines_viz }}
       tools_jvm_testbed_support: ${{ steps.detect.outputs.tools_jvm_testbed_support }}
       tools_cljs_machines_viz: ${{ steps.detect.outputs.tools_cljs_machines_viz }}
+      machines_viz_viewer_page: ${{ steps.detect.outputs.machines_viz_viewer_page }}
       template_expensive: ${{ steps.detect.outputs.template_expensive }}
       mcp_conformance: ${{ steps.detect.outputs.mcp_conformance }}
       mcp_live: ${{ steps.detect.outputs.mcp_live }}
@@ -3595,6 +3596,94 @@ jobs:
         working-directory: implementation
         run: npm run test:tools-machines-viz
 
+  # rf2-8m344 — the read-only viewer PAGE. Third artefact surface in this
+  # neighbourhood that existed and that nothing selected, and the one with the
+  # largest blast radius, because it faces CONSUMERS rather than contributors.
+  #
+  # The viewer ships as a page: `tools/machines-viz/public/viewer.html` plus the
+  # compiled `viewer.js` beside it. Per DESIGN-RATIONALE Lock #7 nobody deploys
+  # it for you — `share/encode-share-url` used to default `:host` to
+  # `https://day8.github.io/re-frame2-machines-viz/viewer.html`, which 404s and
+  # names a repository that does not exist, so every default share-URL was a
+  # dead link that looked correct to whoever copied it. That default is gone and
+  # `:host` is now required.
+  #
+  # What replaced it is a RECIPE: README.md §Building and hosting the viewer
+  # page and spec/API.md §Hosting both tell a consumer to run
+  # `shadow-cljs release machines-viz-viewer` from implementation/ and copy
+  # viewer.html beside the emitted bundle. No workflow, npm script or gate had
+  # ever run either command — the `:machines-viz-viewer` build was declared in
+  # implementation/shadow-cljs.edn and compiled by nothing. "The page is
+  # buildable" was the same unverified, load-bearing promise as the 404 host it
+  # replaced, and it would have rotted the first time a namespace or module was
+  # renamed.
+  #
+  # This job IS the documented recipe, plus the assertions that make the pair
+  # meaningful: the `<script src>` the page loads names a file the build
+  # emitted, and the global the page's boot script CALLS is one the bundle
+  # actually installs. Both are derived from the two artefacts, never written
+  # down, so a rename that keeps them in step passes.
+  #
+  # It is a build + staging + coupling gate, not a browser render smoke — the
+  # page has no hosted instance to smoke, and its render path is already covered
+  # by the artefact's `*-dom-cljs-test` chart suites under `cljs-browser`.
+  #
+  # Its OWN classifier output, like the two jobs above and for the same reason:
+  # no existing output gates a job that builds this bundle.
+  machines-viz-viewer-page:
+    name: Machines-viz viewer page (release build + stage + coupling)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.machines_viz_viewer_page == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-machines-viz-viewer-${{ hashFiles('tools/machines-viz/deps.edn', 'implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-machines-viz-viewer-
+            ${{ runner.os }}-cljs-
+
+      # The viewer bundle resolves react / @xyflow/react / elkjs out of
+      # implementation/node_modules, the one install this repo has.
+      - name: npm ci
+        working-directory: implementation
+        run: npm ci
+
+      # Deliberately the SAME command pair the README hands a consumer, run in
+      # the same order, so the gate cannot pass while the documented recipe
+      # fails. The self-test runs first, proving the coupling assertion fires on
+      # a drifted global rather than being decorative.
+      - name: Self-test the viewer-page staging gate
+        run: node tools/machines-viz/scripts/stage-viewer-page.cjs --self-test
+
+      - name: Build + stage the viewer page (the documented self-host recipe)
+        working-directory: implementation
+        run: npm run build:machines-viz-viewer
+
   jvm-tools-testbed-support:
     name: JVM tools/testbed-support (clojure -M:test)
     needs: detect_changed_surfaces
@@ -4589,6 +4678,11 @@ jobs:
       # rf2-odlm3 — required for the CLJS half of the same ratchet: the parity
       # suite is `.cljc` and its `:cljs` arms have never run anywhere.
       - cljs-tools-machines-viz
+      # rf2-8m344 - required, so the self-hosting recipe the machines-viz
+      # README and spec/API.md document cannot be broken by a merge that never
+      # built the page. It replaced a 404 URL; an unbuildable page would be the
+      # same false promise in a different shape.
+      - machines-viz-viewer-page
       - jvm-tools-template
       - node-test-tools-re-frame2-pair-mcp
       - node-test-tools-story-mcp

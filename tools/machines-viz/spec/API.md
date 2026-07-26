@@ -1627,13 +1627,21 @@ always had: there is no `day8/re-frame2-machines-viz` repository —
 machines-viz ships out of the re-frame2 monorepo — so every default
 share-URL was a dead link that looked correct to the person who copied it.
 
-Hosting the page is three steps and no infrastructure:
+Hosting the page is two steps and no infrastructure:
 
 ```bash
 cd implementation
-npx shadow-cljs release machines-viz-viewer      # → out/machines-viz-viewer/viewer.js
-cp ../tools/machines-viz/public/viewer.html out/machines-viz-viewer/
+npm run build:machines-viz-viewer
 ```
+
+That compiles the bundle, stages `viewer.html` beside it, and asserts the
+two halves fit: the `<script src>` the page loads must name a file the build
+emitted, and the global the page's boot script calls must be one the bundle
+installs. Both are read off the artefacts, so a namespace or module rename
+that keeps them in step passes and one that breaks the page fails. The
+required `machines-viz-viewer-page` CI job runs this exact command, which is
+what keeps the recipe honest — the previous "canonical hosted instance" was
+also documented, and also unverified (rf2-8m344).
 
 Serve that directory — the two files are self-contained, decode client-side,
 and need no server logic. Then pass its URL to the encoder:

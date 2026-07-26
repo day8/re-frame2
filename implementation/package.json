@@ -32,6 +32,7 @@
     "test:testbed-support": "shadow-cljs compile node-test-testbed-support && node out/node-test-testbed-support.js",
     "test:freehand": "shadow-cljs compile node-test-freehand && node out/node-test-freehand.js",
     "test:tools-machines-viz": "cd ../tools/machines-viz && clojure -M:cljs-test -m shadow.cljs.devtools.cli compile machines-viz-node-test && node ../../implementation/out/node-test-tools-machines-viz.js",
+    "build:machines-viz-viewer": "shadow-cljs release machines-viz-viewer && node ../tools/machines-viz/scripts/stage-viewer-page.cjs",
     "build:freehand-release": "shadow-cljs release freehand-release",
     "build:freehand-evidence-elision": "shadow-cljs release freehand-release freehand-release-control",
     "test:ui": "npm run test:ui-isolation && node out/node-test-ui.js",

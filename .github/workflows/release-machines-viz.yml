@@ -38,12 +38,17 @@
 # This workflow publishes the JAR. It does not build
 # `tools/machines-viz/page/.../viewer.cljs`, does not stage
 # `tools/machines-viz/public/viewer.html` anywhere, and does not deploy
-# either — and no other workflow in this repository does. There is no
-# hosted viewer instance, by design (DESIGN-RATIONALE Lock #7): the page
-# is a static asset the CONSUMER hosts, built with `shadow-cljs release
-# machines-viz-viewer` from `implementation/` and served beside
-# `viewer.html`. See tools/machines-viz/README.md §Building and hosting
-# the viewer page.
+# either. There is no hosted viewer instance, by design
+# (DESIGN-RATIONALE Lock #7): the page is a static asset the CONSUMER
+# hosts, built with `npm run build:machines-viz-viewer` from
+# `implementation/` and served beside `viewer.html`. See
+# tools/machines-viz/README.md §Building and hosting the viewer page.
+#
+# What DOES exist, since rf2-8m344, is a PR-time gate on that recipe:
+# test.yml's required `machines-viz-viewer-page` job runs the same
+# command and asserts the emitted bundle and the checked-in HTML fit
+# together. Building the page is gated; deploying it is still nobody's
+# job, because there is nowhere to deploy it to.
 #
 # This is stated here because the inference is easy to make and was made:
 # `share/encode-share-url` used to default its `:host` to
