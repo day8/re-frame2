@@ -216,13 +216,29 @@
    classification rows into the same `{:namespace :var}` shape `reconcile`
    consumes; the probe treats it exactly like a fully-rowed surface. Only
    `:namespace`/`:var` are emitted — the probe checks EXISTENCE, not tier
-   (the JVM generator owns tier/kind for these rows)."
+   (the JVM generator owns tier/kind for these rows).
+
+   The sidecar's `:jvm-only-classification` set is SUBTRACTED. A `.cljc`
+   namespace can carry a var defined under `#?(:clj …)` with no ClojureScript
+   arm at all — `re-frame.freehand/check` reads a source file, so a browser
+   runtime has nothing for it to do and the verb is honestly ABSENT rather
+   than present-and-throwing. Its `:classification` row is real (the JVM
+   generator introspects it), and reconciling that row against a CLJS surface
+   that will never carry it would report permanent staleness for a var that
+   is behaving exactly as designed. Subtracting it keeps DIRECTION 2 intact,
+   which is the half that matters here: the var is still not rowed for CLJS,
+   so if it ever DID acquire a ClojureScript arm the probe would see a live
+   public with no row and go red. The escape hatch is one-directional by
+   construction, and each entry carries its justification in the sidecar."
   [ns-str]
-  (->> (-> (read-sidecar &env) :classification)
-       (keep (fn [[[ns var] _]]
-               (when (= ns ns-str) {:namespace ns :var var})))
-       (sort-by :var)
-       vec))
+  (let [sidecar  (read-sidecar &env)
+        jvm-only (set (:jvm-only-classification sidecar))]
+    (->> (:classification sidecar)
+         (keep (fn [[[ns var] _]]
+                 (when (and (= ns ns-str) (not (contains? jvm-only [ns var])))
+                   {:namespace ns :var var})))
+         (sort-by :var)
+         vec)))
 
 (defmacro emit-ns-publics
   "Expand to a literal vector of `[var-name kind]` pairs for the public
