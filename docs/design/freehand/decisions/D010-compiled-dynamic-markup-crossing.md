@@ -94,8 +94,9 @@ The following remain legal under every option:
 ;; Already-lowered trailing children at a declared child insertion point.
 (:children props)
 
-;; A qualified opaque host leaf or React wrapper.
-[host/chart {:spec spec}]
+;; A declared host descriptor. Whether its registered React implementation is a
+;; plain component or a wrapper is invisible here: one descriptor kind crosses.
+[chart-host {:spec spec}]
 ```
 
 The last three still need precise lowering rules, but none asks the compiler to

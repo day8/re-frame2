@@ -2320,8 +2320,8 @@ boundaries. Some React libraries reverse the arrow and ask for a **component
 value** rather than an element — a grid's `cellRenderer`, a drag overlay, a
 virtual list's row component, a plugin API that takes a component and decides
 for itself when to render it. `v/->react` is the one crossing that answers
-them, and it is the outward half of the same host boundary the qualified leaf
-and the explicit wrapper are the inward halves of, not a fourth host shape.
+them, and it is the outward half of the same host boundary `v/defhost` and the
+registered behavior are the inward halves of, not another host shape.
 
 ```clojure
 (def person-cell-react (v/->react person-cell))

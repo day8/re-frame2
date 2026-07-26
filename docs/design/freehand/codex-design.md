@@ -18,7 +18,8 @@ Notation:
 - `v` — `re-frame.freehand`, including interpreted and compiled declarations;
 - **interpreted** — the default full-Clojure execution mode;
 - **compiled** — the finite compiler-owned execution mode selected at a declaration;
-- `host` — the explicit browser/React integration surface;
+- **host** — the explicit browser/React integration surface, reached through
+  verbs on the door; there is no `re-frame.freehand.host` namespace to require;
 - `web` — qualified DOM-platform semantics supplied by Freehand's web host;
 - `t` — the common structural and mounted test surface.
 
@@ -54,7 +55,7 @@ subtrees.
 | Reagent | independent | compatibility and established Hiccup ecosystem through an adapter |
 | UIx / Helix | independent | direct React programming through an adapter |
 | Replicant | independent | whole-state, component/subscription-free data renderer and a useful architectural alternative |
-| third-party React libraries | independent | qualified leaves, behaviors, or wrappers |
+| third-party React libraries | independent | a declared `v/defhost` host or a registered behavior (§Host ownership routes) |
 
 Freehand succeeds `re-frame.ui`; it never depends on it. The donor is deleted when
 §6 conformance is green, the pilots pass, and consumers have migrated—a gate, not a
@@ -857,31 +858,37 @@ the JVM. Each structural use site therefore needs a truthful SSR adapter or
 `v/client-only` with an explicit fallback; the bridge does not infer server support
 from the foreign library.
 
-#### Qualified React leaves
+#### Declared React hosts
 
-A value-in/callback-out React component is a qualified leaf:
+`v/defhost` declares a React component as a Freehand host. One descriptor kind
+covers the whole inward direction: a value-in/callback-out component and a
+React-owned wrapper differ in what is registered, not in how the boundary is
+declared or what laws it carries.
 
 ```clojure
-(def date-picker-host
-  (host/component ::date-picker DatePicker))
+(v/defhost date-picker
+  DatePicker
+  {:callbacks {:onChange :event}
+   :children  :none
+   :ssr       {:fallback [:input {:type :date :read-only true}]}})
 
 (v/defview booking-date [_]
-  (v/client-only
-   {:fallback [:input {:type :date
-                       :value (v/sub [:booking/date-iso])
-                       :read-only true}]}
-   [date-picker-host
-    {:selected (->js-date (v/sub [:booking/date]))
-     :onChange (v/event [date]
-                 [:booking/date-picked (from-js-date date)])}]))
+  [date-picker
+   {:selected (->js-date (v/sub [:booking/date]))
+    :onChange (v/event [date]
+                [:booking/date-picked (from-js-date date)])}])
 ```
+
+The declaration states the callback positions, the children policy, and the SSR
+policy; [D022](decisions/D022-public-react-host-door.md) carries the ruling and
+`spec/004-Views.md` the contract.
 
 #### Registered behaviors
 
 A DOM-owned imperative library can use a registered behavior:
 
 ```clojure
-(host/defbehavior vega-view
+(v/defbehavior vega-view
   {:connect    connect-vega!
    :update     update-vega!
    :disconnect disconnect-vega!
@@ -895,7 +902,7 @@ A DOM-owned imperative library can use a registered behavior:
                    :on-signal on-signal}]}])
 ```
 
-`host/defbehavior` binds `vega-view` to a qualified id and registers its
+`v/defbehavior` binds `vega-view` to a qualified id and registers its
 implementation. The use site is data: that id plus public configuration and event
 intents. The browser adapter owns the code, node, and opaque memory.
 
@@ -939,7 +946,7 @@ A behavior may additionally register a finite command map for genuinely one-shot
 host operations such as export, print, or focus-cell:
 
 ```clojure
-(host/defbehavior workbook
+(v/defbehavior workbook
   {:connect    connect-workbook!
    :update     update-workbook!
    :disconnect disconnect-workbook!
@@ -1054,7 +1061,8 @@ not an instruction to compile every view.
 
 There is no “compiled except for this unknown subtree.” Recovery is to expose a
 finite choice, pass a computed value, extract an interpreted or compiled child,
-qualify a host leaf, register a bounded behavior, or keep the parent interpreted.
+declare a `v/defhost` host, register a bounded behavior, or keep the parent
+interpreted.
 `:re-frame.freehand/v1` contains neither `v/interp` nor an automatic dynamic-markup
 walk. The standard recovery for inert “markup already in hand” is
 `[v/markup {:value markup}]`: an ordinary declared interpreted child. The compiled

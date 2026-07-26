@@ -71,8 +71,9 @@ and how honestly every kind of evidence is labeled meanwhile.
 - Compiled reads are finite lexical sites and can have a statically complete
   possible-site manifest.
 - Interpreted reads may follow arbitrary same-thread Clojure control flow.
-- Host leaves and wrappers are intentionally opaque about private instances and
-  hooks, while still exposing public identity/config/intents.
+- A declared host is intentionally opaque about the registered React
+  implementation's private instances and hooks, while still exposing public
+  identity/config/intents.
 - Tooling must state evidence loss rather than silently truncate it.
 
 ## Evidence has both scope and basis
@@ -232,6 +233,11 @@ read contracts without first inventing placeholder interpolation.
 
 ## 2026-07-26 amendment — test-render subscription overrides
 
+This is the evidence half of the accepted
+[product-completion setpoint](../product-completion-setpoint.md)'s **ER-08**,
+which sends the implementation contract to Spec 008 and the evidence amendment
+here.
+
 Mike accepted one development/testing substitution seam under
 `re-frame.freehand.test`. It preserves Story's useful ability to show an error,
 loading, empty, or other difficult view state without replaying the full event
@@ -252,8 +258,8 @@ The contract is deliberately narrow:
 5. Story records `:sub-overrides` as a lower-fidelity rendering rung. Freehand
    evidence uses the existing `:basis :declaration` and a test-render scope, with
    explicit loss such as `{:reason :subscription-resolution-substituted}`; it
-   does not invent a fifth evidence basis or claim that real subscription logic
-   ran.
+   adds no member to the basis roster above and does not claim that real
+   subscription logic ran.
 
 Spec 008 owns the mounted/structural test contract when the implementation slice
 lands. The Story provider, `re-frame.freehand.test` facade, Spec 008 text, mounted
