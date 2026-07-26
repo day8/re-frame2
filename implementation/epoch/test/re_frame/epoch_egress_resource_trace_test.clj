@@ -3081,3 +3081,436 @@
                     "the resource id rides verbatim")
                 (is (= cache-hit? (:cache-hit? r)))
                 (is (= :ok (:status r)))))))))))
+
+;; ===========================================================================
+;; (rf2-rnsv2) the SAME two carriers, the FAILURE half of the SAME reply: the
+;; transport's `:rf.http/*` envelope under `:error`.
+;; ===========================================================================
+;;
+;; §(rf2-xx4ty) closed the reply a read SUCCEEDS with. A read that FAILS settles
+;; the same carriers with the same canonical reply — `reply/failure-reply`
+;; composes the same `base-reply` — carrying the transport's classified envelope
+;; under `:error`:
+;;
+;;   {:status :error                                ; or :cancelled, on an abort
+;;    :error  {:kind :rf.http/http-4xx :status 422
+;;             :body {…} :body-text "…" :detail {…}} ← the leak
+;;    :rf.reply/work-kind :resource                  ; the DISCRIMINATOR
+;;    :params …, :scope …, :resource/key …, …}       ; closed by the earlier arms
+;;
+;; That envelope is the app's own data coming back out. `re-frame.http.privacy`
+;; enumerates `:body` / `:body-text` / `:decoded` / `:detail` / `:headers` as
+;; its app-bearing slots, and `:detail` is the app's domain failure map — so a
+;; 422 echoes the SUBMITTED FORM FIELDS. It arrives RAW: the transport's
+;; `dispatch-failure!` hands `:on-failure` the unredacted envelope and
+;; `privacy/prepare-emit-failure` touches only HTTP's own trace row.
+;;
+;; THE GRAIN IS NEITHER OF THE TWO ABOVE, and the tests below are arranged
+;; around that. `:error` is UNCONDITIONAL INSIDE THE FAMILY REPLY MARKER — no
+;; owner read at all — because the family's OWN rows tokenize this envelope
+;; unconditionally (`error-envelope-slot` on `:rf.resource/failed` /
+;; `:rf.resource/page-failed` / `:rf.mutation/failed`). An owner-conditional arm
+;; here — i.e. adding `:error` to `reply-payload-slot` — would tokenize a
+;; `:serialize` owner's envelope on the ROW and let the identical bytes ride on
+;; the CARRIER: the rf2-irwsq disagreement, in mirror image. So the plain-owner
+;; test below is an ACCEPTANCE test, not an over-redaction control, and it is
+;; the one that fails if somebody re-implements the rejected remedy.
+;;
+;; …AND IT SPANS READS AND MUTATIONS. `resource-reply?` excludes
+;; `:rf.reply/work-kind :mutation` deliberately — the mutation redacts its OWN
+;; `:value` / `:params` / `:scope` at the source, through
+;; `classification/redact-continuation-reply`. That function re-roots the spec's
+;; projection-relative declarations and never touches `:error`, correctly, since
+;; `:error` is not a projection of owner data and no declaration can name it. So
+;; the mutation failure continuation leaked the identical envelope by the
+;; identical route, seen by nobody. The `:error` arm therefore gates on BOTH
+;; work kinds; §(6) below is that half.
+
+(def ^:private failure-envelope
+  "The classified `:rf.http/*` failure envelope a 422 settles with. Carries the
+  secret in the two slots that actually echo user input — `:body` (the decoded
+  error body) and `:detail` (the app's own domain failure map, HTTP's
+  `:rf.http/accept-failure` slot). `:kind` / `:status` are the attribution
+  scalars, which the row's siblings preserve."
+  {:kind      :rf.http/http-4xx
+   :status    422
+   :body      {:email (str secret "@example.com")}
+   :body-text (str "email " secret " is already registered")
+   :detail    {:errors [{:field :email :value secret}]}})
+
+(def ^:private other-failure-envelope
+  "A SECOND, different envelope — same shape, different bytes. The distinctness
+  control: content-addressed tokenization must keep two failures joinable as two
+  failures."
+  {:kind :rf.http/http-5xx :status 503 :body {:reason "upstream down"}})
+
+(def ^:private abort-envelope
+  "An `:rf.http/aborted` envelope. `reply/failure-reply` lowers it to
+  `:status :cancelled` — and still puts it under `:error`. The reason `:status`
+  is NOT the gate."
+  {:kind :rf.http/aborted :reason :user-abort :detail {:draft {:email secret}}})
+
+(defn- family-carrier-replies
+  "`carrier-replies` widened to the FAMILY's two work kinds — a read completion
+  (`:resource`) and a mutation completion (`:mutation`). The mutation half of
+  this section needs it; `carrier-replies` stays read-only so the §(rf2-xx4ty)
+  assertions above keep saying exactly what they said."
+  [record]
+  (let [found (atom [])
+        walk  (fn walk [v]
+                (cond
+                  (map? v)  (do (when (#{:resource :mutation} (:rf.reply/work-kind v))
+                                  (swap! found conj v))
+                                (run! walk (vals v)))
+                  (coll? v) (run! walk v)))]
+    (doseq [tags (map :tags (:trace-events record))
+            slot [:rf.fx/args :rf.event/fx]
+            :when (contains? tags slot)]
+      (walk (get tags slot)))
+    @found))
+
+(defn- drive-failing-reply-to-read!
+  "The FAILURE counterpart of `drive-reply-to-read!` (rf2-uufoe): drive a REAL
+  `[:rf.resource/ensure … :reply-to …]` and replay the transport's `:on-failure`
+  with `envelope`, so the runtime's own `failed-handler` builds the canonical
+  failure reply and fans it out through its own `[:dispatch …]` continuation fx.
+
+  `params` is the caller's, so a PLAIN owner can be driven with a secret-free
+  key and a secret-BEARING envelope — which is what makes the plain-owner sweep
+  below name exactly one leaking datum."
+  [resource-id params envelope]
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)]
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
+    (frame/swap-runtime-db! :test/rt
+      (fn [rt] (elision/apply-classification-effects
+                 rt {:sensitive [[:auth :user :username]]})))
+    (frame/swap-frame-db! :test/rt assoc-in [:auth :user :username] secret)
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource resource-id :params params
+                        :owner    real-owner  :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/dispatch-sync (conj (:on-failure @captured) {:status :error :error envelope})
+                      {:frame :test/rt})
+    (rf/epoch-history :test/rt)))
+
+;; ---------------------------------------------------------------------------
+;; (1) THE ACCEPTANCE ARM — a REAL failing reply-to read, sensitive owner
+;; ---------------------------------------------------------------------------
+
+(deftest real-failing-reply-to-read-leaks-no-error-envelope-into-fx-carriers
+  (testing "rf2-rnsv2 — `projected-record` over the records a REAL
+            `[:rf.resource/ensure … :reply-to …]` settles into FAILURE must
+            carry the decoded error body at ZERO paths. Before the repair the
+            envelope rode raw on both carriers, at
+            [… :rf.fx/args 1 :error :body :email] and its :body-text / :detail
+            siblings, and again under :rf.event/fx."
+    (let [records   (drive-failing-reply-to-read! :derived/profile reply-params
+                                                  failure-envelope)
+          raw       (record-carrying-reply records false)
+          projected (epoch/projected-record raw)]
+
+      (testing "FIXTURE — the producer really put the envelope on the fx
+                carriers, so the sweep below is not passing over an empty set"
+        (is (some? raw) "the failure continuation reached an fx carrier at all")
+        (is (seq (carrier-replies raw)) "and the reply map is findable on it")
+        (is (every? #(= failure-envelope (:error %)) (carrier-replies raw))
+            "every carrier's reply carries the RAW envelope")
+        (is (seq (secret-leak-paths raw))
+            "the unprojected record leaks — the projector's input is the
+             runtime's own output, not an invented tag map"))
+
+      (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
+                record"
+        (is (= [] (secret-leak-paths projected))))
+
+      (testing "and each reply's envelope is TOKENIZED, not merely absent"
+        (is (= (count (carrier-replies raw)) (count (carrier-replies projected)))
+            "projection neither drops nor invents a carrier reply")
+        (is (every? #(redacted-component? (:error %)) (carrier-replies projected))
+            "the envelope is an opaque content-addressed token"))
+
+      (testing "the whole reply still reads as a FAILED reply — the attribution
+                the family's own rows also preserve"
+        (let [r (first (carrier-replies projected))]
+          (is (= :error (:status r)) "the status rides verbatim")
+          (is (= :failed (:rf.reply/work-status r)))
+          (is (= :derived/profile (:resource r)) "and the resource id")
+          (is (redacted-component? (first (:resource/key r)))
+              "rf2-1kiuj — the sibling key's scope component is still tokenized")
+          (is (tokenized-scope? (:scope r))
+              "rf2-425mm — and the free :scope beside it"))))))
+
+;; ---------------------------------------------------------------------------
+;; (2) THE ANTI-OWNER-CONDITIONAL CONTROL — the point of the bead
+;; ---------------------------------------------------------------------------
+
+(deftest real-failing-reply-to-read-tokenizes-a-plain-owners-envelope-too
+  (testing "rf2-rnsv2 — a PLAIN (`:serialize`, undeclared) owner's failure
+            envelope tokenizes JUST THE SAME. This is an ACCEPTANCE test, not an
+            over-redaction control: `error-envelope-slot` tokenizes the identical
+            envelope on `:rf.resource/failed` UNCONDITIONALLY, so an
+            owner-conditional carrier arm — i.e. `:error` dropped into
+            `reply-payload-slot` — would make the two carriers of one envelope
+            disagree. This test is what fails if somebody makes that edit.
+
+            The key here carries NO secret (`:plain/article` + a plain slug), so
+            the sweep below names exactly one leaking datum: the envelope."
+    (let [records   (drive-failing-reply-to-read! :plain/article {:slug plain-slug}
+                                                  failure-envelope)
+          raw       (record-carrying-reply records false)
+          projected (epoch/projected-record raw)]
+      (testing "FIXTURE — a plain owner, and the envelope is the ONLY secret"
+        (is (some? raw))
+        (is (every? #(= failure-envelope (:error %)) (carrier-replies raw)))
+        (is (seq (secret-leak-paths raw))
+            "the unprojected record leaks the envelope")
+        (is (= [] (secret-leak-paths (mapv #(dissoc % :error) (carrier-replies raw))))
+            "and with `:error` removed the reply carries NO secret at all —
+             the envelope is the only leaking datum on a plain owner's reply, so
+             the acceptance below cannot pass for some other repair's reason"))
+      (testing "ACCEPTANCE — the plain owner's envelope tokenizes anyway"
+        (is (= [] (secret-leak-paths projected)))
+        (is (every? #(redacted-component? (:error %)) (carrier-replies projected))))
+      (testing "and the owner's OWN data still rides verbatim — the arm is
+                marker-gated, not owner-gated, so nothing else moved"
+        (let [r (first (carrier-replies projected))]
+          (is (= {:slug plain-slug} (:params r))
+              "rf2-xx4ty's arm is still owner-conditional and still silent here")
+          (is (= :rf.scope/global (:scope r)))
+          (is (= [:rf.scope/global :plain/article {:slug plain-slug}]
+                 (:resource/key r))
+              "and the plain owner's scoped key is untouched"))))))
+
+;; ---------------------------------------------------------------------------
+;; (3) the same shape assembled — the two carriers of ONE envelope AGREE
+;; ---------------------------------------------------------------------------
+
+(defn- failure-read-reply
+  "The continuation reply `events/read-continuation-reply` builds on the FAILURE
+  branch — `reply/failure-reply` plus the top-level read facts."
+  [scoped-key scope envelope]
+  (let [[_ resource-id params] scoped-key
+        abort? (= :rf.http/aborted (:kind envelope))]
+    (cond-> {:status               (if abort? :cancelled :error)
+             :error                envelope
+             :rf.reply/work-id     [:rf.work/resource scoped-key 1]
+             :rf.reply/work-kind   :resource
+             :rf.reply/work-status (if abort? :cancelled :failed)
+             :rf.frame/id          :test/rt
+             :completed-at         0
+             :correlation          {:scope scope :generation 1
+                                    :rf.reply/resource-key scoped-key}
+             :resource             resource-id
+             :params               params
+             :scope                scope
+             :resource/key         scoped-key
+             :cache-hit?           false}
+      abort? (assoc :cancelled? true :rf.reply/cancel-reason (:reason envelope)))))
+
+(defn- both-carriers-of
+  "A record carrying BOTH copies of one envelope: the family's OWN
+  `:rf.resource/failed` row (whose `:error` `error-envelope-slot` tokenizes
+  unconditionally) AND the two fx carriers of the continuation reply. The whole
+  bead is that these two must agree, so one record holds both and the assertion
+  is an equality rather than two independent shape checks.
+
+  The effect vector deliberately also carries
+  `[:rf.resource/commit-generation {:value 1}]` — a FOREIGN map on the same
+  vector, the control that a name-only arm would fail."
+  [scoped-key reply]
+  (let [ev (conj read-reply-target reply)]
+    (record-with
+      [(event :rf.resource/failed
+              {:rf.frame/id :test/rt :resource/key scoped-key
+               :work/id [:rf.work/resource scoped-key 1] :generation 1
+               :error (:error reply)})
+       (event :rf.fx/handled
+              {:rf.frame/id :test/rt :frame :test/rt
+               :rf.fx/id :dispatch :rf.fx/args ev})
+       (event :rf.fx/do-fx
+              {:rf.frame/id :test/rt :frame :test/rt
+               :rf.event/fx [[:rf.resource/commit-generation {:value 1}]
+                             [:dispatch ev]]})])))
+
+(deftest fx-carrier-error-envelope-agrees-with-the-family-row
+  (testing "rf2-rnsv2 — the ROW copy and the CARRIER copies of ONE envelope must
+            project to the SAME content-addressed token. Run over a PLAIN owner,
+            because that is exactly the case an owner-conditional arm would
+            split."
+    (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
+          reply     (failure-read-reply k :rf.scope/global failure-envelope)
+          projected (epoch/projected-record (both-carriers-of k reply))
+          row-error (:error (:tags (first (:trace-events projected))))
+          replies   (family-carrier-replies projected)]
+      (is (= 2 (count replies)) "one reply per carrier")
+      (is (redacted-component? row-error) "the row copy tokenizes (it always did)")
+      (is (every? #(= row-error (:error %)) replies)
+          "and the carrier copies tokenize to the SAME digest — the two carriers
+           of one envelope agree, which is the whole ruling")
+      (is (= [] (secret-leak-paths projected)))
+      (is (every? #(true? (:sensitive? (:tags %))) (:trace-events projected))
+          "every row that carried the envelope is stamped :sensitive?"))))
+
+(deftest fx-carrier-error-envelope-tokenizes-on-a-cancelled-reply
+  (testing "rf2-rnsv2 — `:status` is NOT the gate. An `:rf.http/aborted`
+            envelope settles `:status :cancelled` and still rides under
+            `:error`, so it must tokenize on the cancel branch too."
+    (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
+          reply     (failure-read-reply k :rf.scope/global abort-envelope)
+          projected (epoch/projected-record (both-carriers-of k reply))
+          replies   (family-carrier-replies projected)]
+      (is (= :cancelled (:status (first replies))) "it really is the cancel branch")
+      (is (= :user-abort (:rf.reply/cancel-reason (first replies)))
+          "and the cancel reason rides verbatim — attribution survives")
+      (is (every? #(redacted-component? (:error %)) replies))
+      (is (= [] (secret-leak-paths projected))))))
+
+(deftest fx-carrier-error-tokens-stay-distinct-per-envelope
+  (testing "rf2-rnsv2 — content-addressed, so two different failures keep two
+            different digests and a tool's per-failure joins survive."
+    (let [k    (sk :rf.scope/global :plain/article {:slug plain-slug})
+          tok  (fn [envelope]
+                 (-> (both-carriers-of k (failure-read-reply k :rf.scope/global envelope))
+                     epoch/projected-record
+                     family-carrier-replies
+                     first
+                     :error))]
+      (is (not= (tok failure-envelope) (tok other-failure-envelope))
+          "distinct envelopes ⇒ distinct tokens")
+      (is (= (tok failure-envelope) (tok failure-envelope))
+          "and the SAME envelope ⇒ the same token (stable, so joins work)"))))
+
+(deftest fx-carrier-error-projection-is-idempotent
+  (testing "rf2-rnsv2 — an already-projected record re-projects to itself; the
+            token is not re-digested (the `redacted-token?` guard)."
+    (let [k     (sk :rf.scope/global :plain/article {:slug plain-slug})
+          once  (epoch/projected-record
+                  (both-carriers-of k (failure-read-reply k :rf.scope/global failure-envelope)))
+          twice (epoch/projected-record once)]
+      (is (= once twice)))))
+
+;; ---------------------------------------------------------------------------
+;; (4) the OVER-REDACTION controls — the family speaks only for what it planted
+;; ---------------------------------------------------------------------------
+
+(deftest fx-carrier-leaves-the-fx-familys-own-error-verbatim
+  (testing "rf2-rnsv2 — `:error` is an FX-FAMILY WORD. A map carrying `:error`
+            with NO `:rf.reply/work-kind` is somebody else's data and must ride
+            byte-identical — which is why the arm is marker-gated and not a
+            name-only unconditional redaction."
+    (let [foreign   {:error {:message "boom" :detail {:slug plain-slug}}}
+          record    (record-with
+                      [(event :rf.fx/do-fx
+                              {:rf.frame/id :test/rt :frame :test/rt
+                               :rf.event/fx [[:rf.error/report foreign]
+                                             [:dispatch [:app/oops foreign]]]})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= [[:rf.error/report foreign] [:dispatch [:app/oops foreign]]]
+             (:rf.event/fx tags))
+          "the fx family's own :error rides byte-identical")
+      (is (not (true? (:sensitive? tags)))
+          "and the row is not stamped — an over-redaction is as much a defect
+           as the leak (rf2-1kiuj)"))))
+
+(deftest fx-carrier-leaves-a-foreign-familys-reply-error-verbatim
+  (testing "rf2-rnsv2 — the marker is ENUMERATED, never `(some? work-kind)`.
+            Managed HTTP stamps `:rf.reply/work-kind :http` on its own canonical
+            reply, and an HTTP reply riding these carriers is the HTTP family's
+            data to classify. The resources projector must leave it alone."
+    (let [http-reply {:status :error
+                      :rf.reply/work-kind   :http
+                      :rf.reply/work-status :failed
+                      :error failure-envelope}
+          record     (record-with
+                       [(event :rf.fx/handled
+                               {:rf.frame/id :test/rt :frame :test/rt
+                                :rf.fx/id :dispatch
+                                :rf.fx/args [:app/http-done http-reply]})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))]
+      (is (= [:app/http-done http-reply] (:rf.fx/args tags))
+          "the HTTP family's reply rides through this projector untouched"))))
+
+;; ---------------------------------------------------------------------------
+;; (5) the trusted-local opt-in — the tokenization is the off-box default
+;; ---------------------------------------------------------------------------
+
+(deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-error
+  (testing "rf2-rnsv2 — `:include-sensitive?` still shows the raw envelope. The
+            redaction is the OFF-BOX default, not a strip: a local operator
+            debugging a 422 needs the body."
+    (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
+          reply     (failure-read-reply k :rf.scope/global failure-envelope)
+          projected (epoch/projected-record (both-carriers-of k reply)
+                                            {:include-sensitive? true})]
+      (is (= [failure-envelope failure-envelope]
+             (mapv :error (family-carrier-replies projected)))
+          "every carrier's raw envelope rides with :include-sensitive?")
+      (is (= failure-envelope (:error (:tags (first (:trace-events projected)))))
+          "and so does the family row's copy"))))
+
+;; ---------------------------------------------------------------------------
+;; (6) THE SEVENTH LEAK — the MUTATION continuation, closed in the same arm
+;; ---------------------------------------------------------------------------
+
+(def ^:private mutation-reply-target
+  "The mutation call-site `:reply-to`."
+  [:app/save-replied])
+
+(defn- drive-failing-mutation-reply-to!
+  "Drive a REAL `[:rf.mutation/execute … :reply-to …]` against a mutation that
+  declares NOTHING — so `classification/redact-continuation-reply` substitutes
+  nothing at the source and any redaction observed came from the egress
+  projector — and replay the transport's `:on-failure` with `envelope`."
+  [envelope]
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)]
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-event :app/save-replied (fn [_ _ev] {}))
+    (rf/reg-mutation :m/save
+      {:params-schema [:map [:slug :string]]}
+      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug plain-slug}
+                        :instance :mf1 :reply-to mutation-reply-target}]
+                      {:frame :test/rt})
+    (rf/dispatch-sync (conj (:on-failure @captured) {:status :error :error envelope})
+                      {:frame :test/rt})
+    (rf/epoch-history :test/rt)))
+
+(deftest real-failing-mutation-reply-to-leaks-no-error-envelope
+  (testing "rf2-rnsv2 §the seventh leak — the MUTATION continuation reply leaks
+            `:error` by the identical route. `redact-continuation-reply`
+            re-roots only the spec's `:value` / `:params` / `:scope`
+            declarations and never touches `:error` (correctly — `:error` is a
+            transport envelope, not a projection of owner data), and the reply
+            stamps `:rf.reply/work-kind :mutation`, so `resource-reply?` is false
+            and NOTHING looked at it. One keyword wider in the same predicate;
+            omitting it would have shipped the seventh leak in the commit that
+            closed the sixth."
+    (let [records   (drive-failing-mutation-reply-to! failure-envelope)
+          raw       (first (filter #(seq (family-carrier-replies %)) records))
+          projected (epoch/projected-record raw)]
+      (testing "FIXTURE — the producer really put the envelope on the carriers"
+        (is (some? raw) "the mutation continuation reached an fx carrier")
+        (is (every? #(= :mutation (:rf.reply/work-kind %))
+                    (family-carrier-replies raw))
+            "and it really is the MUTATION reply, not a read one")
+        (is (every? #(= failure-envelope (:error %)) (family-carrier-replies raw))
+            "carrying the RAW envelope")
+        (is (seq (secret-leak-paths raw))
+            "the unprojected record leaks"))
+      (testing "ACCEPTANCE — nothing raw survives"
+        (is (= [] (secret-leak-paths projected)))
+        (is (every? #(redacted-component? (:error %))
+                    (family-carrier-replies projected))))
+      (testing "and the reply still reads as a failed mutation reply"
+        (let [r (first (family-carrier-replies projected))]
+          (is (= :error (:status r)))
+          (is (= :m/save (:mutation r)))
+          (is (= :mf1 (:instance r)))
+          (is (= [:mutation :m/save :mf1] (:cause r))
+              "the causal explanation rides verbatim"))))))
