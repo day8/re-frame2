@@ -169,7 +169,12 @@ A runtime subsystem owns its runtime storage, so the author never names an absol
 
 ;; a resource declares its own statically-known sensitive / large fields
 (rf/reg-resource :user-profile
-  {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]})
+  {:sensitive     [[:data :ssn]]
+   :large         [[:data :avatar-bytes]]
+   :scope         {:from-db :app/session}
+   :params-schema [:map [:user-id :string]]}
+  (fn [{:keys [user-id]} _ctx]
+    {:request {:method :get :url (str "/api/users/" user-id)}}))
 ```
 
 Each subsystem **owns the arrangement that fits it** — the projection root and any nesting that reads naturally for it (a route isn't a cache entry isn't an actor). The only shared invariant is the **axis vocabulary** over projection-relative paths; the rest is the subsystem's ergonomic call.
