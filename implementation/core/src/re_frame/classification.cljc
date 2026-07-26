@@ -218,16 +218,50 @@
     (and (> (count b) na)
          (= a (subvec b 0 na)))))
 
-(defn- large-shadows-sensitive?
-  "True when the large-marked path `p` has ANY sensitive path strictly below it
-  in `sensitive-set` — a `:large`-marked subtree containing a `:sensitive`
-  descendant. Per Spec 015 §No-propagation (L338, a normative MUST) such a
-  subtree REDACTS (descend + redact the descendant) rather than emitting a
-  size-preview marker that would leak `:bytes` / `:type` (and, off-box with
-  digests on, a SHA-256 digest computed over a subtree that contains the
-  secret — a brute-force oracle)."
-  [p sensitive-set]
-  (boolean (some #(strict-prefix? p %) sensitive-set)))
+(defn- large-shadow-set
+  "The subset of `large-set` whose paths have a `:sensitive` path strictly BELOW
+  them — a `:large`-marked subtree containing a `:sensitive` descendant. Per
+  Spec 015 §No-propagation (L338, a normative MUST) such a subtree REDACTS
+  (descend + redact the descendant) rather than emitting a size-preview marker
+  that would leak `:bytes` / `:type` (and, off-box with digests on, a SHA-256
+  digest computed over a subtree that contains the secret — a brute-force
+  oracle). Computed once per walk; empty in the common no-nesting case. The
+  peer of `re-frame.elision/large-keys-shadowing-sensitive`, over path SETS
+  rather than declaration tables."
+  [sensitive-set large-set]
+  (into #{} (filter (fn [lp] (some #(strict-prefix? lp %) sensitive-set))) large-set))
+
+;; ---- the declaration-coordinate candidate set -----------------------------
+;;
+;; The walker threads `[path candidates]`: the CONCRETE runtime path (which
+;; drives the `:large` marker's `:path` / `:handle`) beside a SET of candidate
+;; DECLARATION coordinates — the positions in declaration space the walker
+;; could currently be standing at. In the default mode the two never diverge
+;; and the set is the singleton `#{path}`; `:index-free?` is what makes them
+;; differ. Both are pruned against the prefix set of every declared path, so a
+;; candidate that can never reach a declaration is dropped and the set stays
+;; bounded by the declaration cardinality. The same device
+;; `re-frame.elision`'s schema-first walker uses, at the grain this walker
+;; needs.
+
+(defn- path-prefixes
+  "Every non-empty prefix of `path`, the full path included."
+  [path]
+  (map #(subvec path 0 %) (range 1 (inc (count path)))))
+
+(defn- decl-prefix-set
+  "The set of every prefix of every declared path. A candidate declaration
+  coordinate stays alive only while it is a member: anything outside can never
+  reach a declaration, so dropping it is matching-safe."
+  [sensitive-set large-set]
+  (into #{} (mapcat path-prefixes) (concat sensitive-set large-set)))
+
+(defn- fork-segment
+  "Advance every candidate by one declaration segment `seg`, keeping only those
+  still a prefix of some declared path. A map key is always a real segment; a
+  positional index is one too UNLESS the caller opted into `:index-free?`."
+  [candidates seg prefixes]
+  (into #{} (comp (map #(conj % seg)) (filter #(contains? prefixes %))) candidates))
 
 (defn- walk-with-paths
   "Walk `v` and substitute sentinels at the declared paths. Paths in
@@ -236,38 +270,73 @@
   descendant descends-and-redacts rather than emitting a size marker
   (nested-axis suppression — rf2-izlr7f).
 
+  `index-free?` selects how a POSITIONAL container is read (rf2-zaopo). Default
+  false — every index is a declaration segment, so matching is the exact path
+  membership test this walker has always applied. True — an index is a
+  COLLECTION COORDINATE that consumes no declared segment, so the index-free
+  declaration `[:value :email]` matches the runtime `[:value <i> :email]` in
+  every element. A declaration that pins a literal index still matches either
+  way (the indexed interpretation is retained whenever some declaration
+  reaches it), so the mode only ever ADDS the per-element reading.
+
   No-op early-exit: when both path sets are empty, returns `v` unchanged.
   Shares the map/vec/set/seq recursion skeleton with the schema-first elision
   walker via `re-frame.elision/walk-tree` (rf2-cywzkh)."
-  [v sensitive-paths large-paths]
+  [v sensitive-paths large-paths index-free?]
   (if (and (empty? sensitive-paths) (empty? large-paths))
     v
     (let [sensitive-set (set (map vec sensitive-paths))
-          large-set     (set (map vec large-paths))]
+          large-set     (set (map vec large-paths))
+          prefixes      (decl-prefix-set sensitive-set large-set)
+          shadow-set    (large-shadow-set sensitive-set large-set)
+          matches?      (fn [tbl candidates] (boolean (some #(contains? tbl %) candidates)))]
       (elision/walk-tree
-        v []
-        {:decide  (fn [path v]
+        v [[] #{[]}]
+        {:decide  (fn [[path candidates] v]
                     (cond
-                      (contains? sensitive-set path) privacy/redacted-sentinel
+                      (matches? sensitive-set candidates) privacy/redacted-sentinel
                       ;; NESTED-AXIS SUPPRESSION (rf2-izlr7f): a large-marked
                       ;; node that shadows a sensitive descendant descends so
                       ;; the descendant redacts in place — no size marker.
-                      (and (contains? large-set path)
-                           (large-shadows-sensitive? path sensitive-set))
+                      (and (matches? large-set candidates)
+                           (seq shadow-set)
+                           (matches? shadow-set candidates))
                       elision/walk-recur
 
-                      (contains? large-set path)     (large-marker v path)
-                      :else                          elision/walk-recur))
-         :map-key (fn [path k] (conj path k))
-         :index   (fn [path i] (conj path i))
-         :leaf    (fn [_path v] v)}))))
+                      (matches? large-set candidates)     (large-marker v path)
+                      :else                               elision/walk-recur))
+         :map-key (fn [[path candidates] k]
+                    [(conj path k) (fork-segment candidates k prefixes)])
+         :index   (fn [[path candidates] i]
+                    [(conj path i)
+                     ;; An index-free candidate rides the descent UNCHANGED —
+                     ;; the element position consumed no declared segment.
+                     ;; Riding an index can never float a declaration past a
+                     ;; NAMED slot, so no position guard is needed here (the
+                     ;; argument `re-frame.elision/fork-index-paths` makes).
+                     (cond-> (fork-segment candidates i prefixes)
+                       index-free? (into candidates))])
+         :leaf    (fn [_state v] v)}))))
 
 (defn redact-with-paths
   "Public projection helper. Walks `v` and substitutes sentinels at the declared
   paths. Empty `[[]]` path substitutes the whole value (sensitive wins over large
-  at the root). Per Spec 015 §What gets a sentinel."
-  [v sensitive-paths large-paths]
-  (walk-with-paths v sensitive-paths large-paths))
+  at the root). Per Spec 015 §What gets a sentinel.
+
+  `opts` may carry `:index-free? true` (rf2-zaopo) for a caller whose declared
+  paths are INDEX-FREE — written against the shape rather than against a
+  concrete runtime position, so a positional container contributes no segment
+  and the declaration names EVERY element. That is the kind a
+  projection-relative resource / mutation declaration is, which is why
+  `re-frame.resources.classification/redact-continuation-reply` opts in: its
+  `[:data :email]` must reach an infinite feed's merged item list the same way
+  the durable side's `elide-wire-value` already reaches the page vector. Every
+  other caller declares CONCRETE paths and is left on the exact match — the
+  mode is opt-in precisely so it cannot widen a boundary that did not ask."
+  ([v sensitive-paths large-paths]
+   (redact-with-paths v sensitive-paths large-paths nil))
+  ([v sensitive-paths large-paths opts]
+   (walk-with-paths v sensitive-paths large-paths (true? (:index-free? opts)))))
 
 (defn- classification-paths
   "Destructure a canonical classification map into its `[sensitive-paths

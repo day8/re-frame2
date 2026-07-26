@@ -120,6 +120,33 @@
                    :sensitive     [[:params :account]]
                    :params-schema [:map [:account :string] [:slug :string]]}
                   (fn [_ _] {:request {:method :get :url "/d"}}))
+                ;; rf2-zaopo — the same declaration surface on an INFINITE
+                ;; FEED. `:reply-to` delivers the MERGED / flattened item list
+                ;; under `:value` (`infinite-reply-value`), so the declared
+                ;; `[:data :email]` names a field of EACH ITEM and the runtime
+                ;; path is `[:value <i> :email]`. Same three outcomes per item
+                ;; as `:declared/profile` — redact, elide, ride — so one feed
+                ;; proves the index-free match is per-PATH and not a
+                ;; whole-slot tokenization.
+                (rf/reg-resource :declared/feed
+                  {:scope           :rf.scope/global
+                   :infinite        true
+                   :next-page-param (fn [_last _all] nil)
+                   :page->items     :items
+                   :sensitive       [[:data :email]]
+                   :large           [[:data :avatar]]
+                   :params-schema   [:map [:filter :keyword]]}
+                  (fn [_ _] {:request {:method :get :url "/e"}}))
+                ;; rf2-zaopo — the feed-shaped over-redaction control: an
+                ;; infinite feed that declares NEITHER axis. Its merged items
+                ;; carry the identical field names and must ride byte-identical.
+                (rf/reg-resource :plain/feed
+                  {:scope           :rf.scope/global
+                   :infinite        true
+                   :next-page-param (fn [_last _all] nil)
+                   :page->items     :items
+                   :params-schema   [:map [:filter :keyword]]}
+                  (fn [_ _] {:request {:method :get :url "/f"}}))
                 ;; a PLAIN resource under a CONCRETE (non-global) scope — the
                 ;; over-redaction control for the FREE `:scope` tag (rf2-1zc33).
                 ;; Its scoped KEY must keep scope AND params verbatim, which is
@@ -2487,3 +2514,239 @@
       (is (= (conj read-reply-target reply)
              (:rf.fx/args (:tags (first (:trace-events projected)))))
           "and so does the rest of the event vector it sits in"))))
+
+;; ===========================================================================
+;; (rf2-zaopo) the same declaration surface on an INFINITE FEED: the merged
+;; ITEM list under `:value`, which an EXACT path match cannot reach.
+;; ===========================================================================
+;;
+;; §(rf2-ko5lm) above closed the read reply for a SCALAR resource: the owner's
+;; `[:data :email]` declaration re-roots onto the reply's `:value`, giving
+;; `[:value :email]`, and `classification/redact-with-paths` matches that path
+;; exactly. For an INFINITE FEED the same declaration reached nothing.
+;;
+;; `events/infinite-reply-value` delivers the MERGED / flattened ITEM list as
+;; `:value` (rf2-c64uiz — both the fresh-skip cache hit and the async page-0
+;; settle deliver that one shape), so the runtime path is `[:value <i> :email]`
+;; while the declaration is `[:value :email]`. No fork, no match, and the
+;; declared field rode the fx carriers verbatim.
+;;
+;; THE DURABLE SIDE ALREADY FORKS, which is what made this a disagreement
+;; rather than a uniform limitation. `classification/project-entry-data` walks
+;; the feed's page vector through `elide-wire-value`, whose `fork-index-paths`
+;; matches an index-free declaration against the indexed runtime path on EVERY
+;; page (`ssr-infinite-feed-redacts-sensitive-page-field-per-page` in the
+;; resources suite pins it). So a feed's declared field redacted in the durable
+;; entry and rode raw in the continuation echo of it — the rf2-irwsq shape
+;; between two carriers of one value, one more time.
+;;
+;; THE SPELLING, settled here rather than invented. A feed has no "each item"
+;; wildcard syntax, and it needs none: the index-free declaration IS that
+;; spelling, because it is already what the DURABLE side means by
+;; `[:data :email]` on a page vector. The repair adds no vocabulary — it makes
+;; the carrier honour the one the durable side established
+;; (`redact-with-paths`'s `:index-free?` opt, which `redact-continuation-reply`
+;; passes because a projection-relative declaration re-rooted onto a carrier is
+;; exactly the index-free kind).
+;;
+;; GRAIN. A positional index is unambiguously a collection coordinate, never a
+;; named slot, so riding one can never float a declaration past a named slot
+;; (`fork-index-paths`' own argument). The fork therefore widens matching by
+;; exactly "each element of a declared positional container" and nothing else —
+;; which the two controls below are here to prove.
+
+(def ^:private declared-feed-params
+  "The canonical params of the declared-feed read. Deliberately PLAIN: this
+  section owns the `:data` axis, and the params axis has its own probe in
+  §(rf2-ko5lm)."
+  {:filter :recent})
+
+(defn- feed-item
+  "One item of the declared feed. Three fields, three outcomes — the same
+  redact / elide / ride triple `declared-reply-value` carries for a scalar
+  resource, so the feed proves the index-free match is per-PATH rather than a
+  whole-slot tokenization that a declaration merely triggers."
+  [tag]
+  {:email        (str secret "-" tag "@example.com")
+   :avatar       (str "0123456789abcdef" tag)
+   :display-name (str "Ada-" tag)})
+
+(def ^:private declared-feed-page
+  "One ENVELOPED terminal page (`:page-info :next` nil ⇒ no further pages) of
+  TWO items. Enveloped rather than a bare item vector on purpose: the merged
+  `:value` is then unambiguously distinct from both the page and the durable
+  page vector, so an assertion on it cannot pass by accident."
+  {:items     [(feed-item "a") (feed-item "b")]
+   :page-info {:next nil}})
+
+(def ^:private declared-feed-items
+  "The MERGED item list `infinite-reply-value` delivers under the reply's
+  `:value` — the flattened page, which is what the declaration must reach."
+  (:items declared-feed-page))
+
+(defn- drive-feed-reply-to-read!
+  "The `drive-declared-reply-to-read!` of §(rf2-ko5lm), against an INFINITE
+  FEED. An infinite ensure addresses the internal PAGE reply handler, so the
+  captured `:on-success` settles a page; the second ensure then finds the feed
+  fresh and dispatches the cache-hit continuation immediately. One call
+  produces BOTH continuation paths, and rf2-c64uiz pins that both deliver the
+  SAME merged-items `:value`. `resource-id` selects the declared feed or its
+  undeclared control, over the IDENTICAL page — so the declaration is the only
+  difference between the two runs."
+  [resource-id]
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)]
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource resource-id :params declared-feed-params
+                        :owner    real-owner :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/dispatch-sync (conj (:on-success @captured) {:status :ok :value declared-feed-page})
+                      {:frame :test/rt})
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource resource-id :params declared-feed-params
+                        :owner    [:app :reader 2] :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/epoch-history :test/rt)))
+
+;; ---------------------------------------------------------------------------
+;; (1) THE ACCEPTANCE ARM — a REAL reply-to feed read, both continuation paths
+;; ---------------------------------------------------------------------------
+
+(deftest real-declared-feed-reply-to-read-leaks-no-declared-item-slot
+  (testing "rf2-zaopo — `projected-record` over the records a REAL
+            `[:rf.resource/ensure … :reply-to …]` settles for an INFINITE FEED
+            whose only claim is a projection-relative `[:data …]` declaration
+            must carry the declared item field at ZERO paths, on BOTH
+            continuation paths. Before the repair each carried it once per ITEM
+            per carrier — four paths for this two-item feed."
+    (let [records (drive-feed-reply-to-read! :declared/feed)]
+      (doseq [[label cache-hit?] [["async page-0 settle" false]
+                                  ["fresh-skip cache hit" true]]]
+        (testing label
+          (let [raw       (record-carrying-reply records cache-hit?)
+                projected (epoch/projected-record raw)]
+
+            (testing "FIXTURE — the producer really put the MERGED ITEM LIST on
+                      the fx carriers, so the assertions below are not passing
+                      over a shape that never occurred"
+              (is (some? raw) "the continuation reached an fx carrier at all")
+              (is (seq (carrier-replies raw)) "and the reply map is findable on it")
+              (is (every? #(= declared-feed-items (:value %)) (carrier-replies raw))
+                  "every carrier's reply carries the RAW merged item list — not
+                   the enveloped page, not the durable page vector")
+              (is (seq (secret-leak-paths raw))
+                  "the unprojected record leaks — the projector's input is the
+                   runtime's own output, not an invented tag map"))
+
+            (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
+                      record"
+              (is (= [] (secret-leak-paths projected))
+                  "every leaking path is named here; before the repair this
+                   printed the [:trace-events n :tags :rf.fx/args 1 :value i
+                   :email] shape, once per item per carrier"))
+
+            (testing "and the index-free match is PER-PATH and PER-ITEM — the
+                      declared slots move in EVERY item, their undeclared
+                      sibling moves in none"
+              (doseq [r (carrier-replies projected)]
+                (is (= 2 (count (:value r)))
+                    "the merged list keeps its length — projection neither drops
+                     nor invents an item")
+                (doseq [item (:value r)]
+                  (is (= :rf/redacted (:email item))
+                      "the `:sensitive`-declared field carries the sentinel in
+                       this item")
+                  (is (elision/marker? (:avatar item))
+                      "the `:large`-declared field carries the size marker"))
+                (is (= ["Ada-a" "Ada-b"] (mapv :display-name (:value r)))
+                    "and the field the owner declared NEITHER axis for rides
+                     verbatim in every item — the whole point of a path
+                     declaration")))
+
+            (testing "the whole reply still reads as a reply"
+              (let [r (first (carrier-replies projected))]
+                (is (= :declared/feed (:resource r)) "the resource id rides verbatim")
+                (is (= cache-hit? (:cache-hit? r)) "and the cache-hit disposition")
+                (is (= :ok (:status r)) "and the status")
+                (is (= declared-feed-params (:params r))
+                    "and the params, which this feed declared nothing under")
+                (is (= :rf.scope/global (:scope r))
+                    "and `:rf.scope/global` is untouched")))))))))
+
+;; ---------------------------------------------------------------------------
+;; (2) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
+;; ---------------------------------------------------------------------------
+
+(defn- reply-carrier-rows
+  "Every trace row of `record` whose fx carrier slots carry a read-continuation
+  reply — the rows the reply arm speaks for, and the only ones a declaration
+  control can hold byte-identical. The rest of a real feed cascade carries the
+  INTERNAL `:rf.resource.internal/page-succeeded` event, whose own registration
+  classification redacts its args on every read declared or not, so a
+  whole-record comparison would be measuring that instead."
+  [record]
+  (filterv (fn [ev] (seq (carrier-replies {:trace-events [ev]})))
+           (:trace-events record)))
+
+(deftest fx-carrier-keeps-an-undeclared-feeds-merged-items-byte-identical
+  (testing "rf2-zaopo guard — an INFINITE FEED that declares NEITHER axis must
+            ride its merged item list BYTE-IDENTICAL through both carriers and
+            must not stamp those rows sensitive. This is the side that proves
+            the index-free fork reads the DECLARATION rather than the reply's
+            shape: the identically-named `:email` / `:avatar` fields that
+            redact for `:declared/feed` are fully readable here."
+    (let [raw       (record-carrying-reply (drive-feed-reply-to-read! :plain/feed) false)
+          projected (epoch/projected-record raw)]
+      (is (some? raw) "FIXTURE — the plain feed's continuation reached a carrier")
+      (is (= 2 (count (reply-carrier-rows raw)))
+          "FIXTURE — both carriers are present, as they are for the declared feed")
+      (is (= (mapv :tags (reply-carrier-rows raw))
+             (mapv :tags (reply-carrier-rows projected)))
+          "every carrier tag rides byte-identical — merged items, params, scope
+           and scoped key included")
+      (is (every? #(= declared-feed-items (:value %)) (carrier-replies projected))
+          "and the merged item list itself is readable field for field")
+      (is (not-any? #(:sensitive? (:tags %)) (reply-carrier-rows projected))
+          "an undeclared feed's continuation rows are NOT stamped sensitive"))))
+
+(deftest fx-carrier-index-free-fork-does-not-reach-an-undeclared-nested-slot
+  (testing "rf2-zaopo guard — the other half. Riding a positional index must
+            not let a declaration FLOAT: `[:data :email]` names a field of each
+            ITEM, so an `:email` sitting one named slot DEEPER (inside an
+            item's own undeclared sub-map) is a different position and must
+            survive. Without this side, `[:value :email]` matching
+            `[:value 0 :meta :email]` would read as a pass."
+    (let [k1        (sk :rf.scope/global :declared/feed declared-feed-params)
+          items     [{:email        (str secret "-top@example.com")
+                      :display-name "Ada"
+                      :meta         {:email (str secret "-nested@example.com")}}]
+          reply     (read-reply k1 :rf.scope/global items)
+          projected (epoch/projected-record (reply-carrier-record reply))
+          item      (first (:value (first (carrier-replies projected))))]
+      (is (= :rf/redacted (:email item))
+          "the declared field, one index down, redacts")
+      (is (= (str secret "-nested@example.com") (get-in item [:meta :email]))
+          "the same-named field one NAMED slot deeper is a different position
+           and rides verbatim")
+      (is (= "Ada" (:display-name item))
+          "and the undeclared sibling is untouched"))))
+
+;; ---------------------------------------------------------------------------
+;; (3) the trusted-local boundary — the redaction is the off-box DEFAULT
+;; ---------------------------------------------------------------------------
+
+(deftest trusted-local-include-sensitive-keeps-raw-declared-feed-items
+  (testing "rf2-zaopo — the trusted-local `:include-sensitive?` opt-in keeps the
+            raw declared item fields, exactly as it does for the scalar reply.
+            A feed's `:reply-to` continuation is how a workflow reads a page,
+            and a local tool that could not see the declared field could not
+            debug the workflow."
+    (let [k1        (sk :rf.scope/global :declared/feed declared-feed-params)
+          reply     (read-reply k1 :rf.scope/global declared-feed-items)
+          projected (epoch/projected-record (reply-carrier-record reply)
+                                            {:include-sensitive? true})]
+      (is (= [declared-feed-items declared-feed-items]
+             (mapv :value (carrier-replies projected)))
+          "every carrier's raw merged item list rides with :include-sensitive?"))))

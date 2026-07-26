@@ -277,12 +277,27 @@
       it at the source: the app's own `:reply-to` handler is entitled to the
       decoded body and the trusted-local `:include-sensitive?` opt-in must still
       show it. There it composes with the coarse `whole-entry-disposition` arm,
-      which reads the root prop a read owner CAN declare."
+      which reads the root prop a read owner CAN declare.
+
+  INDEX-FREE, and that is what makes an INFINITE FEED work (rf2-zaopo). A
+  projection-relative declaration is written against the projection's SHAPE,
+  not against a concrete runtime position, so a positional container consumes
+  no declared segment and `[:data :email]` names EVERY element. The DURABLE
+  side has always read it that way — `project-entry-data` walks a feed's page
+  vector through `elide-wire-value`, whose index-free fork matches the
+  declaration on every page. The reply carries the MERGED ITEM LIST under
+  `:value` (`events/infinite-reply-value`), so without the same reading the
+  re-rooted `[:value :email]` reached nothing at `[:value <i> :email]` and a
+  feed's declared field redacted in the durable entry while riding raw in the
+  continuation echo of it. Hence `{:index-free? true}`: no new declaration
+  vocabulary — a feed needs no \"each item\" wildcard because the index-free
+  declaration already IS that spelling — just the carrier honouring the reading
+  the durable side established."
   [reply spec]
   (let [sens  (carrier-decl-paths spec :sensitive :value)
         large (carrier-decl-paths spec :large :value)]
     (if (or (seq sens) (seq large))
-      (classification/redact-with-paths reply sens large)
+      (classification/redact-with-paths reply sens large {:index-free? true})
       reply)))
 
 (defn project-execute-event-args
