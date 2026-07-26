@@ -1078,10 +1078,26 @@ const FREEHAND_VIEW_IDS = [
   ':freehand-views.core/readout',
 ];
 
+// One entry per rendered roster row, read from the row's two content spans
+// rather than from its flattened `textContent`. `list-row` renders
+// `[swatch][primary][tag]`, and the primary's last word runs straight into the
+// tag's first word once the DOM is flattened (`… occ 56` + `interpreted · …`
+// reads as `occ 56interpreted`) — which silently corrupts anything parsed out
+// of the boundary. Reading the spans keeps the two halves apart, and they are
+// different KINDS of fact: the primary is identity (view id, occurrence, root),
+// the tag is the commit (lowering, generation, frame, reads, cause).
 async function mountedViewRows(page) {
-  return page
-    .locator('[data-testid^="rf-xray-reactive-mounted-views-row-"]')
-    .allTextContents();
+  const rows = page.locator('[data-testid^="rf-xray-reactive-mounted-views-row-"]');
+  const [primaries, tags] = await Promise.all([
+    rows.locator('> span:nth-child(2)').allTextContents(),
+    rows.locator('> span:nth-child(3)').allTextContents(),
+  ]);
+  if (primaries.length !== tags.length) {
+    throw new Error(
+      `malformed Mounted Views rows: ${primaries.length} primary span(s) vs ${tags.length} tag span(s)`,
+    );
+  }
+  return primaries.map((primary, i) => ({ primary, tag: tags[i] }));
 }
 
 // The roster sub (`:rf.xray/mounted-views`) recomputes off the epoch pump —
@@ -1090,16 +1106,25 @@ async function mountedViewRows(page) {
 // panel below is therefore preceded by a dispatch. The Freehand `+` button is
 // the pump: it is inside the mounted tree, so it is also the thing that
 // proves the tree is really there.
-async function pumpEpochAndReadRoster(page, description) {
+//
+// `predicate` is the caller's, and it has to be, because the pump is
+// ASYNCHRONOUS with respect to the click: between the dispatch and the
+// panel's re-render the section still shows the PREVIOUS roster. A predicate
+// that only counts rows is therefore satisfied by the stale one — which is
+// not a theoretical hazard, it is a flake this scenario actually had (3
+// failures in 8 runs) before the remount check below started demanding the
+// property it is really waiting for. Wait for the FACT under test, never for
+// a shape the stale value also has.
+async function pumpEpochAndReadRoster(page, predicate, description) {
   await page.locator('[data-testid="fh-bump"]').click();
-  return waitForValue(() => mountedViewRows(page), (rows) => rows.length === 3, {
+  return waitForValue(() => mountedViewRows(page), predicate, {
     timeoutMs: 8000,
     description,
   });
 }
 
 function rowFor(rows, viewId) {
-  const row = rows.find((text) => text.includes(viewId));
+  const row = rows.find((r) => r.primary.includes(viewId));
   if (!row) {
     throw new Error(
       `no Mounted Views row names ${viewId}; rows were ${JSON.stringify(rows)}`,
@@ -1108,14 +1133,15 @@ function rowFor(rows, viewId) {
   return row;
 }
 
-// `format-occurrence` renders the runtime occurrence key after ` · occ `. The
-// key is minted by the host's identity primitive, so the test reads whatever
-// shape it is given and only ever compares it with ITSELF across a remount —
-// never against a literal.
-function occurrenceOf(rowText) {
-  const match = /· occ (\S+)/.exec(rowText);
+// `format-occurrence` renders the runtime occurrence key after ` · occ `, and
+// it is the LAST thing in the primary span whenever `:root` is the `:unknown`
+// the panel elides — which it always is here. The key is minted by the host's
+// identity primitive, so this reads whatever shape it is given and only ever
+// compares it with ITSELF across a remount, never against a literal.
+function occurrenceOf(row) {
+  const match = /· occ (.+)$/.exec(row.primary);
   if (!match) {
-    throw new Error(`no "· occ <key>" in Mounted Views row: ${rowText}`);
+    throw new Error(`no "· occ <key>" in Mounted Views row: ${row.primary}`);
   }
   return match[1];
 }
@@ -1129,6 +1155,7 @@ async function runFreehandViewsPopulatedRoster(page) {
 
   const rows = await pumpEpochAndReadRoster(
     page,
+    (r) => r.length === 3,
     'three connected Freehand occurrences on the Mounted Views roster',
   );
 
@@ -1155,33 +1182,46 @@ async function runFreehandViewsPopulatedRoster(page) {
   const controlsRow = rowFor(rows, FREEHAND_VIEW_IDS[1]);
   const readoutRow = rowFor(rows, FREEHAND_VIEW_IDS[2]);
 
-  const expectRow = (row, fragment, why) => {
-    if (!row.includes(fragment)) {
-      throw new Error(`${why}: expected ${JSON.stringify(fragment)} in ${JSON.stringify(row)}`);
+  const expectTag = (row, fragment, why) => {
+    if (!row.tag.includes(fragment)) {
+      throw new Error(
+        `${why}: expected ${JSON.stringify(fragment)} in ${JSON.stringify(row.tag)}`,
+      );
     }
   };
 
   // Lowering is STATED by the substrate, never inferred — and the deck
   // declares one interpreted view against two compiled ones precisely so the
-  // two spellings have to appear on different rows.
-  expectRow(appRow, 'interpreted · gen', 'the interpreted root reports its lowering');
-  expectRow(controlsRow, 'compiled · gen', 'the compiled dispatcher reports its lowering');
-  expectRow(readoutRow, 'compiled · gen', 'the compiled reader reports its lowering');
+  // two spellings have to appear on different rows. Anchored at the START of
+  // the tag, which is where `mounted-view-tag` puts it.
+  for (const [row, lowering, who] of [
+    [appRow, 'interpreted · gen', 'the interpreted root'],
+    [controlsRow, 'compiled · gen', 'the compiled dispatcher'],
+    [readoutRow, 'compiled · gen', 'the compiled reader'],
+  ]) {
+    if (!row.tag.startsWith(lowering)) {
+      throw new Error(
+        `${who} should report lowering ${JSON.stringify(lowering)}; tag was ${JSON.stringify(row.tag)}`,
+      );
+    }
+  }
 
   // The commit's OWN staged reads. `readout` is the only view on the page
   // that calls `v/sub`, so exactly one row may claim a read.
-  expectRow(readoutRow, '· 1 read', "the reader's commit staged its one read");
-  expectRow(controlsRow, '· 0 reads', 'the dispatcher staged none');
-  expectRow(appRow, '· 0 reads', 'the root staged none');
+  expectTag(readoutRow, '· 1 read', "the reader's commit staged its one read");
+  expectTag(controlsRow, '· 0 reads', 'the dispatcher staged none');
+  expectTag(appRow, '· 0 reads', 'the root staged none');
 
-  // The frame the commit ran over.
   for (const row of rows) {
-    expectRow(row, ':rf/default', 'every commit names the deck\'s one frame');
+    // The frame the commit ran over.
+    expectTag(row, ':rf/default', "every commit names the deck's one frame");
     // `:root` is ALWAYS `:unknown` and the panel renders that marker as the
     // absence it is. A row printing the keyword would mean the panel had
     // started presenting a fact the substrate does not have.
-    if (row.includes(':unknown')) {
-      throw new Error(`Mounted Views row printed the :unknown root marker: ${row}`);
+    if (row.primary.includes(':unknown')) {
+      throw new Error(
+        `Mounted Views row printed the :unknown root marker: ${row.primary}`,
+      );
     }
   }
 
@@ -1230,27 +1270,38 @@ async function runFreehandViewsPopulatedRoster(page) {
   // correct for a page that is never hot-reloaded.
   const before = rows.map(occurrenceOf);
 
+  // Wait for the unmount to REACH THE DOM before re-mounting. `v/mount` is
+  // idempotent per root, so a re-mount that lands while the incumbent root is
+  // still registered re-renders it instead of allocating a fresh one — the
+  // same cells, the same occurrence keys, and an assertion below that fails
+  // for a reason that has nothing to do with the read. The Freehand tree's
+  // own `+` button leaving the document is the signal that the teardown
+  // actually happened, so it is also a small assertion in its own right.
   await page.locator('[data-testid="fh-unmount"]').click();
+  await page
+    .locator('[data-testid="fh-bump"]')
+    .waitFor({ state: 'detached', timeout: 5000 });
   await page.locator('[data-testid="fh-mount"]').click();
   await expectVisible(page.locator('[data-testid="fh-bump"]'), 5000);
 
-  const after = (
-    await pumpEpochAndReadRoster(page, 'the remounted occurrences back on the roster')
-  ).map(occurrenceOf);
+  // The predicate demands BOTH halves of the claim — three rows again
+  // (cardinality returns to baseline; churn accumulates nothing) AND not one
+  // key carried over. Both are load-bearing: `waitForValue` throws on
+  // timeout, so a roster that never refreshes, or refreshes to the wrong
+  // cardinality, or comes back naming the same occurrences, all fail here
+  // rather than hanging or passing on the stale value.
+  const after = await pumpEpochAndReadRoster(
+    page,
+    (r) => r.length === 3 && r.every((row) => !before.includes(occurrenceOf(row))),
+    `three FRESH occurrence keys after a remount (before=${JSON.stringify(before)})`,
+  );
 
-  // Cardinality returns to baseline — churn does not accumulate rows.
-  if (after.length !== before.length) {
-    throw new Error(
-      `roster cardinality drifted across a remount: ${before.length} -> ${after.length}`,
-    );
-  }
-  const carried = after.filter((key) => before.includes(key));
+  const carried = after.map(occurrenceOf).filter((key) => before.includes(key));
   if (carried.length > 0) {
     throw new Error(
       `remount reported ${carried.length} carried-over occurrence key(s) ` +
         `(${JSON.stringify(carried)}); a disconnect must drop the row and a ` +
-        `reconnect must mint a fresh occurrence. before=${JSON.stringify(before)} ` +
-        `after=${JSON.stringify(after)}`,
+        `reconnect must mint a fresh occurrence.`,
     );
   }
 }
