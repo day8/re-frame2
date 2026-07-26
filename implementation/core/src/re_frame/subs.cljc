@@ -511,6 +511,37 @@
   [query-v]
   query-v)
 
+(defn- bump-ref-count-fn
+  "The ref-count ATTACH, as a `swap-vals!` function — the ONE expression of
+  Spec 006 §Lookup algorithm's CAS-after-snapshot discipline, shared by the
+  three sites that adopt an already-cached node (`subscribe`'s hit path,
+  `compute-and-cache!`'s lost-the-install-race adoption, and the observation
+  port's `acquire!`).
+
+  Bumps `[k :ref-count]` ONLY while the slot is still present holding the SAME
+  `reaction` the caller snapshotted; otherwise answers `m` untouched, so the
+  caller can read `[old new]` and see that the bump did not land. A concurrent
+  evictor (hot-reload re-registration, `clear-sub-cache!`) that won the race
+  therefore cannot be handed a phantom entry with no `:reaction` alongside a
+  now-disposed reaction — the caller falls through to a fresh build instead.
+  On single-threaded CLJS the re-check always succeeds; the rebuild branch is
+  concurrency-host-only. PURE: safe to re-run, as a `swap!` fn must be.
+
+  rf2-j8ls2: the two-level update is written out rather than spelled
+  `(update-in m [k :ref-count] (fnil inc 0))`. Same result, and it reuses the
+  `get` the identity guard already performed instead of walking to the slot
+  twice. `update-in` costs 224 - 248 B/call more than this form on the JVM
+  (measured, `re-frame.bench.read-attribution` arms RC-ATTACH / RC-CAND, 9
+  rounds, paired, never negative) — it allocates a fresh `[k :ref-count]` path
+  vector, a `fnil` closure, and a level of sequence destructuring per call, and
+  `subscribe` runs this on EVERY cache hit of every render."
+  [k reaction]
+  (fn [m]
+    (let [slot (get m k)]
+      (if (identical? reaction (:reaction slot))
+        (assoc m k (assoc slot :ref-count (inc (or (:ref-count slot) 0))))
+        m))))
+
 ;; ---- dev-only cache-fragmentation guardrail (rf2-re5a98) ------------------
 ;;
 ;; `cache-key` keys the per-frame sub-cache by query-vector identity (`=`),
@@ -1339,12 +1370,7 @@
               (interop/dispose! reaction)
               (let [winner-reaction (:reaction (get installed k))
                     [_old post]
-                    (swap-vals! cache
-                                (fn [m]
-                                  (if (identical? winner-reaction
-                                                  (:reaction (get m k)))
-                                    (update-in m [k :ref-count] (fnil inc 0))
-                                    m)))]
+                    (swap-vals! cache (bump-ref-count-fn k winner-reaction))]
                 (if (identical? winner-reaction (:reaction (get post k)))
                   winner-reaction
                   ;; rf2-7w1im: the collision-retry rebuild stays fenced to the
@@ -1636,27 +1662,15 @@
          (let [cache (:sub-cache frame-record)
                k     (cache-key query-v)]
            (if-let [entry (get @cache k)]
-             ;; Hit. Bump ref-count under CAS-after-snapshot discipline so a
-             ;; concurrent evictor (hot-reload re-registration, `clear-sub-
-             ;; cache!`) that won the race cannot resurrect a phantom entry
-             ;; with no `:reaction` AND hand back the now-disposed reaction.
-             ;; The pure-swap-fn only bumps when the slot is still present
-             ;; holding the SAME reaction; reading `[old new]` from the
-             ;; snapshot pair tells us whether the bump landed. If the slot
-             ;; was concurrently evicted (or rebuilt under a different
-             ;; reaction), fall through to a fresh build — the same
-             ;; CAS-after-snapshot discipline `re-frame.subs.cache` uses.
-             ;; On single-threaded CLJS the re-check always succeeds (no
-             ;; concurrent evictor can interleave), so the rebuild branch
-             ;; is concurrency-host-only.
+             ;; Hit. Bump ref-count under the CAS-after-snapshot discipline
+             ;; `bump-ref-count-fn` carries: reading `[old new]` from the
+             ;; snapshot pair tells us whether the bump landed. If the slot was
+             ;; concurrently evicted (or rebuilt under a different reaction),
+             ;; fall through to a fresh build — the same discipline
+             ;; `re-frame.subs.cache` uses.
              (let [reaction (:reaction entry)
                    [_old new]
-                   (swap-vals! cache
-                               (fn [m]
-                                 (if (identical? reaction
-                                                 (:reaction (get m k)))
-                                   (update-in m [k :ref-count] (fnil inc 0))
-                                   m)))]
+                   (swap-vals! cache (bump-ref-count-fn k reaction))]
                (if (identical? reaction (:reaction (get new k)))
                  reaction
                  ;; rf2-7w1im: the hit's concurrent-eviction rebuild carries the
@@ -2298,13 +2312,7 @@
             ;; (concurrent eviction / rebuild) fall through to a fresh
             ;; build.
             (let [reaction (:reaction entry)
-                  [_old new]
-                  (swap-vals! cache
-                              (fn [m]
-                                (if (identical? reaction
-                                                (:reaction (get m k)))
-                                  (update-in m [k :ref-count] (fnil inc 0))
-                                  m)))]
+                  [_old new] (swap-vals! cache (bump-ref-count-fn k reaction))]
               (if (identical? reaction (:reaction (get new k)))
                 {:reaction reaction}
                 (build-and-classify! frame-id query-v k)))
