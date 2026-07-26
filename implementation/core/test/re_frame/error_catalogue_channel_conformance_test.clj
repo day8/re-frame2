@@ -90,9 +90,12 @@
        a schema declares must be named in its row's `:tags` cell (minus
        the two envelope-level slots 009 excludes by rule). No new source
        of truth, no roster: the pairing derives the schema name from the
-       WHOLE `:operation` and the diff is a set difference. See the
-       section comment above `spec-schemas-file` for what falls out of
-       the pairing by construction and why.
+       WHOLE `:operation` and the diff is a set difference. A key must be
+       LISTED, not merely mentioned — cross-reference links are stripped
+       before keys are harvested (`markdown-link-re`), so a correctly-
+       spelled keyword in link text cannot green a cell that misspells
+       the key it lists. See the section comment above `spec-schemas-file`
+       for what falls out of the pairing by construction and why.
     7. PAIRING COVERAGE LEDGER (rf2-23qsg) — invariant 6 can only diff
        the rows it PAIRS, so losing a pairing loses coverage silently.
        `tags-column-paired-floor` records how many schemas the diff
