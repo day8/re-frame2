@@ -32,6 +32,15 @@
   `document`, and every state change is an ordinary dispatch of the
   application's own event.
 
+  **One composition signal per press.** `c/composing?` ORs the standard
+  `isComposing` flag together with the `keyCode` 229 sentinel, and an event
+  carrying BOTH cannot fail for either of them individually — an
+  implementation consulting only `isComposing`, which is precisely the one
+  that breaks on Chromium, would stay green against it. So the two
+  withholding rows below press ONE signal each over one identical
+  procedure, leaving the other scalar at the plain Enter's value, and each
+  is falsifiable on its own.
+
   This file rides the browser lane through its `-dom-cljs-test` namespace
   suffix, and it also matches the node suites' broader regex, where it has
   no DOM to mount and says so rather than passing quietly."
@@ -175,20 +184,33 @@
     (insert-at! node (count (.-value node)) (str ch))))
 
 (defn- press-enter!
-  "A real `keydown`. `composing?` sets BOTH signals a browser can use to
-  report an input-method composition — the standard `isComposing` and the
-  `keyCode` 229 sentinel Chromium actually emits on the Enter that accepts
-  a candidate."
-  [node composing?]
+  "A real `keydown` on `node`, carrying the two composition scalars
+  INDEPENDENTLY: `:composing?` becomes `isComposing` and `:key-code`
+  becomes `keyCode`, with no coupling between them.
+
+  That independence is the point. `c/composing?` ORs the standard
+  `isComposing` flag together with the `keyCode` 229 sentinel Chromium
+  actually emits on the Enter that accepts a candidate, and an event
+  carrying BOTH cannot tell a reader of both from a reader of either — so
+  the implementation this row exists to catch, the one that consults only
+  `isComposing` and therefore breaks on Chromium, would stay green. Every
+  press below sets ONE signal and leaves the other at the plain Enter's
+  value."
+  [node {:keys [composing? key-code]}]
   (.dispatchEvent node (js/KeyboardEvent.
                          "keydown"
                          #js {:bubbles     true
                               :cancelable  true
                               :key         (:commit-key ctrl-018)
                               :isComposing composing?
-                              :keyCode     (if composing?
-                                             (:composing-key-code ctrl-018)
-                                             13)})))
+                              :keyCode     key-code})))
+
+(defn- plain-enter
+  "The scalars of an Enter with NO composition in flight: the flag false and
+  the ordinary `keyCode` 13. The positive barrier every withholding proof
+  below closes with."
+  []
+  {:composing? false :key-code (:plain-key-code ctrl-018)})
 
 (defn- caret [node] [(.-selectionStart node) (.-selectionEnd node)])
 
@@ -340,72 +362,112 @@
                         (.catch (fail-and-finish! container root done))))))
               (.catch (fail-and-finish! container root done))))))))
 
+(defn- exactly-one-commit-attempt!
+  "Press a composing Enter carrying `composing-press`'s scalars, then a
+  PLAIN Enter, on one buffered node, and assert that EXACTLY ONE commit
+  attempt arrives.
+
+  ## Why the plain Enter is not optional
+
+  'A composing Enter commits nothing' is, on its own, equally green when
+  the keydown listener was never wired at all — and the batched commit path
+  lands on a LATER TICK, so a synchronous read after the composing press
+  cannot tell 'declined' from 'not yet'. Pressing the plain Enter
+  afterwards and waiting for ITS attempt to land is a positive barrier: the
+  composing press had the same queue, the same node and more time, so an
+  attempt count of exactly one is a statement about the composing press
+  rather than about the clock.
+
+  ## Why this is a shared helper
+
+  Because the two callers differ in EXACTLY ONE thing — which composition
+  signal their event carries — and nothing else. `c/composing?` ORs those
+  signals together, so a proof that presses both at once cannot fail for
+  either of them individually; giving each signal its own press over one
+  identical procedure is what makes each OR branch falsifiable on its own."
+  [composing-press done]
+  (reg!)
+  (let [{:keys [insert-at insert-ch value-after-insert commits-after-composing-enter
+                value-after-composing-enter commits-after-plain-enter
+                committed-value]} ctrl-018
+        _ (seed!)
+        [container root] (mount!)]
+    (-> (render! root committing-field)
+        (.then
+          (fn [_]
+            (live!)
+            (let [field (.querySelector container "#buffered")]
+              (insert-at! field insert-at insert-ch)
+              (is (= value-after-insert (.-value field))
+                  "non-vacuous: there really is a draft to commit or withhold")
+              (is (= 0 (attempts)) "and nothing has been dispatched yet")
+
+              ;; THE COMPOSING ENTER — the IME's, not the form's — and then
+              ;; the plain one, on the same node.
+              (press-enter! field composing-press)
+              (press-enter! field (plain-enter))
+
+              (-> (settled #(= commits-after-plain-enter (attempts))
+                           "the plain Enter's commit attempt lands")
+                  (.then
+                    (fn [_]
+                      (is (= commits-after-plain-enter (attempts))
+                          "EXACTLY ONE attempt arrived from two presses — the
+                           composing Enter dispatched nothing at all, rather
+                           than dispatching a commit the fence refused")
+                      (is (= commits-after-plain-enter (commits))
+                          "and the plain Enter's attempt committed")
+                      (is (= committed-value (committed))
+                          "carrying the draft the user could see")
+                      (is (= value-after-composing-enter (.-value field))
+                          "and the composing Enter discarded nothing either — a
+                           commit withheld is not a value thrown away")
+                      (is (not= commits-after-composing-enter
+                                commits-after-plain-enter)
+                          "non-vacuous: the fixture's two answers really differ")
+                      (teardown! container root)
+                      (done)))
+                  (.catch (fail-and-finish! container root done))))))
+        (.catch (fail-and-finish! container root done)))))
+
 (deftest fh-ctrl-018-a-composing-enter-commits-nothing-in-a-real-browser
-  (testing "Per FH-CTRL-018: two Enters are pressed on one node — one
-            carrying a live IME composition and one not — and EXACTLY ONE
-            commit attempt arrives. The pure table is proven by calling
+  (testing "Per FH-CTRL-018: an Enter carrying the STANDARD `isComposing`
+            flag — and nothing else — commits nothing, while the plain
+            Enter behind it does. The pure table is proven by calling
             `c/key-intent`; what THIS proves is that the reader beneath it
-            takes the right scalars off a real host keyboard event,
-            including the `keyCode` 229 sentinel Chromium actually emits
-            on the Enter that accepts an input-method candidate.
+            takes that flag off a real host keyboard event as the browser
+            and React actually deliver it.
 
-            ## Why the two presses are in one test
-
-            Because 'a composing Enter commits nothing' is, on its own,
-            equally green when the keydown listener was never wired at
-            all — and the batched commit path lands on a LATER TICK, so a
-            synchronous read after the composing press cannot tell
-            'declined' from 'not yet'. Pressing the plain Enter afterwards
-            and waiting for ITS attempt to land is a positive barrier: the
-            composing press had the same queue, the same node and more
-            time, so an attempt count of exactly one is a statement about
-            the composing press rather than about the clock."
+            `keyCode` is the plain Enter's 13, deliberately, so the press
+            CANNOT be withheld by the `keyCode` 229 sentinel the sibling
+            row owns. The flag is the only thing standing between this
+            press and a commit."
     (if-not (browser?)
       (skip! "the browser job runs the composition assertions")
       (async done
-        (reg!)
-        (let [{:keys [insert-at insert-ch value-after-insert commits-after-composing-enter
-                      value-after-composing-enter commits-after-plain-enter
-                      committed-value]} ctrl-018
-              _ (seed!)
-              [container root] (mount!)]
-          (-> (render! root committing-field)
-              (.then
-                (fn [_]
-                  (live!)
-                  (let [field (.querySelector container "#buffered")]
-                    (insert-at! field insert-at insert-ch)
-                    (is (= value-after-insert (.-value field))
-                        "non-vacuous: there really is a draft to commit or withhold")
-                    (is (= 0 (attempts)) "and nothing has been dispatched yet")
+        (exactly-one-commit-attempt!
+          {:composing? true :key-code (:plain-key-code ctrl-018)}
+          done)))))
 
-                    ;; THE COMPOSING ENTER — the IME's, not the form's —
-                    ;; and then the plain one, on the same node.
-                    (press-enter! field true)
-                    (press-enter! field false)
+(deftest fh-ctrl-018-a-keycode-229-enter-commits-nothing-with-iscomposing-false
+  (testing "Per FH-CTRL-018: the CHROMIUM FALLBACK, on its own. `keyCode`
+            229 is the sentinel Chromium emits on the Enter that accepts an
+            input-method candidate, and `isComposing` here is FALSE — on
+            the native event and therefore on the synthetic one too.
 
-                    (-> (settled #(= commits-after-plain-enter (attempts))
-                                 "the plain Enter's commit attempt lands")
-                        (.then
-                          (fn [_]
-                            (is (= commits-after-plain-enter (attempts))
-                                "EXACTLY ONE attempt arrived from two presses — the
-                                 composing Enter dispatched nothing at all, rather
-                                 than dispatching a commit the fence refused")
-                            (is (= commits-after-plain-enter (commits))
-                                "and the plain Enter's attempt committed")
-                            (is (= committed-value (committed))
-                                "carrying the draft the user could see")
-                            (is (= value-after-composing-enter (.-value field))
-                                "and the composing Enter discarded nothing either — a
-                                 commit withheld is not a value thrown away")
-                            (is (not= commits-after-composing-enter
-                                      commits-after-plain-enter)
-                                "non-vacuous: the fixture's two answers really differ")
-                            (teardown! container root)
-                            (done)))
-                        (.catch (fail-and-finish! container root done))))))
-              (.catch (fail-and-finish! container root done))))))))
+            This is the press the row's compatibility claim was made about
+            and the one it did not previously exercise: with both signals
+            set on one event, an implementation reading only `isComposing`
+            — the implementation that breaks on Chromium, which is the
+            whole reason the sentinel is consulted at all — stayed green.
+            Here 229 is the only signal there is, so it is the only thing
+            that can withhold the commit."
+    (if-not (browser?)
+      (skip! "the browser job runs the composition assertions")
+      (async done
+        (exactly-one-commit-attempt!
+          {:composing? false :key-code (:composing-key-code ctrl-018)}
+          done)))))
 
 (deftest fh-ctrl-018-a-reset-restores-the-baseline-on-the-same-node
   (testing "Per FH-CTRL-018: the caller rejects the draft by reasserting
@@ -452,7 +514,7 @@
                             ;; A commit now speaks for the NEW generation, and
                             ;; what it carries is the value on screen.
                             (live!)
-                            (press-enter! field false)
+                            (press-enter! field (plain-enter))
                             (settled #(some? (committed)) "the post-reset commit lands")))
                         (.then
                           (fn [_]
