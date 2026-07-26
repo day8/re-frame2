@@ -70,6 +70,8 @@
         _               (do (record! :arm-order (if reversed? :reversed :forward))
                             (run-mount! rounds mount-sampling reversed?))
         mounts          (rows/mount-update-arms! (nc/make-update-arms reversed?))]
+    (record! :tear-probe (doto (nc/tear-probe!)
+                           (#(js/console.log (str ";; B6 tear probe " (pr-str %))))))
     (-> (nc/sync-lane-probe!)
         (.then (fn [probe]
                  (record! :sync-lane-probe probe)
@@ -117,6 +119,18 @@
       "heap" (do (nc/install-heap-door!)
                  (js/console.log ";; B7 heap instrument installed (B9 arms)")
                  (set! (.-B7_READY js/window) true))
+      ;; The two probes on their own, with no clock beside them — they are
+      ;; deterministic controls, not timings, and running them does not
+      ;; need six rounds of anything.
+      "probe" (do (record! :tear-probe (nc/tear-probe!))
+                  (-> (nc/sync-lane-probe!)
+                      (.then (fn [p]
+                               (record! :sync-lane-probe p)
+                               (set! (.-B6_DONE js/window) true)
+                               (js/console.log ";; B6 PROD DONE")))
+                      (.catch (fn [e]
+                                (fail! (str "probe rejected: " e))
+                                (set! (.-B6_DONE js/window) true)))))
       (run-clock!))
     (catch :default e
       (fail! (str "b9 run threw: " e))
