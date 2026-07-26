@@ -254,15 +254,30 @@
 
 (defn redact-continuation-reply
   "Redact the owner-declared `:sensitive` / `:large` param + scope subpaths of a
-  mutation continuation REPLY map, deriving the paths from the mutation `spec`'s
+  continuation REPLY map, deriving the paths from the owner `spec`'s
   projection-relative declaration (`carrier-decl-paths`). The reply carries
   `:params` + `:scope` as siblings and the decoded result under `:value`, so a
   `:params`-rooted decl `[:password]` redacts reply `[:params :password]`, a
   `:scope`-rooted decl redacts reply `[:scope …]`, and a `:data`-rooted decl
-  redacts the reply's `:value` (the mutation-result projection). Sensitive wins
+  redacts the reply's `:value` (the result projection). Sensitive wins
   over large at a shared path (the shared elision walker's ordering). A `spec`
   that declares neither axis — or a nil spec (unregistered owner) — rides the
-  reply UNCHANGED. Pure / value-independent."
+  reply UNCHANGED. Pure / value-independent.
+
+  BOTH continuation families use this, at DIFFERENT boundaries, and the
+  difference is deliberate:
+
+    - MUTATIONS call it at the SOURCE (`mutation_events`, rf2-825mzj). A
+      mutation's completion echo is redacted before it reaches any carrier;
+      a coarse `:sensitive?` root prop is not part of `reg-mutation`'s
+      declaration surface at all, so this is the whole of the mutation reply's
+      classification.
+    - READS call it at OFF-BOX EGRESS
+      (`trace_egress/redact-reply-declarations`, rf2-ko5lm), and must not call
+      it at the source: the app's own `:reply-to` handler is entitled to the
+      decoded body and the trusted-local `:include-sensitive?` opt-in must still
+      show it. There it composes with the coarse `whole-entry-disposition` arm,
+      which reads the root prop a read owner CAN declare."
   [reply spec]
   (let [sens  (carrier-decl-paths spec :sensitive :value)
         large (carrier-decl-paths spec :large :value)]

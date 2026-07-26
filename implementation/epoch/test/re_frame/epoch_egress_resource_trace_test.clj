@@ -96,6 +96,30 @@
                   {:scope         :rf.scope/global
                    :params-schema [:map [:slug :string]]}
                   (fn [_ _] {:request {:method :get :url "/a"}}))
+                ;; rf2-ko5lm — a resource that makes NO COARSE claim and
+                ;; declares PROJECTION-RELATIVE slots instead.
+                ;; `whole-entry-disposition` of this spec is `:serialize`, so
+                ;; `row-owner-redacts?` is FALSE and the coarse read-reply arm
+                ;; (rf2-xx4ty) never fires on it — which is exactly why its
+                ;; continuation reply rode verbatim. `:email` is declared
+                ;; sensitive, `:avatar` declared large, and `:display-name`
+                ;; declared as NEITHER, so one body exercises redact, elide,
+                ;; and the untouched sibling that proves the projection is
+                ;; per-PATH rather than per-slot.
+                (rf/reg-resource :declared/profile
+                  {:scope         :rf.scope/global
+                   :sensitive     [[:data :email]]
+                   :large         [[:data :avatar]]
+                   :params-schema [:map [:slug :string]]}
+                  (fn [_ _] {:request {:method :get :url "/c"}}))
+                ;; rf2-ko5lm — the PARAMS axis of the same declaration surface,
+                ;; on its own owner so the data-axis fixture above stays a
+                ;; three-outcome body and nothing else.
+                (rf/reg-resource :declared/params-owner
+                  {:scope         :rf.scope/global
+                   :sensitive     [[:params :account]]
+                   :params-schema [:map [:account :string] [:slug :string]]}
+                  (fn [_ _] {:request {:method :get :url "/d"}}))
                 ;; a PLAIN resource under a CONCRETE (non-global) scope — the
                 ;; over-redaction control for the FREE `:scope` tag (rf2-1zc33).
                 ;; Its scoped KEY must keep scope AND params verbatim, which is
@@ -2170,3 +2194,296 @@
           (is (true? (:sensitive? (:tags reply-row))))))
       (is (= [] (secret-leak-paths projected))
           "and nothing raw survives anywhere in the record"))))
+
+;; ===========================================================================
+;; (rf2-ko5lm) the OTHER half of the read reply: the owner that makes NO COARSE
+;; CLAIM and declares PROJECTION-RELATIVE paths instead.
+;; ===========================================================================
+;;
+;; §(rf2-xx4ty) above reads the reply's owner through `row-owner-redacts?` —
+;; `whole-entry-disposition`, the COARSE root-prop `:sensitive?` / `:large?`
+;; claim. That is the right grain for tokenizing a WHOLE slot, and it is the
+;; only claim `:derived/profile` makes. But it is not the only claim a resource
+;; CAN make, and it is not the common one:
+;;
+;;   (rf/reg-resource :declared/profile
+;;     {:sensitive [[:data :email]] :large [[:data :avatar]]}
+;;     …)
+;;
+;; declares no coarse prop at all, so `whole-entry-disposition` is `:serialize`,
+;; `row-owner-redacts?` is false, and the reply arm never fires. The DECODED
+;; RESPONSE BODY carrying that declared `:email` rode `:rf.fx/args` and
+;; `:rf.event/fx` VERBATIM — while the very same bytes, landed in the durable
+;; entry one commit earlier, redact off-box because `reconcile-registry` lowered
+;; `[:data :email]` to `[:rf.runtime/resources :entries <key-id> :data :email]`
+;; and the epoch walk reads that registry. One value, two carriers, one rule
+;; applied: the rf2-irwsq shape again, this time between the DURABLE entry and
+;; the CONTINUATION echo of it.
+;;
+;; MUTATIONS DO NOT HAVE THIS HOLE, and the reason names the repair. Both
+;; mutation settle sites wrap their reply in
+;; `classification/redact-continuation-reply`, which derives the paths from the
+;; mutation spec's own projection-relative declaration and substitutes them in
+;; the SAME construction step (rf2-825mzj). Reads had no counterpart. The read
+;; reply's carrier shape is the mutation reply's carrier shape — `:value` beside
+;; `:params` beside `:scope` — so the counterpart is that same function, read at
+;; the EGRESS projector instead of at the source (the read half must not redact
+;; at source: the app's own continuation handler is entitled to the decoded
+;; body, and `:include-sensitive?` must still show it).
+;;
+;; THE GRAIN, since taking the wrong one is how this family keeps regressing.
+;; This arm is DECLARATION-conditional: it fires on the paths the owner
+;; declared, and on nothing else. Not unconditional (an owner that declares
+;; nothing rides verbatim — the plain-owner control below), and not
+;; coarse-owner-conditional (that is precisely the read that misses a
+;; `:serialize` owner's declaration). It is the grain of the declaration itself,
+;; which is what makes the durable carrier and the continuation carrier agree
+;; by construction — the same reason rf2-1zc33 gave `:scope` the family's grain
+;; and rf2-xx4ty gave `:value` / `:params` the owner's.
+;;
+;; RESIDUE, filed not fixed (rf2-swpd0): a `:params`-rooted declaration on a
+;; `:serialize` owner still rides raw inside the sibling `:resource/key`, whose
+;; trace projection is coarse-only by documented decision
+;; (`ssr/project-scoped-key` — "the trace / tool egress callers pass
+;; `:serialize` through verbatim"). This section closes the reply's copy of
+;; those params; the key's copy is a different carrier on every family row and
+;; is its own bead.
+
+(def ^:private declared-reply-params
+  "The canonical params of the declared-owner read. Deliberately PLAIN:
+  `:declared/profile` declares nothing under `:params`, and this section's
+  acceptance scan is whole-record, so a secret here would be caught in the
+  sibling `:resource/key` (see the RESIDUE note above) and prove nothing about
+  the reply slot the section owns. The params axis gets its own deterministic
+  probe below, with its own marker."
+  {:slug plain-slug})
+
+(def ^:private declared-reply-value
+  "The DECODED RESPONSE BODY of the declared-owner read. Three fields, three
+  outcomes: `:email` is declared `:sensitive` and must redact to the sentinel,
+  `:avatar` is declared `:large` and must become the size marker, and
+  `:display-name` is declared as NEITHER and must ride verbatim — which is what
+  proves the projection is per-PATH and not a whole-slot tokenization wearing a
+  declaration as its trigger."
+  {:email        (str secret "@example.com")
+   :avatar       "0123456789abcdef"
+   :display-name "Ada"})
+
+(defn- drive-declared-reply-to-read!
+  "The `drive-reply-to-read!` of §(rf2-xx4ty), against the DECLARED-slot owner
+  instead of the coarse `:sensitive?` one. Drives a REAL
+  `[:rf.resource/ensure … :reply-to …]`, replays the terminal reply through the
+  runtime's own internal reply event, then drives a SECOND ensure that finds the
+  entry fresh — so one call produces BOTH continuation paths (the async accepted
+  fan-out, `:cache-hit? false`, and the fresh-skip immediate dispatch,
+  `:cache-hit? true`).
+
+  No app-db classification is needed here: `:declared/profile`'s scope is
+  `:rf.scope/global`, so nothing about this read reaches the app-db axis and any
+  surviving copy of the secret came off a trace carrier — the axis this section
+  owns. `fx/reg-fx` (the plain fn, not the macro) for the reason
+  `drive-real-cascade!` documents."
+  []
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)]
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :declared/profile :params declared-reply-params
+                        :owner    real-owner :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/dispatch-sync (conj (:on-success @captured) {:status :ok :value declared-reply-value})
+                      {:frame :test/rt})
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :declared/profile :params declared-reply-params
+                        :owner    [:app :reader 2] :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/epoch-history :test/rt)))
+
+;; ---------------------------------------------------------------------------
+;; (1) THE ACCEPTANCE ARM — a REAL reply-to read, both continuation paths
+;; ---------------------------------------------------------------------------
+
+(deftest real-declared-reply-to-read-leaks-no-declared-slot-into-fx-carriers
+  (testing "rf2-ko5lm — `projected-record` over the records a REAL
+            `[:rf.resource/ensure … :reply-to …]` settles for an owner whose
+            ONLY claim is a projection-relative declaration must carry the
+            declared body slot at ZERO paths, on BOTH continuation paths.
+            Before the repair each carried it at two: `:value :email` under
+            `:rf.fx/args` and again under `:rf.event/fx`."
+    (let [records (drive-declared-reply-to-read!)]
+      (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
+        (testing label
+          (let [raw       (record-carrying-reply records cache-hit?)
+                projected (epoch/projected-record raw)]
+
+            (testing "FIXTURE — the producer really put a decoded body on the fx
+                      carriers, and the owner really makes no coarse claim"
+              (is (some? raw) "the continuation reached an fx carrier at all")
+              (is (seq (carrier-replies raw)) "and the reply map is findable on it")
+              (is (every? #(= declared-reply-value (:value %)) (carrier-replies raw))
+                  "every carrier's reply carries the RAW decoded body")
+              (is (seq (secret-leak-paths raw))
+                  "the unprojected record leaks — the projector's input is the
+                   runtime's own output, not an invented tag map"))
+
+            (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
+                      record"
+              (is (= [] (secret-leak-paths projected))
+                  "every leaking path is named here; before the repair this
+                   printed the [:trace-events n :tags :rf.fx/args 1 :value :email]
+                   shape, once per carrier"))
+
+            (testing "and the projection is PER-PATH — the declared slots move,
+                      their undeclared sibling does not"
+              (doseq [r (carrier-replies projected)]
+                (is (= :rf/redacted (:email (:value r)))
+                    "the `:sensitive`-declared slot carries the sentinel")
+                (is (elision/marker? (:avatar (:value r)))
+                    "the `:large`-declared slot carries the size marker")
+                (is (= "Ada" (:display-name (:value r)))
+                    "and the slot the owner declared NEITHER axis for rides
+                     verbatim — the whole point of a path declaration")))
+
+            (testing "the whole reply still reads as a reply"
+              (let [r (first (carrier-replies projected))]
+                (is (= :declared/profile (:resource r))
+                    "the resource id rides verbatim")
+                (is (= cache-hit? (:cache-hit? r))
+                    "and the cache-hit disposition")
+                (is (= :ok (:status r)) "and the status")
+                (is (= declared-reply-params (:params r))
+                    "and the params, which this owner declared nothing under")
+                (is (= :rf.scope/global (:scope r))
+                    "and `:rf.scope/global` is untouched — a scalar scope is a
+                     structural fact, not a payload")
+                (is (= [:rf.scope/global :declared/profile declared-reply-params]
+                       (:resource/key r))
+                    "and the whole scoped key, since a `:serialize` owner's key
+                     rides verbatim")))))))))
+
+;; ---------------------------------------------------------------------------
+;; (2) the same shape assembled — deterministic, and it names the paths
+;; ---------------------------------------------------------------------------
+
+(deftest fx-carrier-declared-reply-slots-redact-on-both-carriers
+  (testing "rf2-ko5lm — the projector, over the exact reply the runtime builds.
+            One declared slot per carrier, both redacted; and the foreign
+            `:value` on the same effect vector rides untouched, because the
+            resource family speaks only for what it planted."
+    (let [k1        (sk :rf.scope/global :declared/profile declared-reply-params)
+          reply     (read-reply k1 :rf.scope/global declared-reply-value)
+          projected (epoch/projected-record (reply-carrier-record reply))
+          replies   (carrier-replies projected)
+          [handled do-fx] (:trace-events projected)]
+      (is (= 2 (count replies))
+          "one reply per carrier — the two the bead named")
+      (is (every? #(and (= :rf/redacted (:email (:value %)))
+                        (elision/marker? (:avatar (:value %)))
+                        (= "Ada" (:display-name (:value %))))
+                  replies)
+          "each carrier redacts, elides, and rides the three slots identically")
+      (is (= [] (secret-leak-paths projected))
+          "and nothing raw survives anywhere in the record")
+      (testing "the FOREIGN :value on the same effect vector is untouched"
+        (is (= [:rf.resource/commit-generation {:value 1}]
+               (first (:rf.event/fx (:tags do-fx))))
+            "a map with a :value and no reply marker is nobody's business here")
+        (is (= :app/read-loaded (first (:rf.fx/args (:tags handled))))
+            "as is the continuation TARGET — a tool still reads which event ran")
+        (is (true? (:sensitive? (:tags handled)))
+            "but the row IS stamped :sensitive?")))))
+
+(deftest fx-carrier-declared-reply-params-redact-through-the-same-declaration
+  (testing "rf2-ko5lm — the PARAMS axis of the same declaration surface. A
+            `:params`-rooted declaration redacts the reply's `:params` slot
+            through the identical `carrier-decl-paths` re-rooting the mutation
+            reply uses, and leaves its undeclared sibling alone.
+
+            The sibling `:resource/key` still carries the same params raw — a
+            `:serialize` owner's key rides verbatim at trace egress by
+            documented decision (`ssr/project-scoped-key`). That residue is
+            filed as rf2-swpd0 and is a different carrier on every family row;
+            it is deliberately NOT asserted here, so this test does not have to
+            change when that bead lands."
+    (let [params    {:account "acct-9911" :slug plain-slug}
+          k1        (sk :rf.scope/global :declared/params-owner params)
+          reply     (read-reply k1 :rf.scope/global {:ok true})
+          projected (epoch/projected-record (reply-carrier-record reply))
+          r         (first (carrier-replies projected))]
+      (is (= :rf/redacted (:account (:params r)))
+          "the `[:params :account]` declaration reaches the reply's :params")
+      (is (= plain-slug (:slug (:params r)))
+          "and its undeclared sibling rides verbatim")
+      (is (= {:ok true} (:value r))
+          "the body is untouched — this owner declares nothing under :data"))))
+
+;; ---------------------------------------------------------------------------
+;; (3) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
+;; ---------------------------------------------------------------------------
+
+(deftest fx-carrier-keeps-an-undeclared-owners-reply-byte-identical
+  (testing "rf2-ko5lm guard — an owner that makes NEITHER claim (no coarse
+            `:sensitive?`, no projection-relative declaration) must ride its
+            continuation reply BYTE-IDENTICAL through both carriers and must not
+            stamp the row sensitive. This is the side that proves the arm reads
+            the DECLARATION rather than the reply's shape: the same `:value` and
+            `:params` slots that redact for `:declared/profile` are fully
+            readable here."
+    (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
+          reply     (read-reply k1 :rf.scope/global declared-reply-value)
+          record    (reply-carrier-record reply)
+          projected (epoch/projected-record record)
+          [handled do-fx] (:trace-events projected)]
+      (is (= (conj read-reply-target reply) (:rf.fx/args (:tags handled)))
+          "the whole dispatched event vector rides verbatim — reply :value,
+           :params, :scope and scoped key included")
+      (is (= (:rf.event/fx (:tags (second (:trace-events record))))
+             (:rf.event/fx (:tags do-fx)))
+          "and so does the whole effect vector on the other carrier")
+      (is (not (:sensitive? (:tags handled)))
+          "an undeclared-owner reply row is NOT stamped sensitive")
+      (is (not (:sensitive? (:tags do-fx)))
+          "on either carrier"))))
+
+(deftest fx-carrier-declared-arm-leaves-the-fx-familys-own-value-verbatim
+  (testing "rf2-ko5lm guard — the other half of the over-redaction control. A
+            map carrying `:value` / `:params` WITHOUT the canonical reply marker
+            is not a reply, whatever owner its neighbours name, so a declaration
+            can never reach it. The app's own managed-HTTP args and the
+            runtime's generation counter are the two shapes that have caught
+            every name-only arm in this family."
+    (let [k1        (sk :rf.scope/global :declared/profile declared-reply-params)
+          unmarked  {:resource/key k1 :value declared-reply-value}
+          record    (record-with
+                      [(event :rf.fx/handled
+                              {:rf.frame/id :test/rt :frame :test/rt
+                               :rf.fx/id :app/custom :rf.fx/args unmarked})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= declared-reply-value (:value (:rf.fx/args tags)))
+          "no marker, no reply, no declaration — the map rides byte-for-byte")
+      (is (not (:sensitive? tags))
+          "and the row is NOT stamped :sensitive?"))))
+
+;; ---------------------------------------------------------------------------
+;; (4) the trusted-local boundary — the redaction is the off-box DEFAULT
+;; ---------------------------------------------------------------------------
+
+(deftest trusted-local-include-sensitive-keeps-raw-declared-reply
+  (testing "rf2-ko5lm — the trusted-local `:include-sensitive?` opt-in keeps the
+            raw declared slots (the local-raw boundary — the redaction is the
+            off-box default, not a strip). Load-bearing for the same reason the
+            coarse arm's opt-in is: a `:reply-to` continuation is how a workflow
+            reads a resource, and a local tool that could not see the declared
+            field could not debug the workflow."
+    (let [k1        (sk :rf.scope/global :declared/profile declared-reply-params)
+          reply     (read-reply k1 :rf.scope/global declared-reply-value)
+          projected (epoch/projected-record (reply-carrier-record reply)
+                                            {:include-sensitive? true})]
+      (is (= [declared-reply-value declared-reply-value]
+             (mapv :value (carrier-replies projected)))
+          "every carrier's raw :value rides with :include-sensitive?")
+      (is (= (conj read-reply-target reply)
+             (:rf.fx/args (:tags (first (:trace-events projected)))))
+          "and so does the rest of the event vector it sits in"))))
