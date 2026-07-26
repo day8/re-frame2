@@ -30,7 +30,7 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
-            [re-frame.freehand.matrix-support :as ms]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.root :as root]
             [re-frame.freehand.root-views :as views]

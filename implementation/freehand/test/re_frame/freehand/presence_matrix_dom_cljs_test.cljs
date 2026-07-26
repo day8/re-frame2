@@ -28,7 +28,7 @@
   it has no DOM and says so."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.freehand :as v]
-            [re-frame.freehand.matrix-support :as ms]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.presence-runtime :as presence]
             [re-frame.freehand.react :as fr]
             [re-frame.substrate.plain-atom :as plain-atom]

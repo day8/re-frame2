@@ -31,7 +31,7 @@
             [re-frame.freehand.behavior-views :as bv]
             [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.conformance :as conf]
-            [re-frame.freehand.matrix-support :as ms]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.shell :as shell]
             [re-frame.live-frame :as live-frame]
