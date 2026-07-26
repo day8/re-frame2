@@ -10,7 +10,7 @@ run from `implementation/` with a monorepo build-id — this scaffold is a
 That is the whole point: it is the tree you would have created yourself.
 
 The prose companion is
-[Install and boot](../../../docs/core/freehand/install.md); this directory is
+[Install and boot](../../../docs/core/freehand/get-running/install.md); this directory is
 the same four moves — depend, install an adapter, mount, tear down — as a tree
 that builds.
 

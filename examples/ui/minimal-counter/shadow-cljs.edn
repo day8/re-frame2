@@ -13,7 +13,7 @@
 
  ;; ---------------------------------------------------------------------
  ;; NO Freehand build configuration, and that is the point: interpreted
- ;; views need none at all (docs/core/freehand/install.md §Shadow build
+ ;; views need none at all (docs/core/freehand/get-running/install.md §Shadow build
  ;; settings). The whole framework contribution to this file is nothing.
  ;;
  ;; The COMPILED tier is what needs one — its analyzer and registries run

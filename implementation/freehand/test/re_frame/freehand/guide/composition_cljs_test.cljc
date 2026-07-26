@@ -1,6 +1,6 @@
 (ns re-frame.freehand.guide.composition-cljs-test
   "Executable fixtures for the Freehand guide's COMPOSITION chapters —
-  `docs/core/freehand/composition.md`, `state.md` and
+  `docs/core/freehand/authoring/composition.md`, `state.md` and
   `reactivity-and-ownership.md`.
 
   These pages carry the vocabulary a component library lives on: trailing

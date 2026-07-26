@@ -1,7 +1,8 @@
 (ns re-frame.freehand.guide.host-cljs-test
   "Executable fixtures for the Freehand guide's HOST-EDGE chapters —
-  `docs/core/freehand/host-boundaries.md`, `js-libraries.md`, `presence.md`,
-  `accessibility.md`, `ssr.md`, `install.md` and `adoption.md`.
+  `docs/core/freehand/host/` — `host-boundaries.md`, `js-libraries.md`,
+  `presence.md` and `ssr.md` — plus `authoring/accessibility.md`,
+  `get-running/install.md` and `operate/adoption.md`.
 
   These pages carry the verbs that only exist because a browser does:
   `v/defbehavior` and `[v/behavior …]`, `v/client-only`, `v/error-boundary`,

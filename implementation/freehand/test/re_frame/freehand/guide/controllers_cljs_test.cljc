@@ -1,5 +1,5 @@
 (ns re-frame.freehand.guide.controllers-cljs-test
-  "Executable fixtures for `docs/core/freehand/semantic-controllers.md`.
+  "Executable fixtures for `docs/core/freehand/advanced/semantic-controllers.md`.
 
   That page is the one a component-library author reads, and it is the one
   place the guide teaches three verbs an application never touches:

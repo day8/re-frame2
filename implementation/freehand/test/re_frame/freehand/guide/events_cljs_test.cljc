@@ -1,6 +1,6 @@
 (ns re-frame.freehand.guide.events-cljs-test
   "Executable fixtures for the Freehand guide's EVENT chapters —
-  `docs/core/freehand/events-and-handlers.md` and `forms.md`.
+  `docs/core/freehand/authoring/events-and-handlers.md` and `forms.md`.
 
   This is the pair of pages with the most surface per line: the five named
   projection markers and the general `[::v/read path]` door, the options-map
