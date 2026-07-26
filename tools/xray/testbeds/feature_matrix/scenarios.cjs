@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  expectCount,
   expectTextEquals,
   expectVisible,
   waitForValue,
@@ -1038,11 +1039,15 @@ async function runShellFeatureSweep(page) {
   // section's own presence IS the wiring proof — removing the panel consumer
   // or the subs that feed it fails this sweep.
   //
-  // The section renders its EMPTY state here: this testbed's counter surface
-  // is Reagent-hosted, so no Freehand occurrence ever connects. The
-  // populated-row proof — a real cell commit reaching the rendered row —
-  // lives in the node suite (`mounted_views_cljs_test`,
-  // `reactive_panel_view_cljs_test`), which renders the real panel fn.
+  // The section renders its EMPTY state here, and that is now this
+  // scenario's job rather than its limitation: the counter surface is
+  // Reagent-hosted, so no Freehand occurrence connects, and the empty arm is
+  // what a substrate-free host must show. The POPULATED arm has its own
+  // surface and its own scenario — `freehand-views populated Views roster`
+  // below, over the Freehand-hosted deck added by rf2-6pohj. Between the two
+  // the browser lane can finally tell the arms apart; before rf2-6pohj it
+  // could see only this one, so an empty section and a section emptied by a
+  // BROKEN read were the same DOM.
   await clickTab(page, 'views', 'rf-xray-reactive');
   await expectVisible(
     page.locator('[data-testid="rf-xray-reactive-mounted-views-section"]'),
@@ -1052,6 +1057,202 @@ async function runShellFeatureSweep(page) {
     page.locator('[data-testid="rf-xray-reactive-mounted-views-empty"]'),
     5000,
   );
+}
+
+// ---- freehand-views: the POPULATED Views roster (rf2-6pohj) --------------
+//
+// The counterpart to the empty-arm assertion in the shell sweep above. The
+// deck at /testbeds/freehand-views/ is the one staged surface whose views are
+// FREEHAND views, so `re-frame.freehand.tool` has real connected occurrences
+// to project and the Views panel has real rows to render.
+//
+// Everything asserted below is a fact only a WORKING read can produce. A
+// stubbed roster passes "the section rendered"; it does not pass "the row for
+// the compiled reader states one read while the row for the compiled
+// dispatcher states none", and it does not pass the occurrence-identity check
+// at the end.
+
+const FREEHAND_VIEW_IDS = [
+  ':freehand-views.core/app',
+  ':freehand-views.core/controls',
+  ':freehand-views.core/readout',
+];
+
+async function mountedViewRows(page) {
+  return page
+    .locator('[data-testid^="rf-xray-reactive-mounted-views-row-"]')
+    .allTextContents();
+}
+
+// The roster sub (`:rf.xray/mounted-views`) recomputes off the epoch pump —
+// its ONE reactive input is `:rf.xray/epoch-history`, so a change in what is
+// connected surfaces on the next recorded epoch, by design. Every read of the
+// panel below is therefore preceded by a dispatch. The Freehand `+` button is
+// the pump: it is inside the mounted tree, so it is also the thing that
+// proves the tree is really there.
+async function pumpEpochAndReadRoster(page, description) {
+  await page.locator('[data-testid="fh-bump"]').click();
+  return waitForValue(() => mountedViewRows(page), (rows) => rows.length === 3, {
+    timeoutMs: 8000,
+    description,
+  });
+}
+
+function rowFor(rows, viewId) {
+  const row = rows.find((text) => text.includes(viewId));
+  if (!row) {
+    throw new Error(
+      `no Mounted Views row names ${viewId}; rows were ${JSON.stringify(rows)}`,
+    );
+  }
+  return row;
+}
+
+// `format-occurrence` renders the runtime occurrence key after ` · occ `. The
+// key is minted by the host's identity primitive, so the test reads whatever
+// shape it is given and only ever compares it with ITSELF across a remount —
+// never against a literal.
+function occurrenceOf(rowText) {
+  const match = /· occ (\S+)/.exec(rowText);
+  if (!match) {
+    throw new Error(`no "· occ <key>" in Mounted Views row: ${rowText}`);
+  }
+  return match[1];
+}
+
+async function runFreehandViewsPopulatedRoster(page) {
+  // The Freehand root paints before Xray is asked to read it.
+  await expectTextEquals(page.locator('[data-testid="fh-count"]'), '0', 10000);
+
+  await openXray(page);
+  await clickTab(page, 'views', 'rf-xray-reactive');
+
+  const rows = await pumpEpochAndReadRoster(
+    page,
+    'three connected Freehand occurrences on the Mounted Views roster',
+  );
+
+  // POPULATED, not empty — the whole point of the deck (rf2-6pohj).
+  await expectVisible(
+    page.locator('[data-testid="rf-xray-reactive-mounted-views-list"]'),
+    5000,
+  );
+  await expectCount(
+    page.locator('[data-testid="rf-xray-reactive-mounted-views-empty"]'),
+    0,
+  );
+  // No schema banner: the deck's Freehand door stamps the version this Xray
+  // build pins, so rows are parsed rather than suppressed. A banner here
+  // would mean the rows above are being read under a version mismatch.
+  await expectCount(
+    page.locator('[data-testid="rf-xray-reactive-mounted-views-schema-banner"]'),
+    0,
+  );
+
+  // Each row is the RIGHT row: per-view facts that differ between views, so
+  // a uniform stub cannot satisfy them.
+  const appRow = rowFor(rows, FREEHAND_VIEW_IDS[0]);
+  const controlsRow = rowFor(rows, FREEHAND_VIEW_IDS[1]);
+  const readoutRow = rowFor(rows, FREEHAND_VIEW_IDS[2]);
+
+  const expectRow = (row, fragment, why) => {
+    if (!row.includes(fragment)) {
+      throw new Error(`${why}: expected ${JSON.stringify(fragment)} in ${JSON.stringify(row)}`);
+    }
+  };
+
+  // Lowering is STATED by the substrate, never inferred — and the deck
+  // declares one interpreted view against two compiled ones precisely so the
+  // two spellings have to appear on different rows.
+  expectRow(appRow, 'interpreted · gen', 'the interpreted root reports its lowering');
+  expectRow(controlsRow, 'compiled · gen', 'the compiled dispatcher reports its lowering');
+  expectRow(readoutRow, 'compiled · gen', 'the compiled reader reports its lowering');
+
+  // The commit's OWN staged reads. `readout` is the only view on the page
+  // that calls `v/sub`, so exactly one row may claim a read.
+  expectRow(readoutRow, '· 1 read', "the reader's commit staged its one read");
+  expectRow(controlsRow, '· 0 reads', 'the dispatcher staged none');
+  expectRow(appRow, '· 0 reads', 'the root staged none');
+
+  // The frame the commit ran over.
+  for (const row of rows) {
+    expectRow(row, ':rf/default', 'every commit names the deck\'s one frame');
+    // `:root` is ALWAYS `:unknown` and the panel renders that marker as the
+    // absence it is. A row printing the keyword would mean the panel had
+    // started presenting a fact the substrate does not have.
+    if (row.includes(':unknown')) {
+      throw new Error(`Mounted Views row printed the :unknown root marker: ${row}`);
+    }
+  }
+
+  // Declared View Sites is evidence-keyed off the roster — it renders NOTHING
+  // on a host with nothing connected, so its presence is a second,
+  // independent populated-proof. Its content comes from the compiler
+  // manifest, and the deck declares one of each arm.
+  await expectVisible(
+    page.locator('[data-testid="rf-xray-reactive-view-sites-section"]'),
+    5000,
+  );
+  const siteRows = await page
+    .locator('[data-testid^="rf-xray-reactive-view-site-row-"]')
+    .allTextContents();
+  const siteText = siteRows.join('\n');
+  for (const [fragment, why] of [
+    ['[:freehand-views.core/count]', "the compiled reader's proven subscription site"],
+    [
+      ':on-click · vector · [:freehand-views.core/bump]',
+      "the compiled dispatcher's proven event site",
+    ],
+    [
+      'this declaration is interpreted, so its sites are unknown, not absent',
+      'the interpreted root reports un-analysed rather than clean',
+    ],
+  ]) {
+    if (!siteText.includes(fragment)) {
+      throw new Error(
+        `Declared View Sites is missing ${why} (${JSON.stringify(fragment)}); rows were ${JSON.stringify(siteRows)}`,
+      );
+    }
+  }
+
+  // ---- the fact that MOVES ------------------------------------------------
+  //
+  // A populated row can still be a fabricated row. Unmount the root and mount
+  // it again: the three cells disconnect and reconnect, so the host mints
+  // three FRESH occurrence keys. The roster must come back naming the new
+  // ones. Only a read of the live occurrence index can do that — a projection
+  // over a static registry (which the donor tier had, and which the Freehand
+  // door deliberately does not) would report the old keys, or the same ones
+  // forever.
+  //
+  // `:generation` is deliberately NOT the fact under test: it is the
+  // hot-reload BODY REVISION, not a render tally, so `gen 0` on every row is
+  // correct for a page that is never hot-reloaded.
+  const before = rows.map(occurrenceOf);
+
+  await page.locator('[data-testid="fh-unmount"]').click();
+  await page.locator('[data-testid="fh-mount"]').click();
+  await expectVisible(page.locator('[data-testid="fh-bump"]'), 5000);
+
+  const after = (
+    await pumpEpochAndReadRoster(page, 'the remounted occurrences back on the roster')
+  ).map(occurrenceOf);
+
+  // Cardinality returns to baseline — churn does not accumulate rows.
+  if (after.length !== before.length) {
+    throw new Error(
+      `roster cardinality drifted across a remount: ${before.length} -> ${after.length}`,
+    );
+  }
+  const carried = after.filter((key) => before.includes(key));
+  if (carried.length > 0) {
+    throw new Error(
+      `remount reported ${carried.length} carried-over occurrence key(s) ` +
+        `(${JSON.stringify(carried)}); a disconnect must drop the row and a ` +
+        `reconnect must mint a fresh occurrence. before=${JSON.stringify(before)} ` +
+        `after=${JSON.stringify(after)}`,
+    );
+  }
 }
 
 async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
@@ -3571,6 +3772,26 @@ const SCENARIOS = [
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runShellFeatureSweep,
+  },
+  {
+    // rf2-6pohj — the POPULATED arm of the Views panel, in a real browser.
+    // Every other staged surface is Reagent-hosted and connects no Freehand
+    // occurrence, so before this deck existed the browser lane could prove
+    // the Mounted Views section RENDERS and nothing about what it renders: an
+    // empty section and a section emptied by a broken read through
+    // `re-frame.freehand.tool` were the same DOM. That is the gate-blindness
+    // shape — sound machinery, input that never arrives.
+    //
+    // PR-smoke tier, for the same reason the panel-gallery probe is: the
+    // whole point of the bead is that the PR-time gate is blind here, and a
+    // nightly-only scenario leaves it blind. It adds one staged surface to
+    // the smoke compile and buys the arm the other three cannot see.
+    name: 'freehand-views populated Views roster: three connected occurrences, per-view facts, declared sites, and fresh occurrence keys across a remount (rf2-6pohj)',
+    url: '/testbeds/freehand-views/',
+    smoke: true,
+    panels: ['views'],
+    coveredRows: ['Mounted view reads (Freehand tool door, rf2-7gth0)'],
+    run: runFreehandViewsPopulatedRoster,
   },
   {
     name: 'source coordinates and launch-mode availability',
