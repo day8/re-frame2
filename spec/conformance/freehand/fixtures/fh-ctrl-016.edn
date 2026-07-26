@@ -1,0 +1,54 @@
+{:fh/id  "FH-CTRL-016"
+ :fh/law "The first-party controls read ONE LEAF and there is no spelling that reads a container: neither has a `:value` prop, the only value either accepts is a leaf projection carrying its own path, and a caller's forwarded attributes go through the `v/spread-safe` deny law, which refuses `value` on the component's own controlled element in every build. The call site is one projection and one intent; the element they render is a native `<input>` carrying `value` with a literal event vector at `onInput`, which is the shape the controlled-input door recognises; and both declarations are inside the compiled grammar as they stand, so promotion is a keyword rather than a rewrite."
+
+ :baseline {:contact {:email "a@b.c" :phone "555"}}
+
+ :email-path [:contact :email]
+ :phone-path [:contact :phone]
+
+ :edit-intent  [:editor/edited  [:contact :email]]
+ :visit-intent [:editor/visited [:contact :email]]
+
+ ;; WHAT THE CONTROL RENDERS. One `:input`, its value taken from the leaf
+ ;; projection, its `:on-input` the caller's intent completed with the
+ ;; scalar projection the door fills.
+ :tag :input
+ :rendered-value "a@b.c"
+ :rendered-on-input [:editor/edited [:contact :email] :re-frame.freehand/value]
+ :rendered-on-blur  [:editor/visited [:contact :email]]
+
+ ;; The blur is OPTIONAL: a form with no reveal-on-blur policy does not
+ ;; have to invent an event to satisfy a component, and the element it
+ ;; renders carries no blur at all.
+ :on-blur-when-absent nil
+
+ ;; A caller's ordinary attributes reach the element.
+ :forwarded {:type "email" :class "input" :data-test "email"}
+
+ ;; THE DENY. A caller who reaches for the container spelling has nowhere
+ ;; to put it: `value` in the forwarded map is refused, loudly, by the one
+ ;; deny law every component library forwards through.
+ :denied-caller-prop :value
+ :deny-error-id      :rf.error/ui-tree-malformed
+
+ ;; NARROWNESS, proven as a VALUE fact rather than asserted as a hope. A
+ ;; keystroke in one leaf leaves the OTHER leaf's projection byte
+ ;; identical, so a subscription over it publishes nothing and the sibling
+ ;; control does not re-render inside the keystroke.
+ :typed-in-email "mike@example.com"
+
+ ;; …while the CONTAINER read — the spelling this API has no room for —
+ ;; changes on the very same keystroke. Both halves are asserted, because
+ ;; "the narrow read did not change" is only interesting beside "the wide
+ ;; read did".
+ :container-read-changes? true
+ :leaf-read-changes?      false
+
+ ;; THE COMPILED TIER. Both declarations are checked, as they stand, by
+ ;; the analyzer the build runs — eligible, with nothing to change on the
+ ;; way.
+ :view-ids [:re-frame.freehand.controls/field
+            :re-frame.freehand.controls/buffered-field]
+ :compile-eligible? true
+ :findings []
+ :current-lowering :interpreted}

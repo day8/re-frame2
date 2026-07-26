@@ -1,0 +1,68 @@
+{:fh/id  "FH-CTRL-013"
+ :fh/law "A late authoritative load SEEDS LEAFWISE: every leaf the user has edited keeps its draft AND its baseline, every leaf the payload does not mention is untouched — including a sibling of one that IS mentioned and a whole sub-tree the payload omits — and a leaf reached through a keyed row is addressed by its stable domain id rather than its index, so an insert, a delete and a re-sort leave the path meaning the same leaf. A seeded leaf moves baseline and draft together and clears the error the old value carried; nothing is marked visited or edited, because the server typing is not the user typing."
+
+ ;; A form with a nested contact, a keyed row collection and a scalar. The
+ ;; rows are keyed by STABLE DOMAIN ID — never by index — which is what the
+ ;; re-sort half of the law turns on.
+ :baseline {:contact {:email "a@b.c" :phone "555"}
+            :lines   {"line-7" {:qty 2 :note "first"}
+                      "line-9" {:qty 5 :note "second"}}
+            :title   "Draft article"}
+
+ :email-path [:contact :email]
+ :qty-path   [:lines "line-7" :qty]
+
+ ;; The user types in two places: one nested scalar and one keyed row.
+ :typed-email "mike@example.com"
+ :typed-qty   "99"
+
+ ;; The late reply. It carries a NEW value for every one of those leaves,
+ ;; a new value for leaves the user never touched, and one leaf the form
+ ;; has never seen. It does not mention :title at all.
+ :payload {:contact {:email "server@example.com" :phone "999"}
+           :lines   {"line-7" {:qty 7 :note "server first"}
+                     "line-9" {:qty 8 :note "server second"}}
+           :slug    "from-the-server"}
+
+ ;; AFTER THE SEED, exactly. The two edited leaves are untouched in BOTH
+ ;; the draft and the baseline; everything else took the server's value;
+ ;; :title — unmentioned — is exactly as it was; :slug is new.
+ :draft-after {:contact {:email "mike@example.com" :phone "999"}
+               :lines   {"line-7" {:qty "99" :note "server first"}
+                         "line-9" {:qty 8 :note "server second"}}
+               :title   "Draft article"
+               :slug    "from-the-server"}
+
+ :baseline-after {:contact {:email "a@b.c" :phone "999"}
+                  :lines   {"line-7" {:qty 2 :note "server first"}
+                            "line-9" {:qty 8 :note "server second"}}
+                  :title   "Draft article"
+                  :slug    "from-the-server"}
+
+ ;; The edited set is unchanged: a seed marks nothing.
+ :edited-after  #{[:contact :email] [:lines "line-7" :qty]}
+ :visited-after #{}
+
+ ;; THE CLOBBER CONTROL. This is what a whole-map assoc of the same payload
+ ;; would have produced — the bug the law exists to prevent. Asserted so
+ ;; the row cannot be green for want of any difference at all.
+ :clobbered-draft {:contact {:email "server@example.com" :phone "999"}
+                   :lines   {"line-7" {:qty 7 :note "server first"}
+                             "line-9" {:qty 8 :note "server second"}}
+                   :title   "Draft article"
+                   :slug    "from-the-server"}
+
+ ;; ERRORS. A seeded leaf's error goes with the value it was about; an
+ ;; EDITED leaf's error stays, because the seed did not touch that value.
+ :errors-before {[:contact :phone] "too short"
+                 [:contact :email] "malformed"}
+ :errors-after  {[:contact :email] "malformed"}
+
+ ;; THE RE-SORT. The rows arrive in the opposite order and one new row is
+ ;; inserted ahead of them. A path keyed by domain id addresses the same
+ ;; leaf as before; an index-keyed path would now address a different row.
+ :resorted-payload {:lines {"line-0" {:qty 1 :note "inserted"}
+                            "line-9" {:qty 80 :note "moved"}
+                            "line-7" {:qty 70 :note "moved"}}}
+ :qty-after-resort "99"
+ :other-qty-after-resort 80}

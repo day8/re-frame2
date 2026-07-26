@@ -1,0 +1,56 @@
+{:fh/id  "FH-CTRL-012"
+ :fh/law "The form module is PURE: it registers no event and no subscription, and every operation is a function of a form value that can be proven by calling it with no frame, no app-db and no host. `init` opens the draft on the baseline; `edit` writes a draft leaf and marks it edited unconditionally, including when the value equals the baseline; `visit` marks the leaf visited and touches no value — so a tab-through is visited and not edited, and a leaf typed back to its baseline stays edited."
+
+ ;; The baseline the form opens on. Nested, because a form is nested and a
+ ;; law proven only on a flat map is a law with a hole in it.
+ :baseline {:contact {:email "a@b.c" :phone "555"}
+            :title   "Draft article"}
+
+ ;; The empty form's slots, exactly. The roster is asserted as a WHOLE map
+ ;; rather than key by key, so a slot silently added or renamed reds this
+ ;; row rather than sliding past a partial check.
+ :initial {:baseline {:contact {:email "a@b.c" :phone "555"}
+                      :title   "Draft article"}
+           :draft    {:contact {:email "a@b.c" :phone "555"}
+                      :title   "Draft article"}
+           :visited  #{}
+           :edited   #{}
+           :resets   {}
+           :errors   {}
+           :submit   {:attempted? false :attempts 0 :pending nil}}
+
+ ;; Leaf paths are VECTORS, and a nested leaf is one path rather than a
+ ;; walk.
+ :email-path [:contact :email]
+ :phone-path [:contact :phone]
+
+ :typed          "mike@example.com"
+ :draft-after    {:contact {:email "mike@example.com" :phone "555"}
+                  :title   "Draft article"}
+ :edited-after   #{[:contact :email]}
+ :baseline-after {:contact {:email "a@b.c" :phone "555"}
+                  :title   "Draft article"}
+
+ ;; TYPED BACK. The user changes the leaf and changes it back; the value is
+ ;; equal to the baseline again and the leaf is STILL edited, because edited
+ ;; means "the user has been typing here" and that is what protects it from
+ ;; a late seed.
+ :typed-back           "a@b.c"
+ :edited-after-typeback #{[:contact :email]}
+
+ ;; VISIT is not EDIT. Tabbing through the phone marks it visited, leaves
+ ;; the draft byte-identical, and does not protect it from a seed.
+ :visited-after-tab #{[:contact :phone]}
+
+ ;; THE PURITY CONTROL. The module's public surface is functions and one
+ ;; keyword constant; nothing in it registers, dispatches or reaches a
+ ;; frame. Matching is by SUBSTRING over the public var names, so a
+ ;; differently-spelled sibling is caught by the same roster.
+ :registration-spellings ["reg-" "register" "dispatch" "subscribe" "install"
+                          "!"]
+
+ ;; And the roster itself, exactly: the nine DC-03 operations plus the two
+ ;; derivations and the reserved projection key. A public var added without
+ ;; a row here reds this law.
+ :public-vars #{"init" "edit" "visit" "seed" "reset" "rebase" "set-errors"
+                "attempt-submit" "reset-key" "field" "path-key"}}

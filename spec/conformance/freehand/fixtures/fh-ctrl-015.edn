@@ -1,0 +1,49 @@
+{:fh/id  "FH-CTRL-015"
+ :fh/law "An INVALID submit is attemptable and it REVEALS: attempting marks the form attempted, which shows every error at once including on leaves the user never visited, and attempting again after a failure is an ordinary thing a user does rather than a state the form refuses. A VALID submit additionally opens a pending save stamped with its attempt number, and that stamp is the staleness fence — a reply carrying a superseded number is INERT, while the three shapes a reply takes (rebase, set-errors, reset) each settle the pending submit exactly once."
+
+ :baseline {:title "" :body "words"}
+
+ :title-path [:title]
+ :body-path  [:body]
+
+ :errors {[:title] "required"}
+
+ ;; BEFORE any attempt: the error exists and is not revealed, because the
+ ;; user has not been to that leaf.
+ :show-error-before? false
+
+ ;; THE INVALID ATTEMPT. Attempted, revealed, and no save opened.
+ :attempted-after-invalid?   true
+ :attempts-after-invalid     1
+ :pending-after-invalid      nil
+ :show-error-after-invalid?  true
+
+ ;; A SECOND invalid attempt is accepted — the counter moves and the form
+ ;; is not wedged.
+ :attempts-after-second-invalid 2
+ :pending-after-second-invalid  nil
+
+ ;; THE VALID ATTEMPT, once the errors are cleared. The pending token is
+ ;; the attempt number, so it is monotone and comparable.
+ :attempts-after-valid 3
+ :pending-after-valid  3
+
+ ;; THE STALE REPLY. A reply from attempt 3 arrives after the user has
+ ;; submitted a fourth time; its token is not the pending one, so it is
+ ;; inert.
+ :stale-token       3
+ :attempts-after-fourth 4
+ :pending-after-fourth  4
+ :stale-reply-current?  false
+ :fresh-reply-current?  true
+
+ ;; THE THREE SHAPES A REPLY TAKES, each settling the pending submit.
+ :saved-values     {:title "Ready" :body "words"}
+ :pending-after-rebase     nil
+ :server-errors    {[:title] "taken"}
+ :pending-after-set-errors nil
+ :pending-after-reset      nil
+
+ ;; And the reveal survives a reply: an error that arrived from the server
+ ;; after a submit is shown, because the form is still attempted.
+ :show-server-error? true}
