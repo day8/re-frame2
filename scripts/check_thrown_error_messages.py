@@ -726,7 +726,13 @@ def _mask_comments(text: str) -> list[str]:
 
 
 def _iter_source_files(scan_root: Path, include_tests: bool) -> Iterable[Path]:
-    """Yield framework source files under scan_root."""
+    """Yield framework source files under scan_root.
+
+    A FILE root yields just that file — the shape the fixture self-tests use
+    (`scan(<one .cljc fixture>)`). It is deliberately NOT reachable from the
+    CLI: `main` requires every `--scan-dir` to be a directory (rf2-un9fk), so
+    a file passed there is rejected with rc=2 rather than quietly scanning
+    one file — or, before that fix, zero."""
     if scan_root.is_file():
         if scan_root.suffix in _SOURCE_SUFFIXES:
             yield scan_root
@@ -865,8 +871,10 @@ def main(argv: list[str]) -> int:
         default=None,
         dest="scan_dirs",
         help=(
-            "Directory (relative to repo-root) to scan. Repeatable. Defaults "
-            "to the rostered framework-source tree(s): "
+            "Directory (relative to repo-root) to scan. Repeatable. Must be a "
+            "DIRECTORY — a missing path or an existing file exits 2 rather "
+            "than scanning nothing and reporting success (rf2-un9fk). "
+            "Defaults to the rostered framework-source tree(s): "
             f"{', '.join(DEFAULT_SCAN_DIRS)}."
         ),
     )
@@ -913,10 +921,25 @@ def main(argv: list[str]) -> int:
     # success for a tree it never opened, which is the defect class this
     # roster exists to close. Same posture as the sibling ratchet and the
     # test-lane bijection gate's phantom-path rule.
-    missing = [r for r in scan_roots if not r.exists()]
-    if missing:
-        for root in missing:
-            sys.stderr.write(f"error: scan dir {root} does not exist.\n")
+    #
+    # `is_dir`, NOT `exists` (rf2-un9fk). An EXISTING REGULAR FILE passed the
+    # old `exists()` test, and `_iter_source_files`'s `rglob` over a file
+    # yields nothing — so `--scan-dir README.md` scanned ZERO files and
+    # reported success. That is the same false green the missing-path check
+    # exists to prevent, one step further in: a gate that CANNOT RUN must
+    # exit non-zero, never green over the work it did not do. Both invalid
+    # shapes take the same rc=2 posture; the diagnostic names which it was so
+    # a typo'd path and a file-for-directory are told apart at a glance.
+    invalid = [r for r in scan_roots if not r.is_dir()]
+    if invalid:
+        for root in invalid:
+            why = (
+                "does not exist"
+                if not root.exists()
+                else "is not a directory (a scan root must be a directory; "
+                     "scanning it would silently cover zero files)"
+            )
+            sys.stderr.write(f"error: scan dir {root} {why}.\n")
         return 2
 
     if args.verbose:
@@ -1016,12 +1039,79 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
+    failures += _run_cli_self_tests(verbose=verbose)
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
+        sys.stderr.write(f"all {len(cases)} fixture self-tests passed.\n")
     return 0
+
+
+# --------------------------------------------------------------------------
+# CLI-level self-tests (rf2-un9fk) — the scan-ROOT validation, which the
+# fixture cases above cannot reach (they call `scan()` directly, bypassing
+# argument handling entirely).
+# --------------------------------------------------------------------------
+#
+# The fixture cases prove the DETECTOR. These prove the gate RUNS OVER WHAT IT
+# SAYS IT DOES. A root that resolves to an existing regular file used to pass
+# validation, scan zero files, and print the success verdict — a gate reporting
+# green for work it never did. `main()` is exercised end-to-end (parse → validate
+# → scan → verdict) so the exit code IS the assertion, matching how CI reads
+# this script.
+
+_CLI_NEGATIVE_FIXTURE_DIR = "scripts/_test_fixtures/check_thrown_error_messages/negative"
+
+
+def _run_cli_self_tests(verbose: bool = False) -> int:
+    """Exercise `main()`'s scan-root validation. Returns the failure count."""
+    import contextlib
+    import io
+
+    cases: list[tuple[str, list[str], int]] = [
+        # (name, argv, expected exit code)
+        ("valid directory scans and greens",
+         ["--scan-dir", _CLI_NEGATIVE_FIXTURE_DIR], 0),
+        ("missing path is rejected",
+         ["--scan-dir", "no/such/tree"], 2),
+        ("existing FILE is rejected (rf2-un9fk)",
+         ["--scan-dir", "README.md"], 2),
+        ("mixed valid dir + file fails the WHOLE invocation",
+         ["--scan-dir", _CLI_NEGATIVE_FIXTURE_DIR, "--scan-dir", "README.md"], 2),
+    ]
+
+    failures = 0
+    for name, argv, expected in cases:
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            got = main(argv)
+        if got != expected:
+            sys.stderr.write(
+                f"cli self-test FAIL: {name} — expected rc={expected}, got {got}\n"
+                f"  argv: {argv}\n  stderr: {buf.getvalue().strip()!r}\n"
+            )
+            failures += 1
+            continue
+        # A rejection must name the offending path and must not be a traceback.
+        if expected == 2:
+            err = buf.getvalue()
+            # Compare on the BASENAME: the diagnostic prints the resolved
+            # absolute path, whose separators are host-dependent (`\` on
+            # Windows), so matching the supplied relative spelling verbatim
+            # would fail on one platform and pass on the other.
+            bad_path = Path(argv[-1]).name
+            if bad_path not in err or "Traceback" in err:
+                sys.stderr.write(
+                    f"cli self-test FAIL: {name} — the rc=2 diagnostic must name "
+                    f"{bad_path!r} without a traceback; got {err.strip()!r}\n"
+                )
+                failures += 1
+                continue
+        if verbose:
+            sys.stderr.write(f"cli self-test PASS: {name} (rc={got})\n")
+    return failures
 
 
 if __name__ == "__main__":
