@@ -1,18 +1,45 @@
 (ns re-frame.ep0008-producers-jvm-gate-test
-  "EP-0008 / rf2-ntv9i9.3 — the JVM production-gate + raw-payload regressions
+  "rf2-f7qj4 — READ THIS FIRST. Despite the namespace's name, this suite is
+  NOT THE LOAD-TIME GATE.
+
+  `re-frame.interop/debug-enabled?` is read ONCE, at namespace-load time, from
+  `-Dre-frame.debug` / `RE_FRAME_DEBUG`. Every assertion below reaches it with
+  `with-redefs`, AFTER the framework has loaded, so it cannot change anything
+  the gate decided at load. What this suite pins is the REBINDABLE VAR — that
+  the always-on producers do not consult `debug-enabled?` at call time while
+  their dev-only companions do. Real contract, useful test; NOT the production
+  posture, and it must never be counted as coverage of one.
+
+  The lanes that DO reach the load-time gate:
+
+    * `jvm-core-prod-gate` / `sh scripts/test-core-prod-gate.sh` — the core
+      suite with `-Dre-frame.debug=false` genuinely on the JVM command line.
+    * `re-frame.prod-gate-lane-pin-test` — asserts the property really arrived
+      in that lane's JVM.
+    * `re-frame.prod-gate-dispatch-jvm-test` — the child-JVM pattern for a
+      defect that only reproduces at load time.
+
+  rf2-9c2jf was a TOTAL `dispatch-sync` failure under the documented gate that
+  stayed green for as long as it existed, and the full-looking roster of
+  \"production gate\" suites is part of why.
+
+  ## What this suite pins
+
+  EP-0008 / rf2-ntv9i9.3 — the debug-Var-rebind + raw-payload regressions
   for the REAL promoted producers.
 
   ## Why this suite exists (rf2-ntv9i9.3 finding #1)
 
   EP-0008 says the always-on axis survives BOTH CLJS production elision AND
-  JVM `re-frame.debug` / `RE_FRAME_DEBUG` gating. The generic JVM gate
+  JVM `re-frame.debug` / `RE_FRAME_DEBUG` gating. The generic rebind suite
   (`re-frame.jvm-prod-gate-integration-test`) proves a generic handler
   exception reaches `register-error-listener!` with debug disabled — but the
   REAL EP-0008 producers (`:rf.error/frame-teardown-failed`,
   `:rf.error/write-after-destroy`, `:rf.error/on-destroy-handler-exception`)
   were pinned mainly through the CLJS production-elision probe. This suite
-  exercises each REAL producer end-to-end under `debug-enabled? = false` — the
-  SSR-production JVM posture — and asserts:
+  exercises each REAL producer end-to-end with `debug-enabled?` REBOUND to
+  `false` — a model of the SSR-production JVM posture, not the posture itself
+  — and asserts:
 
     (a) each promoted producer's always-on record STILL fires with the dev
         gate off (the producer survives the JVM prod gate);
@@ -23,10 +50,10 @@
 
   ## Why JVM-only (`.clj`, not `.cljc`)
 
-  The gate this suite exercises is the JVM `interop/debug-enabled?` var
-  (`with-redefs`-rebindable here; CLJS uses Closure DCE, exercised by the
-  `prod_elision_runner` probe instead). Naming this `.clj` keeps it on the
-  JVM `clojure -M:test` runner only.
+  The surface this suite exercises is the JVM `interop/debug-enabled?` Var as
+  a REBINDABLE reference (`with-redefs` here; CLJS uses Closure DCE, exercised
+  by the `prod_elision_runner` probe, which is a genuine production build).
+  Naming this `.clj` keeps it on the JVM `clojure -M:test` runner only.
 
   ## Raw-payload regressions (rf2-ntv9i9.3 #2)
 

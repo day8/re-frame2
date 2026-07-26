@@ -1,13 +1,45 @@
 (ns re-frame.jvm-prod-gate-integration-test
-  "Per rf2-vnjfg (MEDIUM finding): JVM/SSR/headless production gate
-  end-to-end. Pins that when `interop/debug-enabled?` reads `false`
-  on the JVM, the dev surfaces (trace ring buffer, trace listener
-  fan-out, registry trace emits) drop to their no-op floor — the
-  same DCE-equivalent surface CLJS `:advanced` + `goog.DEBUG=false`
-  builds get for free.
+  "rf2-f7qj4 — READ THIS FIRST. Despite the namespace's name, this suite is
+  NOT THE LOAD-TIME GATE.
+
+  `re-frame.interop/debug-enabled?` is a `def` read ONCE, at namespace-load
+  time, from `-Dre-frame.debug` / `RE_FRAME_DEBUG`. Every assertion below
+  reaches it with `with-redefs`, which runs AFTER the framework has loaded and
+  therefore cannot change one thing the gate decided at load. What this suite
+  actually pins is the REBINDABLE VAR: that the gated dev surfaces re-read
+  `interop/debug-enabled?` at CALL time rather than caching it, so a rebind
+  silences them. That is a real and useful contract. It is not the production
+  posture, and it must never be counted as coverage of one.
+
+  The lanes that DO reach the load-time gate:
+
+    * `jvm-core-prod-gate` / `sh scripts/test-core-prod-gate.sh` — the core
+      suite run with `-Dre-frame.debug=false` genuinely on the JVM command
+      line (via the `:prod-gate` alias's `:jvm-opts`).
+    * `re-frame.prod-gate-lane-pin-test` — asserts, unconditionally, that the
+      property reached that lane's JVM and that the framework honoured it.
+    * `re-frame.prod-gate-dispatch-jvm-test` — the child-JVM pattern: relaunch
+      a fresh JVM with the property on the command line, for a defect that
+      only reproduces at load time.
+
+  Why the distinction is load-bearing: rf2-9c2jf was a TOTAL `dispatch-sync`
+  failure under the documented production gate — handler run ZERO times — and
+  it stayed green for as long as it existed. Part of why nobody caught it is
+  that the roster of suites calling themselves \"production gate\" tests looked
+  full, and a reviewer reading the file list had no way to see that not one of
+  them ran under the gate.
+
+  ## What this suite pins
+
+  Per rf2-vnjfg (MEDIUM finding): with `interop/debug-enabled?` REBOUND to
+  `false`, the dev surfaces (trace ring buffer, trace listener fan-out,
+  registry trace emits) drop to their no-op floor — the call-time-read
+  equivalent of what CLJS `:advanced` + `goog.DEBUG=false` gets from Closure
+  DCE.
 
   The companion epoch suite (`re-frame.epoch.jvm-prod-gate-test`,
-  rf2-0la4f) pins the same contract for the epoch artefact.
+  rf2-0la4f) rebinds the same Var for the epoch artefact and carries the same
+  caveat.
 
   The unit-level vocabulary semantics live in
   `re-frame.interop-debug-gate-test`; this suite is the end-to-end

@@ -1,15 +1,35 @@
 (ns re-frame.interop-debug-gate-test
-  "Per rf2-vnjfg / rf2-0la4f (security audit): the JVM-side
+  "rf2-f7qj4 — READ THIS FIRST. Despite the namespace's name, this suite is
+  NOT THE LOAD-TIME GATE. It pins the gate's INPUT VOCABULARY — which strings
+  `read-debug-flag` treats as false — by invoking the private reader directly
+  with `System/setProperty`. The reader is called here at TEST time; the gate
+  itself was decided once, at namespace-load time, long before. Nothing below
+  runs any framework code under the production posture.
+
+  The lanes that DO reach the load-time gate:
+
+    * `jvm-core-prod-gate` / `sh scripts/test-core-prod-gate.sh` — the core
+      suite with `-Dre-frame.debug=false` genuinely on the JVM command line.
+    * `re-frame.prod-gate-lane-pin-test` — asserts the property really arrived
+      in that lane's JVM and that the framework honoured it.
+    * `re-frame.prod-gate-dispatch-jvm-test` — the child-JVM pattern for a
+      defect that only reproduces at load time.
+
+  rf2-9c2jf was a TOTAL `dispatch-sync` failure under the documented gate that
+  stayed green for as long as it existed. Vocabulary coverage is not posture
+  coverage, and this suite must never be counted as the latter.
+
+  ## What this suite pins
+
+  Per rf2-vnjfg / rf2-0la4f (security audit): the JVM-side
   `re-frame.interop/debug-enabled?` gate is the SSR-mode production
   switch — the counterpart to CLJS `goog.DEBUG=false`. This suite
-  pins the gate's vocabulary semantics and its default.
+  pins the gate's vocabulary semantics and its default, so future
+  contributors don't accidentally change a case-sensitivity or
+  vocabulary contract without breaking a test.
 
-  The flag itself is read once at namespace load, so we exercise the
-  underlying private reader directly. The integration story (trace
-  buffer / epoch surfaces respecting the flag) lives in those
-  respective test suites — what THIS suite pins is the gate's input
-  vocabulary, so future contributors don't accidentally change a
-  case-sensitivity or vocabulary contract without breaking a test."
+  The integration story (trace buffer / epoch surfaces respecting a REBOUND
+  flag) lives in those respective suites, which carry the same caveat."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.interop :as interop]))
 
