@@ -298,6 +298,15 @@
     (next-gen!)
     nil))
 
+;; The scheduler's queue bookkeeping, in BOTH spellings, in one process on the
+;; same 300 thunks — the paired-control discipline `read-attribution`'s
+;; `RC-ATTACH` / `RC-CAND` established. `Q-SCHED` is the RETIRED form (a
+;; volatile over a persistent vector + persistent set); `Q-SCHED-JS` is the
+;; form that replaced it (a JS array + `js/Set`, mutated in place). Neither is
+;; a call into `spine`: the whole point is to keep the retired expression
+;; measurable beside the shipped one so the difference is a comparison of two
+;; EXPRESSIONS and neither arm can drift under the other.
+
 (defn- arm-q-sched []
   (let [{:keys [n thunks]} @rig
         [s q] (loop [k 0 s #{} q []]
@@ -311,9 +320,30 @@
     (vreset! sink2 (loop [k 0 s s] (if (< k n) (recur (inc k) (disj s (nth q k))) s)))
     nil))
 
+(defn- arm-q-sched-js []
+  (let [{:keys [n thunks]} @rig
+        s (js/Set.)
+        q (array)]
+    (dotimes [k n]
+      (let [t (nth thunks k)]
+        (when-not (.has s t) (.add s t) (.push q t))))
+    ;; the drain's `(.delete queued thunk)`, once per entry
+    (dotimes [k n] (.delete s (aget q k)))
+    (vreset! sink2 s)
+    nil))
+
+;; The derived-value fan-out over a two-plus-subscriber watcher map, in BOTH
+;; spellings. `P-VALS` is the RETIRED `(run! f (vals ws))`; `P-RKV` is the
+;; `reduce-kv` walk that replaced it.
+
 (defn- arm-p-vals []
   (let [{:keys [watch-map]} @rig]
     (run! (fn [w] (keep! w)) (vals watch-map))
+    nil))
+
+(defn- arm-p-rkv []
+  (let [{:keys [watch-map]} @rig]
+    (reduce-kv (fn [_ _ w] (keep! w) nil) nil watch-map)
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -473,7 +503,9 @@
                              ["P-EMIT"  arm-p-emit  n]
                              ["P-MEMO"  arm-p-memo  n]
                              ["Q-SCHED" arm-q-sched n]
-                             ["P-VALS"  arm-p-vals  n]]))
+                             ["Q-SCHEDJS" arm-q-sched-js n]
+                             ["P-VALS"  arm-p-vals  n]
+                             ["P-RKV"   arm-p-rkv   n]]))
           plan (if rev? (vec (reverse plan)) plan)
           res  (reduce
                  (fn [acc [label f per]]
@@ -522,11 +554,11 @@
         (println (gstring/format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write" (fmt slope)))
         (println ";;")
         (println ";; WHERE THE PER-SUBSCRIPTION BYTES GO (each arm × n, reported per sub)")
-        (doseq [l ["P-BODY" "P-EQDB" "P-SCOPE" "P-EMIT" "P-MEMO" "Q-SCHED" "P-VALS"]]
+        (doseq [l ["P-BODY" "P-EQDB" "P-SCOPE" "P-EMIT" "P-MEMO" "Q-SCHED" "Q-SCHEDJS" "P-VALS" "P-RKV"]]
           (let [v (/ (b l) n)]
             (println (gstring/format ";;   %-10s %10s B/sub   %5.1f%% of the slope"
                              l (fmt v) (* 100.0 (/ v slope))))))
         (println (gstring/format ";;   %-10s %10s B/sub"
                          "RESIDUAL" (fmt (- slope (/ (b "P-MEMO") n)
-                                            (/ (b "Q-SCHED") n) (/ (b "P-VALS") n)))))))
+                                            (/ (b "Q-SCHEDJS") n) (/ (b "P-RKV") n)))))))
     (println (gstring/format ";; sink %s %s" @sink (some? @sink2)))))
