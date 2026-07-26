@@ -2241,7 +2241,7 @@
 ;; by construction — the same reason rf2-1zc33 gave `:scope` the family's grain
 ;; and rf2-xx4ty gave `:value` / `:params` the owner's.
 ;;
-;; RESIDUE, filed not fixed (rf2-swpd0): a `:params`-rooted declaration on a
+;; RESIDUE, filed not fixed (rf2-dl7bz): a `:params`-rooted declaration on a
 ;; `:serialize` owner still rides raw inside the sibling `:resource/key`, whose
 ;; trace projection is coarse-only by documented decision
 ;; (`ssr/project-scoped-key` — "the trace / tool egress callers pass
@@ -2403,7 +2403,7 @@
             The sibling `:resource/key` still carries the same params raw — a
             `:serialize` owner's key rides verbatim at trace egress by
             documented decision (`ssr/project-scoped-key`). That residue is
-            filed as rf2-swpd0 and is a different carrier on every family row;
+            filed as rf2-dl7bz and is a different carrier on every family row;
             it is deliberately NOT asserted here, so this test does not have to
             change when that bead lands."
     (let [params    {:account "acct-9911" :slug plain-slug}

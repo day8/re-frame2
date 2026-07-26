@@ -529,7 +529,21 @@
   fail-closed arm of its own: a nil spec makes `project-trace-scoped-key`'s
   nil-spec branch redact, so `row-owner-redacts?` is already true and the
   caller has tokenized the whole payload before reaching this. Reference-
-  preserving when the spec declares neither axis. Pure."
+  preserving when the spec declares neither axis. Pure.
+
+  ## Two residues, filed rather than fixed
+
+    - rf2-dl7bz — a `:params`-rooted declaration also names bytes that ride
+      the SIBLING `:resource/key`, and a `:serialize` owner's key rides
+      verbatim at trace egress by documented decision
+      (`ssr/project-scoped-key`). This closes the reply's copy; the key's copy
+      is the family's universal carrier and is its own ruling.
+    - rf2-zaopo — `redact-with-paths` matches paths EXACTLY, so on an INFINITE
+      feed a `[:data :email]` decl does not reach the merged-items vector
+      `infinite-reply-value` delivers under `:value` (`[:value <i> :email]`).
+      The durable side forks index-free (`project-entry-data`); the carrier
+      walker does not, and teaching it to is a core-primitive change with four
+      callers."
   [reply]
   (let [rid  (second (:resource/key reply))
         spec (when (keyword? rid) (registry/resource-meta rid))]
