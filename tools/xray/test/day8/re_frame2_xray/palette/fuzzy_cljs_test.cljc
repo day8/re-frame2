@@ -64,6 +64,30 @@
           "ED on the EventDetail camel boundaries should beat Ed at
            the start of Editable"))))
 
+(deftest camel-boundary-credited-on-both-runtimes
+  ;; rf2-odlm3 REGRESSION PIN for a bug that shipped and ran in production.
+  ;;
+  ;; `upper?` / `lower?` read a character's code unit, and they used to do it
+  ;; with `(int ch)`. That is the code point on the JVM, but `cljs.core/int` is
+  ;; `(bit-or x 0)`, and JavaScript coerces a non-numeric string to 0 — and
+  ;; `(nth some-string idx)` yields a one-character STRING under CLJS. Both
+  ;; predicates therefore answered false for EVERY character in the browser,
+  ;; which is the only place the palette runs, so both bonuses that depend on
+  ;; them went dead: `word-start?`'s camelCase branch and the explicit
+  ;; camel-boundary bonus in the scoring loop. Separator word-starts were
+  ;; unaffected — `\- `\_ and friends compare fine as one-character strings —
+  ;; which is exactly why nothing else in this file noticed.
+  ;;
+  ;; The two candidates below are the SAME LENGTH, the query matches at the
+  ;; SAME TWO INDICES in both, and neither contains a separator. Prefix, gap,
+  ;; run and word-start-by-separator contributions are therefore identical, and
+  ;; the camelCase boundary is the only thing that can separate the scores.
+  ;; This cannot be satisfied by the separator path, and it fails on any host
+  ;; where `char-code` regresses.
+  (testing "a camelCase boundary outscores the same match with no boundary"
+    (is (> (fuzzy/score "openTimeTravel" "tt")
+           (fuzzy/score "opentimetravel" "tt")))))
+
 (deftest consecutive-match-run-bonus
   (testing "consecutive matched chars score higher than scattered ones"
     (let [run        (fuzzy/score "abcdef" "abc")
