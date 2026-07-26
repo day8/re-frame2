@@ -149,6 +149,6 @@
   ;; that already run live — and this note goes.
   :open
   {:rf2-drpa3.182.3
-   "the :map-props key-set law — equality or output subset — is unsettled; an unqualified rename is currently unchecked and no rostered projection asserts either answer"}
+   "the :map-props key-set law — key-set EQUALITY or output SUBSET — is unsettled, and has to be settled at host-element where the authored props and the mapper output both exist; an unqualified rename is currently unchecked, and no rostered projection asserts either answer"}
 
   :prose :executable}}

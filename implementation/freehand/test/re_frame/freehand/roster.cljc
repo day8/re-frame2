@@ -240,16 +240,14 @@
                              (pr-str evidence))))
 
           ;; An `:open` entry is keyed by the bead that owns the question,
-          ;; because "unsettled" without an owner is a shrug. The key is a
-          ;; symbol so it survives EDN as one token and reads as the bead
-          ;; id it is.
+          ;; because "unsettled" without an owner is a shrug.
           (and (map? rec) (contains? present :open)
                (not (and (map? open)
                          (seq open)
-                         (every? symbol? (keys open))
+                         (every? keyword? (keys open))
                          (every? (every-pred string? seq) (vals open)))))
           (conj (defect id :open
-                        (str "records each unsettled boundary as <owning-bead-symbol> "
+                        (str "records each unsettled boundary as <owning-bead-keyword> "
                              "-> one line stating the question; got " (pr-str open))))
 
           (and (map? rec) (empty? named))
@@ -261,18 +259,50 @@
           :always
           (into (mapcat (fn [[tier entry]] (tier-defects id tier entry)) named)))))))
 
+(def ^:private tier-hosts
+  "The hosts a proof tier can possibly run on. A tier claim is checked
+  against the index row's own host axis, which is the one cross-file law
+  the join can state without inventing one: a record cannot advertise a
+  browser proof for a law the ledger says binds only on the JVM.
+
+  `:structural` admits both because the structural walk is the one tier
+  that genuinely runs on either host from a single `.cljc`."
+  {:structural #{:jvm :browser}
+   :mounted    #{:browser}
+   :ssr        #{:ssr}})
+
+(defn- join-defects
+  "The defects that are properties of the JOIN — a record read against the
+  index row that addresses it.
+
+  Only one law is stated here, and deliberately only one. It is tempting to
+  also require that a fixture's `:fh/law` match its index row's word for
+  word, and that would be wrong: the two say the same law at different
+  lengths on purpose — the index row is the addressed one-line statement, a
+  fixture's `:fh/law` is the header over the values below it — and every
+  row in the ledger is written that way. Gating equality would force a
+  hundred prose rewrites to satisfy a law the corpus never held.
+
+  What IS checkable is that a record does not claim a tier the ledger's
+  host axis rules out."
+  [{id :fh/id :keys [hosts fh/record]}]
+  (when (and (map? record) (set? hosts))
+    (keep (fn [[t possible]]
+            (when (and (contains? record t)
+                       (empty? (set/intersection hosts possible)))
+              (defect id t
+                      (str "claims a " (name t) " proof, but the index row binds "
+                           "this law to " (pr-str (sort-by str hosts))
+                           " — that tier can only run on "
+                           (pr-str (sort-by str possible)) "."))))
+          tier-hosts)))
+
 (defn roster-defects
   "Every defect across `records`, plus the two that are properties of the
-  ROSTER rather than of any one record: a duplicated `:fh/id`, and a
-  fixture whose `:fh/law` disagrees with the index row that addresses it.
+  ROSTER rather than of any one record: a duplicated `:fh/id`, and a record
+  claiming a proof tier its index row's host axis rules out.
 
-  The law comparison is what keeps the join honest. The index states each
-  law in one line and the fixture states it again; before the roster,
-  nothing compared them, so a fixture could be broadened while its index
-  row went on advertising the narrow claim. Whitespace is normalised before
-  the compare — the index row is one physical table line and a fixture
-  string may be wrapped — but nothing else is: a reworded law is a real
-  divergence and the point is to catch it."
+  The failure value is a flat vector of defect maps, each naming its law."
   [records]
   (let [dupes (->> records
                    (map :fh/id)
@@ -283,14 +313,7 @@
                        (defect id :fh/id (str "appears " n " times in the roster; "
                                               "an id addresses exactly one law")))
                      dupes))
-          (keep (fn [{:keys [fh/id fh/law index/law]}]
-                  (let [squash #(some-> % str/trim (str/replace #"\s+" " "))]
-                    (when (and law index/law (not= (squash law) (squash index/law)))
-                      (defect id :fh/law
-                              (str "states its law differently from the index row "
-                                   "that addresses it.\n    fixture: " (squash law)
-                                   "\n    index:   " (squash index/law))))))
-                records))))
+          (mapcat join-defects records))))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading the two files — JVM only, at macro-expansion time
