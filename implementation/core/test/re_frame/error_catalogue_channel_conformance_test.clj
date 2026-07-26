@@ -77,10 +77,28 @@
        (`allow-list-stays-honest`): an entry that stops being emitted, or
        that gets catalogued, must be dropped.
 
+  ## The TAGS-COLUMN arm (rf2-6tags)
+
+  Invariants 1-5 reach the `Channel` column and the emit sites. They
+  never reached the `:tags` column, and that is where the drift
+  accumulated — the EP-0037 planner rows never landed, and
+  `:rf.error/resource-route-plan` shipped a Tags cell missing both
+  `:plan-cause` and `:contributor`:
+
+    6. TAGS KEYS-SET DIFF — Spec-Schemas.md already defines one canonical
+       `*Tags` Malli schema per trace-emitting catalogue row, so every key
+       a schema declares must be named in its row's `:tags` cell (minus
+       the two envelope-level slots 009 excludes by rule). No new source
+       of truth, no roster: the pairing derives the schema name from the
+       WHOLE `:operation` and the diff is a set difference. See the
+       section comment above `spec-schemas-file` for what falls out of
+       the pairing by construction and why.
+
   JVM-only (`.clj`, NOT `*-cljs-test`): it `slurp`s repo markdown + source
   files, which only the JVM `clojure -M:test` runner can do. The exercise
   leg is the dual-runtime half."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
@@ -184,6 +202,18 @@
                  {:category (keyword (subs cat-str 1)) ;; drop leading ':'
                   :channel  (str/trim chan)})))
        vec))
+
+(def ^:private catalogue-tag-row-re
+  "Matches one catalogue table row for the TAGS arm, capturing only the
+  `:operation` category keyword. The `:tags` cell is read positionally
+  (see `parse-catalogue-tag-rows`) rather than through the regex — the
+  cell is long, link-bearing prose and a regex over it is a liability.
+
+  Anchored the same way `catalogue-row-re` is, so the retired-row
+  sentinel (a strikethrough `~~:rf...~~` first cell) does not match: a
+  struck row documents a category the runtime no longer emits and has no
+  live `:tags` payload to reconcile."
+  #"^\|\s*`(:rf\.[^`]+)`\s*\|")
 
 (def ^:private allowed-channels
   "The two graduated EP-0008 channel values (Spec 009 §Error event
@@ -698,3 +728,362 @@
           (str "allow-list entries that are NOW catalogued (drop them so "
                "the coverage check governs them, rf2-9fvp25): "
                (pr-str (sort now-catalogued)))))))
+
+;; ---------------------------------------------------------------------------
+;; The TAGS-COLUMN arm (rf2-6tags) — the catalogue's sixth column against the
+;; canonical `*Tags` schema, which nothing had ever compared.
+;; ---------------------------------------------------------------------------
+;;
+;; Everything above pins the CHANNEL column and the emit sites. Nothing reached
+;; the `:tags` column, and that is where the drift accumulated: the EP-0037
+;; planner rows never landed (`:rf.route/prefetched` appeared ZERO times in the
+;; catalogue while shipping), and `:rf.error/resource-route-plan`'s Tags column
+;; omitted both `:plan-cause` and `:contributor` while its narrative still
+;; taught partial planning against the ratified atomicity rule. A gate whose
+;; coverage never reaches the column where drift accumulates keeps reporting
+;; green over it.
+;;
+;; The arm needs NO new source of truth. Spec-Schemas.md already defines one
+;; `*Tags` Malli schema per trace-emitting catalogue row, and both files are
+;; already parsed here, so the check is a keys-set difference: every key the
+;; SCHEMA declares must be named in the ROW's `:tags` cell.
+;;
+;; DECLINED, and recorded so it is not re-proposed: a trace-OP arm. There is no
+;; per-op schema roster to diff against, so the only available check is "is
+;; every emitted op documented somewhere in 2500 lines of prose" — a scan with
+;; a bad false-positive rate. The expensive half for the weaker signal.
+;;
+;; WHAT FALLS OUT OF THE PAIRING BY CONSTRUCTION, and why that is not a hole.
+;; Spec-Schemas carries a `:tags` schema only for TRACE-EMITTING categories.
+;; Thrown-`ex-info` rows and always-on union-record rows have no `:tags` map at
+;; all — `re-frame.error/thrown-ex-info` builds a FLAT ex-data map, and Spec 009
+;; §The thrown-error shape already declares `:recovery` among four REQUIRED
+;; slots on it — so they never derive a schema and the arm never reasons about
+;; them. 486 active rows, 88 paired — and the 88 are the trace-emitting ones,
+;; which is why the trace-event-scoped exclusion rule below is the right one.
+;;
+;; PAIRING KEYS OFF THE WHOLE `:operation`, NOT ITS NAME HALF. A schema name is
+;; derived by PascalCasing the category's name half
+;; (`:rf.error/resource-route-plan` → `ResourceRoutePlanTags`), but two distinct
+;; operations can share a name half: `:rf.http/stale-suppressed` and
+;; `:rf.route.nav-token/stale-suppressed` both derive `StaleSuppressedTags`,
+;; which belongs to the nav-token category alone (the schema's own comment in
+;; Spec-Schemas says so, and says a name-derived pairing must key off the whole
+;; `:operation`). A derived name claimed by MORE THAN ONE operation therefore
+;; identifies no operation and pairs with neither — the only way to key off the
+;; whole `:operation` without a hand-maintained alias table, which is the drift
+;; generator this repo keeps removing. Without this the http row sits in the
+;; ledger forever looking like debt when it is a false pair.
+;;
+;; The two ENVELOPE-level slots are excluded by the catalogue's own rule
+;; (009 §Error event catalogue, *Reading the two right-hand columns*):
+;; "**On a trace-event row**, two envelope-level slots are excluded from the
+;; column **by rule**" — `:recovery` (which `build-event` hoists to the
+;; envelope top level) and `:category` (synthesized on the `:error` branch
+;; only). That rule is scoped to the TRACE-EVENT reading, which is exactly the
+;; set the pairing reaches: rf2-dxuzp rescoped it from "every row" precisely
+;; because thrown rows contradict it (009 §The thrown-error shape declares
+;; `:recovery` REQUIRED on the flat ex-data map), and those are the rows that
+;; already fall out above. So the arm's exclusion and the catalogue's rule
+;; agree on the same domain, rather than the arm applying a wider rule than
+;; the corpus states. The same bullet says a trace-event row's column "lists
+;; the keys that genuinely ride under `:tags` **on the wire**", so every
+;; finding is a row the catalogue's own contract requires to change.
+
+(def ^:private spec-schemas-file
+  "`spec/Spec-Schemas.md`, resolved the same way `spec-009-file` is."
+  (let [nested (io/file "../../spec/Spec-Schemas.md")
+        legacy (io/file "../spec/Spec-Schemas.md")]
+    (if (.exists nested) nested legacy)))
+
+(def ^:private tags-schema-def-re
+  "The opening of a canonical per-category tags schema in Spec-Schemas.md —
+  `(def <Pascal>Tags`, at the start of a line inside a ```clojure fence."
+  #"(?m)^\(def ([A-Za-z0-9]+Tags)\s")
+
+(defn- read-form-at
+  "The single Clojure form beginning at `idx` in `text`, read as DATA. The
+  schemas are Malli vectors, so `edn/read` is both sufficient and safer than
+  the full reader; `:default` keeps an unexpected tagged literal from throwing."
+  [^String text ^long idx]
+  (with-open [r (java.io.PushbackReader.
+                  (java.io.StringReader. (subs text idx)))]
+    (edn/read {:eof nil :default (fn [_tag v] v)} r)))
+
+(defn- schema-map-keys
+  "The top-level entry keys of the first `[:map …]` inside a parsed
+  `(def XxxTags …)` form. Descends because a schema may wrap its map
+  (`[:and [:map …] …]`); takes only DIRECT entries of that map, so a nested
+  `[:map …]` inside an entry's value does not contribute keys. A properties
+  map after `:map` is skipped (it is not a vector)."
+  [form]
+  (if-let [m (->> (tree-seq coll? seq form)
+                  (filter #(and (vector? %) (= :map (first %))))
+                  first)]
+    (into #{} (comp (filter vector?) (map first) (filter keyword?)) (rest m))
+    #{}))
+
+(defn- parse-tags-schemas
+  "`{\"HandlerExceptionTags\" #{:category :failing-id …}, …}` — every
+  `*Tags` schema Spec-Schemas.md defines, by name, with its declared key set."
+  ([] (parse-tags-schemas (slurp spec-schemas-file)))
+  ([text]
+   (let [m (re-matcher tags-schema-def-re text)]
+     (loop [acc {}]
+       (if (.find m)
+         (recur (assoc acc (.group m 1)
+                       (schema-map-keys (read-form-at text (.start m)))))
+         acc)))))
+
+(def ^:private tags-cell-key-re
+  "A `:tags` cell entry: a back-ticked span that is EXACTLY one keyword.
+  Anchored on the whole span on purpose — the cells carry long prose in which
+  a bare `:foo` appears inside sentences and inside multi-token spans like
+  `` `:op :subscribe` ``. Reading those as documented keys would make the arm
+  MORE permissive (findings are schema keys the cell omits), i.e. would turn a
+  real red into a green. The narrow rule is the safe direction."
+  #"`(:[\w.*+!?<>=/'-]+)`")
+
+(defn- cell-tag-keys [cell]
+  (into #{} (map (comp keyword #(subs % 1) second))
+        (re-seq tags-cell-key-re cell)))
+
+(defn- parse-catalogue-tag-rows
+  "`[{:category <kw> :tags-cell <string>} …]` for every ACTIVE row of the
+  canonical catalogue section. The `:tags` cell is the SIXTH column; `-1` keeps
+  trailing empties so a row whose `:tags` cell is BLANK still parses (and so
+  still reds when its schema declares keys)."
+  ([] (parse-catalogue-tag-rows (slurp spec-009-file)))
+  ([text]
+   (->> (str/split-lines text)
+        (catalogue-section-lines)
+        (keep (fn [line]
+                (when-let [[_ cat-str] (re-find catalogue-tag-row-re line)]
+                  (let [cells (str/split line #"\|" -1)]
+                    (when (>= (count cells) 7)
+                      {:category  (keyword (subs cat-str 1))
+                       :tags-cell (str/trim (nth cells 6))})))))
+        vec)))
+
+(defn- derived-schema-name
+  "`:rf.error/resource-route-plan` → `\"ResourceRoutePlanTags\"`."
+  [category]
+  (str (->> (str/split (name category) #"[-.]")
+            (map str/capitalize)
+            (apply str))
+       "Tags"))
+
+(def ^:private envelope-only-tag-keys
+  "The two slots 009 excludes from every row's `:tags` cell BY RULE, so a
+  schema declaring them is not evidence of a row defect."
+  #{:recovery :category})
+
+(defn tags-column-findings
+  "`[{:category … :schema … :missing #{…}} …]` — every paired row whose `:tags`
+  cell omits a key its canonical schema declares. Pure over its two inputs so
+  the non-vacuity proof can drive it with synthetic corpora."
+  [rows schemas]
+  (let [by-derived (group-by (comp derived-schema-name :category) rows)]
+    (->> by-derived
+         (keep (fn [[schema-name group]]
+                 ;; A derived name claimed by more than one operation
+                 ;; identifies no operation — pair with neither.
+                 (when-let [row (and (= 1 (count group)) (first group))]
+                   (when-let [schema-keys (get schemas schema-name)]
+                     (let [missing (set/difference schema-keys
+                                                   envelope-only-tag-keys
+                                                   (cell-tag-keys (:tags-cell row)))]
+                       (when (seq missing)
+                         {:category (:category row)
+                          :schema   schema-name
+                          :missing  missing}))))))
+         (sort-by :category)
+         vec)))
+
+(defn- paired-count
+  "How many rows pair to a schema — the sanity floor's subject."
+  [rows schemas]
+  (->> (group-by (comp derived-schema-name :category) rows)
+       (filter (fn [[schema-name group]]
+                 (and (= 1 (count group)) (contains? schemas schema-name))))
+       count))
+
+(def ^:private tags-column-shrink-only-baseline
+  "SHRINK-ONLY. The rows that still red when the arm is armed — pre-existing
+  debt the arm did not create, held so the arm can ship rather than waiting on
+  a corpus reconciliation. Entries LEAVE this set and never join it: a NEW
+  omission fails immediately, and `tags-column-baseline-stays-honest` fails the
+  moment a listed row is fixed, forcing the drop in the SAME PR.
+
+  ONE entry, owned elsewhere:
+
+    `:rf.ssr/hydration-mismatch` — the Tags cell spells the optional wire key
+    `:first-diff-path?`. The trailing `?` is not part of the key: Spec 011
+    §The `:first-diff-path` tag names `:first-diff-path`,
+    `re-frame.ssr.hydrate/verify-hydration!` conditionally `assoc`es
+    `:first-diff-path`, and `HydrationMismatchTags` declares
+    `[:first-diff-path {:optional true} [:vector :any]]`. The `?` is the
+    row author writing optionality into the key rather than into prose. This
+    is the last of the 23 findings rf2-zk1xu adjudicated (PR #7030 corrected
+    the other 22 across 18 rows and 3 schemas) and is that bead's named
+    bounded completion — including the clause 'prove the Tags-column key
+    parser observes the literal key', which is THIS arm. Fixing the cell to
+    the literal `:first-diff-path` (optionality stated in prose) empties this
+    set; drop the entry in that same PR."
+  #{:rf.ssr/hydration-mismatch})
+
+(deftest tags-column-pairing-is-live
+  (testing "Sanity, in the shape the sibling scans use: the arm actually reaches
+            both corpora and pairs a substantial number of rows. A derivation
+            change, a Spec-Schemas fence rename, or a catalogue column reorder
+            would collapse the pairing to zero and every finding-based
+            invariant below would pass VACUOUSLY."
+    (let [rows    (parse-catalogue-tag-rows)
+          schemas (parse-tags-schemas)]
+      (is (.exists spec-schemas-file)
+          (str "spec/Spec-Schemas.md not found at " spec-schemas-file))
+      (is (>= (count schemas) 100)
+          (str "Spec-Schemas.md yielded the per-category tags schemas "
+               "(>= 100), not a partial parse; found " (count schemas)))
+      (is (>= (paired-count rows schemas) 80)
+          (str "catalogue rows paired to a canonical schema (>= 80); found "
+               (paired-count rows schemas)))
+      ;; Anchor on a schema whose keys are non-trivial, so a parse that finds
+      ;; the def but reads an empty key set is caught.
+      (is (contains? (get schemas "HandlerExceptionTags") :exception-message)
+          "HandlerExceptionTags parsed with its declared keys"))))
+
+(deftest tags-column-keys-are-documented
+  (testing "Per rf2-6tags: every key a canonical `*Tags` schema declares must
+            be named in its catalogue row's `:tags` cell, minus the two
+            envelope-level slots 009 excludes by rule. This is the column the
+            ratchet never reached — the one the EP-0037 planner rows drifted in."
+    (let [findings (tags-column-findings (parse-catalogue-tag-rows)
+                                         (parse-tags-schemas))
+          beyond   (remove (comp tags-column-shrink-only-baseline :category)
+                           findings)]
+      (is (empty? beyond)
+          (str "catalogue rows whose `:tags` cell omits keys their canonical "
+               "Spec-Schemas schema declares (rf2-6tags). Either add the keys "
+               "to the row, or correct the schema if the SCHEMA is the wrong "
+               "side (several of the rf2-zk1xu findings were): "
+               (pr-str (mapv (juxt :category :schema (comp sort :missing))
+                             beyond)))))))
+
+(deftest tags-column-baseline-stays-honest
+  (testing "The shrink-only baseline may only shrink. An entry that no longer
+            reds must be DROPPED in the same PR that fixes it — otherwise the
+            set rots into a blanket suppression, exactly as
+            `allow-list-stays-honest` guards its sibling."
+    (let [redding (->> (tags-column-findings (parse-catalogue-tag-rows)
+                                             (parse-tags-schemas))
+                       (map :category)
+                       set)
+          stale   (set/difference tags-column-shrink-only-baseline redding)]
+      (is (empty? stale)
+          (str "tags-column-shrink-only-baseline entries that no longer red — "
+               "drop them from the set in this file (rf2-6tags / rf2-zk1xu): "
+               (pr-str (sort stale)))))))
+
+;; --- non-vacuity ------------------------------------------------------------
+;;
+;; An arm that cannot red on the defect that motivated it has not been tested,
+;; and this repo has shipped exactly that mistake before. The corpora below
+;; reproduce `:rf.error/resource-route-plan` as it stood at ded86cff64 — the
+;; parent of the rf2-wsopx fix — where the row genuinely omitted `:plan-cause`
+;; and `:contributor`. Run against the historical files themselves the arm
+;; reports 22 findings including that one; here the same pair is inlined so the
+;; proof stays runnable after those commits scroll away.
+
+(def ^:private pre-wsopx-schemas
+  {"ResourceRoutePlanTags"
+   #{:category :reason :route-id :frame :contributor :plan-cause}})
+
+(defn- catalogue-fixture
+  "A minimal catalogue section carrying `rows` verbatim, so the real parser
+  (section scoping, column split, cell extraction) is what is exercised."
+  [& rows]
+  (str/join "\n"
+            (concat ["### Error event catalogue"
+                     ""
+                     "| `:operation` | `:op-type` | Channel | Trigger | Default `:recovery` | `:tags` |"
+                     "|---|---|---|---|---|---|"]
+                    rows
+                    ["" "### Schemas" ""])))
+
+(deftest tags-column-arm-reds-on-its-motivating-defect
+  (testing "Per rf2-6tags the arm MUST red against the pre-rf2-wsopx catalogue
+            state. The row below is the pre-fix cell: it names the four keys it
+            documented and omits the two the schema declares."
+    (let [pre  (parse-catalogue-tag-rows
+                 (catalogue-fixture
+                   (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
+                        "| A route resource plan failed. | `:no-recovery` "
+                        "| `:route-id`, `:reason`, `:frame` |")))
+          post (parse-catalogue-tag-rows
+                 (catalogue-fixture
+                   (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
+                        "| A route resource plan failed. | `:no-recovery` "
+                        "| `:route-id`, `:reason`, `:frame`, `:contributor`, "
+                        "`:plan-cause` |")))]
+      (is (= [{:category :rf.error/resource-route-plan
+               :schema   "ResourceRoutePlanTags"
+               :missing  #{:contributor :plan-cause}}]
+             (tags-column-findings pre pre-wsopx-schemas))
+          "the arm reds on the exact defect that motivated it")
+      (is (empty? (tags-column-findings post pre-wsopx-schemas))
+          "…and greens on the fix, so the red is the defect and not the arm"))))
+
+(deftest tags-column-arm-excludes-only-the-two-envelope-slots
+  (testing "`:recovery` and `:category` are envelope-level by the catalogue's
+            own rule, so a schema declaring them is not a row defect. Nothing
+            else is exempt: an ordinary key the cell omits still reds."
+    (let [rows (parse-catalogue-tag-rows
+                 (catalogue-fixture
+                   (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
+                        "| … | `:no-recovery` | `:route-id` |")))]
+      (is (= [{:category :rf.error/resource-route-plan
+               :schema   "ResourceRoutePlanTags"
+               :missing  #{:reason :frame :contributor :plan-cause}}]
+             (tags-column-findings rows pre-wsopx-schemas))
+          "`:category` and `:recovery` are absent from the missing set; every
+           other undocumented key is present"))))
+
+(deftest tags-column-pairing-keys-off-the-whole-operation
+  (testing "Two operations sharing a name half derive one schema name and so
+            identify no operation. `StaleSuppressedTags` belongs to
+            `:rf.route.nav-token/stale-suppressed` alone; pairing it to
+            `:rf.http/stale-suppressed` — an `:info` reply-family trace with a
+            different payload entirely — manufactures a finding that is a false
+            pair, not debt. With BOTH rows present neither pairs; with only the
+            owning row present the pairing is unambiguous and the check runs."
+    (let [schemas {"StaleSuppressedTags" #{:category :carried-token
+                                           :current-token :rf.trace/event-id}}
+          http-row (str "| `:rf.http/stale-suppressed` | `:info` | diagnostic "
+                        "| A stale HTTP reply was suppressed. | `:dropped` "
+                        "| `:rf.reply/status` |")
+          nav-row  (str "| `:rf.route.nav-token/stale-suppressed` | `:error` "
+                        "| diagnostic | A stale navigation result was suppressed. "
+                        "| `:dropped` | `:carried-token`, `:current-token` |")]
+      (is (empty? (tags-column-findings
+                    (parse-catalogue-tag-rows (catalogue-fixture http-row nav-row))
+                    schemas))
+          "an ambiguous derived name pairs with neither operation")
+      (is (= [{:category :rf.route.nav-token/stale-suppressed
+               :schema   "StaleSuppressedTags"
+               :missing  #{:rf.trace/event-id}}]
+             (tags-column-findings
+               (parse-catalogue-tag-rows (catalogue-fixture nav-row))
+               schemas))
+          "…and the owning row alone still pairs, so ambiguity costs coverage
+           only where the corpus is genuinely ambiguous"))))
+
+(deftest tags-column-arm-ignores-retired-rows
+  (testing "A struck-through row documents a category the runtime no longer
+            emits; it has no live `:tags` payload, so it must not pair."
+    (let [rows (parse-catalogue-tag-rows
+                 (catalogue-fixture
+                   (str "| ~~`:rf.error/resource-route-plan`~~ | — | n/a (retired) "
+                        "| **RETIRED.** … | — | — |")))]
+      (is (empty? rows) "a struck row does not parse as a tags row")
+      (is (empty? (tags-column-findings rows pre-wsopx-schemas))))))
