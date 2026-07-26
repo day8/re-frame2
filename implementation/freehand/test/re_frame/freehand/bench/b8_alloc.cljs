@@ -31,12 +31,28 @@
   visible precisely because it has not been collected.
 
   So a reading is: force a full collection; read; run N writes; read.
-  The whole method rests on the middle step containing no collection, so
-  that is not assumed — it is **detected and the window is rejected**.
-  The used-heap counter is sampled at every leg boundary of every write
-  into a preallocated buffer, and a counter that only ever rises is a
-  window in which nothing was reclaimed. One decrease anywhere and the
-  window is thrown away rather than averaged in.
+  The counter is sampled at every leg boundary of every write, and every
+  adjacent pair is one STEP — rising steps are allocation, falling steps
+  are collections, and the two are accumulated SEPARATELY. The published
+  figure is the sum of the rising steps, which is an allocation total
+  whether or not a collection intervened, because a collection is
+  excluded from it rather than netted against it.
+
+  A window in which nothing fell is one in which nothing was reclaimed,
+  and there the rising-step sum, the difference of the endpoints and the
+  driver's CDP bracket are three ways of computing one number. They must
+  agree, and the driver reports the worst disagreement. That identity is
+  the instrument's consistency check; those windows are the validation
+  set, not the whole sample.
+
+  Where a collection did land, the rising-step sum is a slight
+  UNDER-estimate — the allocation between the last reading before the
+  collection and the collection itself is netted away inside that single
+  step. The bias is one-directional, bounded by one leg per collection,
+  and the collection count is published beside every figure. This
+  matters most for Freehand, which allocates enough per write to provoke
+  collections the other arms do not, so the bias runs in Freehand's
+  FAVOUR and any deficit reported here is a floor on the real one.
 
   ## The positive control is a piece of garbage of predicted size
 
@@ -134,6 +150,7 @@
 
 (defn- fresh-acc []
   (js-obj "control" 0 "write" 0 "gap" 0 "force" 0 "total" 0
+          "posSum" 0 "negSum" 0
           "bad" 0 "decreases" 0 "worstDrop" 0 "first" 0 "last" 0))
 
 (defn integrity-probe
@@ -262,23 +279,44 @@
                                                    (= (str val)
                                                       (rows/cell-text
                                                         container
-                                                        (dec rows/cells-n)))))))))))))))
+                                                        (dec rows/cells-n))))))))))))))))
 
 (defn run-window!
-  "N writes over one arm, inside one collection-free window.
+  "N writes over one arm, with the counter read at every leg boundary.
 
   Answers a promise of the accumulated legs, the count of writes whose
-  DOM read-back failed, and — the gate — the number of places where the
-  used-heap counter went DOWN. A window with any decrease had a
-  collection in it and is not a measurement of allocation; the driver
-  drops it."
+  DOM read-back failed, and the two quantities that make the reading
+  robust to a collection landing inside the window:
+
+  `posSum` — the sum of the RISING steps, which is an allocation total
+  whether or not a collection intervened, because a collection is a
+  falling step and is excluded from it rather than netted against it.
+
+  `decreases` / `negSum` / `worstDrop` — the collections themselves.
+  A window with `decreases` zero is one in which nothing was reclaimed,
+  and there `posSum` and the endpoint difference are the SAME NUMBER by
+  construction. That identity is the instrument's own consistency check
+  and the driver reports it.
+
+  Where a collection did land, `posSum` is a slight UNDER-estimate: the
+  allocation between the last reading before the collection and the
+  collection itself is netted away inside that one step. The bias is
+  one-directional, bounded by one leg per collection, and reported."
   [mnt kind n]
   (let [acc  (fresh-acc)
         prev (volatile! nil)
-        drop! (fn [a x y]
-                (when (< y x)
-                  (bump! a "decreases" 1)
-                  (gobj/set a "worstDrop" (min (gobj/get a "worstDrop") (- y x)))))]
+        ;; Every adjacent pair of readings is one STEP. A step that rises
+        ;; is allocation; a step that falls is a collection, and the two
+        ;; are accumulated separately. `posSum` is therefore an allocation
+        ;; total that survives a collection landing inside the window,
+        ;; where the endpoint difference does not.
+        step! (fn [a x y]
+                (let [d (- y x)]
+                  (if (neg? d)
+                    (do (bump! a "decreases" 1)
+                        (bump! a "negSum" d)
+                        (gobj/set a "worstDrop" (min (gobj/get a "worstDrop") d)))
+                    (bump! a "posSum" d))))]
     (rows/chain acc (range n)
       (fn [a _]
         (let [val (rows/next-gen!)
@@ -291,9 +329,9 @@
                          ;; Decreases are counted across the WHOLE window,
                          ;; including the seam between one write's last
                          ;; reading and the next write's first.
-                         (when-some [p @prev] (drop! a p h0))
-                         (drop! a h0 hc) (drop! a hc h1)
-                         (drop! a h1 h2) (drop! a h2 h3)
+                         (when-some [p @prev] (step! a p h0))
+                         (step! a h0 hc) (step! a hc h1)
+                         (step! a h1 h2) (step! a h2 h3)
                          (when (nil? @prev) (gobj/set a "first" h0))
                          (vreset! prev h3)
                          (gobj/set a "last" h3)

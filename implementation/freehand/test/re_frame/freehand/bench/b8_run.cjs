@@ -161,7 +161,8 @@ async function main() {
   // back. Nothing is measured until it does.
   const integ = await page.evaluate(() => window.B8.integrity());
   const wantKeys = [
-    'control', 'write', 'gap', 'force', 'total', 'bad', 'decreases', 'worstDrop', 'first', 'last',
+    'control', 'write', 'gap', 'force', 'total', 'posSum', 'negSum',
+    'bad', 'decreases', 'worstDrop', 'first', 'last',
   ];
   const gotKeys = integ && typeof integ.keys === 'string' ? integ.keys.split(',') : [];
   const missing = wantKeys.filter((k) => !gotKeys.includes(k));
@@ -241,7 +242,9 @@ async function main() {
         ? null
         : {
             total: r.total,
-            perWrite: r.total / WRITES,
+            posSum: r.posSum,
+            negSum: r.negSum,
+            perWrite: r.posSum / WRITES,
             control: r.control,
             write: r.write,
             gap: r.gap,
@@ -250,9 +253,15 @@ async function main() {
             worstDrop: r.worstDrop,
           },
       bad: r.bad,
-      // THE GATE. Any decrease means a collection ran inside the window and
-      // the difference of the endpoints is not an allocation total.
-      accepted: published ? r.bad === 0 : r.decreases === 0 && r.bad === 0,
+      // COLLECTION-FREE, which is not the same as usable. `posSum` is an
+      // allocation total either way, because a collection is a FALLING step
+      // and is accumulated separately rather than netted against the rising
+      // ones. What a collection-free window buys is the identity
+      // `posSum === last − first === the CDP bracket`, which is the
+      // instrument's consistency check — so these windows are the
+      // validation set, not the whole sample.
+      collectionFree: !published && r.decreases === 0,
+      accepted: r.bad === 0,
     };
   }
 
@@ -271,6 +280,14 @@ async function main() {
       ['freehand-interpreted', kind, WRITES]
     );
     const post = await readCdp();
+    // COLLECT BEFORE READING THE SAMPLER, and that is the whole point.
+    // Inside a collection-free window the garbage is still standing, so
+    // the sampler can still see it and reports a large number — which is
+    // not the fault being demonstrated. The fault is that it reports what
+    // SURVIVES: after a full collection the samples of the collected
+    // objects are dropped and the same window reads as almost nothing,
+    // while the counter's reading of that window does not move.
+    await gc();
     const { profile } = await cdp.send('HeapProfiler.stopSampling');
     let sampled = 0;
     (function walk(node) {
@@ -353,9 +370,25 @@ function report(out) {
     console.log(`\n;; ==== B8 — bytes allocated per ${kind.toUpperCase()} write ====`);
     const all = rows.filter((r) => r.kind === kind);
     const acc = all.filter((r) => r.accepted);
+    const mir = all.filter((r) => !r.published && r.accepted);
+    const cf = mir.filter((r) => r.collectionFree);
     console.log(
-      `;; windows: ${acc.length} accepted of ${all.length}; ` +
-        `${all.length - acc.length} rejected for a collection inside the window`
+      `;; windows: ${acc.length} of ${all.length} verified at the DOM; of the ${mir.length} ` +
+        `mirror windows ${cf.length} were collection-free`
+    );
+    // THE IDENTITY. Where nothing was reclaimed, the sum of the rising
+    // steps, the endpoint difference and the CDP bracket are three ways of
+    // computing one number and must agree. Quoted as the worst case.
+    let worstId = 0;
+    let worstCdp = 0;
+    for (const r of cf) {
+      worstId = Math.max(worstId, Math.abs(r.inPage.posSum / r.inPage.total - 1));
+      worstCdp = Math.max(worstCdp, Math.abs(r.inPage.posSum / r.cdpAllocated - 1));
+    }
+    console.log(
+      `;; collection-free identity: rising-step sum vs endpoint difference, worst ` +
+        `${(worstId * 100).toFixed(3)}%; vs the CDP bracket, worst ${(worstCdp * 100).toFixed(2)}% ` +
+        `(the CDP bracket also contains the inter-write seam the legs do not)`
     );
     console.log(
       `;; unverified writes: ${all.reduce((a, r) => a + (r.arm === 'instrument' ? 0 : r.bad), 0)} of ` +
@@ -395,40 +428,51 @@ function report(out) {
 
     // --- the table --------------------------------------------------------
     console.log(';;');
-    console.log(';; arm                  B/write (counter)     in-page      write leg   force leg   retained');
+    console.log(';; arm                  B/write (rising-step sum)   CDP     write leg   force leg   retained   GCs');
     const per = {};
     for (const arm of ARMS) {
       const ws = of(arm, 0, false);
-      const cdpS = stat(ws.map((r) => r.cdpPerWrite));
       const inS = stat(ws.map((r) => r.inPage.perWrite));
+      const cdpS = stat(ws.map((r) => r.cdpPerWrite));
+      const gcS = stat(ws.map((r) => r.inPage.decreases));
       const wS = stat(ws.map((r) => r.inPage.write / r.writes));
       const fS = stat(ws.map((r) => r.inPage.force / r.writes));
       const gS = stat(ws.map((r) => r.inPage.gap / r.writes));
       const rS = stat(ws.map((r) => r.retained / r.writes));
       const pub = stat(of(arm, 0, true).map((r) => r.cdpPerWrite));
-      per[arm] = { cdp: cdpS, inPage: inS, write: wS, gap: gS, force: fS, retained: rS, published: pub };
-      if (!cdpS) continue;
+      per[arm] = { cdp: cdpS, inPage: inS, write: wS, gap: gS, force: fS, retained: rS,
+                   published: pub, gcs: gcS };
+      if (!inS) continue;
       console.log(
-        `;; ${arm.padEnd(20)} ${fmt(cdpS.mean).padStart(9)} ` +
-          `[${fmt(cdpS.min)}–${fmt(cdpS.max)}]`.padEnd(21) +
-          `${fmt(inS && inS.mean).padStart(9)}  ${fmt(wS && wS.mean).padStart(10)}` +
-          `  ${fmt(fS && fS.mean).padStart(10)}  ${fmt(rS && rS.mean).padStart(9)}`
+        `;; ${arm.padEnd(20)} ${fmt(inS.mean).padStart(9)} ` +
+          `[${fmt(inS.min)}–${fmt(inS.max)}]`.padEnd(21) +
+          `${fmt(cdpS && cdpS.mean).padStart(9)}  ${fmt(wS && wS.mean).padStart(10)}` +
+          `  ${fmt(fS && fS.mean).padStart(10)}  ${fmt(rS && rS.mean).padStart(9)}` +
+          `  ${(gcS ? gcS.mean.toFixed(1) : '-').padStart(5)}`
       );
     }
 
     // --- mirror vs published ---------------------------------------------
     console.log(';;');
-    console.log(';; MIRROR vs PUBLISHED window (counter B/write), and in-page vs CDP:');
+    // Does the MIRROR allocate what the PUBLISHED window allocates? The
+    // mirror reads the counter five times a write and the published
+    // `timed-write!` reads it not at all, so if the mirror's own footprint
+    // were material this is where it would show. Restricted to
+    // collection-free mirror windows, because the published loop carries no
+    // in-page sampling and so cannot be gated the same way.
+    console.log(';; MIRROR vs PUBLISHED window, CDP-bracketed B/write:');
     for (const arm of ARMS) {
       const p = per[arm];
-      if (!p || !p.cdp) continue;
-      const mirrorVsPub = p.published ? (p.cdp.mean / p.published.mean - 1) * 100 : null;
-      const inVsCdp = p.inPage ? (p.inPage.mean / p.cdp.mean - 1) * 100 : null;
+      if (!p) continue;
+      const mCf = stat(
+        of(arm, 0, false).filter((r) => r.collectionFree).map((r) => r.cdpPerWrite)
+      );
+      const mirrorVsPub = mCf && p.published ? (mCf.mean / p.published.mean - 1) * 100 : null;
       console.log(
-        `;;   ${arm.padEnd(20)} mirror ${fmt(p.cdp.mean).padStart(9)}  published ` +
+        `;;   ${arm.padEnd(20)} mirror ${fmt(mCf && mCf.mean).padStart(9)}  published ` +
           `${fmt(p.published && p.published.mean).padStart(9)}  ` +
-          `mirror−published ${mirrorVsPub === null ? '-' : mirrorVsPub.toFixed(1) + '%'}  ` +
-          `in-page−CDP ${inVsCdp === null ? '-' : inVsCdp.toFixed(2) + '%'}`
+          `mirror−published ${mirrorVsPub === null ? '-' : mirrorVsPub.toFixed(1) + '%'}` +
+          `   (collection-free mirror windows: ${mCf ? mCf.n : 0})`
       );
     }
 
@@ -437,7 +481,7 @@ function report(out) {
     console.log(';; ABOVE THE FLOOR, paired within round:');
     const byRound = (arm) => {
       const m = {};
-      for (const r of of(arm, 0, false)) m[r.round] = r.cdpPerWrite;
+      for (const r of of(arm, 0, false)) m[r.round] = r.inPage.perWrite;
       return m;
     };
     const fl = byRound('floor');
@@ -477,7 +521,11 @@ function report(out) {
   console.log('\n;; ==== NEGATIVE CONTROL — the sampling heap profiler on the same window ====');
   console.log(`;;   garbage allocated by the control, by construction: ${fmt(sampler.controlGarbageBytes)} B`);
   console.log(`;;   the used-heap counter saw:                         ${fmt(sampler.counterAllocated)} B`);
-  console.log(`;;   HeapProfiler sampling total:                       ${fmt(sampler.samplerTotal)} B`);
+  console.log(`;;   HeapProfiler sampling total, read after a collect: ${fmt(sampler.samplerTotal)} B`);
+  console.log(
+    `;;   -> the sampler reports ${((sampler.samplerTotal / sampler.counterAllocated) * 100).toFixed(1)}%` +
+      ` of what was allocated; it is a retention instrument.`
+  );
 
   return summary;
 }
