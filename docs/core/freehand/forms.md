@@ -42,13 +42,13 @@ does not ship a form macro — only this **shape** as shared convention.
 
 ## Field wiring (still A / B / C)
 
-Each field is still a Freehand controlled input (live domain or app-owned draft):
+Each field is still a Freehand controlled input (live domain or app-owned draft),
+and it reads **its own key** — never the whole draft map:
 
 ```clojure
 (v/defview email-field [_]
-  (let [draft  (v/sub [:editor/draft])
-        error  (v/sub [:editor/field-error :email])
-        text   (:email draft)]
+  (let [text  (v/sub [:editor/field :email])
+        error (v/sub [:editor/field-error :email])]
     [:label
      "Email"
      [:input {:value    (or text "")
@@ -56,6 +56,18 @@ Each field is still a Freehand controlled input (live domain or app-owned draft)
               :on-blur  [:editor/blur-field :email]}]
      (when error [:p.error error])]))
 ```
+
+**Why parametric, and not `(:email (v/sub [:editor/draft]))`.** `:editor/field` is
+the narrow read — `(rf/reg-sub :editor/field (fn [db [_ k]] (get-in db [:editor
+:draft k])))`. The two spellings look equivalent and are not. Every keystroke
+writes a new `:draft` map, so a field that subscribed to the whole map is
+invalidated by a character typed in any other field; and because a controlled
+input's [synchronous door](events-and-handlers.md#controlled-inputs) drains
+re-frame and flushes the dirty cells **on this frame** before returning into
+React, those invalidated fields all re-render inside the keystroke rather than
+after it. Whole-draft reads therefore make keystroke latency scale with the size
+of the form. This is the narrow-graph rule from [State](state.md#shared-state-sub),
+and on a form it is a cost model rather than a matter of taste.
 
 Typical event duties:
 

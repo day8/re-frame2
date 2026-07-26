@@ -131,11 +131,12 @@
 ;; forms.md — drafts, errors, and the touched set
 ;; ---------------------------------------------------------------------------
 
-;; forms.md block 2 — the field, reading its own error.
+;; forms.md block 2 — the field, reading its own key and its own error. The
+;; parametric read is the block's claim: a whole-draft read would invalidate
+;; every field on every keystroke, inside the controlled door's flush.
 (v/defview email-field [_]
-  (let [draft  (v/sub [:editor/draft])
-        error  (v/sub [:editor/field-error :email])
-        text   (:email draft)]
+  (let [text  (v/sub [:editor/field :email])
+        error (v/sub [:editor/field-error :email])]
     [:label
      "Email"
      [:input {:value    (or text "")
@@ -250,7 +251,8 @@
   (rf/reg-sub :form/email (fn [d _] (:email d)))
   (rf/reg-sub :lines/label (fn [d [_ id]] (get-in d [:labels id])))
   (rf/reg-sub :lines/draft (fn [d [_ id]] (get-in d [:drafts id])))
-  (rf/reg-sub :editor/draft (fn [d _] (get-in d [:editor :draft])))
+  ;; forms.md's narrow field read, spelled inline on the page beside block 2.
+  (rf/reg-sub :editor/field (fn [d [_ k]] (get-in d [:editor :draft k])))
   (rf/reg-sub :temp/c-display (fn [d _] (get-in d [:temp :c-text])))
   (rf/reg-sub :temp/f-display (fn [d _] (get-in d [:temp :f-text])))
   (register-field-error-sub!)
@@ -317,6 +319,23 @@
           "pattern B commits on blur")
       (is (= [:lines/draft-key 7 ::v/key] (:on-key-down b))
           "and branches on the key in the handler"))))
+
+(deftest the-canonical-field-reads-its-own-key-not-the-draft-map
+  (testing "forms.md block 2 — the field's value comes from the PARAMETRIC
+            read `[:editor/field :email]`, so a keystroke in a sibling field
+            cannot invalidate it. Rendering with a two-key draft is what makes
+            this an assertion about the narrow read rather than about the
+            value: a whole-draft read would answer the same string here and
+            depend on both keys to do it."
+    (seed! {:editor {:draft {:email "ada@example.com" :title "Ada"}
+                     :errors {}
+                     :touched #{}}})
+    (let [input (t/find (t/with-render (t/render [email-field {}]))
+                        #(= :input (:tag %)))]
+      (is (= "ada@example.com" (:value (t/attrs input)))
+          "the narrow read supplied the controlled value")
+      (is (= [:editor/edit-field :email ::v/value] (:on-input (t/attrs input)))
+          "and the site is still the ordinary controlled door"))))
 
 (deftest an-error-shows-only-once-the-field-is-touched
   (testing "forms.md's touched/submit-attempted rule, run through the real

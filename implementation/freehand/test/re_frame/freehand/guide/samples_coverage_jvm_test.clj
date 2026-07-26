@@ -308,7 +308,7 @@
     [14 "f1487c436d64" events/text-field]]
    "forms.md"
    [[ 1 "76b9d90f3f40" :prose-shape]
-    [ 2 "b79d37ae76c4" events/email-field]
+    [ 2 "2b7b3b51b487" events/email-field]
     [ 3 "a6379d0556c8" events/register-field-error-sub!]
     [ 4 "d6209ce60e2d" events/register-article-loaded!]
     [ 5 "9654384295ab" events/register-editor-submit!]
