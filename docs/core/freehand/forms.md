@@ -58,8 +58,9 @@ and it reads **its own key** — never the whole draft map:
 ```
 
 **Why parametric, and not `(:email (v/sub [:editor/draft]))`.** `:editor/field` is
-the narrow read — `(rf/reg-sub :editor/field (fn [db [_ k]] (get-in db [:editor
-:draft k])))`. The two spellings look equivalent and are not. Every keystroke
+the narrow read:
+`(rf/reg-sub :editor/field (fn [db [_ k]] (get-in db [:editor :draft k])))`.
+The two spellings look equivalent and are not. Every keystroke
 writes a new `:draft` map, so a field that subscribed to the whole map is
 invalidated by a character typed in any other field; and because a controlled
 input's [synchronous door](events-and-handlers.md#controlled-inputs) drains
