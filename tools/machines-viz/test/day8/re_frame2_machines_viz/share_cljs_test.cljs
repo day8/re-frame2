@@ -17,7 +17,11 @@
   - Versioned envelope: `:rf.machines-viz.share/v` rides outermost;
     a newer version is rejected with `:unknown-version`.
   - Every documented `decode-failed` `:reason`.
-  - Host override + `chart-state->props` projection."
+  - Host override + `chart-state->props` projection.
+  - The `:host` fragment rule (rf2-xld5m): a fragment-bearing host is
+    refused, and — the negative control — every fragment-free host still
+    encodes byte-identically, including the relative / `file://` forms
+    the encoder deliberately does not police."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [clojure.walk]
@@ -52,6 +56,18 @@
                 (str/replace "/" "_")
                 (str/replace "=" ""))]
     (str test-host "#machine=" b64)))
+
+(defn- frozen-now
+  "Run `f` with `js/Date.now` pinned to a constant so the envelope's
+  non-reproducible `:created` stamp doesn't perturb byte-identity
+  assertions. (`:created` is the ONE allowed non-reproducible bit per
+  Principles §Reproducible from the registry alone.)"
+  [f]
+  (let [orig (.-now js/Date)]
+    (try
+      (set! (.-now js/Date) (fn [] 1736000000000))
+      (f)
+      (finally (set! (.-now js/Date) orig)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -222,19 +238,112 @@
                            (catch :default _ nil)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Canonicalisation / reproducibility
+;; rf2-xld5m — the `:host` fragment rule, and the deliberate LIMIT of it.
+;;
+;; Measured before anything was written. Every non-URL `:host` the encoder
+;; accepts produces a string that BEGINS with what the caller typed —
+;; `{:host "banana"}` → `"banana#machine=…"` — so a wrong host is visible at a
+;; glance and dead at first paste. One malformed host is different: a `:host`
+;; that already carries a fragment yields
+;; `…/viewer.html#docs#machine=<400 chars>`, which reads as correct and is
+;; unreadable, because `extract-fragment` stops at the FIRST `#`. The sender
+;; sees success; the recipient gets `:malformed-fragment`.
+;;
+;; So the refusal is exactly one check wide, and the two tests below pin BOTH
+;; sides of it: fragment-bearing hosts are refused, and every other host —
+;; absolute, relative, ported, queried, `file://` — still passes through
+;; VERBATIM with a byte-identical payload.
 
-(defn- frozen-now
-  "Run `f` with `js/Date.now` pinned to a constant so the envelope's
-  non-reproducible `:created` stamp doesn't perturb byte-identity
-  assertions. (`:created` is the ONE allowed non-reproducible bit per
-  Principles §Reproducible from the registry alone.)"
-  [f]
-  (let [orig (.-now js/Date)]
-    (try
-      (set! (.-now js/Date) (fn [] 1736000000000))
-      (f)
-      (finally (set! (.-now js/Date) orig)))))
+(def ^:private fragment-bearing-hosts
+  "Hosts whose `#` makes the machine payload unreachable. Each one encoded
+  successfully before rf2-xld5m and produced a link the viewer refused."
+  {:trailing-fragment   "https://acme.example.com/viewer.html#docs"
+   :bare-hash           "https://acme.example.com/viewer.html#"
+   :already-a-share-url "https://acme.example.com/viewer.html#machine=AAAA"
+   :fragment-with-query "https://acme.example.com/viewer.html?theme=dark#docs"
+   :bare-fragment       "#machine=x"})
+
+(deftest host-carrying-a-fragment-is-refused
+  (testing "rf2-xld5m — a :host that already has a URL fragment is refused at
+            encode: the payload IS the fragment, and the viewer stops at the
+            first '#'"
+    (doseq [[label host] fragment-bearing-hosts]
+      (let [r (try {:url (share/encode-share-url chart-state {:host host})}
+                   (catch :default e {:data (ex-data e)}))
+            d (:data r)]
+        (is (nil? (:url r))
+            (str label ": no URL is produced for a fragment-bearing host"))
+        (is (= :host-carries-fragment (:reason d))
+            (str label ": refused with the :host-carries-fragment reason"))
+        (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))
+        (is (= :pass-a-viewer-page-url-with-no-fragment (:recovery d)))
+        ;; The diagnostic NAMES what was wrong — the fragment, and where.
+        (is (str/includes? (:message d) "fragment")
+            (str label ": the message names the fragment"))
+        (is (= (str/index-of host "#") (:fragment-index d))
+            (str label ": ex-data locates the offending '#'"))
+        ;; …without echoing the caller's URL (which can carry a query token).
+        (is (not (str/includes? (pr-str d) host))
+            (str label ": the raw host is not echoed into ex-data"))))))
+
+(def ^:private fragment-free-hosts
+  "The NEGATIVE CONTROL roster. Every legitimate viewer base a caller might
+  host the page at — plus the relative and non-http forms the encoder
+  deliberately does NOT police (a `file://` URL is literally what the README's
+  build recipe leaves on disk, and `/viewer.html` is a legitimate same-origin
+  base). None of them carries a fragment, so none of them may be refused."
+  ["https://acme.example.com/viewer.html"
+   "https://acme.example.com"
+   "https://acme.example.com/deep/path/to/viewer.html"
+   "https://acme.example.com/viewer.html?theme=dark"
+   "https://acme.example.com/viewer.html?a=1&b=2"
+   "https://acme.example.com:8443/viewer.html"
+   "https://acme.example.com/a%20path/viewer.html"
+   "http://localhost:8080/viewer.html"
+   "file:///C:/out/machines-viz-viewer/viewer.html"
+   "//acme.example.com/viewer.html"
+   "/viewer.html"
+   "viewer.html"
+   "  https://acme.example.com/viewer.html  "])   ;; trimmed, as before
+
+(deftest fragment-free-hosts-are-untouched
+  (testing "rf2-xld5m NEGATIVE CONTROL — every host without a '#' still
+            encodes EXACTLY as before: the host is passed through verbatim
+            (only trimmed), the payload is byte-identical, and the URL decodes"
+    (frozen-now
+      (fn []
+        ;; The fragment does not depend on the host, so with `:created` frozen
+        ;; it must be identical for every base — which is what "unchanged"
+        ;; means here: no normalising, no rewriting, no re-encoding.
+        (let [canonical-fragment (subs (encode chart-state) (count test-host))]
+          (is (str/starts-with? canonical-fragment "#machine="))
+          (doseq [host fragment-free-hosts]
+            (let [url (share/encode-share-url chart-state {:host host})]
+              (is (= (str (str/trim host) canonical-fragment) url)
+                  (str host ": host passed through verbatim + identical payload"))
+              (let [{:keys [ok error]} (share/decode-share-url-safe url)]
+                (is (nil? error) (str host ": decodes without error"))
+                (is (= :auth/login-flow
+                       (get-in ok [:rf.machines-viz.share/chart :machine-id]))
+                    (str host ": the ChartState round-trips"))))))))))
+
+(deftest non-url-host-is-accepted-and-fails-visibly
+  (testing "rf2-xld5m — a host that is not a URL is NOT refused, and that is
+            the ruling rather than an omission: the failure is LOUD. The
+            returned string begins with the word the caller typed, so the
+            defect is on screen before anyone shares it. A scheme allowlist
+            would refuse the working forms above to catch this."
+    (doseq [host ["banana" "not a url" "javascript:alert(1)"]]
+      (let [url (share/encode-share-url chart-state {:host host})]
+        (is (str/starts-with? url (str host "#machine="))
+            (str host ": the caller's own string is what they get back"))
+        ;; The PAYLOAD is well-formed — only the base is nonsense, which is
+        ;; precisely why this class needs no guard: nothing is hidden.
+        (is (some? (:ok (share/decode-share-url-safe url)))
+            (str host ": the machine payload itself is intact"))))))
+
+;; ---------------------------------------------------------------------------
+;; Canonicalisation / reproducibility
 
 (deftest reproducible-encoding
   (testing "differently-ordered but equal ChartStates encode identically"

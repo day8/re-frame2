@@ -505,11 +505,32 @@
   ;; => \"https://acme.example.com/viewer.html#machine=...\"
   ```
 
-  `:host` is REQUIRED — the absolute URL of the viewer page YOU host (see
+  `:host` is REQUIRED — the URL of the viewer page YOU host (see
   `tools/machines-viz/README.md` §Building and hosting the viewer page).
   There is no default and no Day8-hosted instance; the arity that used to
   supply one emitted a URL that 404s (rf2-8m344). Calling without a
   non-blank `:host` throws `:reason :no-host` rather than guessing.
+
+  ## What `:host` is checked for, and what it is not (rf2-xld5m)
+
+  The machine payload IS the URL fragment, so the encoder appends
+  `#machine=<payload>` to the string you pass and checks exactly one
+  thing: that the string carries no `#` of its own. A `:host` that
+  already has a fragment is REFUSED (`:reason :host-carries-fragment`) —
+  see the `when-let` below for why that one case is worth a refusal.
+
+  It does NOT parse the URL, police the scheme, or require
+  absoluteness, and that is deliberate rather than unfinished. A host
+  that is not a URL fails LOUDLY at first use: `{:host \"banana\"}`
+  returns `\"banana#machine=…\"`, which begins with the word you typed
+  and is not a link in anyone's browser. A scheme allowlist would also
+  refuse working input to catch input nobody can miss —
+  `file:///…/viewer.html` is exactly what the README's build recipe
+  leaves on disk, and a relative `\"/viewer.html\"` is a legitimate
+  same-origin base for an in-app link. A fragment is the one defect the
+  caller CANNOT see: `\"https://acme.example.com/viewer.html#docs\"`
+  yields a URL that looks perfectly right and fails only on the
+  recipient's machine.
 
   `chart-state` is a `ChartState` map (per `API.md` §Share-URL payload
   schema):
@@ -538,10 +559,11 @@
 
   Throws `:rf.machines-viz.share/encode-failed` (an ex-info) with:
 
-  | `:reason`              | Meaning |
+  | `:reason`                 | Meaning |
   |---|---|
-  | `:no-host`             | No non-blank `:host` was supplied. |
-  | `:invalid-chart-state` | The chart state does not validate — including a `:snapshot` `:state` that is none of the three allowed configuration arms (a malformed `:state` would yield an undecodable URL, so it is rejected at encode). |"
+  | `:no-host`                | No non-blank `:host` was supplied. |
+  | `:host-carries-fragment`  | `:host` already contains a `#`. The machine payload rides in the fragment, and a URL has only one — see below. |
+  | `:invalid-chart-state`    | The chart state does not validate — including a `:snapshot` `:state` that is none of the three allowed configuration arms (a malformed `:state` would yield an undecodable URL, so it is rejected at encode). |"
   [chart-state {:keys [host]}]
   (let [host (when (string? host) (str/trim host))]
     (when (str/blank? host)
@@ -560,6 +582,44 @@
                          :recovery    :supply-the-url-of-a-viewer-page-you-host
                          :reason      :no-host
                          :message     msg}))))
+    ;; rf2-xld5m — a `:host` that already carries a fragment is the ONE
+    ;; malformed host worth refusing, because it is the only one the caller
+    ;; cannot see. A URL has exactly one fragment and the machine payload IS
+    ;; that fragment, so appending a second `#` yields
+    ;;
+    ;;   https://acme.example.com/viewer.html#docs#machine=<400 chars>
+    ;;
+    ;; which reads as correct (right origin, right path, `#machine=` present)
+    ;; and is unreadable: `extract-fragment` splits on the FIRST `#`, so the
+    ;; viewer sees `docs#machine=…`, finds no `machine=` prefix, and refuses
+    ;; the link with `:malformed-fragment`. Nobody eyeballs 400 characters of
+    ;; base64 to count `#`s, so the sender ships a dead link and the failure
+    ;; lands on the recipient — the same outcome rf2-8m344 removed the hosted
+    ;; default to stop.
+    ;;
+    ;; We REFUSE rather than strip the caller's fragment: the fragment they
+    ;; passed meant something to them, and silently discarding it is just a
+    ;; quieter wrong answer. A query string is untouched — it precedes the
+    ;; fragment, so `…/viewer.html?theme=dark` composes correctly.
+    (when-let [hash-idx (str/index-of host "#")]
+      (let [msg (str "cannot encode a share-URL: :host already carries a URL "
+                     "fragment (a '#' at index " hash-idx "). The machine "
+                     "payload IS the fragment, and a URL has only one — a "
+                     "second '#' produces a link the viewer cannot read, "
+                     "because it stops at the first. Pass the viewer page URL "
+                     "with no fragment; a query string is fine "
+                     "(\"https://your.example.com/viewer.html?theme=dark\").")]
+        (throw (ex-info (error/human-message :rf.machines-viz.share/encode-failed msg)
+                        {:rf.error/id :rf.machines-viz.share/encode-failed
+                         :where       'machines-viz.share/encode-share-url
+                         :recovery    :pass-a-viewer-page-url-with-no-fragment
+                         :reason      :host-carries-fragment
+                         :message     msg
+                         ;; The OFFSET, not the host itself: a viewer URL can
+                         ;; carry a query string with a token in it, and this
+                         ;; namespace keeps raw caller values out of ex-data
+                         ;; (rf2-8nzxib).
+                         :fragment-index hash-idx}))))
     (let [allowlisted (allowlist-chart-state chart-state)]
       (when-not (valid-chart-state? allowlisted)
         ;; rf2-vvixub — the ex-message is the human sentence + the
