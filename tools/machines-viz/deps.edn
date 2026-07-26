@@ -46,7 +46,44 @@
          ;; requires reagent.* must declare it. This is dev-only: the whole
          ;; machines-viz jar is bundle-isolated, so a consumer's production
          ;; bundle never pulls Reagent through it.
-         reagent/reagent {:mvn/version "2.0.1"}}
+         reagent/reagent {:mvn/version "2.0.1"}
+
+         ;; `viewer.cljs` requires `re-frame.adapter.reagent` and passes it to
+         ;; `rf/init!` — the standalone viewer page must have a live substrate
+         ;; adapter before it mounts a Reagent chart. Stock `reagent/reagent`
+         ;; above is NOT that namespace; the adapter ships as its own artefact
+         ;; (rf2-3d5u3). Undeclared, the viewer namespace dies at LOAD:
+         ;; "The required namespace re-frame.adapter.reagent is not available".
+         ;; Marginal cost is this artefact's source only — core and stock
+         ;; Reagent, its whole dependency set, are already declared above.
+         day8/re-frame2-reagent {:local/root "../../implementation/adapters/reagent"}
+
+         ;; `adapters/uix.cljs` requires `uix.core` for `defui` / `$`
+         ;; (rf2-3d5u3). Undeclared, that namespace dies at LOAD the same way.
+         ;;
+         ;; This is a HARD dep rather than a `:provided` / optional posture,
+         ;; and the reasoning is the rf2-nucj0 one (see implementation/http/
+         ;; deps.edn): no artefact in this repo uses `:provided`, `provided`
+         ;; says a CONTAINER supplies the dependency, and a CLJS app has none —
+         ;; it would just be asking every UIx host to redeclare a dep the
+         ;; artefact's own source requires. `implementation/adapters/uix`
+         ;; declares `com.pitch/uix.core` the same way for the same reason.
+         ;;
+         ;; What a Reagent-only consumer pays, measured against a resolved
+         ;; classpath: 6 jars / 526.5 KiB, of which jsoup (436 KiB, via
+         ;; hickory via preo) is UIx's dev-time prop tooling. NONE of it
+         ;; reaches a bundle — machines-viz is dev-only and bundle-isolated,
+         ;; and CLJS only compiles namespaces something requires, so a
+         ;; Reagent-only host never even compiles `adapters/uix.cljs`.
+         ;;
+         ;; The way to make that cost zero is to NARROW what src requires, not
+         ;; to weaken the scope: `adapters/react-chart` is already substrate-
+         ;; agnostic and its `chart-element` returns a plain React element a
+         ;; UIx host can mount with `$` directly, so the 40-line `defui` shell
+         ;; is ergonomics rather than capability. Retiring it is an API change
+         ;; (spec/API.md §MachineChart), so it is not this dep declaration's
+         ;; call to make.
+         com.pitch/uix.core {:mvn/version "1.4.4"}}
 
  :aliases
  {:test {:extra-paths ["test"]

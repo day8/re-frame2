@@ -378,8 +378,10 @@
 ;;     `:rf.resource/scope-resolved` projector had already classified it. The
 ;;     epoch tool-pair applies that sibling under `(= :rf.resource/scope-resolved
 ;;     (:operation ev))` — ONE operation — while this family projector runs on
-;;     every row, so on five OTHER row types `:scope` was classified by nobody
-;;     and a `{:from-db …}` resolver's identity map egressed raw. The cascade
+;;     every row, so on every OTHER row type that stamps a free `:scope` it was
+;;     classified by nobody and a `{:from-db …}` resolver's identity map
+;;     egressed raw (`trace-egress/sibling-owned-slot`'s docstring is the
+;;     roster of those row types). The cascade
 ;;     could not see it twice over (rf2-0t7o8): it drove only `ensure` /
 ;;     `release-owner`, none of which stamps a free `:scope`, and both its
 ;;     resources were `:rf.scope/global` — a SCALAR, the value that correctly
@@ -541,7 +543,8 @@
   by the epoch tool-pair under `(= :rf.resource/scope-resolved (:operation ev))`
   — ONE operation — while the family projector runs on all of them, so a
   pass-through here classified `:scope` by nobody and the resolver's identity
-  map egressed raw (rf2-1zc33, five row types). One dispatch resolves its scope
+  map egressed raw (rf2-1zc33; `trace-egress/sibling-owned-slot`'s docstring
+  rosters the row types it happened on). One dispatch resolves its scope
   through the named resolver (the identity-bearing `[tier {identity}]` TUPLE,
   the shape that leaked); the other names `:rf.scope/global` (a SCALAR, the
   shape that must still ride verbatim). Same slot, same row type, two shapes —
