@@ -191,13 +191,21 @@
             render-time write, so this is also the row that would catch a
             write landing in the wrong channel.
 
-            The attribute chunk is asserted as a SET rather than a string:
-            the two modes classify `:lang` differently (a literal for one, a
-            runtime value for the other) and so emit the four attributes in
-            different orders. That is a pre-existing cross-mode fact about
-            attribute ORDER, unrelated to trusted markup and not
-            semantically meaningful in HTML — but a set is still total, so
-            nothing extra can arrive here unseen."
+            The attribute chunk is asserted as a SET rather than a string,
+            and the reason is the shape the DOM suites need rather than
+            anything this path suffers from. The two modes classify `:lang`
+            differently — a literal for one, a runtime value for the other —
+            so the structural tree's `:attrs` map comes out in different
+            orders on the two paths (`(:id :lang :data-kind :class)` against
+            `(:id :data-kind :class :lang)`). It cannot reach this string:
+            the SSR seam emits a PINNED TOTAL ORDER sorted by attribute name
+            (004B §Emission is pure), so the served markup here is in fact
+            byte-identical across the two modes. It DOES reach the browser,
+            where React writes props in insertion order — which is why the
+            mounted twins compare an attribute set too (rf2-z0b76, an
+            ACCEPTED cross-mode divergence: 004D §The portability law).
+            Asserting the set keeps this row the same shape as those, and a
+            set is still total, so nothing extra can arrive here unseen."
     (doseq [view [:markup-with-props :markup-with-props-compiled]]
       (let [[_ attrs content] (re-matches section-markup
                                           (html view {:markup markup :lang "en"}))]
