@@ -1378,21 +1378,6 @@ An **infinite resource** is a resource registered with `:infinite true`. It reus
    ;; / trace). Schemas VALIDATE; they do NOT classify durably.
    :sensitive        [[:data :author-email]]
 
-   ;; :request keeps its settled (params ctx) shape; the RESERVED ctx now
-   ;; carries the resolved page context for THIS page (nil/empty for a
-   ;; non-infinite resource). NO new arity.
-   :request
-   (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
-     {:request {:method :get
-                :url    "/api/timeline"
-                :params (cond-> {:filter filter :limit 20}
-                          page-param (assoc :cursor page-param))}
-      ;; per-page VALIDATION: a Malli schema on :decode validates ONE page
-      ;; (the decode target) before the success reply exists — the per-page
-      ;; validation surface for a feed, applied on page 0, load-more, and every
-      ;; refetch leg.
-      :decode  :app/timeline-page})
-
    ;; REQUIRED for :infinite. Derive the NEXT page param from the last loaded
    ;; page + all pages so far. Returns nil to signal "no more pages" (the single
    ;; terminal). Pure. TanStack getNextPageParam(lastPage, allPages) analogue.
@@ -1414,7 +1399,21 @@ An **infinite resource** is a resource registered with `:infinite true`. It reus
 
    :tags             (fn [{:keys [filter]} _data] #{[:feed filter]})
    :stale-after-ms   60000
-   :gc-after-ms      300000})
+   :gc-after-ms      300000}
+
+  ;; The :request handler is the THIRD slot, and keeps its settled
+  ;; (params ctx) shape; the RESERVED ctx now carries the resolved page context
+  ;; for THIS page (nil/empty for a non-infinite resource). NO new arity.
+  (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
+    {:request {:method :get
+               :url    "/api/timeline"
+               :params (cond-> {:filter filter :limit 20}
+                         page-param (assoc :cursor page-param))}
+     ;; per-page VALIDATION: a Malli schema on :decode validates ONE page
+     ;; (the decode target) before the success reply exists — the per-page
+     ;; validation surface for a feed, applied on page 0, load-more, and every
+     ;; refetch leg.
+     :decode  :app/timeline-page}))
 ```
 
 Registration rules (MUST):
@@ -1706,12 +1705,12 @@ The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.r
   {:params-schema [:map [:slug :string]]
    :data-schema   :app/article
    :scope         {:from-db :realworld/session}   ;; named resolver — viewer-scoped
-   :request (fn [{:keys [slug]} _]
-              {:request {:method :get :url (str "/api/articles/" slug)}
-               :decode :app/article})
    :stale-after-ms 60000
    :gc-after-ms    (* 5 60 1000)
-   :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+   :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+  (fn [{:keys [slug]} _]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode :app/article}))
 
 (rf/reg-route
   :route/article
