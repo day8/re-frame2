@@ -2450,3 +2450,45 @@
           "emitted slot and is denied too, so raw markup can never reach the DOM "
           "without the visible (v/html ...) trust assertion at the site")
      {:extra {:key k}})))
+
+;; ---------------------------------------------------------------------------
+;; v/spread + v/spread-safe — the ELEMENT-FORM mark
+;;
+;; Both forwarding forms fold onto an ELEMENT, and neither is legal at a
+;; `v/defhost` head (004 §Props forwarding). Both ANSWER A PLAIN MAP, though,
+;; so by the time the host boundary sees one the provenance is gone — and the
+;; host boundary is precisely where the difference bites: a spread projects
+;; every key onto the slot an element would write it into, so `:className`
+;; arrives as `:class`, a DIFFERENT React prop and the one a third-party
+;; component is most likely to read. Nothing says so; the component simply
+;; receives no class.
+;;
+;; The mark below is what restores the provenance, for exactly one reader.
+;; Metadata rather than a value wrapper because the result has to stay an
+;; ordinary attribute map for the element fold — which is the legal use, and
+;; must cost it nothing.
+;; ---------------------------------------------------------------------------
+
+(def ^:private element-forward-key ::element-forward)
+
+(defn mark-element-forward
+  "Mark map `m` as the result of the element forwarding form `form` — the
+  AUTHOR spelling, `'v/spread` or `'v/spread-safe`, because the only reader is
+  a diagnostic that prints it.
+
+  The [[re-frame.freehand.node/carry-caller]] idea one layer up: a mark is
+  what lets a later seam tell a value's ORIGIN from its shape. Metadata here
+  rather than a `deftype`, because unlike a carried caller this value is the
+  attribute map itself and every element fold downstream must keep reading it
+  as one."
+  [m form]
+  (vary-meta m assoc element-forward-key form))
+
+(defn element-forward-form
+  "The element forwarding form `m` came out of — `'v/spread` or
+  `'v/spread-safe` — or nil for any map that did not come out of one.
+
+  Read at the `v/defhost` boundary only. An element fold never asks: there
+  the forms are legal, and the mark is inert."
+  [m]
+  (get (meta m) element-forward-key))
