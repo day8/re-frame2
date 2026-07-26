@@ -240,10 +240,21 @@
 ;;
 ;; Candidates are pruned against the prefix set of every declared path, so one
 ;; that can never reach a declaration is dropped and the set stays bounded by
-;; the declaration cardinality. In the DEFAULT mode that makes the set exactly
-;; `#{path}` while `path` is still some declaration's prefix and `#{}` the
-;; moment it is not — which is the exact path membership test spelled through
-;; the same machinery, since a declared path is always its own prefix.
+;; that PREFIX VOCABULARY — every prefix of every declared path, plus the
+;; retained root — and NOT by the declaration count. The two bounds are not the
+;; same, and it is `:index-free?` that separates them: there an unadvanced
+;; candidate rides the descent beside the advanced one, so a single declaration
+;; can hold several of its own prefixes alive at once. Against `#{[0 0 0]}` the
+;; set grows `1 → 2 → 3 → 4` and ends `#{[] [0] [0 0] [0 0 0]}` — four
+;; candidates for one declaration (merged-PR audit #7107). Finite and
+;; declaration-derived either way, which is what keeps the walk linear in the
+;; tree; but a reader who took "declaration cardinality" literally would expect
+;; a singleton and misread the fork.
+;;
+;; In the DEFAULT mode the set IS exactly `#{path}` while `path` is still some
+;; declaration's prefix and `#{}` the moment it is not — which is the exact path
+;; membership test spelled through the same machinery, since a declared path is
+;; always its own prefix.
 ;; `:index-free?` is the only thing that lets the two diverge. The same device
 ;; `re-frame.elision`'s schema-first walker uses, at the grain this walker
 ;; needs — index fork only, no `:map-of` key skip, so this walker stays
