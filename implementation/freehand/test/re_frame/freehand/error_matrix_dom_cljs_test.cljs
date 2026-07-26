@@ -30,7 +30,7 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
             [re-frame.freehand :as v]
-            [re-frame.freehand.matrix-support :as ms]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.shell :as shell]
             [re-frame.live-frame :as live-frame]

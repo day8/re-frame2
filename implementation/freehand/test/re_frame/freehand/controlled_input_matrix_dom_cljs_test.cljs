@@ -70,7 +70,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.freehand :as v]
-            [re-frame.freehand.matrix-support :as ms]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.pilot-field :as pilot]
             [re-frame.freehand.pilot-field-compiled :as promoted]
             [re-frame.freehand.react :as fr]

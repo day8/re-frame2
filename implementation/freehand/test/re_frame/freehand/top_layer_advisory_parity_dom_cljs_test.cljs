@@ -33,7 +33,7 @@
   `showPopover`, so under node it has no top layer and says so."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.freehand.conformance :as conf]
-            [re-frame.freehand.matrix-support :as ms]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.shell :as shell]
             [re-frame.freehand.top-layer-advisory-views :as iv]

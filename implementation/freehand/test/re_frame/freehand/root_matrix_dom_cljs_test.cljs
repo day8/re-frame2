@@ -22,7 +22,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.freehand :as v]
-            [re-frame.freehand.matrix-support :as ms]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.root :as root]
             [re-frame.freehand.root-views :as views]
             [re-frame.substrate.plain-atom :as plain-atom]

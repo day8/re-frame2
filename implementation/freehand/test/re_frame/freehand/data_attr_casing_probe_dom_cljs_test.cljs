@@ -44,7 +44,7 @@
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             [goog.object :as gobj]
-            [re-frame.freehand.matrix-support :as ms]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
