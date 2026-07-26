@@ -728,6 +728,71 @@ test('the new tools JVM lanes arm on their artefact and nowhere else (rf2-wq17m)
   }
 });
 
+// rf2-8m344 — the viewer PAGE lane, same three-part shape. The `:machines-viz-
+// viewer` build was declared in implementation/shadow-cljs.edn and compiled by
+// no workflow, npm script or gate, while README.md and spec/API.md documented
+// building it as the way a consumer self-hosts the page. "Buildable" was an
+// unverified claim of exactly the kind the 404 default host had just been
+// removed for.
+test('the machines-viz viewer-page job is gated on its own output and runs the recipe (rf2-8m344)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'machines-viz-viewer-page');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.machines_viz_viewer_page == 'true'/,
+    'the job must be gated on machines_viz_viewer_page',
+  );
+  assert.match(
+    block,
+    /run: npm run build:machines-viz-viewer/,
+    'the job must run the SAME command the README hands a consumer',
+  );
+  assert.match(
+    block,
+    /stage-viewer-page\.cjs --self-test/,
+    'the coupling assertion must be self-tested, or it can rot into a no-op',
+  );
+  assert.match(
+    workflow,
+    /machines_viz_viewer_page: \$\{\{ steps\.detect\.outputs\.machines_viz_viewer_page \}\}/,
+    'machines_viz_viewer_page must be declared as a detect_changed_surfaces output',
+  );
+  assert.ok(
+    jobBlock(workflow, 'all-required-passed').includes('- machines-viz-viewer-page'),
+    'aggregator must list machines-viz-viewer-page — a job absent from it is advisory',
+  );
+});
+
+test('the viewer-page lane arms on the page, the HTML and the build that declares it (rf2-8m344)', () => {
+  // The page entry, the HTML it loads, and the build config that names the
+  // module — the three files a rename can break the recipe from.
+  for (const armed of [
+    'tools/machines-viz/page/day8/re_frame2_machines_viz/viewer.cljs',
+    'tools/machines-viz/public/viewer.html',
+    'implementation/shadow-cljs.edn',
+  ]) {
+    assert.equal(
+      classify(armed).machines_viz_viewer_page,
+      'true',
+      `${armed} must arm machines_viz_viewer_page`,
+    );
+  }
+  // Controls: a machines-viz spec-prose change compiles nothing, and a core
+  // change reaches the viewer only through library surface the always-on
+  // node-test and browser lanes already compile.
+  assert.equal(
+    classify('tools/machines-viz/spec/API.md').machines_viz_viewer_page,
+    'false',
+    'a machines-viz spec-prose change must not fire the page build',
+  );
+  assert.equal(
+    classify('implementation/core/src/re_frame/core.cljc').machines_viz_viewer_page,
+    'false',
+    'a core change must not fire the page build — its compile is already covered',
+  );
+});
+
 // rf2-wq17m, audit reopen of #7005 — the DEPENDENCY side. Both new jobs run a
 // suite whose subject is code in implementation/, reached over a :local/root
 // declared in the artefact's own deps.edn, so a change on the framework side

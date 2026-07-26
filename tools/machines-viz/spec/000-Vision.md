@@ -696,9 +696,12 @@ implementation-state list.
 - Read-only viewer page (per [`API.md`](./API.md) §Read-only viewer) —
   **shipped** (`public/viewer.html` + `page/.../viewer.cljs`, rf2-8d7w1;
   the page root is not packaged in the jar, rf2-k7l2o). "Shipped" here
-  means *written, tested, and buildable* — `shadow-cljs release
-  machines-viz-viewer` emits the bundle. It does not mean *deployed*: no
-  workflow serves the page and there is no hosted instance (rf2-8m344).
+  means *written, tested, and buildable* — `npm run
+  build:machines-viz-viewer` emits the bundle, stages the HTML beside it,
+  and checks the two fit; the required `machines-viz-viewer-page` job runs
+  that on every change, so *buildable* is a gated claim rather than a
+  remembered one. It does not mean *deployed*: no workflow serves the page
+  and there is no hosted instance (rf2-8m344).
 - Share-URL encoding (per [`API.md`](./API.md) §Share-URL encoding) —
   **shipped** (`src/.../share.cljs`, rf2-8d7w1).
 - PNG + SVG exporters — **shipped** (`src/.../export.cljs`, rf2-8d7w1;
