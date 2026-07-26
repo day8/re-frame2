@@ -620,14 +620,28 @@
     `:rf.mutation/*` rows here.
   - a call-site `:reply-to` READ CONTINUATION (rf2-xx4ty). No `ensure` here
     carries one and no reply is replayed, so the continuation reply map — with
-    its `:value` (the decoded response body), `:params` and `:correlation` —
-    never reaches this fixture's carriers. The session `ensure` above does NOT
-    close that axis and does not pretend to: it settles no reply. Note the
-    carriers themselves ARE visible here (`fx-carrier-rows` reads the RECORD by
-    SLOT, exactly as the projector does, not through `resource-family-row?`), so
-    what is missing is the DRIVE, not the harvest. The dedicated
-    producer-driven coverage lives in `epoch_egress_resource_trace_test` §(1),
-    which replays a real reply through the internal reply event.
+    its `:value` (the decoded response body), `:params`, `:error` and
+    `:correlation` — never reaches this fixture's carriers. The session `ensure`
+    above does NOT close that axis and does not pretend to: it settles no reply.
+    Note the carriers themselves ARE visible here (`fx-carrier-rows` reads the
+    RECORD by SLOT, exactly as the projector does, not through
+    `resource-family-row?`), so what is missing is the DRIVE, not the harvest.
+    The dedicated producer-driven coverage lives in
+    `epoch_egress_resource_trace_test`, which replays real replies through the
+    internal reply events.
+
+    THAT POINTER USED TO BE HALF TRUE, and the half it missed is why rf2-rnsv2
+    reached main (rf2-uufoe). Until rf2-uufoe every drive over there replayed a
+    SUCCESS reply, so the branch this fixture delegates was one of five: the
+    failure settle, `failed-handler`'s abort branch, the legacy abort event, the
+    infinite-feed page failure and the mutation failure settle each build a
+    continuation reply through a DIFFERENT handler, and none had ever been
+    projected. The read-failure `:error` envelope — the decoded error body,
+    which routinely echoes the submitted form fields — was structurally
+    unreachable by the suite rather than merely unnoticed. All five now carry a
+    whole-record canary drive there, and the standing rule is stated on
+    §(rf2-uufoe): a new settle branch that fans out a continuation gets a canary
+    drive in the PR that adds it.
 
   The rows are harvested off the trace bus rather than read out of the settled
   epoch records because ONE record is one dequeued event: this cascade is five
