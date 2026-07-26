@@ -94,11 +94,43 @@
   :rejects  ["spec" :x/spec "children" "key" 3]
   :recovery :spell-host-props-as-unqualified-keywords
   :error-id :rf.error/view-bad-props
-  ;; A `:map-props` adapter answers the ordinary plane, so it answers under
-  ;; the same law — and is checked BEFORE the reserved filter, which is what
-  ;; makes that filter total. Browser-side: the adapter never runs on the JVM.
-  :map-props-adapter {:rejects  ["key" "onSelect" :x/spec]
-                      :error-id :rf.error/ui-tree-malformed}}
+  ;; A `:map-props` adapter answers the ordinary plane, and the law its answer
+  ;; owes is key-set EQUALITY: it owns the plane's VALUES, so it carries
+  ;; exactly the keys the call authored. Settled at rf2-drpa3.182.3, from the
+  ;; merged-PR audit of #7081 — the four normative claims all said "the names
+  ;; stay the caller's" while the landed code only filtered the answer for
+  ;; inexact and reserved NAMES, so an ordinary unqualified rename passed.
+  ;;
+  ;; Equality subsumes both of those filters rather than joining them. The
+  ;; plane handed to the adapter has already had `:key` and the declared
+  ;; positions removed, and `:children` and every inexact spelling refused at
+  ;; the call (the rows above), so an answer carrying the caller's own keys
+  ;; cannot name a reserved fact or an unspellable one. Dropping is refused
+  ;; with creating: the structural projection records the AUTHORED props, so a
+  ;; dropped key makes it report a prop React never received.
+  ;;
+  ;; Browser-side only: the adapter never runs on the JVM.
+  :map-props-adapter
+  {:law      "the adapter's answer carries EXACTLY the keys the call authored — it owns the ordinary plane's VALUES and the names stay the caller's, so the key sets are EQUAL in both directions"
+   :error-id :rf.error/ui-tree-malformed
+   :accepts  [{:case     "the ordinary adapter: the same keys, prepared values"
+               :authored [:spec]
+               :answers  [:spec]}]
+   :rejects  [{:case     "an ordinary unqualified RENAME — the plainest violation, and the one no per-key filter can see: :chartSpec is exact, unreserved, and a name the call never supplied"
+               :authored [:spec]
+               :answers  [:chartSpec]
+               :created  [:chartSpec]
+               :dropped  [:spec]}
+              {:case     "a reserved fact under a second spelling — refused as the created name it is, with no separate filter to make total"
+               :authored [:spec]
+               :answers  ["key" "onSelect" :x/spec]
+               :created  ["key" "onSelect" :x/spec]
+               :dropped  [:spec]}
+              {:case     "an authored key DROPPED — the mirror half: the structural tree records the authored props, so it would report a prop React never received"
+               :authored [:spec :rows]
+               :answers  [:spec]
+               :created  []
+               :dropped  [:rows]}]}}
 
  ;; The children policy is the same closed roster an internal boundary uses,
  ;; and it is reported through the same diagnostic.
@@ -131,24 +163,12 @@
    :counts  [:host/commits]
    :residue :none}
 
-  ;; OPEN, and recorded as open rather than pinned (rf2-drpa3.182.3, from
-  ;; the merged-PR audit of #7081). Spec 004, the public docstring and the
-  ;; browser test all say a `:map-props` adapter owns VALUES and may not
-  ;; rename, but the landed check only runs the inexactness filter over the
-  ;; adapter's OUTPUT — so an authored `{:spec x}` returned as
-  ;; `{:chartSpec x}` passes both checks and reaches React under a name the
-  ;; caller never supplied. The question is whether the law is key-set
-  ;; EQUALITY or output SUBSET, and it has to be settled at `host-element`,
-  ;; where the authored props and the mapper output both exist.
-  ;;
-  ;; The roster names the question and asserts nothing about the answer.
-  ;; Freezing today's behaviour into a rostered expectation would leave
-  ;; whoever settles .182.3 fighting this file to land the fix, which is
-  ;; the mutually-invalidating-test problem written in advance. When it is
-  ;; settled, the answer belongs in `:prop-names` above — where the rows
-  ;; that already run live — and this note goes.
-  :open
-  {:rf2-drpa3.182.3
-   "the :map-props key-set law — key-set EQUALITY or output SUBSET — is unsettled, and has to be settled at host-element where the authored props and the mapper output both exist; an unqualified rename is currently unchecked, and no rostered projection asserts either answer"}
+  ;; The `:map-props` key-set boundary was recorded OPEN here (rf2-drpa3.182.3,
+  ;; from the merged-PR audit of #7081) rather than pinned to the behaviour
+  ;; that shipped, precisely so settling it would not mean fighting this file.
+  ;; It is settled: the law is key-set EQUALITY, it is enforced once at
+  ;; `host-element` where the authored plane and the answer both exist, and the
+  ;; answer now lives in `:prop-names` §`:map-props-adapter` above — where the
+  ;; rows that run live. The note is therefore gone rather than amended.
 
   :prose :executable}}

@@ -1334,10 +1334,15 @@ an open flag is writable and not buffered, so it takes the key and no generation
 
   `:map-props` is one optional whole-ordinary-props adapter, run in the browser
   only, for preparing non-portable host values. Callback carriers, children and
-  the key are withheld from it and installed afterwards, so it can neither supply
-  nor replace a reserved fact; a returned map that names one is refused. It
-  answers under the same naming law: the adapter owns the ordinary plane's
-  values, and the names stay the caller's.
+  the key are withheld from it and installed afterwards, and its answer carries
+  **exactly the keys the call authored**. The adapter owns the ordinary plane's
+  values — that is what it is for — and the names stay the caller's, so key-set
+  equality is the one law the answer owes: a name it invents would reach React
+  under a name nobody authored and would put the reserved facts back within
+  reach of a plane they were withheld from, and a name it drops would leave the
+  structural tree, which records the authored props, reporting a prop React
+  never received. A host whose props want renaming renames them inside the
+  registered React component.
 
   A structural render emits an honest marker — the declared host id, the declared
   SSR policy, a **count** of the children that crossed into React's tree, and the
