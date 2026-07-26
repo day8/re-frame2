@@ -221,13 +221,25 @@
   `last-result` cell, `::unset` on first recompute) and `prev-in-vals`
   (the wrapper's last-seen input value(s), `::unset` on first recompute,
   else a coll parallel to `input-signals`)."
-  [body-fn in-vals query-id query-v frame-id input-signals sub-meta
+  [body-fn in-vals query-id query-v frame-id input-signals sub-meta sub-scope
    prev-value prev-in-vals vector-inputs?]
   ;; Publish the sub's HandlerScope for the duration of body-fn
   ;; invocation + validation + the `:rf.sub/run` emit. Per Spec 009
   ;; §:rf.trace/trigger-handler the sub's source-coord rides every emit
   ;; (`:rf.sub/run` success, `:rf.error/sub-exception` / schema-validation /
   ;; transitive sub-miss errors). The emit MUST sit inside the scope.
+  ;;
+  ;; `sub-scope` arrives PRE-BUILT from the memo wrapper's closure rather
+  ;; than being derived here (rf2-zxv06). It is a pure function of
+  ;; `(:sub query-id sub-meta)`, all three fixed for the life of the cache
+  ;; entry, so deriving it per recompute rebuilt an identical record — plus
+  ;; its `:trigger-handler` source-coord map — on every write, in
+  ;; production, where the whole trace body around it is DCE-ed. This is
+  ;; the treatment `views.cljs` already gives a view's scope (pre-computed
+  ;; once at `reg-view`); the sub path was the outlier. The scope is still
+  ;; bound on every recompute and every slot still reads the same, so the
+  ;; always-on readers — the EP-0027 `make-frame`-in-handler guard and the
+  ;; `:dispatch-id` correlation reads — are untouched.
   ;;
   ;; `vector-inputs?`: when true, the body ALWAYS receives the
   ;; resolved inputs as a VECTOR (in producer order) — the contract for a
@@ -237,7 +249,7 @@
   ;; convention holds: a single `:<-` input is delivered as the bare value,
   ;; ≥2 inputs as a vector. The layer-1 / single-`:<-` wrappers pass false.
   (trace/with-handler-scope
-    (trace/handler-scope-from-meta :sub query-id sub-meta)
+    sub-scope
     (try
       ;; Wall-clock the sub body (dev-only) so `:rf.sub/run`
       ;; carries `:rf.sub/elapsed-ms` — the per-op duration the Trace
@@ -464,11 +476,14 @@
   `input-paths-unchanged` is the inputs-stable set (`[]` for layer-1, the
   realized `:<-` query-vectors for layer-n). Outer `interop/debug-enabled?`
   gate elides the tag-map construction + emit in CLJS production (Closure DCE
-  under `:advanced` + `goog.DEBUG=false`)."
-  [query-id query-v frame-id sub-meta input-paths-unchanged]
+  under `:advanced` + `goog.DEBUG=false`).
+
+  `sub-scope` is the wrapper's pre-built HandlerScope — the same constant
+  the recompute path binds (rf2-zxv06)."
+  [query-id query-v frame-id sub-scope input-paths-unchanged]
   (when interop/debug-enabled?
     (trace/with-handler-scope
-      (trace/handler-scope-from-meta :sub query-id sub-meta)
+      sub-scope
       (trace/emit! :rf.sub :rf.sub/skip
                    {:frame                        frame-id
                     :rf.sub/id                    query-id
@@ -492,7 +507,8 @@
   recomputes (the sentinel is never `=` to any db value)."
   [body-fn query-id query-v frame-id sub-meta]
   (let [last-db     (volatile! ::unset)
-        last-result (volatile! nil)]
+        last-result (volatile! nil)
+        sub-scope   (trace/handler-scope-from-meta :sub query-id sub-meta)]
     (fn [db]
       (when body-fn
         (if (= @last-db db)
@@ -502,7 +518,7 @@
           ;; reactive cascade DAG. Layer-1 has no upstream
           ;; sub inputs, so `:input-paths-unchanged` is `[]`.
           (do
-            (emit-sub-skip! query-id query-v frame-id sub-meta [])
+            (emit-sub-skip! query-id query-v frame-id sub-scope [])
             @last-result)
           ;; Capture the prior cells BEFORE the recompute so the
           ;; `:rf.sub/run` attribution can report value-change
@@ -523,7 +539,8 @@
           (let [prev-result (if (= ::unset @last-db) unset @last-result)
                 computed    (validate-and-trace
                               body-fn (list db) query-id query-v
-                              frame-id [] sub-meta prev-result unset false)]
+                              frame-id [] sub-meta sub-scope
+                              prev-result unset false)]
             (vreset! last-db db)
             (vreset! last-result computed)
             computed))))))
@@ -549,7 +566,8 @@
   inside the validate/trace bracket."
   [body-fn query-id query-v frame-id input-signals sub-meta]
   (let [last-v0     (volatile! ::unset)
-        last-result (volatile! nil)]
+        last-result (volatile! nil)
+        sub-scope   (trace/handler-scope-from-meta :sub query-id sub-meta)]
     (fn [v0]
       (when body-fn
         (if (= @last-v0 v0)
@@ -559,7 +577,7 @@
           ;; stable; layer-2+ subs name their inputs by `[query-id args]`
           ;; rather than db-paths.
           (do
-            (emit-sub-skip! query-id query-v frame-id sub-meta (vec input-signals))
+            (emit-sub-skip! query-id query-v frame-id sub-scope (vec input-signals))
             @last-result)
           ;; Capture prior cells BEFORE the recompute for the `:rf.sub/run`
           ;; attribution. `prev-in-vals` is the last-seen
@@ -580,7 +598,7 @@
                                (list prev-v0))
                 computed     (validate-and-trace
                                body-fn (list v0) query-id query-v
-                               frame-id input-signals sub-meta
+                               frame-id input-signals sub-meta sub-scope
                                prev-result prev-in-vals false)]
             (vreset! last-v0 v0)
             (vreset! last-result computed)
@@ -611,7 +629,8 @@
      body-fn query-id query-v frame-id input-signals sub-meta false))
   ([body-fn query-id query-v frame-id input-signals sub-meta vector-inputs?]
   (let [last-in-vals (volatile! ::unset)
-        last-result  (volatile! nil)]
+        last-result  (volatile! nil)
+        sub-scope    (trace/handler-scope-from-meta :sub query-id sub-meta)]
     (fn [& in-vals]
       (when body-fn
         (if (= @last-in-vals in-vals)
@@ -621,7 +640,7 @@
           ;; stable (the varargs path has ≥2 inputs and the memo
           ;; compare is whole-seq `=`, so every input was stable).
           (do
-            (emit-sub-skip! query-id query-v frame-id sub-meta (vec input-signals))
+            (emit-sub-skip! query-id query-v frame-id sub-scope (vec input-signals))
             @last-result)
           ;; Capture prior cells BEFORE the recompute for the `:rf.sub/run`
           ;; attribution. `prev-in-vals` is the last-seen
@@ -638,7 +657,7 @@
                 prev-in-vals @last-in-vals
                 computed     (validate-and-trace
                                body-fn in-vals query-id query-v
-                               frame-id input-signals sub-meta
+                               frame-id input-signals sub-meta sub-scope
                                prev-result prev-in-vals vector-inputs?)]
             (vreset! last-in-vals in-vals)
             (vreset! last-result computed)

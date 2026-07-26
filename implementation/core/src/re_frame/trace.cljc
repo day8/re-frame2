@@ -262,13 +262,28 @@
 (defn inherit-scope
   "Merge `parent`'s `:call-site` and `:dispatch-id` into `new-scope`
   where `new-scope`'s value is nil. Meta-derived slots are preserved
-  as-is (innermost-wins). Per Spec 009 §Handler-scope §Composition."
+  as-is (innermost-wins). Per Spec 009 §Handler-scope §Composition.
+
+  Each arm asks TWO questions — is mine empty, AND does the parent
+  actually have one to give? The second is what stops a nil being
+  assoc-ed over a nil: that writes no information but still copies the
+  whole record, and in a production build BOTH parent slots are always
+  nil (the router mints `:dispatch-id` and reads the macro-stamped
+  `:call-site` only under `interop/debug-enabled?`). So the one-question
+  form copied the record twice on entry to every handler — every event,
+  every fx, every cofx, every view render, every subscription recompute
+  — to change nothing. A record's declared fields exist whether or not
+  they are assoc-ed, so the two spellings are indistinguishable to
+  every reader of a scope (rf2-zxv06)."
   [new-scope parent]
   (if (nil? parent)
     new-scope
     (cond-> new-scope
-      (nil? (:call-site new-scope))   (assoc :call-site   (:call-site parent))
-      (nil? (:dispatch-id new-scope)) (assoc :dispatch-id (:dispatch-id parent)))))
+      (and (nil? (:call-site new-scope))   (some? (:call-site parent)))
+      (assoc :call-site   (:call-site parent))
+
+      (and (nil? (:dispatch-id new-scope)) (some? (:dispatch-id parent)))
+      (assoc :dispatch-id (:dispatch-id parent)))))
 
 #?(:clj
    (defmacro with-handler-scope
