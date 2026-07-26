@@ -898,9 +898,38 @@
   real red into a green. The narrow rule is the safe direction."
   #"`(:[\w.*+!?<>=/'-]+)`")
 
-(defn- cell-tag-keys [cell]
+(def ^:private markdown-link-re
+  "A markdown inline link — `[text](target)` — anywhere in a `:tags` cell.
+  Thirteen live cells carry one, all cross-references to an owning spec
+  section (`per [014 §Privacy](014-HTTPRequests.md#privacy)`).
+
+  WHY THE LINK IS STRIPPED BEFORE KEYS ARE HARVESTED. `tags-cell-key-re` reads
+  ANY back-ticked keyword span in the cell, so a keyword sitting in a link's
+  TEXT counted as a documented key — and a cross-reference is PROSE ABOUT a
+  key, not the row listing it. That is a false-green generator in the one
+  direction that matters: a cell may MISSPELL the key it lists and still
+  satisfy the diff off a correctly-spelled mention in an adjacent link, which
+  is precisely the drift the arm exists to catch. Reproduced against the live
+  corpus before this rule landed — respelling
+  `:rf.error/resource-route-plan`'s `:plan-cause` as `:plan-cauze` while
+  adding `(see [`:plan-cause`](#error-event-catalogue))` to the same cell ran
+  the suite GREEN; `tags-column-key-in-link-text-is-not-a-documented-key`
+  pins it.
+
+  Stripping the WHOLE construct (text and target) is the rule, not just the
+  text: a target carries no back-ticks so it can hold no key, and removing the
+  pair together needs no reasoning about which half a match fell in. Zero keys
+  leave the harvest on today's corpus — no live cell documents a key only from
+  inside a link — so the rule is a hardening, not a corpus change."
+  #"\[[^\]]*\]\([^)]*\)")
+
+(defn- cell-tag-keys
+  "The keys a `:tags` cell DOCUMENTS — every back-ticked lone keyword outside a
+  markdown cross-reference link (see `markdown-link-re` for why the link goes
+  first)."
+  [cell]
   (into #{} (map (comp keyword #(subs % 1) second))
-        (re-seq tags-cell-key-re cell)))
+        (re-seq tags-cell-key-re (str/replace cell markdown-link-re " "))))
 
 (defn- parse-catalogue-tag-rows
   "`[{:category <kw> :tags-cell <string>} …]` for every ACTIVE row of the
@@ -1227,6 +1256,43 @@
           "the arm reds on the exact defect that motivated it")
       (is (empty? (tags-column-findings post pre-wsopx-schemas))
           "…and greens on the fix, so the red is the defect and not the arm"))))
+
+(deftest tags-column-key-in-link-text-is-not-a-documented-key
+  (testing "A key named only inside a markdown cross-reference link is PROSE
+            ABOUT the key, not the row listing it — so it must not satisfy the
+            diff. Without this rule the arm greens on a cell that MISSPELLS the
+            key it lists, as long as some adjacent link happens to spell it
+            correctly, which is the exact drift class the arm exists to catch.
+            The two rows below are the same defect with and without the link;
+            both must report the same finding."
+    (let [row (fn [tags]
+                (parse-catalogue-tag-rows
+                  (catalogue-fixture
+                    (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
+                         "| A route resource plan failed. | `:no-recovery` | "
+                         tags " |"))))
+          expected [{:category :rf.error/resource-route-plan
+                     :schema   "ResourceRoutePlanTags"
+                     :missing  #{:plan-cause}}]]
+      (is (= expected
+             (tags-column-findings
+               (row "`:route-id`, `:reason`, `:frame`, `:contributor`, `:plan-cauze`")
+               pre-wsopx-schemas))
+          "the misspelling alone reds")
+      (is (= expected
+             (tags-column-findings
+               (row (str "`:route-id`, `:reason`, `:frame`, `:contributor`, "
+                         "`:plan-cauze` (see [`:plan-cause`](#error-event-catalogue))"))
+               pre-wsopx-schemas))
+          "…and STILL reds when a link in the same cell spells the key correctly
+           — the link text is not the row's key list")
+      (is (empty?
+            (tags-column-findings
+              (row (str "`:route-id`, `:reason`, `:frame`, `:contributor`, "
+                        "`:plan-cause` (see [011 §The tag](011-SSR.md#the-tag))"))
+              pre-wsopx-schemas))
+          "…while an ordinary cross-reference beside a correctly-listed key is
+           untouched, so the rule costs the corpus nothing"))))
 
 (deftest tags-column-arm-excludes-only-the-two-envelope-slots
   (testing "`:recovery` and `:category` are envelope-level by the catalogue's
