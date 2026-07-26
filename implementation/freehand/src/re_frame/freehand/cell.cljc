@@ -48,19 +48,23 @@
   3. **Read and re-check.** Every staged handle's commit-time evidence is
      read — a fail-loud, callback-capable operation that runs INSIDE the
      pre-publication transaction, so a read that throws rolls the fresh
-     staging back exactly as an acquisition failure does. Currency is then
-     re-read at the narrowest boundary — after ALL callback-capable work,
-     the reads included, with nothing callback-capable between it and the
-     publish — so a hot reload (or a read that re-entered and advanced
-     authority) landing mid-commit cannot publish a stale body.
+     staging back exactly as an acquisition failure does. Each reading is
+     compared against its own render probe as it is taken (step 6's
+     verdict) and recorded as the bundle's evidence, because all three
+     are views of one read. Currency is then re-read at the narrowest
+     boundary — after ALL callback-capable work, the reads included, with
+     nothing callback-capable between it and the publish — so a hot reload
+     (or a read that re-entered and advanced authority) landing mid-commit
+     cannot publish a stale body.
   4. **Publish.** Frame, dependencies, evidence and the event site table
      become live with no host yield between them. Nothing can observe a
      partial bundle.
   5. **Release.** Only now are the superseded handles released.
   6. **Correct.** Every acquired handle — retained as well as staged —
      has its commit-time reading compared against the render's probe
-     evidence; movement in the render→commit gap advances the cell's
-     revision so the host corrects before paint.
+     evidence, at step 3 where the reading is taken; movement in the
+     render→commit gap advances the cell's revision HERE, once the bundle
+     is live, so the host corrects before paint.
 
   Everything here is **common** — the same value shapes, the same laws
   and the same diagnostics on the JVM and in ClojureScript. The React
@@ -829,59 +833,133 @@
 
 (defn- stage!
   "Acquire every newly-observed or retargeted target, in render order,
-  BEFORE anything is released. Returns `{site-key record}` with each
-  record's `:handle` either RETAINED from the prior committed set (the
-  kept-check held, and the handle is not touched) or freshly acquired.
+  BEFORE anything is released. Answers `{:staged {site-key record}
+  :acquired [handle …]}` — each record's `:handle` either RETAINED from
+  the prior committed set (the kept-check held, and the handle is not
+  touched) or freshly acquired, and `:acquired` exactly the handles THIS
+  staging acquired, in ACQUISITION order.
+
+  `:acquired` is REPORTED rather than reconstructed. Its reverse is the
+  release order for every pre-publication rollback — a failed
+  acquisition, a commit-side read that throws, a lost currency re-check —
+  so layered acquisitions unwind symmetrically, and a retained prior
+  handle, untouched by this candidate and still owned by the installed
+  set, is never in it. Staging is the one place that fact is known
+  first-hand. Deriving it afterwards instead meant flagging every record
+  `:retained?` on every commit to answer a question only a rollback ever
+  asks, and then re-deriving the order by walking the render order again.
+
+  The staged map is built through a TRANSIENT. It is a value under
+  construction that no other code can reach until this function returns
+  it — exactly the condition transience asks for — and a boundary
+  holding hundreds of dependencies otherwise allocates one intermediate
+  map per site to reach the same answer.
 
   Transactional: an acquisition failure releases the handles this staging
-  acquired — in reverse acquisition order, so layered acquisitions unwind
-  symmetrically — and rethrows, leaving the prior committed set
-  installed."
+  acquired — in reverse acquisition order — and rethrows, leaving the
+  prior committed set installed."
   [^ViewCell cell prior order reads]
-  (let [acquired (volatile! [])]
+  (let [acquired (volatile! [])
+        n        (count order)]
     (try
-      (reduce
-        (fn [staged site-key]
-          (let [{:keys [target] :as record} (get reads site-key)
-                kept                        (get prior site-key)]
-            (if (and (some? kept) (obs/current? (:handle kept) target))
-              (assoc staged site-key (assoc record :handle (:handle kept) :retained? true))
-              (let [h (obs/acquire! target (fn on-change [cause] (mark-dirty! cell cause)))]
-                (vswap! acquired conj h)
-                (assoc staged site-key (assoc record :handle h :retained? false))))))
-        {} order)
+      (loop [i      0
+             staged (transient {})]
+        (if (< i n)
+          (let [site-key (nth order i)
+                record   (get reads site-key)
+                target   (:target record)
+                kept     (get prior site-key)
+                handle   (if (and (some? kept) (obs/current? (:handle kept) target))
+                           (:handle kept)
+                           (let [h (obs/acquire!
+                                     target
+                                     (fn on-change [cause] (mark-dirty! cell cause)))]
+                             (vswap! acquired conj h)
+                             h))]
+            (recur (inc i) (assoc! staged site-key (assoc record :handle handle))))
+          {:staged (persistent! staged) :acquired @acquired}))
       (catch #?(:clj Throwable :cljs :default) e
         (release-all! (rseq @acquired))
         (throw e)))))
 
-(defn- fresh-handles
-  "The handles THIS candidate freshly acquired — the render `order`
-  restricted to the sites [[stage!]] acquired rather than RETAINED from
-  the prior committed set — in ACQUISITION order.
-
-  Its reverse is the release order for any pre-publication rollback (a
-  read failure or a lost currency re-check): layered acquisitions unwind
-  symmetrically, and a retained prior handle — untouched by this
-  candidate and still owned by the installed set — is never in it, so a
-  rollback releases exactly what this candidate acquired and nothing the
-  prior bundle still needs."
-  [order staged]
-  (into []
-        (keep (fn [site-key]
-                (let [record (get staged site-key)]
-                  (when (and record (not (:retained? record))) (:handle record)))))
-        order))
-
 (defn- superseded-handles
   "The handles the PRIOR committed set owned that the new one does not —
   a dropped site's handle, and a retargeted site's OLD handle. Compared
-  by identity, because a handle IS its owner token."
-  [prior staged]
-  (into []
-        (keep (fn [[site-key {:keys [handle]}]]
-                (let [now (get-in staged [site-key :handle])]
-                  (when-not (identical? now handle) handle))))
-        prior))
+  by identity, because a handle IS its owner token.
+
+  THE FULLY-RETAINED SET IS ANSWERED BY COUNTING, and it is the same
+  answer rather than a weaker one. When staging acquired NOTHING, every
+  staged handle came from `prior` at its own site key, so the staged key
+  set is a subset of the prior one; if the two are also the same SIZE
+  they are the same set, every handle is the prior handle by identity,
+  and there is nothing to supersede. Any acquisition, any dropped site
+  and any retarget fails one of those two tests and takes the scan.
+
+  It is worth the sentence because the fully-retained set is not an edge
+  case: it is what a broad write IS — every site re-reading the same
+  query through the same handle — and it is the shape where the scan
+  costs the most, one map walk and two lookups per dependency to
+  conclude that nothing changed."
+  [prior staged acquired]
+  (if (and (empty? acquired) (= (count staged) (count prior)))
+    []
+    (into []
+          (keep (fn [[site-key {:keys [handle]}]]
+                  (let [now (get-in staged [site-key :handle])]
+                    (when-not (identical? now handle) handle))))
+          prior)))
+
+(defn- commit-readings
+  "Step 3 of the commit, in ONE pass over the render order: read every
+  staged handle's commit-time evidence, compare it against the evidence
+  that site's own render probed, and record what the bundle publishes.
+  Answers `{:observations [record …] :moved? bool}`.
+
+  THE READ IS THE TEAR CHECK, and that is why it is here rather than
+  cached away. Spec 006 §The six frozen invariants, invariant 5: at
+  commit, EVERY acquired node — the handles RETAINED from the prior
+  committed set as well as the newly staged ones — has its identity
+  (`:node-key`), version and frame/registry epochs compared against the
+  render's probe, and any movement in the render→commit gap advances the
+  cell's revision so the host corrects before paint. On a non-watchable
+  headless host a retained site has no value-movement watch, so this
+  comparison is its ONLY correction channel.
+
+  The three things fold into one pass because they are three views of
+  one read. Nothing is skipped: every handle is read, every reading is
+  compared. What folding removes is the intermediate map the readings
+  used to be collected into, the map entries produced by walking that
+  map again to build the observations, and the third walk that looked
+  each reading back up to ask whether it had moved.
+
+  `:moved?` stops COMPARING once one site has moved, exactly as the
+  `some` it replaces did — movement anywhere advances the revision once,
+  so a second answer to a settled question buys nothing. The READS never
+  stop, because reading is the check.
+
+  Fail-loud: `obs/read` may re-enter application subscription code and
+  throw. The whole pass therefore runs inside the caller's rollback
+  guard, which releases exactly what this candidate acquired and leaves
+  the prior committed set installed."
+  [order staged]
+  (let [n (count order)]
+    (loop [i     0
+           moved false
+           obs   (transient [])]
+      (if (< i n)
+        (let [site-key (nth order i)
+              record   (get staged site-key)
+              handle   (:handle record)
+              reading  (obs/read handle)]
+          (recur (inc i)
+                 (or moved (moved? reading (:evidence record)))
+                 (conj! obs {:site-key site-key
+                             :query    (:query record)
+                             :frame-id (:frame-id (:target record))
+                             :value    (:value reading)
+                             :owned?   (obs/owned? handle)})))
+        {:observations (persistent! obs)
+         :moved?       moved}))))
 
 ;; ---------------------------------------------------------------------------
 ;; The dev-gated occurrence-record emission seam (rf2-3naow, F4g)
@@ -1185,7 +1263,7 @@
       (let [{:keys [order by-site]} @(.-reads cand)
             prior  (:deps s0)
             fid    (.-frame cand)
-            staged (stage! owner-cell prior order by-site)
+            {:keys [staged acquired]} (stage! owner-cell prior order by-site)
             ;; The commit-side reads are part of the pre-publication
             ;; TRANSACTION, not a step past it. `obs/read` is a fail-loud
             ;; port op that may deref application subscription code — it can
@@ -1194,13 +1272,19 @@
             ;; releases every handle THIS candidate freshly acquired, in
             ;; reverse acquisition order, leaves the prior committed set
             ;; installed, and rethrows the ORIGINAL failure untranslated.
-            readings (try
-                       (into {}
-                             (map (fn [[k {:keys [handle]}]] [k (obs/read handle)]))
-                             staged)
-                       (catch #?(:clj Throwable :cljs :default) e
-                         (release-all! (rseq (fresh-handles order staged)))
-                         (throw e)))]
+            ;;
+            ;; [[commit-readings]] carries the invariant-5 comparison and the
+            ;; bundle's observations out of the same pass, so the reading of a
+            ;; site is compared and recorded where it is taken. `obs/owned?`
+            ;; joins it: a total, no-throw predicate over handle state, not
+            ;; callback-capable, so folding it in moves NOTHING across the
+            ;; currency boundary below — it only leaves less on the far side
+            ;; of it.
+            scan (try
+                   (commit-readings order staged)
+                   (catch #?(:clj Throwable :cljs :default) e
+                     (release-all! (rseq acquired))
+                     (throw e)))]
         ;; The narrowest publication boundary: acquisition AND the
         ;; commit-side reads ran cache installs, disposal hooks and
         ;; application recompute, any of which can synchronously advance the
@@ -1211,18 +1295,11 @@
         ;; staging and publishes nothing rather than publishing stale
         ;; ownership.
         (if-not (current? cand @(st owner-cell))
-          (do (release-all! (rseq (fresh-handles order staged)))
+          (do (release-all! (rseq acquired))
               :abandoned)
           (let [bundle   {:frame        fid
                           :generation   (.-generation cand)
-                          :observations (mapv (fn [k]
-                                                (let [r (get staged k)]
-                                                  {:site-key k
-                                                   :query    (:query r)
-                                                   :frame-id (:frame-id (:target r))
-                                                   :value    (:value (get readings k))
-                                                   :owned?   (obs/owned? (:handle r))}))
-                                              order)}
+                          :observations (:observations scan)}
                 ;; Build and VALIDATE the dev evidence BEFORE the publish below —
                 ;; the two-plane split: a malformed FRAMEWORK projection or
                 ;; record fails loud here, so a commit the schema would refuse
@@ -1240,17 +1317,22 @@
                 captured (try
                            (commit-evidence owner-cell lowering bundle)
                            (catch #?(:clj Throwable :cljs :default) e
-                             (release-all! (rseq (fresh-handles order staged)))
+                             (release-all! (rseq acquired))
                              (throw e)))]
             ;; ONE publication. Dependencies, frame and evidence become
             ;; live in a single write, and the event site table becomes
             ;; live against this exact frame with no host yield between
             ;; them — nothing can observe a partial bundle.
+            ;; `order` is the candidate's own render order and is already a
+            ;; vector — the reads volatile opens at `[]` and only ever
+            ;; `conj`es — so it is published as it stands. Sharing it is safe
+            ;; whatever the candidate does next: a persistent vector's `conj`
+            ;; answers a new vector and cannot reach this one.
             (swap! (st owner-cell) assoc
                    :lifecycle :connected
                    :frame     fid
                    :deps      staged
-                   :dep-order (vec order)
+                   :dep-order order
                    :evidence  bundle)
             (events/commit! (.-events cand)
                             (frame-dispatcher fid)
@@ -1258,11 +1340,12 @@
             ;; Only now: the prior set's superseded handles. Acquire
             ;; before release is what keeps a shared node off its
             ;; zero-owner disposal edge mid-reconciliation.
-            (release-all! (superseded-handles prior staged))
-            ;; Invariant 5 — every acquired handle, retained as well as
-            ;; staged, so a retained site on a host with no value watch
-            ;; is still corrected.
-            (when (some (fn [[k {:keys [evidence]}]] (moved? (get readings k) evidence)) staged)
+            (release-all! (superseded-handles prior staged acquired))
+            ;; Invariant 5 — the verdict [[commit-readings]] reached while it
+            ;; read, over every acquired handle, retained as well as staged,
+            ;; so a retained site on a host with no value watch is still
+            ;; corrected.
+            (when (:moved? scan)
               (advance-revision! owner-cell))
             ;; The dev-gated occurrence-record seam (rf2-3naow, rf2-xftdv): a
             ;; SELECTED commit is the one place the whole bundle is live, so it
