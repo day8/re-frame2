@@ -14,13 +14,20 @@
        the whole-output `:large?` sub REGISTRATION stamp (rf2-isp3i). The
        second is not app-db-rooted, so a fixture that declared only paths
        left this gate's own claim — no raw large bytes ANYWHERE — scanning
-       a record the shape never appeared in. `sensitive` likewise means BOTH
-       families: the app-db path AND the resource/mutation trace family, whose
-       owner-local SCOPED KEYS are classified by the resource OWNER's
-       `:sensitive?` declaration rather than by any app-db path (rf2-isp3i's
-       rescoping — before the widening this file contained no `reg-resource`
-       at all, so the family's projector had never been reached from the gate
-       that owns the no-raw-sensitive-egress claim).
+       a record the shape never appeared in; and the sub is RECOMPUTED, so
+       all FOUR of that shape's payload slots (current + previous, on each of
+       its two carriers) carry a real value rather than one value beside a nil.
+       `sensitive` likewise means BOTH families: the app-db path AND the
+       resource/mutation trace family, whose owner-local SCOPED KEYS are
+       classified by the resource OWNER's `:sensitive?` declaration rather than
+       by any app-db path (rf2-isp3i's rescoping — before the widening this
+       file contained no `reg-resource` at all, so the family's projector had
+       never been reached from the gate that owns the no-raw-sensitive-egress
+       claim). And the family is inhabited across OPERATIONS, not only slots
+       (rf2-0t7o8): the tag vocabulary is operation-agnostic but the DEFECTS
+       are not, so the cascade drives the operation that stamps a free `:scope`
+       tag as well as the ones that carry their scope inside a key, in both the
+       identity-bearing and the scalar scope shape.
     2. Run the ring through `projected-record` (per-record forwarder shape,
        e.g. `register-epoch-listener!` ship!) AND `projected-history` (bulk-egress
        shape, e.g. `watch-epochs` initial snapshot).
@@ -114,6 +121,26 @@
 ;; that had no sub-output slot in it at all — which is how rf2-irwsq shipped a
 ;; 25000-char payload raw at `[:trace-events <i> :tags :rf.sub/value]` past this
 ;; very gate.
+;;
+;; The sub's output rides its input, and the cascade below RECOMPUTES it, so the
+;; two payload slots of each carrier — `:value` / `:prev-value` on the
+;; structured row, `:rf.sub/value` / `:rf.sub/prev-value` on the trace tag —
+;; hold DISTINCT large values rather than one value beside a nil. All four are
+;; projected by the shared rule and all four are pinned below, and the pinning
+;; is not decorative: with a single compute the previous-value slots are nil, a
+;; nil projects to a marker over nothing, and the whole-output scans see no
+;; difference — so deleting either previous-value projection left this gate
+;; GREEN. Measured, both directions:
+;;
+;;   - pass `:value :rf.disabled/prev-value` to `elide-sub-run-row`'s shared-rule
+;;     call (the structured row's previous-value projection off) → 5 failures;
+;;   - pass `:rf.sub/value :rf.disabled/prev-value` in
+;;     `elide-large-sub-trace-values` (the trace tag's off) → 5 failures.
+;;
+;; Each names its own slot, both trip the two carriers' `:bytes` agreement, and
+;; both trip the cross-cutting "no leaf of the payload's size anywhere" scans on
+;; the per-record AND the bulk `projected-history` surface — which is the part
+;; that was silently uncovered.
 (def ^:private large-sub-id   :sub/whole-output-large)
 ;; An UNMARKED sibling sub whose value rides the same two egress slots. It is
 ;; the negative control: if the elision below ever became a blanket truncation
@@ -163,7 +190,17 @@
               so this fixture kept them out; that constraint is now lifted)
     - :upload — writes the large path (large payload closed-over in the
                 handler for the same reason)
-    - :inc — non-sensitive again
+    - :inc — non-sensitive again, AND the FIRST reading of the two subs
+             below. It takes that reading through `subscribe` (not
+             `subscribe-once`), so the cache entry outlives the cascade
+             and the read in `:read-subs` is a RECOMPUTE with a
+             previous value rather than a first run. The reading is
+             taken from the handler body, i.e. BEFORE this cascade's own
+             `:n` increment commits, which is what makes the two
+             readings see different inputs and produce two DISTINCT
+             large values (rf2-isp3i: with one compute both
+             previous-value slots are nil, and deleting either
+             previous-value projection leaves this gate green)
     - :read-subs — reads a whole-output `:large?` sub and an unmarked
                    control sub (rf2-isp3i). This is the SECOND large
                    shape, and it is not app-db-rooted: the `:large?`
@@ -175,7 +212,8 @@
                    (`:rf.sub/value` / `:rf.sub/prev-value`, projected by
                    `elide-large-sub-trace-values`). Both callers of the
                    shared `elide-whole-output-large-slots` rule are
-                   therefore inhabited by one cascade.
+                   therefore inhabited by one cascade, and all FOUR of
+                   their payload slots carry a real value
   Driven LAST so the existing index-addressed assertions (`(nth _ 1)` =
   :login, `(nth _ 2)` = :upload) keep addressing the same cascades. Five
   cascades against this suite's `:trace-events-keep 5` means every record
@@ -186,9 +224,18 @@
   (rf/reg-event :seed   (fn [{:keys [db]} _] {:db {:n 0}}))
   (rf/reg-event :login  (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret-password)}))
   (rf/reg-event :upload (fn [{:keys [db]} _] {:db (assoc-in db [:blob :payload] (big-string payload-size))}))
-  (rf/reg-event :inc    (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-  (rf/reg-sub large-sub-id   {:large? true} (fn [_ _] (big-string payload-size)))
-  (rf/reg-sub control-sub-id                (fn [_ _] control-note))
+  ;; The `:large?` sub's output rides `:n`, so the two readings below produce
+  ;; values of DIFFERENT sizes — the raw current / previous pair the four
+  ;; payload slots must each carry, and the reason their two markers can be
+  ;; told apart by `:bytes`.
+  (rf/reg-sub large-sub-id   {:large? true}
+    (fn [db _] (big-string (* payload-size (inc (:n db 0))))))
+  (rf/reg-sub control-sub-id (fn [_db _] control-note))
+  (rf/reg-event :inc
+    (fn [{:keys [db]} _]
+      @(rf/subscribe [large-sub-id]   {:frame frame-id})
+      @(rf/subscribe [control-sub-id] {:frame frame-id})
+      {:db (update db :n (fnil inc 0))}))
   (rf/reg-event :read-subs
     (fn [_ _]
       (rf/subscribe-once [large-sub-id]   {:frame frame-id})
@@ -324,22 +371,50 @@
 ;;     widening the op roster, which is why the scans below run over the WHOLE
 ;;     record and the whole settled history rather than over the family rows.
 ;;
-;; All three are reachable from the cascade `drive-resource-family!` drives, and
-;; all three were MEASURED here by reverting the fix and re-running, because a
-;; widening that cannot red against a defect that actually shipped has proven
-;; nothing:
+;;   - rf2-1zc33 — and the FOURTH, which is a different axis again: a projector
+;;     that is right per SHAPE but was reached on the wrong ROWS. The free
+;;     `:scope` tag (the resolved CONCRETE scope, not the one inside a scoped
+;;     key) was treated as sibling-owned, on the premise that the
+;;     `:rf.resource/scope-resolved` projector had already classified it. The
+;;     epoch tool-pair applies that sibling under `(= :rf.resource/scope-resolved
+;;     (:operation ev))` — ONE operation — while this family projector runs on
+;;     every row, so on five OTHER row types `:scope` was classified by nobody
+;;     and a `{:from-db …}` resolver's identity map egressed raw. The cascade
+;;     could not see it twice over (rf2-0t7o8): it drove only `ensure` /
+;;     `release-owner`, none of which stamps a free `:scope`, and both its
+;;     resources were `:rf.scope/global` — a SCALAR, the value that correctly
+;;     rides verbatim — so even a row that DID carry `:scope` would have proven
+;;     nothing. Both gaps are closed by the two `invalidate-tags` the cascade now
+;;     drives.
 ;;
-;;   - revert rf2-wd9im (`trace_egress.cljc` back to the map-only default) → 5
-;;     failures, naming all five leaking paths — the three lifecycle rows'
+;; All four are reachable from the cascade `drive-resource-family!` drives, and
+;; all four were MEASURED here by reverting the fix and re-running, because a
+;; widening that cannot red against a defect that actually shipped has proven
+;; nothing. Counts are for THIS FILE, re-derived against the widened cascade —
+;; each mutation is stated precisely enough to reproduce:
+;;
+;;   - revert rf2-wd9im (`project-unknown-slot-value` back to the map-only
+;;     default: drop its `scoped-key-shape?` and `coll?` arms) → 7 failures,
+;;     naming every leaking path — the lifecycle rows'
 ;;     `[:tags :work/id 1 2 :auth-token]`, the release row's `:released` and its
-;;     `:aborted` — and printing raw `{:auth-token "…"}` beside raw
-;;     `:rf.scope/global`;
-;;   - revert rf2-5o52l (`events.cljc` + `ssr.cljc` back to key-ids) → 8
-;;     failures, the report printing the raw CEDN-1 string
-;;     `v[k::rf.scope/global k::secret/article m{k::auth-token s:"…"}]`, and the
-;;     PLAIN control reddening too (a key-id is not a scoped-key vector, so the
-;;     plain owner's `:released` member goes missing) — the fixture notices the
-;;     change in both directions, not just the leaking one.
+;;     `:aborted`, and (new) the invalidation row's `[:tags :scope 1 :username]`,
+;;     since a scope TUPLE is a vector and the map-only default lets a vector
+;;     fall through verbatim. Epoch suite under that mutation: 35 failures.
+;;   - revert rf2-5o52l (`events.cljc`'s `:released` back to
+;;     `(vec (or owned #{}))`, i.e. key-ids) → 9 failures: 8 in the acceptance
+;;     deftest, the report printing the raw CEDN-1 string
+;;     `v[k::rf.scope/global k::secret/article m{k::auth-token s:"…"}]`, and 1 in
+;;     the PLAIN control (a key-id is not a scoped-key vector, so the plain
+;;     owner's `:released` member goes missing) — the fixture notices the change
+;;     in both directions, not just the leaking one. Epoch suite: 10 failures.
+;;   - revert rf2-1zc33 (put `:scope` back into `sibling-owned-slot`) → 3
+;;     failures, naming `[:trace-events <i> :tags :scope 1 :username]` on both
+;;     the assembled record and the real settled one, plus the per-slot
+;;     `(redacted-token? (second pscope))`. Epoch suite: 490 tests / 6628
+;;     assertions, 19 failures — the SAME test and assertion counts as green,
+;;     differing only in failures, which is what proves the mutation applied
+;;     rather than the gate quietly not firing. Before this widening the same
+;;     revert left this file GREEN.
 ;;   - revert rf2-1kiuj (drop the `omit-off-box-fx-args-resource-keys` arm from
 ;;     `elide-trace-events-slot`) → see the reversion counts recorded on the
 ;;     bead; the whole-record and whole-history scans name every leaking carrier
@@ -350,7 +425,12 @@
 ;; Note what the second reversion shows about the first: `:released` is NOT in
 ;; the projector's named `scoped-keys-slot` roster, so carrying scoped keys there
 ;; only redacts because rf2-wd9im's shape-driven default recognises a key
-;; wherever it sits. The two fixes hold this slot up together.
+;; wherever it sits. The two fixes hold this slot up together. And note what the
+;; third shows about all of them: three of the four defects were reached by the
+;; whole-record `secret-leak-paths` / `cedn-tokens` scans rather than by a
+;; per-slot assertion, which is why those scans run over the WHOLE record and the
+;; whole settled history — the per-slot assertions say WHERE, the scans say
+;; WHETHER, and only the scans cover a slot nobody has looked at yet.
 
 (def ^:private sensitive-resource-id :secret/article)
 (def ^:private plain-resource-id     :plain/article)
@@ -727,36 +807,71 @@
             proj-row  (sub-run-row  proj large-sub-id)
             proj-tags (sub-run-tags proj large-sub-id)]
         ;; Fixture controls: the shape the scan above must be able to see.
-        (is (= payload-size (count (:value raw-row)))
+        ;; The last cascade RECOMPUTES the sub, so all four payload slots hold a
+        ;; real value and the current / previous pair are DISTINCT — with one
+        ;; compute the two previous-value slots are nil, and a nil projects to a
+        ;; marker over nothing, so deleting either previous-value projection
+        ;; outright would leave this gate green (rf2-isp3i).
+        (is (= (* 2 payload-size) (count (:value raw-row)))
             "fixture: the raw `:sub-runs` row carries the sub's full computed
              value — the slot `elide-sub-run-row` projects")
-        (is (= payload-size (count (:rf.sub/value raw-tags)))
+        (is (= payload-size (count (:prev-value raw-row)))
+            "fixture: and its PREVIOUS value, a DIFFERENT large value — the
+             recompute is what puts one there")
+        (is (= (:value raw-row) (:rf.sub/value raw-tags))
             "fixture: the raw `:rf.sub/run` trace tag carries the SAME value —
              the slot `elide-large-sub-trace-values` projects. The emit
              chokepoint deliberately leaves both raw so the on-box ring keeps
              the exact value (Xray diff / restore-epoch! need it)")
+        (is (= (:prev-value raw-row) (:rf.sub/prev-value raw-tags))
+            "fixture: and the same previous value, so the two carriers are
+             carrying one pair and the markers below are comparable")
         (is (true? (:large? raw-tags))
             "fixture: the emit chokepoint stamped the bare whole-output
              `:large?` flag — a REGISTRATION marker, so the app-db-rooted
              classification this fixture installs cannot reach it, and the flag
              is the entire contract egress has to honour")
-        ;; Both callers of the shared rule, at egress.
+        ;; Both callers of the shared rule, both slots of each, at egress.
         (is (elision/marker? (:value proj-row))
             "`elide-sub-run-row` substituted the marker in the structured row")
+        (is (elision/marker? (:prev-value proj-row))
+            "…and in that row's PREVIOUS-value slot")
         (is (elision/marker? (:rf.sub/value proj-tags))
             "`elide-large-sub-trace-values` substituted the marker in the trace
              tag — the slot whose omission was rf2-irwsq's leak")
-        (is (= (get-in (:value proj-row)          [:rf.size/large-elided :bytes])
-               (get-in (:rf.sub/value proj-tags)  [:rf.size/large-elided :bytes]))
-            "both markers agree on `:bytes` — the structural evidence that ONE
-             shared rule produced them, so the two projections cannot drift")
+        (is (elision/marker? (:rf.sub/prev-value proj-tags))
+            "…and in that tag's PREVIOUS-value slot, the fourth and last of the
+             pair-of-pairs the one shared rule owns")
+        (is (zero? (count-leaf-strings-at-least payload-size proj))
+            "and NEITHER value survives as raw bytes anywhere in the projected
+             record — the claim the four markers exist to keep")
+        (let [bytes-at (fn [m] (get-in m [:rf.size/large-elided :bytes]))]
+          (is (= (bytes-at (:value proj-row)) (bytes-at (:rf.sub/value proj-tags)))
+              "the two CURRENT-value markers agree on `:bytes` — the structural
+               evidence that ONE shared rule produced them, so the two
+               projections cannot drift")
+          (is (= (bytes-at (:prev-value proj-row))
+                 (bytes-at (:rf.sub/prev-value proj-tags)))
+              "and so do the two PREVIOUS-value markers")
+          (is (not= (bytes-at (:value proj-row)) (bytes-at (:prev-value proj-row)))
+              "while current and previous DIFFER — each marker is measured over
+               its own value, so a projection that substituted one constant, or
+               measured the wrong slot, cannot pass"))
         ;; Negative control: an UNMARKED sub's value rides through raw, so the
         ;; elisions above are driven by the registration stamp and not by some
         ;; blanket truncation on the way out.
-        (is (= control-note (:value (sub-run-row proj control-sub-id)))
-            "NEGATIVE CONTROL — the unmarked sub's row value survives raw")
-        (is (= control-note (:rf.sub/value (sub-run-tags proj control-sub-id)))
-            "NEGATIVE CONTROL — and so does its trace tag value")))))
+        (let [ctrl-row  (sub-run-row  proj control-sub-id)
+              ctrl-tags (sub-run-tags proj control-sub-id)]
+          (is (= control-note (:value ctrl-row))
+              "NEGATIVE CONTROL — the unmarked sub's row value survives raw")
+          (is (= control-note (:prev-value ctrl-row))
+              "NEGATIVE CONTROL — and so does its previous value, so the
+               previous-value substitution is driven by the `:large?` stamp and
+               not by the slot's position")
+          (is (= control-note (:rf.sub/value ctrl-tags))
+              "NEGATIVE CONTROL — and so does its trace tag value")
+          (is (= control-note (:rf.sub/prev-value ctrl-tags))
+              "NEGATIVE CONTROL — and its trace tag's previous value"))))))
 
 (deftest forwarder-projected-record-preserves-bookkeeping-slots
   (testing "MCP forwarder pattern: the projected record's bookkeeping
