@@ -31,7 +31,9 @@
   resources is a TEST-ONLY dep here (production epoch never deps resources; the
   hook is nil-safe when absent — proven by the `epoch_egress_trace_events_test`
   suite which runs without resources)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.walk :as walk]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
@@ -61,7 +63,12 @@
 (def ^:private plain-slug "welcome")
 (def ^:private real-owner [:app :reader 1])
 
-(use-fixtures :each
+(def ^:private reset-runtime-fixture
+  "The `:each` fixture, held by name so the rf2-22ij6 inventory sweep can reuse
+  it to isolate the drives it runs INSIDE one deftest (`driven-in-isolation`).
+  Reusing the fixture rather than re-implementing the reset is the point: the
+  inventory's drives get exactly the runtime every other drive in this
+  namespace gets."
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
      :init-fn (fn []
@@ -174,6 +181,8 @@
                   {:scope         {:from-db :rt/session}
                    :params-schema [:map [:slug :string]]}
                   (fn [_ _] {:request {:method :get :url "/b"}})))}))
+
+(use-fixtures :each reset-runtime-fixture)
 
 (defn- contains-secret? [v]
   (boolean
@@ -3460,12 +3469,24 @@
   "The mutation call-site `:reply-to`."
   [:app/save-replied])
 
-(defn- drive-failing-mutation-reply-to!
-  "Drive a REAL `[:rf.mutation/execute … :reply-to …]` against a mutation that
-  declares NOTHING — so `classification/redact-continuation-reply` substitutes
-  nothing at the source and any redaction observed came from the egress
-  projector — and replay the transport's `:on-failure` with `envelope`."
-  [envelope]
+(defn- drive-mutation-reply-to!
+  "Drive a REAL `[:rf.mutation/execute … :reply-to …]` and settle it with
+  `outcome`, the canonical transport reply (`{:status :ok :value …}` or
+  `{:status :error :error <envelope>}`). The transport target is chosen from
+  the outcome's own `:status`, so one fn drives BOTH mutation settle handlers.
+
+  `mutation-id` picks the owner, and the two owners are the two halves of the
+  mutation family's redaction story. `:m/save` declares NOTHING, so
+  `classification/redact-continuation-reply` substitutes nothing at the source
+  and any redaction observed on its reply came from the EGRESS projector.
+  `:m/save-declared` names `[:value :email]` sensitive, so its result is
+  redacted at the SOURCE, before the reply reaches a carrier at all — which is
+  the only canary the SUCCESS settle has, there being no failure envelope on
+  that branch and no arm of the egress projector that owns an undeclared
+  mutation's `:value` (§rf2-xx4ty — the app's own continuation handler is
+  entitled to it, and the coarse claim a resource would make has no mutation
+  counterpart)."
+  [mutation-id {:keys [status] :as outcome}]
   (rf/configure! {:epoch-history {:trace-events-keep 80}})
   (let [captured (atom nil)]
     (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
@@ -3473,13 +3494,24 @@
     (rf/reg-mutation :m/save
       {:params-schema [:map [:slug :string]]}
       (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+    (rf/reg-mutation :m/save-declared
+      {:sensitive     [[:data :email]]
+       :params-schema [:map [:slug :string]]}
+      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/b/" slug)}}))
     (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/save :params {:slug plain-slug}
+                       {:mutation mutation-id :params {:slug plain-slug}
                         :instance :mf1 :reply-to mutation-reply-target}]
                       {:frame :test/rt})
-    (rf/dispatch-sync (conj (:on-failure @captured) {:status :error :error envelope})
+    (rf/dispatch-sync (conj (get @captured (if (= :ok status) :on-success :on-failure))
+                            outcome)
                       {:frame :test/rt})
     (rf/epoch-history :test/rt)))
+
+(def ^:private mutation-value
+  "The decoded write result the mutation SUCCESS settle delivers under
+  `:value`, carrying the canary in the slot `:m/save-declared` declares
+  sensitive."
+  {:email (str secret "@example.com") :saved true})
 
 (deftest real-failing-mutation-reply-to-leaks-no-error-envelope
   (testing "rf2-rnsv2 §the seventh leak — the MUTATION continuation reply leaks
@@ -3491,7 +3523,7 @@
             and NOTHING looked at it. One keyword wider in the same predicate;
             omitting it would have shipped the seventh leak in the commit that
             closed the sixth."
-    (let [records   (drive-failing-mutation-reply-to! failure-envelope)
+    (let [records   (drive-mutation-reply-to! :m/save {:status :error :error failure-envelope})
           raw       (first (filter #(seq (family-carrier-replies %)) records))
           projected (epoch/projected-record raw)]
       (testing "FIXTURE — the producer really put the envelope on the carriers"
@@ -3516,41 +3548,214 @@
               "the causal explanation rides verbatim"))))))
 
 ;; ===========================================================================
-;; (rf2-uufoe) the DRIVE matrix — every settle branch that fans out a
-;; continuation, not just the one that succeeds.
+;; (rf2-uufoe / rf2-22ij6) the DRIVE INVENTORY — every settle path that fans
+;; out a continuation, enumerated FROM THE FAMILY'S OWN SOURCE.
 ;; ===========================================================================
 ;;
-;; Six leaks in this family were found by workers and none by a gate, and for
-;; the sixth the blindness was structural rather than inattentive. Every
+;; Eight leaks in this family were found by workers and none by a gate, and for
+;; the last of them the blindness was structural rather than inattentive. Every
 ;; producer-driven assertion about a `:reply-to` continuation reaching off-box
 ;; egress lived in §(rf2-xx4ty) above, and every one of those drives replayed a
 ;; SUCCESS reply. The sibling conformance fixture
 ;; (`epoch_mcp_egress_conformance_test`) drives no `:reply-to` at all and points
 ;; here as the home of that coverage — so the coverage it points at existed for
-;; one branch out of five.
+;; one branch out of several.
 ;;
-;; FIVE settle branches fan out a continuation reply, and each builds it
-;; through a DIFFERENT handler:
+;; rf2-uufoe closed that with five hand-listed drives. THE HAND LIST WAS THE
+;; REMAINING GAP, in that worker's own words: "the drive is always the gap,
+;; never the harvest." `fx-carrier-rows` / `family-carrier-replies` already
+;; harvest by marker, so the harvest side is general; the drive side was a
+;; list, and a list is a convention. A settle path nobody remembered to add is
+;; not "untested" in the ordinary sense — it is INVISIBLE to every assertion in
+;; this namespace, because they all read what a drive produced.
 ;;
-;;   events/succeeded-handler     — the success settle    §(rf2-xx4ty)
-;;   events/failed-handler        — the failure settle    §(rf2-rnsv2)(1)
-;;   events/failed-handler        — its ABORT branch      here
-;;   events/aborted-handler       — the legacy abort event here
-;;   events/page-failed-handler   — the infinite-feed page failure   here
-;;   mutation_events (failure settle)                     §(rf2-rnsv2)(6) + here
+;; SO THE LIST IS GONE. `declared-continuation-settle-ids` READS THE FAMILY'S
+;; SOURCE and computes the settle paths itself: seed the set with every `defn`
+;; that calls the one delivery seam every continuation reply goes through
+;; (`re-frame.reply/complete`), close it under "is called by", and map the
+;; resulting call-graph roots onto the event ids `re-frame.resources` registers
+;; them under. That set is the KEYS of `continuation-settle-drives` below, and
+;; the two are asserted EQUAL. A new settle branch therefore joins the
+;; inventory the moment its source is written, and reds this namespace until
+;; somebody accounts for it — no rule to remember, and nothing for a reviewer
+;; to notice.
 ;;
-;; THE UNIT OF COVERAGE IS THE BRANCH, NOT THE SLOT. Each drive below is one
-;; canary sweep over the whole projected record — zero secret paths — plus the
-;; FIXTURE assertion that the unprojected record does leak. That catches the
-;; CLASS: whatever slot a future continuation gains, on any of these branches,
-;; the sweep sees it. One assertion per named slot would only ever catch the
-;; instance somebody already found, which is how five of them got here.
+;; EACH ENTRY MAKES ONE OF TWO PROVED CLAIMS, never a comment:
+;;   :drives        — a real drive reaches the branch (asserted: the record's
+;;                    own `:event-id` is the id it is filed under) and the
+;;                    whole projected record sweeps clean of the canary;
+;;   :cannot-fan-out — the path is a REACHABILITY OVER-APPROXIMATION: it calls
+;;                    a fn that can deliver a continuation, down a branch it
+;;                    never takes. The drive runs anyway and asserts that NO
+;;                    continuation reply reaches a carrier — so the day the
+;;                    path gains one, this reds instead of going quiet.
 ;;
-;; THE STANDING RULE THIS ENCODES: a new settle branch that fans out a
-;; continuation reply gets a canary drive here, in the same PR that adds it.
-;; A branch with no drive is not "untested" in the ordinary sense — it is
-;; INVISIBLE to every assertion in this namespace, because they all read what a
-;; drive produced.
+;; THE UNIT OF COVERAGE IS THE BRANCH, NOT THE SLOT. Each drive is one canary
+;; sweep over the whole projected record — zero secret paths — plus the FIXTURE
+;; assertion that the UNPROJECTED record does leak. That catches the CLASS:
+;; whatever slot a future continuation gains, on any of these branches, the
+;; sweep sees it. One assertion per named slot only ever catches the instance
+;; somebody already found, which is how eight of them got here.
+
+;; ---------------------------------------------------------------------------
+;; the inventory — read the family's source, don't restate it
+;; ---------------------------------------------------------------------------
+
+(def ^:private continuation-seam
+  "The ONE fn every resource / mutation continuation reply is delivered
+  through. `re-frame.reply/complete` appends the canonical reply to the
+  call-site `:reply-to` target and returns the event vector the settle handler
+  dispatches; there is no second spelling, which is what makes a source-derived
+  inventory possible at all (`re-frame.resources.reply` builds the reply map,
+  but a reply that is built and not delivered reaches no carrier)."
+  're-frame.reply/complete)
+
+(def ^:private family-sources
+  "The family's settle-handler sources, as classpath resources. Both are on the
+  test classpath already — `resources` is a test-only dep of this namespace."
+  ["re_frame/resources/events.cljc"
+   "re_frame/resources/mutation_events.cljc"])
+
+(def ^:private family-registration-source
+  "Where the family registers its settle handlers as events. The inventory maps
+  call-graph roots onto event ids through this file's `reg-event` forms."
+  "re_frame/resources.cljc")
+
+(defn- read-source-forms
+  "Every top-level form of a classpath source resource. `:read-cond :allow`
+  takes the JVM branch of the family's reader conditionals — the branch this
+  suite runs. `*read-eval*` is off: this reads source, it does not run it."
+  [resource-path]
+  (let [url (io/resource resource-path)]
+    (assert url (str "inventory source not on the classpath: " resource-path))
+    (with-open [rdr (java.io.PushbackReader. (io/reader url))]
+      (binding [*read-eval* false]
+        (loop [acc []]
+          (let [form (read {:read-cond :allow :eof ::eof} rdr)]
+            (if (= form ::eof) acc (recur (conj acc form)))))))))
+
+(defn- form-symbols
+  "Every symbol appearing anywhere in `form`. Deliberately syntax-blind — a
+  call, a `var` reference and a symbol passed as data all count, because for
+  this purpose an over-approximation is the safe direction: it can only ADD a
+  settle path to the inventory (which must then be accounted for), never drop
+  one."
+  [form]
+  (let [found (volatile! #{})]
+    (walk/postwalk (fn [x] (when (symbol? x) (vswap! found conj x)) x) form)
+    @found))
+
+(defn- ns-form-of [forms]
+  (first (filter #(and (seq? %) (= 'ns (first %))) forms)))
+
+(defn- require-aliases
+  "`{alias → namespace}` for every `:as`-aliased require in a file's `ns` form —
+  the map that turns a body symbol like `reply/complete` into the fully
+  qualified `re-frame.reply/complete`, so two files that both define a
+  `succeeded-handler` never collide."
+  [forms]
+  (into {}
+        (for [clause (rest (ns-form-of forms))
+              :when  (and (seq? clause) (= :require (first clause)))
+              spec   (rest clause)
+              :when  (vector? spec)
+              :let   [i (.indexOf ^java.util.List spec :as)]
+              :when  (pos? i)]
+          [(nth spec (inc i)) (first spec)])))
+
+(defn- qualify-with
+  "Resolve `sym` as it would resolve inside the file `forms` came from:
+  namespace-qualified through that file's require aliases, bare against the
+  file's own namespace. nil for a symbol qualified by an alias the file does
+  not declare (a local shadow, a Java class), which drops out of the graph."
+  [forms]
+  (let [own     (second (ns-form-of forms))
+        aliases (require-aliases forms)]
+    (fn [sym]
+      (if-let [a (namespace sym)]
+        (when-let [target (aliases (symbol a))]
+          (symbol (str target) (name sym)))
+        (symbol (str own) (name sym))))))
+
+(defn- call-graph
+  "`{qualified-defn-sym → #{qualified symbols in its body}}` for one source
+  file."
+  [resource-path]
+  (let [forms   (read-source-forms resource-path)
+        qualify (qualify-with forms)
+        own     (second (ns-form-of forms))]
+    (into {}
+          (for [form forms
+                :when (and (seq? form)
+                           (#{'defn 'defn-} (first form))
+                           (symbol? (second form)))]
+            [(symbol (str own) (name (second form)))
+             (into #{} (keep qualify) (form-symbols form))]))))
+
+(def ^:private continuation-call-graph
+  (delay (reduce merge {} (map call-graph family-sources))))
+
+(def ^:private fans-out-a-continuation
+  "Every family `defn` that can reach the delivery seam — the seam's direct
+  callers, closed under \"is called by\". Transitive because the settle
+  handlers do not call the seam themselves: they call
+  `read-reply-continuation-fxs` / `continuation-fx`, which do."
+  (delay
+    (let [graph @continuation-call-graph
+          seed  (set (for [[n syms] graph :when (syms continuation-seam)] n))]
+      (loop [acc seed]
+        (let [wider (into acc (for [[n syms] graph :when (some acc syms)] n))]
+          (if (= wider acc) acc (recur wider)))))))
+
+(def ^:private continuation-call-roots
+  "The roots of that call graph — the members no other member calls. Every one
+  of them is a settle handler, and every one must be registered as an event
+  (asserted below), because a root that is not is a fan-out this inventory
+  cannot see."
+  (delay
+    (let [graph  @continuation-call-graph
+          member @fans-out-a-continuation]
+      (set (remove (fn [m] (some #(and (not= % m) ((graph %) m)) member)) member)))))
+
+(def ^:private family-reg-events
+  "`[[event-id #{qualified symbols in the form}] …]` for every `reg-event` in
+  the family's registration file."
+  (delay
+    (let [forms   (read-source-forms family-registration-source)
+          qualify (qualify-with forms)]
+      (vec (for [form forms
+                 :when (and (seq? form)
+                            (symbol? (first form))
+                            (= "reg-event" (name (first form))))]
+             [(second form) (into #{} (keep qualify) (form-symbols form))])))))
+
+(def ^:private declared-continuation-settle-ids
+  "THE INVENTORY: every event id whose registered handler can deliver a
+  continuation reply, derived from source with no list to keep in step."
+  (delay
+    (set (for [[id syms] @family-reg-events
+               :when (some syms @fans-out-a-continuation)]
+           id))))
+
+;; ---------------------------------------------------------------------------
+;; the drives — one per inventoried settle path, keyed by the id
+;; ---------------------------------------------------------------------------
+
+(defn- in-an-isolated-runtime
+  "Run `body!` under a fresh runtime. The inventory sweep runs every drive
+  inside ONE deftest — so the equality between the inventory and the drive map
+  cannot depend on test ordering — and the drives would otherwise see each
+  other's registrations and cached entries.
+
+  THE ASSERTIONS RUN INSIDE TOO, and that is not a stylistic choice.
+  `projected-record` resolves the frame's classification through the LIVE
+  frame; the fixture's teardown drops `:test/rt`, and a projection taken
+  afterwards fails closed and redacts everything — a sweep that passes because
+  there is nothing left to read. Returning records and asserting outside was
+  the first shape of this helper, and it greened over a leak the pre-existing
+  §rf2-rnsv2 deftest was reddening on the same drive."
+  [body!]
+  (reset-runtime-fixture body!))
 
 (defn- record-with-family-reply
   "The first record of `records` whose fx carriers carry ANY family
@@ -3562,7 +3767,7 @@
   (first (filter #(seq (family-carrier-replies %)) records)))
 
 (defn- assert-branch-sweep!
-  "The canary sweep every branch drive below runs: the unprojected record must
+  "The canary sweep every inventoried drive runs: the unprojected record must
   LEAK (so the sweep is not passing over an empty set) and the projected record
   must leak at ZERO paths. `expect` is the reply facts that name the branch, so
   a drive that silently stopped reaching the branch it names fails loudly
@@ -3577,27 +3782,6 @@
       "FIXTURE — the unprojected record leaks, so the sweep below is real")
   (is (= [] (secret-leak-paths (epoch/projected-record raw)))
       "ACCEPTANCE — the canary survives at zero paths of the projected record"))
-
-;; ---------------------------------------------------------------------------
-;; (1) `failed-handler`'s ABORT branch — a transport `:rf.http/aborted`
-;; ---------------------------------------------------------------------------
-
-(deftest real-transport-abort-reply-to-read-leaks-nothing-into-fx-carriers
-  (testing "rf2-uufoe — the production abort arrives as an `:rf.http/aborted`
-            FAILURE through `failed-handler`, which lowers it to
-            `:status :cancelled` and still carries the envelope under `:error`.
-            A separate branch of a handler whose error branch §(rf2-rnsv2)(1)
-            covers — and the branch on which `:status` would have been the wrong
-            gate."
-    (let [records (drive-failing-reply-to-read! :plain/article {:slug plain-slug}
-                                                abort-envelope)]
-      (assert-branch-sweep! (record-carrying-reply records false)
-                            {:status :cancelled
-                             :rf.reply/work-status :cancelled}))))
-
-;; ---------------------------------------------------------------------------
-;; (2) `aborted-handler` — the legacy `:rf.resource.internal/aborted` event
-;; ---------------------------------------------------------------------------
 
 (defn- drive-aborted-event-reply-to-read!
   "Drive a REAL `[:rf.resource/ensure … :reply-to …]` and settle it through the
@@ -3626,31 +3810,15 @@
                       {:frame :test/rt})
     (rf/epoch-history :test/rt)))
 
-(deftest real-aborted-event-reply-to-read-leaks-nothing-into-fx-carriers
-  (testing "rf2-uufoe — `aborted-handler`'s accepted-cancellation fan-out. A
-            THIRD handler building a continuation reply, reached by no drive in
-            this namespace before now."
-    (let [records (drive-aborted-event-reply-to-read! :derived/profile)]
-      (assert-branch-sweep! (record-carrying-reply records false)
-                            {:status :cancelled
-                             :resource :derived/profile}))))
-
-;; ---------------------------------------------------------------------------
-;; (3) `page-failed-handler` — the infinite feed's page fetch
-;; ---------------------------------------------------------------------------
-
 (defn- drive-failing-feed-reply-to-read!
   "Drive a REAL `[:rf.resource/ensure … :reply-to …]` against an INFINITE FEED
   and fail its page-0 fetch. An infinite resource lowers its `:on-failure` to
   `:rf.resource.internal/page-failed`, so this settles through
-  `page-failed-handler` — a fourth handler, with its own first-load-vs-load-more
-  split — rather than `failed-handler`.
+  `page-failed-handler` — with its own first-load-vs-load-more split — rather
+  than `failed-handler`.
 
-  `:plain/feed` declares nothing and its params carry no secret, so the envelope
-  is the only canary and the sweep names exactly one datum.
-
-  Returns `[records on-failure-id]` — the id is the runtime's own proof of which
-  handler this drive reached, asserted below rather than assumed."
+  `:plain/feed` declares nothing and its params carry no secret, so the
+  envelope is the only canary and the sweep names exactly one datum."
   [envelope]
   (rf/configure! {:epoch-history {:trace-events-keep 80}})
   (let [captured (atom nil)]
@@ -3662,29 +3830,171 @@
                       {:frame :test/rt})
     (rf/dispatch-sync (conj (:on-failure @captured) {:status :error :error envelope})
                       {:frame :test/rt})
-    [(rf/epoch-history :test/rt) (first (:on-failure @captured))]))
+    (rf/epoch-history :test/rt)))
 
-(deftest real-failing-feed-reply-to-read-leaks-nothing-into-fx-carriers
-  (testing "rf2-uufoe — `page-failed-handler`'s continuation fan-out, driven
-            through a real infinite-feed page-0 failure."
-    (let [[records on-failure-id] (drive-failing-feed-reply-to-read! failure-envelope)]
-      (is (= :rf.resource.internal/page-failed on-failure-id)
-          "the feed really lowered to the page-failure reply event — this drive
-           reaches `page-failed-handler` and not `failed-handler`")
-      (assert-branch-sweep! (record-carrying-reply records false)
-                            {:status :error :resource :plain/feed}))))
+(defn- drive-refetch-reply-to-read!
+  "Drive a REAL `[:rf.resource/refetch … :reply-to …]` against an entry that is
+  already loaded and fresh — the shape that WOULD fan out an immediate
+  cache-hit continuation if `refetch` could take that branch."
+  []
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)]
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
+    (frame/swap-runtime-db! :test/rt
+      (fn [rt] (elision/apply-classification-effects
+                 rt {:sensitive [[:auth :user :username]]})))
+    (frame/swap-frame-db! :test/rt assoc-in [:auth :user :username] secret)
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :derived/profile :params reply-params
+                        :owner    real-owner :reply-to read-reply-target}]
+                      {:frame :test/rt})
+    (rf/dispatch-sync (conj (:on-success @captured) {:status :ok :value reply-value})
+                      {:frame :test/rt})
+    (let [before (count (rf/epoch-history :test/rt))]
+      (rf/dispatch-sync [:rf.resource/refetch
+                         {:resource :derived/profile :params reply-params
+                          :owner    real-owner :reply-to read-reply-target}]
+                        {:frame :test/rt})
+      ;; only the refetch's own records — the ensure + settle above are the
+      ;; SETUP, and they legitimately fan out.
+      (drop before (rf/epoch-history :test/rt)))))
 
-;; ---------------------------------------------------------------------------
-;; (4) the MUTATION cancel settle — the sibling of §(rf2-rnsv2)(6)
-;; ---------------------------------------------------------------------------
+(def ^:private continuation-settle-drives
+  "One entry per inventoried settle path, KEYED BY THE EVENT ID the inventory
+  derives from source. The keys are asserted equal to the inventory, so this
+  map cannot silently fall behind the family."
+  {:rf.resource.internal/succeeded
+   {:why "the success settle — `succeeded-handler` fans the accepted terminal
+          reply out to every target recorded on the work record"
+    :drives [{:drive  #(record-carrying-reply (drive-reply-to-read! :derived/profile) false)
+              :expect {:status :ok :cache-hit? false}}]}
 
-(deftest real-cancelled-mutation-reply-to-leaks-nothing-into-fx-carriers
-  (testing "rf2-uufoe — the mutation failure settle also lowers an
-            `:rf.http/aborted` envelope to `:status :cancelled`, and an accepted
-            terminal cancellation fans out its `:reply-to` too. §(rf2-rnsv2)(6)
-            drove the `:error` half of that settle; this is the cancel half."
-    (let [records (drive-failing-mutation-reply-to! abort-envelope)]
-      (assert-branch-sweep! (record-with-family-reply records)
-                            {:status :cancelled
-                             :rf.reply/work-kind :mutation
-                             :mutation :m/save}))))
+   :rf.resource.internal/failed
+   {:why "`failed-handler`, which is TWO branches: an ordinary error, and an
+          `:rf.http/aborted` envelope it lowers to `:status :cancelled` while
+          still carrying the abort under `:error`. `:status` is not the gate,
+          which is exactly why both arms are driven"
+    :drives [{:drive  #(record-carrying-reply
+                         (drive-failing-reply-to-read! :plain/article
+                                                       {:slug plain-slug}
+                                                       failure-envelope)
+                         false)
+              :expect {:status :error :rf.reply/work-status :failed}}
+             {:drive  #(record-carrying-reply
+                         (drive-failing-reply-to-read! :plain/article
+                                                       {:slug plain-slug}
+                                                       abort-envelope)
+                         false)
+              :expect {:status :cancelled :rf.reply/work-status :cancelled}}]}
+
+   :rf.resource.internal/aborted
+   {:why "the LEGACY accepted-cancellation event. It synthesises its own
+          envelope, so its canary is the owner data the reply carries beside
+          it — which is why the sweep is whole-record and not `:error`-shaped"
+    :drives [{:drive  #(record-carrying-reply (drive-aborted-event-reply-to-read! :derived/profile) false)
+              :expect {:status :cancelled :resource :derived/profile}}]}
+
+   :rf.resource.internal/page-succeeded
+   {:why "the infinite feed's page settle. A DIFFERENT handler from the scalar
+          success, with its own append-vs-replace split, delivering the MERGED
+          item list under `:value`"
+    :drives [{:drive  #(record-carrying-reply (drive-feed-reply-to-read! :declared/feed) false)
+              :expect {:status :ok :resource :declared/feed}}]}
+
+   :rf.resource.internal/page-failed
+   {:why "the infinite feed's page FAILURE — the family's third error channel,
+          reached only through an `:infinite` resource's lowering"
+    :drives [{:drive  #(record-carrying-reply (drive-failing-feed-reply-to-read! failure-envelope) false)
+              :expect {:status :error :resource :plain/feed}}]}
+
+   :rf.mutation.internal/succeeded
+   {:why "the mutation WRITE settle — a fourth reply builder on a fourth
+          cascade, and the branch that had no drive of its own until the
+          inventory demanded one. Driven against a DECLARING owner, because
+          the mutation family redacts its completion echo at the SOURCE and an
+          owner that declares nothing leaves the egress projector no slot to
+          sweep on this branch"
+    :drives [{:drive  #(record-with-family-reply
+                         (drive-mutation-reply-to! :m/save-declared
+                                                   {:status :ok :value mutation-value}))
+              :expect {:status :ok :rf.reply/work-kind :mutation
+                       :mutation :m/save-declared}}]}
+
+   :rf.mutation.internal/failed
+   {:why "the mutation failure settle, and — like its read sibling — its
+          `:rf.http/aborted` cancel arm. Both canaries ride the transport
+          envelope under `:error`, which is a transport fact and not a
+          projection of owner data, so no declaration can clean it and the
+          egress projector is the only thing that can"
+    :drives [{:drive  #(record-with-family-reply
+                         (drive-mutation-reply-to! :m/save
+                                                   {:status :error :error failure-envelope}))
+              :expect {:status :error :rf.reply/work-kind :mutation}}
+             {:drive  #(record-with-family-reply
+                         (drive-mutation-reply-to! :m/save
+                                                   {:status :error :error abort-envelope}))
+              :expect {:status :cancelled :rf.reply/work-kind :mutation}}]}
+
+   :rf.resource/ensure
+   {:why "the SYNCHRONOUS fan-out: a fresh-skip cache hit has no work record
+          and no transport, so `ensure-load` builds the reply and dispatches
+          the continuation in the same drain. A settle path with no settle
+          event, which a handler-shaped list would not think to include"
+    :drives [{:drive  #(record-carrying-reply (drive-reply-to-read! :derived/profile) true)
+              :expect {:status :ok :cache-hit? true}}]}
+
+   :rf.resource/refetch
+   {:why "`refetch-handler` reaches `ensure-load` — hence its place in the
+          inventory — but only ever with `:force-new? true`, which is the one
+          flag the fresh-skip branch that owns the synchronous fan-out is
+          guarded by. A reachability OVER-APPROXIMATION, and the assertion
+          below is what keeps it honest"
+    :cannot-fan-out {:drive drive-refetch-reply-to-read!}}})
+
+(deftest every-continuation-settle-path-is-inventoried-from-source
+  (testing "rf2-22ij6 — the drive map's keys ARE the settle paths the family's
+            source declares. This is the whole mechanism: a settle branch added
+            by an unrelated PR joins the left-hand side the moment its source is
+            written, so it cannot ship without an entry here, and no reviewer
+            has to remember a rule."
+    (let [declared @declared-continuation-settle-ids]
+      (testing "the inventory is not vacuously empty"
+        (is (seq @fans-out-a-continuation)
+            (str "no family fn reaches " continuation-seam
+                 " — the delivery seam was renamed or moved, and this whole"
+                 " inventory silently stopped inventorying anything"))
+        (is (seq declared)
+            "no registered event resolves to a continuation fan-out"))
+      (testing "every root of the fan-out call graph is a registered event —
+                a root that is not is a fan-out reached by some other door,
+                which this inventory would never see"
+        (let [registered (set (for [[_ syms] @family-reg-events
+                                    root @continuation-call-roots
+                                    :when (syms root)]
+                                root))]
+          (is (= #{} (into #{} (remove registered) @continuation-call-roots)))))
+      (is (= declared (set (keys continuation-settle-drives)))
+          "THE GATE — every settle path the family declares is accounted for
+           below, and nothing below names a path that no longer exists"))))
+
+(deftest every-inventoried-settle-path-survives-the-canary
+  (doseq [[settle-id {:keys [why drives cannot-fan-out]}] continuation-settle-drives]
+    (testing (str settle-id " — " why)
+      (if cannot-fan-out
+        (in-an-isolated-runtime
+          (fn []
+            (let [records ((:drive cannot-fan-out))]
+              (is (empty? (mapcat family-carrier-replies records))
+                  "the OVER-APPROXIMATION claim: this path reaches the delivery
+                   seam statically but never takes that branch. The day it does,
+                   this assertion reds and the entry owes a real drive"))))
+        (doseq [[i {:keys [drive expect]}] (map-indexed vector drives)]
+          (testing (str "arm " i)
+            (in-an-isolated-runtime
+              (fn []
+                (let [raw (drive)]
+                  (is (= settle-id (:event-id raw))
+                      "the drive settled the branch it is filed under — the
+                       record's own event id, not the drive's say-so")
+                  (assert-branch-sweep! raw expect))))))))))
