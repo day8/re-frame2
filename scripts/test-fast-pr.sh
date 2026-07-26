@@ -548,6 +548,21 @@ run "test-lane bijection self-test" "python scripts/check_test_lane_bijection.py
 run "test-lane bijection (rf2-4hc9p)" "python scripts/check_test_lane_bijection.py" \
   python "$spine_root/scripts/check_test_lane_bijection.py" --repo-root "$spine_root"
 
+# JVM roster <-> CI required-job bijection (rf2-as6bg).  The gate above READS
+# the two JVM rosters to discover the JVM lanes, so an artefact missing from a
+# roster is not a violation to it — it is simply not a lane.  That blind spot
+# is how `tools/machines-viz` (632 tests) and `tools/testbed-support` (32) sat
+# on the local roster with no CI job at all, and how `tools/template` had a CI
+# job and no local lane.  This gate asserts the two agree in BOTH directions:
+# every rostered artefact is run by a job in `all-required-passed`'s `needs:`,
+# and every required job running `clojure -M:test` is on a roster.  Self-test
+# first, then the live scan.
+run "JVM roster/CI bijection self-test" "python scripts/check_jvm_lane_rosters.py --self-test" \
+  python "$spine_root/scripts/check_jvm_lane_rosters.py" --self-test
+
+run "JVM roster <-> CI bijection (rf2-as6bg)" "python scripts/check_jvm_lane_rosters.py" \
+  python "$spine_root/scripts/check_jvm_lane_rosters.py"
+
 # ---------------------------------------------------------------------------
 # Documentation gates (run when a documentation surface changes).
 #
