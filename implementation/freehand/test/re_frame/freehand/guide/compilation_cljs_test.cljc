@@ -238,3 +238,18 @@
       (is (= [{:view-id :re-frame.freehand/markup :lowering :interpreted}]
              (mapv #(select-keys % [:view-id :lowering]) (:crossings m)))
           "one crossing, into the interpreted child the page names"))))
+
+(deftest the-recipe-and-the-markup-child-are-both-real-declarations
+  (testing "compilation.md blocks 1 and 7 were transcribed and never
+            rendered, and a compiled declaration that nobody renders proves
+            nothing the checker did not already prove (rf2-kem4o)."
+    (testing "block 1 — the promotion recipe is a compiled declaration, body elided"
+      (is (v/view? people-list-promotion-recipe))
+      (is (= :compiled (:lowering (v/describe people-list-promotion-recipe))))
+      (is (= "Ada" (t/text (t/render [people-list-promotion-recipe {:label "Ada"}])))
+          "and it renders the shape the block prints"))
+    (testing "block 7 — `v/markup` carries a hiccup VALUE across the seam"
+      (let [tree (t/render markup-child)]
+        (is (= "late-transformed markup" (t/text tree)))
+        (is (some? (t/find tree #(= :em (:tag %))))
+            "the value was walked into real nodes, not stringified")))))

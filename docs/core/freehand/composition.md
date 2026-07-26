@@ -484,7 +484,7 @@ Callers may pass bounded overrides:
 ```clojure
 [field {:label "Email"
         :value email
-        :on-input [:account/email-changed ::v/value]
+        :on-change [:account/email-changed]
         :parts {:label   {:class "quiet-label"}
                 :control {:class "wide-control"
                           :data-analytics "signup-email"}}}]

@@ -181,6 +181,87 @@
    :build-config  "a `deps.edn` / `shadow-cljs.edn` fragment"})
 
 ;; ---------------------------------------------------------------------------
+;; Which fixture vars a test actually reaches
+;; ---------------------------------------------------------------------------
+;;
+;; Resolving an owner proves the var still exists. It does NOT prove the
+;; sample works, and the difference is not academic: a bad vector head is a
+;; RENDER-time refusal, so a fixture that merely LOADS carries the defect
+;; silently and its roster row reads as coverage (rf2-kem4o — two guide
+;; blocks sat that way until someone rendered them by hand).
+;;
+;; So a row's owner must be a var some `deftest` REACHES. Reaching is read
+;; off the fixture source: each top-level definition is paired with the
+;; names it mentions, the `deftest` forms are the seeds, and the closure of
+;; that relation is what a test can get to.
+;;
+;; It is a name relation, not an execution trace, and the approximation is
+;; deliberately the PERMISSIVE one — a mention inside a reached definition
+;; counts. That admits the odd local shadowing a fixture name, and it never
+;; invents a false red for a var a test genuinely uses through a helper.
+;; What it removes is the case that matters: a fixture nothing refers to.
+
+(defn- defined-name
+  "The simple name a top-level form binds, or nil. Any `def*` head counts —
+  `def`, `defn`, `deftest`, `v/defview`, `v/defhost` — because the relation
+  below cares about the name, never about which macro minted it."
+  [form]
+  (when (and (seq? form)
+             (symbol? (first form))
+             (str/starts-with? (name (first form)) "def")
+             (symbol? (second form)))
+    (symbol (name (second form)))))
+
+(defn- mentions
+  "Every symbol appearing anywhere in `form`, reduced to simple names."
+  [form]
+  (into #{} (comp (filter symbol?) (map (comp symbol name)))
+        (tree-seq coll? seq form)))
+
+(defn reached-names
+  "The simple names a `deftest` in `forms` can reach, transitively. Pure, so
+  [[the-exerciser-has-teeth]] can feed it synthetic input."
+  [forms]
+  (let [defs  (reduce (fn [m form]
+                        (if-let [n (defined-name form)]
+                          (update m n (fnil into #{}) (mentions form))
+                          m))
+                      {} forms)
+        seeds (into #{} (keep (fn [form]
+                                (when (and (seq? form)
+                                           (symbol? (first form))
+                                           (= "deftest" (name (first form))))
+                                  (defined-name form))))
+                    forms)
+        step  (fn [names] (into #{} (mapcat #(get defs % #{})) names))]
+    (loop [reached seeds
+           front   (step seeds)]
+      (let [fresh (into #{} (remove reached) front)]
+        (if (empty? fresh)
+          reached
+          (recur (into reached fresh) (step fresh)))))))
+
+(defn- source-forms
+  "Every top-level form of a loaded namespace, read from its source.
+
+  Read under the namespace's own aliases so `::v/value` resolves, with both
+  reader-conditional branches admitted (a `#?(:cljs (deftest …))` fixture
+  is still a test) and unknown tagged literals passed through, since this
+  reads for NAMES and never evaluates a thing."
+  [ns-sym]
+  (let [base (-> (str ns-sym) (str/replace "-" "_") (str/replace "." "/"))
+        url  (some #(io/resource (str base %)) [".cljc" ".clj" ".cljs"])]
+    (when-not url
+      (throw (ex-info (str "no source on the classpath for " ns-sym) {})))
+    (with-open [rdr (java.io.PushbackReader. (io/reader url))]
+      (binding [*ns*                     (the-ns ns-sym)
+                *default-data-reader-fn* (fn [_tag value] value)]
+        (doall (take-while #(not= ::eof %)
+                           (repeatedly
+                             #(read {:eof ::eof :read-cond :allow :features #{:cljs}}
+                                    rdr))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Comparing the roster against the corpus
 ;; ---------------------------------------------------------------------------
 
@@ -284,7 +365,7 @@
     [10 "038b655ca9ac" composition/date-field]
     [11 "7ca003669260" :non-clojure]
     [12 "143ffc47edc9" composition/field]
-    [13 "5741c8ca53dc" composition/field-call-with-parts]
+    [13 "06e61be67c20" composition/field-call-with-parts]
     [14 "538ba8b3f20d" :prose-shape]]
    "debugging.md"
    [[ 1 "edafd4232c9e" compilation/describe-projects-exactly-the-keys-the-page-prints]
@@ -420,12 +501,14 @@
       (is (= {} drift)
           (str "\n" (str/join "\n" (mapcat val (sort-by key drift))) "\n")))))
 
-(deftest every-owner-resolves-to-a-fixture-var-or-a-declared-reason
-  (testing "a row names either a var that exists in one of the chapter
-            fixture namespaces, or a reason from the closed set. A renamed
-            or deleted fixture reds here even when nothing else refers to
-            it."
-    (let [bad (for [[page rows] roster
+(deftest every-owner-is-exercised-by-a-test-or-is-a-declared-reason
+  (testing "a row names either a var that a `deftest` in one of the chapter
+            fixture namespaces REACHES, or a reason from the closed set. A
+            renamed or deleted fixture reds here even when nothing else
+            refers to it — and so does one that exists, loads, and is
+            rendered by nobody, which is the coverage that isn't."
+    (let [reached (memoize (comp reached-names source-forms))
+          bad (for [[page rows] roster
                     [n _ by]    rows
                     :let [problem
                           (cond
@@ -451,7 +534,12 @@
                                                 (catch Exception e {:error (ex-message e)}))]
                                   (cond
                                     (:error seen) (str "loading " target " failed — " (:error seen))
-                                    (nil? (:var seen)) (str "no var " full)))))
+                                    (nil? (:var seen)) (str "no var " full)
+                                    (not (contains? (reached target) (symbol (name by))))
+                                    (str full " resolves but no deftest in " target
+                                         " reaches it — a fixture that only LOADS proves no "
+                                         "render-time law; render it in a test, or give the "
+                                         "block a reason")))))
 
                             :else "owner is neither a symbol nor a keyword")]
                     :when problem]
@@ -502,6 +590,26 @@
             "so does an expected value stated only in a comment")
         (is (= (d "(v/sub [:x])  ") (d "(v/sub [:x])"))
             "trailing whitespace does not")))))
+
+(deftest the-exerciser-has-teeth
+  (testing "the reachability relation is the half of this gate that separates
+            a fixture from a PROOF, so it too is exercised against synthetic
+            input rather than trusted."
+    (let [forms '[(v/defview orphan [_] [:p "nobody renders me"])
+                  (v/defview leaf [_] [:p "x"])
+                  (def leaf-call [leaf {}])
+                  (defn- helper [] (t/render leaf-call))
+                  (deftest a-test (is (some? (helper))))]
+          reached (reached-names forms)]
+      (is (contains? reached 'a-test) "a deftest exercises itself")
+      (is (contains? reached 'helper) "and what it calls directly")
+      (is (contains? reached 'leaf-call) "transitively, through the helper")
+      (is (contains? reached 'leaf) "and through the value the call site holds")
+      (is (not (contains? reached 'orphan))
+          "a declaration nothing reaches is NOT reached — the whole point"))
+
+    (testing "and a namespace with no deftest at all reaches nothing"
+      (is (= #{} (reached-names '[(v/defview a [_] [:p]) (def b [a {}])]))))))
 
 (deftest the-coverage-numbers-are-reported
   (testing "not an assertion about the count — a census, printed so a
