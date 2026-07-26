@@ -313,7 +313,7 @@
   [query-v]
   (if-some [frame-id (frame/resolve-current-frame)]
     (live-frame/call-with-frame-resolution
-      (live-frame/frame-resolution-target frame-id)
+      frame-id
       (fn [] [(registrar/lookup :sub (first query-v)) frame-id]))
     [(registrar/lookup :sub (first query-v)) nil]))
 

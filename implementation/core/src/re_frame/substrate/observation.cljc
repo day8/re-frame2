@@ -1670,7 +1670,7 @@
          (throw-frame-destroyed! 're-frame.substrate.observation/probe
                                  frame-id query))
        (live-frame/call-with-frame-resolution
-         (live-frame/frame-resolution-target frame-id)
+         frame-id
          (fn []
            (when (nil? (registrar/lookup :sub (first query)))
              (throw-no-such-sub! 're-frame.substrate.observation/probe
@@ -2141,7 +2141,7 @@
         (throw-frame-destroyed! 're-frame.substrate.observation/acquire!
                                 frame-id query))
       (live-frame/call-with-frame-resolution
-        (live-frame/frame-resolution-target frame-id)
+        frame-id
         (fn []
           (when (nil? (registrar/lookup :sub (first query)))
             (throw-no-such-sub! 're-frame.substrate.observation/acquire!
