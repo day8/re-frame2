@@ -691,10 +691,19 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private node-discriminators
-  "The three PRIMARY structural discriminators of a map tree node (004B
-  §The node schema — the closed five-variant set). A canonical map node
-  carries EXACTLY ONE of these — `:tag` / `:view-id` / `:html` — OR none,
-  in which case it is a FRAGMENT (discriminated by its `:children`)."
+  "The structural discriminators this serialiser branches on (004B §The
+  node schema owns the variant roster and the pinned order; the table is
+  the authority, not a count restated here). A canonical map node carries
+  EXACTLY ONE of these — `:tag` / `:view-id` / `:html` — OR none, in which
+  case it is a FRAGMENT (discriminated by its `:children`).
+
+  The roster's remaining primary, `:rf.ui/host`, is deliberately absent,
+  and its absence IS this seam's host behaviour: a host node carries no
+  `:tag`, `:view-id` or `:html`, so it falls to the erasing fragment arm
+  and splices its `:children` — which ARE the declared SSR projection, the
+  `{:fallback …}` markup or nothing at all for `:client-only`. That is
+  exactly the fold 004B §The SSR consumption boundary asks of this
+  function, so an arm of its own would be a second way to say it."
   [:tag :view-id :html])
 
 (defn- malformed-node!

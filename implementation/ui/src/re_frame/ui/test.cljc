@@ -103,9 +103,16 @@
 (defn- node-kind
   "Discriminate a MAP node per the pinned order (string → text is handled
   by callers): `:tag` → element, else `:view-id` → view-boundary, else
-  `:html` → trusted-HTML, else `:children` → fragment. More than one
-  primary discriminating field, or none of the four, is malformed —
-  every tree consumer fails loud (tree contract §Node schema)."
+  `:html` → trusted-HTML, else `:children` → fragment. Carrying more than
+  one primary discriminating field, or no primary and no `:children`, is
+  malformed — every tree consumer fails loud (tree contract §Node schema).
+
+  The roster's remaining primary, `:rf.ui/host`, has no arm here and needs
+  none. A host node is one `v/defhost` crossing; `v/defhost` is a Freehand
+  verb and this compiled tier mints no such head, so no tree reaching this
+  namespace can carry one. The variant roster and its discrimination order
+  are the tree contract's table — this docstring states neither a count nor
+  a second copy of the set."
   [where m]
   (let [primaries (cond-> 0
                     (contains? m :tag)     inc
@@ -113,9 +120,10 @@
                     (contains? m :html)    inc)]
     (when (> primaries 1)
       (malformed! where
-                  (str "malformed tree node — a map may carry only ONE of "
-                       ":tag / :view-id / :html (the closed five-variant node "
-                       "set); got " (pr-str (select-keys m [:tag :view-id :html])))
+                  (str "malformed tree node — a map may carry only ONE primary "
+                       "discriminating field (here :tag / :view-id / :html; the "
+                       "roster is the tree contract's §Node schema); got "
+                       (pr-str (select-keys m [:tag :view-id :html])))
                   m))
     (cond
       (contains? m :tag)      :element
