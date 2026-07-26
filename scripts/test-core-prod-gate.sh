@@ -125,7 +125,6 @@ known_red=(
   re-frame.db-pending-trace-test
   re-frame.dispatched-trace-cofx-test
   re-frame.doc-metadata-prod-elision-test
-  re-frame.drain-test
   re-frame.elision-test
   re-frame.ep0026-inline-grammar-cljs-test
   re-frame.event-context-partition-test
@@ -158,7 +157,6 @@ known_red=(
   re-frame.registrar-warnings-test
   re-frame.router-carried-frame-test
   re-frame.router-front-of-queue-cljs-test
-  re-frame.smoke-test
   re-frame.source-coord-jvm-test
   re-frame.source-coord-prod-elision-test
   re-frame.source-coords-test
