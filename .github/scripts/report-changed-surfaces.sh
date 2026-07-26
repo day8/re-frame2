@@ -134,8 +134,20 @@ is_story_xray_runtime_path() {
 # config, and JVM-only `.clj` files there do NOT compile into node-test
 # and so must not fire it — the same spec-md-exclusion philosophy the
 # runtime-extension guard applies to the Playwright gate.
+#
+# rf2-eyyd2 — with ONE named exception. `tools/story/src/re_frame/story/
+# macros.clj` is a JVM-only file that nonetheless changes node-test OUTPUT:
+# it is the compile-time producer every `re-frame.story` registration macro
+# delegates to, so the CLJS the consolidated build emits for a
+# `(story/reg-variant …)` call site comes out of this file. The general
+# `.clj` exclusion is right — an ordinary JVM unit test compiles into
+# nothing — and this is the one CLJ namespace under either src tree that is
+# a macro producer rather than a JVM consumer. Same reasoning arms it on the
+# browser predicate below; see the long note there.
 is_story_xray_node_test_path() {
   case "$1" in
+    tools/story/src/re_frame/story/macros.clj)
+      return 0 ;;
     tools/story/src/*|tools/xray/src/*|tools/story/test/*|tools/xray/test/*|tools/story/testbeds/*|tools/xray/testbeds/*)
       case "$1" in
         *.cljs|*.cljc)
@@ -184,14 +196,64 @@ is_story_xray_node_test_path() {
 # suite there cannot change what React puts on a page. NOT the testbeds
 # either — they drive the Playwright gates (story_xray_browser), which the
 # runtime-extension predicate above already owns, and no
-# `-dom-cljs-test` namespace lives under them. A shared `.cljc` test
-# HELPER that a DOM suite requires is the one residual; the unconditional
-# nightly matrix is the honest superset for it.
+# `-dom-cljs-test` namespace lives under them.
+#
+# rf2-eyyd2 — the two seams rf2-1sd8h left to the nightly matrix, closed
+# because both turned out to be LIVE edges of the suites armed above, not
+# hypotheticals.
+#
+#   * the SUPPORT HELPERS — tools/{story,xray}/test/**/test_helpers/**.
+#     Take the require closure of the 14 live `*_dom_cljs_test` suites,
+#     restricted to files under those two test trees, and it is exactly
+#     three files, all of them in a `test_helpers/` directory:
+#       - story .../test_helpers/e2e_multi_frame.cljs, required by
+#         share_url_state_popstate_stale_override_dom_cljs_test;
+#       - xray  .../test_helpers/e2e_multi_frame.cljs, required by
+#         reactive_data_view_rows_dom_cljs_test AND by the story helper
+#         above, which aliases it as `xray-e2e`;
+#       - xray  .../test_helpers/host_fixtures/counter.cljs, required by
+#         reactive_data_view_rows_dom_cljs_test.
+#     Those helpers classified `cljs_browser=false`, so a breaking
+#     helper-only PR ran the Node compile — where the importing DOM suites
+#     find no `document` and self-skip — and skipped the one lane that
+#     mounts them. The arm is the DIRECTORY rather than the three measured
+#     files: `test_helpers/` is the established home for shared support in
+#     both trees, so a DOM suite reaching for a fourth helper beside them
+#     is armed on arrival instead of on the next audit. Extension-guarded
+#     the same way as everything else here — a `.md` or `.edn` beside a
+#     helper compiles into nothing.
+#
+#   * the MACRO PRODUCER — tools/story/src/re_frame/story/macros.clj, the
+#     one `.clj` under either src tree. `re-frame.story` (a `.cljc` on both
+#     builds' :source-paths) delegates EVERY public registration macro to
+#     it — `expand-reg-story` / `gen-reg-call` at story.cljc:231-478 — so
+#     its emitted forms are what four of the DOM suites compile when they
+#     call `story/reg-story` / `story/reg-variant`. The extension guard on
+#     the src arm below excludes `.clj`, so it classified false on BOTH
+#     CLJS lanes: it is armed for the node one here too, since the same
+#     expansion is what `:node-test` compiles. Named rather than globbed —
+#     it is the only CLJ macro namespace either tool ships, and a second
+#     one should be a deliberate edit here rather than a silent widening.
+#
+# Its NON-CLJS fan-out is unchanged and already correct: `tools/story/src/*`
+# arms examples_compile, and the `tools/{story,xray}/*` case arms tools_jvm,
+# mcp_conformance and template_expensive (the emitted-`:app` compile), for
+# macros.clj as for any other src file.
 is_story_xray_dom_test_path() {
   case "$1" in
     tools/story/test/*_dom_cljs_test.cljs|tools/story/test/*_dom_cljs_test.cljc)
       return 0 ;;
     tools/xray/test/*_dom_cljs_test.cljs|tools/xray/test/*_dom_cljs_test.cljc)
+      return 0 ;;
+    tools/story/test/*/test_helpers/*|tools/xray/test/*/test_helpers/*)
+      case "$1" in
+        *.cljs|*.cljc)
+          return 0 ;;
+        *)
+          return 1 ;;
+      esac
+      ;;
+    tools/story/src/re_frame/story/macros.clj)
       return 0 ;;
     tools/story/src/*|tools/xray/src/*)
       case "$1" in

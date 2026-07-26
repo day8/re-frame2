@@ -364,6 +364,200 @@ test('every Story/Xray DOM suite in the tree is armed by the classifier (rf2-1sd
   }
 });
 
+// rf2-eyyd2 — the two seams rf2-1sd8h left to the nightly matrix. Both are
+// LIVE edges of the suites armed above, so both are now armed directly:
+// the shared support helpers those suites require, and the CLJ macro
+// namespace that produces the CLJS four of them compile.
+
+const STORY_E2E_HELPER =
+  'tools/story/test/re_frame/story/test_helpers/e2e_multi_frame.cljs';
+const XRAY_E2E_HELPER =
+  'tools/xray/test/day8/re_frame2_xray/test_helpers/e2e_multi_frame.cljs';
+const XRAY_COUNTER_FIXTURE =
+  'tools/xray/test/day8/re_frame2_xray/test_helpers/host_fixtures/counter.cljs';
+const STORY_MACROS = 'tools/story/src/re_frame/story/macros.clj';
+
+test('Story e2e_multi_frame helper schedules cljs-browser (rf2-eyyd2)', () => {
+  // Required by share_url_state_popstate_stale_override_dom_cljs_test, which
+  // mounts only under `:browser-test`; on Node it finds no `window` and
+  // self-skips. Before this arm a helper-only PR ran the Node compile and
+  // skipped the suite's only real assertions.
+  const result = classify(STORY_E2E_HELPER);
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('Xray e2e_multi_frame helper schedules cljs-browser (rf2-eyyd2)', () => {
+  // Required by reactive_data_view_rows_dom_cljs_test directly, AND by the
+  // Story helper above (aliased `xray-e2e`), so it sits under both trees'
+  // DOM suites at once.
+  const result = classify(XRAY_E2E_HELPER);
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('Xray counter host fixture schedules cljs-browser (rf2-eyyd2)', () => {
+  const result = classify(XRAY_COUNTER_FIXTURE);
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('the Story test_helpers arm is the directory, not the three files (rf2-eyyd2)', () => {
+  // `tools/story/test/story/test_helpers/` is the second helper root in the
+  // Story tree. No DOM suite requires it today; the arm covers it so the
+  // first one that does is armed on arrival rather than on the next audit.
+  assert.equal(
+    classify('tools/story/test/story/test_helpers/runtime_shadow.cljc').cljs_browser,
+    'true',
+  );
+});
+
+test('a non-runtime file beside a helper does NOT schedule cljs-browser (rf2-eyyd2)', () => {
+  // The extension guard is the same one every other arm in this predicate
+  // carries: prose or EDN sitting next to a helper compiles into nothing.
+  assert.equal(
+    classify('tools/xray/test/day8/re_frame2_xray/test_helpers/README.md').cljs_browser,
+    'false',
+  );
+  assert.equal(
+    classify('tools/story/test/re_frame/story/test_helpers/fixtures.edn').cljs_browser,
+    'false',
+  );
+});
+
+test('a support helper does NOT fire the Playwright testbed gate (rf2-eyyd2)', () => {
+  // Same narrowing the DOM suites themselves get: the browser UNIT lane,
+  // not story-feature-load / xray-feature-gate.
+  for (const helper of [STORY_E2E_HELPER, XRAY_E2E_HELPER, XRAY_COUNTER_FIXTURE]) {
+    assert.equal(classify(helper).story_xray_browser, 'false', helper);
+  }
+});
+
+test('Story macros.clj schedules BOTH CLJS lanes (rf2-eyyd2)', () => {
+  // re-frame.story delegates every public registration macro to this
+  // CLJ-only namespace, so its emitted forms are what a `(story/reg-variant
+  // …)` call site compiles to — in the browser build and the node build
+  // alike. The `.clj` extension guard on the src arm left it false on both.
+  const result = classify(STORY_MACROS);
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('Story macros.clj keeps its existing non-CLJS fan-out (rf2-eyyd2)', () => {
+  // The arm widens; it must not narrow. macros.clj is under
+  // tools/story/src/**, so the examples_compile roster and the
+  // tools_jvm / mcp_conformance / template_expensive fan-out all still fire.
+  const result = classify(STORY_MACROS);
+  assert.equal(result.examples_compile, 'true');
+  assert.equal(result.tools_jvm, 'true');
+  assert.equal(result.mcp_conformance, 'true');
+  assert.equal(result.template_expensive, 'true');
+});
+
+test('an ordinary JVM-only .clj under Story src stays off both CLJS lanes (rf2-eyyd2)', () => {
+  // The named exception is macros.clj and nothing else: a hypothetical JVM
+  // consumer beside it must keep the general `.clj` exclusion.
+  const result = classify('tools/story/src/re_frame/story/jvm_only_helper.clj');
+  assert.equal(result.cljs_browser, 'false');
+  assert.equal(result.cljs_node_test, 'false');
+  assert.equal(result.tools_jvm, 'true');
+});
+
+test('an ordinary JVM-only .clj test under Story/Xray stays off both CLJS lanes (rf2-eyyd2)', () => {
+  for (const file of [
+    'tools/story/test/re_frame/story_test.clj',
+    'tools/xray/test/day8/re_frame2_xray/config_test.clj',
+  ]) {
+    const result = classify(file);
+    assert.equal(result.cljs_browser, 'false', file);
+    assert.equal(result.cljs_node_test, 'false', file);
+    assert.equal(result.tools_jvm, 'true', file);
+  }
+});
+
+test('every support file a live DOM suite requires is armed by the classifier (rf2-eyyd2)', () => {
+  // The teeth. Read the require closure off the tree rather than listing it:
+  // the arm is a DIRECTORY convention, so what can drift is a DOM suite
+  // reaching for a support file that lives OUTSIDE a `test_helpers/`
+  // directory. That makes this red on arrival. Names, not counts.
+  const roots = [
+    path.join(REPO_ROOT, 'tools', 'story', 'test'),
+    path.join(REPO_ROOT, 'tools', 'xray', 'test'),
+  ];
+  const all = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.clj[sc]?$/.test(entry.name)) {
+        all.push(path.relative(REPO_ROOT, full).split(path.sep).join('/'));
+      }
+    }
+  };
+  roots.forEach(walk);
+
+  // ns -> file, over the two test trees only.
+  const nsOf = new Map();
+  const sourceOf = new Map();
+  for (const rel of all) {
+    const text = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
+    sourceOf.set(rel, text);
+    const m = /\(ns\s+([A-Za-z0-9_.*+!?<>=-]+)/.exec(text);
+    if (m) nsOf.set(m[1], rel);
+  }
+
+  // The libspec heads of a file's `(:require …)` form. Balancing from
+  // `(:require` keeps docstring prose out of the match.
+  const requiresOf = (text) => {
+    const heads = new Set();
+    let at = text.indexOf('(:require');
+    while (at !== -1) {
+      let depth = 0;
+      let end = at;
+      for (; end < text.length; end += 1) {
+        if (text[end] === '(') depth += 1;
+        else if (text[end] === ')') {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      const form = text.slice(at, end + 1);
+      for (const m of form.matchAll(/\[\s*([a-z][A-Za-z0-9_.*+!?<>=-]*)/g)) heads.add(m[1]);
+      at = text.indexOf('(:require', end + 1);
+    }
+    return heads;
+  };
+
+  const isSuite = (rel) => /_dom_cljs_test\.clj[sc]$/.test(rel);
+  const seen = new Set();
+  const stack = all.filter(isSuite);
+  assert.ok(stack.length > 0, 'expected at least one Story/Xray DOM suite');
+  const support = new Set();
+  while (stack.length) {
+    const rel = stack.pop();
+    if (seen.has(rel)) continue;
+    seen.add(rel);
+    if (!isSuite(rel)) support.add(rel);
+    for (const head of requiresOf(sourceOf.get(rel))) {
+      const target = nsOf.get(head);
+      if (target && !seen.has(target)) stack.push(target);
+    }
+  }
+
+  assert.ok(
+    support.size > 0,
+    'expected the DOM suites to require at least one support file — if this is ' +
+      'empty the closure walk has stopped working, not the tree',
+  );
+  for (const rel of [...support].sort()) {
+    assert.equal(
+      classify(rel).cljs_browser,
+      'true',
+      `${rel} is required by a Story/Xray DOM suite but does not schedule cljs-browser`,
+    );
+  }
+});
+
 // rf2-z0cw6s — tools/machines-viz is a CLJS-only tool (day8/re-frame2-machines-viz):
 // its src+test are :source-paths of the consolidated :node-test AND :browser-test
 // builds, so a CLJS change fires cljs (node-test) + cljs-browser, and nothing else
