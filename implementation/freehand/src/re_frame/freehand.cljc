@@ -727,6 +727,129 @@
   manifest descriptor/manifest)
 
 ;; ---------------------------------------------------------------------------
+;; The read-only compile checker — the specialised tier's preflight
+;; ---------------------------------------------------------------------------
+;;
+;; The door's one SOURCE-level read. Every other verb here answers about a
+;; value a caller is already holding; this one answers about a file nobody
+;; has decided to compile yet. It is deliberately THIN — the analysis, the
+;; report vocabulary and the recovery ladders all live in
+;; `re-frame.freehand.compiler.check`, and `check` is the published name for
+;; them rather than a second judgment layered over them. A projection that
+;; re-derived any part of the verdict would be a second checker to drift.
+;;
+;; Resolved LATE rather than required, because the checker reaches BACK to
+;; this door: it needs `parse-defview-args` to read a declaration and the
+;; `defview` var itself to recognise one, so a static require here would
+;; close a load cycle. The door already answers one question this way —
+;; `v/render-static`'s emitted call late-resolves `re-frame.ssr` — and the
+;; trade is the same: one resolution, once, and only if the verb is called.
+
+#?(:clj
+   (def ^:private checker
+     "The checker's file entry point, resolved on first use."
+     (delay (requiring-resolve 're-frame.freehand.compiler.check/check-file))))
+
+#?(:clj
+   (defn check
+     "Check the `defview` declarations in a SOURCE FILE against the compiled
+     grammar — **without compiling them** — and answer one report per
+     declaration, in declaration order.
+
+         (v/check \"src/app/people.cljc\")
+         ;; => [{:view-id           :app.people/people-list
+         ;;      :source            {:file \"src/app/people.cljc\" :line 42 :column 1}
+         ;;      :current-lowering  :interpreted
+         ;;      :target-grammar    :re-frame.freehand/v1
+         ;;      :compile-eligible? false
+         ;;      :findings
+         ;;      [{:id       :rf.ui.compile/markup-returning-map
+         ;;        :source   {:line 47 :column 5}
+         ;;        :form     (map person-item people)
+         ;;        :reason   :markup-hidden-from-analyzer
+         ;;        :recovery [:make-template-visible
+         ;;                   :extract-declared-child
+         ;;                   :keep-interpreted]}]}]
+
+     `{:compiled true}` looks like a one-line change, which makes it a
+     tempting thing to try and see. Trying and seeing is a poor way to learn
+     a finite language: the build stops at the first form outside the
+     grammar, so an author who reached that failure by editing has already
+     changed the declaration in order to find out whether the change was
+     available. `check` inverts the order — it runs the SAME analyzer the
+     build runs, over the declaration as it stands today — so editing
+     becomes the final step rather than the discovery mechanism. The
+     `:recovery` ladder is the payload: an ordered list of things to do to
+     the source in front of you, whose last rung is always
+     `:keep-interpreted`, because declining to compile is a first-class
+     answer.
+
+     ## The compiled tier is SPECIALISED, and this verb recommends nothing
+
+     Interpreted Hiccup is the paved path and the right answer for ordinary
+     application views. The compiled tier serves a performance requirement
+     that a specific SHAPE earns — a sub-free boundary whose reactive
+     ViewCell the analysis can prove away (`:reactive? false`,
+     `:view-cell :elided` on [[manifest]]). On an ordinary reactive form the
+     two modes are close enough to be inseparable, so an ELIGIBLE report is
+     not an argument for promoting anything.
+
+     `check` therefore answers eligibility and nothing else. No score, no
+     percentage, no \"compile the hot 5%\": whether compiling an eligible
+     view is *worth* it is a measurement and a judgement, and a verb that
+     read like a recommendation would be making one from data that cannot
+     support it.
+
+     ## What it does NOT check
+
+     A stated boundary is worth more than an implied coverage, and an
+     eligible report is a narrow claim:
+
+     - **Nothing about correctness.** Eligible means the body is inside
+       `:re-frame.freehand/v1`. It says nothing about whether the view
+       renders what you meant, whether the subscriptions it reads are
+       registered, whether the events it dispatches exist, or whether a
+       caller's props satisfy a declared `:props` schema.
+     - **Nothing outside this file.** One file, its own declarations. A view
+       it mounts from another namespace is answered by pointing `check` at
+       THAT file, and a report says nothing about the ones a body reaches.
+     - **Nothing that is not a `defview`.** A `defbehavior`, a `defhost` or
+       a plain helper in the same file is read past, not reported on.
+     - **ONE finding per declaration.** The analyzer is fail-fast — it stops
+       at the first form outside the grammar, exactly where the build would
+       — so a refusal names one thing to fix, never a list. Take a rung and
+       re-run; there is no second, more forgiving analysis whose findings
+       were withheld.
+     - **A pure `.cljs` source is REFUSED, not approximated.** There is no
+       build context to resolve heads through, and every stand-in would
+       report confidently about code nobody wrote. A `.cljc` declaration is
+       checked for BOTH reader-conditional branches, which is how a
+       CLJS-target question is answered.
+
+     And one boundary that is a trap rather than a limit: `check` reads the
+     SOURCE from disk and resolves heads through the LOADED namespace. When
+     the file has been edited since it was last required the two disagree —
+     a helper added but not reloaded reports
+     `:rf.ui.compile/unresolved-head`, one deleted but still loaded resolves
+     anyway. Reload the namespace, then check.
+
+     JVM only, and honestly ABSENT in ClojureScript rather than
+     present-and-throwing (the policy `v/->react` states in the other
+     direction): head classification is resolution, resolution happens on
+     the JVM for both compilation targets, and a browser runtime has no
+     source file to read. The file's namespace must be LOADED — a REPL, a
+     build or an agent driving this already has it — and an unloaded one is
+     refused loudly rather than reported as a wall of unresolved heads.
+
+     Read-only, as a law rather than as an intention: no source is opened
+     for writing, no emitter runs, no registry is contributed to and nothing
+     is printed.
+
+     Per [Spec 004D §The read-only checker](../../../../spec/004D-Freehand-Compiled-Grammar.md)."
+     [path]
+     (@checker path)))
+
+;; ---------------------------------------------------------------------------
 ;; The subscription law — the render-only reactive read
 ;; ---------------------------------------------------------------------------
 ;;

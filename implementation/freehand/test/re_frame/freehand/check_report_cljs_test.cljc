@@ -59,6 +59,40 @@
       "the id, where, what, why, and the ladder — and nothing else; a
        message would be stable in meaning and never in bytes"))
 
+(deftest eligibility-is-derived-and-cannot-be-asserted
+  (testing "`:compile-eligible?` is exactly \"no findings\", computed HERE
+            rather than passed in. That is what makes a green mean
+            something: a report cannot claim eligibility while carrying a
+            reason it is not, because the claim is not a field anyone gets
+            to fill in. Host-neutral, so a ClojureScript tool assembling a
+            report from facts it received over the wire is bound by the
+            same rule the JVM checker is."
+    (let [identity' {:view-id  :app.people/people-list
+                     :source   {:file "src/app/people.cljc" :line 42 :column 1}
+                     :lowering :interpreted}
+          finding   (check/finding :rf.ui.compile/markup-returning-map
+                                   '(map render-person people)
+                                   {:line 47 :column 5})]
+      (is (= {:view-id           :app.people/people-list
+              :source            {:file "src/app/people.cljc" :line 42 :column 1}
+              :current-lowering  :interpreted
+              :target-grammar    grammar/version
+              :compile-eligible? true
+              :findings          []}
+             (check/report (assoc identity' :findings [])))
+          "no findings — eligible, and the report is six fields, whole")
+      (is (false? (:compile-eligible? (check/report (assoc identity' :findings [finding]))))
+          "one finding — NOT eligible")
+      (is (false? (:compile-eligible?
+                   (check/report (assoc identity' :findings [finding]
+                                        :compile-eligible? true))))
+          "and a caller who tries to say otherwise is ignored: the key is
+           derived from the findings, so there is no green to assert past a
+           reason")
+      (is (= [finding] (:findings (check/report (assoc identity' :findings [finding]))))
+          "the findings ride verbatim — a report that dropped them would be
+           eligible-shaped without being eligible"))))
+
 (deftest a-report-derives-its-own-eligibility
   (let [source {:file "src/app/people.cljc" :line 42 :column 1}]
     (testing "no findings is what eligible MEANS"
