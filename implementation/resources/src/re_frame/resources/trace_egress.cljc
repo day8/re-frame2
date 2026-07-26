@@ -208,14 +208,15 @@
   holds on exactly ONE row: the epoch tool-pair applies the sibling under
   `(= :rf.resource/scope-resolved (:operation ev))`, while THIS projector runs on
   every `:rf.resource/*` / `:rf.mutation/*` / `:rf.warning/resource-*` row
-  (`resource-family-op?` is operation-agnostic). Five other row types carry a
-  resolved CONCRETE scope under a free `:scope` tag — `:rf.resource/invalidated`
-  / `refetch-decision` / `removed`, `:rf.warning/resource-clear-scope-unresolved`
-  and `:rf.mutation/started` + `optimistic-applied` — and on those the sibling
-  never ran, so a pass-through here meant `:scope` was classified by NOBODY and
-  the resolver's IDENTITY MAP (`[:rf.scope/session {:username …}]`) egressed
-  off-box raw. `:rf.resource/refetch-decision` carried the same scope TWICE:
-  redacted inside `:resource/key`, raw under `:scope`.
+  (`resource-family-op?` is operation-agnostic). This docstring is the ROSTER of
+  the other row types that stamp a resolved CONCRETE scope under a free `:scope`
+  tag — `:rf.resource/invalidated`, `:rf.resource/refetch-decision`,
+  `:rf.resource/removed`, `:rf.warning/resource-clear-scope-unresolved`,
+  `:rf.mutation/started` and `:rf.mutation/optimistic-applied`. The sibling never
+  ran on any of them, so a pass-through here meant `:scope` was classified by
+  NOBODY and the resolver's IDENTITY MAP (`[:rf.scope/session {:username …}]`)
+  egressed off-box raw. `:rf.resource/refetch-decision` carried the same scope
+  TWICE: redacted inside `:resource/key`, raw under `:scope`.
 
   `:scope` now falls to the SHAPE-driven default below, which is right per shape
   without a row predicate: `:rf.scope/global` is a scalar and rides verbatim (no
@@ -667,9 +668,10 @@
                 ;; unconditionally fail-closed), so re-tokenizing here is a no-op
                 ;; at best and double-work at worst. `:scope` is deliberately NOT
                 ;; here (rf2-1zc33) — the sibling runs on ONE operation and this
-                ;; projector runs on the whole family, so a pass-through left
-                ;; five row types' resolved scopes classified by nobody. See the
-                ;; `sibling-owned-slot` docstring.
+                ;; projector runs on the whole family, so a pass-through left the
+                ;; resolved scope classified by nobody on every OTHER row type
+                ;; that stamps one. The `sibling-owned-slot` docstring rosters
+                ;; them.
                 (sibling-owned-slot k)
                 (assoc m k v)
 
@@ -746,18 +748,16 @@
   unregistered fail-closed), riding verbatim for a plain feed (no
   over-redaction).
 
-  The free `:scope` tag — the RESOLVED CONCRETE scope the family stamps on
-  `:rf.resource/invalidated` / `refetch-decision` / `removed`,
-  `:rf.warning/resource-clear-scope-unresolved` and `:rf.mutation/started` +
-  `optimistic-applied` — also takes the shape default (rf2-1zc33). It is NOT
-  sibling-owned: the `:rf.resource/scope-resolved` projector the epoch tool-pair
-  runs first is applied on that ONE operation, so on these five rows a
-  pass-through left the resolver's identity map classified by nobody. Under the
-  shape default `:rf.scope/global` rides verbatim, and a
-  `[:rf.scope/session {…}]` tuple keeps its TIER keyword while the identity map
-  tokenizes — so `:rf.resource/refetch-decision`, which carries one scope under
-  BOTH `:resource/key` and `:scope`, can no longer redact and leak the same
-  value side by side.
+  The free `:scope` tag — the RESOLVED CONCRETE scope the family stamps on the
+  row types `sibling-owned-slot`'s docstring rosters — also takes the shape
+  default (rf2-1zc33). It is NOT sibling-owned: the `:rf.resource/scope-resolved`
+  projector the epoch tool-pair runs first is applied on that ONE operation, so
+  on every rostered row a pass-through left the resolver's identity map
+  classified by nobody. Under the shape default `:rf.scope/global` rides
+  verbatim, and a `[:rf.scope/session {…}]` tuple keeps its TIER keyword while
+  the identity map tokenizes — so `:rf.resource/refetch-decision`, which carries
+  one scope under BOTH `:resource/key` and `:scope`, can no longer redact and
+  leak the same value side by side.
 
   Nested-map slots (`:patch-summary` / `:invalidation`) are projected
   RECURSIVELY through the same vocabulary so a row's nested scoped keys never

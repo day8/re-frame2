@@ -885,8 +885,8 @@
                (pr-str (frequencies (map :operation frameless))))))))
 
 ;; ===========================================================================
-;; (rf2-1zc33) the FREE `:scope` tag on the FIVE rows the sibling
-;; `:rf.resource/scope-resolved` projector never touches.
+;; (rf2-1zc33) the FREE `:scope` tag on the rows the sibling
+;; `:rf.resource/scope-resolved` projector never touches — rostered below.
 ;; ===========================================================================
 ;;
 ;; `trace-egress/sibling-owned-slot` passed `:scope` through VERBATIM, justified
@@ -896,15 +896,19 @@
 ;; `(= :rf.resource/scope-resolved (:operation ev))` — ONE operation — while the
 ;; family projector that consults `sibling-owned-slot` runs on EVERY
 ;; `:rf.resource/*` / `:rf.mutation/*` / `:rf.warning/resource-*` row
-;; (`resource-family-op?` is operation-agnostic). So on five OTHER row types the
-;; resolved concrete scope — `[:rf.scope/session {:username …}]`, tier keyword
-;; plus IDENTITY MAP — was classified by NOBODY and egressed raw:
+;; (`resource-family-op?` is operation-agnostic). So on every OTHER row type
+;; that stamps one, the resolved concrete scope — `[:rf.scope/session
+;; {:username …}]`, tier keyword plus IDENTITY MAP — was classified by NOBODY
+;; and egressed raw. ONE OPERATION PER LINE, deliberately: this roster used to
+;; pack the two `:rf.mutation/*` rows onto a shared line, and every prose count
+;; taken off it read the LINES rather than the operations (rf2-ruiga).
 ;;
 ;;   :rf.resource/invalidated                       (events.cljc:1811)
 ;;   :rf.resource/refetch-decision                  (events.cljc:1828)
 ;;   :rf.resource/removed                           (events.cljc:2069)
 ;;   :rf.warning/resource-clear-scope-unresolved    (events.cljc:2138)
-;;   :rf.mutation/started + …/optimistic-applied    (mutation_events.cljc:1390, 1403)
+;;   :rf.mutation/started                           (mutation_events.cljc:1403)
+;;   :rf.mutation/optimistic-applied                (mutation_events.cljc:1390)
 ;;
 ;; `:rf.resource/refetch-decision` is the sharpest case: it carries the SAME
 ;; scope TWICE — correctly redacted inside `:resource/key`, raw under `:scope`.
@@ -922,9 +926,10 @@
 ;;                                                 substituted; unchanged.
 
 (def ^:private session-scope
-  "A resolved CONCRETE scope as the five rows below carry it — the tier keyword
-  plus the resolver's IDENTITY MAP. The map is what EP-0025 made unconditionally
-  fail-closed on the scope-resolved row, and what leaked on these five."
+  "A resolved CONCRETE scope as the rows rostered above carry it — the tier
+  keyword plus the resolver's IDENTITY MAP. The map is what EP-0025 made
+  unconditionally fail-closed on the scope-resolved row, and what leaked on
+  every rostered row."
   [:rf.scope/session {:username secret}])
 
 (def ^:private other-session-scope
@@ -1256,8 +1261,9 @@
 
 (deftest trusted-local-include-sensitive-keeps-raw-free-scope
   (testing "rf2-1zc33 — the trusted-local `:include-sensitive?` opt-in keeps the
-            raw free `:scope` tag across all five row types (the local-raw
-            boundary — the tokenization is the off-box default, not a strip)"
+            raw free `:scope` tag on every rostered row type, one of each driven
+            below (the local-raw boundary — the tokenization is the off-box
+            default, not a strip)"
     (let [record    (record-with
                       [(event :rf.resource/invalidated
                               {:rf.frame/id :test/rt :scope session-scope})
