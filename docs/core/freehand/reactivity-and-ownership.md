@@ -59,6 +59,12 @@ or the caret and IME break. That path is allowed to flush sooner on purpose.
 once, and only if the value really changed. Fix structure first (narrower subs,
 keys, windowing); compile later if interpretation cost still shows up.
 
+## When not
+
+- Over-narrowing every leaf into a subscription when props-only presentation is
+  clearer — read at the boundary that needs the value.  
+- Compiling to fix over-broad subs — narrow the graph first.
+
 ## Recap
 
 - Prefer narrow subscriptions and stable props.  

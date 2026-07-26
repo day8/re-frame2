@@ -87,3 +87,11 @@ small React host components for hooks.
 If you already use `re-frame.ui`, treat it as **donor machinery** under Freehand’s
 compiled path over time, not a permanent second public product. Programme migration
 notes publish when the absorption gate is ready.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Mixed Freehand + Reagent in one parent | do not interleave dialects; island at a root or host boundary |
+| Need published coords today | use a shipping adapter; Freehand is pre-alpha `:local/root` |
+

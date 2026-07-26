@@ -230,12 +230,12 @@ support interpreted-vs-compiled equality (see
 If a view is hard to set up, it is often **reading too much** — narrow its subs.
 That smell surfacing in tests is a feature.
 
-## Common mistakes
+## Troubleshooting
 
-| Mistake | Symptom | Fix |
-|---|---|---|
-| `(:on-click node)` | silent `nil` | `(t/attrs node)` |
-| Rendering a subscribing view bare | `:rf.error/view-read-outside-render` | wrap in `t/with-render` |
-| `(:refer [find])` on the test namespace | shadows `clojure.core/find` | require under the `t` alias |
-| Business logic only through views | slow, brittle tests | dataflow unit tests |
-| Expecting tier 1 to run behaviors | inert markers only | a mounted browser test |
+| Symptom | Fix |
+|---|---|
+| `(:on-click node)` is `nil` | `(t/attrs node)` — events live under attrs |
+| `:rf.error/view-read-outside-render` | wrap in `t/with-render` (or the structural `render` path that opens a discardable render) |
+| `find` conflicts with `clojure.core/find` | require the test ns under alias `t` |
+| Tests slow / brittle | assert dataflow outside views; views for structure and intent |
+| Behavior did nothing on the JVM | structural tier is inert markers — use a mounted browser test |

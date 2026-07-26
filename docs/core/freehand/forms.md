@@ -144,7 +144,6 @@ will reintroduce the clobber bug.
 
 ## Recap
 
-
 - One form-slice map (or instance-keyed path) for the form  
 - Fields on **narrow** subs (not the whole draft map)  
 - Errors gated on touched or submit-attempted  
@@ -163,6 +162,16 @@ will reintroduce the clobber bug.
 | Double submit | busy/pending from mutation path |
 | Two editors share one `:editor` | instance key in the path |
 | “Need a form macro” | convention above — Freehand does not ship one |
+
+## When not
+
+- A single live field with no multi-field seed/validation story —
+  [Events](events-and-handlers.md) is enough.  
+- A reusable commit/cancel/reject protocol shared across screens —
+  [Semantic controllers](semantic-controllers.md).  
+- Zero per-keystroke re-frame traffic — uncontrolled input on
+  [Events](events-and-handlers.md#uncontrolled-inputs-deliberate-escape).
+
 ## Submit, busy, and disabled
 
 The view stays passive: draft, errors, and busy come from subs; submit is one

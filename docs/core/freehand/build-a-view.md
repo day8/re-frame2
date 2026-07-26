@@ -215,6 +215,13 @@ That is a complete Freehand view: a subscription as a value, an event as data, a
 controlled field on the sync door, mounted under a frame. No view-local
 reactive state, and no dispatch closures on the paved path.
 
+## When not
+
+- Heavy markup helpers that return structure at runtime — stay interpreted, or
+  extract declared children before compiling.  
+- Second reactive store for the view — re-frame or a host boundary, never a
+  view-local cell.
+
 ## Recap
 
 You can stop here and still ship a simple Freehand screen if you can:

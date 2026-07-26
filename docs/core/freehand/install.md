@@ -43,8 +43,10 @@ join the same way when you need them: `day8/re-frame2-routing` for
            {:frame {:id :my.app/main :initial-events [[:app/init]]}}))
 ```
 
-Alias Freehand as **`v`**. That alias is load-bearing beyond taste: `::v/value`
-only reads as `:re-frame.freehand/value` when `v` is the alias in that namespace.
+Alias Freehand as **`v`** in every Freehand ns. The short markers
+`::v/value`, `::v/checked`, and friends expand through **that** alias — if you
+alias the same lib as `fh`, write `::fh/value` (or the full
+`:re-frame.freehand/value`). The guides use `v` so the snippets match.
 
 ### Why an adapter at all, when Freehand renders itself
 
@@ -54,12 +56,13 @@ Because an adapter is not a renderer. Freehand puts elements on the page through
 it moved. The two are independent, and until `(rf/init! …)` has run, minting a frame
 raises `:rf.error/no-adapter-installed`.
 
-`v/adapter` is Freehand's own, and it is the one to install on a new app. It is built
-on the same React spine every adapter in the repo shares and adds no dependency of its
-own — Freehand already requires `react` and `react-dom/client`. Two things it does that
-matter to you: `(rf/destroy-adapter!)` unmounts every live Freehand root before it
-disposes anything, and its `flush-render!` returns with the page settled rather than
-leaving the repaint to a microtask.
+`v/adapter` is Freehand's own, and it is the one to install on a new app. It sits
+on the same React-based substrate adapter every re-frame2 browser adapter uses and
+adds no extra dependency — Freehand already requires `react` and
+`react-dom/client`. Two things it does that matter to you: `(rf/destroy-adapter!)`
+unmounts every live Freehand root before it disposes anything, and its
+`flush-render!` returns with the page settled rather than leaving the repaint to a
+microtask.
 
 That settled return is a promise about a drain the flush itself opens. Forced from
 **inside** one that is already open — an event handler, or anything it calls, reaching

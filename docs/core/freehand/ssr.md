@@ -158,13 +158,28 @@ the stream.
 Freehand owns ordinary view + host-neutral rendering. The routing artifact owns
 href and navigation strategy.
 
-## Practical checklist
+## Recap
 
-1. Keep domain ownership (reads, mutations) outside the view — SSR snapshots.
-2. Mark host-only leaves with `client-only` + fallback (or a real SSR adapter).
-3. Prefer props and event vectors that serialize honestly.
+1. Keep domain ownership (reads, mutations) outside the view — SSR snapshots.  
+2. Mark host-only leaves with `client-only` + fallback (or a real SSR adapter).  
+3. Prefer props and event vectors that serialize honestly.  
 4. Prove structural parity for the common subset in CI when claiming cross-mode
-   sameness.
-5. Seed the request frame the same way you would seed a test frame when possible.
+   sameness.  
+5. Seed the request frame the same way you would seed a test frame when possible.  
 6. Don’t put secrets only in client-only leaves if the server tree must stay
    consistent for SEO/accessibility without them — design the fallback.
+
+## When not
+
+- Pure static marketing with no re-frame dataflow — you may not need Freehand SSR
+  at all.  
+- Host-heavy pages with no honest fallback — prefer client-only shells over
+  pretending the server ran React.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Host React / behavior on the server tree | `v/client-only` + fallback, or a declared host `:ssr` policy |
+| Hydration mismatch | same props/seed on server and client; no host-only secrets only on one side |
+| Missing routing on `v/route-link` | install the routing artifact; missing contract fails loud |

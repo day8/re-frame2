@@ -1,7 +1,7 @@
 # Compilation
 
 Most Freehand views should stay **interpreted**. Compilation is a power tool for
-hot boundaries and library leaves — not a second product you live in from day one.
+hot boundaries and library leaves — not a second product you live in by default.
 
 High `:stable-renders` means fix subscriptions or props, not compile. Measure
 first; compile second.
@@ -19,11 +19,22 @@ You can ship entire apps interpreted. Promote a boundary only when:
 1. measurement shows interpretation cost on a hot template, **or**  
 2. a library leaf needs static proof and a manifest.
 
-Optional preflight: `(v/check "src/app/people.cljc")` runs the **same analyzer
-the build uses** and answers eligibility and recoveries — it never rewrites the
-file and never recommends promotion. Adding `{:compiled true}` is still the real
-gate: if the body is inside the grammar, that is the whole authoring change; if
-it is not, the build fails and names a recovery.
+Optional preflight (JVM / REPL only):
+
+```clojure
+(v/check "src/app/people.cljc")
+;; => [{:view-id … :compile-eligible? false :findings [{:recovery […]}]}]
+```
+
+`v/check` runs the **same analyzer the build uses**. It does not rewrite source,
+does not print a score, and does not recommend promotion — eligibility is not an
+argument to compile an ordinary reactive page. It checks **one file's `defview`s**,
+fails fast (one finding per declaration), and is absent on ClojureScript (no
+source path to read). Reload the ns after edits so disk and loaded namespace agree.
+
+Adding `{:compiled true}` is still the real gate: if the body is inside the
+grammar, that is the whole authoring change; if it is not, the build fails and
+names a recovery.
 
 ### Promotion recipe
 
@@ -124,10 +135,9 @@ Changing the declaration (`{:compiled true}`) is the **last** step, after you
 have taken the recoveries (or decided to keep the view interpreted). Freehand
 never promotes from a percentage threshold or silent rewrite.
 
-`v/check` is honest about what it can prove: it answers eligibility for the
-source you point at, not a guarantee that every helper across your whole app is
-compile-safe. Opaque markup still fails at build (or check) with a named recovery
-— keep interpreted, extract a child, or make the template visible.
+Eligible does **not** mean “renders correctly,” “subs are registered,” or “child
+namespaces are compile-safe.” Opaque markup fails at build (or check) with a
+named recovery — keep interpreted, extract a child, or make the template visible.
 
 ### Mini promotion transcript
 
