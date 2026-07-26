@@ -38,11 +38,13 @@ readers' minds.
    the form witness is **1.054**, with a spread (0.846–1.222) that straddles
    1.0. Before the tuning it was 1.317. There is no performance argument for
    compiling a form.
-2. **Where compiled wins, it wins by elision, not by compilation.** On 300
-   sub-free boundaries compiled is **3.35×** the tuned interpreter; on 100
-   *reactive* boundaries — where neither tier may elide — it is **1.22×**. Same
-   substrate, same walk, same element counts. The whole difference between those
-   two numbers is the ViewCell.
+2. **Where compiled wins, it wins mostly by elision, not by compilation.** On
+   300 sub-free boundaries compiled is **3.35×** the tuned interpreter; on 100
+   *reactive* boundaries — where neither tier may elide — it is **1.22×**.
+   Those two arms differ in more than reactivity, so the contrast below is
+   evidence *consistent with* elision rather than a measurement of it; the
+   isolated measurement is in [§1a](#1a-the-elision-ablation), which confirms
+   elision as the dominant term and revises both figures.
 3. **The compiled tier makes the bundle bigger, not smaller, and it cannot
    remove the interpreter.** Promoting three views cost **+18,182 raw / +5,093
    gzipped bytes**, and every sentinel of the interpreted walk is still
@@ -157,11 +159,17 @@ the two tiers directly:
 | **W2r** 100 reactive boundaries | 1.211 [1.095–1.292] | 1.216 [1.143–1.280] |
 | **W3** ordinary form, 51 el | 1.317 [1.167–1.417] | **1.054** [0.846–1.222] |
 
-**Read W2 against W2r before anything else.** They are the same substrate, the
-same walk, the same leaf shape and nearly the same code. The only difference is
-that W2's leaves read no state and W2r's do. Compiled beats the tuned
-interpreter by **3.35×** on the first and **1.22×** on the second. Compilation
-did not get faster between those two rows; **elision stopped being available.**
+**Read W2 against W2r before anything else.** They are the same substrate and
+the same walk, and compiled beats the tuned interpreter by **3.35×** on the
+first and **1.22×** on the second — a contrast whose obvious reading is that
+compilation did not get faster between those two rows, **elision stopped being
+available.**
+
+That reading is right about which term dominates and wrong to claim the whole
+difference. W2 and W2r do **not** differ only in reactivity: W2 has 300
+boundaries and W2r has 100, W2's leaf renders a literal where W2r's additionally
+runs `(str (v/sub [:studio/tick]))`, and W2r has no floor arm. Three things vary
+at once. [§1a](#1a-the-elision-ablation) varies one, and supersedes both figures.
 
 **W3 is the shape most applications are made of**, and after one bounded tuning
 the two tiers are inseparable there: 1.054 with a range that includes 1.0.
@@ -210,6 +218,90 @@ The direction agrees with ER-01's JVM allocation finding and with the CPU
 profile, and the ratios are far larger than the timing ratios. The garbage
 collector took 2.9–4.2% of samples in the interpreted profiles. No percentage
 claim is made from occupancy sampling.
+
+---
+
+## 1a. The elision ablation
+
+Added 2026-07-26, against `482c83adaf` — a base that carries both this report and
+the six interpreter optimisations that followed it (`rf2-xu6rx`, PR #7077), so the
+interpreted arm here is **faster than any interpreter measured above.**
+
+Requirement: vary *one* thing. The lever is in the substrate and is exact —
+`react.cljs`/`compiled-component` selects its wrapper from the manifest's
+`:view-cell` verdict "and by nothing else". So the ablation arm is
+`leaf-free`'s own descriptor with that one entry flipped to `:present`: same
+compiled body **object** (asserted, not assumed), same props, same 300
+boundaries, same DOM. Five arms, each one step from the last:
+
+| arm | parent | leaf | ViewCell |
+|---|---|---|---|
+| `free-floor` | — | hand-written `createElement` | no substrate at all |
+| `free-ic` | interpreted | compiled | **elided** |
+| `free-ik` | interpreted | compiled | **kept** ← the ablation |
+| `free-i` | interpreted | interpreted | kept, as it must be |
+
+`free-ik − free-ic` is 300 ViewCells and nothing else; `free-i − free-ik` is
+interpretation and nothing else. Both witnesses now carry **300** boundaries, the
+reactive witness gets a floor, and canonical-DOM parity gates all of it.
+
+**Retained heap per live boundary** — 10 roots × 300 boundaries held mounted, 6
+rounds, read two independent ways. This instrument replaced the allocation
+counter above, which a positive control showed was measuring nothing: V8's
+sampling heap profiler drops the samples of collected objects, so the same 80,000
+objects report 4.77 MB when a global holds them and 0.00 MB when nothing does.
+Retention is the right question anyway — a ViewCell is a cell, a hook record, a
+subscription registration and two layout effects that live as long as the mount.
+
+| arm | sampler B/boundary | occupancy B/boundary | × floor |
+|---|---:|---:|---:|
+| `free-floor` | 364 [312–374] | 371 | 1.00 |
+| `free-ic` compiled, elided | 447 [426–477] | 453 | 1.23 |
+| `free-ik` compiled, kept | 2794 [2762–2852] | 2748 | 7.68 |
+| `free-i` interpreted | 2826 [2780–2836] | 2745 | 7.77 |
+| `read-ic` / `read-i` reactive | 4487 / 4498 | 4413 / 4404 | 12.4 |
+
+**One kept ViewCell costs 2,348 bytes of standing heap, per boundary.** And once
+both tiers keep one, `free-i / free-ik` is **1.011** — on retained heap, elision
+is the entire effect and compiling the markup retains nothing extra. The reactive
+witness agrees: `read-i / read-ic` = **1.003**.
+
+**Wall clock**, 12 interleaved rounds, each a fresh process, every figure a ratio
+to the floor measured in that same run (the floor drifted 58% across the twelve):
+
+| the ablation | mean [min–max] |
+|---|---|
+| `free-ik / free-ic` — the ViewCell alone | **1.712** [1.583–1.879] |
+| `free-i / free-ik` — interpretation alone | **1.216** [1.092–1.425] |
+| `free-i / free-ic` — the two together | **2.079** [1.896–2.419] |
+| `read-i / read-ic` — neither may elide | 1.045 [0.922–1.173] **straddles 1.0** |
+
+The decomposition closes: 1.712 × 1.216 = 2.082 against a measured 2.079.
+**Elision is 73% of the log-effect; interpretation is a real 27% whose range
+excludes 1.0.** No CPU-time split is quoted — three repeats of the same pair
+returned 1.81, 0.85 and 1.85, and a spread like that supports no number.
+
+**What §1a changes above it.** Two headline figures do not survive the confound
+removal, for two compounding reasons — the counts and leaves now match, and the
+interpreter is post-#7077:
+
+| §1 | §1a, same count and same leaf |
+|---|---|
+| sub-free, interpreted ÷ compiled **3.35×** | **2.079×** [1.896–2.419] |
+| reactive, interpreted ÷ compiled **1.22×** | **1.045** — inseparable |
+
+Neither disturbs the recommendation. The one thing §1a adds to it is that **the
+memory case is stronger and far better conditioned than the time case**: 6.26×
+retained heap per elidable boundary, two instruments agreeing to 2% with disjoint
+ranges, against 2.08× on a clock whose own floor moves 58%. If the tier is
+defended on performance, standing heap per elidable boundary is the number to
+defend it with.
+
+Limits: one shape (a boundary storm, deliberately the shape that maximises
+elision), mount only, and retained heap cannot see the interpreted walk's
+transient garbage — the likeliest explanation for the 1.216 term showing on the
+clock and not on retained bytes, untested here because the instrument that would
+test it is the one that proved broken.
 
 ---
 
@@ -574,7 +666,10 @@ compiled tier is much weaker than the elision case it is usually bundled with.
    tiny fraction of its cost. Whether that trade is acceptable is a design
    question this report does not answer and did not investigate — but it is the
    single change that would most undermine KEEP, and it should be considered
-   before the tier gets more budget.
+   before the tier gets more budget. [§1a](#1a-the-elision-ablation) raises the
+   stakes on it: with the confounds removed, elision is worth 6.26× in retained
+   heap and 1.712× on the clock, and *all* of that is what a checked flag would
+   also deliver.
 3. **A pinned release worker.** Every timing here is floor-normalised precisely
    because this box drifts 37% on an arm that cannot change. A quiet machine
    would turn several of the directional claims into numbers.
@@ -597,6 +692,18 @@ compiled tier is much weaker than the elision case it is usually bundled with.
 - Profiling: Chrome DevTools Protocol `Profiler`, 100 µs sampling, one arm per
   profile in a tight mount/unmount loop.
 - Suites, on the scaffolding-free tree: see the PR's `## Quality gates`.
+- §1a fixtures: one boundary count (300) for both witnesses, a floor arm for
+  each, and a fabricated `:view-cell :present` clone of the sub-free leaf whose
+  compiled body object is asserted `identical?` to the elided original's.
+  Sampling: 5 warm-up + 30 per arm, arms interleaved, 12 rounds each a fresh
+  process, plus 6 retained-heap rounds of 10 roots × 300 boundaries read both by
+  the CDP sampler and by `performance.memory` after a forced double GC, each
+  round preceded by a ~4.7 MB positive control that both instruments must see.
+- §1a scaffolding: commits on `worker/hiccup-perf-lnecd2`, deleted before merge —
+  the probe, floor, ablation and witness namespaces, a `--config-merge` build
+  script (this run could not add a shadow-cljs build id), the Playwright driver
+  with clock, retained-heap and CPU-profile modes, a standalone heap-sampler
+  control, and a reduction script. Recoverable from git.
 - Scaffolding: commits on `worker/compiled-worth-it`, reverted before merge —
   three witness namespaces, a hand-written React floor, a Playwright probe
   driver with CPU-profile and caller-attribution modes, an alternating A/B
