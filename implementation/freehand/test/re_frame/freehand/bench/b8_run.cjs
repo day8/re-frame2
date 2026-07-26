@@ -1,0 +1,475 @@
+#!/usr/bin/env node
+// B8's driver — bytes ALLOCATED per write, across substrates.
+//
+//   node implementation/freehand/test/re_frame/freehand/bench/b8_run.cjs
+//   B8_ROUNDS=5 B8_WRITES=40 node .../b8_run.cjs --kind broad
+//
+// THE METHOD, in one paragraph. If no garbage collection runs between two
+// readings of V8's used-heap counter, their difference is the bytes
+// allocated in between — INCLUDING the bytes already unreachable, because
+// nothing has reclaimed them yet. That is the only way a counter of this
+// kind can see garbage, and it is why the window has to be short. So:
+// collect, read, run N writes, read. The middle step containing no
+// collection is not assumed — the page samples the counter at every leg
+// boundary of every write, and any window in which it went DOWN is thrown
+// away rather than averaged in.
+//
+// WHY NOT THE OBVIOUS TOOL. V8's CDP *sampling* heap profiler drops the
+// samples of collected objects, so it reports retention while looking
+// like it reports allocation; B7's predecessor watched the same 80,000
+// objects read 4.77 MB held and 0.00 MB dropped. This file runs that
+// sampler ONCE, over a window whose garbage content is known by
+// construction, as a NEGATIVE control — see `samplerControl` below.
+//
+// WHY NOT A HEAP SNAPSHOT. `takeHeapSnapshot` collects before it walks,
+// so it destroys the very bytes in question. It is B7's independent
+// reader and it is useless here.
+//
+// THE POSITIVE CONTROL is a piece of garbage of PREDICTED size: a
+// `.slice()` of a prebuilt packed array of D doubles, dropped on the next
+// statement, costing 8D bytes. It is read two ways — directly as its own
+// leg, and as the SLOPE between two values of D, which cancels every
+// constant including the instrument's own footprint. A retention
+// instrument reads this control as zero.
+
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const http = require('node:http');
+const path = require('node:path');
+
+const IMPL = path.resolve(__dirname, '../../../../..');
+const OUT = path.join(IMPL, 'out', 'b8');
+const PORT = Number(process.env.B8_PORT || 8133);
+
+function arg(name, dflt) {
+  const i = process.argv.indexOf(`--${name}`);
+  return i === -1 ? dflt : process.argv[i + 1];
+}
+
+const ROUNDS = Number(process.env.B8_ROUNDS || 5);
+const WRITES = Number(process.env.B8_WRITES || 40);
+const KINDS = (arg('kind', 'broad,narrow')).split(',');
+const NO_BUILD = process.argv.includes('--no-build');
+
+// 6,250 doubles = 50,000 B; 12,500 = 100,000 B. Two rungs so the slope is
+// available; small enough that the ladder does not itself provoke a
+// collection inside a 40-write window.
+const CTL_1 = Number(process.env.B8_CTL_1 || 6250);
+const CTL_2 = Number(process.env.B8_CTL_2 || 12500);
+
+const ARMS = ['instrument', 'floor', 'reagent', 'freehand-interpreted'];
+// The control ladder runs on the instrument (where nothing else moves),
+// and on both substantive arms, so the calibration is per-arm rather than
+// borrowed from one arm and assumed of the others.
+const LADDER_ARMS = ['instrument', 'reagent', 'freehand-interpreted'];
+
+const CONFIG_MERGE =
+  '{:output-dir "out/b8" :asset-path "." ' +
+  ':modules {:main {:init-fn re-frame.freehand.bench.b8-app/-main}}}';
+
+function build() {
+  console.error('[b8] building :advanced bundle ...');
+  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
+  const r = spawnSync(
+    process.execPath,
+    [runner, 'release', 'freehand-release', '--config-merge', CONFIG_MERGE],
+    { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
+  );
+  if (r.status !== 0) {
+    console.error(`[b8] build failed with status ${r.status}`);
+    process.exit(1);
+  }
+}
+
+const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'application/json' };
+
+function serve() {
+  fs.mkdirSync(OUT, { recursive: true });
+  fs.writeFileSync(
+    path.join(OUT, 'index.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>B8</title></head>' +
+      '<body><div id="app"></div><script src="main.js"></script></body></html>'
+  );
+  return http
+    .createServer((req, res) => {
+      const rel = decodeURIComponent(req.url.split('?')[0]);
+      const file = path.join(OUT, rel === '/' ? 'index.html' : rel);
+      if (!file.startsWith(OUT) || !fs.existsSync(file)) {
+        res.writeHead(404).end('not found');
+        return;
+      }
+      res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
+      fs.createReadStream(file).pipe(res);
+    })
+    .listen(PORT);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------------------------------------------------------------------------
+
+async function main() {
+  const { chromium } = require('playwright');
+  const browser = await chromium.launch({
+    args: [
+      '--enable-precise-memory-info',
+      // A larger young generation means more writes fit before a scavenge,
+      // which is what makes a collection-free window of useful length
+      // possible at all. It changes when V8 collects, not what it
+      // allocates, and the monotonicity gate does not care either way.
+      '--js-flags=--expose-gc --min-semi-space-size=32 --max-semi-space-size=64',
+    ],
+  });
+  const page = await browser.newPage();
+  page.on('console', (m) => {
+    const t = m.text();
+    if (t.startsWith(';; B8')) console.error(t);
+  });
+  page.on('pageerror', (e) => console.error('[b8] page error:', e.message));
+  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
+  await page.waitForFunction('window.B8_READY === true || window.B8_ERROR', null, {
+    timeout: 5 * 60 * 1000,
+  });
+  const err = await page.evaluate('window.B8_ERROR || null');
+  if (err) throw new Error(`page failed to initialise: ${err}`);
+
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('HeapProfiler.enable');
+  await cdp.send('Runtime.enable');
+
+  const gc = async () => {
+    for (let i = 0; i < 3; i++) {
+      await cdp.send('HeapProfiler.collectGarbage');
+      await sleep(60);
+    }
+  };
+  const readCdp = async () => (await cdp.send('Runtime.getHeapUsage')).usedSize;
+
+  // --- is the precise-memory flag actually on? --------------------------
+  // Without it Chrome quantises usedJSHeapSize to 100 KB and every figure
+  // below would be a rounding artefact. Quantised readings are exact
+  // multiples of 100000; precise ones essentially never are.
+  const probes = await page.evaluate(() => {
+    const xs = [];
+    let sink = 0;
+    for (let i = 0; i < 8; i++) {
+      const a = new Array(2000).fill(0.5);
+      sink += a[0];
+      xs.push(window.B8.mem());
+    }
+    window.__b8sink = sink;
+    return xs;
+  });
+  const precise = probes.some((v) => v > 0 && v % 100000 !== 0);
+  if (!precise) {
+    throw new Error(
+      `--enable-precise-memory-info did not take: readings ${JSON.stringify(probes)} are all ` +
+        `multiples of 100000, so usedJSHeapSize is quantised and unusable`
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // One window
+  // -------------------------------------------------------------------------
+
+  async function window_(arm, kind, doubles, published) {
+    await page.evaluate((d) => window.B8.prepare(d), doubles);
+    await page.evaluate(() => window.B8.seed());
+    await gc();
+    const pre = await readCdp();
+    const r = published
+      ? await page.evaluate(
+          ([a, k, n]) => window.B8.runPub(a, k, n),
+          [arm, kind, WRITES]
+        )
+      : await page.evaluate(
+          ([a, k, n]) => window.B8.run(a, k, n),
+          [arm, kind, WRITES]
+        );
+    const post = await readCdp();
+    await gc();
+    const settled = await readCdp();
+    return {
+      arm,
+      kind,
+      doubles,
+      published: !!published,
+      writes: WRITES,
+      cdpAllocated: post - pre,
+      cdpPerWrite: (post - pre) / WRITES,
+      // What survived a full collection: the retention answer to the same
+      // window. If this is a rounding error against cdpAllocated then what
+      // was measured was garbage, which is the whole point.
+      retained: settled - pre,
+      inPage: published
+        ? null
+        : {
+            total: r.total,
+            perWrite: r.total / WRITES,
+            control: r.control,
+            write: r.write,
+            gap: r.gap,
+            force: r.force,
+            decreases: r.decreases,
+            worstDrop: r['worst-drop'],
+          },
+      bad: r.bad,
+      // THE GATE. Any decrease means a collection ran inside the window and
+      // the difference of the endpoints is not an allocation total.
+      accepted: published ? r.bad === 0 : r.decreases === 0 && r.bad === 0,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // The sampling profiler, as a NEGATIVE control
+  // -------------------------------------------------------------------------
+
+  async function samplerControl(kind) {
+    await page.evaluate((d) => window.B8.prepare(d), CTL_2);
+    await page.evaluate(() => window.B8.seed());
+    await gc();
+    await cdp.send('HeapProfiler.startSampling', { samplingInterval: 4096 });
+    const pre = await readCdp();
+    const r = await page.evaluate(
+      ([a, k, n]) => window.B8.run(a, k, n),
+      ['freehand-interpreted', kind, WRITES]
+    );
+    const post = await readCdp();
+    const { profile } = await cdp.send('HeapProfiler.stopSampling');
+    let sampled = 0;
+    (function walk(node) {
+      for (const s of node.selfSize !== undefined ? [node] : []) sampled += s.selfSize;
+      for (const c of node.children || []) walk(c);
+    })(profile.head);
+    return {
+      // Known by construction: the control allocates and drops 8·CTL_2
+      // bytes on every one of WRITES writes, and nothing holds any of it.
+      controlGarbageBytes: 8 * CTL_2 * WRITES,
+      counterAllocated: post - pre,
+      samplerTotal: sampled,
+      note:
+        'the sampler is pointed at a window whose garbage content is known; it reports what ' +
+        'survived, not what was allocated',
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Rounds
+  // -------------------------------------------------------------------------
+
+  const rows = [];
+  for (const kind of KINDS) {
+    // A warm-up window per arm, never read: first-call compilation, inline
+    // caches and one-time module state are not what this asks about, and
+    // charged to round 1 they read as allocation per write.
+    console.error(`[b8] ${kind}: warm-up ...`);
+    for (const arm of ARMS) await window_(arm, kind, 0, false);
+
+    for (let round = 0; round < ROUNDS; round++) {
+      console.error(`[b8] ${kind}: round ${round + 1}/${ROUNDS}`);
+      for (let j = 0; j < ARMS.length; j++) {
+        const arm = ARMS[(j + round) % ARMS.length];
+        rows.push({ round, ...(await window_(arm, kind, 0, false)) });
+        rows.push({ round, ...(await window_(arm, kind, 0, true)) });
+        if (LADDER_ARMS.includes(arm)) {
+          rows.push({ round, ...(await window_(arm, kind, CTL_1, false)) });
+          rows.push({ round, ...(await window_(arm, kind, CTL_2, false)) });
+        }
+      }
+    }
+  }
+
+  console.error('[b8] sampler negative control ...');
+  const sampler = await samplerControl(KINDS[0]);
+
+  await browser.close();
+  return { rows, sampler, precise: { probes } };
+}
+
+// ---------------------------------------------------------------------------
+// Report
+// ---------------------------------------------------------------------------
+
+function stat(xs) {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const mean = s.reduce((a, b) => a + b, 0) / s.length;
+  return { mean, min: s[0], max: s[s.length - 1], n: s.length };
+}
+const fmt = (v) => (v === null || v === undefined ? '-' : Math.round(v).toLocaleString('en-US'));
+
+function report(out) {
+  const { rows, sampler } = out;
+  const kinds = [...new Set(rows.map((r) => r.kind))];
+  const summary = {};
+
+  for (const kind of kinds) {
+    const of = (arm, doubles, published) =>
+      rows.filter(
+        (r) =>
+          r.kind === kind &&
+          r.arm === arm &&
+          r.doubles === doubles &&
+          r.published === !!published &&
+          r.accepted
+      );
+
+    console.log(`\n;; ==== B8 — bytes allocated per ${kind.toUpperCase()} write ====`);
+    const all = rows.filter((r) => r.kind === kind);
+    const acc = all.filter((r) => r.accepted);
+    console.log(
+      `;; windows: ${acc.length} accepted of ${all.length}; ` +
+        `${all.length - acc.length} rejected for a collection inside the window`
+    );
+    console.log(
+      `;; unverified writes: ${all.reduce((a, r) => a + (r.arm === 'instrument' ? 0 : r.bad), 0)} of ` +
+        `${all.filter((r) => r.arm !== 'instrument').length * WRITES} ` +
+        `(the instrument arm renders no cell and is excluded)`
+    );
+
+    // --- positive control -------------------------------------------------
+    console.log(';;');
+    console.log(';; POSITIVE CONTROL — garbage of predicted size, seen by the instrument');
+    console.log(';;   arm                 direct leg B/write   slope B/double [pred 8.000]');
+    const ctl = {};
+    for (const arm of LADDER_ARMS) {
+      const d1 = of(arm, CTL_1, false);
+      const d2 = of(arm, CTL_2, false);
+      const b0 = stat(of(arm, 0, false).map((r) => r.inPage.perWrite));
+      const b1 = stat(d1.map((r) => r.inPage.perWrite));
+      const b2 = stat(d2.map((r) => r.inPage.perWrite));
+      const leg2 = stat(d2.map((r) => r.inPage.control / r.writes));
+      const slope = b1 && b2 ? (b2.mean - b1.mean) / (CTL_2 - CTL_1) : null;
+      const slope0 = b0 && b2 ? (b2.mean - b0.mean) / CTL_2 : null;
+      ctl[arm] = {
+        predictedPerWriteAtCtl2: 8 * CTL_2,
+        directLegAtCtl2: leg2,
+        slopeBytesPerDouble: slope,
+        slopeFromZero: slope0,
+        atZero: b0,
+        at1: b1,
+        at2: b2,
+      };
+      console.log(
+        `;;   ${arm.padEnd(20)} ${fmt(leg2 && leg2.mean).padStart(12)}` +
+          `   [pred ${fmt(8 * CTL_2)}]   ${slope === null ? '-' : slope.toFixed(3)}` +
+          `   (from 0: ${slope0 === null ? '-' : slope0.toFixed(3)})`
+      );
+    }
+
+    // --- the table --------------------------------------------------------
+    console.log(';;');
+    console.log(';; arm                  B/write (counter)     in-page      write leg   force leg   retained');
+    const per = {};
+    for (const arm of ARMS) {
+      const ws = of(arm, 0, false);
+      const cdpS = stat(ws.map((r) => r.cdpPerWrite));
+      const inS = stat(ws.map((r) => r.inPage.perWrite));
+      const wS = stat(ws.map((r) => r.inPage.write / r.writes));
+      const fS = stat(ws.map((r) => r.inPage.force / r.writes));
+      const gS = stat(ws.map((r) => r.inPage.gap / r.writes));
+      const rS = stat(ws.map((r) => r.retained / r.writes));
+      const pub = stat(of(arm, 0, true).map((r) => r.cdpPerWrite));
+      per[arm] = { cdp: cdpS, inPage: inS, write: wS, gap: gS, force: fS, retained: rS, published: pub };
+      if (!cdpS) continue;
+      console.log(
+        `;; ${arm.padEnd(20)} ${fmt(cdpS.mean).padStart(9)} ` +
+          `[${fmt(cdpS.min)}–${fmt(cdpS.max)}]`.padEnd(21) +
+          `${fmt(inS && inS.mean).padStart(9)}  ${fmt(wS && wS.mean).padStart(10)}` +
+          `  ${fmt(fS && fS.mean).padStart(10)}  ${fmt(rS && rS.mean).padStart(9)}`
+      );
+    }
+
+    // --- mirror vs published ---------------------------------------------
+    console.log(';;');
+    console.log(';; MIRROR vs PUBLISHED window (counter B/write), and in-page vs CDP:');
+    for (const arm of ARMS) {
+      const p = per[arm];
+      if (!p || !p.cdp) continue;
+      const mirrorVsPub = p.published ? (p.cdp.mean / p.published.mean - 1) * 100 : null;
+      const inVsCdp = p.inPage ? (p.inPage.mean / p.cdp.mean - 1) * 100 : null;
+      console.log(
+        `;;   ${arm.padEnd(20)} mirror ${fmt(p.cdp.mean).padStart(9)}  published ` +
+          `${fmt(p.published && p.published.mean).padStart(9)}  ` +
+          `mirror−published ${mirrorVsPub === null ? '-' : mirrorVsPub.toFixed(1) + '%'}  ` +
+          `in-page−CDP ${inVsCdp === null ? '-' : inVsCdp.toFixed(2) + '%'}`
+      );
+    }
+
+    // --- above floor, paired within round ---------------------------------
+    console.log(';;');
+    console.log(';; ABOVE THE FLOOR, paired within round:');
+    const byRound = (arm) => {
+      const m = {};
+      for (const r of of(arm, 0, false)) m[r.round] = r.cdpPerWrite;
+      return m;
+    };
+    const fl = byRound('floor');
+    const above = {};
+    for (const arm of ['reagent', 'freehand-interpreted']) {
+      const a = byRound(arm);
+      const xs = Object.keys(a)
+        .filter((k) => fl[k] !== undefined)
+        .map((k) => a[k] - fl[k]);
+      above[arm] = stat(xs);
+      console.log(
+        `;;   ${arm.padEnd(20)} ${fmt(above[arm] && above[arm].mean).padStart(9)} ` +
+          `[${fmt(above[arm] && above[arm].min)}–${fmt(above[arm] && above[arm].max)}]`
+      );
+    }
+    const ra = byRound('reagent');
+    const fa = byRound('freehand-interpreted');
+    const ratios = Object.keys(fa)
+      .filter((k) => ra[k] !== undefined && ra[k] - fl[k] > 0)
+      .map((k) => (fa[k] - fl[k]) / (ra[k] - fl[k]));
+    const rs = stat(ratios);
+    const rawRatios = Object.keys(fa)
+      .filter((k) => ra[k] > 0)
+      .map((k) => fa[k] / ra[k]);
+    const rrs = stat(rawRatios);
+    console.log(
+      `;;   Freehand ÷ Reagent, above floor: ` +
+        (rs ? `${rs.mean.toFixed(3)} [${rs.min.toFixed(3)}–${rs.max.toFixed(3)}]` : '-') +
+        `   absolute: ` +
+        (rrs ? `${rrs.mean.toFixed(3)} [${rrs.min.toFixed(3)}–${rrs.max.toFixed(3)}]` : '-')
+    );
+
+    summary[kind] = { per, above, ratioAboveFloor: rs, ratioAbsolute: rrs, control: ctl,
+                      windows: { accepted: acc.length, total: all.length } };
+  }
+
+  console.log('\n;; ==== NEGATIVE CONTROL — the sampling heap profiler on the same window ====');
+  console.log(`;;   garbage allocated by the control, by construction: ${fmt(sampler.controlGarbageBytes)} B`);
+  console.log(`;;   the used-heap counter saw:                         ${fmt(sampler.counterAllocated)} B`);
+  console.log(`;;   HeapProfiler sampling total:                       ${fmt(sampler.samplerTotal)} B`);
+
+  return summary;
+}
+
+// ---------------------------------------------------------------------------
+
+(async () => {
+  if (!NO_BUILD) build();
+  const server = serve();
+  let out;
+  let failed = null;
+  try {
+    out = await main();
+    out.summary = report(out);
+  } catch (e) {
+    failed = String(e && e.stack ? e.stack : e);
+  } finally {
+    server.close();
+  }
+  const raw = process.env.B8_RAW_OUT;
+  if (raw && out) {
+    fs.mkdirSync(path.dirname(raw), { recursive: true });
+    fs.writeFileSync(raw, JSON.stringify(out, null, 2));
+    console.error(`[b8] raw data -> ${raw}`);
+  }
+  if (failed) {
+    console.error(`[b8] FAILED: ${failed}`);
+    process.exit(1);
+  }
+  console.error('[b8] ok');
+})();
