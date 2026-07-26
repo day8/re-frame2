@@ -139,13 +139,22 @@
                             :first-line (first (remove str/blank? body))})))))))
 
 (defn corpus
-  "`{page-filename [block …]}` for every `.md` page in the guide."
+  "`{page-path [block …]}` for every `.md` page in the guide.
+
+  The key is the path **relative to [[guide-dir]]**, with `/` separators on
+  every platform. The guide is a tree of sections — `get-running/`,
+  `authoring/`, `host/`, `advanced/`, `operate/` — so the walk is recursive
+  and a bare filename would neither be unique nor say where the page lives.
+  A page that moves between sections therefore reds here, which is correct:
+  its roster row has to move with it."
   []
-  (let [dir (io/file (repo-root) guide-dir)]
+  (let [dir  (io/file (repo-root) guide-dir)
+        root (.toPath dir)]
     (into (sorted-map)
-          (for [^java.io.File f (sort-by #(.getName ^java.io.File %) (.listFiles dir))
-                :when (str/ends-with? (.getName f) ".md")]
-            [(.getName f) (blocks (slurp f))]))))
+          (for [^java.io.File f (file-seq dir)
+                :when (and (.isFile f) (str/ends-with? (.getName f) ".md"))]
+            [(str/replace (str (.relativize root (.toPath f))) "\\" "/")
+             (blocks (slurp f))]))))
 
 ;; ---------------------------------------------------------------------------
 ;; What a row may say
@@ -328,12 +337,12 @@
 
 (def ^:private roster
   '{
-   "accessibility.md"
+   "authoring/accessibility.md"
    [[ 1 "cf922cd60399" host/a11y-cart-buttons]
     [ 2 "168c79423b66" host/toast-card]]
-   "adoption.md"
+   "operate/adoption.md"
    [[ 1 "465c90a78f6e" host/person-cell-renderer-props]]
-   "build-a-view.md"
+   "get-running/build-a-view.md"
    [[ 1 "f0c3d822dd93" :app-scaffold]
     [ 2 "1ffd888b3d3f" first-view/register-counter-dataflow!]
     [ 3 "d2d23ba805b8" first-view/counter-v1]
@@ -342,7 +351,7 @@
     [ 6 "c7ecf21136ef" first-view/note-row]
     [ 7 "54f01ca77513" :host-boot]
     [ 8 "6b6946d0b4bd" :app-scaffold]]
-   "compilation.md"
+   "advanced/compilation.md"
    [[ 1 "2ed0def9d890" compilation/people-list-promotion-recipe]
     [ 2 "0e709b251a18" compilation/todo-row-compiled]
     [ 3 "441eba0cabf9" :prose-shape]
@@ -352,7 +361,7 @@
     [ 7 "0eb044ab4a85" compilation/markup-child]
     [ 8 "6eca931fc482" compilation/data-table-compiled]
     [ 9 "ab5df8171160" compilation/todo-row-with-props-schema]]
-   "composition.md"
+   "authoring/composition.md"
    [[ 1 "6e08b04edd36" composition/panel]
     [ 2 "f1f241908c1f" composition/icon-button]
     [ 3 "04fc59833fc3" composition/card]
@@ -367,12 +376,12 @@
     [12 "143ffc47edc9" composition/field]
     [13 "06e61be67c20" composition/field-call-with-parts]
     [14 "538ba8b3f20d" :prose-shape]]
-   "debugging.md"
+   "operate/debugging.md"
    [[ 1 "edafd4232c9e" compilation/describe-projects-exactly-the-keys-the-page-prints]
     [ 2 "1e6adbe055e5" compilation/manifest-is-nil-for-interpreted-and-names-its-crossings-when-compiled]
     [ 3 "6a368565f741" host/active-connections-read]
     [ 4 "69279406eee9" host/command-log-read]]
-   "events-and-handlers.md"
+   "authoring/events-and-handlers.md"
    [[ 1 "603f633abe5a" events/add-to-cart-button]
     [ 2 "987032f4a387" events/projection-marker-sites]
     [ 3 "ce57d8c6132c" events/the-named-projection-roster-is-the-five-the-page-lists]
@@ -387,7 +396,7 @@
     [12 "59a361023b4c" events/uncontrolled-cell-input]
     [13 "f4c566df3500" events/icon-button]
     [14 "f1487c436d64" events/text-field]]
-   "forms.md"
+   "authoring/forms.md"
    [[ 1 "76b9d90f3f40" :prose-shape]
     [ 2 "2b7b3b51b487" events/email-field]
     [ 3 "a6379d0556c8" events/register-field-error-sub!]
@@ -397,7 +406,7 @@
     [ 7 "cf8ffa56a3d3" events/register-temperature-dataflow!]
     [ 8 "67c6b1269513" events/temperature-inputs]
     [ 9 "a166f137df6a" :prose-shape]]
-   "host-boundaries.md"
+   "host/host-boundaries.md"
    [[ 1 "0ce2b4aeb5c8" host/date-picker]
     [ 2 "0f67952b0507" :foreign-npm]
     [ 3 "1fc6ecc0cd84" host/chart-client-only]
@@ -410,22 +419,22 @@
    "index.md"
    [[ 1 "c00fd3636ace" first-view/cart-badge]
     [ 2 "5eca60041a06" :non-clojure]]
-   "install.md"
+   "get-running/install.md"
    [[ 1 "4812718ae9f1" :build-config]
     [ 2 "88af3aed1747" :app-scaffold]
     [ 3 "54ad15b06540" host/unmount-root!]
     [ 4 "0673f40834e8" host/mount-panels!]
     [ 5 "ea8536be30aa" :build-config]]
-   "js-libraries.md"
+   "host/js-libraries.md"
    [[ 1 "c27c0a28d420" host/toast-tray]
     [ 2 "b9e89841da17" :foreign-npm]
     [ 3 "5b5d5da11d93" :foreign-npm]
     [ 4 "2248c34107cb" :foreign-npm]
     [ 5 "8e3bda770349" host/fade-panel]
     [ 6 "b104f110d013" host/async-chart]]
-   "limits-and-escapes.md"
+   "operate/limits-and-escapes.md"
    []
-   "mental-model.md"
+   "get-running/mental-model.md"
    [[ 1 "207fd114bc23" first-view/greeting]
     [ 2 "0618d0abdbe2" first-view/greeting-call]
     [ 3 "3cf72f2f1362" first-view/invoice]
@@ -436,16 +445,16 @@
     [ 8 "b6b64c99bd63" first-view/email-input]
     [ 9 "e69077c3dbb9" :host-boot]
     [10 "306c67de7ea3" host/person-cell-renderer-props]]
-   "presence.md"
+   "host/presence.md"
    [[ 1 "fcb73466d44d" :non-clojure]
     [ 2 "c27c0a28d420" host/toast-tray]
     [ 3 "80e6e0d3305d" :non-clojure]
     [ 4 "08ba0a5e6fa4" host/toast-card-case]
     [ 5 "168c79423b66" host/toast-card]]
-   "reactivity-and-ownership.md"
+   "authoring/reactivity-and-ownership.md"
    [[ 1 "f01963c823bb" composition/todo-list]
     [ 2 "1b29393aaea1" composition/people-page]]
-   "semantic-controllers.md"
+   "advanced/semantic-controllers.md"
    [[ 1 "8bdf175ef483" controllers/keymap-field]
     [ 2 "977f3334fec6" controllers/disclosure]
     [ 3 "c56fcf222c65" controllers/register-search-dataflow!]
@@ -460,27 +469,27 @@
     [12 "6c7f63421374" controllers/the-generation-fence-is-total-and-safe-when-the-stamp-is-missing]
     [13 "dbe82da73aae" controllers/register-acme-buffered-text!]
     [14 "51128afd8f00" controllers/buffered-field]]
-   "ssr.md"
+   "host/ssr.md"
    [[ 1 "7d7c6d77a52d" host/chart-client-only-sub]
     [ 2 "b0412ac0fb48" :host-boot]
     [ 3 "dc23499554e7" host/mount-two-roots!]
     [ 4 "05f8d7b50eb1" :host-boot]
     [ 5 "2ae2d5c8a43a" host/article-route-link]]
-   "state.md"
+   "authoring/state.md"
    [[ 1 "d904aba9124a" composition/order-summary]
     [ 2 "fc9c3bd71d12" composition/app-root]
     [ 3 "6e08b04edd36" composition/panel]
     [ 4 "3cc3502b4ebf" composition/email-controlled-input]
     [ 5 "096d667e0233" composition/email-draft-input]
     [ 6 "1d2a72ca0224" controllers/buffered-field-call]]
-   "testing.md"
+   "operate/testing.md"
    [[ 1 "386f631342f6" testing/add-button-carries-intent]
     [ 2 "849437c5725e" testing/tree-reading-forms]
     [ 3 "c082e508ecc6" testing/the-badge-shows-the-basket-count]
     [ 4 "96e443410112" testing/cart-badge-shows-count-after-add]
     [ 5 "7d7d9c74abc1" testing/adding-to-the-cart-updates-the-badge]
     [ 6 "030cd0fec46c" testing/typing-carries-the-text]]
-   "vs-reagent.md"
+   "operate/vs-reagent.md"
    [[ 1 "f97158f9fe1c" first-view/greeting]
     [ 2 "a087fe4506fc" first-view/count-span-bare]
     [ 3 "970add7a063f" first-view/inc-button]
