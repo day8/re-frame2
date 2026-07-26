@@ -216,6 +216,19 @@ separable from each other.
 > reproduced on a later day against current `main`, Reagent W1 at 1.545
 > [1.471–1.647] against the 1.554 above. Detail in
 > [`freehand-vs-reagent-memory.md`](freehand-vs-reagent-memory.md) §3.
+>
+> **The row is therefore ~4% generous to Freehand on W1, and the table
+> keeps it** (`rf2-g88fx`). Every real application binds a frame; this arm
+> passes only a `:disambiguator`, so it prices the cheapest mount shape
+> rather than the shipped one. Re-taken on `main` at `7c41225b4b` on
+> 2026-07-27 the published arm reads **3.056 × floor** [2.931–3.226]
+> against Reagent's **1.588** [1.500–1.742] — **1.92× Reagent**. Applying
+> the measured ×1.038 puts the shape an application actually ships at
+> **≈2.00× Reagent**. That is the number to quote for a consumer, and it
+> is the same conclusion: interpreted mount is about twice Reagent.
+> Changing the arm was rejected because the correction is smaller than
+> the row's own round-to-round spread and re-basing a release-gate row
+> costs more than the third digit it buys.
 
 **And in milliseconds, because a ratio on a sub-millisecond operation is
 not a product decision** (p50, round 4 of six — the same round §2a
