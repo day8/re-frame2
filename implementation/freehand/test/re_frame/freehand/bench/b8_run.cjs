@@ -251,6 +251,8 @@ async function main() {
             force: r.force,
             decreases: r.decreases,
             worstDrop: r.worstDrop,
+            first: r.first,
+            last: r.last,
           },
       bad: r.bad,
       // COLLECTION-FREE, which is not the same as usable. `posSum` is an
@@ -262,6 +264,40 @@ async function main() {
       // validation set, not the whole sample.
       collectionFree: !published && r.decreases === 0,
       accepted: r.bad === 0,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // The control object, priced by RETENTION — the cross-calibration
+  // -------------------------------------------------------------------------
+  //
+  // `8·D` is arithmetic, not a measurement: it assumes `.slice()` of a
+  // double array costs one 8-byte slot per element and nothing else. The
+  // allocation instrument disagrees with it, stably and reproducibly. So
+  // the same object is priced a second way — hold K copies, collect, read,
+  // release, read — which is B7's instrument, proven on this surface to
+  // 0.17% against a control whose size WAS known.
+  //
+  // If retention and allocation agree on bytes-per-copy, then the object
+  // costs what they both say and the arithmetic was the fiction. If they
+  // disagree, one of the instruments is wrong and no arm should be quoted.
+  async function controlRetention(doubles, k) {
+    await page.evaluate((d) => window.B8.prepare(d), doubles);
+    await gc();
+    const pre = await readCdp();
+    await page.evaluate((n) => window.B8.hold(n), k);
+    await gc();
+    const held = await readCdp();
+    await page.evaluate(() => window.B8.unhold());
+    await gc();
+    const post = await readCdp();
+    return {
+      doubles,
+      copies: k,
+      predictedPerCopy8D: 8 * doubles,
+      retainedPerCopy: (held - pre) / k,
+      bytesPerDouble: (held - pre) / k / doubles,
+      residue: post - pre,
     };
   }
 
@@ -332,11 +368,17 @@ async function main() {
     }
   }
 
+  console.error('[b8] control retention cross-calibration ...');
+  const retention = [];
+  for (const d of [CTL_1, CTL_2]) {
+    for (const k of [20, 40]) retention.push(await controlRetention(d, k));
+  }
+
   console.error('[b8] sampler negative control ...');
   const sampler = await samplerControl(KINDS[0]);
 
   await browser.close();
-  return { rows, sampler, integrity: integ, precise: { probes } };
+  return { rows, sampler, retention, integrity: integ, precise: { probes } };
 }
 
 // ---------------------------------------------------------------------------
@@ -379,16 +421,36 @@ function report(out) {
     // THE IDENTITY. Where nothing was reclaimed, the sum of the rising
     // steps, the endpoint difference and the CDP bracket are three ways of
     // computing one number and must agree. Quoted as the worst case.
-    let worstId = 0;
+    // Two checks, and they answer different questions.
+    //
+    // The BOOKKEEPING identity holds in every window by construction:
+    // rising steps plus falling steps must equal the difference between
+    // the first and last readings. A non-zero here is an arithmetic bug in
+    // the accumulator, nothing to do with V8.
+    //
+    // The INSTRUMENT check holds only where nothing was reclaimed: there
+    // the in-page rising-step sum and the driver's CDP bracket are two
+    // separate readers on one window and must agree. Restricted to arms
+    // that allocate enough for a percentage to mean anything — the
+    // instrument arm's own window is a few hundred bytes wide and a 1 KB
+    // difference there is 100%, which says nothing about the table.
+    let worstBook = 0;
+    for (const r of mir) {
+      worstBook = Math.max(
+        worstBook,
+        Math.abs(r.inPage.posSum + r.inPage.negSum - (r.inPage.last - r.inPage.first))
+      );
+    }
     let worstCdp = 0;
-    for (const r of cf) {
-      worstId = Math.max(worstId, Math.abs(r.inPage.posSum / r.inPage.total - 1));
+    for (const r of cf.filter((x) => x.arm !== 'instrument')) {
       worstCdp = Math.max(worstCdp, Math.abs(r.inPage.posSum / r.cdpAllocated - 1));
     }
     console.log(
-      `;; collection-free identity: rising-step sum vs endpoint difference, worst ` +
-        `${(worstId * 100).toFixed(3)}%; vs the CDP bracket, worst ${(worstCdp * 100).toFixed(2)}% ` +
-        `(the CDP bracket also contains the inter-write seam the legs do not)`
+      `;; bookkeeping identity (rising + falling = last − first): worst residual ${worstBook} B`
+    );
+    console.log(
+      `;; instrument agreement on collection-free windows, in-page rising-step sum vs the CDP ` +
+        `bracket: worst ${(worstCdp * 100).toFixed(2)}%`
     );
     console.log(
       `;; unverified writes: ${all.reduce((a, r) => a + (r.arm === 'instrument' ? 0 : r.bad), 0)} of ` +
@@ -428,7 +490,15 @@ function report(out) {
 
     // --- the table --------------------------------------------------------
     console.log(';;');
-    console.log(';; arm                  B/write (rising-step sum)   CDP     write leg   force leg   retained   GCs');
+    // The legs are `timed-write!`'s own: the state install, the single
+    // microtask yield, and the arm's synchronous drain. WHERE a substrate
+    // does its rendering differs between arms and the split is what shows
+    // it — Freehand's notification runs in the microtask, so its render
+    // lands in the GAP and its `flushSync` is empty; Reagent's `r/flush`
+    // runs inside the drain, so its render lands in FORCE.
+    console.log(
+      ';; arm                  B/write (rising-step sum)   write leg     gap leg   force leg   retained   GCs'
+    );
     const per = {};
     for (const arm of ARMS) {
       const ws = of(arm, 0, false);
@@ -445,8 +515,8 @@ function report(out) {
       if (!inS) continue;
       console.log(
         `;; ${arm.padEnd(20)} ${fmt(inS.mean).padStart(9)} ` +
-          `[${fmt(inS.min)}–${fmt(inS.max)}]`.padEnd(21) +
-          `${fmt(cdpS && cdpS.mean).padStart(9)}  ${fmt(wS && wS.mean).padStart(10)}` +
+          `[${fmt(inS.min)}–${fmt(inS.max)}]`.padEnd(23) +
+          `${fmt(wS && wS.mean).padStart(9)}  ${fmt(gS && gS.mean).padStart(10)}` +
           `  ${fmt(fS && fS.mean).padStart(10)}  ${fmt(rS && rS.mean).padStart(9)}` +
           `  ${(gcS ? gcS.mean.toFixed(1) : '-').padStart(5)}`
       );
@@ -514,8 +584,57 @@ function report(out) {
         (rrs ? `${rrs.mean.toFixed(3)} [${rrs.min.toFixed(3)}–${rrs.max.toFixed(3)}]` : '-')
     );
 
+    // THE FAIRNESS SPLIT, and it is the one `freehand-vs-reagent.md` §2a
+    // insists on. The Freehand arm installs its state through
+    // `frame/replace-app-db!` and a re-frame subscription graph; the
+    // Reagent arm resets a bare `reagent.core/atom`. That is each
+    // substrate's own idiom but it is NOT the same amount of framework,
+    // and a re-frame-shaped Reagent application would pay the write leg
+    // too. So the view leg — the microtask the notification runs in, plus
+    // the synchronous drain — is reported on its own, and it is the
+    // number that is about the VIEW SUBSTRATE rather than about re-frame.
+    console.log(';;');
+    console.log(';; THE VIEW LEG ALONE (gap + force), with the re-frame write leg removed:');
+    const viewByRound = (arm) => {
+      const m = {};
+      for (const r of of(arm, 0, false)) m[r.round] = (r.inPage.gap + r.inPage.force) / r.writes;
+      return m;
+    };
+    const vR = viewByRound('reagent');
+    const vF = viewByRound('freehand-interpreted');
+    const vRs = stat(Object.values(vR));
+    const vFs = stat(Object.values(vF));
+    const vRatio = stat(
+      Object.keys(vF).filter((k) => vR[k] > 0).map((k) => vF[k] / vR[k])
+    );
+    console.log(`;;   reagent              ${fmt(vRs && vRs.mean).padStart(9)} [${fmt(vRs && vRs.min)}–${fmt(vRs && vRs.max)}]`);
+    console.log(`;;   freehand-interpreted ${fmt(vFs && vFs.mean).padStart(9)} [${fmt(vFs && vFs.min)}–${fmt(vFs && vFs.max)}]`);
+    console.log(
+      `;;   Freehand ÷ Reagent on the view leg: ` +
+        (vRatio ? `${vRatio.mean.toFixed(3)} [${vRatio.min.toFixed(3)}–${vRatio.max.toFixed(3)}]` : '-')
+    );
+    const wR = stat(of('reagent', 0, false).map((r) => r.inPage.write / r.writes));
+    const wF = stat(of('freehand-interpreted', 0, false).map((r) => r.inPage.write / r.writes));
+    console.log(
+      `;;   write leg (re-frame vs a bare ratom): freehand ${fmt(wF && wF.mean)} B vs reagent ` +
+        `${fmt(wR && wR.mean)} B`
+    );
+
     summary[kind] = { per, above, ratioAboveFloor: rs, ratioAbsolute: rrs, control: ctl,
-                      windows: { accepted: acc.length, total: all.length } };
+                      viewLeg: { reagent: vRs, freehand: vFs, ratio: vRatio },
+                      writeLeg: { reagent: wR, freehand: wF },
+                      windows: { accepted: acc.length, total: all.length,
+                                 collectionFree: cf.length, mirror: mir.length } };
+  }
+
+  console.log('\n;; ==== CONTROL CROSS-CALIBRATION — the same object, priced two ways ====');
+  console.log(';;   D doubles  copies   retained B/copy   B/double   [8·D predicts 8.000]   residue');
+  for (const r of out.retention || []) {
+    console.log(
+      `;;   ${String(r.doubles).padStart(9)}  ${String(r.copies).padStart(6)}   ` +
+        `${fmt(r.retainedPerCopy).padStart(14)}   ${r.bytesPerDouble.toFixed(3).padStart(8)}` +
+        `                          ${fmt(r.residue).padStart(8)}`
+    );
   }
 
   console.log('\n;; ==== NEGATIVE CONTROL — the sampling heap profiler on the same window ====');

@@ -35,6 +35,10 @@
           ;; it writes, under the renaming it was actually compiled with.
           "integrity" (fn [] (b8/integrity-probe))
           "prepare"   (fn [d] (b8/control-prepare! d))
+          ;; The control object priced by RETENTION instead — B7's
+          ;; instrument, on the same object, so the two can be compared.
+          "hold"      (fn [k] (b8/control-hold! k))
+          "unhold"    (fn [] (b8/control-release!))
           ;; One window: `n` writes on one arm, counter read at every leg
           ;; boundary. The driver collects before and reads after.
           "run"       (fn [arm kind n]

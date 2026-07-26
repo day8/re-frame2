@@ -203,6 +203,33 @@
 
 (defonce ^:private ctl-template (volatile! nil))
 (defonce ^:private ctl-sink (volatile! 0.0))
+(defonce ^:private ctl-held (volatile! nil))
+
+(defn control-hold!
+  "Hold `k` copies of the control object so the driver can price ONE of
+  them by RETENTION — mount, collect, read — which is B7's instrument and
+  is proven on this surface to 0.17% against a predicted size.
+
+  This exists because the allocation instrument and the prediction
+  disagreed. `8·D` assumed `.slice()` of a double array costs one 8-byte
+  slot per element and nothing else; the measured slope came back at
+  12.06 B/double, twice, in independent runs — a stable, linear,
+  reproducible number that is simply not 8.
+
+  Either the instrument is wrong or the arithmetic is, and a control
+  whose size is asserted rather than checked cannot tell you which. B7's
+  own control failed exactly this way: a 4.7 MB `'x'.repeat(n)` string
+  read as six kilobytes on all three readers, and the instrument was
+  fine. So the object is priced by an instrument that is already trusted,
+  and the two readings are published side by side."
+  [k]
+  (vreset! ctl-held
+           (when (pos? k)
+             (let [a (js/Array. k)]
+               (dotimes [i k] (aset a i (.slice @ctl-template)))
+               a))))
+
+(defn control-release! [] (vreset! ctl-held nil))
 
 (defn control-prepare!
   "Build the template ONCE, outside every window. `js/Array` + `fill`
@@ -310,13 +337,21 @@
         ;; are accumulated separately. `posSum` is therefore an allocation
         ;; total that survives a collection landing inside the window,
         ;; where the endpoint difference does not.
-        step! (fn [a x y]
+        ;; `leg` is nil for the seam between one write and the next, which
+        ;; belongs to no leg but must still be counted in the window total.
+        step! (fn [a leg x y]
                 (let [d (- y x)]
                   (if (neg? d)
                     (do (bump! a "decreases" 1)
                         (bump! a "negSum" d)
                         (gobj/set a "worstDrop" (min (gobj/get a "worstDrop") d)))
-                    (bump! a "posSum" d))))]
+                    (do (bump! a "posSum" d)
+                        ;; Legs accumulate RISING steps only, for the same
+                        ;; reason the window total does: a collection landing
+                        ;; inside a leg would otherwise net against that leg's
+                        ;; allocation and attribute the loss to whichever leg
+                        ;; happened to contain it.
+                        (when leg (bump! a leg d))))))]
     (rows/chain acc (range n)
       (fn [a _]
         (let [val (rows/next-gen!)
@@ -329,17 +364,15 @@
                          ;; Decreases are counted across the WHOLE window,
                          ;; including the seam between one write's last
                          ;; reading and the next write's first.
-                         (when-some [p @prev] (step! a p h0))
-                         (step! a h0 hc) (step! a hc h1)
-                         (step! a h1 h2) (step! a h2 h3)
+                         (when-some [p @prev] (step! a nil p h0))
+                         (step! a "control" h0 hc)
+                         (step! a "write"   hc h1)
+                         (step! a "gap"     h1 h2)
+                         (step! a "force"   h2 h3)
                          (when (nil? @prev) (gobj/set a "first" h0))
                          (vreset! prev h3)
                          (gobj/set a "last" h3)
-                         (bump! a "control" (- hc h0))
-                         (bump! a "write"   (- h1 hc))
-                         (bump! a "gap"     (- h2 h1))
-                         (bump! a "force"   (- h3 h2))
-                         (bump! a "total"   (- h3 h0))
+                         (bump! a "total" (- h3 h0))
                          (when-not (gobj/get r "ok") (bump! a "bad" 1))
                          a)))))))))
 
