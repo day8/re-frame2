@@ -2094,10 +2094,10 @@
 ;; no longer only that. `re-frame.freehand.controlled/prop-slot` delegates to
 ;; it, `controlled-props?` maps that over EVERY attribute key of an element to
 ;; settle the controlled-input door, and the interpreted React walk asks
-;; `controlled-props?` TWICE per element — once in `react-props` and once for
-;; the `put-caller!` fold. So an ordinary four-attribute element re-derives
-;; eight slot names per render, and a keyed run of 300 such rows re-derives
-;; 2,400.
+;; `controlled-props?` once for every element it renders — both writers of an
+;; element's props share the one verdict. So an ordinary four-attribute element
+;; re-derives four slot names per render, and a keyed run of 300 such rows
+;; re-derives 1,200.
 ;;
 ;; The projection is `react-prop-name`, whose camelization is a `str/replace`
 ;; over a regex with a function replacement. A CPU profile of the interpreted
