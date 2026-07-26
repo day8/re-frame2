@@ -72,35 +72,27 @@
          ;; bundle never pulls Reagent through it.
          reagent/reagent {:mvn/version "2.0.1"}
 
-         ;; `viewer.cljs` requires `re-frame.adapter.reagent` and passes it to
-         ;; `rf/init!`, and that dep is DELIBERATELY NOT DECLARED HERE
-         ;; (rf2-3d5u3 → rf2-k7l2o). Undeclared, the viewer namespace dies at
-         ;; LOAD for a consumer — "The required namespace
-         ;; re-frame.adapter.reagent is not available" — so this is a real
-         ;; defect, but `day8/re-frame2-reagent` is the wrong repair and a hard
-         ;; dep here would be worse than the hole:
+         ;; NO ADAPTER COORDINATE BELONGS IN THIS MAP, and the reason has
+         ;; already been acted on rather than merely noted (rf2-3d5u3 →
+         ;; rf2-k7l2o, both landed). `re-frame.adapter.reagent` was required by
+         ;; `viewer.cljs` while that file sat in `src`, and undeclared it killed
+         ;; the whole jar at namespace LOAD for a consumer. Declaring
+         ;; `day8/re-frame2-reagent` would have been worse than the hole:
+         ;; `day8/reagent-slim` publishes ITS adapter at the same canonical
+         ;; `re-frame.adapter.reagent` ns (release.yml renames
+         ;; `reagent_slim.cljs` → `reagent.cljs` before clein packages, and says
+         ;; downstream apps depend on EXACTLY ONE of {day8/re-frame2-reagent,
+         ;; day8/reagent-slim}), so a slim app would have carried two
+         ;; implementations of one namespace with load order picking the
+         ;; substrate — and in-tree the slim ns is still `reagent_slim`, so the
+         ;; monorepo build cannot see the collision. It would not have reached
+         ;; the published pom anyway: `clein pom` silently skips `:local/root`
+         ;; and `release-machines-viz.yml` rewrites exactly one coordinate.
          ;;
-         ;;   - `day8/reagent-slim` publishes ITS adapter at the same canonical
-         ;;     `re-frame.adapter.reagent` ns (release.yml renames
-         ;;     `reagent_slim.cljs` → `reagent.cljs` before clein packages), and
-         ;;     release.yml states downstream apps depend on EXACTLY ONE of
-         ;;     {day8/re-frame2-reagent, day8/reagent-slim} so the adapter ns is
-         ;;     single-source per app. A hard dep here puts BOTH on a slim app's
-         ;;     classpath — one bound to `reagent.*`, one to `reagent2.*` — and
-         ;;     classpath order silently picks the substrate. In-tree the slim ns
-         ;;     is still `reagent_slim`, so the monorepo build cannot see it.
-         ;;   - It would not reach the published pom anyway.
-         ;;     `release-machines-viz.yml` rewrites exactly ONE `:local/root`
-         ;;     path (`../../implementation/core`) and `clein pom` SILENTLY SKIPS
-         ;;     `:local/root` coordinates, so a second in-repo coordinate is
-         ;;     dropped from the pom without a word. `ssr-ring` is today's only
-         ;;     leaf with two, and it needs a second rewrite call to work.
-         ;;
-         ;; The shape that resolves it: `viewer.cljs` is a PAGE entry
-         ;; (`^:export run`, mounted by `public/viewer.html`), not library
-         ;; surface — picking a substrate adapter is an application's job, and
-         ;; this jar is a library. Moving the page out of the packaged `src`
-         ;; takes the require with it. That is a packaging change; see the bead.
+         ;; The page moved to the `page` root instead — see "Two source roots"
+         ;; at the top of this file. The require left the jar with it, so there
+         ;; is nothing here to declare; the coordinate the page needs is scoped
+         ;; to `:cljs-test`, the lane that compiles it.
 
          ;; `adapters/uix.cljs` requires `uix.core` for `defui` / `$`
          ;; (rf2-3d5u3). Undeclared, that namespace dies at LOAD the same way.
