@@ -1,11 +1,13 @@
-(ns day8.re-frame2-xray.filters.error-override-test
+(ns day8.re-frame2-xray.filters.error-override-cljs-test
   "Pure-data contract for the error-override filter bypass (rf2-jqqsh9).
 
   spec/018-Event-Spine.md §7 Error overrides + §5.4 (`error` never filtered
   out): an errored event a FILTER would hide is surfaced anyway. This is the
-  JVM-runnable regression for `filters.error-override/apply-error-overrides` —
-  the data-layer half of the fix, exercised without a CLJS runtime."
-  (:require [clojure.test :refer [deftest is testing]]
+  dual-runtime regression for `filters.error-override/apply-error-overrides`
+  — the data-layer half of the fix, run under both clojure.test and the
+  `:node-test` bundle (rf2-odlm3)."
+  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.filters.error-override :as eo]))
 
 ;; ---- fixtures -----------------------------------------------------------

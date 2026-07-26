@@ -1,16 +1,17 @@
-(ns day8.re-frame2-xray.filters.hidden-test
+(ns day8.re-frame2-xray.filters.hidden-cljs-test
   "Pure-data tests for the events-ribbon 'N hidden by filters' message
   derivation (rf2-jvghz, defect #1; frame-decoupled per rf2-4vp5j).
 
-  CLJC so the JVM corpus exercises the hidden-count derivation +
-  visibility predicate without a CLJS runtime — the helper is pure
-  data, no atoms, no I/O.
+  CLJC so BOTH corpora exercise the hidden-count derivation +
+  visibility predicate — the helper is pure data, no atoms, no I/O,
+  so there is nothing to keep it off the CLJS lane (rf2-odlm3).
 
   Per rf2-4vp5j Workstream C the FRAME is a view SCOPE, not a filter —
   it is never counted as hidden, never a cause, never reset by Clear
   Filters. The summary model carries no `:frame` key and
   `any-filter-active?` ignores frame state entirely."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.filters.hidden :as hidden]))
 
 ;; ---- hidden-count -------------------------------------------------------

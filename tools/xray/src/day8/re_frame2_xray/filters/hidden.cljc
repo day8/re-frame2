@@ -35,7 +35,7 @@
   suppressed total.
 
   Pure data; JVM-runnable. Tests in
-  `tools/xray/test/.../filters/hidden_test.cljc`."
+  `tools/xray/test/.../filters/hidden_cljs_test.cljc`."
   (:require [day8.re-frame2-xray.filters.typed-predicates :as typed]))
 
 (defn hidden-count

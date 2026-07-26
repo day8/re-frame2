@@ -8,8 +8,8 @@
    - duplicate adds are idempotent (no pile-up);
    - the persistence fx fires on each mutation.
 
-  The pure matcher tests live in `typed_predicates_test.cljc` — JVM-
-  runnable. This file covers the dispatch / registry wiring that's
+  The pure matcher tests live in `typed_predicates_cljs_test.cljc` —
+  dual-runtime. This file covers the dispatch / registry wiring that's
   CLJS-only."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
