@@ -1,0 +1,314 @@
+{:fh/id  "FH-CTRL-019"
+ :fh/law "The first-party splitter reaches every split by POINTER and by KEYBOARD through one arithmetic: an arrow press and a one-step drag leave the value identical, the right-to-left mirror turns the arrows and the pointer axis together while `Home`/`End`/`Page` — which name the value rather than a direction — are not mirrored at all, and the separator's own `aria-orientation` is the OPPOSITE of the axis the split moves along. Between the two clocks sits one pure reduction: a host offer becomes an intent only where it settles to a split different from the one on screen, so an application that wires no preview sees exactly one commit per gesture; and because liveness is decided in the handler against committed state, a cancelled gesture cannot be moved by an offer that was already in flight."
+
+ ;; ---------------------------------------------------------------------------
+ ;; The application under test
+ ;; ---------------------------------------------------------------------------
+
+ :frame       :rf.test/splitter
+ :split-path  [:layout :split]
+ :baseline    0.5
+
+ ;; Bounds with a COARSE step, deliberately. A one-percent step would make
+ ;; "offers exceed accepted intents" true by arithmetic nobody can see; at
+ ;; five percent the same drag produces a number a reader can count.
+ :bounds      {:min 0.2 :max 0.8 :step 0.05 :page-step 0.2}
+
+ ;; ---------------------------------------------------------------------------
+ ;; The keyboard table — proven by CALLING `splitter/key-intent`
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; `:geom` is the second argument; `:intent` is the whole answer. Every row
+ ;; is falsifiable on its own, and the mirrored pairs are written as pairs so
+ ;; a reader sees the mirror rather than being told about it.
+
+ :key-rows
+ [;; The horizontal axis: the arrows the splitter claims, and their mirror.
+  {:key "ArrowRight" :geom {:orientation :horizontal}             :intent [:step 1]}
+  {:key "ArrowLeft"  :geom {:orientation :horizontal}             :intent [:step -1]}
+  {:key "ArrowRight" :geom {:orientation :horizontal :rtl? true}  :intent [:step -1]}
+  {:key "ArrowLeft"  :geom {:orientation :horizontal :rtl? true}  :intent [:step 1]}
+
+  ;; The other axis's arrows are the PAGE's to scroll with, on both axes.
+  {:key "ArrowUp"    :geom {:orientation :horizontal}             :intent nil}
+  {:key "ArrowDown"  :geom {:orientation :horizontal}             :intent nil}
+  {:key "ArrowLeft"  :geom {:orientation :vertical}               :intent nil}
+  {:key "ArrowRight" :geom {:orientation :vertical}               :intent nil}
+
+  ;; The vertical axis, and its NON-mirror: a stacked split reads the same
+  ;; in both writing directions, because right-to-left is not up-to-down.
+  {:key "ArrowUp"    :geom {:orientation :vertical}               :intent [:step -1]}
+  {:key "ArrowDown"  :geom {:orientation :vertical}               :intent [:step 1]}
+  {:key "ArrowUp"    :geom {:orientation :vertical :rtl? true}    :intent [:step -1]}
+  {:key "ArrowDown"  :geom {:orientation :vertical :rtl? true}    :intent [:step 1]}
+
+  ;; The keys that name the VALUE. They are the same in every writing
+  ;; direction and on every axis — a mirrored `Home` sends the separator to
+  ;; the maximum, which is a defect no left-to-right keyboard reproduces.
+  {:key "Home"       :geom {:orientation :horizontal}             :intent [:to :min]}
+  {:key "Home"       :geom {:orientation :horizontal :rtl? true}  :intent [:to :min]}
+  {:key "End"        :geom {:orientation :horizontal}             :intent [:to :max]}
+  {:key "End"        :geom {:orientation :horizontal :rtl? true}  :intent [:to :max]}
+  {:key "PageUp"     :geom {:orientation :horizontal}             :intent [:page -1]}
+  {:key "PageUp"     :geom {:orientation :horizontal :rtl? true}  :intent [:page -1]}
+  {:key "PageDown"   :geom {:orientation :vertical}               :intent [:page 1]}
+
+  ;; And the keys the splitter does not claim, so a focused separator does
+  ;; not swallow the application's own shortcuts.
+  {:key "Enter"      :geom {:orientation :horizontal}             :intent nil}
+  {:key "Escape"     :geom {:orientation :horizontal}             :intent nil}
+  {:key " "          :geom {:orientation :horizontal}             :intent nil}
+  {:key "a"          :geom {:orientation :horizontal}             :intent nil}]
+
+ ;; Applied to the baseline under `:bounds`, through `splitter/intent-at`.
+ :intent-rows
+ [{:intent [:step 1]    :from 0.5  :at 0.55}
+  {:intent [:step -1]   :from 0.5  :at 0.45}
+  {:intent [:page 1]    :from 0.5  :at 0.7}
+  {:intent [:page -1]   :from 0.5  :at 0.3}
+  {:intent [:to :min]   :from 0.5  :at 0.2}
+  {:intent [:to :max]   :from 0.5  :at 0.8}
+  ;; A step INTO a bound stops at it, and a step from the bound stays.
+  {:intent [:step 1]    :from 0.78 :at 0.8}
+  {:intent [:step 1]    :from 0.8  :at 0.8}
+  {:intent [:step -1]   :from 0.2  :at 0.2}
+  {:intent nil          :from 0.5  :at nil}]
+
+ ;; ---------------------------------------------------------------------------
+ ;; Settling — the reduction both clocks meet at
+ ;; ---------------------------------------------------------------------------
+
+ :settle-rows
+ [{:raw 0.5237 :at 0.5}                  ; inside the step, rounds back to it
+  {:raw 0.5300 :at 0.55}                 ; and past the half-step, rounds on
+  {:raw 1.4    :at 0.8}                  ; clamped high
+  {:raw -3.0   :at 0.2}                  ; clamped low
+  {:raw 0.55   :at 0.55}]                ; already settled, and exactly equal
+
+ ;; ---------------------------------------------------------------------------
+ ;; The two clocks, as pure arithmetic
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; A drag delivered as a sequence of raw offers — what a host at any rate
+ ;; hands over. The claim is the pair: many offers, few accepted intents,
+ ;; and the accepted ones are exactly the settled values that CHANGE.
+
+ :offers          [0.500 0.507 0.514 0.522 0.531 0.545 0.560 0.573 0.588 0.601
+                   0.616 0.628 0.641 0.649 0.652 0.650 0.648]
+ :offers-count    17
+ :accepted        [0.55 0.6 0.65]
+ :accepted-count  3
+
+ ;; ---------------------------------------------------------------------------
+ ;; The pointer's geometry
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; A 400-pixel track at the origin. Every browser row below sizes its
+ ;; container from these numbers, so the pixel maths in the suite is the
+ ;; fixture's rather than the suite's.
+
+ :track           {:left 0.0 :top 0.0 :width 400.0 :height 200.0}
+ :fraction-rows
+ [{:point {:x 100.0 :y 0.0} :geom {:orientation :horizontal}            :fraction 0.25}
+  {:point {:x 100.0 :y 0.0} :geom {:orientation :horizontal :rtl? true} :fraction 0.75}
+  {:point {:x 0.0 :y 50.0}  :geom {:orientation :vertical}              :fraction 0.25}
+  ;; The vertical axis ignores the writing direction entirely.
+  {:point {:x 0.0 :y 50.0}  :geom {:orientation :vertical :rtl? true}   :fraction 0.25}
+  ;; Outside the track answers a fraction outside 0–1 — UNCLAMPED, because
+  ;; a bound proven by a clamp that already happened is not proven.
+  {:point {:x 600.0 :y 0.0} :geom {:orientation :horizontal}            :fraction 1.5}
+  {:point {:x -40.0 :y 0.0} :geom {:orientation :horizontal}            :fraction -0.1}]
+
+ ;; A track with no extent along the measured axis names no fraction. `0`
+ ;; would be a position the user did not ask for.
+ :degenerate-track    {:left 0.0 :top 0.0 :width 0.0 :height 0.0}
+ :degenerate-fraction nil
+
+ ;; ---------------------------------------------------------------------------
+ ;; POINTER AND KEYBOARD ARE THE SAME CONTROL
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; The row this witness exists for. One target: the pointer is dragged to
+ ;; the pixel that names it, the keyboard presses one arrow toward it, and
+ ;; the two are asserted EQUAL — as a value here, and as app-db in the
+ ;; browser.
+ ;;
+ ;; The x is 220 of 400 = 0.55 exactly, which is the baseline plus one step.
+ ;; That is what makes ONE arrow press the pointer's equal rather than an
+ ;; approximation of it.
+
+ :parity-x        220.0
+ :parity-key      "ArrowRight"
+ :parity-at       0.55
+
+ ;; And the mirror, which is the sharper half of the row. Under
+ ;; `:rtl? true` the SAME pixel names 0.45 — the baseline MINUS one step,
+ ;; because a leading pane on the right shrinks as the separator moves
+ ;; right — and the SAME key answers 0.45 too. One press, one pixel, both
+ ;; flipped by one mirror: if only the geometry were mirrored, or only the
+ ;; arrows, this pair would disagree.
+ :parity-rtl-key  "ArrowRight"
+ :parity-rtl-at   0.45
+
+ ;; ---------------------------------------------------------------------------
+ ;; What the one element carries
+ ;; ---------------------------------------------------------------------------
+
+ :component-id       "re-frame/splitter"
+ :parts              #{"separator"}
+ :tag                :div
+ :role               "separator"
+
+ ;; The separator's own orientation, which is the OPPOSITE of the axis the
+ ;; split moves along: panes side by side are divided by a separator that
+ ;; stands up. Both rows, because one alone reads as a typo.
+ :aria-orientation-horizontal "vertical"
+ :aria-orientation-vertical   "horizontal"
+
+ ;; Written as the STRINGS a rendered attribute actually is, on both
+ ;; tiers: a structural tree carries what the host will be given, and
+ ;; `getAttribute` in a browser answers a string too. Pinning `50` here
+ ;; would have made the structural row and the browser row disagree about
+ ;; what the same attribute is.
+ :aria-valuenow      "50"
+ :aria-valuemin      "20"
+ :aria-valuemax      "80"
+ :tab-index          "0"
+
+ ;; Present only while a drag is live — the hook a skin styles through,
+ ;; and the reason a skin needs no class of the control's own.
+ :dragging-attr      "true"
+ :dragging-attr-idle nil
+
+ ;; Every handler is on this ONE element. That is the same sentence as
+ ;; "there is no window listener", which is the same sentence as "there is
+ ;; nothing to remove at unmount".
+ :handler-attrs      [:on-pointer-down :on-pointer-move :on-pointer-up
+                      :on-pointer-cancel :on-key-down]
+
+ ;; And the absence that is part of the contract: no blur handler, because
+ ;; nothing is ever pending at a blur.
+ :absent-attrs       [:on-blur :on-focus :on-mouse-down :on-mouse-move]
+
+ ;; The caller's own attributes reach the element; the control's handler
+ ;; families do not, in any spelling and in every build.
+ :forwarded          {:class "resizer" :aria-label "Resize panes" :data-testid "split"}
+ :denied-caller-prop :on-pointer-down
+ :deny-error-id      :rf.error/ui-tree-malformed
+
+ ;; ---------------------------------------------------------------------------
+ ;; The value, as transitions over a map
+ ;; ---------------------------------------------------------------------------
+
+ :initial            {:at 0.5 :baseline 0.5 :dragging? false}
+ :after-start        {:at 0.5 :baseline 0.5 :dragging? true}
+ :after-move         {:at 0.65 :baseline 0.5 :dragging? true}
+ :moved-to           0.65
+ :after-commit       {:at 0.65 :baseline 0.65 :dragging? false}
+ :after-cancel       {:at 0.5 :baseline 0.5 :dragging? false}
+
+ ;; A move that arrives when no gesture is live changes NOTHING. Not
+ ;; defensive coding: an accepted offer and the frame it is accepted
+ ;; against are a tick apart, so a preview dispatched just before a cancel
+ ;; legitimately lands just after it.
+ :late-move-to       0.75
+ :after-late-move    {:at 0.5 :baseline 0.5 :dragging? false}
+
+ ;; A keystroke is a WHOLE gesture: it commits from a value that never
+ ;; started one, which is why the keyboard path needs no start intent.
+ :keystroke-commit   {:at 0.55 :baseline 0.55 :dragging? false}
+
+ ;; ---------------------------------------------------------------------------
+ ;; The browser rows
+ ;; ---------------------------------------------------------------------------
+
+ ;; The drag the parity row performs. Three real `pointermove`s are
+ ;; offered on a 400-pixel track: 204px and 208px both settle back to the
+ ;; 0.5 already on screen, and 220px is the one that crosses the step.
+ ;; Three offers, ONE accepted intent — the two clocks, delivered as real
+ ;; events rather than argued from arithmetic.
+ ;;
+ ;; Exactly one of the three differs from the BASELINE, which is what
+ ;; makes the count independent of when the browser happens to repaint: a
+ ;; path whose second and third offers both crossed the step would accept
+ ;; one or two depending on whether a render landed in between, and a row
+ ;; whose expected value depends on the frame clock is a flake.
+ :drag-xs            [204.0 208.0 220.0]
+ :drag-offers        3
+ :drag-accepted      1
+
+ ;; With no `:on-preview` wired the same drag produces NO intents at all
+ ;; until the release, and the release still commits where the pointer was
+ ;; — not where it started.
+ :deferred-previews  0
+ :deferred-commits   1
+
+ ;; A pointer the browser takes away. The drag reaches 0.7, the cancel
+ ;; puts the baseline back, and then a move that would settle SOMEWHERE
+ ;; ELSE arrives — the offer that was already in flight when the cancel
+ ;; landed. It changes nothing, and it has to be a different position or
+ ;; the row would pass on a coincidence.
+ :cancel-x           280.0
+ :cancelled-from-at  0.7
+ :after-cancelled-at 0.5
+ :phantom-x          360.0
+ :phantom-would-be   0.8
+
+ ;; The bound, in a real browser: a pointer dragged well past the maximum
+ ;; commits the maximum, and a second offer past it is accepted as nothing.
+ :beyond-x           600.0
+ :beyond-at          0.8
+
+ ;; ---------------------------------------------------------------------------
+ ;; The compiled grammar
+ ;; ---------------------------------------------------------------------------
+
+ :view-ids           [:re-frame.freehand.splitter/splitter]
+ :compile-eligible?  true
+ :findings           []
+ :current-lowering   :interpreted
+
+ ;; ---------------------------------------------------------------------------
+ ;; The roster record (rf2-drpa3.182.7)
+ ;; ---------------------------------------------------------------------------
+
+ :fh/record
+ {:source [re-frame.freehand.splitter]
+
+  ;; The pure half runs headlessly on BOTH hosts from one `.cljc`: the
+  ;; keyboard table, the settle arithmetic, the geometry and its mirror,
+  ;; the value transitions, and the one element's attributes. The JVM arm
+  ;; also runs the compiled-grammar check, which is what the row's
+  ;; `common` mode rests on — the declaration is eligible AS IT STANDS, so
+  ;; promotion is a keyword rather than a rewrite.
+  :structural
+  [{:ns  re-frame.freehand.splitter-cljs-test
+    :law "Pointer and keyboard reach the same split through one settle under one mirror; only the arrows are mirrored; a host offer becomes an intent only where it settles to a different split; the value transitions are total and a late move is inert; and the one rendered separator carries the opposite aria-orientation, its part address, every handler and no blur."}]
+
+  ;; And the half a headless walk cannot reach. Real `PointerEvent`s, real
+  ;; capture, a real React commit and a real app-db: what a structural tree
+  ;; cannot show is that the SAME final value arrives by both devices, that
+  ;; a cancelled drag cannot be moved by the offer behind it, and that a
+  ;; call site wiring no preview really does see nothing until the release.
+  :mounted
+  [{:ns  re-frame.freehand.splitter-dom-cljs-test
+    :law "Against real pointer and key events in Chromium a one-step drag and one arrow press leave app-db IDENTICAL — under the right-to-left mirror too, with the opposite arrow — while three offered moves produce one accepted intent, a call site with no preview sees none until the release, a cancelled gesture is restored and cannot be moved by the offer already in flight, and every root created is torn down leaving nothing behind."}]
+
+  ;; What a run leaves for a reader: the split app-db actually held, and
+  ;; the counts that separate the two clocks — offers the host delivered,
+  ;; intents the control accepted, commits that reached the domain. All
+  ;; three are read off the frame and off the events dispatched, never off
+  ;; the test's own bookkeeping of what it meant to do.
+  ;;
+  ;; `:residue :none`, earned rather than asserted. Every browser row ends
+  ;; at `finish!`, which tears the mount down through the shared lifecycle
+  ;; and THEN calls `ms/residue-clean!` — every root retired, each leaving
+  ;; its container empty and detached. The read happens after teardown,
+  ;; which is the whole point: the same read before a test masks a
+  ;; retained root instead of reporting it.
+  :evidence
+  {:reads   [:db/split :dom/aria-valuenow]
+   :counts  [:pointer/offers :splitter/accepted :splitter/commits]
+   :residue :none}
+
+  :prose :executable}}

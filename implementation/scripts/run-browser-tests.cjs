@@ -43,7 +43,33 @@ const {
 const { sleep } = require('./lib/local-browser-harness.cjs');
 
 const URL = process.env.BROWSER_TEST_URL || 'http://localhost:8021';
-const TIMEOUT_MS = parseInt(process.env.BROWSER_TEST_TIMEOUT_MS || '120000', 10);
+// How long to wait for the cljs.test summary before calling it a timeout.
+//
+// This is a BUDGET, not a correctness bound: the suite either prints a
+// summary or it does not, and the number only decides how long we let it
+// try. It was 120s, chosen when the `:browser-test` bundle was a fast DOM
+// suite. It is now the long pole of a growing control-witness corpus —
+// mounted rows driven through real-time settles with 2-4s poll budgets, so
+// each witness costs ~35-40s of mostly WALL-CLOCK (not CPU) for ~5-12
+// tests. Measured on the same bundle: 843 tests / 58s on the pre-witness
+// main, 855 tests / 99s once the splitter witness landed. Three more
+// witnesses were queued behind that, i.e. ~+120s, which exceeds 120s on
+// arithmetic alone — and CI is slower than a dev box on the compute half,
+// so a lane that passes locally at ~95s times out there (rf2-15047).
+//
+// 360s restores roughly the headroom the lane had before the witnesses
+// (~3.6x the current green run) and leaves room for a few more of them
+// before this recurs. It is deliberately NOT larger: a genuine hang still
+// fails inside 6 minutes, well under the job's own `timeout-minutes: 45`,
+// and it fails through THIS runner — which dumps the console trail and the
+// namespaces reached — rather than as an opaque runner kill.
+//
+// Per-lane needs differ; $BROWSER_TEST_TIMEOUT_MS remains the override.
+// check-ui-mounted-prod-elision.cjs still pins 120000 for its negative-
+// control mutant run — left alone deliberately: that run is EXPECTED to
+// fail, so it wants a short leash, not this budget.
+const DEFAULT_TIMEOUT_MS = 360000;
+const TIMEOUT_MS = parseInt(process.env.BROWSER_TEST_TIMEOUT_MS || String(DEFAULT_TIMEOUT_MS), 10);
 const POLL_MS = 200;
 const VERBOSE_TESTS = isVerboseTests();
 
