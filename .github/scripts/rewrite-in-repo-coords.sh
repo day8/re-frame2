@@ -62,7 +62,11 @@ VERSION="${1:?usage: rewrite-in-repo-coords.sh VERSION [ARTEFACT_DIR]}"
 ARTEFACT_DIR="${2:-.}"
 cd "$ARTEFACT_DIR"
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# `CDPATH=''` (explicit empty string, not a bare `CDPATH=`) neutralises an
+# exported CDPATH for this one `cd` — otherwise `cd` echoes the resolved
+# directory to stdout and corrupts the command substitution. The bare form
+# is what shellcheck SC1007 flags as an ambiguous assignment.
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 ARTEFACT_ABS=$(pwd)
 
 if [ ! -f deps.edn ]; then
