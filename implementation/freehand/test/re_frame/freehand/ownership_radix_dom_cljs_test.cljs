@@ -342,9 +342,9 @@
               (.then
                 (fn [mounted]
                   (is (= 0 (body-content-nodes))
-                      "closed, the portal renders nothing at all")
+                      "FH-REACT-009 — closed, the portal renders nothing at all")
                   (is (some? (.querySelector container "button.radix-trigger"))
-                      "the trigger is in the Freehand root's container, because
+                      "FH-REACT-009 — the trigger is in the Freehand root's container, because
                        that is where Freehand rendered the host")
                   (ms/act (fn []
                             (.click (.querySelector container "button.radix-trigger"))
@@ -353,25 +353,25 @@
                 (fn [mounted]
                   (is (= (:trigger-in-container own)
                          (some? (.querySelector container "button.radix-trigger")))
-                      "the trigger stays where Freehand put it")
+                      "FH-REACT-009 — the trigger stays where Freehand put it")
                   (is (= (:content-in-container own)
                          (some? (.querySelector container ".radix-content")))
-                      "and the CONTENT is not in the container at all — React's
+                      "FH-REACT-009 — and the CONTENT is not in the container at all — React's
                        portal owns where it went")
                   (is (= (:content-in-body own) (= 1 (body-content-nodes)))
-                      "it is in `document.body`, which is React's target and not
+                      "FH-REACT-009 — it is in `document.body`, which is React's target and not
                        one Freehand can name")
                   (is (= (:freehand-child-text own)
                          (.-textContent (.querySelector (.-body js/document)
                                                         ".radix-content p.detail")))
-                      "the caller's Freehand child rendered inside the registered
+                      "FH-REACT-009 — the caller's Freehand child rendered inside the registered
                        component's OWN tree — which is inside the portal, because
                        that is where the wrapper renders its children")
                   (is (= [true] (read* [:radix/opens]))
-                      "and the declared callback position carried the library's
+                      "FH-REACT-009 — and the declared callback position carried the library's
                        own open/close protocol outward as an ordinary event")
                   (is (= (:on-open focus) (active-class))
-                      "focus moved into the content, by the LIBRARY's effect —
+                      "FH-REACT-009 — focus moved into the content, by the LIBRARY's effect —
                        the substrate neither moved it nor watched it move")
                   (ms/act (fn []
                             (.click (.querySelector (.-body js/document) "button.radix-close"))
@@ -379,11 +379,14 @@
               (.then
                 (fn [mounted]
                   (is (= 0 (body-content-nodes))
-                      "closing removed the portalled subtree")
+                      "FH-REACT-009 — closing removed the portalled subtree")
                   (is (= (:on-close focus) (active-class))
-                      "and focus went back to the trigger, restored by the
+                      "FH-REACT-009 — and focus went back to the trigger, restored by the
                        library's own effect cleanup")
-                  (is (= [true false] (read* [:radix/opens])))
+                  (is (= [true false] (read* [:radix/opens]))
+                      "FH-REACT-009 — and both halves of the library's own open/close
+                       protocol crossed back, in order, through the ONE declared
+                       position")
                   (ms/act (fn [] (v/unmount! mounted) nil))))
               (.then
                 (fn [_]
@@ -427,7 +430,7 @@
               (.then
                 (fn [mounted]
                   (is (= 2 (.-length (.querySelectorAll container "button.inner")))
-                      "both children RENDERED — this is a claim about ref
+                      "FH-REACT-009 — both children RENDERED: this is a claim about ref
                        injection, not about whether the child crossed")
                   (is (= (:react-authored expected) (get @clone-results "react-authored"))
                       "FH-REACT-009 — the ref injected into a React-authored child
@@ -439,7 +442,7 @@
                        an element of Freehand's own component, which takes the ref
                        prop and has nothing to do with it")
                   (is (contains? @clone-results "freehand-authored")
-                      "non-vacuity: the probe really ran for that child, so the
+                      "FH-REACT-009 — non-vacuity: the probe really ran for that child, so the
                        nil above is a ref that did not arrive rather than a probe
                        that did not fire")
                   (ms/act (fn [] (v/unmount! mounted) nil))))
