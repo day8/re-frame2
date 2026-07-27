@@ -2408,7 +2408,12 @@
                    pre-handler value; no db-changed fired; :fx was
                    skipped. `:rolled-back` is the stable public
                    vocabulary for `transaction rejected` — it does not
-                   imply a physical write-pair.
+                   imply a physical write-pair. NO PRODUCER IN A
+                   PRODUCTION BUILD: candidate validation is dev-only
+                   (Spec 010 §Production builds, rf2-bkvu5), so a
+                   release build never emits this outcome — a candidate
+                   violating a registered schema installs and reports
+                   `:ok`.
     :flow-error  — a flow's `:derive` threw (Spec 013 §Failure
                    semantics); the event aborted — no install, app-db
                    unchanged, no db-changed, :fx skipped.

@@ -255,6 +255,10 @@ The `:outcome` slot earns its keep, because it reports the dispatch result acros
 - `:rolled-back` — `:db` schema validation rejected the candidate state before it installed, so the container kept its pre-handler value; flows and `:fx` were skipped.
 - `:flow-error` — a flow's `:output` threw; the run halted before `:fx`.
 
+!!! warning "`:rolled-back` will not appear in a production build"
+
+    The `:events` stream survives the production gate, but app-db schema validation does not. `reg-app-schema` is a development-time assertion: a production build registers your schemas and never checks them, so nothing is left to reject a candidate and this outcome has no producer. A dispatch whose `:db` violates a registered schema installs anyway and reports `:ok`. Do not read a quiet `:rolled-back` metric as evidence that no schema was violated — in production it is quiet by construction. If you need a real production check, put the invariant in the handler, or validate untrusted input with the `:rf.schema/at-boundary` interceptor, which does survive the gate. See [Validate with schemas](validate-with-schemas.md#in-production-the-checks-vanish).
+
 The two streams pair naturally: `:events` tells you *something is wrong* (a spike of `:error` / `:rolled-back` outcomes on your dashboard); `:errors` tells you *what* (the throwable and its stack, ready for the issue tracker).
 
 ??? info "Coming from TanStack Query?"

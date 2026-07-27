@@ -446,7 +446,12 @@ The `:outcome` on an event record reports across *every* run-failure path, so a
 dispatch that aborted is never mis-reported as a clean `:ok`: `:ok` (committed, flows
 ran, `:fx` walked), `:error` (the handler or an interceptor threw), `:rolled-back`
 (schema validation rejected the candidate db before it installed — app-db kept its
-prior value), or `:flow-error` (a flow's output threw and halted the run). The
+prior value), or `:flow-error` (a flow's output threw and halted the run). One caveat on
+that third value: the `:events` stream survives the production gate but app-db schema
+validation does not, so `:rolled-back` has no producer in a release build. A dispatch
+whose `:db` violates a registered schema installs anyway and reports `:ok` — the outcome
+is quiet in production by construction, not because your schemas are holding. See
+[Validate with schemas](how-to/validate-with-schemas.md#in-production-the-checks-vanish). The
 `:event` vector in both records is run through the framework's wire-elider once before
 fan-out — a large value becomes `:rf.size/large-elided`, a sensitive one
 `:rf/redacted` — so the payload is safe to ship as-is. (The `:exception` object on an

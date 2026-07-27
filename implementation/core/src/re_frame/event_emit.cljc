@@ -20,9 +20,18 @@
 
     :ok          — clean settle (db committed, flows ran, :fx walked).
     :error       — the interceptor chain (handler or interceptor) threw.
-    :rolled-back — post-commit `:db` schema validation rejected the new
-                   state and the container was restored to its pre-
-                   handler value (Spec 010 §Per-step recovery row 4).
+    :rolled-back — candidate `:db` schema validation REJECTED the
+                   transition BEFORE install (Spec 010 §Per-step
+                   recovery row 4, rf2-uhk9ko): the container was never
+                   written and keeps its pre-handler value. This
+                   substrate survives the production gate but THIS
+                   OUTCOME HAS NO PRODUCER IN A PRODUCTION BUILD —
+                   app-db candidate validation is dev-only (Spec 010
+                   §Production builds, rf2-bkvu5), so in a release build
+                   a candidate that violates a registered schema simply
+                   installs and the dispatch reports `:ok`. An off-box
+                   shipper must not read the absence of `:rolled-back`
+                   as evidence that no schema was violated.
     :flow-error  — a flow's `:output` threw (Spec 013 §Failure
                    semantics rule 3); the cascade halted before `:fx`.
 
