@@ -1332,15 +1332,102 @@
   [_event]
   (mark-dirty-and-schedule!))
 
-(defonce ^:private reprojection-installed? (atom false))
+(defonce ^{:private true
+           :doc "Process-local ONCE-flag for the reprojection wiring. Written
+  LAST, and only from inside `reprojection-install-lock` on the JVM — see
+  `ensure-reprojection-installed!` for why the ordering is load-bearing:
+  `true` here is a PROMISE that the registrar hook and both late-bind keys are
+  already in place, and a partially-installed reprojection must never be
+  observable as installed."}
+  reprojection-installed?
+  (atom false))
+
+#?(:clj
+   (defonce ^{:private true
+              :doc "JVM monitor serializing the reprojection once-install
+  (rf2-9c2jf, the merged-PR-#7114 audit). The install has THREE side effects
+  and every one of them is part of what the once-flag promises, so the whole
+  body — the flag read, the three effects, and the flag write — must be ONE
+  critical section. A `compare-and-set!` on the flag alone is not enough: CAS
+  ELECTS an installer but does not make the LOSERS WAIT for it to finish, so a
+  concurrent `make-frame` read `true` mid-install and proceeded. `locking`
+  makes a concurrent caller either do the install or BLOCK until the elected
+  installer has finished it.
+
+  DEADLOCK-FREE BY CONSTRUCTION: the body calls only
+  `registrar/add-registration-hook!` and `late-bind/set-fn!` — three
+  bookkeeping `swap!`s that run no user code, acquire no other monitor (in
+  particular NOT `projection-flush-lock`), and never re-enter `make-frame`. The
+  monitor is released before `make-frame` does anything else, so nothing
+  downstream — `:initial-events` draining, a read-time flush — ever runs
+  underneath it. CLJS is single-threaded: no caller can observe the once-body
+  mid-flight, so no lock exists there."}
+     reprojection-install-lock
+     (Object.)))
+
+(defn- install-reprojection!
+  "The reprojection once-body, ALWAYS called with the install serialized (the
+  JVM monitor above; CLJS's single thread). Performs the three side effects and
+  only THEN publishes the once-flag.
+
+  PUBLISH-LAST IS THE INVARIANT, not a style choice: `reprojection-installed?`
+  is read by every `make-frame`, and `true` must mean \"all three are in
+  place\". Setting it first (the `compare-and-set!` this replaced) made
+  `true` mean only \"someone has started\", which let a concurrent `make-frame`
+  seal a generation with no registration hook behind it. Publishing last also
+  makes the install FAILURE-ATOMIC: if a side effect throws, the flag stays
+  false and the next `make-frame` retries, rather than the wiring being
+  permanently missing behind a `true` flag. Returns nil."
+  []
+  (when-not @reprojection-installed?
+    (registrar/add-registration-hook! reproject-on-registration-change!)
+    ;; The REMOVAL twin (rf2-h1vqa4): `unregister!` / `clear-kind!` /
+    ;; `clear-all!` are source-store changes exactly like a `reg-*` — a
+    ;; cleared handler must DISAPPEAR from live default-image frames, not
+    ;; linger in a sealed generation the store no longer backs. The registrar
+    ;; cannot require this ns (cycle), so it consults this late-bind key on
+    ;; its removal paths; same dirty-mark + coalescing as the register side.
+    (late-bind/set-fn! :live-frame/mark-projection-dirty! mark-dirty-and-schedule!)
+    ;; The read-time coalesced flush consult in `call-with-frame-resolution`
+    ;; and `router/process-event!` (rf2-h1vqa4). Both consult by KEYWORD
+    ;; through `late-bind`, so the consult sites themselves root nothing —
+    ;; only this publication does, and only `make-frame` reaches it.
+    (late-bind/set-fn! :live-frame/flush-projection! flush-projection-if-dirty!)
+    ;; …and ONLY NOW is the wiring observable as installed.
+    (reset! reprojection-installed? true))
+  nil)
 
 (defn ^:no-doc ensure-reprojection-installed!
   "Install the reprojection wiring ONCE per process: the registrar registration
   hook plus the two late-bind keys the registrar's removal paths and the
-  resolution seams consult. Idempotent — `compare-and-set!` makes the
-  install-decision atomic, so a concurrent `make-frame` burst installs exactly
-  one hook (the registrar's `registration-hooks` vector dedupes none, and
-  `clear-all!` does not clear it).
+  resolution seams consult. Idempotent, and — on the JVM — a BARRIER: a
+  concurrent `make-frame` either performs the install or WAITS for the caller
+  performing it, so it can never proceed on a half-installed one.
+
+  A PARTIALLY-INSTALLED REPROJECTION IS NEVER OBSERVABLE AS INSTALLED. That is
+  the invariant, and it is what makes the once-flag safe to read. This used to
+  be spelled `(when (compare-and-set! reprojection-installed? false true) …
+  side effects …)`, on the reasoning that CAS made the install-decision atomic
+  and therefore made a concurrent `make-frame` burst safe. It does not (rf2-9c2jf,
+  the merged-PR-#7114 audit): CAS ELECTS one installer, it does not make the
+  LOSERS WAIT for that installer's side effects to land. A second `make-frame`
+  read the flag as `true` while the elected installer was still between the CAS
+  and `add-registration-hook!`, concluded the wiring was in place, and SEALED
+  ITS GENERATION — the seal `registrar/lookup` resolves every `(kind, id)`
+  through. A `reg-event` in that window fired no hook because no hook existed,
+  and once the installer finished there was no dirty mark left for anything to
+  flush: that frame was PERMANENTLY STALE, reporting
+  `:rf.error/no-such-handler` for a handler `registrar/lookup` was holding at
+  that very moment. The original release blocker, recreated with no debug gate
+  in sight. Pinned by `reprojection_install_race_jvm_test.clj`.
+
+  So the whole once-body — flag read, three side effects, flag write — is ONE
+  critical section under `reprojection-install-lock`, and the flag is published
+  LAST (`install-reprojection!`). JVM ONLY: CLJS is single-threaded, so no
+  caller can observe the once-body mid-flight and the CLJS path stays
+  lock-free, carrying only the publish-last ordering. The monitor is
+  uncontended after the first `make-frame` and is never held across user code —
+  see `reprojection-install-lock` for the deadlock argument.
 
   ROOTED FROM `make-frame`, NOT FROM NAMESPACE LOAD, and carrying NO
   `interop/debug-enabled?` gate (rf2-9c2jf). Both properties matter:
@@ -1378,18 +1465,7 @@
   when no image-loaded frame exists, so the hook was a guaranteed no-op before
   the first `make-frame` anyway."
   []
-  (when (compare-and-set! reprojection-installed? false true)
-    (registrar/add-registration-hook! reproject-on-registration-change!)
-    ;; The REMOVAL twin (rf2-h1vqa4): `unregister!` / `clear-kind!` /
-    ;; `clear-all!` are source-store changes exactly like a `reg-*` — a
-    ;; cleared handler must DISAPPEAR from live default-image frames, not
-    ;; linger in a sealed generation the store no longer backs. The registrar
-    ;; cannot require this ns (cycle), so it consults this late-bind key on
-    ;; its removal paths; same dirty-mark + coalescing as the register side.
-    (late-bind/set-fn! :live-frame/mark-projection-dirty! mark-dirty-and-schedule!)
-    ;; The read-time coalesced flush consult in `call-with-frame-resolution`
-    ;; and `router/process-event!` (rf2-h1vqa4). Both consult by KEYWORD
-    ;; through `late-bind`, so the consult sites themselves root nothing —
-    ;; only this publication does, and only `make-frame` reaches it.
-    (late-bind/set-fn! :live-frame/flush-projection! flush-projection-if-dirty!))
+  #?(:clj  (locking reprojection-install-lock
+             (install-reprojection!))
+     :cljs (install-reprojection!))
   nil)
