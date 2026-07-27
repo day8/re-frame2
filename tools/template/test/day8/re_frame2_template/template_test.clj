@@ -142,9 +142,12 @@
             :reagent
             (do (is (contains? (:deps deps) 'day8/re-frame2-xray)
                     "deps.edn references day8/re-frame2-xray on Reagent")
-                ;; Pin value owned by version_lockstep_test.clj.
-                (is (some? (get-in deps [:deps 'day8/re-frame2-xray :mvn/version]))
-                    "Xray coord carries an :mvn/version pin"))
+                ;; Coord SHAPE owned by version_lockstep_test.clj's
+                ;; tools-coord guard — Xray is a TOOL and ships on
+                ;; `xray-v*`, which no framework `v*` tag cuts, so the
+                ;; emitted coord is a git coord (rf2-57bjg).
+                (is (some? (get-in deps [:deps 'day8/re-frame2-xray :git/sha]))
+                    "Xray coord carries a :git/sha pin"))
             :uix
             (is (not (contains? (:deps deps) 'day8/re-frame2-xray))
                 ":uix deps.edn does NOT reference day8/re-frame2-xray —
@@ -918,9 +921,21 @@
                 pkg-txt (slurp (io/file root "package.json"))]
             (is (contains? (:deps deps) 'day8/re-frame2-story)
                 "deps.edn references day8/re-frame2-story")
-            ;; Pin value owned by version_lockstep_test.clj.
-            (is (some? (get-in deps [:deps 'day8/re-frame2-story :mvn/version]))
-                "story coord carries an :mvn/version pin")
+            ;; Coord SHAPE owned by version_lockstep_test.clj's
+            ;; tools-coord guard — Story is a TOOL and ships on
+            ;; `story-v*`, which no framework `v*` tag cuts, so the
+            ;; emitted coord is a git coord (rf2-57bjg).
+            (is (some? (get-in deps [:deps 'day8/re-frame2-story :git/sha]))
+                "story coord carries a :git/sha pin")
+            ;; The resolution pin the two git coords need: tools.deps
+            ;; gives each git coordinate its own monorepo checkout, so
+            ;; Xray's and Story's shared `:local/root` machines dep
+            ;; otherwise arrives as two paths for one library and the
+            ;; classpath fails to build (rf2-57bjg).
+            (is (some? (get-in deps [:deps 'day8/re-frame2-machines :mvn/version]))
+                "with-story deps.edn pins day8/re-frame2-machines, the
+                 library Xray and Story both reach through their own
+                 monorepo checkouts")
             ;; The with-Story template declares no Story-specific npm
             ;; dependency — there is no vendored qrcode-generator dep.
             (is (not (.contains pkg-txt "\"qrcode-generator\""))
