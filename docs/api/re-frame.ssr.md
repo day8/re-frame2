@@ -409,10 +409,11 @@ A frame opts into SSR error projection via the `:ssr {:public-error-id ... :dev-
   (default-error-projector-fn trace-event) → :rf/public-error
   ```
 - **Description**: The runtime's built-in default projector, registered under `:rf.ssr/default-error-projector`. Maps trace events to public errors:
-  - `:rf.error/no-such-handler`, `:rf.error/no-such-route` → `404 :not-found`.
+  - `:rf.error/no-such-handler` → `404 :not-found`. This is the arm that answers an unroutable URL, and it survives production hardening. Its sibling `:rf.error/no-such-route` maps to `404` too, but that category is caller misuse of `route-url` and rides the dev-gated trace stream, so a release build never reaches this arm through it.
   - `:rf.error/cofx-value-invalid` (a client-supplied coeffect rejected at the dispatch boundary) → `400 :bad-request`.
-  - `:rf.error/schema-validation-failure` → `400 :bad-request`, but only when the failure's `:where` tag is `:event` (a client-supplied event payload). Server-side surfaces such as `:where :fx-args` fall through.
+  - `:rf.error/schema-validation-failure` → `400 :bad-request`, but only when the failure's `:where` tag is `:event` (a client-supplied event payload). Server-side surfaces such as `:where :fx-args` fall through. **This arm is dev-only** — see below.
   - Everything else → the locked generic `500 :internal-error` ([`fallback-public-error`](#fallback-public-error)).
+- **The `400`-for-schema-validation-failure arm never fires in a production build.** Schema validation is a development-build assertion ([Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds)): under `:advanced` + `goog.DEBUG=false`, or the JVM `-Dre-frame.debug=false` hardening an SSR service is required to set, every validator returns `true` unconditionally. The candidate is never rejected, `:rf.error/schema-validation-failure` is never emitted, and the projector is handed nothing to map — so a malformed request body flows into the handler and the endpoint answers `200`. Do not wire an endpoint's rejection to this arm. **A server that must answer `400` produces that status itself**: validate the payload in the handler body and emit `[:rf.server/set-status 400]`. See [Pattern-FormAction §Validation is the handler's job](../../spec/Pattern-FormAction.md#validation-is-the-handlers-job) for the worked shape, and [Spec 011 §Substrate](../../spec/011-SSR.md#server-error-projection) for the categories that *do* reach the projector under production hardening.
 
 ### `apply-error-projection!`
 
