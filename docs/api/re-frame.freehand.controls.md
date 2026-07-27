@@ -151,6 +151,49 @@ It is public and pure so the law is provable by calling it, with no browser and
 no host event, and so a kit member with its own keyboard protocol answers the
 composition question through this function rather than re-deciding it.
 
+### `composing?`
+
+```clojure
+(c/composing? e)   ;=> true | false
+```
+
+**Should this host keyboard event be treated as composition-owned?** That is
+the whole question — the second scalar [`key-intent`](#key-intent) takes, read
+off the event. It is deliberately *not* a composition lifecycle tracker: one
+boolean, about one event.
+
+Two signals, ORed:
+
+- **the standard `isComposing` flag**, asked of the native event where there is
+  one and of the event itself otherwise. React 19.2's synthetic keyboard event
+  carries `key` and the legacy `keyCode` but not `isComposing`, so a React host
+  has to be asked through `nativeEvent`; a host handing over a raw DOM event has
+  no `nativeEvent` and carries the flag directly.
+- **`keyCode` 229**, the compatibility fallback. UI Events requires the keydown
+  that *exits* a composition to carry `isComposing` true, and WebKit did not —
+  bug 165004 reported it false on exactly that keydown, the Enter that accepts a
+  candidate. WebKit fixed it in April 2026 (bug 311717, with a Safari branch
+  backport), so the fallback covers engines already deployed rather than a
+  current defect. 229 is what the spec's informative legacy algorithm assigns
+  while an input method is processing a keydown — a compatibility signal, not a
+  Freehand policy value you should learn.
+
+It is public because the *scalars* are the part a kit member cannot re-derive
+safely. `key-intent` shares [`buffered-field`](#buffered-field)'s Enter/Escape
+policy; this shares the host adaptation underneath it, so a control with its own
+keyboard grammar — one that must also withhold its arrows while a candidate
+window is open — keeps that grammar and still reads the host through one
+library-owned function:
+
+```clojure
+(when-let [intent (my-key-intent (.-key e) (c/composing? e))]
+  …)
+```
+
+Answering `true` on either signal is the safe direction. A false positive
+withholds one control action; a false negative commits or navigates while the
+user is still choosing a candidate.
+
 ### `commit-key`
 
 ```clojure

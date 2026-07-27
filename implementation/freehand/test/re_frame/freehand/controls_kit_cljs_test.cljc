@@ -204,6 +204,47 @@
         (is (= :commit (c/key-intent c/commit-key false)))
         (is (= :cancel (c/key-intent c/cancel-key false)))))))
 
+(deftest the-composition-reader-answers-each-signal-alone
+  (testing "`c/key-intent` takes the composition as a scalar; `c/composing?`
+            is what reads that scalar off a host keyboard event, and it is
+            public because the host adaptation is the part a kit member
+            cannot re-derive safely (rf2-drpa3.182.16).
+
+            FOUR shapes, each pressed ALONE, because an event carrying both
+            signals cannot tell a reader of both from a reader of either —
+            the same discipline FH-CTRL-018 and FH-CTRL-020 hold in the
+            browser, held here without one."
+    #?(:cljs
+       (do
+         (testing "i. the raw DOM flag, on the event itself"
+           (is (true? (c/composing? #js {:isComposing true :keyCode 13}))))
+
+         (testing "ii. React 19.2's synthetic keyboard event carries `key`
+                   and the legacy `keyCode` but NOT `isComposing`, so the
+                   flag has to be asked of `nativeEvent`"
+           (is (true? (c/composing?
+                        #js {:nativeEvent #js {:isComposing true :keyCode 13}
+                             :keyCode     13}))))
+
+         (testing "iii. `keyCode` 229 ALONE, with the flag false — the
+                   pairing WebKit bug 165004 reported on the Enter that
+                   accepts a candidate (fixed April 2026 via bug 311717,
+                   kept here for engines already deployed without it). A
+                   reader of only the standard flag fails exactly this row"
+           (is (true? (c/composing? #js {:isComposing false :keyCode 229}))))
+
+         (testing "iv. NEITHER signal: an ordinary Enter, which must not be
+                   withheld — the positive barrier that keeps the three
+                   rows above from being satisfied by a constant `true`"
+           (is (false? (c/composing? #js {:isComposing false :keyCode 13})))))
+
+       :clj
+       (testing "the structural host asks the same question of a map, so a
+                 test with no browser presses the same reader"
+         (is (true?  (c/composing? {:composing? true})))
+         (is (false? (c/composing? {:composing? false})))
+         (is (false? (c/composing? {})))))))
+
 (deftest fh-ctrl-017-the-commit-intent-carries-the-leafs-generation
   (testing "Per FH-CTRL-017: the commit intent carries the leaf's reset
             revision, so the receiving handler decides against COMMITTED
