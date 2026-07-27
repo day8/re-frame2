@@ -120,7 +120,15 @@ exercising the load-bearing subtleties, not just the happy path:
   registered explicitly against *each* frame at its entry point — so
   the server commit and the client commit validate against the same
   contract. (It's `[:maybe …]` because the slice is legitimately absent
-  until the fetch lands.)
+  until the fetch lands.) That validation is a development-time
+  assertion on both sides: a production build performs the registration
+  and elides the check ([Spec 010 §Production
+  builds](../../../../spec/010-Schemas.md#production-builds)), so
+  neither commit is verified in a release build. The symmetry is still
+  the point — one declared contract, two frames — but a server that has
+  to *reject* a malformed request does that in its handler, not through
+  the schema ([Pattern-FormAction §Validation is the handler's
+  job](../../../../spec/Pattern-FormAction.md#validation-is-the-handlers-job)).
 - **Per-request teardown is load-bearing.** `handle-request` ends with
   `destroy-frame!` in a `finally`, on both the success and the throw
   path. A long-running server then can't leak a frame (and its request
