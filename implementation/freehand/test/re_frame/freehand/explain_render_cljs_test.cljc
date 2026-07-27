@@ -32,7 +32,47 @@
   Driving it through the real emit door — the same door the framework's own
   ops go through, with the same tags — exercises the same retention rule
   (`frame` + `dispatch-id` or nothing) rather than a hand-built ring that could
-  agree with the fold while disagreeing with Spec 009."
+  agree with the fold while disagreeing with Spec 009.
+
+  ## Posture split (rf2-74a89)
+
+  This is the most one-sided split in the artefact, and the docstring says so
+  rather than dressing it up. `tool/explain-render` is gated AT THE DOOR
+  (`tool.cljc` §DEV-ONLY) and answers nil under `-Dre-frame.debug=false`; so
+  do the two structures it folds — the current-occurrence index, whose every
+  write is inside `interop/debug-enabled?`, and Spec 009's retained ring. The
+  read's entire output is therefore absent in the production posture, and
+  EVERY assertion about an explanation lives inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-74a89`, kept verbatim.
+
+  The negatives travel with the positives, and there are many of them here:
+  `(nil? (:loss e))`, `(nil? (:cause e))`, `(nil? (:dispatch-id e))`,
+  `(= [] (:candidates e))`, `(every? #(not (contains? % :value)) …)` over an
+  empty read set, and `an-undeclared-id-answers-nil` are each satisfied by a
+  read that answers nil for every input. Leaving any of them outside the arm
+  would report a green that proved nothing — the exact false green this lane
+  exists to close.
+
+  What the namespace contributes to `scripts/test-freehand-prod-gate.sh` is
+  two things, and neither is borrowed from a sibling suite:
+
+    - THE CORRELATED COMMIT PATH. `connect!` binds `trace/*handler-scope*`
+      and commits inside a cascade, and `retain-run!` drives the real
+      `trace/emit!` door beside it. Nothing else in the artefact's suites
+      exercises a Freehand commit with a run on the stack, and the commit
+      seam reads `trace/*handler-scope*` only from inside the elided arm —
+      so \"the correlated commit still publishes under the gate\" is a real
+      production path with a real way to break. Every deftest drives it and
+      asserts `:published` outside the arm.
+    - THE READ IS INERT, NOT PARTIALLY ANSWERING.
+      `whether-the-read-answers-at-all-is-decided-by-the-load-time-gate`
+      pins that under the real gate a DECLARED, MOUNTED, CORRELATED view
+      answers `nil` — never an envelope carrying `:explanations []` with
+      `:complete? true` on it. That distinction is the whole point of gating
+      at the door: an empty-but-confident answer would tell a tool that
+      nothing is rendering in a build where plenty is, which is worse than
+      no answer at all. Witnessed through the real load-time gate rather
+      than a `with-redefs` rebind, which cannot reach one (rf2-9c2jf)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -42,6 +82,7 @@
             [re-frame.freehand.occurrences :as occurrences]
             [re-frame.freehand.test :as t]
             [re-frame.freehand.tool :as tool]
+            [re-frame.interop :as interop]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
@@ -110,22 +151,26 @@
     (let [did (retain-run! 4141 ::count)
           c   (connect! ::explained did)
           e   (explanation-for ::explained)]
-      (is (some? e) "the occurrence has an explanation")
-      (is (true? (:complete? e)) "and it is complete — the run is still retained")
-      (is (nil? (:loss e)) "so there is no loss to account for")
-      (is (= did (:dispatch-id e))
-          "the explanation names the run the commit was correlated to")
-      (is (= did (:dispatch-id (:cause e))) "and the cause IS that run")
-      (is (= ::bump (:cause-event-id (:cause e)))
-          "named by its event ID — a keyword, never the event vector, because an
-           event's args are application data")
-      (is (= #{::count} (:sub-ids (:cause e)))
-          "and by the subscriptions it recomputed that this commit reads")
-      (is (= fid (:frame e)) "the explanation is scoped to the commit's frame")
-      (is (pos? (:retained-runs (:scope e)))
-          "the scope states how much window was folded")
-      (is (true? (:spans-commit? (:scope e)))
-          "and that the window reaches back past the commit")
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring). The
+      ;; correlated commit itself ran and published in either posture;
+      ;; `connect!` says so outside this arm.
+      (when interop/debug-enabled?
+        (is (some? e) "the occurrence has an explanation")
+        (is (true? (:complete? e)) "and it is complete — the run is still retained")
+        (is (nil? (:loss e)) "so there is no loss to account for")
+        (is (= did (:dispatch-id e))
+            "the explanation names the run the commit was correlated to")
+        (is (= did (:dispatch-id (:cause e))) "and the cause IS that run")
+        (is (= ::bump (:cause-event-id (:cause e)))
+            "named by its event ID — a keyword, never the event vector, because an
+             event's args are application data")
+        (is (= #{::count} (:sub-ids (:cause e)))
+            "and by the subscriptions it recomputed that this commit reads")
+        (is (= fid (:frame e)) "the explanation is scoped to the commit's frame")
+        (is (pos? (:retained-runs (:scope e)))
+            "the scope states how much window was folded")
+        (is (true? (:spans-commit? (:scope e)))
+            "and that the window reaches back past the commit"))
       (cell/disconnect! c))))
 
 (deftest the-explanation-carries-the-commit-it-explains
@@ -137,11 +182,15 @@
     (let [did (retain-run! 5151 ::count)
           c   (connect! ::carries did)
           e   (explanation-for ::carries)]
-      (is (= {:committed-generation (:generation e)} (:scope (:commit e))))
-      (is (= [[::count]] (mapv :query (:reads (:commit e))))
-          "the commit's own dependency set")
-      (is (every? #(not (contains? % :value)) (:reads (:commit e)))
-          "and never what those reads returned")
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring). The
+      ;; `every?` row travels inside it too: over an empty read set it is
+      ;; satisfied by an explanation that carries no reads at all.
+      (when interop/debug-enabled?
+        (is (= {:committed-generation (:generation e)} (:scope (:commit e))))
+        (is (= [[::count]] (mapv :query (:reads (:commit e))))
+            "the commit's own dependency set")
+        (is (every? #(not (contains? % :value)) (:reads (:commit e)))
+            "and never what those reads returned"))
       (cell/disconnect! c))))
 
 (deftest no-arg-spans-every-current-occurrence
@@ -154,8 +203,10 @@
           a   (connect! ::span-a did)
           b   (connect! ::span-b did)
           ids (set (map :view-id (:explanations (tool/explain-render))))]
-      (is (contains? ids ::span-a))
-      (is (contains? ids ::span-b))
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (contains? ids ::span-a))
+        (is (contains? ids ::span-b)))
       (cell/disconnect! a)
       (cell/disconnect! b))))
 
@@ -170,19 +221,28 @@
     (seed! {:count 0})
     (let [c (connect! ::split)                   ;; uncorrelated on purpose
           r (tool/explain-render ::split)]
-      (is (true? (:complete? r)) "the roster is complete")
-      (is (nil? (:loss r)))
-      (is (= :explain-render (:read r)))
-      (is (= :re-frame.freehand.evidence/v1 (:schema r)))
-      (is (false? (:complete? (first (:explanations r))))
-          "while the explanation inside it is not")
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (true? (:complete? r)) "the roster is complete")
+        (is (nil? (:loss r)))
+        (is (= :explain-render (:read r)))
+        (is (= :re-frame.freehand.evidence/v1 (:schema r)))
+        (is (false? (:complete? (first (:explanations r))))
+            "while the explanation inside it is not"))
       (cell/disconnect! c))))
 
 (deftest an-undeclared-id-answers-nil
   (testing "Absence is absence, the same way every increment-1 read reports it:
             a tool sweeping ids it was handed must not be told that an id naming
             no view is a view with nothing mounted."
-    (is (nil? (tool/explain-render :nobody/declared-this)))))
+    ;; rf2-74a89 — dev-instrumentation arm (see ns docstring). Under the gate
+    ;; the read answers nil for EVERY id, so this row would hold without the
+    ;; door telling declared from undeclared at all. Its production
+    ;; counterpart —
+    ;; `whether-the-read-answers-at-all-is-decided-by-the-load-time-gate` —
+    ;; states the nil as a claim about the gate rather than about the id.
+    (when interop/debug-enabled?
+      (is (nil? (tool/explain-render :nobody/declared-this))))))
 
 (deftest a-declared-but-unmounted-view-has-an-empty-roster-and-says-so-honestly
   (testing "This is the one empty answer that IS a clean bill of health, because
@@ -190,10 +250,12 @@
             mounted, and reporting loss here would be inventing doubt."
     (register!)
     (let [r (tool/explain-render ::counter)]
-      (is (some? r) "the view is declared, so the read answers")
-      (is (= [] (:explanations r)))
-      (is (true? (:complete? r)))
-      (is (nil? (:loss r))))))
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (some? r) "the view is declared, so the read answers")
+        (is (= [] (:explanations r)))
+        (is (true? (:complete? r)))
+        (is (nil? (:loss r)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — eviction and missing correlation are reported as LOSS
@@ -211,17 +273,21 @@
     (retain-run! 7171 ::count)
     (let [c (connect! ::uncorrelated)          ;; no cascade in scope
           e (explanation-for ::uncorrelated)]
-      (is (nil? (:dispatch-id e))
-          "the commit named no run, and the row says nil rather than minting one")
-      (is (false? (:complete? e)))
-      (is (= {:reason :uncorrelated :dropped :unknown} (:loss e)))
-      (is (nil? (:cause e)) "there is no cause to name")
-      (is (= [{:dispatch-id 7171 :cause-event-id ::bump :sub-ids #{::count}}]
-             (:candidates e))
-          "the runs the window holds that recomputed a subscription this commit
-           reads are offered as CANDIDATES — leads, explicitly not the answer,
-           because presenting a lead as a cause is the shape a false
-           `:complete? true` would have")
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring). The two nil
+      ;; rows travel inside it with the rest: over an explanation that does
+      ;; not exist they are satisfied for every input.
+      (when interop/debug-enabled?
+        (is (nil? (:dispatch-id e))
+            "the commit named no run, and the row says nil rather than minting one")
+        (is (false? (:complete? e)))
+        (is (= {:reason :uncorrelated :dropped :unknown} (:loss e)))
+        (is (nil? (:cause e)) "there is no cause to name")
+        (is (= [{:dispatch-id 7171 :cause-event-id ::bump :sub-ids #{::count}}]
+               (:candidates e))
+            "the runs the window holds that recomputed a subscription this commit
+             reads are offered as CANDIDATES — leads, explicitly not the answer,
+             because presenting a lead as a cause is the shape a false
+             `:complete? true` would have"))
       (cell/disconnect! c))))
 
 (deftest an-evicted-run-is-reported-as-cap-loss-provably
@@ -233,19 +299,22 @@
     (seed! {:count 5})
     (let [did (retain-run! 8181 ::count)
           c   (connect! ::evicted did)]
-      (is (true? (:complete? (explanation-for ::evicted)))
-          "the run is retained to begin with — the eviction below is a change,
-           not the initial state")
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (is (true? (:complete? (explanation-for ::evicted)))
+            "the run is retained to begin with — the eviction below is a change,
+             not the initial state"))
       ;; Evict it: a fresh window that no longer holds the commit's run.
       (trace-tooling/clear-trace-buffer! fid)
       (retain-run! 8282 ::count)
-      (let [e (explanation-for ::evicted)]
-        (is (= did (:dispatch-id e)) "the commit still names the run it ran under")
-        (is (false? (:complete? e)))
-        (is (= {:reason :cap :dropped :unknown} (:loss e)))
-        (is (nil? (:cause e))
-            "and no other run is promoted into its place — a window that has
-             forgotten why a view rendered says so"))
+      (when interop/debug-enabled?
+        (let [e (explanation-for ::evicted)]
+          (is (= did (:dispatch-id e)) "the commit still names the run it ran under")
+          (is (false? (:complete? e)))
+          (is (= {:reason :cap :dropped :unknown} (:loss e)))
+          (is (nil? (:cause e))
+              "and no other run is promoted into its place — a window that has
+               forgotten why a view rendered says so")))
       (cell/disconnect! c))))
 
 (deftest an-empty-window-is-reported-as-cap-loss
@@ -257,12 +326,14 @@
     (seed! {:count 0})
     (let [c (connect! ::empty-window 9191)]
       (trace-tooling/clear-trace-rings!)
-      (let [e (explanation-for ::empty-window)]
-        (is (false? (:complete? e)))
-        (is (= {:reason :cap :dropped :unknown} (:loss e)))
-        (is (= 0 (:retained-runs (:scope e))) "and the scope states the window is empty")
-        (is (false? (:spans-commit? (:scope e)))
-            "an empty window reaches back to nothing"))
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring).
+      (when interop/debug-enabled?
+        (let [e (explanation-for ::empty-window)]
+          (is (false? (:complete? e)))
+          (is (= {:reason :cap :dropped :unknown} (:loss e)))
+          (is (= 0 (:retained-runs (:scope e))) "and the scope states the window is empty")
+          (is (false? (:spans-commit? (:scope e)))
+              "an empty window reaches back to nothing")))
       (cell/disconnect! c))))
 
 (deftest the-configured-retention-knob-is-the-one-that-governs
@@ -276,10 +347,14 @@
     (retain-run! 9292 ::count)
     (let [c (connect! ::knob 9292)
           e (explanation-for ::knob)]
-      (is (= 0 (:retained-runs (:scope e)))
-          "the ring allocated nothing at the configured cap")
-      (is (false? (:complete? e)))
-      (is (= :cap (:reason (:loss e))))
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring). The
+      ;; `rf/configure!` call and the correlated commit under it run in both
+      ;; postures; only the fold's report of them is gated.
+      (when interop/debug-enabled?
+        (is (= 0 (:retained-runs (:scope e)))
+            "the ring allocated nothing at the configured cap")
+        (is (false? (:complete? e)))
+        (is (= :cap (:reason (:loss e)))))
       (cell/disconnect! c))))
 
 (deftest a-candidate-must-actually-touch-one-of-the-commits-reads
@@ -291,8 +366,60 @@
     (retain-run! 9393 ::something-else)
     (let [c (connect! ::narrow)
           e (explanation-for ::narrow)]
-      (is (= [] (:candidates e))
-          "a run that touched none of this commit's reads is not a candidate")
-      (is (= :uncorrelated (:reason (:loss e)))
-          "and the explanation still reports why it cannot say more")
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring). The empty
+      ;; `:candidates` row is a NEGATIVE over a fold that produced nothing —
+      ;; the first of the four vacuous shapes, and the reason it travels
+      ;; inside the arm rather than standing as this deftest's own witness.
+      (when interop/debug-enabled?
+        (is (= [] (:candidates e))
+            "a run that touched none of this commit's reads is not a candidate")
+        (is (= :uncorrelated (:reason (:loss e)))
+            "and the explanation still reports why it cannot say more"))
+      (cell/disconnect! c))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-74a89 — the door, and the posture that decides whether it opens
+;; ---------------------------------------------------------------------------
+
+(deftest whether-the-read-answers-at-all-is-decided-by-the-load-time-gate
+  (testing "The production-real half of this namespace, witnessed through the
+            REAL load-time gate rather than a `with-redefs` rebind, which
+            cannot reach one (rf2-9c2jf).
+
+            A view is declared, mounted, and committed WITH A CASCADE ON THE
+            STACK — the correlated path this suite's `connect!` is the only
+            thing in the artefact's suites to drive, and the path the commit
+            seam reads `trace/*handler-scope*` from. It publishes in either
+            posture, which is asserted first, because a read answering nil
+            about a commit that never happened would prove nothing about the
+            read.
+
+            Then the door. Under `-Dre-frame.debug=false` it answers `nil` —
+            NOT an envelope carrying `:explanations []` with `:complete? true`
+            on it. That distinction is the whole reason the gate sits at the
+            door rather than one level in: an empty-but-confident answer would
+            tell a tool that nothing is rendering in a build where plenty is,
+            which is worse than no answer at all."
+    (register!)
+    (seed! {:count 8})
+    (let [did (retain-run! 1010 ::count)
+          c   (connect! ::inert did)]
+      (is (= did 1010) "the run was retained under the id the commit ran with")
+      (is (= :connected (cell/lifecycle c))
+          "the correlated commit published its whole bundle, in either posture")
+      (is (= [[::count]] (cell/dependency-queries c))
+          "owning exactly the dependency the render read")
+      (if interop/debug-enabled?
+        (do
+          (is (some? (tool/explain-render ::inert))
+              "dev: the door answers for a mounted, declared view")
+          (is (some? (tool/explain-render))
+              "and for the no-arg arity"))
+        (do
+          (is (nil? (tool/explain-render ::inert))
+              "production: nil for a view that IS declared and IS mounted —
+               inert, never an empty roster wearing a completeness claim")
+          (is (nil? (tool/explain-render))
+              "and the no-arg arity likewise, so a sweep gets no false
+               all-clear either")))
       (cell/disconnect! c))))
