@@ -567,7 +567,7 @@
                                (when-not dragging?
                                  (when-let [nxt (intent-at (key-intent k geom) at bs)]
                                    (when (not= nxt at)
-                                     #?(:cljs (.preventDefault e) :clj nil)
+                                     #?(:cljs (.preventDefault e))
                                      (conj on-commit nxt))))))}
        (dissoc props :split :on-start :on-preview :on-commit :on-cancel
                      :orientation :rtl? :bounds :children))
