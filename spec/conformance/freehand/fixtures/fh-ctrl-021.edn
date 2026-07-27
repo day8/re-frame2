@@ -1,5 +1,5 @@
 {:fh/id  "FH-CTRL-021"
- :fh/law "A fixed-extent virtual collection renders a WINDOW and states the collection: the visible window is pure arithmetic whose row count is bounded by the viewport and independent of the item count, the rows carry the caller's stable keys at their absolute indices so a window movement re-keys nothing, exactly one item subscription exists per RENDERED row rather than per item, and every rendered row states the collection's true size and its own true position while the DOM holds only the window. The scroll position is ordinary frame data and it is CONTROLLED in both directions: the render picks the window from it, and one guarded `:layout` reconciliation lands it on the live viewport before paint whenever the node disagrees — so a persisted offset restores onto a fresh mount and a state-only move drags a viewport that is already showing rows, while an ordinary user scroll writes no host state at all. The virtualization ENGINE is semantic-neutral — it names no role, its positioned row shells are presentational, and its row slot receives the row's key, its absolute index and the collection's total — so one engine carries a listbox and a grid alike, and the listbox is a thin wrapper over it holding no second window arithmetic and no second scroll host."
+ :fh/law "A fixed-extent virtual collection renders a WINDOW and states the collection: the visible window is pure arithmetic whose row count is bounded by the viewport and independent of the item count, the rows carry the caller's stable keys at their absolute indices so a window movement re-keys nothing, exactly one item subscription exists per RENDERED row rather than per item, and every rendered row states the collection's true size and its own true position while the DOM holds only the window. The viewport rather than a row holds focus, and it names the active row by `aria-activedescendant` exactly while that row is RENDERED — a row scrolling out of the window takes the naming with it rather than leaving a dangling IDREF. The scroll position is ordinary frame data and it is CONTROLLED in both directions: the render picks the window from it, and one guarded `:layout` reconciliation lands it on the live viewport before paint whenever the node disagrees — so a persisted offset restores onto a fresh mount and a state-only move drags a viewport that is already showing rows, while an ordinary user scroll writes no host state at all. The virtualization ENGINE is semantic-neutral — it names no role, its positioned row shells are presentational, and its row slot receives the row's key, its absolute index and the collection's total — so one engine carries a listbox and a grid alike, and the listbox is a thin wrapper over it holding no second window arithmetic and no second scroll host."
 
  :frame   :rf.test/virtual-collection
  :list-id "inbox"
@@ -131,6 +131,13 @@
  ;; focus with it. The mounted rows assert the named element is ABSENT
  ;; while out of window and back when it returns — honest in both
  ;; directions.
+ ;;
+ ;; And the NAMING goes with the element. WAI-ARIA 1.2 makes a
+ ;; non-matching `aria-activedescendant` IDREF an author error, so the
+ ;; attribute is published exactly while the row it names is rendered.
+ ;; Focus staying on the viewport and the IDREF being dropped are separate
+ ;; facts, and both are read: the first keeps the keyboard alive, the
+ ;; second keeps the accessibility tree honest.
  :active-index          3
  :active-dom-id         "inbox-row-3"
  :offset-hiding-active  160000
@@ -183,7 +190,7 @@
 
   :mounted
   [{:ns  re-frame.freehand.virtual-collection-dom-cljs-test
-    :law "In Chromium a real scroll moves the window through the application's own event and nowhere else — the host's scrollTop and app-db hold ONE fact — the viewport keeps focus while the active row is unmounted and remounted beneath it, a keyboard move reveals a row that was not rendered, a persisted offset is restored onto a freshly mounted viewport and a state-only offset move drags a viewport that is already showing rows, and after repeated full-window scroll cycles a teardown leaves no connected occurrence and no row node behind. The application registers no host-writing effect, so every scrollTop read is a fact about the collection's own reconciliation."}]
+    :law "In Chromium a real scroll moves the window through the application's own event and nowhere else — the host's scrollTop and app-db hold ONE fact — the viewport keeps focus while the active row is unmounted and remounted beneath it and drops the `aria-activedescendant` naming for exactly as long as that row is unrendered, a keyboard move reveals a row that was not rendered, a persisted offset is restored onto a freshly mounted viewport and a state-only offset move drags a viewport that is already showing rows, and after repeated full-window scroll cycles a teardown leaves no connected occurrence and no row node behind. The application registers no host-writing effect, so every scrollTop read is a fact about the collection's own reconciliation."}]
 
   ;; The reads a run leaves for a reader are the two the DOM and the tree
   ;; carry without instrumentation — the rendered row count and the window

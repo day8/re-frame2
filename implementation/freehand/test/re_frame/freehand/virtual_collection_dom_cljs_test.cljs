@@ -329,7 +329,14 @@
             outside the window — the control does not keep a hidden copy to
             make an accessibility relationship resolve — and it is back
             when the window returns, on the same address, with focus never
-            having moved."
+            having moved.
+
+            And while it is absent, so is the NAMING. WAI-ARIA 1.2 makes a
+            non-matching `aria-activedescendant` IDREF an author error, so
+            an attribute pointing at an unmounted row is a defect and not a
+            courtesy. Keeping DOM focus on the stable viewport is the right
+            answer; keeping a dead reference is not, and they are separable
+            — which is what this row reads."
     (if-not (ms/browser?)
       (ms/skip! "the browser job runs the focus assertions")
       (async done
@@ -359,10 +366,12 @@
                                no hidden copy kept to make the relationship resolve")
                           (is (= (viewport-el) (.-activeElement js/document))
                               "and focus did not go with it")
-                          (is (= active-dom-id
-                                 (.getAttribute (viewport-el) "aria-activedescendant"))
-                              "the viewport still names it, honestly, as the row the
-                               user is on")
+                          (is (nil? (.getAttribute (viewport-el)
+                                                   "aria-activedescendant"))
+                              "and the viewport stops NAMING it — a
+                               non-matching IDREF is an author error, so the
+                               attribute is omitted rather than left dangling
+                               at an unmounted row")
                           (scroll-host! offset-showing-active)
                           (at-window 0)))
                       (.then
@@ -370,6 +379,10 @@
                           (is (some? (named))
                               "and the row is back on the same address when the
                                window returns")
+                          (is (= active-dom-id
+                                 (.getAttribute (viewport-el) "aria-activedescendant"))
+                              "so the viewport names it again — the IDREF
+                               resolves whenever it is published")
                           (is (= (viewport-el) (.-activeElement js/document))
                               "with focus never having moved at all")
                           (is (= "true" (.getAttribute (named) "aria-selected"))
