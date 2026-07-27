@@ -938,11 +938,16 @@
           f             (frame/make-anon-frame-record! {:platform :server})
           traces        (atom [])
           _             (rf/register-listener! :trace ::mp2 (fn [ev] (swap! traces conj ev)))
-          public        (project-error f {:operation :rf.error/no-such-handler :tags {}})]
+          ;; rf2-ov56u: the 404 arm is gated on `:kind :route` — the
+          ;; URL-driven miss. `:tags {}` now projects 500, so the
+          ;; honoured-vs-fallen-back distinction this deftest is about
+          ;; needs the route discriminator to be visible.
+          public        (project-error f {:operation :rf.error/no-such-handler
+                                          :tags      {:kind :route}})]
       (rf/unregister-listener! :trace ::mp2)
       (is (= 404 (:status public))
-          "the built-in default projector maps :no-such-handler → 404
-           (honoured, not fallen-back)")
+          "the built-in default projector maps a :kind :route
+           :no-such-handler → 404 (honoured, not fallen-back)")
       (is (not-any? #(= :rf.error/sanitised-on-projection (:operation %)) @traces)
           "no sanitised-on-projection diagnostic on the default path — the
            default projector is registered, so it is not a missing-projector"))))
@@ -961,9 +966,13 @@
   (testing "rf2-ynjts.13 — the default projector's full case table per
             Spec 011 §Default projector. Exercises the fn directly (it is a
             public re-export: ssr/default-error-projector-fn)."
-    (testing ":rf.error/no-such-handler → 404 :not-found"
+    (testing ":rf.error/no-such-handler with :kind :route → 404 :not-found
+              (rf2-ov56u — the arm is GATED on the route discriminator; the
+              :kind :event / :kind :frame / kind-less cases are pinned in
+              re-frame.ssr-route-miss-404-production-test)"
       (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
-             (ssr/default-error-projector-fn {:operation :rf.error/no-such-handler}))))
+             (ssr/default-error-projector-fn {:operation :rf.error/no-such-handler
+                                              :tags      {:kind :route}}))))
     (testing ":rf.error/no-such-route → 404 :not-found (the second 404 arm —
               previously untested)"
       (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
