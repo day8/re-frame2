@@ -203,8 +203,8 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
 
 !!! warning "Gotcha — schema checks fire only in dev"
 
-    If you guard an [app-db](glossary.md#app-db) path, an event, or an HTTP `:decode`
-    step with a [schema](glossary.md#schema), a value that fails it emits
+    If you guard an [app-db](glossary.md#app-db) path or an event with a
+    [schema](glossary.md#schema), a value that fails it emits
     `:rf.error/schema-validation-failure` to surface the bug *early*, where the bad
     value was produced. Recovery is **not uniform** — it follows the boundary named
     in the `:where` tag, and the list here is the *full* map (all eight boundaries the
@@ -214,12 +214,31 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     `:sub-override` failure **surfaces `nil` and renders on**; `:flow-output` /
     `:machine-output` are **observational** — the value still commits. Read the
     recovery straight off the `:where` tag on the record; `:explain` carries the
-    Malli explanation. The surprise is the asymmetry: production builds
-    [*elide*](glossary.md#elide) the check entirely, so this category fires **only in
-    dev**. Treat schema checks as a development assertion that hardens your data at
-    its source, not a runtime gate you can lean on in production. (A structurally
-    broken Malli form is the separate `:rf.error/malformed-schema`, which fails closed
-    and rolls the commit back.)
+    Malli explanation. The surprise is the asymmetry: a production build
+    [*elides*](glossary.md#elide) these validators, so the category fires **only in
+    dev**. Treat a `reg-app-schema` guard as a development assertion that hardens your
+    data at its source, not a runtime gate you can lean on in production — a candidate
+    that violates one installs, silently, in a release build. (A structurally broken
+    Malli form is the separate `:rf.error/malformed-schema`, which fails closed and
+    rolls the commit back.)
+
+    **One schema check does survive a production build, and it is the one you would
+    reach for.** An event handler registered with `{:interceptors
+    [:rf.schema/at-boundary]}` is the framework's answer for untrusted structured
+    ingress — an HTTP request body, a websocket frame, a query string — and its check
+    is *ungated*: it runs in every build. The rejection is real in production, with the
+    same recovery as any other `:where :event` failure — the handler is **skipped** and
+    the bad payload never reaches app-db. What does not survive is the **report**. The
+    emit sitting above the rejection is dev-gated, and the category was never promoted
+    onto the always-on axis, so a production boundary rejection says nothing on either
+    channel — and because the skipped handler wrote no `:db`, the always-on `:events`
+    record for that dispatch reads `:outcome :ok`. Production-*reachable* and
+    production-*observable* are different claims, and this is the check that has the
+    first without the second: reach for it where you need the gate, but do not expect
+    it to tell you it fired. The other schema surface that runs in every build is the
+    managed-HTTP `:decode` schema, and it is not this category at all — a 2xx body that
+    fails its schema classifies as `:rf.http/decode-failure` (carrying
+    `:schema-validation-failure? true`) and the request fails, in production as in dev.
 
     One boundary is **not** on that list on purpose. A *recordable coeffect*
     (`:rf.cofx/requires`) whose supplied, replayed, or generated value fails its
