@@ -677,6 +677,74 @@
       (testing "NO raw secret survives anywhere in the projected record"
         (is (not (contains-secret? projected)))))))
 
+(deftest off-box-redacts-route-plan-identity-partition
+  (testing "rf2-dlkou — the activation row's IDENTITY PARTITION
+            (:ensured-identities / :kept-identities / :removed-identities) is
+            three more vectors of scoped keys under no NAMED slot. The safety
+            closes by SHAPE, so they were covered the moment they were emitted;
+            this pins it, because the partition is the one place a route's
+            path parameters ride the trace three times over"
+    (let [ensured   (sk :rf.scope/global :secret/article {:auth-token secret})
+          kept      (sk :rf.scope/global :secret/article
+                        {:auth-token (str secret "-kept")})
+          removed   (sk :rf.scope/global :secret/article
+                        {:auth-token (str secret "-gone")})
+          record    (record-with
+                      [(event :rf.resource/route-plan
+                              {:rf.frame/id        :test/rt
+                               :route-id           :r/article
+                               :nav-token          7
+                               :branch             [:r/root :r/article]
+                               :ensured            1
+                               :kept               1
+                               :removed            1
+                               :blocking           [ensured]
+                               :identities         [kept ensured]
+                               :ensured-identities [ensured]
+                               :kept-identities    [kept]
+                               :removed-identities [removed]})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))
+          partition-slots (juxt :ensured-identities :kept-identities
+                                :removed-identities)]
+      (testing "every partition slot tokenizes per key, exactly as :identities does"
+        (doseq [ks (partition-slots tags)]
+          (is (= 1 (count ks)))
+          (is (= :secret/article (second (first ks)))
+              "the resource-id (position 1) survives")
+          (is (redacted-component? (first (first ks))) "the scope is tokenized")
+          (is (redacted-component? (nth (first ks) 2))
+              "the canonical params — a route's path parameters — are tokenized")))
+      (testing "three DISTINCT identities keep three distinct digests, so the
+                partition a tool reads off one row is still a partition"
+        (is (= 3 (count (set (map #(nth (first %) 2) (partition-slots tags)))))))
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the counts beside the vectors are structural scalars and ride"
+        (is (= 1 (:ensured tags)))
+        (is (= 1 (:kept tags)))
+        (is (= 1 (:removed tags))))
+      (testing "NO raw secret survives anywhere in the projected record"
+        (is (not (contains-secret? projected)))))))
+
+(deftest off-box-keeps-plain-owner-identity-partition-verbatim
+  (testing "rf2-dlkou guard — a PLAIN owner's identity partition rides VERBATIM.
+            The partition is a debugging aid, so closing the leak must cost no
+            over-redaction on the ordinary route plan"
+    (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
+          k2        (sk :rf.scope/global :plain/article {:slug "other"})
+          record    (record-with
+                      [(event :rf.resource/route-plan
+                              (assoc (route-plan-tags [k1] [k1])
+                                     :ensured-identities [k1]
+                                     :kept-identities    []
+                                     :removed-identities [k2]))])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= [k1] (:ensured-identities tags)))
+      (is (= [] (:kept-identities tags)) "an empty partition slot survives empty")
+      (is (= [k2] (:removed-identities tags)))
+      (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
+
 (deftest unnamed-slot-projects-identically-to-named-slot
   (testing "rf2-wd9im anti-drift — the SAME scoped keys under a NAMED slot
             (:matched) and under UNNAMED slots (:blocking / :identities) must
@@ -689,16 +757,24 @@
           ks        [k1 k2]
           record    (record-with
                       [(event :rf.resource/route-plan
-                              {:rf.frame/id :test/rt
-                               :matched     ks     ; NAMED  → roster arm
-                               :blocking    ks     ; UNNAMED → shape arm
-                               :identities  ks})]) ; UNNAMED → shape arm
+                              {:rf.frame/id        :test/rt
+                               :matched            ks   ; NAMED  → roster arm
+                               :blocking           ks   ; UNNAMED → shape arm
+                               :identities         ks   ; UNNAMED → shape arm
+                               ;; rf2-dlkou — the identity partition, three more
+                               ;; UNNAMED slots on the same row.
+                               :ensured-identities ks
+                               :kept-identities    ks
+                               :removed-identities ks})])
           projected (epoch/projected-record record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= (:matched tags) (:blocking tags))
           ":blocking projects exactly as the NAMED :matched does")
       (is (= (:matched tags) (:identities tags))
           ":identities projects exactly as the NAMED :matched does")
+      (doseq [slot [:ensured-identities :kept-identities :removed-identities]]
+        (is (= (:matched tags) (slot tags))
+            (str slot " projects exactly as the NAMED :matched does")))
       (is (every? redacted-component? (map first (:blocking tags)))
           "both keys' scopes tokenized (the derived scope included)")
       (is (not (contains-secret? projected))))))
