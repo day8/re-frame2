@@ -2043,8 +2043,8 @@
 ;;                               error emit (if any), :db commit (of the
 ;;                               flow-augmented db), then walk :fx in source
 ;;                               order; returns the dispatch outcome keyword
-;;                               (:ok / :error / :rolled-back / :flow-error)
-;;                               for the event-emit record
+;;                               (:ok / :error / :rolled-back / :flow-error /
+;;                               :rejected) for the event-emit record
 ;;   emit-pipeline-trailers!      :run-end trace + always-on event-emit fan-out
 ;;   run-handler-pipeline!        sequence prepare → run → commit → trailers
 ;;                               under `trace/with-handler-scope`
@@ -2339,11 +2339,24 @@
   `rf:event:<event-id>` measure entry under prod builds with the perf
   flag enabled. Default-off; under `:advanced` +
   `re-frame.performance/enabled?=false` the bracket DCEs and the call
-  collapses to a plain `execute-chain` invocation."
-  [event-id full-chain initial-ctx event-ok?]
+  collapses to a plain `execute-chain` invocation.
+
+  rf2-mwv4e — this is the DEV half of the `:rf/boundary-rejected?` marker. When
+  step-1 refused an event whose handler REFERENCES `:rf.schema/at-boundary`,
+  the refusal IS a boundary refusal and takes the same marker the production
+  interceptor stamps (`re-frame.spec`), so the router tail fans one always-on
+  record and settles `:outcome :rejected` in either posture. An ordinary
+  dev-only `:schema` refusal on an UNGUARDED handler is deliberately NOT
+  marked: that surface has no production counterpart (Spec 010 §Production
+  builds, rf2-bkvu5), so marking it would invent a production signal that
+  cannot exist. The predicate runs only on the refusal path — the hot path
+  keeps its single `if`."
+  [event-id full-chain initial-ctx event-ok? handler-meta]
   (let [ctx (if event-ok?
               initial-ctx
-              (assoc initial-ctx :rf/skip-handler? true))]
+              (cond-> (assoc initial-ctx :rf/skip-handler? true)
+                (events/boundary-guarded-handler? handler-meta)
+                (assoc :rf/boundary-rejected? true)))]
     (performance/mark-and-measure :event event-id
       (interceptor/execute-chain
         full-chain ctx
@@ -2417,13 +2430,25 @@
     :flow-error  — a flow's `:derive` threw (Spec 013 §Failure
                    semantics); the event aborted — no install, app-db
                    unchanged, no db-changed, :fx skipped.
+    :rejected    — the `:rf.schema/at-boundary` security gate REFUSED
+                   the event's payload against the handler's `:schema`
+                   (rf2-mwv4e). The handler never ran, so nothing it
+                   would have written exists; entered interceptors
+                   still unwound in full and any effects THEY produced
+                   keep their ordinary treatment. Unlike
+                   `:rolled-back`, this outcome DOES have a producer in
+                   a production build — the boundary check is the one
+                   validation surface Spec 010 keeps ungated.
 
-  All three non-`:ok` values surface to off-box observability shippers
+  All four non-`:ok` values surface to off-box observability shippers
   (Datadog / Sentry / Honeycomb) so a dispatch whose `:db` write was
-  rejected or that aborted on a flow throw is NOT mis-reported as
-  a clean `:ok`. A chain exception is reported as `:error` regardless
-  of any downstream rejection — it is the proximate, most-actionable
-  signal."
+  rejected, that aborted on a flow throw, or whose untrusted payload was
+  refused at the boundary is NOT mis-reported as a clean `:ok`. A chain
+  exception is reported as `:error` regardless of any downstream
+  rejection — it is the proximate, most-actionable signal — and
+  `:rejected` is the LOWEST-priority discriminator: it is selected only
+  when the boundary skip is the whole story, so a chain throw, a flow
+  throw or a candidate rollback during the unwind still wins."
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
   (let [owner-token (frame/current-event-owner-token)
         live?       #(and (not (:rf/stale-incarnation? final-ctx))
@@ -2495,9 +2520,87 @@
                         (run-fx-effects!
                           effects frame frame-record owner-token
                           fx-overrides envelope)]
-                    (if (= ::stale-incarnation fx-result)
-                      ::stale-incarnation
-                      :ok)))))))))))
+                    (cond
+                      (= ::stale-incarnation fx-result) ::stale-incarnation
+                      ;; rf2-mwv4e — LOWEST-priority discriminator. Every
+                      ;; higher-priority outcome has already returned above,
+                      ;; so reaching here with the marker set means the
+                      ;; boundary skip really was the whole story: no chain
+                      ;; throw, no flow throw, no candidate rollback. Before
+                      ;; this, a refused untrusted payload settled `:ok` — the
+                      ;; event stream reporting success for a dispatch whose
+                      ;; handler never ran.
+                      (:rf/boundary-rejected? final-ctx) :rejected
+                      :else                              :ok)))))))))))
+
+;; ---- the boundary-rejection always-on record (rf2-mwv4e) -------------------
+;;
+;; `:rf.schema/at-boundary` is the ONE validation surface Spec 010 keeps
+;; ungated in a production build — the opt-in gate for untrusted system
+;; ingress (an HTTP response, a websocket frame, a `postMessage`, a query
+;; string). Its REFUSAL always survived the gate; its REPORT did not.
+;; `trace/emit-error!` sits behind `interop/debug-enabled?`, so under
+;; `:advanced` + `goog.DEBUG=false` a rejected payload skipped its handler and
+;; told nobody — an opt-in security gate invisible to the person who opted in.
+;;
+;; This is the always-on half. It follows the promotion pattern the URL
+;; route-miss (rf2-ov56u) and the safe-redirect rejections (rf2-6jqa8)
+;; established: keep the rich dev trace exactly as it was, add ONE tight
+;; production fact, let the existing projector consume it.
+;;
+;; STRUCTURAL-ONLY, and here that is stricter than a scrub. A validation
+;; failure's natural detail is THE VALUE THAT FAILED, which on this surface is
+;; attacker-controlled or user-private BY DEFINITION — a rejected payload can
+;; carry secrets in keys the declared schema never anticipated, so no
+;; schema-aware redactor can be trusted to have seen them. So rather than
+;; scrubbing an attacker-controlled slot (the rf2-ov56u / rf2-6jqa8 treatment,
+;; where the URL IS the observability payload), this record OMITS every
+;; payload-derived slot outright: no event vector, no `:value`, no
+;; `:received`, no `:explain`, no schema form, no human `:reason` (which would
+;; interpolate the offending value — the `ssr/hydrate` hazard). What remains is
+;; identifiers, which is enough to COUNT, ATTRIBUTE, ALERT and PROJECT the
+;; rejection; the diagnosis stays on the DCE'd dev trace in `re-frame.spec`.
+;; Per OWASP's Logging Cheat Sheet: log input-validation failures, sanitise
+;; event data arriving from another trust zone.
+;;
+;; PROJECTION-ELIGIBLE, deliberately, and this is where it diverges from
+;; rf2-6jqa8. The three safe-redirect categories joined
+;; `non-projection-eligible-errors` so a hostile probe could not conjure a 500.
+;; A boundary rejection on a server frame is the opposite case: it is exactly a
+;; 400 (RFC 9110 §15.5.1), the SSR default projector already maps
+;; `:rf.error/schema-validation-failure` + `:where :event` to one, and letting
+;; it project is what closes the silent-200 SSR hole that surfaced this bead.
+
+(defn- emit-boundary-rejection-record!
+  "Fan the ONE always-on STRUCTURAL-ONLY record for a boundary rejection.
+
+  The key set is CLOSED and is pinned by
+  `re-frame.always-on-validation-production-test`; a slot added here reaches an
+  off-box shipper (Sentry / Datadog), so read the section comment above before
+  widening it. `:event-id` / `:failing-id` / `:schema-id` are all the event id
+  — the same three-slot shape the dev trace carries, so the two axes name the
+  same fact identically. `:frame` may be nil (the frameless
+  `:rf.error/no-frame-context` precedent).
+
+  Reached through `error-emit/dispatch-error-record!`, the general non-event
+  union-record chokepoint: a refused dispatch is not a dispatched-event
+  FAILURE (nothing threw), so the event-centric `dispatch-on-error!` positional
+  shape — which would carry the `:event` wire value — is both the wrong shape
+  and the wrong egress. Called from the pipeline tail so the dev and production
+  enforcement routes share ONE emit site and a rejection can never produce two
+  records."
+  [event-id frame]
+  (error-emit/dispatch-error-record!
+    {:error      :rf.error/schema-validation-failure
+     :where      :event
+     :source     :boundary
+     :event-id   event-id
+     :failing-id event-id
+     :schema-id  event-id
+     :frame      frame
+     :recovery   :no-recovery
+     :time       (interop/now-ms)})
+  nil)
 
 (defn- emit-pipeline-trailers!
   "Pipeline-run-tail emissions: the dev-only `:run-end` trace then the
@@ -2517,8 +2620,9 @@
   contract holds on both platforms.
 
   `outcome` is the keyword `commit-and-flow!` returns — `:ok`,
-  `:error`, `:rolled-back`, or `:flow-error` — and rides straight onto
-  the event-emit record's `:outcome` slot (Spec 009 §Record shape).
+  `:error`, `:rolled-back`, `:flow-error`, or `:rejected` — and rides
+  straight onto the event-emit record's `:outcome` slot (Spec 009
+  §Record shape).
 
   `handler-elapsed-ms` (rf2-hhh92) is the HANDLER-BODY-only wall-clock
   (the interceptor-chain duration, captured before `commit-and-flow!`),
@@ -2754,7 +2858,8 @@
                                             (frame/current-event-owner-token))))
             final-ctx (if (frame/event-continuation-live?
                             frame (frame/current-event-owner-token))
-                        (run-chain event-id full-chain initial-ctx event-ok?)
+                        (run-chain event-id full-chain initial-ctx event-ok?
+                                   handler-meta)
                         (assoc initial-ctx :rf/stale-incarnation? true))
             ;; rf2-hhh92: the HANDLER-BODY-only elapsed — the interceptor
             ;; chain (`run-chain`) duration, captured BEFORE
@@ -2767,14 +2872,32 @@
             handler-elapsed-ms (when interop/debug-enabled?
                                  (- (interop/now-ms) start-ms))
             ;; `commit-and-flow!` returns the dispatch outcome keyword
-            ;; (:ok / :error / :rolled-back / :flow-error) so the always-on
-            ;; event-emit record reflects schema-rejection and flow-throw
-            ;; failures, not just the chain exception.
+            ;; (:ok / :error / :rolled-back / :flow-error / :rejected) so the
+            ;; always-on event-emit record reflects schema-rejection,
+            ;; flow-throw and boundary-refusal outcomes, not just the chain
+            ;; exception.
             outcome   (commit-and-flow! final-ctx event-id event frame
                                         frame-record fx-overrides envelope start-ms)]
         ;; A stale A tail is deliberately silent: run-end / always-on handled
         ;; records keyed by the bare id would describe fresh same-id B.
         (when-not (= ::stale-incarnation outcome)
+          ;; rf2-mwv4e — the always-on boundary-rejection record LEADS the
+          ;; tail: it is the CAUSE, and the `:events` record the trailers fan
+          ;; carries only its consequence (`:outcome :rejected`). This is the
+          ;; ONE emit site for both enforcement routes — in dev the refusal
+          ;; happens in step-1 `validate-event!`, in production inside the
+          ;; boundary interceptor, and both merely stamp
+          ;; `:rf/boundary-rejected?` for this line to read — so a rejection
+          ;; can never produce two records. It keys off the rejection FACT
+          ;; rather than the outcome, so a refusal whose interceptor unwind
+          ;; then threw reports BOTH the refusal and the throw. Wrapped in the
+          ;; exact-owner fence because the always-on fan-out runs listener
+          ;; callbacks, one of which may destroy this frame; `emit-pipeline-
+          ;; trailers!` re-checks liveness on entry and goes silent if so.
+          (when (:rf/boundary-rejected? final-ctx)
+            (call-while-exact-owner
+              frame (frame/current-event-owner-token)
+              #(emit-boundary-rejection-record! event-id frame)))
           (emit-pipeline-trailers! event-id event emit-event frame outcome
                                   start-ms handler-elapsed-ms final-ctx)))))))))
 

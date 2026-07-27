@@ -116,6 +116,15 @@
 ;; The interceptor's `:id` is `:rf.schema/at-boundary` — renamed from
 ;; `:spec/at-boundary` at rf2-ieu0i and finalised under the schema-
 ;; vocabulary strip in rf2-9brg7 (audit-of-audits schemas #6).
+;;
+;; rf2-mwv4e — the rejection ALSO stamps `:rf/boundary-rejected?` on the
+;; context. That marker is the single internal fact the router's tail reads to
+;; (a) fan ONE always-on structural record and (b) settle the dispatch
+;; `:outcome :rejected` instead of the `:ok` a handler-less run would otherwise
+;; report. The dev route reaches the SAME marker from `re-frame.router`'s
+;; `run-chain` (step-1 refused an event whose handler references this
+;; interceptor), so both enforcement routes converge on one marker and one emit
+;; site. See `router/emit-boundary-rejection-record!`.
 
 (def validate-at-boundary-interceptor
   "Production-side schema validation interceptor VALUE, registered under the
@@ -131,6 +140,14 @@
   a parallel schema. No-op in dev builds (step-1 validation already
   fires); no-op when no validator is registered (`set-schema-validator!`
   was called with `nil`).
+
+  A rejection is OBSERVABLE in a production build (rf2-mwv4e): besides the
+  handler skip it stamps `:rf/boundary-rejected?` on the context, and the
+  router's tail turns that into one always-on
+  `:rf.error/schema-validation-failure` record (`:source :boundary`) plus an
+  `:outcome :rejected` on the event-emit record. Both survive `:advanced` +
+  `goog.DEBUG=false`; the rich `:value` / `:explain` diagnosis stays on the
+  DCE'd dev trace below.
 
   Per rf2-iftj4, registering a handler that attaches `validate-at-boundary-interceptor` but
   carries no `:schema` is rejected at registration time with
@@ -236,13 +253,18 @@
                                                                 (error/type-of-value event) ".")
                                                :recovery   :no-recovery}
                                         frame (assoc :frame frame))]
-                      ;; Emit the failure trace using the same shape as
+                      ;; Axis 2 — the RICH dev trace, using the same shape as
                       ;; dev-mode step-1 (per Spec 010 L149). Per Spec
                       ;; 009 §Production builds `emit-error!` itself
                       ;; elides under `:advanced` + `goog.DEBUG=false`,
                       ;; so this body only fires under JVM / dev-CLJS
                       ;; with debug-enabled? flipped off — exactly the
-                      ;; surface the rf2-r2uh tests exercise.
+                      ;; surface the rf2-r2uh tests exercise. The
+                      ;; payload-bearing slots (`:received` / `:value` /
+                      ;; `:explain` / the interpolated `:reason`) ride HERE
+                      ;; and ONLY here — see the always-on record's
+                      ;; structural-only contract in
+                      ;; `router/emit-boundary-rejection-record!`.
                       (trace/emit-error! :rf.error/schema-validation-failure
                                          (cond-> base-tags
                                            redact-fn (->> (redact-fn schema))))
@@ -250,7 +272,16 @@
                       ;; is not invoked. The handler-as-interceptor
                       ;; checks `:rf/skip-handler?` in its :before slot
                       ;; (see events.cljc).
-                      (assoc ctx :rf/skip-handler? true))))))))))))
+                      ;;
+                      ;; rf2-mwv4e — `:rf/boundary-rejected?` is the second
+                      ;; half: the router tail reads it to fan the always-on
+                      ;; structural record (axis 1) and to settle the dispatch
+                      ;; `:outcome :rejected`. Kept as a context marker rather
+                      ;; than emitting here so the dev and production
+                      ;; enforcement routes share ONE emit site and a rejection
+                      ;; can never produce two records.
+                      (assoc ctx :rf/skip-handler?      true
+                                 :rf/boundary-rejected? true))))))))))))
 
 ;; ---- :rf.schema/at-boundary registration (EP-0022, rf2-i3uxo2) ------------
 ;;

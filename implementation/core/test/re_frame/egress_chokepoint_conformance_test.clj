@@ -238,6 +238,37 @@
       `:reason` prose + full `:last-event` vector ride the DCE'd dev trace ONLY,
       never this record.
 
+      rf2-mwv4e adds a SECOND record from the same namespace —
+      `emit-boundary-rejection-record!` ships the `:rf.schema/at-boundary`
+      refusal (`:rf.error/schema-validation-failure`, `:source :boundary`) so an
+      opt-in production security gate is observable to the person who opted in;
+      before it, a refused untrusted payload skipped its handler, emitted
+      nothing on either axis, and had its `:events` record report `:outcome
+      :ok`. VETTED structural-only, and on THIS record that is a stricter
+      guarantee than a scrub rather than a weaker one. A validation failure's
+      natural detail is THE VALUE THAT FAILED, which at a system boundary is
+      attacker-controlled or user-private by definition and can carry secrets in
+      keys the declared schema never anticipated — so no schema-aware redactor
+      can be trusted to have seen them, and the sibling treatment on
+      `re-frame.routing.url-change` / `re-frame.ssr.response` (scrub the one
+      untrusted slot, because that slot IS the observability payload) does not
+      transfer. Every payload-derived slot is therefore OMITTED OUTRIGHT: no
+      event vector, no `:value`, no `:received`, no `:explain`, no schema form,
+      and no human `:reason` — the last deliberately, since the dev trace's
+      `:reason` interpolates the offending value and would reintroduce the
+      `ssr/hydrate` prose hazard. What remains is a CLOSED key set of framework
+      keywords and structural identifiers: `:error`, `:where :event`, `:source
+      :boundary`, `:event-id` / `:failing-id` / `:schema-id` (all the event id —
+      a registered handler keyword, not caller data), `:frame`, `:recovery
+      :no-recovery`, `:time`. Nothing lifts a value out of the event vector or an
+      app-db slice, and there is no exception residual (a refusal is a gate
+      decision, not a throw). The key set is pinned CLOSED by
+      `re-frame.always-on-validation-production-test`, which also asserts the
+      ABSENCE of every payload-bearing key by name. The rich diagnosis
+      (`:value` / `:received` / `:explain` / interpolated `:reason`) rides the
+      DCE'd dev trace in `re-frame.spec` ONLY, exactly as the depth-halt prose
+      does — so this namespace's two records share one discipline.
+
   NOTE the census B5 site `re-frame.ssr.hydrate` is DELIBERATELY ABSENT: it
   lifts the untrusted `:payload-frame-id` out of the deserialised payload, so it
   is NOT structural-only — it ROUTES through `project-egress` (the B5 fix) and
