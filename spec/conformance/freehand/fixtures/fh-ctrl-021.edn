@@ -1,0 +1,189 @@
+{:fh/id  "FH-CTRL-021"
+ :fh/law "A fixed-extent virtual collection renders a WINDOW and states the collection: the visible window is pure arithmetic whose row count is bounded by the viewport and independent of the item count, the rows carry the caller's stable keys at their absolute indices so a window movement re-keys nothing, exactly one item subscription exists per RENDERED row rather than per item, the scroll position is ordinary frame data the control never writes, and every rendered row states the collection's true size and its own true position while the DOM holds only the window."
+
+ :frame   :rf.test/virtual-collection
+ :list-id "inbox"
+
+ ;; ---------------------------------------------------------------------------
+ ;; THE COLLECTION — ten thousand rows, forty on screen
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; The numbers are the ones the bead names: 10,000 items and a window of
+ ;; approximately forty. A 1280px viewport over 32px rows is exactly forty
+ ;; visible, so the overscan band is legible in every count below rather
+ ;; than lost in a rounding remainder.
+ :item-count      10000
+ :row-extent      32
+ :viewport-extent 1280
+ :overscan        4
+ :canvas-extent   320000
+
+ ;; THE PURE WINDOW, at four offsets chosen for the four things that can go
+ ;; wrong: the top edge (the overscan band must clamp rather than go
+ ;; negative), an offset that is NOT a row multiple (the window straddles
+ ;; two rows at both ends — the widest it ever is), the middle (no clamp at
+ ;; either end), and an offset past the end (clamped to the last full
+ ;; screen, so the last row is the last row).
+ :windows
+ [{:note "the top edge — the overscan band clamps at zero"
+   :scroll-offset 0      :first 0    :count 44}
+  {:note "an unaligned offset — the window straddles a row at both ends"
+   :scroll-offset 1000   :first 27   :count 49}
+  {:note "the middle — no clamp at either end"
+   :scroll-offset 160000 :first 4996 :count 48}
+  {:note "past the end — clamped to the last full screen"
+   :scroll-offset 999999 :first 9956 :count 44}]
+
+ ;; The CEILING the arithmetic guarantees for this viewport:
+ ;; ceil(1280/32) + 1 + 2*4. No offset produces more, and the unaligned row
+ ;; above reaches it — which is what makes the bound tight rather than
+ ;; merely true.
+ :window-ceiling 49
+
+ ;; The two degenerate collections. Both answer a window rather than
+ ;; throwing, and the second still states the collection's full extent —
+ ;; a viewport with no height shows nothing and the collection is still
+ ;; ten thousand rows tall.
+ :empty-collection {:first 0 :count 0 :extent 0}
+ :no-viewport      {:first 0 :count 0 :extent 320000}
+
+ ;; ---------------------------------------------------------------------------
+ ;; REVEAL — the arithmetic behind "the keyboard moved past the edge"
+ ;; ---------------------------------------------------------------------------
+ :reveals
+ [{:note "already whole on screen — the offset does not move"
+   :scroll-offset 0    :index 10   :offset 0}
+  {:note "one row below the window — brought to the bottom edge"
+   :scroll-offset 0    :index 40   :offset 32}
+  {:note "above the window — brought to the top edge"
+   :scroll-offset 3200 :index 50   :offset 1600}
+  {:note "the last row — clamped into the scrollable range"
+   :scroll-offset 0    :index 9999 :offset 318720}]
+
+ ;; ---------------------------------------------------------------------------
+ ;; IDENTITY — the two addresses a row carries
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; The KEY is the caller's stable item id, and it is what a reorder moves.
+ ;; The DOM ID is the row's position, and it is what `aria-activedescendant`
+ ;; and a stylesheet reach. Neither is derived from the other, and the
+ ;; structural rows below assert both at the same absolute index.
+ :key-prefix     "item-"
+ :first-key-at   {:scroll-offset 160000 :index 4996 :key "item-4996" :dom-id "inbox-row-4996"}
+ :posinset-at    {:index 4996 :aria-posinset 4997 :aria-setsize 10000}
+
+ ;; The window MOVEMENT the identity claim is about: two offsets one screen
+ ;; apart, whose windows overlap. Every key that is in both windows must be
+ ;; at the same absolute index in both — a control that keyed by window
+ ;; POSITION would renumber the whole overlap and remount every row in it.
+ :movement {:from 160000 :to 161280 :overlap-count 8}
+
+ ;; ---------------------------------------------------------------------------
+ ;; NARROW READ — the fan-out, counted
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; One item subscription per RENDERED row. The count is the window's, not
+ ;; the collection's, and the difference between them is the whole cost
+ ;; claim: 44 against 10,000.
+ :item-reads-at-top 44
+
+ ;; The counter-case that makes the claim non-vacuous. Relabelling one item
+ ;; leaves the IDENTITY vector identical — so the control's own props do
+ ;; not move and it is not invalidated — while the edited row's own read
+ ;; does move. A control handed the item vector instead would be
+ ;; invalidated by the same edit.
+ :edited-index 4998
+ :edited-key   "item-4998"
+ :edited-label "EDITED"
+
+ ;; ---------------------------------------------------------------------------
+ ;; THE MOUNTED ARM — a smaller viewport, so a scroll cycle is real work
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; Ten rows on screen over the same ten thousand, so each stop below
+ ;; replaces almost the whole window. The stops walk the top edge, a short
+ ;; hop, the middle, backwards, the bottom edge and back to the top: every
+ ;; one is a full window turnover, and the cycle is run repeatedly because
+ ;; a leak that survives one teardown is invisible and a leak that
+ ;; accumulates per row is not.
+ :mounted-viewport-extent 320
+ :mounted-overscan        2
+ :scroll-stops
+ [{:scroll-offset 0      :first 0    :count 12}
+  {:scroll-offset 320    :first 8    :count 14}
+  {:scroll-offset 3200   :first 98   :count 14}
+  {:scroll-offset 160000 :first 4998 :count 14}
+  {:scroll-offset 159680 :first 4988 :count 14}
+  {:scroll-offset 319680 :first 9988 :count 12}
+  {:scroll-offset 1024   :first 30   :count 14}
+  {:scroll-offset 0      :first 0    :count 12}]
+ :scroll-cycles 3
+
+ ;; The number of row RENDERS one cycle is worth — the sum of the window
+ ;; sizes above. It is stated so the residue claim has a magnitude
+ ;; attached: because consecutive stops barely overlap, very nearly this
+ ;; many occurrences are created and destroyed per cycle before the index
+ ;; is read empty.
+ :rows-rendered-per-cycle 106
+
+ ;; FOCUS. The viewport is the focus holder and the active row is named
+ ;; rather than focused, so the active row leaving the window cannot take
+ ;; focus with it. The mounted rows assert the named element is ABSENT
+ ;; while out of window and back when it returns — honest in both
+ ;; directions.
+ :active-index          3
+ :active-dom-id         "inbox-row-3"
+ :offset-hiding-active  160000
+ :offset-showing-active 0
+
+ ;; KEYBOARD. One press at the bottom edge of the first window: the
+ ;; application's handler moves the active index and computes the reveal
+ ;; offset in the same event, so the move and the scroll settle as one
+ ;; epoch.
+ :key-down            "ArrowDown"
+ :key-from-index      11
+ :key-to-index        12
+ :key-from-offset     0
+ :key-to-offset       96
+ :key-to-dom-id       "inbox-row-12"
+
+ ;; ---------------------------------------------------------------------------
+ ;; The roster record (rf2-drpa3.182.7)
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; `re-frame.freehand.roster` joins this with the index row that addresses
+ ;; the id. Modes, hosts, status and the canonical paragraph are read from
+ ;; that row and deliberately not restated here.
+ :fh/record
+ {:source [re-frame.freehand.collection]
+
+  :structural
+  [{:ns  re-frame.freehand.virtual-collection-cljs-test
+    :law "The window is pure arithmetic — bounded by the viewport, independent of the item count, clamped at both ends and total over a degenerate collection — and the tree it produces holds exactly that many rows, keyed by the caller's ids at their absolute indices, each stating the collection's true size, with exactly one item subscription per rendered row and none at all in the control itself."}
+   {:ns  re-frame.freehand.virtual-collection-parity-cljs-test
+    :law "The same declarations promoted with `{:compiled true}` — the control, its row shell and the caller — render a tree equal to the interpreted one at every offset, with the same keys at the same absolute indices, so promotion is a keyword rather than a rewrite."}]
+
+  :mounted
+  [{:ns  re-frame.freehand.virtual-collection-dom-cljs-test
+    :law "In Chromium a real scroll moves the window through the application's own event and nowhere else — the host's scrollTop and app-db hold ONE fact — the viewport keeps focus while the active row is unmounted and remounted beneath it, a keyboard move reveals a row that was not rendered, and after repeated full-window scroll cycles a teardown leaves no connected occurrence and no row node behind."}]
+
+  ;; The reads a run leaves for a reader are the two the DOM and the tree
+  ;; carry without instrumentation — the rendered row count and the window
+  ;; the viewport states — plus the two counters that make the cost claim
+  ;; numeric: how many rows were rendered and how many item subscriptions
+  ;; existed. All four are exact integers read off the render, never
+  ;; timings.
+  ;;
+  ;; `:residue :none`, and this is the witness where the claim is worth
+  ;; the most. Virtualization mounts and unmounts rows continuously, so a
+  ;; leaked boundary accumulates rather than merely persisting: the mounted
+  ;; suite runs the scroll cycles repeatedly, tears the root down through
+  ;; the shared lifecycle, and only then reads the substrate's own
+  ;; connected-occurrence index and the document — both must be EMPTY, as
+  ;; exact zeroes rather than thresholds.
+  :evidence
+  {:reads   [:dom/window-first :dom/window-count]
+   :counts  [:tree/rows-rendered :tree/item-reads]
+   :residue :none}
+
+  :prose :executable}}
