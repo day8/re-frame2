@@ -5,7 +5,8 @@
 /*
  * Policy gate for the VERDICT wiring of the implementation-side browser
  * runners — the places a runner can ship green while a fatal signal is
- * masked. Two such classes are pinned here:
+ * masked, or fail while naming the wrong cause. These classes are pinned
+ * here:
  *
  *   1. an uncaught Chromium `pageerror` the suite happened not to assert on
  *      (rf2-mwx08);
@@ -14,7 +15,10 @@
  *      failure-tally-only verdict (rf2-qqzmf);
  *   3. a cljs.test async row that called `done` twice, which `run-block`
  *      degrades to a `println` on the already-realized continuation and so
- *      can never reach the failure tally (rf2-u0cy4).
+ *      can never reach the failure tally (rf2-u0cy4);
+ *   4. a navigation that inherited Playwright's default 30s `load` ceiling —
+ *      a SECOND budget BROWSER_TEST_TIMEOUT_MS cannot reach, whose CI log
+ *      line reads like the summary timeout it is not (rf2-dczpv).
  *
  * Both are pinned statically for the same reason: these runners drive a
  * headless Chromium end-to-end, so their verdict paths are not cleanly
@@ -192,6 +196,30 @@ test('run-browser-tests: diagnostics are stamped at capture time, not flush time
     src,
     /page\.on\(\s*['"]console['"][\s\S]{0,320}?diagnostics\.add\(\s*`\$\{capturedAt\(\)\}/,
     'the console handler must stamp each captured line as it arrives',
+  );
+});
+
+test('run-browser-tests: navigation has its own explicit, named ceiling (rf2-dczpv)', () => {
+  const src = read('run-browser-tests.cjs');
+  // A bare `page.goto(URL, { waitUntil: 'load' })` takes Playwright's default
+  // 30s — a SECOND budget on this lane that BROWSER_TEST_TIMEOUT_MS cannot
+  // reach, and one whose failure line reads in CI like the summary timeout it
+  // is not. Dormant in a healthy tree (navigation normally commits in
+  // milliseconds), so it needs a static pin like the test-count floor.
+  assert.match(
+    src,
+    /page\.goto\(\s*URL\s*,\s*\{\s*waitUntil:[^}]*\btimeout:/,
+    'page.goto must pass an EXPLICIT timeout, never inherit Playwright\'s 30s default',
+  );
+  assert.doesNotMatch(
+    src,
+    /NAV_WAIT_UNTIL\s*=\s*['"]load['"]/,
+    "waitUntil 'load' cannot fire until the suite yields — the poll loop owns that wait",
+  );
+  assert.match(
+    src,
+    /page\.goto\([\s\S]{0,600}?catch[\s\S]{0,600}?NAVIGATION FAILED/,
+    'a failed navigation must name itself as the navigation ceiling, not the summary timeout',
   );
 });
 

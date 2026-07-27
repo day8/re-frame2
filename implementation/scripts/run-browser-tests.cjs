@@ -69,8 +69,40 @@ const URL = process.env.BROWSER_TEST_URL || 'http://localhost:8021';
 // control mutant run — left alone deliberately: that run is EXPECTED to
 // fail, so it wants a short leash, not this budget.
 const DEFAULT_TIMEOUT_MS = 360000;
-const TIMEOUT_MS = parseInt(process.env.BROWSER_TEST_TIMEOUT_MS || String(DEFAULT_TIMEOUT_MS), 10);
+const BROWSER_TEST_TIMEOUT_ENV_VAR = 'BROWSER_TEST_TIMEOUT_MS';
+const TIMEOUT_MS = parseInt(
+  process.env[BROWSER_TEST_TIMEOUT_ENV_VAR] || String(DEFAULT_TIMEOUT_MS), 10);
 const POLL_MS = 200;
+
+// rf2-dczpv — the lane's OTHER ceiling, now named and disarmed.
+//
+// `page.goto(URL, { waitUntil: 'load' })` with no explicit timeout takes
+// Playwright's default 30s. That is a second budget on this lane, entirely
+// separate from TIMEOUT_MS above, and it fired for real: a local run of the
+// `:browser-test` bundle died with `page.goto: Timeout 30000ms exceeded` after
+// 21 namespaces had already run and printed, and two immediately-following runs
+// of the identical bundle passed. Worse than the flake is the READING — in a CI
+// log that line is nearly indistinguishable from this runner's own summary
+// timeout, so the fix reached for would be a bigger BROWSER_TEST_TIMEOUT_MS,
+// which cannot touch it.
+//
+// WHY 'load' WAS ALWAYS WRONG HERE, not merely tight. `shadow.test.browser`
+// starts running the suite during page load, so the `load` event cannot fire
+// until the whole suite yields to the event loop. Waiting for it means waiting
+// for the tests to finish — which is the job of the poll loop below, against
+// the budget that is documented for it. A slow first namespace (before
+// rf2-mf4uy moved them out, `bench.b10-two-clock-dom-cljs-test` began its ~36s
+// synchronous burn at +8s, directly under the 30s ceiling) is enough to lose
+// the navigation on a loaded box.
+//
+// `'commit'` resolves as soon as the response is received and the document
+// starts loading, which no page script can delay: everything this runner needs
+// afterwards (the console tap, `page.evaluate`, the DOM scrape) auto-waits on
+// the execution context by itself. The explicit timeout is the same budget as
+// the summary wait, so the lane now has ONE number, and a genuine
+// server-not-listening failure still fails — at the navigation, naming itself.
+const NAV_WAIT_UNTIL = 'commit';
+const NAV_TIMEOUT_MS = TIMEOUT_MS;
 const VERBOSE_TESTS = isVerboseTests();
 
 // rf2-76lhy: stamp diagnostics at CAPTURE time, not at flush time.
@@ -275,7 +307,24 @@ async function main() {
     });
 
     diagnostics.add(`Navigating to ${URL} ...`);
-    await page.goto(URL, { waitUntil: 'load' });
+    try {
+      await page.goto(URL, { waitUntil: NAV_WAIT_UNTIL, timeout: NAV_TIMEOUT_MS });
+    } catch (err) {
+      // rf2-dczpv: name the ceiling that actually fired. A `page.goto: Timeout
+      // …ms exceeded` line and a `Timed out … waiting for cljs.test summary`
+      // line are near-indistinguishable in a CI log, and they are two different
+      // budgets — raising BROWSER_TEST_TIMEOUT_MS does nothing for this one.
+      console.error(
+        `NAVIGATION FAILED — this is the page.goto ceiling ` +
+          `(waitUntil: '${NAV_WAIT_UNTIL}', timeout: ${NAV_TIMEOUT_MS}ms), NOT ` +
+          `the cljs.test summary budget of ${TIMEOUT_MS}ms ` +
+          `(${BROWSER_TEST_TIMEOUT_ENV_VAR}). The suite never got as far as ` +
+          `being observed, so no summary and no failing assertion exist to ` +
+          `read. Raising ${BROWSER_TEST_TIMEOUT_ENV_VAR} will not help ` +
+          `(rf2-dczpv).`,
+      );
+      throw err;
+    }
 
     // Look for the cljs.test summary in one of three places, in order of preference:
     //   1. window.shadow$cljs_test_done   (custom hook a future runner may set)
