@@ -136,11 +136,18 @@
   collection off the substrate's own book — so these are what one looks
   like, not an arbitrary keyword list.
 
+  `residue-clean!` is the SHARED one (rf2-n9rzw): the mounted-lifecycle
+  facade's assertion, read after teardown over every root the test created
+  plus whatever substrate books the caller names. It leads the list because
+  it is what a mounted suite should reach for; the inline spellings behind
+  it are the local reads that predate it and remain perfectly good evidence.
+
   `nothing-survived` is included because the async surrogate factors its
   absence check into a named helper and calls it from every case; a rule
   that only recognised the inline spellings would refuse the most thorough
   suite in the set."
-  [#"\(zero\?" #"\(empty\?" #"nothing-survived" #"\(= \[\] " #"\(= 0 \(count"])
+  [#"residue-clean!" #"\(zero\?" #"\(empty\?" #"nothing-survived"
+   #"\(= \[\] " #"\(= 0 \(count"])
 
 (deftest a-residue-none-claim-is-backed-by-an-emptiness-assertion
   (testing "Per rf2-drpa3.182.7 acceptance 3: mounted cleanup is EXACT, and
@@ -176,6 +183,27 @@
           "an unmount-and-remove teardown is not a residue assertion")
       (is (some #(re-find % with-absence) emptiness-assertion)
           "and reading a book empty afterwards is"))))
+
+(deftest the-residue-rule-refuses-the-shared-teardown-without-the-shared-assertion
+  (testing "The mutation the shared facade makes possible, and the one this
+            rule now has to survive (rf2-n9rzw). Consuming
+            `mount-support`'s lifecycle is not the same as reading its
+            books: a suite can call `destroy-root!` — a real, correct
+            teardown — and never call `residue-clean!`, which is precisely
+            the state FH-CTRL-018 and FH-REACT-007 were in.
+
+            A rule that recognised the facade by NAME rather than by the
+            assertion would go green on the first half and stop refusing
+            anything, so it is run against both halves directly. A shared
+            assertion that cannot fail is the defect this whole seam exists
+            to remove."
+    (let [shared-teardown "(ms/destroy-root! container root)"
+          shared-assert   (str shared-teardown
+                               "\n(ms/residue-clean! \"FH-CTRL-018 — after teardown\")")]
+      (is (not-any? #(re-find % shared-teardown) emptiness-assertion)
+          "tearing down through the shared lifecycle asserts nothing on its own")
+      (is (some #(re-find % shared-assert) emptiness-assertion)
+          "and reading the shared residue assertion afterwards is what earns the claim"))))
 
 (deftest the-spine-records-what-it-has-not-yet-earned
   (testing "Per rf2-drpa3.182.7 acceptance 3: the roster's value here is

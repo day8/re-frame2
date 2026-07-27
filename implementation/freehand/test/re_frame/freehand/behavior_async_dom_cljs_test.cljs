@@ -141,12 +141,11 @@
   unhandled-rejection notification as its own task, so hopping to that task
   is the only way to read the door at all. Every settle in this file is
   still an explicit call."
-  (:require ["react" :as react]
-            ["react-dom/client" :as rdc]
-            [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.freehand :as v]
             [re-frame.freehand.behaviors :as behaviors]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.shell :as shell]
             [re-frame.live-frame :as live-frame]
@@ -157,7 +156,12 @@
   (test-support/make-reset-runtime-fixture
     {:adapter       plain-atom/adapter
      :ambient-frame nil
-     :async?        true}))
+     :async?        true
+     ;; Scope the shared lifecycle ledger to this case. Bookkeeping only —
+     ;; it forgets what the previous case mounted and tears nothing down,
+     ;; which is what lets `ms/residue-clean!` report a retained root AFTER
+     ;; a case rather than a reset swallowing it before the next.
+     :init-fn       (fn [] (ms/reset-ledger!))}))
 
 (def ^:private frame-id :dom/behavior-async)
 
@@ -435,37 +439,28 @@
 ;; Harness
 ;; ---------------------------------------------------------------------------
 
-(defn- browser? []
-  (and (exists? js/document) (some? (.-createElement js/document))))
-
-(defn- skip! [why]
-  (is true (str "a real React mount needs a DOM host — " why)))
-
-(defn- act
-  "A React 19 `act` boundary as a promise, so assertions run after the
-  commit AND its flushed effects rather than racing them."
-  [thunk]
-  (try
-    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-    (js/Promise.resolve (react/act (fn [] (js/Promise.resolve (thunk)))))
-    (catch :default e
-      (js/Promise.reject e))))
+;; The mounted LIFECYCLE — the `act` boundary, the `[container root]` pair
+;; and the teardown — comes from `re-frame.freehand.mount-support`, the one
+;; facade the browser tier shares (rf2-n9rzw). This file used to carry its
+;; own byte-identical copy of each.
 
 (defn- mount!
-  "A React root. With `watch-errors?` the root carries its OWN error
-  callbacks, so a throw React would otherwise hand to `reportError` — which
-  the browser lane counts as an uncaught page error and fails the run on —
-  arrives in `escapes` where a case can assert on it instead."
+  "A root through the shared lifecycle. With `watch-errors?` it carries its
+  OWN error callbacks, so a throw React would otherwise hand to
+  `reportError` — which the browser lane counts as an uncaught page error
+  and fails the run on — arrives in `escapes` where a case can assert on it
+  instead.
+
+  Only the callbacks are this suite's; the root, the container and the
+  enrolment in the residue ledger are the facade's."
   ([] (mount! false))
   ([watch-errors?]
-   (let [container (js/document.createElement "div")
-         opts      (when watch-errors?
-                     #js {:onUncaughtError (fn [e _info]
-                                             (swap! escapes conj [:react/uncaught (ex-message e)]))
-                          :onCaughtError   (fn [e _info]
-                                             (swap! escapes conj [:react/caught (ex-message e)]))})]
-     (.appendChild js/document.body container)
-     [container (rdc/createRoot container opts)])))
+   (ms/create-root!
+     (when watch-errors?
+       {:on-uncaught-error (fn [e _info]
+                             (swap! escapes conj [:react/uncaught (ex-message e)]))
+        :on-caught-error   (fn [e _info]
+                             (swap! escapes conj [:react/caught (ex-message e)]))}))))
 
 (defn- watch-rejections!
   "Open the page's `unhandledrejection` door for one case and answer the
@@ -500,11 +495,6 @@
   (if (or (seq @escapes) (zero? n))
     (js/Promise.resolve nil)
     (.then (task-boundary) (fn [_] (await-escape (dec n))))))
-
-(defn- teardown! [container root]
-  (.unmount root)
-  (.remove container)
-  nil)
 
 (defn- element [form]
   (shell/provide-frame frame-id (fr/element form)))
@@ -544,6 +534,21 @@
   (is (= {} @live)          (str where " — the library holds NO undisposed instance"))
   (owner-released! where))
 
+(defn- released!
+  "[[nothing-survived!]]'s three books, read through the SHARED lifecycle's
+  residue assertion — the terminal form of every case that unmounts.
+
+  It reads the same three absences, and adds the one no per-suite teardown
+  can make: that every ROOT this case created was torn down and left its
+  container empty and detached. That is the leak which contaminates every
+  later suite in the process rather than only this one, and it is the
+  assertion FH-BEHAVIOR-005's `:residue :none` rests on (rf2-n9rzw)."
+  [where]
+  (ms/residue-clean! where
+                     [["the library's undisposed-instance ledger" #(deref live)]
+                      ["the connection table"  #(behaviors/connection-count)]
+                      ["the live target index" #(behaviors/target-ids)]]))
+
 (defn- owner-phase
   "The phase of the one owner cell this case's `:connect` established."
   []
@@ -560,19 +565,19 @@
             with the desired spec; unmount releases it EXACTLY once. The
             CONTROL mount first proves the counters read zero for markup
             that never connected, so the zero at the end is a release."
-    (if-not (browser?)
-      (skip! "the browser job owns the acquisition cases")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job owns the acquisition cases")
       (async done
         (setup!)
         (let [[cc croot]       (mount!)
               [container root] (mount!)]
-          (-> (act #(.render croot (element [control-panel {}])))
+          (-> (ms/act #(.render croot (element [control-panel {}])))
               (.then (fn [_]
                        (is (= [] @ops) "the CONTROL mount asks the library for nothing")
                        (nothing-survived! "control mounted")
-                       (act #(teardown! cc croot))))
+                       (ms/act #(ms/destroy-root! cc croot))))
 
-              (.then (fn [_] (act #(.render root (element [chart-panel {:series [1 2]}])))))
+              (.then (fn [_] (ms/act #(.render root (element [chart-panel {:series [1 2]}])))))
               (.then (fn [_]
                        (is (= [[:acquire 1 [1 2]]] @ops)
                            "the commit asked for ONE construction and nothing more")
@@ -589,12 +594,12 @@
                        (is (= [[:chart/ready :main]] (events)))
                        (is (= [true] (accepted))
                            "and the LIVE connection's fenced dispatch was accepted")
-                       (act #(teardown! container root))))
+                       (ms/act #(ms/destroy-root! container root))))
 
               (.then (fn [_]
                        (is (= [[:acquire 1 [1 2]] [:set-spec 1 [1 2]] [:dispose 1]] @ops)
                            "unmount released it, exactly once")
-                       (nothing-survived! "after teardown")
+                       (released! "FH-BEHAVIOR-005 — after teardown")
                        (done)))
               (.catch (fn [e] (is false (str "mount rejected: " e)) (done)))))))))
 
@@ -620,17 +625,17 @@
 
             `:disconnect` still ran exactly once: a pending connection is a
             connection."
-    (if-not (browser?)
-      (skip! "the browser job owns the acquisition cases")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job owns the acquisition cases")
       (async done
         (setup!)
         (let [[container root] (mount!)]
-          (-> (act #(.render root (element [chart-panel {:series [7]}])))
+          (-> (ms/act #(.render root (element [chart-panel {:series [7]}])))
               (.then (fn [_]
                        (is (= [[:acquire 1 [7]]] @ops))
                        (is (= 1 (behaviors/connection-count)))
                        ;; UNMOUNT while the acquisition is still in flight.
-                       (act #(teardown! container root))))
+                       (ms/act #(ms/destroy-root! container root))))
 
               (.then (fn [_]
                        (is (= [[:acquire 1 [7]]] @ops)
@@ -651,7 +656,7 @@
                        (is (= [false] (accepted))
                            "and its outward dispatch was REFUSED — the context is
                             fenced to a generation that is gone")
-                       (nothing-survived! "after the late arrival")
+                       (released! "FH-BEHAVIOR-005 — after the late arrival")
                        (done)))
               (.catch (fn [e] (is false (str "mount rejected: " e)) (done)))))))))
 
@@ -668,12 +673,12 @@
             state into the cell, and the arriving handle is configured ONCE
             with the latest — which is a fact about the cell, not a
             scheduling policy."
-    (if-not (browser?)
-      (skip! "the browser job owns the acquisition cases")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job owns the acquisition cases")
       (async done
         (setup!)
         (let [[container root] (mount!)
-              render (fn [series] (act #(.render root (element [chart-panel {:series series}]))))]
+              render (fn [series] (ms/act #(.render root (element [chart-panel {:series series}]))))]
           (-> (render [1])
               (.then (fn [_] (render [1 2])))
               (.then (fn [_] (render [1 2 3])))
@@ -692,10 +697,10 @@
               (.then (fn [_]
                        (is (= [[:acquire 1 [1]] [:set-spec 1 [1 2 3]] [:set-spec 1 [9]]] @ops)
                            "once ready, a movement is an ordinary host call")
-                       (act #(teardown! container root))))
+                       (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (= [:dispose 1] (last @ops)) "and it still releases once")
-                       (nothing-survived! "after teardown")
+                       (released! "FH-BEHAVIOR-005 — after teardown")
                        (done)))
               (.catch (fn [e] (is false (str "mount rejected: " e)) (done)))))))))
 
@@ -717,13 +722,13 @@
             re-enter a live phase, and the next thing to read the phase
             would believe the connection was merely broken rather than
             gone."
-    (if-not (browser?)
-      (skip! "the browser job owns the acquisition cases")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job owns the acquisition cases")
       (async done
         (setup!)
         (let [[container root] (mount!)]
-          (-> (act #(.render root (element [chart-panel {:series [4]}])))
-              (.then (fn [_] (act #(teardown! container root))))
+          (-> (ms/act #(.render root (element [chart-panel {:series [4]}])))
+              (.then (fn [_] (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_] (settle! 0 :fail)))
               (.then (fn [_]
                        (is (= [[:acquire 1 [4]]] @ops)
@@ -734,7 +739,7 @@
                             has already settled the connection is terminal")
                        (is (= [false] (accepted))
                            "and its dispatch was refused, because the view is gone")
-                       (nothing-survived! "after the late rejection")
+                       (released! "FH-BEHAVIOR-005 — after the late rejection")
                        (done)))
               (.catch (fn [e] (is false (str "mount rejected: " e)) (done)))))))))
 
@@ -750,14 +755,14 @@
             second half is the assertion that matters: when the handle
             arrives, the refused export must NOT run. A queue here would fire
             an export the user asked for and gave up on."
-    (if-not (browser?)
-      (skip! "the browser job owns the acquisition cases")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job owns the acquisition cases")
       (async done
         (setup!)
         (let [[container root] (mount!)]
-          (-> (act #(.render root (element [chart-panel {:series [5]}])))
+          (-> (ms/act #(.render root (element [chart-panel {:series [5]}])))
               (.then (fn [_]
-                       (act #(rf/dispatch-sync [:chart/command {:target :chart/main
+                       (ms/act #(rf/dispatch-sync [:chart/command {:target :chart/main
                                                                 :op     :export}]
                                                {:frame frame-id}))))
               (.then (fn [_]
@@ -777,17 +782,17 @@
                        (is (= [[:chart/export-refused :pending] [:chart/ready :main]]
                               (events)))
                        ;; the same command, now that there IS a host
-                       (act #(rf/dispatch-sync [:chart/command {:target :chart/main
+                       (ms/act #(rf/dispatch-sync [:chart/command {:target :chart/main
                                                                 :op     :export}]
                                                {:frame frame-id}))))
               (.then (fn [_]
                        (is (= [:export 1] (last @ops))
                            "once ready the very same command reaches the host")
                        (is (= [:chart/exported "png:1"] (last (events))))
-                       (act #(teardown! container root))))
+                       (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (= [:dispose 1] (last @ops)))
-                       (nothing-survived! "after teardown")
+                       (released! "FH-BEHAVIOR-005 — after teardown")
                        (done)))
               (.catch (fn [e] (is false (str "mount rejected: " e)) (done)))))))))
 
@@ -818,14 +823,14 @@
             boundary the recipe can honestly claim: everything the owner
             controls is released; a handle the library will not release is
             not one of those things."
-    (if-not (browser?)
-      (skip! "the browser job owns the acquisition cases")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job owns the acquisition cases")
       (async done
         (setup!)
         ;; BOTH doors open, so "which one read" is a measurement.
         (let [close-door       (watch-rejections!)
               [container root] (mount! :watch-errors)]
-          (-> (act #(.render root (element [chart-panel {:series [6]}])))
+          (-> (ms/act #(.render root (element [chart-panel {:series [6]}])))
               (.then (fn [_] (settle! 0 :ok)))
               (.then (fn [_]
                        (is (= [[:acquire 1 [6]] [:set-spec 1 [6]]] @ops)
@@ -834,7 +839,7 @@
                        (is (= :ready (owner-phase)))
                        ;; ARM the failure only now, so it lands on the FIRST release.
                        (reset! brittle #{1})
-                       (-> (act #(teardown! container root))
+                       (-> (ms/act #(ms/destroy-root! container root))
                            (.catch (fn [e]
                                      (swap! escapes conj [:act/rejected (ex-message e)])
                                      nil)))))
@@ -888,15 +893,15 @@
             The owner's side is unchanged and still perfect: `:closed`
             before the handle ever arrived, connection table and target
             index already empty, exactly one release attempted."
-    (if-not (browser?)
-      (skip! "the browser job owns the acquisition cases")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job owns the acquisition cases")
       (async done
         (setup!)
         ;; BOTH doors open, so "which one read" is a measurement.
         (let [close-door       (watch-rejections!)
               [container root] (mount! :watch-errors)]
-          (-> (act #(.render root (element [chart-panel {:series [7]}])))
-              (.then (fn [_] (act #(teardown! container root))))
+          (-> (ms/act #(.render root (element [chart-panel {:series [7]}])))
+              (.then (fn [_] (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (= :closed (owner-phase))
                            "torn down while pending — the owner is already terminal")
