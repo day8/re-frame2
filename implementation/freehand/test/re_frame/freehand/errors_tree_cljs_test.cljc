@@ -7,14 +7,34 @@
   a render-class throw below the boundary is CONTAINED — the boundary node
   holds the fallback subtree — while every SIBLING node the surrounding walk
   built keeps its place. The browser realises the same law through a React
-  class boundary; here it is proven as a pure structural value."
+  class boundary; here it is proven as a pure structural value.
+
+  ## Posture split (rf2-74a89)
+
+  ONE assertion in this namespace changes under the real
+  `-Dre-frame.debug=false` gate: the closed-option-roster refusal in
+  `the-rest-of-the-error-boundary-grammar-is-refused-arm-by-arm`. That
+  refusal belongs to the boundary's CLOSED PROPS SCHEMA
+  (`:rf.error/view-bad-props`), and `descriptor.cljc` gates the whole
+  closing-schema arm on `interop/debug-enabled?` because \"a schema is a
+  compile-time and tooling fact\". Under the gate the call is STILL REFUSED
+  — the boundary's own always-on `read-opts` check fires instead
+  (`:rf.error/error-boundary-bad-args`) — so only the diagnostic id
+  differs. Do not read it as an acceptance regression.
+
+  REFUSED is therefore asserted posture-independently and the exact id is
+  kept verbatim in a `(when interop/debug-enabled? …)` arm. Everything else
+  here — containment, sibling survival, attribution, and the other three
+  `read-opts` refusals — is the boundary's own always-on machinery and is
+  asserted unchanged in both postures."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.descriptor :as descriptor]
             [re-frame.freehand.errors :as eb]
-            [re-frame.freehand.tree :as tree]))
+            [re-frame.freehand.tree :as tree]
+            [re-frame.interop :as interop]))
 
 (def error-001 (conf/fixture :FH-ERROR-001))
 
@@ -269,12 +289,18 @@
             it actually fires rather than as a reader might assume."
     ;; The option roster is CLOSED — a one-character typo must not produce a
     ;; boundary that quietly means something other than it says.
-    (is (= :rf.error/view-bad-props
-           (conf/caught-id
-             #(tree/render [v/error-boundary {:fallback (:fallback error-001)
-                                              :catch    true}
-                            [ok-child {}]])))
-        "an option outside the roster is refused, not ignored")
+    (let [got (conf/caught-id
+                (fn []
+                  (tree/render [v/error-boundary {:fallback (:fallback error-001)
+                                                  :catch    true}
+                                [ok-child {}]])))]
+      (is (not= conf/no-throw got)
+          "an option outside the roster is refused, not ignored — in either posture")
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring). WHICH check
+      ;; owns the refusal is what the gate changes; that it IS refused is not.
+      (when interop/debug-enabled?
+        (is (= :rf.error/view-bad-props got)
+            "an option outside the roster is refused, not ignored")))
     ;; A boundary with no fallback would show NOTHING on failure — the one
     ;; outcome worse than the failure itself.
     (is (= :rf.error/error-boundary-bad-args
