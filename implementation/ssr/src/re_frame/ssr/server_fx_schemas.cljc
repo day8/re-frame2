@@ -38,7 +38,37 @@
   cannot express (a CRLF-bearing string is still a `:string`). Spec 011
   §CRLF fail-fast: 'args validation surfaces the [structural] bug at
   the dispatch site; … the fail-fast posture composes cleanly with the
-  structured-fx-args schemas'.")
+  structured-fx-args schemas'.
+
+  ## What runs when (rf2-dtpfv)
+
+  These schemas are a DEV-POSTURE boundary and always were: `validate-fx!`
+  is `(if interop/debug-enabled? (run-validation …) true)`, read once at
+  namespace-load time, so under `-Dre-frame.debug=false` the Spec 010
+  §Validation order step-5 gate does not run at all and its documented
+  `:skipped` recovery never happens. That is intended for USER fx —
+  trust-the-programmer, no hot-path cost — but it left the framework's own
+  wire-adjacent contract unguarded: a malformed reserved fx RAN and its args
+  landed on the response accumulator `ssr/get-response` publishes.
+
+  So the SHAPE contract is now enforced twice, deliberately, with a
+  different job each time:
+
+  - **Here, in dev** — the Malli boundary rejects BEFORE the handler runs,
+    the fx is `:skipped`, siblings continue, the page still renders, and the
+    programmer gets the rich `:rf.error/schema-validation-failure :where
+    :fx-args` diagnostic naming the failing path.
+  - **In `re-frame.ssr.response`, in EVERY build** — cheap predicate guards
+    (`validate-status!`, `validate-string-arg!`, `validate-cookie-shape!`)
+    throw `:rf.error/server-fx-args-invalid` before the first
+    `swap-response!`, so the accumulator is never mutated in a release
+    build either. That is the only half a production JVM has.
+
+  The two must agree on the canonical cases, and nothing but discipline
+  keeps EDN in this file aligned with predicates in another. So they don't
+  rely on discipline: `ssr-reserved-fx-guards-test` drives ONE acceptance
+  corpus through both, and a widened schema that the guard still rejects
+  (or the reverse) fails there.")
 
 ;; ---- :rf.server/cookie — the structured-cookie shape ---------------------
 ;;
@@ -99,10 +129,26 @@
 ;; Per Spec 011 §HTTP response contract §Standard fx (line 438) +
 ;; [Spec-Schemas §Standard fx args schemas].
 
+(def http-status
+  "An HTTP status code — an int in the RFC 9110 §15 status-line range
+  100–599 (rf2-dtpfv). Named once and shared by every `:status` slot below
+  so the three registrations cannot drift from each other, or from
+  `re-frame.ssr.response/validate-status!` — the always-on guard that
+  enforces the SAME range in a release build, where this schema does not
+  run at all (Spec 010 §Validation order step 5 is dev-posture for user fx;
+  the reserved `:rf.server/*` family guards its own args unconditionally).
+  `ssr-reserved-fx-guards-test`'s acceptance corpus drives the schema and
+  the guard from one literal, so a widened range cannot land on one side
+  only."
+  [:int {:min 100 :max 599}])
+
 (def set-status-args
   "Args of `:rf.server/set-status` — `:rf.fx.server/set-status-args`.
-  An HTTP status code int (e.g. 200 / 404 / 500)."
-  :int)
+  An HTTP status code int (e.g. 200 / 404 / 500), bounded to 100–599: the
+  status line admits nothing else, and a bare `:int` let `0` / `-1` /
+  `99999` through the dev boundary that exists to catch exactly that
+  (rf2-dtpfv)."
+  http-status)
 
 (def set-header-args
   "Args of `:rf.server/set-header` — `:rf.fx.server/set-header-args`.
@@ -168,8 +214,8 @@
   stays a pure shape check (key types only) and lets the no-target case
   fall through to the runtime's warning path."
   [:map
-   [:status   {:optional true} :int]      ;; default 302
-   [:location {:optional true} :string]]) ;; canonical and only target key
+   [:status   {:optional true} http-status]  ;; default 302
+   [:location {:optional true} :string]])    ;; canonical and only target key
 
 (def safe-redirect-args
   "Args of `:rf.server/safe-redirect` — `:rf.fx.server/safe-redirect-args`.
@@ -193,6 +239,6 @@
   so the shape gate never over-constrains a legitimate call."
   [:map
    [:location       :string]
-   [:status         {:optional true} :int]            ;; default 302
+   [:status         {:optional true} http-status]     ;; default 302
    [:relative-only? {:optional true} :boolean]
    [:allow          {:optional true} [:sequential :string]]])
