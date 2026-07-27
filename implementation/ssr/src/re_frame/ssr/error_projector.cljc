@@ -113,11 +113,22 @@
    :message    "Something went wrong"
    :retryable? false})
 
+(def not-found-public-error
+  "The locked 404 shape per Spec 011 §Default projector — the projection
+  for the two condition-gated `404` rows (a `:kind :route`
+  `:rf.error/no-such-handler` and `:rf.error/no-such-route`)."
+  {:status     404
+   :code       :not-found
+   :message    "Page not found"
+   :retryable? false})
+
 (defn default-error-projector-fn
   "The runtime's default projector. Implements Spec 011 §Default
   projector verbatim:
 
-    :rf.error/no-such-handler                  → 404 :not-found
+    :rf.error/no-such-handler
+      AND (get-in trace-event [:tags :kind]) = :route
+                                               → 404 :not-found
     :rf.error/no-such-route                    → 404 :not-found
     :rf.error/cofx-value-invalid               → 400 :bad-request
     :rf.error/schema-validation-failure
@@ -125,6 +136,21 @@
                                                → 400 :bad-request
     anything else                              → 500 :internal-error
                                                  (fallback-public-error)
+
+  The `:rf.error/no-such-handler` 404 arm is GATED on the miss's `:kind`
+  tag (rf2-ov56u, ruling rf2-rqje9). Spec 009 catalogues three misses
+  under this one category, discriminated by mandatory `:kind`: a URL that
+  matched no route (`:kind :route`), a dispatch to an unregistered event
+  id (`:kind :event`), and a Tool-Pair surface addressing an unknown
+  frame-id (`:kind :frame`). Only the first is a missing-PAGE condition.
+  The other two are server defects — an event handler the server forgot
+  to register is not something the client got wrong — so they fall
+  through to the locked generic-500, exactly as Spec 011 §Default
+  projector's condition-gating prose has always required. The gate became
+  load-bearing when the URL-driven route miss was promoted onto the
+  always-on error axis: before that promotion no `:rf.error/no-such-handler`
+  reached this projector in production at all, and the ungated arm would
+  now answer 404 for an unregistered event id.
 
   `:rf.error/cofx-value-invalid` is a client-input fault: a
   non-recordable / out-of-`:schema` `:rf.cofx` value that entered through
@@ -150,6 +176,7 @@
   The non-enumerated default covers the 500-class trace events
   (:rf.error/handler-exception, :rf.error/sub-exception,
   :rf.error/fx-handler-exception, :rf.error/drain-depth-exceeded), the
+  non-:route `:rf.error/no-such-handler` misses, the
   server-side `:where :fx-args` (and any other non-client) schema-
   validation-failure, and any future :rf.error/* category that should
   fall through to the locked generic-500 shape — no new case arm
@@ -161,12 +188,24 @@
   prod-safe baseline."
   [trace-event]
   (case (:operation trace-event)
-    (:rf.error/no-such-handler
-      :rf.error/no-such-route)
-    {:status     404
-     :code       :not-found
-     :message    "Page not found"
-     :retryable? false}
+    :rf.error/no-such-handler
+    ;; GATED (rf2-ov56u): only the URL-driven `:kind :route` miss is a
+    ;; missing-PAGE condition. `:kind :event` (an unregistered event id)
+    ;; and `:kind :frame` (a Tool-Pair surface naming an unknown frame)
+    ;; are SERVER defects and fall through to the locked generic-500 — a
+    ;; 404 there would tell the client its URL was wrong when the server
+    ;; was. A miss carrying no `:kind` also falls through (the 404 arm is
+    ;; opt-in on the route discriminator — fail-safe), symmetric with the
+    ;; `:where`-gated schema-validation-failure arm below.
+    (if (= :route (get-in trace-event [:tags :kind]))
+      not-found-public-error
+      fallback-public-error)
+
+    ;; The `route-url` caller-misuse category: a route-id that is not in
+    ;; the registrar. One failure mode, no `:kind` discriminator, so the
+    ;; 404 arm is unconditional.
+    :rf.error/no-such-route
+    not-found-public-error
 
     ;; A non-recordable / out-of-`:schema` `:rf.cofx` value supplied at
     ;; the dispatch boundary — client-supplied input (rf2-57ehvw). This

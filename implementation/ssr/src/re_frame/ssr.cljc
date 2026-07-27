@@ -369,29 +369,38 @@ explicitly."
                      {:doc "Built-in default projector. Spec 011 §Default projector mapping."}
                      default-error-projector-fn)
 
-;; The always-on listener survives `interop/debug-enabled? = false`,
-;; so the SSR `:rf/public-error` projection contract holds even when the
-;; trace surface is gated off. Catches every `:rf.error/*` category that
-;; flows through `re-frame.error-emit/dispatch-on-error!` —
-;; `:rf.error/handler-exception` (router), `:rf.error/fx-handler-
-;; exception` family (fx), `:rf.error/flow-eval-exception` (flows), and
-;; `:rf.error/sub-exception` (reactive sub-run). A sub that throws mid-render
-;; projects a fail-closed 5xx under production hardening instead of
-;; recovering to nil and producing an HTTP 200.
+;; The always-on listener survives `interop/debug-enabled? = false`, so the
+;; SSR `:rf/public-error` projection contract holds even when the trace
+;; surface is gated off. It consumes `:rf.error/*` records GENERICALLY, so
+;; its coverage is exactly the always-on axis's promoted set (Spec 009
+;; §Channel-promotion catalogue): the event-centric
+;; `error-emit/dispatch-on-error!` categories — `:rf.error/handler-exception`
+;; (router), the `:rf.error/fx-handler-exception` family (fx),
+;; `:rf.error/flow-eval-exception` (flows), `:rf.error/sub-exception`
+;; (reactive sub-run) and `:rf.error/no-such-handler` `:kind :event`
+;; (router.diagnostics) — plus the NON-EVENT union records fanned through
+;; `dispatch-error-record!`: `:rf.error/no-such-handler` `:kind :route`
+;; (rf2-ov56u — routing's URL-driven miss, the one this projector maps to
+;; 404), `:rf.error/drain-depth-exceeded` (rf2-fcbrjo) and the promoted SSR
+;; categories. A sub that throws mid-render projects a fail-closed 5xx under
+;; production hardening instead of recovering to nil and producing an HTTP
+;; 200; an unroutable URL projects 404 instead of a soft-404 200.
 (rf-emit/register-error-listener! ::error-projection
                                   error-listener/error-emit-projection-listener)
 
-;; The development trace listener covers categories that emit only via
-;; `trace/emit-error!` (no always-on emission path): `:rf.error/no-such-
-;; handler`, `:rf.error/no-such-route`, `:rf.error/schema-validation-
-;; failure`, `:rf.error/drain-depth-exceeded`. (`:rf.error/sub-exception`
-;; also fires here for the development trace surface.)
-;; These categories DCE under `interop/debug-enabled? = false`; the
-;; substrate-shipping projector relies on the dev gate for them. Both
-;; listeners share id `::error-projection` to keep the contract surface
-;; addressable as one logical projector — `apply-error-projection!`
-;; 1-arity is last-write-wins, so the duplicate buffer entry under dev
-;; is benign.
+;; The development trace listener covers the same categories on the DEV
+;; trace bus, plus the ones that ride it ALONE and so DCE under
+;; `interop/debug-enabled? = false`: `:rf.error/no-such-route` (the
+;; `route-url` caller-misuse throw, catalogued diagnostic) and
+;; `:rf.error/schema-validation-failure` (boundary validation is itself
+;; production-elided per Spec 010 §Production builds, so there is no
+;; production reject to project). Categories on BOTH axes —
+;; `:rf.error/sub-exception`, `:rf.error/no-such-handler`,
+;; `:rf.error/drain-depth-exceeded` — buffer twice in dev; the always-on
+;; axis is their production status source of truth. Both listeners share id
+;; `::error-projection` to keep the contract surface addressable as one
+;; logical projector — `apply-error-projection!` 1-arity is
+;; last-write-wins, so the duplicate buffer entry under dev is benign.
 (trace-tooling/register-listener! ::error-projection
                                   error-listener/error-projection-listener)
 

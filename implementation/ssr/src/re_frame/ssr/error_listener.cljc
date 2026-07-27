@@ -301,18 +301,24 @@
   redirect precedence is applied once. Registered in the `re-frame.ssr`
   façade under `::error-projection`.
 
-  This listener covers the `:rf.error/*` categories that fire through
-  `trace/emit-error!`: `:rf.error/no-such-handler`,
-  `:rf.error/no-such-route`, `:rf.error/schema-validation-failure`,
-  `:rf.error/drain-depth-exceeded`. They elide under
-  `interop/debug-enabled? = false`. The production-survivable channel for
-  the 500-class errors is `error-emit-projection-listener` (below).
+  This listener covers every `:rf.error/*` category that fires through
+  `trace/emit-error!` — which is a SUPERSET of the always-on axis, not a
+  disjoint set. Two projection-eligible categories ride the dev bus ALONE
+  and therefore elide under `interop/debug-enabled? = false`:
+  `:rf.error/no-such-route` (the `route-url` caller-misuse throw, Spec 009
+  catalogues it diagnostic) and `:rf.error/schema-validation-failure`
+  (boundary validation is itself production-elided per Spec 010
+  §Production builds, so no production reject exists to project).
 
-  `:rf.error/sub-exception` also arrives here and rides the always-on
-  substrate below, which is its production status source of truth (a sub
-  throwing mid-`render-to-string` under production hardening must project
-  a fail-closed 5xx, not recover to a silent 200). In dev both listeners
-  fire for sub-exception — last-write-wins + idempotent projection makes
+  The rest arrive on BOTH buses, and the always-on
+  `error-emit-projection-listener` (below) is their production status
+  source of truth: `:rf.error/sub-exception` (a sub throwing
+  mid-`render-to-string` under production hardening must project a
+  fail-closed 5xx, not recover to a silent 200),
+  `:rf.error/no-such-handler` (both the `:kind :event` dispatch miss and —
+  since rf2-ov56u — the `:kind :route` URL miss the default projector maps
+  to 404), and `:rf.error/drain-depth-exceeded` (rf2-fcbrjo). In dev both
+  listeners fire for those — last-write-wins + idempotent projection makes
   the duplicate benign."
   [event]
   (when (= :error (:op-type event))
