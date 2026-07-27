@@ -68,5 +68,5 @@
                           "lifecycle" "local"]
 
  ;; And the kit's whole published roster, exactly.
- :public-vars #{"field" "buffered-field" "release" "key-intent"
+ :public-vars #{"field" "buffered-field" "release" "key-intent" "composing?"
                 "commit-key" "cancel-key"}}
