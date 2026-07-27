@@ -1,0 +1,91 @@
+;; FH-REACT-010 — a React library that owns animation stays React-primary, and
+;; the property it animates has exactly ONE writer.
+;;
+;; Framer Motion is the shape this row exists for, and it is the third-party
+;; shape whose conflict is hardest to SEE. Google Maps takes a node over
+;; visibly; a Radix portal lands somewhere visibly else. Framer Motion competes
+;; for the same channel React is already using: it writes `transform` and
+;; `opacity` imperatively onto a node React re-renders. Nothing errors, nothing
+;; warns, and the loser of the race is whoever wrote first.
+;;
+;; So this row is two claims, and the first is the one an author needs before
+;; they need any other:
+;;
+;;   ONE WRITER. Where the library owns the animated property and the Freehand
+;;   call does NOT author it, an ordinary Freehand re-render — a prop moving, a
+;;   subscription firing — leaves the library's imperative write standing.
+;;   Where BOTH write it, the next commit wins and the library's own state and
+;;   the DOM disagree, silently. The recovery is not a mechanism: it is to stop
+;;   authoring the property the library owns and drive it through the library's
+;;   own prop instead.
+;;
+;;   ONE EXIT-RETENTION OWNER. A departed keyed child has to stay mounted while
+;;   its exit runs, and the library owns that retention — it keeps the child
+;;   after Freehand has stopped naming it, and reports completion through a
+;;   declared callback position. Freehand's own `v/presence` is a SECOND
+;;   retention owner over the same keyed subtree, and the routing is to pick
+;;   one. Where the animation is the library's, the retention is the library's,
+;;   and the substrate holds nothing for it — which the `:props` row below
+;;   measures as an absence rather than asserting as a policy.
+;;
+;; WHAT RUNS, AND WHAT DOES NOT. `framer-motion` is not installed. Adding it to
+;; `implementation/package.json` is a shared-file change on a repository where
+;; five witnesses land in parallel, and — more to the point — a real Framer
+;; Motion animation is driven by `requestAnimationFrame` against a wall clock,
+;; so a gate built on it would be measuring frame timing. The proof drives a
+;; surrogate reproducing the ownership shape with the clock taken out: a
+;; component that writes `transform` imperatively onto its own ref when the
+;; test says so, and a keyed list that retains a departed child until the test
+;; says the exit is done. See `:evidence :limits`.
+{:fh/id "FH-REACT-010"
+ :fh/law
+ "A React library that owns animation stays React-primary behind ONE `v/defhost` door, and the property it animates has exactly ONE writer: where the call does not author that property, an ordinary Freehand commit leaves the library's imperative write standing, and where both write it the commit wins and the library's own state and the DOM silently disagree; likewise exit retention has exactly ONE owner — the library keeps a departed keyed child mounted after Freehand has stopped naming it and reports completion through a declared callback position, with no substrate retention beside it."
+
+ ;; ONE WRITER — the library owns `transform`, the call does not author it.
+ :one-writer
+ {:after-library-write    "translateX(10px)"
+  :after-unrelated-commit "translateX(10px)"
+  :library-book           [[:animate 10]]}
+
+ ;; TWO WRITERS — the call authors `transform` as well. Both write the same
+ ;; channel; the commit is simply later. `:library-book` is unchanged across
+ ;; the clobber, which is the whole finding: the library does not know.
+ :two-writers
+ {:after-library-write   "translateX(10px)"
+  :after-authored-commit "translateX(3px)"
+  :library-book          [[:animate 10]]
+  :recovery              :drive-it-through-the-librarys-own-prop-never-through-style}
+
+ ;; ONE EXIT-RETENTION OWNER. `:dom` is what is really on the page; `:props` is
+ ;; what the last commit handed the host. They diverge for exactly as long as
+ ;; the library is retaining, and that divergence IS the retention.
+ :exit
+ {:mounted
+  {:dom ["a" "b"] :exiting [] :props ["a" "b"]}
+  :after-freehand-drops-b
+  {:dom ["a" "b"] :exiting ["b"] :props ["a"]}
+  :after-library-finishes
+  {:dom ["a"] :exiting [] :props ["a"] :completed ["b"]}}
+
+ :after-unmount {:roots 0}
+
+ ;; ---------------------------------------------------------------------------
+ ;; The roster record (rf2-drpa3.182.7)
+ ;; ---------------------------------------------------------------------------
+ :fh/record
+ {:source [re-frame.freehand.descriptor re-frame.freehand.react]
+
+  ;; NO structural tier: Freehand never executes the registered React component
+  ;; on the JVM, and an animation that is not running has no writer to contest.
+  :mounted
+  [{:ns  re-frame.freehand.ownership-motion-dom-cljs-test
+    :law "An animation-owning React library behind one `v/defhost` door keeps the animated property to ONE writer — an unrelated Freehand commit leaves the library's imperative write standing, and a commit that also authors the property overwrites it while the library's own book stays unchanged — and keeps exit retention to ONE owner, retaining a departed keyed child after the last commit stopped naming it and reporting completion through a declared callback position."}]
+
+  :evidence
+  {:reads   [:root/live-root-ids :motion/committed-props]
+   :counts  [:motion/writes]
+   :residue :none
+   :limits  ["`framer-motion` is NOT installed. A real animation is driven by `requestAnimationFrame` against a wall clock, so a gate built on it would measure frame timing rather than ownership; and adding the dependency is a shared-file change on a repository where five witnesses land in parallel. The mounted proof drives a surrogate with the clock removed — an imperative `transform` write on the component's own ref, performed when the case says so, and a keyed list retaining a departed child until the case says the exit is done."
+             "`:two-writers` records a CONFLICT, not a defect in either party. Two writers to one DOM property is last-write-wins by construction; what the row establishes is that the loss is SILENT — no error, no warning, and the library's own book unchanged — which is why the recovery is a routing decision rather than a mechanism."]}
+
+  :prose :executable}}

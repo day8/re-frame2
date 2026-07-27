@@ -1,0 +1,94 @@
+;; FH-REACT-009 — a compound React library stays React-primary behind ONE door.
+;;
+;; Radix UI is the shape this row exists for. A Radix dialog is not a component;
+;; it is a PROTOCOL between components — `Dialog.Root` owns the open state and
+;; publishes it through React context, `Dialog.Trigger` uses `asChild` to clone
+;; the caller's own element and inject a ref and a handler into it,
+;; `Dialog.Portal` re-parents its subtree into `document.body` through React's
+;; own `createPortal`, and `Dialog.Content` moves focus in on open and puts it
+;; back on close. Every one of those is React's protocol, and every one of them
+;; is the kind of thing a substrate is tempted to grow a vocabulary for.
+;;
+;; Freehand's answer is to grow none of it. There is no neutral portal (Spec 004
+;; §No neutral portal), no ref API, no `asChild`, and no focus policy. What there
+;; is, is ONE door: register the WRAPPER — the component that composes the parts
+;; — through `v/defhost`, and the whole protocol stays inside React's tree where
+;; it already works. Spec 004 §Three disjoint planes states the boundary in one
+;; sentence: "Freehand does NOT promise that a Freehand-authored child can
+;; participate in `asChild`, arbitrary `cloneElement`, or ref-injection
+;; protocols; keep such a region React-owned and register its wrapper through
+;; `v/defhost`."
+;;
+;; That sentence is a PROMISE WITHHELD, and a withheld promise is worth exactly
+;; as much as the measurement behind it. So `:as-child` below is an A/B on one
+;; `cloneElement(child, {ref})` call: the same probe, the same clone, two
+;; children. A React-authored child takes the ref. A Freehand-authored one does
+;; not — silently, because a function component receives an unused prop rather
+;; than an error. Knowing WHICH of those two happens is the difference between
+;; an author who registers the wrapper and one who spends an afternoon on a ref
+;; that is never going to arrive.
+;;
+;; WHAT RUNS, AND WHAT DOES NOT. Radix's own packages are not installed: adding
+;; `@radix-ui/react-dialog` to `implementation/package.json` is a shared-file
+;; change on a repository where five witnesses land in parallel, and the law
+;; below is not about Radix's code. The proof drives a surrogate reproducing the
+;; compound SHAPE exactly — context between the parts, `asChild` cloning with a
+;; ref, a real `react-dom` portal into `document.body`, and focus moved on open
+;; and restored on close — so what is measured is where OWNERSHIP falls at that
+;; boundary. See `:evidence :limits`.
+{:fh/id "FH-REACT-009"
+ :fh/law
+ "A compound React library — context between its parts, `asChild` ref-cloning, a real portal, its own focus management — crosses through ONE `v/defhost` registration of the WRAPPER, and every part of its protocol stays React-primary: the portalled subtree lands in React's target and never in the Freehand root's container, focus moves on open and is restored on close without the substrate observing either, the caller's Freehand children render inside the registered component's own tree, and a Freehand-authored child does NOT participate in `asChild` ref-injection — the same clone that lands a ref on a React-authored child lands none on it, silently, which is why the recovery is to register the wrapper rather than to reach inward."
+
+ ;; Where each part of the compound lives once the dialog is open. The first two
+ ;; rows are the ownership boundary: the trigger is inside the Freehand root's
+ ;; container because Freehand rendered the host there, and the content is NOT,
+ ;; because React's portal put it somewhere Freehand never chose.
+ :ownership
+ {:trigger-in-container true
+  :content-in-container false
+  :content-in-body      true
+  ;; The caller's Freehand children cross as ordinary React children and land
+  ;; inside the registered component's own tree — which here means inside the
+  ;; portal, because that is where the wrapper renders them.
+  :freehand-child-text  "detail"}
+
+ ;; Focus is the library's, start to finish. The substrate neither moves it nor
+ ;; watches it move.
+ :focus
+ {:on-open  "radix-content"
+  :on-close "radix-trigger"}
+
+ ;; The A/B on one `cloneElement(child, {ref})`. `:ref-lands` records the tag
+ ;; name the ref resolved to; nil is a ref that never arrived.
+ :as-child
+ {:react-authored   "BUTTON"
+  :freehand-authored nil
+  :recovery         :register-the-wrapper-through-defhost}
+
+ ;; Nothing a portalled compound created survives it — including the node React
+ ;; put OUTSIDE the container, which no container-scoped teardown would reach.
+ :after-unmount
+ {:body-content 0 :roots 0}
+
+ ;; ---------------------------------------------------------------------------
+ ;; The roster record (rf2-drpa3.182.7)
+ ;; ---------------------------------------------------------------------------
+ :fh/record
+ {:source [re-frame.freehand.descriptor re-frame.freehand.react]
+
+  ;; NO structural tier. Freehand never executes the registered React component
+  ;; on the JVM, so a structural render of this crossing is the honest marker
+  ;; FH-REACT-008 already owns — there is no compound protocol there to route.
+  :mounted
+  [{:ns  re-frame.freehand.ownership-radix-dom-cljs-test
+    :law "A compound React dialog registered as ONE host keeps its whole protocol React-primary: context reaches its parts, the portal lands in `document.body` and never in the Freehand container, focus moves on open and returns on close, the caller's Freehand children render inside the wrapper's own tree, and the same `cloneElement(child, {ref})` that lands a ref on a React-authored child lands none on a Freehand-authored one."}]
+
+  :evidence
+  {:reads   [:root/live-root-ids :document/active-element]
+   :counts  [:radix/body-content-nodes]
+   :residue :none
+   :limits  ["Radix's own packages are NOT installed. Adding `@radix-ui/react-dialog` to `implementation/package.json` is a shared-file change, and the law is about where ownership falls rather than about Radix's implementation of it. The mounted proof drives a surrogate reproducing the compound shape — context between the parts, `asChild` cloning with a ref, a real `react-dom` `createPortal` into `document.body`, and focus moved on open and restored on close."
+             "The `:as-child` row records what React 19 does with a `ref` prop handed to a function component: it arrives as an ordinary unused prop rather than an error. A future React whose ref protocol changed would move that cell, and moving it is the correct outcome — the row states what an author will observe, not what the substrate guarantees."]}
+
+  :prose :executable}}
