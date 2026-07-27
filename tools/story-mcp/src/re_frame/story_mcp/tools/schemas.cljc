@@ -30,7 +30,7 @@
 
   When deduped, the response's `:structuredContent` slot is wrapped as
   `{:rf.mcp/dedup-table <cache-map>}` and the agent host reconstructs
-  via `(de-dupe.core/expand cache-map)`. Pass `false` to skip dedup —
+  via `(re-frame.mcp-base.dedup/expand cache-map)`. Pass `false` to skip dedup —
   useful for ad-hoc reads when the agent host hasn't been taught to
   call `expand`.
 
@@ -39,12 +39,12 @@
   `:dedup` (no `?`) per the Anthropic
   `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex."
   {:type "boolean"
-   :description (str "Apply structural dedup (day8/de-dupe) to the "
+   :description (str "Apply structural dedup to the "
                      "response payload before the wire-cap check. "
                      "Default true. When deduped, the structuredContent "
                      "slot is wrapped as `{:rf.mcp/dedup-table "
                      "<cache-map>}` and the agent host reconstructs via "
-                     "`(de-dupe.core/expand cache-map)`. Pass false to "
+                     "`(re-frame.mcp-base.dedup/expand cache-map)`. Pass false to "
                      "skip dedup — useful for ad-hoc reads when the "
                      "agent host hasn't been taught to call `expand`. "
                      "Cross-MCP shape with re-frame2-pair-mcp's `:dedup` arg.")})

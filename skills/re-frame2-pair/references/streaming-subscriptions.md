@@ -108,7 +108,7 @@ The `message` slot is an EDN-printed **map** (not a bare vector). It carries `:s
 - `:event-bundles` — on the event-bundle topics (`:trace` / `:fx` / `:error`): a vector of event bundles, each matching the `(rf/trace-buffer frame-id)` shape (`:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id`).
 - `:events` — on the flat topics (`:epoch` / `:frameless`): a flat vector (`:rf/epoch-record` maps for `:epoch`; raw trace events for `:frameless`).
 
-So a `:epoch` tick's `message` reads as `{:sub-id "<uuid>" :events [<epoch-record> ...] :dedup <bool> :dropped-events <n> :dropped-bytes <n>}`, and a `:trace`/`:fx`/`:error` tick reads as `{:sub-id "<uuid>" :event-bundles [<bundle> ...] :dedup <bool> ...}`. The `:dedup` flag signals whether the slot was structurally deduped (reconstruct via `(de-dupe.core/expand cache-map)`); `:overflow-reason` rides the map too when a budget tripped. The agent reads `message` directly; capable hosts can additionally inspect `_meta.data` for the structured counts.
+So a `:epoch` tick's `message` reads as `{:sub-id "<uuid>" :events [<epoch-record> ...] :dedup <bool> :dropped-events <n> :dropped-bytes <n>}`, and a `:trace`/`:fx`/`:error` tick reads as `{:sub-id "<uuid>" :event-bundles [<bundle> ...] :dedup <bool> ...}`. The `:dedup` flag signals whether the slot was structurally deduped (reconstruct via `(re-frame.mcp-base.dedup/expand cache-map)`); `:overflow-reason` rides the map too when a budget tripped. The agent reads `message` directly; capable hosts can additionally inspect `_meta.data` for the structured counts.
 
 When sensitive events are dropped, the payload carries an extra `:dropped-sensitive` count; see [Privacy posture](#privacy-posture) below.
 

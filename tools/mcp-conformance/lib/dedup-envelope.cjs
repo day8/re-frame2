@@ -8,11 +8,11 @@
 // vocab.md` for the canonical key and `re-frame.mcp-base.dedup/dedup-value`
 // (consumed directly by both servers) for the production transform. Real MCP
 // clients (Claude Code, Continue, …) running on a JVM / CLJS host
-// decode by calling `de-dupe.core/expand` on the cache map; the
+// decode by calling `re-frame.mcp-base.dedup/expand` on the cache map; the
 // reconstructed payload is what user code sees.
 //
 // The conformance harness drives the servers from Node, so it does
-// not have `de-dupe.core/expand` reachable. A server may wrap a
+// not have `re-frame.mcp-base.dedup/expand` reachable. A server may wrap a
 // semantic slot (e.g. `:lifecycle` at the top level of
 // `:structuredContent`) inside `cache-0` of the dedup table, so the
 // literal JSON shape on the wire differs from what a real client sees
@@ -21,7 +21,7 @@
 // supplies the Node-side expansion the harness needs to do that.
 //
 // `decodeDedupEnvelope` is the Node-side mirror of
-// `de-dupe.core/expand`: given a structuredContent value that may be
+// `re-frame.mcp-base.dedup/expand`: given a structuredContent value that may be
 // wrapped in `:rf.mcp/dedup-table`, reconstruct the agent-visible
 // payload. Idempotent on already-expanded values.
 //
@@ -87,7 +87,7 @@ function expandCache(cache) {
       const out = {};
       for (const k of Object.keys(v)) {
         // Route the KEY through expandValue too, not just the value. The
-        // real `de-dupe.core/expand` dispatches on `map-entry?` before
+        // real `re-frame.mcp-base.dedup/expand` dispatches on `map-entry?` before
         // `coll?` and expands BOTH halves of every map-entry — `cachable?`
         // permits a de-duped map KEY, and this codebase has vector/
         // path-keyed structures where that fires. Expanding only `v[k]`
@@ -152,7 +152,7 @@ function expandCache(cache) {
   }
 
   // Eagerly expand EVERY cache entry, not just those reachable from
-  // cache-0. The real de-dupe.core/decompress-cache expands every key
+  // cache-0. The real re-frame.mcp-base.dedup/decompress-cache expands every key
   // before picking cache-0 off the result, so a malformed ORPHAN entry
   // (unreferenced from the root — e.g. a dangling ref to a nonexistent
   // cache id, or itself cyclic) throws for a real client but, if only

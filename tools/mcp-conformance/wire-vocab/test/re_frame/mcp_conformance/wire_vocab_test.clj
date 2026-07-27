@@ -88,7 +88,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
-            [de-dupe.core    :as dd]
+            [re-frame.mcp-base.dedup :as dd]
             [malli.core      :as m]
             [malli.error     :as me]
             ;; Canonical framework elision builder and classification effect.
@@ -368,7 +368,7 @@
 ;;
 ;; The pre-fix schema was `[:map [:rf.mcp/dedup-table :map]]` — it
 ;; accepted ANY map, including `{}` and caches with no `cache-0` root.
-;; But `de-dupe.core/expand` (what an agent host calls) ALWAYS starts at
+;; But `re-frame.mcp-base.dedup/expand` (what an agent host calls) ALWAYS starts at
 ;; the `de-dupe.cache/cache-0` root, and the Node-side decoder
 ;; (`tools/mcp-conformance/lib/dedup-envelope.cjs`) THROWS on a missing
 ;; root. So the canonical JVM contract was strictly LOOSER than the
@@ -393,7 +393,7 @@
         "DedupTable must reject a cache missing the de-dupe.cache/cache-0 root."))
   (testing "integer-keyed table (de-dupe NEVER emits this) fails validation"
     ;; The removed fixture's shape — fiction the old schema accepted.
-    ;; day8/de-dupe keys by namespaced symbols only; an integer-keyed
+    ;; the codec keys by namespaced symbols only; an integer-keyed
     ;; table has no cache-0 root and the Node decoder throws on it.
     (is (not (m/validate DedupTable
                          {:rf.mcp/dedup-table
@@ -408,7 +408,7 @@
                       :de-dupe.cache/cache-1 {:event-id :foo}}})
         "DedupTable must accept the canonical namespaced cache with a cache-0 root."))
   (testing "the predicate also accepts the symbol root form de-dupe-eq actually emits"
-    ;; `de-dupe.core/de-dupe-eq` keys by namespaced SYMBOLS, not
+    ;; `re-frame.mcp-base.dedup/de-dupe-eq` keys by namespaced SYMBOLS, not
     ;; keywords — assert the schema accepts that representation too.
     (is (m/validate DedupTable
                     {:rf.mcp/dedup-table
@@ -418,7 +418,7 @@
 ;; ---------------------------------------------------------------------------
 ;; LIVE dedup-table emission + JVM↔Node root agreement (rf2-x0pr0).
 ;;
-;; Drive the REAL `de-dupe.core/de-dupe-eq` encoder (the same fn both
+;; Drive the REAL `re-frame.mcp-base.dedup/de-dupe-eq` encoder (the same fn both
 ;; pair-mcp and story-mcp call at their wire boundary) over a
 ;; duplicate-rich value and assert:
 ;;

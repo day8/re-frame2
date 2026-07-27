@@ -4,10 +4,10 @@
 
   Per `tools/story-mcp/spec/Principles.md` §Structural dedup at the wire
   boundary, a dedup-eligible tool's `:structuredContent` payload is
-  passed through `day8/de-dupe` before the wire-cap check. Repeated
+  passed through `re-frame.mcp-base.dedup` before the wire-cap check. Repeated
   subtrees collapse into a flat cache map keyed by `de-dupe.cache/cache-N`
   namespaced symbols; the agent host reconstructs via
-  `de-dupe.core/expand`.
+  `re-frame.mcp-base.dedup/expand`.
 
   ## What this file pins — and what it deliberately does NOT
 

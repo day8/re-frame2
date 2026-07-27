@@ -110,11 +110,11 @@
   [:map {:closed true} [:rf.mcp/summary SummaryBody]])
 
 (def root-cache-id-name
-  "The de-dupe library's canonical root cache-id, as a bare name string
-  (no `:` / symbol-quote prefix). `de-dupe.core/expand` ALWAYS begins
+  "The codec's canonical root cache-id, as a bare name string
+  (no `:` / symbol-quote prefix). `re-frame.mcp-base.dedup/expand` ALWAYS begins
   reconstruction at `(make-cache-element 0)` = `de-dupe.cache/cache-0`,
   and `create-cache-internal` ALWAYS assocs that key as the root entry
-  (day8/de-dupe v0.3.0 `core.cljc:253-255` + `:132`). A cache map with no
+  (`re-frame.mcp-base.dedup`, `de-dupe-eq` + `expand`). A cache map with no
   `cache-0` entry is therefore un-expandable — the Node-side decoder
   (`tools/mcp-conformance/lib/dedup-envelope.cjs` `ROOT_CACHE_ID`) throws
   on exactly that shape. Pinned here so the JVM schema and the Node
@@ -122,11 +122,11 @@
   "de-dupe.cache/cache-0")
 
 (defn dedup-cache-root-key?
-  "True when `k` names the de-dupe root cache element
+  "True when `k` names the root cache element
   (`de-dupe.cache/cache-0`). Accepts BOTH wire representations of the
   same key:
 
-  - the EDN/CLJS form `de-dupe.core/de-dupe-eq` actually emits — a
+  - the EDN/CLJS form `re-frame.mcp-base.dedup/de-dupe-eq` actually emits — a
     namespaced SYMBOL `de-dupe.cache/cache-0` (`make-cache-element` is
     `(symbol ...)`); and
   - the namespaced-KEYWORD form `:de-dupe.cache/cache-0` the JVM
@@ -146,7 +146,7 @@
   "True when `cache` is a non-empty map carrying the canonical
   `de-dupe.cache/cache-0` root entry (in symbol, keyword, or string
   form). This is the load-bearing structural invariant: an
-  agent/client decoder calls `de-dupe.core/expand`, which starts at the
+  agent/client decoder calls `re-frame.mcp-base.dedup/expand`, which starts at the
   root — a table with no root is un-expandable and the Node decoder
   rejects it. `{}` and a root-less cache both fail here."
   [cache]
@@ -156,14 +156,14 @@
 (def DedupTable
   "`{:rf.mcp/dedup-table <flat-cache>}` — the structural-dedup wrapper.
 
-  The body is the day8/de-dupe cache map. re-frame2-pair-mcp's and
-  story-mcp's actual caches key it by the de-dupe library's namespaced
+  The body is the `re-frame.mcp-base.dedup` cache map.
+  re-frame2-pair-mcp's and story-mcp's actual caches key it by the codec's namespaced
   symbols `de-dupe.cache/cache-N` (the wire-vocab fixtures author the
   same keys in keyword form). The load-bearing claim is the top-level
   `:rf.mcp/dedup-table` marker key AND that the value is a cache map
   the agent host can actually expand — i.e. it MUST carry the canonical
-  `de-dupe.cache/cache-0` ROOT entry. `de-dupe.core/expand` begins
-  reconstruction at that root (day8/de-dupe v0.3.0 `core.cljc:132`); a
+  `de-dupe.cache/cache-0` ROOT entry. `re-frame.mcp-base.dedup/expand` begins
+  reconstruction at that root (`re-frame.mcp-base.dedup/expand`); a
   cache with no root is un-expandable and the Node-side decoder
   (`lib/dedup-envelope.cjs`) throws on it.
 
@@ -505,14 +505,14 @@
     ;; mcp's rf2-obpa9). Both servers source the marker key from
     ;; `re-frame.mcp-base.vocab/dedup-table-key` so the literal stays
     ;; byte-identical; an agent that learned the slot on either server
-    ;; reconstructs identically via `de-dupe.core/expand`.
+    ;; reconstructs identically via `re-frame.mcp-base.dedup/expand`.
     :servers  #{:re-frame2-pair-mcp :story-mcp}
     :fixtures {:re-frame2-pair-mcp         {:rf.mcp/dedup-table
                                    {:de-dupe.cache/cache-0 [:de-dupe.cache/cache-1 :de-dupe.cache/cache-1]
                                     :de-dupe.cache/cache-1 {:event-id :foo :handler-id :bar}}}
                ;; rf2-x0pr0 — the integer-keyed fixture
                ;; (`{1 {...} 2 {...}}`) was REMOVED. It was fiction: the
-               ;; day8/de-dupe library ALWAYS keys the cache by the
+               ;; the codec ALWAYS keys the cache by the
                ;; namespaced symbol `de-dupe.cache/cache-N` (root
                ;; `cache-0`) — never integers (v0.3.0 `core.cljc`
                ;; `make-cache-element` / `create-cache-internal`). A

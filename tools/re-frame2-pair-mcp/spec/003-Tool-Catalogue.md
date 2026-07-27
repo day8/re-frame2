@@ -82,8 +82,8 @@ Each affected tool accepts a `dedup` arg (boolean, default
   ...}}
 ```
 
-The cache map is `day8/de-dupe`'s flat output. Agents
-reconstruct with `(de-dupe.core/expand cache-map)` — one
+The cache map is the codec's flat output. Agents
+reconstruct with `(re-frame.mcp-base.dedup/expand cache-map)` — one
 library call, exact round-trip. Pass `dedup false` to skip the
 wrap (e.g. for ad-hoc reads when the agent host hasn't been
 taught to call `expand`).

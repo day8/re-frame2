@@ -86,7 +86,7 @@ const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
 
 // `record-as-variant` ships its structuredContent wrapped in the
 // `{:rf.mcp/dedup-table …}` envelope (recorder.cljc `:dedup-eligible?
-// true`); a real MCP client decodes it via `de-dupe.core/expand` before
+// true`); a real MCP client decodes it via `re-frame.mcp-base.dedup/expand` before
 // reading semantic slots. The shared `structured` helper (_runner.cjs)
 // mirrors that — idempotent on payloads without the marker (register /
 // unregister envelopes pass through unchanged), so it is safe to route

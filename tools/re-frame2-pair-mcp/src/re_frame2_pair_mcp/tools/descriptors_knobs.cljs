@@ -53,12 +53,12 @@
   channel — the surfaces where repeated subtrees dominate the wire
   cost. Default `true`."
   {:type        "boolean"
-   :description (str "Apply structural dedup (day8/de-dupe) to the "
+   :description (str "Apply structural dedup to the "
                      "epoch slice / event vector before the wire-cap "
                      "check. Default true. When deduped, the slot is "
                      "wrapped as `{:rf.mcp/dedup-table <cache-map>}` "
                      "and the agent host reconstructs via "
-                     "`(de-dupe.core/expand cache-map)`. Pass false "
+                     "`(re-frame.mcp-base.dedup/expand cache-map)`. Pass false "
                      "to skip dedup — useful for ad-hoc reads when "
                      "the agent host hasn't been taught to call "
                      "`expand`.")})

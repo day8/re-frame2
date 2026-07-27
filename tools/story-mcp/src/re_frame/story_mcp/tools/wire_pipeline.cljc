@@ -15,7 +15,7 @@
 
   1. **Structural dedup** (`re-frame.mcp-base.dedup/dedup-value`) for
      tools that opt in via `:dedup-eligible?` on the descriptor. The
-     `:structuredContent` slot is run through `day8/de-dupe` to
+     `:structuredContent` slot is run through `re-frame.mcp-base.dedup` to
      collapse repeated subtrees into a flat cache map. Wrapped under
      `{:rf.mcp/dedup-table <cache>}`. The `:content[*].text` slot is
      re-stringified to match — both slots ride the same payload.
@@ -71,7 +71,7 @@
 
   `:dedup` per-call override is read from `arguments`: boolean, default
   `true`. Pass `false` to skip dedup — useful for ad-hoc reads when the
-  agent host hasn't been taught to call `de-dupe.core/expand`. Lives
+  agent host hasn't been taught to call `re-frame.mcp-base.dedup/expand`. Lives
   on dedup-eligible tools' input schema via `schemas/with-dedup`."
   (:require [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.cap :as base-cap]
@@ -296,7 +296,7 @@
      The eligible set is
      `{preview-variant, run-variant, record-as-variant}` — the three
      surfaces where repeated subtrees dominate the wire cost. The
-     `:structuredContent` slot is run through `day8/de-dupe` to
+     `:structuredContent` slot is run through `re-frame.mcp-base.dedup` to
      collapse repeated subtrees, and the `:content[*].text` slot is
      re-stringified to match. Per `re-frame.mcp-base.dedup`.
   3. `base-cap/apply-cap` — when the (post-dedup) response exceeds the

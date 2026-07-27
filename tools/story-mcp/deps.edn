@@ -26,10 +26,18 @@
 ;;
 ;; ## Release
 ;;
-;; Independent cadence from `day8/re-frame2-story` (per tools/README.md —
-;; per-tool jars release independently). The release workflow swaps
-;; `:local/root` → `:mvn/version` before invoking clein, identical to
-;; the adapter jars.
+;; Ships on the EXISTING `story-v*` tag alongside `day8/re-frame2-story`
+;; and `day8/re-frame2-mcp-base` — one glob for the shipping pair so the
+;; three cannot skew (rf2-4u3t1). Story and mcp-base deploy AHEAD of it
+;; on that tag; the release workflow swaps `:local/root` →
+;; `:mvn/version` before invoking clein, identical to the adapter jars.
+;;
+;; Structural dedup used to arrive here as `day8/de-dupe`, a `:git/url`
+;; runtime coordinate `clein pom` drops silently — so a jar cut from this
+;; deps.edn would have published a pom missing it, with no yank to undo
+;; that. Mike ruled route (b) on rf2-2ii52: the codec is vendored into
+;; `re-frame.mcp-base.dedup`, so it now arrives with mcp-base and this
+;; artefact's every runtime coordinate is one a pom can express.
 {:paths ["src"]
  :deps  {;; Story is the agent surface's read substrate. Every MCP
          ;; tool routes through `re-frame.story`'s public query API
@@ -42,18 +50,6 @@
          ;; default-suppress filter, the path-keyed diff-encode, and
          ;; the overflow-marker shape.
          day8/re-frame2-mcp-base {:local/root "../mcp-base"}
-
-         ;; day8/de-dupe — structural dedup of persistent data structures.
-         ;; The library substitutes repeated subtrees with
-         ;; namespaced-symbol references (`de-dupe.cache/cache-N`); the
-         ;; flat cache map round-trips back through `expand` on the
-         ;; agent host. Applied at the wire boundary BEFORE the wire-cap
-         ;; check so dedup gets to shrink first. The pair and story-mcp
-         ;; lockstep on the same tag (`v0.3.0`) so the two servers
-         ;; can't drift on a dedup-algorithm change.
-         day8/de-dupe            {:git/url "https://github.com/day8/de-dupe.git"
-                                  :git/tag "v0.3.0"
-                                  :git/sha "367de784faf13c710a895bed867f36a36e594a2a"}
 
          ;; JSON wire format. Cheshire is the project's existing JSON
          ;; library (implementation/http uses it via requiring-resolve);

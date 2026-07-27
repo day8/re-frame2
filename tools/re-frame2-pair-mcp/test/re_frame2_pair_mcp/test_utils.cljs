@@ -32,7 +32,7 @@
   The inverse of `re-frame.mcp-base.dedup/dedup-value`, useful to assert
   round-trip exactness against an MCP-shaped wire payload without growing
   the production surface. The agent host reconstructs locally via
-  `de-dupe.core/expand`; the MCP server never calls the inverse, so the
+  `re-frame.mcp-base.dedup/expand`; the MCP server never calls the inverse, so the
   helper lives here, signalling \"test-only\" by location.
 
   ## Test-only base re-exports
@@ -46,7 +46,7 @@
   one shared test-side place."
   (:require [applied-science.js-interop :as j]
             [cljs.reader :as edn]
-            [de-dupe.core :as dedup]
+            [re-frame.mcp-base.dedup :as base-dedup]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.freshness :as freshness]
             [re-frame2-pair-mcp.tools.result-envelope :as renv]
@@ -190,11 +190,11 @@
   "Reverse `re-frame.mcp-base.dedup/dedup-value`. Given a value possibly
   wrapped in the `:rf.mcp/dedup-table` marker, reconstruct the original
   structure
-  via `de-dupe.core/expand`. Idempotent on already-expanded values
+  via `re-frame.mcp-base.dedup/expand`. Idempotent on already-expanded values
   (returns the input unchanged when the wrapper isn't present)."
   [v]
   (if (and (map? v) (contains? v base-vocab/dedup-table-key))
-    (dedup/expand (get v base-vocab/dedup-table-key))
+    (base-dedup/expand (get v base-vocab/dedup-table-key))
     v))
 
 ;; ---------------------------------------------------------------------------

@@ -197,8 +197,8 @@ The eight mechanisms in re-frame2-pair-mcp:
 4. **Lazy summary** (§"Per-tool budget discipline" /
    summarisation-modes bullet) — `:mode :summary` default for
    rich payloads + `{:rf.mcp/summary ...}` shape.
-5. **Structural dedup** (§"Structural dedup") — `day8/de-dupe`
-   substitution table + `{:rf.mcp/dedup-table ...}` wire shape.
+5. **Structural dedup** (§"Structural dedup") — the
+   `re-frame.mcp-base.dedup` substitution table + `{:rf.mcp/dedup-table ...}` wire shape.
 6. **Size-elision wire markers** (§"Size-elision wire markers") —
    the framework's `elide-wire-value` walker substitutes
    `{:rf.size/large-elided ...}` markers for declared-large
@@ -513,7 +513,7 @@ keeps each record self-contained — but the next mechanism in
 this pipeline (structural dedup, rf2-obpa9) DOES collapse the
 shared `:db-before` references at the slice boundary via an
 explicit substitution table; round-trip remains exact via the
-de-dupe library's companion `expand` function.
+codec's companion `expand` function.
 
 **Cross-MCP vocabulary**. The `:rf.mcp/diff-from` marker key
 follows the `:rf.mcp/*` namespace convention shared with
@@ -526,7 +526,7 @@ recognise the family once and pattern-match on the prefix.
 Mechanism 5 — the structural-dedup peer of the cross-MCP
 wire pipeline. The wire shape (`:rf.mcp/dedup-table`
 substitution table) is identical; the algorithm
-([`day8/de-dupe`](https://github.com/day8/de-dupe)) is shared.
+(`re-frame.mcp-base.dedup`) is shared.
 An agent that learned the slot on a sibling server sees the
 same slot here.
 
@@ -543,9 +543,11 @@ references.
 **The transform**. After diff-encoding, every epoch slice
 shipping through `trace-window`, `watch-epochs`, or the
 `:epochs` slot of `snapshot` is passed through
-[`day8/de-dupe`](https://github.com/day8/de-dupe)
-(MIT, ClojureScript, alive 2026; pinned via git-coord in
-[`deps.edn`](../deps.edn)) and wrapped in the cross-MCP
+`re-frame.mcp-base.dedup` (the shared `day8/re-frame2-mcp-base`
+artefact declared in [`deps.edn`](../deps.edn); the codec was
+vendored into it from `day8/de-dupe` under rf2-2ii52, because a
+git coordinate is one `clein pom` drops silently and it blocked
+the artefact's publish path) and wrapped in the cross-MCP
 substitution-table marker:
 
 ```clojure
@@ -557,11 +559,11 @@ substitution-table marker:
   ...}}
 ```
 
-The cache map is the de-dupe library's flat output: cache-0 is
+The cache map is the codec's flat output: cache-0 is
 the root structure (with namespaced-symbol references to other
 cache entries inline), and the remaining entries are the
 extracted shared subtrees. The agent host reconstructs by
-calling `(de-dupe.core/expand cache-map)` — one library call,
+calling `(re-frame.mcp-base.dedup/expand cache-map)` — one library call,
 exact round-trip. The marker key
 (`:rf.mcp/dedup-table`) matches the cross-MCP vocabulary —
 an agent that learned the slot on a sibling server sees the

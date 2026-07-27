@@ -4,10 +4,10 @@
   ## Why this benchmark
 
   The catalogue-entry-contract requires each tool to declare its
-  typical-token hint, and a `day8/de-dupe` compression claim needs an
+  typical-token hint, and a structural-dedup compression claim needs an
   in-repo measurement to bind it rather than an approximate figure.
 
-  This benchmark exercises `day8/de-dupe` against a representative
+  This benchmark exercises `re-frame.mcp-base.dedup` against a representative
   trace-event corpus at three scales (100 / 1,000 / 10,000 events)
   with varying structural depth, measures the actual reduction
   ratio, and prints the numbers to the test log. The measured
@@ -27,7 +27,7 @@
 
   ## Why not a separate `bench/` artefact
 
-  re-frame2-pair-mcp already wires `day8/de-dupe`, already runs
+  re-frame2-pair-mcp already wires `re-frame.mcp-base.dedup`, already runs
   CLJS-on-Node via shadow-cljs, and already houses the load-bearing
   `dedup-value` helper this benchmark probes. Reusing that runner is
   the path of least friction; the measured factors here are the
@@ -153,7 +153,7 @@
   `n-cascades` times, where each replay's events are **structurally
   identical** to the corresponding event in the canonical cascade.
 
-  This mirrors the actual upper-bound regime day8/de-dupe targets: a
+  This mirrors the actual upper-bound regime structural dedup targets: a
   trace-window that has accumulated under a recurring source (timer
   tick, scheduled job, idempotent rerender) where the framework
   re-emits structurally-identical trace events. Per-event `:id` /
@@ -271,7 +271,7 @@
   ;; so triage sees the numbers on red.
   (when bench-verbose?
     (println)
-    (println "[rf2-li2cw] day8/de-dupe trace-burst compression benchmark")
+    (println "[rf2-li2cw] structural-dedup trace-burst compression benchmark")
     (println "[rf2-li2cw] ---------------------------------------------"))
   (let [results (doall
                   (for [{:keys [label events cascade-width variety]} corpora]
@@ -326,7 +326,7 @@
 
 (deftest day8-de-dupe-high-share-burst-compression-factor
   (when bench-verbose?
-    (println "[rf2-li2cw] day8/de-dupe high-share-burst compression benchmark")
+    (println "[rf2-li2cw] structural-dedup high-share-burst compression benchmark")
     (println "[rf2-li2cw] -----------------------------------------------------"))
   (let [;; 1K replays of the same 24-event drain. Each drain body
         ;; (modulo unique :id / :time / :dispatch-id) is identical.
