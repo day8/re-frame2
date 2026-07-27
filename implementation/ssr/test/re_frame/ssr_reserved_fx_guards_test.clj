@@ -62,7 +62,8 @@
   guards). A schema widened on one side only fails §3. `m/validate` is
   called DIRECTLY rather than through the late-bind validator, so the
   schema half adjudicates under the production gate too."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -291,6 +292,30 @@
       (is (integer? (:status response))
           "the PUBLIC host-adapter surface's :status is an integer")
       (is (sibling-ran? raw) "containment: the sibling fx still ran"))))
+
+(deftest a-target-less-safe-redirect-is-a-code-bug-not-a-security-signal
+  (testing "rf2-dtpfv: `:location` is `:rf.server/safe-redirect`'s validation
+            TARGET, so a call without one is a programmer error — and that is
+            precisely what the five-step gate CANNOT say. Left to it, a missing
+            or non-string `:location` falls through to
+            `parse-url-safely` → nil → `:rf.error/safe-redirect-invalid-url`
+            (\"URL did not parse\"), which since rf2-6jqa8 ships an ALWAYS-ON
+            record on the security axis. So a forgotten key would page a
+            security team as an open-redirect probe. The refusal was never in
+            doubt (every non-string fails the gate closed); what the shape
+            guard buys is that the code bug is not filed as an attack."
+    (doseq [[label args] [["missing :location"   {:status 302}]
+                          ["keyword :location"   {:location :dashboard}]]]
+      (let [{:keys [raw records]} (drive! [:rf.server/safe-redirect args])
+            security-records (filter #(clojure.string/starts-with?
+                                        (name (:error %)) "safe-redirect-")
+                                     records)]
+        (is (nil? (:redirect raw))
+            (str label " — nothing landed on the accumulator"))
+        (is (empty? security-records)
+            (str label " — and NO :rf.error/safe-redirect-* record reached the"
+                 " always-on security axis; saw: "
+                 (pr-str (mapv :error records))))))))
 
 (deftest a-malformed-trusted-redirect-never-reaches-the-accumulator
   (testing "rf2-dtpfv, the caller-TRUSTED sibling: `:rf.server/redirect` took
