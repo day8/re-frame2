@@ -7,14 +7,33 @@
   the closures are one answer rather than two that agree. The mounted half
   — commit-only connection, total cleanup, and the command channel against
   a live node — is `behaviors_dom_cljs_test`, because those are DOM facts
-  and nothing else can prove them."
+  and nothing else can prove them.
+
+  ## Posture split (rf2-74a89)
+
+  Exactly ONE row of the FH-BEHAVIOR-002 table changes under the real
+  `-Dre-frame.debug=false` gate, and it is worth reading before anyone
+  reports an acceptance regression: `:unknown-option`. Its refusal is the
+  boundary's CLOSED PROPS SCHEMA (`:rf.error/view-bad-props`), and
+  `descriptor.cljc` gates the whole closing-schema arm on
+  `interop/debug-enabled?` because \"a schema is a compile-time and tooling
+  fact\". Under the gate that arm is gone — but the call is STILL REFUSED,
+  by the behavior door's OWN always-on roster check
+  (`:rf.error/behavior-bad-args`). Only the diagnostic id differs.
+
+  So that row asserts REFUSED posture-independently, with the exact id kept
+  verbatim in a `(when interop/debug-enabled? …)` arm. Every other row —
+  every `:rf.error/behavior-bad-args` refusal and every `:renders`
+  acceptance — keeps its exact outcome asserted in both postures, because
+  the behavior door owns those checks and they are always on."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]
             [re-frame.freehand.behavior-views :as bv]
             [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.conformance :as conf]
-            [re-frame.freehand.test :as t]))
+            [re-frame.freehand.test :as t]
+            [re-frame.interop :as interop]))
 
 ;; ---------------------------------------------------------------------------
 ;; FH-BEHAVIOR-001 — the registration roster
@@ -119,8 +138,21 @@
       (let [declaration (get declarations view)
             _           (is (some? declaration) (str note " — the fixture names a real view"))
             got         (conf/caught-id #(t/render [declaration {}]))]
-        (if (= :renders outcome)
+        (cond
+          (= :renders outcome)
           (is (= conf/no-throw got) note)
+
+          ;; rf2-74a89 — the ONE row the props-schema closure owns (see the
+          ;; ns docstring's "Posture split"). Refusal is posture-independent
+          ;; and asserted as such; only WHICH id fires is dev-gated.
+          (= :rf.error/view-bad-props outcome)
+          (do
+            (is (not= conf/no-throw got)
+                (str note " — refused in either posture"))
+            (when interop/debug-enabled?
+              (is (= outcome got) note)))
+
+          :else
           (is (= outcome got) note))))))
 
 (deftest fh-behavior-002-a-refusal-names-the-behavior-surface
