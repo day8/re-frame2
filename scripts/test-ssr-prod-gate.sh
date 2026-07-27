@@ -221,28 +221,43 @@ known_red=(
   #    `:platforms #{:client}` gate, and a proof that a DOUBLE mismatch
   #    neither throws nor stops the effect queued behind it.
 
-  # ── rf2-bkvu5 — HELD FOR A RULING.  ONE deftest,
-  #    `flow-output-schema-failure-rejects-candidate-before-install`, fails
-  #    for a REAL reason: under `-Dre-frame.debug=false` a flow output that
-  #    violates the registered app-db schema is NOT rejected — the invalid
-  #    candidate INSTALLS, and the handler's own `:db` installs with it.
-  #    That is not trace spelling.  `router.cljc`'s `validate-event!` and
-  #    `schemas/validate.cljc` both document it: every `validate-*!` body
-  #    sits inside its own `(if interop/debug-enabled? … true)` gate and
-  #    "Production builds return `true` unconditionally".  So `reg-app-schema`
-  #    is a no-op in production and the EP-0025 atomic-candidate-rejection
-  #    contract is a DEV-POSTURE contract.  Adjacent to rf2-rqje9 in class —
-  #    a documented choice whose consequence nobody had executed — but a
-  #    different surface, and none of rf2-rqje9's three candidate shapes
-  #    addresses it, so it has its own bead.
+  # ── rf2-bkvu5 — RULING LANDED (2026-07-27); CLEARED.  One deftest,
+  #    `flow-output-schema-failure-rejects-candidate-before-install`, used to
+  #    fail here for a REAL reason rather than trace spelling: under
+  #    `-Dre-frame.debug=false` a flow output that violates the registered
+  #    app-db schema is NOT rejected — the invalid candidate INSTALLS, and
+  #    the handler's own `:db` installs with it.  `router.cljc`'s
+  #    `validate-event!` and `schemas/validate.cljc` both document why: every
+  #    `validate-*!` body sits inside its own `(if interop/debug-enabled? …
+  #    true)` gate and "Production builds return `true` unconditionally".
   #
-  #    Every OTHER assertion in this namespace has already been posture-split
+  #    Mike RULED (a): that is BY DESIGN.  `reg-app-schema` candidate
+  #    validation is a DEVELOPMENT-ONLY assertion; production trusts the
+  #    programmer; EP-0025's atomic-candidate-rejection contract is a
+  #    dev-posture contract.  Shapes (b) (always-on validation) and (c) (a
+  #    middle knob) were both rejected.
+  #
+  #    SO THE DEFTEST DID NOT CLEAR — IT SPLIT, and this is the one arm in
+  #    the artefact that could not be re-pointed at a production-visible
+  #    witness instead of a guard.  The distinction matters for whoever
+  #    reads it next: the always-on error axis carries no
+  #    `:rf.error/schema-validation-failure` here NOT because that emit is
+  #    dev-only, but because the VALIDATION never runs to emit anything —
+  #    the subject is absent, not merely unobservable.  The rejection
+  #    assertions are kept VERBATIM in a `(when interop/debug-enabled? …)`
+  #    arm, and a `when-not` arm EXECUTES the ruled production behaviour
+  #    (the schema-violating candidate installs whole, `:derived :doubled`
+  #    = -6 through the ordinary app-db surface).  That arm is also the
+  #    standing regression guard on the ruling itself: it reddens if
+  #    `reg-app-schema` ever quietly becomes always-on.
+  #
+  #    Every OTHER assertion in the namespace had already been posture-split
   #    by rf2-lwtlk (the `by-op` / `ops` trace signatures are in dev arms, and
   #    two flow-eval witnesses were added off the trace bus so "the flow
-  #    computed its bad output" and "the flow threw" survive the gate).  The
-  #    line below therefore comes out with a one-line change once rf2-bkvu5
-  #    lands.  Do not split that one deftest before it does.
-  re-frame.flows-integration-test                 #   2
+  #    computed its bad output" and "the flow threw" survive the gate), so
+  #    the namespace now runs in this lane: 9 tests, 39 assertions under the
+  #    gate (was 39 with TWO of them red) against 55 in dev posture (was 55 —
+  #    the rejection pair moved into the arm, it did not leave).
 
   # ── rf2-lwtlk / rf2-76gom — the conformance corpus.  CLEARED, and it did
   #    NOT clear by guarding.  Nine `ssr-*.edn` fixtures used to fail here,
@@ -347,7 +362,7 @@ total_count="$(printf '%s\n' "$all_nses" | grep -c . || true)"
 printf '==> implementation/ssr under the REAL production gate\n'
 printf '    jvm property : -Dre-frame.debug=false (implementation/ssr/deps.edn, :prod-gate :jvm-opts)\n'
 printf '    posture pin  : re-frame.ssr-prod-gate-lane-pin-test (red if the property did not arrive)\n'
-printf '    namespaces   : %s of %s (%s excluded as known-red — rf2-lwtlk, rf2-rqje9)\n' \
+printf '    namespaces   : %s of %s (%s excluded as known-red — rf2-dtpfv)\n' \
   "$runnable_count" "$total_count" "$excluded_count"
 
 if [ "${1:-}" = "--plan" ]; then
