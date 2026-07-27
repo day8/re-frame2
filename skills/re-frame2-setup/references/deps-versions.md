@@ -58,7 +58,7 @@ The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`,
 - **`:git/url` + `:git/sha`** — for a commit no release carries yet: unreleased `main`, or a reviewed commit the author wants pinned instead of a tag. One coord per artefact, each with its own `:deps/root` ([shape below](#the-gitsha-route-an-unreleased-commit)).
 - **`:local/root`** — the sibling-checkout dev route ([recipe below](#the-localroot-sibling-checkout-dev-route)), for developing against a re-frame2 checkout you are also editing.
 
-**The tools are not in the thirteen, and `day8/re-frame2-xray` is one of the tools.** Each ships on its own tag prefix — `xray-v*`, `story-v*`, `machines-viz-v*` — so a framework release publishes none of them, and no `xray-v*` tag has gone out. Until one does, the day-one Xray dep takes a `:git/sha` or `:local/root` coord even in a project whose framework coords are all `:mvn/version`; it becomes an ordinary `:mvn/version` post-publish, like everything else. Check Clojars before assuming either way.
+**The tools are not in the thirteen, and `day8/re-frame2-xray` is one of the tools.** Each ships on its own tag prefix — `xray-v*`, `story-v*`, `machines-viz-v*` — so a framework release publishes none of them. **`day8/re-frame2-xray` is not on Clojars**: no `xray-v*` tag has gone out, so that coordinate does not resolve. Until one does, the day-one Xray dep takes a `:git/sha` or `:local/root` coord even in a project whose framework coords are all `:mvn/version`; it becomes an ordinary `:mvn/version` post-publish, like everything else. Check Clojars before assuming either way — that is the authority for both halves of this.
 
 **Two different "versions" — don't conflate them.** The repo `VERSION` is what release *tags* are cut from; the *published Maven version* is whatever has actually shipped to Clojars. A repo `VERSION` naming the next release does **not** mean that coordinate resolves yet.
 
@@ -74,7 +74,7 @@ The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`,
 
 ## `deps.edn` shape
 
-A minimal `deps.edn` for a greenfield re-frame2 project (**Reagent route** shown — the UIx route swaps the adapter and drops `-xray`, per [`entry-namespace.md` §UIx greenfield](entry-namespace.md)). The three framework coords take `:mvn/version`; the day-one Xray coord does not, because no `xray-v*` tag has shipped:
+A minimal `deps.edn` for a greenfield re-frame2 project (**Reagent route** shown — the UIx route swaps the adapter and drops `-xray`, per [`entry-namespace.md` §UIx greenfield](entry-namespace.md)). The three framework coords take `:mvn/version`; the day-one Xray coord does not, because `day8/re-frame2-xray` is not on Clojars:
 
 ```clojure
 {:paths ["src"]
