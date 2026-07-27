@@ -353,10 +353,13 @@ jobs:
       # or under this flag. Here the console IS the evidence, so it is always
       # wanted.
       RF2_VERBOSE_TESTS: '1'
-      # The default 120s covers a normal DOM suite; this page mounts B2's
-      # storm at two scales through four arms, B4's contended row and B5's
-      # sampled mounts, so it is given room rather than raced.
-      BROWSER_TEST_TIMEOUT_MS: '300000'
+      # This lane used to pin BROWSER_TEST_TIMEOUT_MS=300000, because it
+      # mounts B2's storm at two scales through four arms, B4's contended row
+      # and B5's sampled mounts, and 300s was room against a 120s default.
+      # The runner's default is now 360s (rf2-15047), so the pin had become
+      # an inversion — a bench lane held to a SHORTER budget than an ordinary
+      # one. Dropped rather than re-tuned: the inherited default already
+      # covers this page, and one number is easier to keep honest than two.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
