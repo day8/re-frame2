@@ -320,13 +320,21 @@ one vocabulary rule, not four accidents:
 |---|---|---|---|
 | `reg-event` `:schema` | `:schema` (the `reg-event` metadata-map key) | the **event args** — the payload positions of the event vector | app-owned, per-handler ([§Reserved registration metadata](#reserved-registration-metadata-framework-owned), [API.md §`reg-event`](API.md)) |
 | machine `:data-schema` | `:data-schema` (the `reg-machine` key) | a machine's **`:data`** context map | app-owned, per-machine. Qualified — not bare `:schema` — because a visible sibling (the transition table, the spawn spec) makes a generic `:schema` ambiguous about *which* fact it bounds. The rename is [EP-0005](../docs/EP/EP-0005-machine-data-schema.md); it is this rule's worked precedent |
-| `reg-app-schema` | the registrar name itself (the validator *is* the registration) | **app-db paths** — a value at a `[:k …]` path in the app-db partition | app-owned, per-frame side-table ([010-Schemas §Per-frame schemas](010-Schemas.md#per-frame-schemas)). Validates app-db **only** (per [010 §App schemas validate the app-db partition only](010-Schemas.md#app-schemas-validate-the-app-db-partition-only)) |
+| `reg-app-schema` | the registrar name itself (no sibling key needs disambiguating, so the registrar carries the word) | **app-db paths** — a value at a `[:k …]` path in the app-db partition | app-owned, per-frame side-table ([010-Schemas §Per-frame schemas](010-Schemas.md#per-frame-schemas)). Validates app-db **only** (per [010 §App schemas validate the app-db partition only](010-Schemas.md#app-schemas-validate-the-app-db-partition-only)) |
 | runtime-db schema | registered at boot as a runtime-db validator (NOT via `reg-app-schema`) | the **runtime-db partition** (`:rf.runtime/*` subsystem state, machine `:snapshots`, …) | **framework-owned** — registered by the runtime, refined per-machine from registered `:data` shapes; user code MUST NOT register against it ([§Reserved runtime-db keys](#reserved-runtime-db-keys)) |
 
 The shared
 `schema` word is *kept* across the four — the discipline is to qualify (rule 3)
 where a sibling creates ambiguity, not to mint four unrelated words for one
 concept (which rule 1 would forbid in reverse).
+
+The table settles what each name *means*, not when it runs. On that second
+question all four agree: registering a schema is not the same act as checking
+one. A production build performs every registration above — the schemas stay
+introspectable, which is why tools and agents can read them — and elides the
+checking ([010 §Production builds](010-Schemas.md#production-builds)). An
+invariant that must hold in production belongs in handler code; the
+`:rf.schema/at-boundary` interceptor is the one seam that survives the gate.
 
 **Enforcement.** A retired spelling appearing in framework source is a CI
 failure (the no-floor-lint treatment) where the shape allows it, not a doc note.
