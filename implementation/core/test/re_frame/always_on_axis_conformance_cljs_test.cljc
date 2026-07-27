@@ -254,7 +254,28 @@
     ;; sibling — so this leg drives it through the `record-categories` branch
     ;; below. The emit SITE lives in `re-frame.freehand.errors`; the
     ;; JVM companion keeps the literal == the catalogue's always-on set.
-    :rf.error/view-render-failed})
+    :rf.error/view-render-failed
+    ;; rf2-6jqa8 / rf2-rprfg: the three `:rf.server/safe-redirect` rejections
+    ;; graduated `always-on` in the Spec 009 catalogue. The five-step gate was
+    ;; always production-real and always REJECTED correctly under
+    ;; `-Dre-frame.debug=false`, but the rejection is a silent no-op on the wire
+    ;; and reported ONLY through the debug-gated `trace/emit-error!` — so a
+    ;; production JVM saw `?next=javascript:alert(1)` and shipped nothing, while
+    ;; the CRLF / NUL gate on the SAME fx has always been always-on because it
+    ;; THROWS. Each now fans a NON-EVENT union record through the
+    ;; `:error-emit/dispatch-error-record` hook (a rejected redirect is not a
+    ;; dispatched-event failure), with the EP-0015 `:location` scrub applied
+    ;; inside the shared tag builder before either axis sees it. The emit SITE
+    ;; lives in the `ssr` artefact (`ssr/response.cljc`'s
+    ;; `emit-safe-redirect-error!`); this leg drives them through the
+    ;; `record-categories` branch below to prove the listener fan-out. The wire
+    ;; is a SEPARATE fact and stays untouched: all three are on
+    ;; `re-frame.ssr.error-listener/non-projection-eligible-errors`, so the
+    ;; rejection never projects a status — pinned by
+    ;; `re-frame.ssr-safe-redirect-production-test`.
+    :rf.error/safe-redirect-invalid-url
+    :rf.error/safe-redirect-scheme-rejected
+    :rf.error/safe-redirect-host-disallowed})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
@@ -287,7 +308,14 @@
     ;; rf2-drpa3.35 (EP-0036 F4e): a contained Freehand render failure is a
     ;; render-lifecycle fact, not a dispatched-event failure, so its private
     ;; frame egress rides the same non-event union-record helper.
-    :rf.error/view-render-failed})
+    :rf.error/view-render-failed
+    ;; rf2-6jqa8 / rf2-rprfg: a rejected safe-redirect is an fx-time policy
+    ;; rejection, not a dispatched-event failure, so all three ride the same
+    ;; non-event union-record helper (`dispatch-error-record!`) the SSR
+    ;; categories use.
+    :rf.error/safe-redirect-invalid-url
+    :rf.error/safe-redirect-scheme-rejected
+    :rf.error/safe-redirect-host-disallowed})
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
