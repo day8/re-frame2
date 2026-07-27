@@ -87,21 +87,27 @@ test_root="$artefact/test"
 # leave a stale exclusion quietly suppressing coverage.
 # ---------------------------------------------------------------------------
 known_red=(
-  # ── rf2-rqje9 — HELD FOR A RULING, and the reason this group is first.
-  #    These fail on assertions of the form "the buffered
-  #    `:rf.error/no-such-handler` projects 404 onto `:status`".
-  #    `implementation/ssr/src/re_frame/ssr.cljc` documents the asymmetry
-  #    deliberately: the ALWAYS-ON `re-frame.error-emit` listener covers
-  #    `:rf.error/handler-exception`, the `fx-handler-exception` family,
-  #    `flow-eval-exception` and `sub-exception`, while the categories that
-  #    emit only via `trace/emit-error!` — `no-such-handler`, `no-such-route`,
-  #    `schema-validation-failure`, `drain-depth-exceeded` — "DCE under
-  #    `interop/debug-enabled? = false`; the substrate-shipping projector
-  #    relies on the dev gate for them."  So the reds here are not a surprise
-  #    to the source.  Their CONSEQUENCE, which the gate is what made
-  #    visible, is that a production server answers an unroutable URL with
-  #    HTTP 200.  rf2-rqje9 asks for the verdict; do not split these until it
-  #    lands, because which split you write depends on the answer.
+  # ── rf2-rqje9 — RULING LANDED (2026-07-27); THE DEFECT IS FIXED, THE
+  #    RESIDUE IS SPELLING.  These five used to fail on assertions of the
+  #    form "the buffered `:rf.error/no-such-handler` projects 404 onto
+  #    `:status`", and the consequence the gate made visible was that a
+  #    production server answered an unroutable URL with HTTP 200.  The
+  #    ruling was NOT "intended": rf2-ov56u promoted the URL-driven route
+  #    miss onto the always-on error axis and `:kind`-gated the default
+  #    projector's 404 arm, so a production route miss now answers 404 for
+  #    real.  `re-frame.ssr-route-miss-404-production-test` is that proof and
+  #    runs IN this lane.
+  #
+  #    WHAT IS LEFT IS NOT THE DEFECT.  Every remaining red in these five
+  #    synthesises its error straight onto the DEV trace bus
+  #    (`trace/emit-error!` from a test helper, `@traces` reads) rather than
+  #    driving a real emit site, so the gate empties the bus and the
+  #    assertion observes nothing — dev-instrumentation spelling of exactly
+  #    the shape the rest of this roster carries.  They are rf2-lwtlk group
+  #    (c)'s ordinary posture split, which was sequenced to WAIT for
+  #    rf2-ov56u's merge; that wait is over.  Re-run and split; do not read
+  #    a red here as the 200-for-404 defect returning, and check
+  #    `ssr-route-miss-404-production-test` first if you suspect it has.
   re-frame.ssr-end-to-end-test                    # 119
   re-frame.ssr-error-two-frame-attribution-test   #   5
   re-frame.ssr-error-view-failed-no-project-test  #   2
@@ -175,25 +181,29 @@ known_red=(
   #    lands.  Do not split that one deftest before it does.
   re-frame.flows-integration-test                 #   2
 
-  # ── rf2-rqje9 — HELD, via the conformance corpus.  Nine `ssr-*.edn`
-  #    fixtures fail under the gate.  Eight are `:trace-emissions` claims
+  # ── rf2-lwtlk / rf2-7vk3z — the conformance corpus.  Nine `ssr-*.edn`
+  #    fixtures fail under the gate, all nine on `:trace-emissions` claims
   #    (`:rf.event/run-start` for `:rf/server-init` / `:rf/hydrate`), i.e.
-  #    the dev bus.  The ninth, `:ssr/error-known-mapping`, is the rqje9
-  #    cluster itself: "the buffered `:rf.error/no-such-handler` projects 404".
-  #    Because the corpus is one `(is (zero? (count failed)))` over every
-  #    fixture, that one fixture keeps the whole namespace red.
+  #    the dev bus — the ordinary posture split.  Because the corpus is one
+  #    `(is (zero? (count failed)))` over every fixture, any one of them
+  #    keeps the whole namespace red.
   #
-  #    FINDING for whoever picks this up, so the runner is not misread as a
-  #    second defect: `:ssr/error-sanitisation` ALSO reports
-  #    `public-error actual: nil` under the gate, but its category is
-  #    `:rf.error/handler-exception`, which IS on the always-on
-  #    `re-frame.error-emit` axis.  It fails only because the runner's
-  #    `pe-check` sources its error event from `@traces` — the DEV bus —
-  #    before feeding it to `ssr/project-error`.  The projector itself is
-  #    fine under the gate: `re-frame.ssr-error-projector-substrate-test` is
-  #    IN this lane and green.  Re-sourcing `pe-check` from the always-on
-  #    axis is the rf2-7vk3z shape and would clear that fixture; it will not
-  #    clear `:ssr/error-known-mapping`, which needs the ruling.
+  #    TWO of the nine ALSO report `public-error actual: nil`, and BOTH do so
+  #    for the same runner-side reason — not for a framework one.  The
+  #    runner's `pe-check` (ssr_conformance_test.clj ~753) sources its error
+  #    event from `@traces`, the DEV bus, before feeding it to
+  #    `ssr/project-error`; under the gate that collection is empty, so
+  #    `pe-check` reports nil whatever the framework did.  This is true of
+  #    `:ssr/error-sanitisation` (category `:rf.error/handler-exception`,
+  #    always-on) and — VERIFIED 2026-07-27, after rf2-ov56u landed — equally
+  #    of `:ssr/error-known-mapping` (the route miss, now always-on too).
+  #    rf2-ov56u did NOT clear that fixture, contrary to the rf2-rqje9
+  #    ruling's expectation; re-sourcing `pe-check` from the always-on axis
+  #    (the rf2-7vk3z shape) is what clears both, and it depends on no
+  #    ruling.  The framework behaviour the fixture is ABOUT is separately
+  #    proven in this lane by
+  #    `re-frame.ssr-route-miss-404-production-test`, and the projector
+  #    itself is green here via `re-frame.ssr-error-projector-substrate-test`.
   re-frame.ssr-conformance-test                   #   1
 
   # ── rf2-lwtlk — the PAYLOAD-POLICY suite.  CLEARED, and the roster note
