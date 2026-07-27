@@ -535,47 +535,89 @@
                "framed as the thing NOT to do (rf2-74uffk).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 9 — the greenfield framework coordinate branches on PUBLICATION STATE.
+;; Lock 9 — the greenfield coordinate BRANCHES on publication state. It does
+;; not teach one unconditional shape.
 ;;
-;; re-frame2 is NOT on Clojars/npm yet (README §Status: "not yet published …
-;; add as a :git/sha coordinate"). A `day8/re-frame2* {:mvn/version "<VERSION>"}`
-;; framework coord 404s on Clojars and a greenfield project that writes it fails
-;; dependency resolution before it ever compiles. So the manual setup path's
-;; deps guidance MUST branch on publication state: pre-publish uses :git/sha /
-;; :local/root for the framework artefacts; :mvn/version is the labelled
-;; post-publish destination only. These guards fail if the deps guidance reverts
-;; to teaching an unconditional `:mvn/version "<VERSION>"` framework coord.
+;; THE BRANCH IS THE SUBJECT HERE, NOT EITHER TIER'S CURRENT STATE — and that
+;; distinction is the whole point of the lock, because the state moves while
+;; the branch does not:
+;;
+;;   - Pre-tag, the unresolvable coordinate was the FRAMEWORK. No
+;;     `day8/re-frame2*` artefact was on a registry, so `{:mvn/version
+;;     "<VERSION>"}` 404'd and a greenfield project that wrote it failed
+;;     dependency resolution before it ever compiled (rf2-ol8l7a, which is the
+;;     bead these four assertions were written for).
+;;   - Once a `v*` tag ships the framework, the unresolvable coordinate is the
+;;     TOOLS TIER. Xray and Story ride their own tag prefixes — `xray-v*`,
+;;     `story-v*` — which a framework `v*` tag does not cut, so
+;;     `day8/re-frame2-xray {:mvn/version "<VERSION>"}` stays a 404 however
+;;     current <VERSION> is. That is why the generator template emits git
+;;     coords for both tools (rf2-57bjg).
+;;
+;; So the four assertions below are deliberately SUBJECT-AGNOSTIC, and so are
+;; their failure messages. They fail when the deps guidance stops branching at
+;; all — when it teaches one unconditional `:mvn/version` shape for every
+;; `day8/re-frame2*` coordinate, which is a false-green setup for whichever
+;; coordinate does not currently resolve. They say nothing about WHICH tier
+;; that is.
+;;
+;; ONE LOCK, NOT TWO. Splitting this per tier reads tempting and is wrong: a
+;; framework-specific half would assert something the framework release makes
+;; FALSE, so it would ship already scheduled for deletion. What survives both
+;; cuts is the branch, and the branch is one claim.
+;;
+;; The honest end state: these go vacuous only when EVERY day8/re-frame2*
+;; coordinate resolves, framework and tools alike. At that point the branch is
+;; genuinely gone and the lock has done its job — delete it deliberately
+;; rather than restating something false to get back to green.
+;;
+;; (rf2-lyriz. Before that bead the name, the rationale and the first failure
+;; message all described the FRAMEWORK's publication state, while the
+;; assertion had quietly become satisfiable by the Xray caveat alone — so the
+;; editor who correctly removes that caveat at the `xray-v*` cut would have
+;; reddened a lock telling them to go re-assert something untrue.)
 ;; ---------------------------------------------------------------------------
 
-(deftest deps-guidance-uses-git-sha-pre-publish
-  (testing "deps-versions.md teaches the pre-publish :git/sha framework coord, not an unconditional :mvn/version"
+(deftest deps-guidance-branches-on-actual-publication-state
+  (testing "deps-versions.md branches the coordinate shape on what actually resolves, not one unconditional :mvn/version"
     (let [body @deps-versions-md]
       (is (contains-any? body ["not published" "NOT on Clojars" "not on Clojars"
                                "have not published" "not yet published"])
-          (str "deps-versions.md no longer states re-frame2 is unpublished. "
-               "The README §Status says artifacts are not on Clojars/NPM; the "
-               "greenfield deps guidance must say so before it can branch the "
-               "coordinate shape (rf2-ol8l7a)."))
+          (str "deps-versions.md no longer names ANY day8/re-frame2* "
+               "coordinate as unpublished, so it can no longer branch the "
+               "coordinate shape at all. Whichever tier is currently "
+               "unresolvable has to be said out loud before the page can "
+               "teach a route around it — the tools tier (`day8/re-frame2-xray` "
+               "until an `xray-v*` tag is cut) once the framework ships, the "
+               "framework itself before that. If EVERY day8/re-frame2* "
+               "coordinate now resolves on Clojars then this lock is done: "
+               "retire it deliberately, do not restate something false to get "
+               "green (rf2-ol8l7a, rf2-lyriz)."))
       (is (str/includes? body ":git/sha")
-          (str "deps-versions.md no longer gives the pre-publish `:git/sha` "
-               "framework coordinate. Before the first Clojars release, the "
-               "ONLY working manual route is :git/url + :git/sha (or "
-               ":local/root) for each day8/re-frame2* artefact — not "
-               "`:mvn/version`, which 404s today (rf2-ol8l7a)."))
+          (str "deps-versions.md no longer gives the `:git/sha` route. For any "
+               "day8/re-frame2* artefact whose `:mvn/version` does not resolve, "
+               "`:git/url` + `:git/sha` (or `:local/root`) is the ONLY working "
+               "manual route, and the page has to carry it — otherwise the "
+               "caveat above is a dead end (rf2-ol8l7a, rf2-lyriz)."))
       (is (contains-any? body ["Clojars" "resolve"])
           (str "deps-versions.md no longer points version discovery at whether "
                "the coordinate actually RESOLVES on Clojars. The repo VERSION "
                "string is the next-release tag, not a published-Maven-version "
                "guarantee (rf2-ol8l7a)."))
-      ;; The :mvn/version framework shape may appear ONLY as a labelled
-      ;; post-publish destination, never as the today's-route recommendation.
+      ;; For the coordinate that does NOT resolve, the `:mvn/version` shape may
+      ;; appear only as a LABELLED destination — never as its today's-route
+      ;; recommendation. (For a coordinate that does resolve, `:mvn/version`
+      ;; being the plain recommendation is correct and this assertion is
+      ;; indifferent to it.)
       (is (contains-any? body ["After publication" "Post-publish" "post-publish"
                                "AFTER PUBLICATION"])
-          (str "deps-versions.md no longer labels the `:mvn/version` framework "
-               "shape as the POST-PUBLISH path. Unqualified `:mvn/version "
-               "\"<VERSION>\"` for day8/re-frame2* coords is a false-green "
-               "setup (404 on Clojars); it must be clearly gated as the "
-               "after-publication destination (rf2-ol8l7a).")))))
+          (str "deps-versions.md no longer labels `:mvn/version` as the "
+               "POST-PUBLISH destination for the coordinate that does not "
+               "resolve yet. An unqualified `:mvn/version \"<VERSION>\"` for "
+               "such a coord is a false-green setup — it 404s on Clojars and "
+               "fails resolution before anything compiles — so it must be "
+               "clearly gated as the after-publication shape rather than "
+               "offered as today's route (rf2-ol8l7a, rf2-lyriz).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 10 — the schema-missing contract is a LOUD error, not a CLJS soft-pass.
