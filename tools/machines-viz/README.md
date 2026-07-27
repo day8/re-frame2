@@ -119,7 +119,10 @@ That compiles the bundle to `out/machines-viz-viewer/viewer.js`, copies
 `viewer.html` beside it, and checks the pair actually fits — that the
 `<script src>` the page loads names a file the build emitted, and that
 the global the page's boot script calls is one the bundle installs. The
-long hand is the same two steps:
+second check **evaluates** the bundle in an isolated context and asks
+whether that global came out callable, rather than searching the bundle's
+text for something that looks like an export (rf2-8m344). The long hand
+is the same two steps:
 
 ```bash
 npx shadow-cljs release machines-viz-viewer      # → out/machines-viz-viewer/viewer.js
