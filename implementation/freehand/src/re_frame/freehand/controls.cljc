@@ -85,8 +85,8 @@
 (defn key-intent
   "[[buffered-field]]'s KEYBOARD LAW, as a pure function of two scalars:
   the `key` the user pressed and whether an IME composition was in flight
-  (`composing?`). Answers `:commit`, `:cancel`, or `nil` for every other
-  key.
+  ([[composing?]] reads that one off a host event). Answers `:commit`,
+  `:cancel`, or `nil` for every other key.
 
       (key-intent \"Enter\"  false)   ;=> :commit
       (key-intent \"Enter\"  true)    ;=> nil
@@ -129,31 +129,45 @@
   #?(:cljs (.-key e)
      :clj  (:key e)))
 
-(defn- composing?
-  "Is an IME composition in flight for this host keyboard event?
+(defn composing?
+  "SHOULD THIS HOST KEYBOARD EVENT BE TREATED AS COMPOSITION-OWNED? — the
+  conservative question a keyboard action asks before it acts, and the
+  second scalar [[key-intent]] takes.
 
-  TWO signals, ORed, because the one that is standard is missing on the
-  engine that matters most.
+  Deliberately NOT a composition lifecycle tracker: it answers ONE boolean
+  about ONE event, from two signals, ORed.
 
   - **The standard `isComposing` flag**, asked of the NATIVE event where
     there is one and of the event itself otherwise. Those are two surfaces
-    of ONE fact rather than two signals: React's synthetic keyboard event
-    does not carry `isComposing` at all, so a React host has to be asked
-    through `nativeEvent`, while a host handing over a raw DOM event has
-    no `nativeEvent` and carries the flag directly.
-  - **`keyCode` 229**, the sentinel every engine has emitted for two
-    decades and what Chromium ACTUALLY fires on the Enter that accepts a
-    candidate — with `isComposing` false. Without it the control is broken
-    for every input method on Chromium.
+    of ONE fact rather than two signals: React 19.2's synthetic keyboard
+    event carries `key` and the legacy `keyCode` but NOT `isComposing`, so
+    a React host has to be asked through `nativeEvent`, while a host handing
+    over a raw DOM event has no `nativeEvent` and carries the flag directly.
+  - **`keyCode` 229**, the compatibility fallback. UI Events requires the
+    keydown that EXITS a composition to carry `isComposing` true, and
+    **WebKit did not** — bug 165004 reported it false on exactly that
+    keydown, which is the Enter that accepts a candidate. WebKit fixed that
+    in April 2026 (bug 311717, with a Safari branch backport), so the
+    fallback now covers DEPLOYED engines rather than a current defect. 229
+    is what the spec's informative legacy algorithm assigns while an IME is
+    processing a keydown — a compatibility signal, NOT a Freehand policy
+    value a caller should learn.
 
   The two are ORed and never ANDed, and FH-CTRL-018 presses them SEPARATELY
   for that reason: an event carrying both cannot fail for either one, so a
-  reader of only the standard flag — the reader that breaks on Chromium —
-  would pass a proof that set both at once.
+  reader of only the standard flag would pass a proof that set both at once.
 
-  Answering `true` on either signal is the safe direction: a commit wrongly
-  withheld is one more Enter, and a commit wrongly taken is a domain event
-  carrying half a word."
+  Public because the SCALARS are the part a kit member cannot re-derive
+  safely. [[key-intent]] shares [[buffered-field]]'s Enter/Escape POLICY;
+  this shares the host adaptation underneath it, so a control with its own
+  keyboard grammar — one that must also withhold its arrows while a
+  candidate window is open — keeps that grammar and still reads the host
+  through one library-owned fn. Central ownership is also what lets the 229
+  fallback eventually retire without chasing copies.
+
+  Answering `true` on either signal is the safe direction: a false positive
+  withholds one control action, and a false negative commits or navigates
+  while the user is still choosing a candidate."
   [e]
   #?(:cljs (let [flag (or (some-> (.-nativeEvent e) (.-isComposing))
                           (.-isComposing e))]
