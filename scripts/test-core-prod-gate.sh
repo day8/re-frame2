@@ -44,10 +44,12 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 94 namespaces, 1103 tests, 5120
+# What is left IS green, and it is not a rump: 95 namespaces, 1153 tests, 5327
 # assertions, exit 0 — versus the zero suites that had ever executed under this
 # posture before.  (It was 88 / 934 / 4340 before rf2-d2841 split the spine's
-# dev-instrumentation assertions away from the semantics beside them.)
+# dev-instrumentation assertions away from the semantics beside them, and
+# 94 / 1106 / 5135 before that bead's second pass took `fx-test` — the largest
+# single entry, 107 failures and 25 errors across ~20 deftests — off the list.)
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -117,8 +119,23 @@ known_red=(
   #    `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, everything
   #    outside such an arm posture-independent — is documented in each of
   #    those namespaces' docstrings under "## Posture split (rf2-d2841)".
-  #    `fx-test` is the big one still standing (107 failures / 25 errors
-  #    across ~20 deftests under the gate).
+  #    `fx-test` — 107 failures / 25 errors across ~20 deftests, the big one
+  #    — came off in the second pass.
+  #
+  #    THE SPLIT IS NOT ALWAYS A GUARD, AND REACHING FOR ONE FIRST COSTS
+  #    COVERAGE. Four `:rf.error/*` categories in the fx subsystem
+  #    (`fx-handler-exception`, `no-such-fx`, `override-fallthrough`,
+  #    `reserved-fx-override`) are ALWAYS-ON: they fan through
+  #    `emit-fx-error!` → `error-emit/emit-error-both!`, which additionally
+  #    LIFTS `:failing-id` and `:reason` onto the record whenever the failing
+  #    component differs from the dispatched event (Spec 009 §Component
+  #    attribution). Assertions about those survive the gate verbatim once
+  #    they read the `:errors` stream instead of the `:trace` stream — and
+  #    that includes the NEGATIVE ones, which over the dev ring pass for free
+  #    under the gate. Check the category's Channel column in Spec 009's
+  #    catalogue before guarding anything: `diagnostic` means dev-only by
+  #    design (`:rf.error/effect-map-shape`), `always-on` means there is a
+  #    production witness to be had.
   #
   #    NOTE for whoever finishes this list: a namespace whose EVERY deftest
   #    is about the dev trace (the `trace-listener-*` cohort, `trace-test`,
@@ -152,7 +169,6 @@ known_red=(
   re-frame.fx-aggregate-classification-cljs-test
   re-frame.fx-args-trace-egress-cljs-test
   re-frame.fx-redirect-classification-cljs-test
-  re-frame.fx-test
   re-frame.handler-source-test
   re-frame.image-inline-metadata-normalization-cljs-test
   re-frame.image-no-emit-trace-gate-cljs-test
