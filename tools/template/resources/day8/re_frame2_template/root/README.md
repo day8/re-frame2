@@ -368,11 +368,23 @@ if you're rendering server-side.
 ### Typed app-db boundaries
 
 `schema.cljs` registers a **whole-app-db schema** at the empty path
-`[]`. The framework validates every write against the registered
-schemas; a non-conforming write rolls back the `:db` effect and emits
-`:rf.error/schema-validation-failure`. The error then flows through
-the error sink above — wrong writes are caught at the boundary, not
-N renders downstream.
+`[]`. In a **development build** the framework validates every write
+against the registered schemas; a non-conforming write rolls back the
+`:db` effect and emits `:rf.error/schema-validation-failure`, and that
+error flows through the error sink above — wrong writes surface where
+they happen, not N renders downstream.
+
+**A release build registers these schemas and never checks them.** It
+is the designed posture, not a gap: schema validation is a development
+tool and production trusts the programmer. Keep the registration — it
+documents the slice, and `(rf/app-schemas)` is what tools and agents
+read — but a write that violates a registered schema **installs** in
+production, with no rollback, no error, and nothing for the error sink
+above to report. Do not read a registered schema as a runtime
+guarantee. An invariant that must hold in production belongs in the
+handler; untrusted input crossing a system boundary belongs behind the
+`:rf.schema/at-boundary` interceptor, which survives the elision. See
+[Spec 010 §Production builds](https://github.com/day8/re-frame2/blob/main/spec/010-Schemas.md#production-builds).
 
 App-db schemas are **frame-local** (EP-0002, Spec 002 §Frame target
 resolution): `reg-app-schema` targets a frame and the runtime never
@@ -425,8 +437,9 @@ Per-feature schemas compose with the root schema; both validate. Full
 detail: [Spec 010 §`app-db` schemas — path-based](https://github.com/day8/re-frame2/blob/main/spec/010-Schemas.md#app-db-schemas--path-based).
 
 Schema validation elides automatically under `:advanced`
-`goog.DEBUG=false` builds — registrations stay in source but cost
-nothing in production hot paths.
+`goog.DEBUG=false` builds — registrations stay in source and cost
+nothing in production hot paths, because (per "Typed app-db
+boundaries" above) nothing consults them there.
 
 ### Privacy / egress classification — declare it where data is written
 

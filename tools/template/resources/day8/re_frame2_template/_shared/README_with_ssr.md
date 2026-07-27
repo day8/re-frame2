@@ -101,8 +101,24 @@ When a view or subscription **throws** during the server render, the internal
 trace event (rich, monitor-bound) is projected to a **sanitised public-error**
 shape written to the HTTP response — the two surfaces have different audiences.
 The default projector maps `:rf.error/no-such-handler` → 404, client-input schema
-failures → 400, and everything else → a locked generic 500. Override it per app
-with `reg-error-projector` and name it on the frame:
+failures → 400, and everything else → a locked generic 500.
+
+Two of those three arms survive a release build; know which before you rely on
+one. `:rf.error/no-such-handler` — the unroutable URL — is always-on, so the 404
+holds in production. (Its lookalike `:rf.error/no-such-route`, raised when
+`route-url` is handed a route id nobody registered, is caller misuse, rides the
+dev trace bus alone, and never reaches the projector on a hardened server.) The
+**400 arm does not survive**. Schema validation is a development-build assertion,
+so under `:advanced` + `goog.DEBUG=false` — or the `-Dre-frame.debug=false` this
+server sets — no validator runs, `:rf.error/schema-validation-failure` is never
+emitted, and the projector is handed nothing to map: a malformed request body
+flows into the handler and the endpoint answers 200. An endpoint that owes its
+caller a 400 produces that status itself — validate the payload in the handler
+body and emit `[:rf.server/set-status 400]`. See
+[Spec 010 §Production builds](https://github.com/day8/re-frame2/blob/main/spec/010-Schemas.md#production-builds).
+
+Override the projector per app with `reg-error-projector` and name it on the
+frame:
 
 ```clojure
 (rf/reg-error-projector :myapp/public-error
@@ -120,7 +136,7 @@ with `reg-error-projector` and name it on the frame:
 
 Naming a `:public-error-id` that is **not registered** is surfaced as a
 `:rf.error/sanitised-on-projection` diagnostic (reason `:missing-projector`) — a
-recognised-but-unhonourable config never silently degrades your intended 404/400
+recognised-but-unhonourable config never silently degrades your intended status
 mappings into a 500. See [Spec 011 §Server error projection](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md).
 
 ## Build for release
@@ -222,17 +238,34 @@ are separate surfaces — the projector owns the wire response, the client liste
 owns what the interactive UI shows — but both start from the same structured
 error event.
 
+Those categories do not all reach production, though. Handler exceptions, sub
+exceptions, `:rf.error/no-such-handler` and drain-depth overflow ride the
+**always-on** error records as well as the trace bus, so they project under
+production hardening. The **schema violation is the exception**: it rides the dev
+trace bus alone, because the validation that would raise it is itself elided from
+a release build. In production there is no reject to project.
+
 ### Typed app-db boundaries
 
 `core.cljc` registers a **whole-app-db schema** (`CounterDb`) at the empty path
-`[]`. The runtime validates every write against the registered schemas; a
-non-conforming write rolls back the `:db` effect and emits
+`[]`. In a **development build** the runtime validates every write against the
+registered schemas; a non-conforming write rolls back the `:db` effect and emits
 `:rf.error/schema-validation-failure`. App-db schemas are **frame-local**:
 the scaffold attaches the schema under a live frame scope
 (`register-schema!` — the server via the `:ssr/register-schema` initial-event, the
 client via the explicit-frame arity), never at namespace load. Closed maps
-(`{:closed true}`) catch typos; schema validation elides automatically under
-`:advanced` `goog.DEBUG=false` release builds.
+(`{:closed true}`) catch typos.
+
+**A release build registers these schemas and never checks them.** That is the
+designed posture rather than a gap — schema validation is a development tool and
+production trusts the programmer. The registration is still worth keeping: it
+documents the slice, and `(rf/app-schemas)` is what tools and agents read. But a
+write that violates a registered schema **installs** in production, with no
+rollback, no error, and nothing for your monitoring to see. An invariant that must
+hold in production belongs in the handler; untrusted input crossing a system
+boundary belongs behind the `:rf.schema/at-boundary` interceptor, which survives
+the elision. See
+[Spec 010 §Production builds](https://github.com/day8/re-frame2/blob/main/spec/010-Schemas.md#production-builds).
 
 For multi-feature apps, register **per-feature schemas at their prefix path**
 rather than one giant root schema. Full detail:
