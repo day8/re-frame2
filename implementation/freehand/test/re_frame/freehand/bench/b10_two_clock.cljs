@@ -1,0 +1,648 @@
+(ns re-frame.freehand.bench.b10-two-clock
+  "B10 — the TWO-CLOCK operating envelope (DC-09), as fixture and
+  instrument, with every `cljs.test` assertion left to the caller.
+
+  Split from its test namespace for B6's reason and B9's: the method is
+  one thing a reader should be able to check once, and the driver has to
+  be callable from more than the browser suite.
+
+  ## The two clocks
+
+  DC-09's claim is that a Freehand application runs on two clocks that do
+  not have to tick together:
+
+    - the **HOST clock**, at pointer/animation/scroll rate, owned by a
+      behavior mutating its own node. Nothing crosses into `app-db`.
+    - the **SEMANTIC clock**, at whatever rate the application chooses to
+      call meaningful, carrying `started` / `preview` / `committed`
+      events into re-frame.
+
+  The envelope is the answer to \"how fast may the semantic clock tick
+  before it stops keeping up\", and that is not one number: it is a
+  surface over the crossing's cost. So this namespace measures the COST
+  of one crossing under the loads that move it, and drives a real timer
+  at real rates to check that the cost predicts the breakdown.
+
+  ## NO ELEVENTH INSTRUMENT
+
+  Every window here is B6's: `re-frame.freehand.bench.b6-harness` for
+  publication and the across-rounds range fold, `…bench.measure` for the
+  clock and the distribution summary, `…bench.provenance` for the D021
+  record. What is new is the FIXTURE and the two axes, not the method.
+
+  ## The window, and the one rule that makes it honest
+
+  A crossing is timed across `react-dom/flushSync` with the dispatch
+  inside it, and split at the moment the dispatch returns:
+
+      t0 ──flushSync[ dispatch-sync ──t1── (React render + commit) ]── t2
+
+  `:event-ms` is `t1 − t0`: the router, the interceptor chain, the
+  reducer, the `app-db` install and the subscription notification.
+  `:commit-ms` is `t2 − t1`: React's render, commit and DOM mutation.
+  That split is DC-09's acceptance criterion 3 — costs attributed to
+  event/reducer/Freehand/React/host work rather than rolled into one
+  latency number — and it is why the crossing is not measured as a
+  single number.
+
+  **Every measured crossing is then read back out of the DOM inside its
+  own window, and a crossing that did not land is COUNTED, not
+  discarded.** B6 records what happens without that rule: a first pass
+  timed writes inside `flushSync` that never reached the page at all and
+  returned entirely reasonable milliseconds for them. Each mode's
+  read-back is a different assertion because each mode changes a
+  different thing, and the `:fresh-equal` mode — whose whole point is
+  that the page must NOT change — verifies instead that the `app-db`
+  reference genuinely moved. An equality arm that silently did nothing
+  would otherwise be the fastest arm in the table.
+
+  ## Two positive controls, both computed rather than calibrated
+
+  **C1, a duration.** [[burn-arm]] busy-waits for exactly `burn-ms`
+  inside the measured window. Predicted `:total-ms` is `burn-ms`; the
+  overshoot is clock quantisation plus whatever the operating system
+  took away. On a workstation running other agents that second term is
+  not small, and publishing it beside every figure is what stops a
+  contended round being read as a slow substrate.
+
+  **C2, a size.** Every mode's DOM mutation count is PREDICTED from the
+  fixture's arithmetic and MEASURED with a `MutationObserver` whose
+  records are taken synchronously. `:one-leaf` at K siblings must move
+  exactly `K + 1` nodes; `:fresh-equal` must move none; `:host-only`
+  must move exactly one attribute. A knob that does not dirty what it
+  says it dirties fails here rather than in a conclusion.
+
+  ## Both ladder orders
+
+  The sibling ladder runs ASCENDING in half its rounds and DESCENDING in
+  the other half, and both are published. A large arm inflating its
+  successor is a documented hazard on this surface and it is only ever
+  visible from the two orders side by side.
+
+  Normative owner: `docs/design/freehand/decisions/`
+  `D021-performance-budgets-and-release-evidence.md`. Measured claim
+  owner: DC-09 in `docs/design/freehand/product-completion-setpoint.md`."
+  (:require ["react-dom" :as react-dom]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.freehand :as v]
+            [re-frame.freehand.bench.b6-harness :as h]
+            [re-frame.freehand.bench.measure :as m]
+            [re-frame.freehand.bench.provenance :as prov]))
+
+;; ===========================================================================
+;; The fixture
+;; ===========================================================================
+
+(def cells-n
+  "Enough cells that the widest rung of the sibling ladder (200) is a
+  real fraction of the page rather than the whole of it, so a 200-dirty
+  crossing is still a PARTIAL update and the localisation the substrate
+  claims is the thing under load."
+  300)
+
+(def sibling-ladder
+  "DC-09's rungs, verbatim. 0 means the crossing moves the leaf alone."
+  [0 1 10 50 200])
+
+(def rate-ladder
+  "DC-09's offered semantic rates, in updates per second."
+  [30 60 120 240])
+
+;; ---------------------------------------------------------------------------
+;; Behavior configs, at two shapes
+;; ---------------------------------------------------------------------------
+
+(defn- vega-shaped
+  "A nested spec map of the shape a chart library is handed — a handful
+  of keys, several levels deep. `n` scales the encoding channel count."
+  [n leaf]
+  {:$schema  "https://vega.github.io/schema/vega-lite/v5.json"
+   :mark     {:type "line" :tooltip true :interpolate "monotone"}
+   :width    640 :height 480
+   :encoding (into {} (map (fn [i]
+                             [(keyword (str "ch" i))
+                              {:field (str "f" i)
+                               :type  "quantitative"
+                               :scale {:zero false :nice true :domain [0 (+ i leaf)]}
+                               :axis  {:title (str "Field " i) :grid (even? i)}}]))
+                   (range n))})
+
+(defn- spread-shaped
+  "A wide flat cell map of the shape a spreadsheet range is handed — no
+  nesting, `n` entries. The two shapes cost `rf=` differently and the
+  bead asks for both."
+  [n leaf]
+  (into {} (map (fn [i] [(keyword (str "r" i)) (+ i leaf)])) (range n)))
+
+(def config-shapes
+  "`{:id {:build fn :leaves n}}`. `:leaves` is the count a reader can
+  check the equality cost against; it is arithmetic over the builder
+  above, not a measurement."
+  {:vega   {:build vega-shaped   :channels 12  :leaves (* 12 8)}
+   :spread {:build spread-shaped :channels 900 :leaves 900}})
+
+(defn build-config
+  [shape leaf]
+  (let [{:keys [build channels]} (get config-shapes shape)]
+    (build channels leaf)))
+
+;; ---------------------------------------------------------------------------
+;; re-frame registrations — the CONSUMER path, never a store poke
+;; ---------------------------------------------------------------------------
+;;
+;; Every crossing below goes through `rf/dispatch-sync` or `rf/dispatch`,
+;; registered with `rf/reg-event`, read through `rf/reg-sub`. B6's update
+;; row writes with `frame/replace-app-db!`, which is right for a
+;; cross-substrate markup comparison and wrong here: DC-09 is about
+;; semantic EVENTS crossing, and an instrument that skipped the router
+;; and the interceptor chain would price a path no application takes.
+
+(def frame-id :b10/two-clock)
+
+(rf/reg-sub :b10/cell   (fn [db [_ i]] (get-in db [:cells i])))
+(rf/reg-sub :b10/field  (fn [db _] (:field db)))
+(rf/reg-sub :b10/config (fn [db _] (:config db)))
+
+(defonce ^:private applied-count (atom 0))
+(defn applied [] @applied-count)
+(defn reset-applied! [] (reset! applied-count 0))
+
+(defn- dirty
+  "Write `gen` into cells `0 … k` inclusive — `k + 1` cells, so `k` reads
+  as \"and this many SIBLINGS beside the leaf\"."
+  [cells k gen]
+  (reduce (fn [cs i] (assoc cs i gen)) cells (range (inc k))))
+
+(rf/reg-event :b10/seed
+  (fn [_ [_ n shape]]
+    (reset! applied-count 0)
+    {:db {:cells    (vec (repeat n 0))
+          :field    ""
+          :siblings 0
+          :config   (build-config shape 0)}}))
+
+;; How many siblings a KEYSTROKE dirties. Set before a typing run so the
+;; controlled-input ladder is driven by the same knob as the crossing
+;; ladder, rather than by a second, differently-spelled one.
+(rf/reg-event :b10/contend
+  (fn [{:keys [db]} [_ k]]
+    {:db (assoc db :siblings k)}))
+
+;; The controlled-input crossing. Every keystroke ALSO dirties `k`
+;; siblings, so the frame-scoped synchronous flush has to settle all of
+;; them before the listener returns — FH-INPUT-003's contention shape,
+;; here on DC-09's ladder rather than at a single dozen.
+(rf/reg-event :b10/typed
+  (fn [{:keys [db]} [_ s]]
+    (swap! applied-count inc)
+    {:db (-> db
+             (assoc :field s)
+             (update :cells dirty (:siblings db) (count s)))}))
+
+;; The semantic crossing under test. `k` names how many siblings the
+;; application chose to dirty alongside the leaf, so `k + 1` cells change
+;; and the rest do not.
+(rf/reg-event :b10/moved
+  (fn [{:keys [db]} [_ k gen]]
+    (swap! applied-count inc)
+    {:db (update db :cells dirty k gen)}))
+
+;; A fresh-but-`rf=`-equal cells vector: a new object holding the same
+;; values, so the store's identity moves and the page must not.
+(rf/reg-event :b10/fresh-equal-cells
+  (fn [{:keys [db]} _]
+    (swap! applied-count inc)
+    {:db (update db :cells (fn [cells] (into [] (map identity) cells)))}))
+
+;; The behavior-config crossing. `:stable` re-installs the value already
+;; there — identical, not merely equal. `:fresh-equal` installs a freshly
+;; built map with the same contents. `:one-leaf` installs a freshly built
+;; map differing in exactly one leaf.
+(rf/reg-event :b10/config-offered
+  (fn [{:keys [db]} [_ mode shape gen]]
+    (swap! applied-count inc)
+    {:db (case mode
+           :stable      db
+           :fresh-equal (assoc db :config (build-config shape 0))
+           :one-leaf    (assoc db :config (build-config shape gen)))}))
+
+;; ---------------------------------------------------------------------------
+;; The behavior — the host clock's owner
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private behavior-log (atom {:connect 0 :update 0 :disconnect 0}))
+(defn behavior-calls [] @behavior-log)
+(defn reset-behavior-log! [] (reset! behavior-log {:connect 0 :update 0 :disconnect 0}))
+
+(v/defbehavior host-clock
+  "The DC-09 default made concrete: a behavior owning one node's motion.
+  `:update` writes the node's own transform and touches nothing else, so
+  a host tick costs a style write and no `app-db` version at all.
+
+  Its call COUNTS are the instrument for the config axis. Whether
+  Freehand elides an `:update` whose config is unchanged is a question
+  this fixture answers by counting rather than by reading the runtime."
+  {:timing  :passive
+   :connect (fn [{:keys [node config]}]
+              (swap! behavior-log update :connect inc)
+              (set! (.. node -dataset -leaves) (str (count config)))
+              nil)
+   :update  (fn [{:keys [node config]}]
+              (swap! behavior-log update :update inc)
+              (set! (.. node -dataset -leaves) (str (count config)))
+              nil)
+   :disconnect (fn [_] (swap! behavior-log update :disconnect inc) nil)})
+
+;; ---------------------------------------------------------------------------
+;; Views
+;; ---------------------------------------------------------------------------
+
+(v/defview cell
+  [{:keys [i]}]
+  [:span.b10cell {:data-i i} (str (v/sub [:b10/cell i]))])
+
+(v/defview field
+  "The controlled field. `:value` and an event-vector `:on-input` put it
+  through the controlled-input door, which is what makes its keystroke
+  path synchronous — the property FH-INPUT-003 gates and this namespace
+  measures the distribution of."
+  [_]
+  [:input.b10field {:data-testid "b10-field"
+                    :type        "text"
+                    :value       (v/sub [:b10/field])
+                    :on-input    [:b10/typed ::v/value]}])
+
+(v/defview surface
+  [{:keys [n]}]
+  [:div.b10
+   [v/behavior {:use host-clock :target :b10/host :config (v/sub [:b10/config])}
+    [:div.b10host {:data-testid "b10-host"}]]
+   [field {}]
+   [:div.b10cells
+    (for [i (range n)]
+      [cell {:key i :i i}])]])
+
+;; ===========================================================================
+;; Reading the page
+;; ===========================================================================
+
+(defn cell-text [container i]
+  (some-> (.querySelector container (str "[data-i=\"" i "\"]")) (.-textContent)))
+
+(defn field-node [container]
+  (.querySelector container "[data-testid=\"b10-field\"]"))
+
+(defn host-node [container]
+  (.querySelector container "[data-testid=\"b10-host\"]"))
+
+;; ---------------------------------------------------------------------------
+;; C2 — the mutation counter
+;; ---------------------------------------------------------------------------
+
+(defn- observe!
+  "A `MutationObserver` over `container`'s whole subtree. `takeRecords`
+  answers synchronously, which is the only reason this can be read
+  inside a `flushSync`-bracketed window at all."
+  [container]
+  (let [o (js/MutationObserver. (fn [_ _] nil))]
+    (.observe o container #js {:subtree true :childList true
+                               :characterData true :attributes true})
+    o))
+
+(defn- take-mutations!
+  "Answer `{:total n :by-type {…}}` for everything observed since the last
+  take, and leave the observer armed."
+  [o]
+  (let [recs (.takeRecords o)]
+    {:total   (.-length recs)
+     :by-type (reduce (fn [acc r] (update acc (keyword (.-type r)) (fnil inc 0)))
+                      {} (array-seq recs))}))
+
+;; ===========================================================================
+;; The measured window
+;; ===========================================================================
+
+(defn- burn!
+  "Busy-wait until `ms` of the SAME clock the window is read with has
+  passed. Its duration is the argument, which is what makes it a
+  positive control rather than a calibration."
+  [ms]
+  (let [t0 (m/now-ms)]
+    (loop [n 0]
+      (if (< (- (m/now-ms) t0) ms)
+        (recur (inc n))
+        n))))
+
+(defn crossing!
+  "One semantic crossing, timed, attributed and VERIFIED at the DOM.
+
+  `thunk` is what runs inside the flush; `verify` is handed the container
+  and answers truthy when the page (or, for the equality mode, the store)
+  shows what the crossing claimed to do. Answers
+  `{:total-ms :event-ms :commit-ms :mutations :ok?}`."
+  [container observer thunk verify]
+  (take-mutations! observer)                 ; discard anything in flight
+  (let [t0 (m/now-ms)
+        t1 (volatile! nil)]
+    (react-dom/flushSync (fn [] (thunk) (vreset! t1 (m/now-ms))))
+    (let [t2   (m/now-ms)
+          muts (take-mutations! observer)]
+      {:total-ms  (- t2 t0)
+       :event-ms  (- @t1 t0)
+       :commit-ms (- t2 @t1)
+       :mutations muts
+       :ok?       (boolean (verify container))})))
+
+;; ---------------------------------------------------------------------------
+;; The modes
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private gen-seq (atom 5000))
+(defn next-gen! [] (swap! gen-seq inc))
+
+(defn sibling-mode
+  "`{:id … :run! … :predicted-mutations …}` for one rung of the sibling
+  ladder. Three modes, each verified differently because each claims
+  something different.
+
+    :host-only   the DC-09 default — the behavior writes its own node,
+                 nothing crosses. Predicted: one attribute mutation, and
+                 FLAT across the ladder. A host arm that rises with `k`
+                 would mean the ladder leaks into arms it must not
+                 touch, and that flatness is checked as a gate.
+    :fresh-equal a crossing that installs a fresh-but-`rf=`-equal cells
+                 vector. Predicted: NO mutations — and verified by the
+                 store's identity moving, never by the page standing
+                 still, which an arm that did nothing would also achieve.
+    :one-leaf    the naive dispatch-per-move: `k + 1` cells change.
+                 Predicted: `k + 1` mutations."
+  [mode k]
+  (case mode
+    :host-only
+    {:id :host-only :predicted-mutations 1
+     :run! (fn [container observer]
+             (let [gen  (next-gen!)
+                   node (host-node container)]
+               (crossing! container observer
+                          (fn [] (set! (.. node -style -transform)
+                                       (str "translateX(" (mod gen 97) "px)")))
+                          (fn [c] (= (str "translateX(" (mod gen 97) "px)")
+                                     (.. (host-node c) -style -transform))))))}
+
+    :fresh-equal
+    {:id :fresh-equal :predicted-mutations 0
+     :run! (fn [container observer]
+             (let [before (:cells (frame/frame-app-db-value frame-id))]
+               (crossing! container observer
+                          (fn [] (rf/dispatch-sync
+                                   [:b10/fresh-equal-cells] {:frame frame-id}))
+                          (fn [_]
+                            (let [after (:cells (frame/frame-app-db-value frame-id))]
+                              ;; the write LANDED (a new vector) and it was
+                              ;; equal (so the page was right not to move).
+                              (and (not (identical? before after))
+                                   (= before after)))))))}
+
+    :one-leaf
+    {:id :one-leaf :predicted-mutations (inc k)
+     :run! (fn [container observer]
+             (let [gen (next-gen!)]
+               (crossing! container observer
+                          (fn [] (rf/dispatch-sync [:b10/moved k gen] {:frame frame-id}))
+                          (fn [c]
+                            (and (= (str gen) (cell-text c 0))
+                                 (= (str gen) (cell-text c k))
+                                 ;; and the rung BEYOND the ladder did not move,
+                                 ;; so `k` names what it says it names
+                                 (or (>= (inc k) cells-n)
+                                     (not= (str gen) (cell-text c (inc k)))))))))}))
+
+(defn burn-arm
+  "C1. Predicted `:total-ms` is exactly `burn-ms`; the overshoot is the
+  instrument's own error plus the machine's."
+  [burn-ms]
+  {:id :control-burn :predicted-mutations 0 :predicted-ms burn-ms
+   :run! (fn [container observer]
+           (crossing! container observer
+                      (fn [] (burn! burn-ms))
+                      (fn [_] true)))})
+
+(defn config-mode
+  "One rung of the behavior-config axis at one shape."
+  [mode shape]
+  {:id   (keyword (str (name shape) "-" (name mode)))
+   :mode mode :shape shape
+   :run! (fn [container observer]
+           (let [gen    (next-gen!)
+                 before (:config (frame/frame-app-db-value frame-id))]
+             (crossing! container observer
+                        (fn [] (rf/dispatch-sync [:b10/config-offered mode shape gen]
+                                                 {:frame frame-id}))
+                        (fn [_]
+                          (let [after (:config (frame/frame-app-db-value frame-id))]
+                            (case mode
+                              :stable      (identical? before after)
+                              :fresh-equal (and (not (identical? before after))
+                                                (= before after))
+                              :one-leaf    (not= before after)))))))})
+
+;; ===========================================================================
+;; Mount / teardown
+;; ===========================================================================
+
+(defn mount!
+  "Mount the surface into a fresh attached container. Answers
+  `{:container :handle :observer}`."
+  [shape]
+  (let [container (js/document.createElement "div")]
+    (.appendChild js/document.body container)
+    (reset-behavior-log!)
+    (let [handle (react-dom/flushSync
+                   (fn []
+                     (v/mount [surface {:n cells-n}] container
+                              {:frame         {:id             frame-id
+                                               :initial-events [[:b10/seed cells-n shape]]}
+                               :disambiguator :b10/two-clock})))]
+      {:container container :handle handle :observer (observe! container)})))
+
+(defn release!
+  [{:keys [container handle observer]}]
+  (when observer (.disconnect observer))
+  (when handle (try (react-dom/flushSync (fn [] (v/unmount! handle)))
+                    (catch :default _ nil)))
+  (when container (.remove container))
+  nil)
+
+;; ===========================================================================
+;; Rounds
+;; ===========================================================================
+
+(defn- summarise-arm
+  [samples]
+  (let [ms   (mapv :total-ms samples)
+        evt  (mapv :event-ms samples)
+        com  (mapv :commit-ms samples)
+        muts (mapv #(get-in % [:mutations :total]) samples)]
+    {:total-ms   (m/summarise ms)
+     :event-ms   (m/summarise evt)
+     :commit-ms  (m/summarise com)
+     :mutations  {:min (apply min muts) :max (apply max muts)
+                  :distinct (vec (sort (distinct muts)))}
+     :unverified (count (remove :ok? samples))
+     :n          (count samples)}))
+
+(defn run-arms!
+  "One round over `arms`, `samples` measured samples each after `warmup`,
+  the arm order ROTATING on the sample index so no arm is always first
+  into a cold cache. Answers `{id summary}` and the raw samples beside
+  it."
+  [mnt arms {:keys [warmup samples]}]
+  (let [k   (count arms)
+        acc (atom (zipmap (map :id arms) (repeat [])))]
+    (dotimes [s (+ warmup samples)]
+      (dotimes [j k]
+        (let [arm (nth arms (mod (+ j s) k))
+              r   ((:run! arm) (:container mnt) (:observer mnt))]
+          (when (>= s warmup)
+            (swap! acc update (:id arm) conj r)))))
+    (into {} (map (fn [[id xs]] [id (assoc (summarise-arm xs) :raw (mapv :total-ms xs))]))
+          @acc)))
+
+;; ===========================================================================
+;; The driven arm — offered against observed against accepted
+;; ===========================================================================
+
+(defn drive!
+  "Offer a semantic event every `1000/rate` ms for `duration-ms` through
+  the ORDINARY asynchronous `rf/dispatch`, and answer a promise of the
+  ledger.
+
+  Async on purpose. A `dispatch-sync` crossing cannot build a backlog —
+  it is finished before the next offer can be made — so measuring
+  overload through it would report a peak backlog of zero as a property
+  of the framework rather than of the call. `rf/dispatch` is what a
+  pointer handler calls, its queue is real, and this is where a backlog
+  either appears or does not.
+
+    :offered   driver invocations — what the application asked for
+    :expected  `floor(duration-ms × rate / 1000)`, computed, not measured
+    :applied   reducer applications, counted in the reducer itself
+    :mutations DOM records observed across the whole run
+    :peak-backlog  max over offers of `offered − applied`
+    :tail-ms   from the last offer to the DOM showing the last generation
+    :latency   per-generation offer→DOM distribution, read from the
+               `MutationObserver` callback that carried it"
+  [mnt rate k duration-ms]
+  (let [{:keys [container observer]} mnt
+        period    (/ 1000.0 rate)
+        offered   (atom 0)
+        backlog   (atom 0)
+        offers    (atom {})               ; gen -> offer time
+        latencies (atom [])
+        muts      (atom 0)
+        start     (m/now-ms)
+        last-gen  (volatile! nil)]
+    (.disconnect observer)
+    (reset-applied!)
+    (let [watcher (js/MutationObserver.
+                    (fn [recs _]
+                      (swap! muts + (.-length recs))
+                      (let [now (m/now-ms)
+                            txt (cell-text container 0)
+                            g   (js/parseInt txt 10)]
+                        (when-let [t (get @offers g)]
+                          (swap! latencies conj (- now t))
+                          (swap! offers dissoc g)))))]
+      (.observe watcher container #js {:subtree true :childList true :characterData true})
+      (js/Promise.
+        (fn [resolve]
+          (let [tid (volatile! nil)]
+            (vreset!
+              tid
+              (js/setInterval
+                (fn []
+                  (if (>= (- (m/now-ms) start) duration-ms)
+                    (do
+                      (js/clearInterval @tid)
+                      ;; settle: wait until the last generation is on the page
+                      ;; or a generous ceiling passes, then read the tail.
+                      (let [t-last (m/now-ms)
+                            poll   (volatile! nil)]
+                        (vreset!
+                          poll
+                          (js/setInterval
+                            (fn []
+                              (let [done? (= (str @last-gen) (cell-text container 0))
+                                    over? (> (- (m/now-ms) t-last) 2000)]
+                                (when (or done? over?)
+                                  (js/clearInterval @poll)
+                                  (let [tail (- (m/now-ms) t-last)]
+                                    (.disconnect watcher)
+                                    (.observe observer container
+                                              #js {:subtree true :childList true
+                                                   :characterData true :attributes true})
+                                    (resolve
+                                      {:rate            rate
+                                       :siblings        k
+                                       :duration-ms     duration-ms
+                                       :offered         @offered
+                                       :expected        (js/Math.floor
+                                                          (/ (* duration-ms rate) 1000.0))
+                                       :applied         (applied)
+                                       :mutations       @muts
+                                       :peak-backlog    @backlog
+                                       :tail-ms         tail
+                                       :settled?        done?
+                                       :outstanding     (count @offers)
+                                       :latency-ms      (when (seq @latencies)
+                                                          (m/summarise @latencies))})))))
+                            4))))
+                    (let [gen (next-gen!)]
+                      (vreset! last-gen gen)
+                      (swap! offered inc)
+                      (swap! offers assoc gen (m/now-ms))
+                      (swap! backlog max (- @offered (applied)))
+                      (rf/dispatch [:b10/moved k gen] {:frame frame-id}))))
+                period))))))))
+
+;; ===========================================================================
+;; Publication
+;; ===========================================================================
+
+(defn record
+  "A D021 result record, run past `prov/result` — which refuses one that
+  omits any of the eight things D021 requires.
+
+  The refusal is REPORTED rather than routed around. A browser suite has
+  no revision unless its build was handed one, so the ordinary
+  `:browser-test` lane cannot produce release evidence and says so in the
+  record itself; the focused `bench:freehand-browser` build, whose
+  `RF2_REVISION` closure-define is what the published run supplies, does.
+  Both publish the same numbers; only one of them is release evidence,
+  and a reader should not have to work out which."
+  [benchmark doc fixture sampling distribution]
+  (let [candidate
+        {:benchmark    benchmark
+     :doc          doc
+     :revision     (prov/detect-revision)
+     :build        (prov/detect-build)
+     :host         (prov/detect-host)
+     :fixture      fixture
+     :sampling     sampling
+     :baseline     {:kind      :self-vs-end-to-end
+                    :reference {:arm  :host-only
+                                :note (str "the DC-09 default — a behavior writing its own "
+                                           "node's transform, with nothing crossing into "
+                                           "app-db. Every semantic figure is quoted against "
+                                           "the host clock's own cost in the same round.")}}
+     :distribution distribution
+         :status       :evidence}]
+    (try
+      (assoc (prov/result candidate) :d021 :release-evidence)
+      (catch :default e
+        (assoc candidate
+               :d021    :not-release-evidence
+               :because (ex-message e))))))
+
+(defn publish! [tag rec] (h/publish! (str "B10 " tag) rec))
