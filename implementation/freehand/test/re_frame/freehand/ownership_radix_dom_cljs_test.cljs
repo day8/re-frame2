@@ -79,6 +79,7 @@
             ["react-dom" :as react-dom]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.mount-support :as ms]
@@ -285,6 +286,10 @@
 
 (defn- setup! []
   (live-frame/make-frame {:id fid})
+  ;; Seed `:opens` as a VECTOR. On an absent key `conj` would build a list and
+  ;; prepend to it, so the open/close transcript would read backwards — an
+  ;; ordering the assertion below is specifically about.
+  (frame/replace-app-db! fid {:opens []})
   nil)
 
 (defn- read* [query] (rf/subscribe-once query {:frame fid}))
