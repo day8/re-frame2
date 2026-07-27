@@ -34,6 +34,7 @@
    [re-frame.core :as rf]
    [re-frame.fx :as fx]
    [re-frame.error :as error]
+   [re-frame.interop :as interop]
    ;; load-bearing side-effecting requires: register the routing + resources
    ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
@@ -134,6 +135,19 @@
 
 (defn- errors-of [traces op]
   (filterv #(= op (:operation %)) traces))
+
+(defn- record-op-traces!
+  "Run `body-fn` with a trace listener installed; return the vector of every
+  trace event whose `:operation` is `op` (capture order). The sibling of
+  `record-error-traces!` for an ordinary `:rf.event` row — used by the
+  rf2-dlkou `:rf.resource/route-plan` plan-diff assertions."
+  [op body-fn]
+  (let [seen (atom [])
+        k    ::route-op-recorder]
+    (trace-tooling/register-listener!
+      k (fn [ev] (when (= op (:operation ev)) (swap! seen conj ev))))
+    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    @seen))
 
 ;; ===========================================================================
 ;; 1. Accepted-key extension
@@ -854,6 +868,63 @@
     (testing "the prior plan owner release is dispatched LAST (attach-before-release)"
       (is (= :rf.resource/release-owner (first (last ds))))
       (is (= [:route :route/p.a 1] (:owner (second (last ds)))) "releases the superseded owner"))))
+
+(deftest r2-plan-diff-trace-carries-the-identity-partition
+  ;; rf2-dlkou (the rf2-9sluz ruling) — the SAME sibling-leaf navigation as the
+  ;; test above, read off the `:rf.resource/route-plan` TRACE rather than the
+  ;; returned fx: one row must answer "which identity was ensured / kept /
+  ;; removed on this navigation" without diffing two consecutive rows. The
+  ;; counts stay as the compact headline and keep their existing values.
+  (rf/reg-resource :sh/v (article-spec {}) article-spec-request)
+  (rf/reg-resource :lf/a (article-spec {}) article-spec-request)
+  (rf/reg-resource :lf/b (article-spec {}) article-spec-request)
+  (let [parent-meta {:resources [{:resource :sh/v :params (fn [_] {:slug "v"}) :blocking? true}]}
+        shared-key  (state/scoped-resource-key* :rf.scope/global :sh/v {:slug "v"})
+        a-key       (state/scoped-resource-key* :rf.scope/global :lf/a {:slug "a"})
+        b-key       (state/scoped-resource-key* :rf.scope/global :lf/b {:slug "b"})
+        branch1 [{:route-id :route/p   :route-meta parent-meta}
+                 {:route-id :route/p.a :route-meta {:resources [{:resource :lf/a :params (fn [_] {:slug "a"})}]}}]
+        branch2 [{:route-id :route/p   :route-meta parent-meta}
+                 {:route-id :route/p.b :route-meta {:resources [{:resource :lf/b :params (fn [_] {:slug "b"})}]}}]
+        plan1 (route/route-resource-plan {:id :route/p.a :params {} :query {}} {}
+                                         {:nav-token 1 :branch branch1})
+        ;; plan1's shared identity has since LOADED — the reusable kept case.
+        rdb   {:rf.runtime/resources
+               {:entries {(state/key-id shared-key)
+                          {:resource/id :sh/v :resource/key shared-key
+                           :status :loaded :data {:n 1} :attempt 1}}}}
+        traces (record-op-traces!
+                 :rf.resource/route-plan
+                 (fn [] (route/route-resource-plan
+                          {:id :route/p.b :params {} :query {}} {}
+                          {:nav-token 2 :prev-id :route/p.a :prev-nav-token 1
+                           :prev-identities (:identities plan1) :branch branch2
+                           :runtime-db rdb})))]
+    ;; rf2-o5dbf — `trace/emit!` sits behind `interop/debug-enabled?`, so the
+    ;; row exists only in the dev posture. Under `-Dre-frame.debug=false` there
+    ;; is no row to read and the plan-diff assertions are vacuous by design.
+    (when interop/debug-enabled?
+      (let [tags (:tags (first traces))]
+        (is (some? tags) "the activation emits one :rf.resource/route-plan row")
+        (testing "the counts are unchanged — the compact headline still reads
+                  1 ensured / 1 kept / 1 removed"
+          (is (= 1 (:ensured tags)))
+          (is (= 1 (:kept tags)))
+          (is (= 1 (:removed tags))))
+        (testing "and the row names WHICH identity took each path"
+          (is (= [b-key] (:ensured-identities tags))
+              "the added leaf took the real ensure path")
+          (is (= [shared-key] (:kept-identities tags))
+              "the shared parent was adopted without a fetch")
+          (is (= [a-key] (:removed-identities tags))
+              "the departed leaf is the prior-plan identity this plan drops"))
+        (testing "each vector agrees with the count beside it"
+          (is (= (:ensured tags) (count (:ensured-identities tags))))
+          (is (= (:kept tags) (count (:kept-identities tags))))
+          (is (= (:removed tags) (count (:removed-identities tags)))))
+        (testing ":identities carries the planner's GROUPED PLAN ORDER —
+                  parent-most first, one entry per collapsed identity"
+          (is (= [shared-key b-key] (:identities tags))))))))
 
 (deftest r2-branch-resolve-fails-loud
   ;; A :parent naming an unregistered route aborts the plan (a committed failed
