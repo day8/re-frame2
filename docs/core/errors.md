@@ -228,14 +228,21 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     ingress — an HTTP request body, a websocket frame, a query string — and its check
     is *ungated*: it runs in every build. The rejection is real in production, with the
     same recovery as any other `:where :event` failure — the handler is **skipped** and
-    the bad payload never reaches app-db. What does not survive is the **report**. The
-    emit sitting above the rejection is dev-gated, and the category was never promoted
-    onto the always-on axis, so a production boundary rejection says nothing on either
-    channel — and because the skipped handler wrote no `:db`, the always-on `:events`
-    record for that dispatch reads `:outcome :ok`. Production-*reachable* and
-    production-*observable* are different claims, and this is the check that has the
-    first without the second: reach for it where you need the gate, but do not expect
-    it to tell you it fired. The other schema surface that runs in every build is the
+    the bad payload never reaches app-db. The **report** survives with it, on both
+    always-on axes: one `:rf.error/schema-validation-failure` record tagged
+    `:source :boundary` on the `:errors` stream, and `:outcome :rejected` on that
+    dispatch's `:events` record. So this is the one member of the category you *can*
+    alert on from a release build.
+
+    What the production record omits is the payload — no event vector, no offending
+    value, no `:explain`, not even the interpolated `:reason`. The nine slots it does
+    carry (`:error`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`,
+    `:frame`, `:recovery`, `:time`) are identifiers, and the omission is deliberately
+    stricter than redaction: the natural detail of a validation failure is the value
+    that failed, and a boundary value is attacker-controlled or user-private by
+    definition, so it may carry secrets under keys the declared schema never named —
+    the keys a schema-aware redactor cannot know to scrub. The rich diagnosis stays on
+    the dev trace. The other schema surface that runs in every build is the
     managed-HTTP `:decode` schema, and it is not this category at all — a 2xx body that
     fails its schema classifies as `:rf.http/decode-failure` (carrying
     `:schema-validation-failure? true`) and the request fails, in production as in dev.
