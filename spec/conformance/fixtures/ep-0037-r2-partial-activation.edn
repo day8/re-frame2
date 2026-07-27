@@ -8,12 +8,16 @@
 ;; navigation projects the diff: :kept 1 (the parent :acct/viewer, adopted),
 ;; :ensured 1 (the added leaf :acct/b), :removed 1 (the departed leaf :acct/a).
 ;;
+;; rf2-dlkou (the rf2-9sluz ruling) — the row also names WHICH identity took each
+;; path, so one trace answers the question without diffing two consecutive rows,
+;; and :identities carries the planner's grouped plan order (parent-most first).
+;;
 ;; Per [016 §Plan diff and owner handoff](../../016-Resources.md#plan-diff-and-owner-handoff).
 
 {:fixture/id           :ep-0037/r2-partial-activation
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :resources/ensure :core/event-handler}
- :fixture/doc          "EP-0037 R2: sibling-leaf navigation under a shared parent keeps the parent identity (adopted, not re-ensured — the partial-revalidation law), adds the new leaf, and removes the departed leaf. The second navigation's route-plan trace projects :kept 1 / :ensured 1 / :removed 1."
+ :fixture/doc          "EP-0037 R2: sibling-leaf navigation under a shared parent keeps the parent identity (adopted, not re-ensured — the partial-revalidation law), adds the new leaf, and removes the departed leaf. The second navigation's route-plan trace projects :kept 1 / :ensured 1 / :removed 1, names the identity behind each count, and carries :identities in grouped plan order."
 
  :fixture/registry
  {:route
@@ -49,8 +53,18 @@
   ;; parent :acct/viewer is kept + adopted, not re-ensured).
   :trace-emissions
   [{:operation :rf.resource/route-plan
-    :tags      {:route-id :route/account.b
-                :branch   [:route/account :route/account.b]
-                :ensured  1
-                :kept     1
-                :removed  1}}]}}
+    :tags      {:route-id           :route/account.b
+                :branch             [:route/account :route/account.b]
+                ;; the compact headline …
+                :ensured            1
+                :kept               1
+                :removed            1
+                ;; … and the exact partition beside it: which identity was
+                ;; ensured, which was kept, which the plan dropped.
+                :ensured-identities [[:rf.scope/global :acct/b {}]]
+                :kept-identities    [[:rf.scope/global :acct/viewer {}]]
+                :removed-identities [[:rf.scope/global :acct/a {}]]
+                ;; :identities is the planner's GROUPED PLAN ORDER — the shared
+                ;; ancestor first, then the leaf.
+                :identities         [[:rf.scope/global :acct/viewer {}]
+                                     [:rf.scope/global :acct/b {}]]}}]}}
