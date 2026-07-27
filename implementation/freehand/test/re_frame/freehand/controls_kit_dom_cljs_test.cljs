@@ -44,9 +44,7 @@
   This file rides the browser lane through its `-dom-cljs-test` namespace
   suffix, and it also matches the node suites' broader regex, where it has
   no DOM to mount and says so rather than passing quietly."
-  (:require ["react" :as react]
-            ["react-dom/client" :as rdc]
-            [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as react-substrate]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -54,6 +52,7 @@
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.controls :as c]
             [re-frame.freehand.form :as form]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.shell :as shell]
             [re-frame.live-frame :as live-frame]
@@ -63,7 +62,12 @@
   (test-support/make-reset-runtime-fixture
     {:adapter       react-substrate/adapter
      :ambient-frame nil
-     :async?        true}))
+     :async?        true
+     ;; Bookkeeping, not cleanup: it forgets the roots the PREVIOUS test
+     ;; made so `ms/residue-clean!` reads only this one's, and tears
+     ;; nothing down — a teardown here would run before each test and hide
+     ;; exactly what that assertion looks for.
+     :init-fn       (fn [] (ms/reset-ledger!))}))
 
 (def ctrl-018 (conf/fixture :FH-CTRL-018))
 
@@ -127,28 +131,20 @@
                      :on-commit [:editor/committed amount]}])
 
 ;; ---------------------------------------------------------------------------
-;; Browser seams — the same ones the controlled-input suites use
+;; Browser seams
 ;; ---------------------------------------------------------------------------
-
-(defn- browser? []
-  (and (exists? js/document) (some? (.-createElement js/document))))
-
-(defn- skip! [why]
-  (is true (str "a real browser mount is required — " why)))
-
-(defn- act [thunk]
-  (try
-    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-    (js/Promise.resolve (react/act (fn [] (js/Promise.resolve (thunk)))))
-    (catch :default e
-      (js/Promise.reject e))))
-
-(defn- live!
-  "Leave React's act environment: typing has to reach React as a genuine
-  DISCRETE event, which is the mechanism the synchronous door rides."
-  []
-  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  nil)
+;;
+;; The mounted LIFECYCLE — the `act` boundary, the `[container root]` pair
+;; and the teardown — comes from `re-frame.freehand.mount-support`, the one
+;; facade the browser tier shares (rf2-n9rzw). This file used to carry its
+;; own byte-identical copy of each, which is how it came to tear down
+;; without ever asserting what survived.
+;;
+;; What stays local is the TYPING, and it stays local because it is not the
+;; same as the facade's: an `input` here carries `isComposing false`
+;; explicitly, and a keystroke is delivered as an insert AT THE CARET
+;; rather than an append, because the caret is one of the three facts this
+;; suite exists to measure.
 
 (defn- native-value-setter []
   (.-set (js/Object.getOwnPropertyDescriptor
@@ -214,24 +210,13 @@
 
 (defn- caret [node] [(.-selectionStart node) (.-selectionEnd node)])
 
-(defn- mount! []
-  (let [container (js/document.createElement "div")]
-    (.appendChild js/document.body container)
-    [container (rdc/createRoot container)]))
-
-(defn- teardown! [container root]
-  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-  (.unmount root)
-  (.remove container)
-  nil)
-
 (defn- seed! []
   (live-frame/make-frame {:id fid})
   (frame/replace-app-db! fid (assoc-in {} form-path (form/init (:baseline ctrl-018))))
   fid)
 
 (defn- render! [root view]
-  (act #(.render root (shell/provide-frame fid (fr/element [view {}])))))
+  (ms/act #(.render root (shell/provide-frame fid (fr/element [view {}])))))
 
 (defn- app-db [] (frame/frame-app-db-value fid))
 (defn- the-form [] (get-in (app-db) form-path))
@@ -251,10 +236,28 @@
   [pred label]
   (test-support/poll-until pred {:label label :timeout-ms 2000 :interval-ms 5}))
 
-(defn- fail-and-finish! [container root done]
+(defn- finish!
+  "The terminal step of every row here: tear the mount down through the
+  shared lifecycle, assert that NOTHING it created survived, and end the
+  async test.
+
+  The residue assertion is what earns the row's claim rather than asserting
+  it. It runs AFTER teardown, over the facade's own books — every root this
+  test created, and what each left behind — so a root that failed to
+  unmount reds HERE instead of contaminating the next suite in the process."
+  [container root done]
+  (ms/destroy-root! container root)
+  (ms/residue-clean! "FH-CTRL-018 — after teardown")
+  (done))
+
+(defn- fail-and-finish!
+  "The rejection path. It tears down — a rejected row must not leak its root
+  either — but reads no residue: a second failure attributed to the leak
+  rule would bury the one that actually happened."
+  [container root done]
   (fn [e]
     (is false (str "the browser step rejected: " e))
-    (teardown! container root)
+    (ms/destroy-root! container root)
     (done)))
 
 ;; ===========================================================================
@@ -267,17 +270,17 @@
             node, character for character. Each keystroke round-trips
             through application state, so a dropped one is a SHORT
             STRING here rather than a timing observation."
-    (if-not (browser?)
-      (skip! "the browser job runs the typing assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the typing assertions")
       (async done
         (reg!)
         (let [{:keys [baseline typed value-after-typing]} ctrl-018
               _ (seed!)
-              [container root] (mount!)]
+              [container root] (ms/create-root!)]
           (-> (render! root plain-field)
               (.then
                 (fn [_]
-                  (live!)
+                  (ms/live!)
                   (let [field (.querySelector container "#plain")]
                     (is (= (:amount baseline) (.-value field))
                         "the control starts on the baseline")
@@ -290,7 +293,7 @@
                         "non-vacuous: the typing really moved the value")
                     (is (= (count value-after-typing) (first (caret field)))
                         "with the caret at the end, where the user left it")
-                    (teardown! container root)
+                    (finish! container root done)
                     (done))))
               (.catch (fail-and-finish! container root done))))))))
 
@@ -300,17 +303,17 @@
             than jump to either end — the failure a hand-rolled controlled
             input produces on every keystroke, and one no structural tree
             can show."
-    (if-not (browser?)
-      (skip! "the browser job runs the caret assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the caret assertions")
       (async done
         (reg!)
         (let [{:keys [insert-at insert-ch value-after-insert caret-after-insert]} ctrl-018
               _ (seed!)
-              [container root] (mount!)]
+              [container root] (ms/create-root!)]
           (-> (render! root plain-field)
               (.then
                 (fn [_]
-                  (live!)
+                  (ms/live!)
                   (let [field (.querySelector container "#plain")]
                     (insert-at! field insert-at insert-ch)
                     (is (= value-after-insert (.-value field))
@@ -322,7 +325,7 @@
                          to the start would also produce")
                     (is (not= (count value-after-insert) caret-after-insert)
                         "nor the position a reset to the END would produce")
-                    (teardown! container root)
+                    (finish! container root done)
                     (done))))
               (.catch (fail-and-finish! container root done))))))))
 
@@ -333,18 +336,18 @@
             controlled node — so it takes the ordinary BATCHED path and
             lands on a later tick. Nothing about it needs to be
             synchronous: the value it commits is already in the frame."
-    (if-not (browser?)
-      (skip! "the browser job runs the blur assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the blur assertions")
       (async done
         (reg!)
         (let [{:keys [insert-at insert-ch value-after-insert commits-after-plain-enter
                       committed-value]} ctrl-018
               _ (seed!)
-              [container root] (mount!)]
+              [container root] (ms/create-root!)]
           (-> (render! root committing-field)
               (.then
                 (fn [_]
-                  (live!)
+                  (ms/live!)
                   (let [field (.querySelector container "#buffered")]
                     (insert-at! field insert-at insert-ch)
                     (is (= value-after-insert (.-value field))
@@ -357,7 +360,7 @@
                                      "the blur committed")
                                  (is (= committed-value (committed))
                                      "carrying the draft the user could see")
-                                 (teardown! container root)
+                                 (finish! container root done)
                                  (done)))
                         (.catch (fail-and-finish! container root done))))))
               (.catch (fail-and-finish! container root done))))))))
@@ -391,11 +394,11 @@
                 value-after-composing-enter commits-after-plain-enter
                 committed-value]} ctrl-018
         _ (seed!)
-        [container root] (mount!)]
+        [container root] (ms/create-root!)]
     (-> (render! root committing-field)
         (.then
           (fn [_]
-            (live!)
+            (ms/live!)
             (let [field (.querySelector container "#buffered")]
               (insert-at! field insert-at insert-ch)
               (is (= value-after-insert (.-value field))
@@ -425,7 +428,7 @@
                       (is (not= commits-after-composing-enter
                                 commits-after-plain-enter)
                           "non-vacuous: the fixture's two answers really differ")
-                      (teardown! container root)
+                      (finish! container root done)
                       (done)))
                   (.catch (fail-and-finish! container root done))))))
         (.catch (fail-and-finish! container root done)))))
@@ -442,8 +445,8 @@
             CANNOT be withheld by the `keyCode` 229 sentinel the sibling
             row owns. The flag is the only thing standing between this
             press and a commit."
-    (if-not (browser?)
-      (skip! "the browser job runs the composition assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the composition assertions")
       (async done
         (exactly-one-commit-attempt!
           {:composing? true :key-code (:plain-key-code ctrl-018)}
@@ -462,8 +465,8 @@
             whole reason the sentinel is consulted at all — stayed green.
             Here 229 is the only signal there is, so it is the only thing
             that can withhold the commit."
-    (if-not (browser?)
-      (skip! "the browser job runs the composition assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the composition assertions")
       (async done
         (exactly-one-commit-attempt!
           {:composing? false :key-code (:composing-key-code ctrl-018)}
@@ -476,18 +479,18 @@
             which is exactly what a key-remount destroys and what no
             structural assertion can see — and the commit that follows
             carries the restored value rather than the refused one."
-    (if-not (browser?)
-      (skip! "the browser job runs the reset assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the reset assertions")
       (async done
         (reg!)
         (let [{:keys [insert-at insert-ch value-after-insert reasserted-value
                       next-reset-key value-after-reset]} ctrl-018
               _ (seed!)
-              [container root] (mount!)]
+              [container root] (ms/create-root!)]
           (-> (render! root committing-field)
               (.then
                 (fn [_]
-                  (live!)
+                  (ms/live!)
                   (let [field  (.querySelector container "#buffered")
                         before field]
                     (insert-at! field insert-at insert-ch)
@@ -497,7 +500,7 @@
                         "non-vacuous: the caller stands by the value it already had,
                          so nothing derived from the VALUE could observe this")
 
-                    (-> (act #(rf/dispatch-sync [:editor/rejected amount] {:frame fid}))
+                    (-> (ms/act #(rf/dispatch-sync [:editor/rejected amount] {:frame fid}))
                         (.then
                           (fn [_]
                             (is (= value-after-reset (.-value field))
@@ -513,7 +516,7 @@
 
                             ;; A commit now speaks for the NEW generation, and
                             ;; what it carries is the value on screen.
-                            (live!)
+                            (ms/live!)
                             (press-enter! field (plain-enter))
                             (settled #(some? (committed)) "the post-reset commit lands")))
                         (.then
@@ -522,7 +525,7 @@
                                 "the commit that follows carries the restored value")
                             (is (not= value-after-insert (committed))
                                 "non-vacuous: it is not the draft the caller refused")
-                            (teardown! container root)
+                            (finish! container root done)
                             (done)))
                         (.catch (fail-and-finish! container root done))))))
               (.catch (fail-and-finish! container root done))))))))
