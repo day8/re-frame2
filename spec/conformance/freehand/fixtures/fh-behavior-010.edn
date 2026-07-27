@@ -32,11 +32,15 @@
  :fh/law
  "An imperative SDK that owns its own DOM subtree is routed to a registered behavior, which owns the root identity: the connection's memory is one mutable cell, a host-created pane receives an EXPLICIT nested Freehand root, and reclamation is ONE idempotent path entered from both the host-removal callback and `:disconnect` — so either order, and any number of repetitions, leave zero maps, zero listeners, zero overlays and zero nested roots, while the substrate's own connection table and target index are already empty at the instant of unmount."
 
- ;; What one committed connection owns. The nested root is the point: a pane the
- ;; LIBRARY created is not a container Freehand chose, so putting a view in it is
- ;; an explicit island rather than a portal (Spec 004 §No neutral portal).
+ ;; What one committed connection owns. `:roots` counts the DOOR's registry, and
+ ;; it reads TWO because that is the honest number: the page's own root, and the
+ ;; island in the pane the library created. A pane the LIBRARY made is not a
+ ;; container Freehand chose, so putting a view in it is an explicit second root
+ ;; rather than a portal Freehand does not have (Spec 004 §No neutral portal) —
+ ;; and the registry counting it is what makes the island visible to the door's
+ ;; own bookkeeping instead of being a tree nobody owns.
  :connected
- {:maps 1 :listeners 1 :overlays 1 :nested-roots 1}
+ {:maps 1 :listeners 1 :overlays 1 :roots 2}
 
  ;; The reclamation orders. `:entered` is every entry into the ONE path, in
  ;; order; `:did-work` is the entries that actually released anything. The
@@ -49,15 +53,21 @@
   {:case    "the HOST removes the overlay first — the user, a control, or the map took it away — and `:disconnect` arrives afterwards to find nothing left to do"
    :entered [:host-removal :disconnect]
    :did-work [:host-removal]}
-  {:case    "repeated reclamation: the same path entered twice more by hand after it has already run"
-   :entered [:manual :manual :disconnect]
+  ;; Note the SECOND entry in this row: it is not the second `:manual`. Releasing
+  ;; the map detaches the overlay, which is the library calling the author back
+  ;; — so the first entry re-enters the path from the other side before it has
+  ;; returned. Re-entrancy is the case a fence written as "have I run yet?"
+  ;; after the release would get wrong, and it is why the phase is written
+  ;; BEFORE anything is released rather than after.
+  {:case    "repeated reclamation: the same path entered twice more by hand after it has already run, plus the library's own re-entry from inside the first release"
+   :entered [:manual :host-removal :manual :disconnect]
    :did-work [:manual]}]
 
  ;; Acceptance 1's absence, and every book reads an EXACT ZERO rather than a
  ;; threshold. The first three are the LIBRARY's own books — it knows what it
  ;; still holds — and the last three are the substrate's.
  :after-reclamation
- {:maps 0 :listeners 0 :overlays 0 :nested-roots 0 :connections 0 :targets []}
+ {:maps 0 :listeners 0 :overlays 0 :roots 0 :connections 0 :targets []}
 
  ;; The gap Spec 004 §Commit-only connection and total cleanup states in prose:
  ;; "React will not unmount a nested root from inside a render, so a behavior
@@ -68,9 +78,12 @@
  ;; author's leak check can be written against the wrong clock: a check that
  ;; reads the author's own host resources at the instant the substrate's books
  ;; go empty reads them one task too early, and reports a leak that is not one.
+ ;; `:roots` is the door's registry again, so the two rows read as one sentence:
+ ;; at unmount the PAGE's root claim is already gone and the island in the host's
+ ;; pane is still standing; one task later the author's own release has taken it.
  :the-deferral-gap
- {:at-unmount    {:connections 0 :targets [] :nested-roots 1}
-  :one-task-later {:connections 0 :targets [] :nested-roots 0}}
+ {:at-unmount     {:connections 0 :targets [] :roots 1}
+  :one-task-later {:connections 0 :targets [] :roots 0}}
 
  ;; ---------------------------------------------------------------------------
  ;; The roster record (rf2-drpa3.182.7)
