@@ -30,9 +30,49 @@
 
   The join is likewise a READ, not a copy. `:modes`, `:hosts`, `:status`
   and `:paragraph` are parsed out of the index row at macro-expansion time
-  and are never restated in the fixture — and [[defects]] fails a fixture
-  whose `:fh/law` disagrees with the index's, so the two files cannot drift
-  apart quietly.
+  and are never restated in the fixture.
+
+  What is NOT checked, and deliberately: that a fixture's `:fh/law` matches
+  its index row's word for word. The two state the same law at different
+  lengths on purpose — the row is the addressed one-line statement, the
+  fixture's is the header over the values below it — and every row in the
+  ledger is written that way, so gating equality would force a hundred
+  prose rewrites to satisfy a law the corpus never held. The relationship
+  the join DOES hold is the id: a fixture whose `:fh/id` disagrees with the
+  file it is filed under, or with a row the index does not carry, is a
+  COMPILE failure in [[read-roster]] rather than a record that quietly
+  drops out.
+
+  ## Enrolling — a witness adds no line to any shared file
+
+  Membership is a property of the FIXTURE: a law is rostered exactly when
+  its fixture carries `:fh/record`. Nothing here lists the members, so the
+  roster grows without a shared file to edit — which matters because the
+  control witnesses (rf2-drpa3.182.8 through .12) land in parallel, and a
+  hand-maintained membership vector would have made five workers queue
+  behind one line of it.
+
+  So a witness writes, in ITS OWN files only:
+
+    1. a row in the conformance index addressing its id, with a fixture
+       path and status `active` (the index owns addressing — see that
+       directory's `README.md`);
+    2. `:fh/record` on its fixture, naming `:source`, `:evidence`, `:prose`
+       and at least one proof tier;
+    3. the suites that tier names.
+
+  Then every projection below carries it, and every rule below holds it.
+  The ones a new record meets first:
+
+    * a proof namespace RESOLVES to a file, and CITES its own id in its
+      text (`roster-jvm-test`), so the vertical is legible from both ends;
+    * a `:mounted` tier names a `-dom-cljs-test` namespace — the suffix
+      the browser lane selects on — and a `:structural` tier does not;
+    * a tier the index row's host axis rules out is a defect, so a record
+      cannot advertise a browser proof for a JVM-only law;
+    * `:residue :none` is refused unless the mounted proof CALLS the
+      shared residue assertion (see [[residue-statuses]]);
+    * and every message names the id.
 
   ## Failures name the id
 
@@ -50,6 +90,15 @@
   [[re-frame.freehand.conformance/fixture]] reads a fixture and for the
   same cache-invalidation reason. The JVM suite and the ClojureScript suite
   therefore project the same bytes.
+
+  Enrolment-by-discovery makes the read WIDER than the roster: every
+  fixture the index names is read, because whether a fixture carries a
+  record is a question only its bytes answer. That width is what makes the
+  cache edge hold in both directions — adding a row to the index
+  invalidates through the index, and adding `:fh/record` to a fixture that
+  was already addressed invalidates through that fixture — where a read
+  scoped to the members would have registered a dependency only on files
+  that were ALREADY members and missed every new one.
 
   ### The cache edge, MEASURED rather than inherited
 
@@ -119,7 +168,10 @@
 
     `:none`        the mounted suites assert the absence: after teardown the
                    substrate's own books read empty, as an exact zero rather
-                   than a threshold.
+                   than a threshold. Every mounted projection of the record
+                   must CALL `re-frame.freehand.mount-support/residue-clean!`
+                   — the one shared assertion, checked as a call site rather
+                   than as text that resembles one (`roster-jvm-test`).
     `:unasserted`  the suites tear their roots down but assert nothing about
                    residue. An honest gap, and countable.
 
@@ -156,12 +208,20 @@
   #{:source :structural :mounted :ssr :evidence :open :prose})
 
 (def ^:private required-record-keys
-  "Every record names its canonical source and its prose status. The tier
-  entries are optional because a law that binds only on one tier should say
-  so by omission rather than by an empty placeholder — but [[defects]]
-  requires at least one tier, so a record cannot claim a law is executable
-  and name nowhere it executes."
-  #{:source :prose})
+  "Every record names its canonical source, what a run LEAVES BEHIND, and
+  its prose status. The tier entries are optional because a law that binds
+  only on one tier should say so by omission rather than by an empty
+  placeholder — but [[defects]] requires at least one tier, so a record
+  cannot claim a law is executable and name nowhere it executes.
+
+  `:evidence` is required rather than merely validated-when-present, and
+  the difference is the whole point of the key. A record that omitted it
+  would be making no claim about residue at all, while the roster's own
+  narration says every record declares one — so a future member could have
+  slipped past the residue rule by saying nothing, with the gate green
+  (merged-PR audit #7098). Saying `:unasserted` is the honest way to
+  decline; saying nothing is not one."
+  #{:source :evidence :prose})
 
 ;; ---------------------------------------------------------------------------
 ;; Applicability — the index's two-axis cell, as data
@@ -351,31 +411,43 @@
    :mounted    #{:browser}
    :ssr        #{:ssr}})
 
+(defn tier-hosts-of
+  "The index row's host axis, reduced to the plain hosts a TIER runs on.
+
+  A qualified boundary — `host:vega`, `host:google-maps` — reads as
+  `[:host \"…\"]` so its name survives the parse, and it names a foreign
+  door that exists only in a browser. So it counts as `:browser` here and
+  nowhere else: a law narrowed to a named third-party host is still
+  browser-bound, and a record proving it in a mounted suite is making the
+  only claim available to it. Without this the ownership-routing witnesses
+  — whose rows are exactly the `host:<name>` ones — could not declare the
+  mounted tier they live on."
+  [hosts]
+  (into #{} (map (fn [h] (if (vector? h) :browser h))) hosts))
+
 (defn- join-defects
   "The defects that are properties of the JOIN — a record read against the
   index row that addresses it.
 
-  Only one law is stated here, and deliberately only one. It is tempting to
-  also require that a fixture's `:fh/law` match its index row's word for
-  word, and that would be wrong: the two say the same law at different
-  lengths on purpose — the index row is the addressed one-line statement, a
-  fixture's `:fh/law` is the header over the values below it — and every
-  row in the ledger is written that way. Gating equality would force a
-  hundred prose rewrites to satisfy a law the corpus never held.
-
-  What IS checkable is that a record does not claim a tier the ledger's
-  host axis rules out."
+  One law is stated here: a record does not claim a tier the ledger's host
+  axis rules out. The other relationship between the two files — that they
+  address the same id — is held earlier and harder, as a COMPILE failure in
+  [[read-roster]], so by the time a record reaches here the id is not in
+  question. What is deliberately never compared is the two prose statements;
+  see this namespace's docstring for why byte equality would be the wrong
+  law."
   [{id :fh/id :keys [hosts fh/record]}]
   (when (and (map? record) (set? hosts))
-    (keep (fn [[t possible]]
-            (when (and (contains? record t)
-                       (empty? (set/intersection hosts possible)))
-              (defect id t
-                      (str "claims a " (name t) " proof, but the index row binds "
-                           "this law to " (pr-str (sort-by str hosts))
-                           " — that tier can only run on "
-                           (pr-str (sort-by str possible)) "."))))
-          tier-hosts)))
+    (let [reachable (tier-hosts-of hosts)]
+      (keep (fn [[t possible]]
+              (when (and (contains? record t)
+                         (empty? (set/intersection reachable possible)))
+                (defect id t
+                        (str "claims a " (name t) " proof, but the index row binds "
+                             "this law to " (pr-str (sort-by str hosts))
+                             " — that tier can only run on "
+                             (pr-str (sort-by str possible)) "."))))
+            tier-hosts))))
 
 (defn roster-defects
   "Every defect across `records`, plus the two that are properties of the
@@ -404,9 +476,20 @@
      "conformance/freehand/conformance-index.md"))
 
 #?(:clj
+   (def ^:private fixture-cell-prefix
+     "The Fixture cell is written repo-relative in backticks; `spec-resource`
+     resolves against `spec/` itself. Trimming the root here is what keeps
+     the index the single place a fixture path is spelled."
+     "spec/conformance/freehand/fixtures/"))
+
+#?(:clj
    (defn- fixture-path
-     [id]
-     (str "conformance/freehand/fixtures/" (str/lower-case id) ".edn")))
+     "The `spec-resource` path the row's Fixture cell names, or nil where it
+     names none — a `planned` or `retired` row writes `—` there."
+     [cell]
+     (let [c (str/replace (str/trim (or cell "")) "`" "")]
+       (when (str/starts-with? c fixture-cell-prefix)
+         (subs c (count "spec/"))))))
 
 #?(:clj
    (defn- index-rows
@@ -429,70 +512,88 @@
                        (when (>= (count cells) 6)
                          (let [id (str/replace (nth cells 0) "`" "")]
                            (when (re-matches #"FH-[A-Z]+-\d{3}" id)
-                             [id {:fh/id      id
-                                  :index/law  (nth cells 1)
-                                  :paragraph  (nth cells 2)
-                                  :index/cell (nth cells 3)
-                                  :status     (keyword (nth cells 5))}])))))))
+                             [id {:fh/id         id
+                                  :index/law     (nth cells 1)
+                                  :paragraph     (nth cells 2)
+                                  :index/cell    (nth cells 3)
+                                  :index/fixture (nth cells 4)
+                                  :status        (keyword (nth cells 5))}])))))))
            (str/split-lines text))))
 
 #?(:clj
-   (defn ^:no-doc read-roster
-     "Join the fixtures for `ids` with their index rows, in the
-     macro-expansion environment `env`.
+   (defn- join-row
+     "One row joined with the fixture it names, or nil when that fixture
+     carries no `:fh/record` — which is how a law declines enrolment.
 
-     Throws when an id is absent from the index, when its fixture is
-     missing or misfiled, or when its applicability cell will not parse.
-     Those are COMPILE failures on purpose: a roster that quietly shrank to
-     the ids it could resolve would let a suite pass over a law it stopped
-     loading, which is the worst failure a table-driven gate can have."
-     [env ids]
+     Throws when the fixture and the row disagree about the id, or when the
+     row's applicability cell will not parse. Those are COMPILE failures on
+     purpose: a roster that quietly shrank to the records it could resolve
+     would let a suite pass over a law it stopped loading, which is the
+     worst failure a table-driven gate can have."
+     [env {:keys [fh/id index/cell index/fixture] :as row}]
+     (when-let [path (fixture-path fixture)]
+       (let [fix (edn/read-string (spec-resource/slurp-resource env path))]
+         (when (:fh/record fix)
+           (when-not (= id (:fh/id fix))
+             (throw (ex-info (str "Freehand roster: " path " is named by index row " id
+                                  " but declares :fh/id " (pr-str (:fh/id fix))
+                                  " — the file and the id disagree.")
+                             {:fh/id id :declared (:fh/id fix)})))
+           (let [app (or (parse-applicability cell)
+                         (throw (ex-info (str "Freehand roster: " id " has an "
+                                              "unparseable applicability cell "
+                                              (pr-str cell) ".")
+                                         {:fh/id id})))]
+             (merge (dissoc row :index/cell :index/fixture)
+                    app
+                    (select-keys fix [:fh/id :fh/law :fh/record]))))))))
+
+#?(:clj
+   (defn ^:no-doc read-roster
+     "Every enrolled record, joined with its index row, in the
+     macro-expansion environment `env` — id-sorted, so the value is stable
+     across filesystems and a diff of it reads.
+
+     Enrolment is DISCOVERED rather than listed: every fixture the index
+     names is read, and the ones carrying `:fh/record` are the roster. A
+     witness therefore enrols by editing its own two files and no shared
+     one — see this namespace's docstring."
+     [env]
      (let [rows (index-rows (spec-resource/slurp-resource env index-path))]
-       (mapv (fn [id]
-               (let [id  (name id)
-                     row (or (get rows id)
-                             (throw (ex-info (str "Freehand roster: " id " is not a row of "
-                                                  index-path " — an id must be addressed "
-                                                  "before it can be rostered.")
-                                             {:fh/id id})))
-                     fix (edn/read-string
-                           (spec-resource/slurp-resource env (fixture-path id)))
-                     app (or (parse-applicability (:index/cell row))
-                             (throw (ex-info (str "Freehand roster: " id " has an "
-                                                  "unparseable applicability cell "
-                                                  (pr-str (:index/cell row)) ".")
-                                             {:fh/id id})))]
-                 (when-not (= id (:fh/id fix))
-                   (throw (ex-info (str "Freehand roster: fixture for " id " declares :fh/id "
-                                        (pr-str (:fh/id fix)) " — the file and the id disagree.")
-                                   {:fh/id id :declared (:fh/id fix)})))
-                 (merge (dissoc row :index/cell)
-                        app
-                        (select-keys fix [:fh/id :fh/law :fh/record]))))
-             ids))))
+       (into [] (comp (map val) (keep #(join-row env %)))
+             (sort-by key rows)))))
 
 #?(:clj
    (defmacro roster
-     "Inline the joined roster records for `ids` as a quoted literal, read
-     at macro-expansion time.
-
-         (def spine (roster [:FH-REACT-007 :FH-CTRL-018 :FH-BEHAVIOR-005]))
+     "Inline every enrolled roster record as a quoted literal, read at
+     macro-expansion time.
 
      Identical data on the JVM and in ClojureScript, and — in
-     ClojureScript — a build dependency of the calling namespace, so an
-     edit to the index or to any rostered fixture recompiles this call
-     site."
-     [ids]
-     (list 'quote (read-roster &env ids))))
+     ClojureScript — a build dependency of the calling namespace on the
+     index AND on every fixture the index names, so adding a row, or adding
+     a record to a fixture already addressed, recompiles this call site."
+     []
+     (list 'quote (read-roster &env))))
 
 ;; ---------------------------------------------------------------------------
-;; The spine — the members rf2-drpa3.182.7 integrates
+;; The roster
 ;; ---------------------------------------------------------------------------
 
-(def spine-ids
-  "The three vertical fixtures the initial spine integrates, per
-  rf2-drpa3.182.7 §INITIAL SPINE — the declared host, the serious form, and
-  the deferred foreign-handle surrogate.
+(def records
+  "Every enrolled record — the value every projection of the roster reads,
+  on both hosts, id-sorted."
+  (roster))
+
+(def ids
+  "The ids of [[records]], in the same order. Strings, as they appear in
+  the index and in every failure message."
+  (mapv :fh/id records))
+
+(def initial-spine-ids
+  "The three vertical fixtures rf2-drpa3.182.7 §INITIAL SPINE integrates —
+  the declared host, the serious form, and the deferred foreign-handle
+  surrogate. Named because acceptance 2 is about THESE three running
+  through one roster; the roster itself is [[ids]], which grows past them.
 
   The surrogate is rostered as `FH-BEHAVIOR-005` rather than under an id of
   its own, and that is the point of it: the recipe adds no verb, no
@@ -501,21 +602,12 @@
   Promise-returning third-party initializer — the shape where a release can
   arrive after the owner is gone. Minting a second id for the same law
   would have split one identity in exactly the way this roster exists to
-  prevent.
-
-  Named as data so a projection can assert enrolment. The roster grows for
-  Maps, Framer Motion, SpreadJS, Radix and the control witnesses as those
-  slices land; this vector is the seam they extend."
-  [:FH-REACT-007 :FH-CTRL-018 :FH-BEHAVIOR-005])
-
-(def spine
-  "The joined roster records for [[spine-ids]] — the value every projection
-  of the spine reads, on both hosts."
-  (roster [:FH-REACT-007 :FH-CTRL-018 :FH-BEHAVIOR-005]))
+  prevent."
+  ["FH-BEHAVIOR-005" "FH-CTRL-018" "FH-REACT-007"])
 
 (defn by-id
   "The rostered record for `id` (a string or keyword), or nil."
-  ([id] (by-id spine id))
+  ([id] (by-id records id))
   ([records id]
    (let [id (name id)]
      (first (filter #(= id (:fh/id %)) records)))))

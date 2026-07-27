@@ -62,7 +62,7 @@
             deleting or renaming the thing a record describes reds THIS row
             — naming the law — rather than leaving the roster quietly
             describing something that is gone."
-    (doseq [record roster/spine
+    (doseq [record roster/records
             [field ns-sym] (declared-namespaces record)]
       (is (some? (ns->resource ns-sym))
           (str (:fh/id record) " — " field " names " ns-sym
@@ -73,7 +73,7 @@
             all empty would pass every resolution check by having nothing to
             resolve, which is the failure mode a table-driven gate is most
             prone to."
-    (doseq [record roster/spine]
+    (doseq [record roster/records]
       (is (<= 3 (count (declared-namespaces record)))
           (str (:fh/id record) " names its source and at least one proof")))))
 
@@ -89,7 +89,7 @@
             roster, invisible from the code. Every proof namespace carries
             its `FH-…` id in its own text, so the link is legible from both
             ends and a `git grep FH-CTRL-018` finds the whole vertical."
-    (doseq [record            roster/spine
+    (doseq [record            roster/records
             {:keys [tier ns]} (roster/proofs record)]
       (let [id  (:fh/id record)
             res (ns->resource ns)]
@@ -108,7 +108,7 @@
             `-cljs-test` namespace as its mounted tier would advertise a
             mounted proof that the browser lane never schedules, and no
             other projection would notice."
-    (doseq [record roster/spine
+    (doseq [record roster/records
             entry  (roster/tier record :mounted)]
       (is (str/ends-with? (name (:ns entry)) "-dom-cljs-test")
           (str (:fh/id record) " — the mounted tier names " (:ns entry)
@@ -120,7 +120,7 @@
             HEADLESSLY, on both hosts, from one `.cljc`. Pointing it at a
             `-dom-cljs-test` would make the record say a browser run is the
             headless proof."
-    (doseq [record roster/spine
+    (doseq [record roster/records
             entry  (roster/tier record :structural)]
       (is (not (str/ends-with? (name (:ns entry)) "-dom-cljs-test"))
           (str (:fh/id record) " — the structural tier names a browser suite, "
@@ -130,26 +130,66 @@
 ;; `:residue :none` is a claim a checker can refuse — acceptance 3
 ;; ---------------------------------------------------------------------------
 
-(def ^:private emptiness-assertion
-  "The shapes a residue assertion takes in this corpus. A leak assertion is
-  always an ABSENCE read after teardown — an exact zero or an empty
-  collection off the substrate's own book — so these are what one looks
-  like, not an arbitrary keyword list.
+(defn code-only
+  "`text` with every line comment and string literal blanked out, so what
+  remains is the CODE a namespace runs.
 
-  `residue-clean!` is the SHARED one (rf2-n9rzw): the mounted-lifecycle
-  facade's assertion, read after teardown over every root the test created
-  plus whatever substrate books the caller names. It leads the list because
-  it is what a mounted suite should reach for; the inline spellings behind
-  it are the local reads that predate it and remain perfectly good evidence.
+  Pure and exported, because the rule below is only as good as this is and
+  a scanner nobody can exercise is the thing the merged-PR audit of #7105
+  caught: the previous residue rule slurped a whole file and accepted any
+  of five regex tokens ANYWHERE in it, so a comment naming the assertion,
+  or an unrelated zero, satisfied it. Both false positives were reproduced.
+  A claim backed by a sentence about the code is not backed by the code.
 
-  `nothing-survived` is included because the async surrogate factors its
-  absence check into a named helper and calls it from every case; a rule
-  that only recognised the inline spellings would refuse the most thorough
-  suite in the set."
-  [#"residue-clean!" #"\(zero\?" #"\(empty\?" #"nothing-survived"
-   #"\(= \[\] " #"\(= 0 \(count"])
+  Each removed character becomes a space rather than vanishing, so nothing
+  is glued to its neighbour and every offset a caller might report survives.
+  Four states are enough for Clojure: code, a string (where `\\` escapes
+  the next character), a line comment (to end of line), and the one
+  character after a `\\` char literal — which is what stops `\\;` and `\\\"`
+  opening a comment or a string."
+  [^String text]
+  (let [n (count text)
+        sb (StringBuilder.)]
+    (loop [i 0, state :code]
+      (if (>= i n)
+        (str sb)
+        (let [c (.charAt text i)]
+          (case state
+            :code    (cond
+                       (= c \;)  (do (.append sb \space) (recur (inc i) :comment))
+                       (= c \")  (do (.append sb \space) (recur (inc i) :string))
+                       (= c \\)  (do (.append sb "  ") (recur (+ i 2) :code))
+                       :else     (do (.append sb c) (recur (inc i) :code)))
+            :comment (do (.append sb (if (= c \newline) \newline \space))
+                         (recur (inc i) (if (= c \newline) :code :comment)))
+            :string  (cond
+                       (= c \\) (do (.append sb "  ") (recur (+ i 2) :string))
+                       (= c \") (do (.append sb \space) (recur (inc i) :code))
+                       :else    (do (.append sb (if (= c \newline) \newline \space))
+                                    (recur (inc i) :string)))))))))
 
-(deftest a-residue-none-claim-is-backed-by-an-emptiness-assertion
+(def ^:private residue-call
+  "An INVOCATION of the shared residue assertion — an open paren, an
+  optional namespace alias, then `residue-clean!` in head position.
+
+  The shared assertion is the one the rf2-drpa3.182.7 acceptance names, and
+  naming exactly one is the point. The predecessor rule listed five
+  look-alike spellings (`(zero? …)`, `(empty? …)`, `nothing-survived`, …)
+  so that a suite reading its own book inline still counted; the cost was
+  that ANY of those anywhere in the file counted, including in prose. One
+  call to one assertion is both narrower and stronger, and it is the
+  assertion that carries its own non-vacuity — `residue-clean!` reds a
+  suite that tore no root down through the facade, so the call cannot be
+  satisfied by a mount that never happened."
+  #"\(\s*(?:[^\s()\\/]+/)?residue-clean![\s)]")
+
+(defn residue-asserted?
+  "Does `source` CALL the shared residue assertion? Pure, so the rows below
+  can drive it with the exact shapes the audit reproduced."
+  [source]
+  (boolean (re-find residue-call (code-only source))))
+
+(deftest a-residue-none-claim-is-backed-by-the-shared-residue-assertion
   (testing "Per rf2-drpa3.182.7 acceptance 3: mounted cleanup is EXACT, and
             `:residue :none` is the record saying so. An unenforced `:none`
             would be the most expensive kind of green — a leaked React root
@@ -157,81 +197,133 @@
             corpus has seen one leak produce failures across dozens of
             unrelated suites — so the claim is checked rather than read.
 
-            Every mounted projection of a `:residue :none` record must read
-            an absence after teardown. A record whose suites only unmount
-            and remove, without asserting what survived, says
+            Every mounted projection of a `:residue :none` record CALLS
+            `mount-support/residue-clean!`, after teardown, over the
+            facade's own books plus whatever substrate books it names.
+            A record whose suites only unmount and remove says
             `:unasserted` — honest, countable, and what two of the three
-            spine members said until they took the shared assertion
-            (rf2-n9rzw). All three carry `:none` now, so this row is
-            carrying all three rather than one."
-    (doseq [record roster/spine
+            initial members said until they took the shared assertion
+            (rf2-n9rzw).
+
+            What this row proves and what it does not, stated plainly. The
+            executed evidence is the browser lane's: `residue-clean!` runs
+            in Chromium and its messages name the law. What is checked HERE
+            is that the call SITE exists in every projection the record
+            claims — so a `:none` cannot be made by a suite that never
+            calls it, which is the gap the merged-PR audit of #7105 found
+            when the rule was a five-token text resemblance."
+    (doseq [record roster/records
             :when  (= :none (get-in record [:fh/record :evidence :residue]))
             entry  (roster/tier record :mounted)]
       (let [res  (ns->resource (:ns entry))
             text (some-> res slurp)]
-        (is (and text (some #(re-find % text) emptiness-assertion))
+        (is (and text (residue-asserted? text))
             (str (:fh/id record) " claims :residue :none, but its mounted proof "
-                 (:ns entry) " makes no emptiness assertion — either it asserts "
-                 "what survived, or the record says :unasserted"))))))
+                 (:ns entry) " never calls mount-support/residue-clean! — either "
+                 "it reads the books empty after teardown, or the record says "
+                 ":unasserted"))))))
 
-(deftest the-residue-rule-would-refuse-a-suite-that-asserts-nothing
-  (testing "NON-VACUITY for the row above, which is otherwise a rule that
-            has only ever seen input it passes. A teardown that unmounts and
-            removes and reads nothing is exactly the suite the rule exists
-            to refuse, so it is run against that text directly."
-    (let [teardown-only "(defn- teardown! [c r] (.unmount r) (.remove c) nil)"
-          with-absence  (str teardown-only "\n(is (zero? (connection-count)))")]
-      (is (not-any? #(re-find % teardown-only) emptiness-assertion)
-          "an unmount-and-remove teardown is not a residue assertion")
-      (is (some #(re-find % with-absence) emptiness-assertion)
-          "and reading a book empty afterwards is"))))
+(deftest the-residue-rule-refuses-every-shape-that-only-looks-like-a-proof
+  (testing "NON-VACUITY, and specifically for the two false positives the
+            merged-PR audit of #7105 reproduced against the predecessor
+            rule. A gate that has only ever seen input it passes has not
+            been tested, and this one guards a claim whose failure mode is
+            silent contamination of unrelated suites."
+    (doseq [[note source]
+            [["an unmount-and-remove teardown asserts nothing about what survived"
+              "(defn- teardown! [c r] (.unmount r) (.remove c) nil)"]
 
-(deftest the-residue-rule-refuses-the-shared-teardown-without-the-shared-assertion
-  (testing "The mutation the shared facade makes possible, and the one this
-            rule now has to survive (rf2-n9rzw). Consuming
-            `mount-support`'s lifecycle is not the same as reading its
-            books: a suite can call `destroy-root!` — a real, correct
-            teardown — and never call `residue-clean!`, which is precisely
-            the state FH-CTRL-018 and FH-REACT-007 were in.
+             ["tearing down through the SHARED lifecycle is still not reading its books"
+              "(defn- finish! [c r] (ms/destroy-root! c r))"]
 
-            A rule that recognised the facade by NAME rather than by the
-            assertion would go green on the first half and stop refusing
-            anything, so it is run against both halves directly. A shared
-            assertion that cannot fail is the defect this whole seam exists
-            to remove."
-    (let [shared-teardown "(ms/destroy-root! container root)"
-          shared-assert   (str shared-teardown
-                               "\n(ms/residue-clean! \"FH-CTRL-018 — after teardown\")")]
-      (is (not-any? #(re-find % shared-teardown) emptiness-assertion)
-          "tearing down through the shared lifecycle asserts nothing on its own")
-      (is (some #(re-find % shared-assert) emptiness-assertion)
-          "and reading the shared residue assertion afterwards is what earns the claim"))))
+             ["a COMMENT naming the assertion is prose about the code, not the code"
+              ";; every row ends at ms/residue-clean!, which reads the books empty\n(ms/destroy-root! c r)"]
 
-(deftest the-spine-records-what-it-has-earned
+             ["and so is the assertion named inside a docstring"
+              "(defn finish! \"tears down, then ms/residue-clean!\" [c r] (ms/destroy-root! c r))"]
+
+             ["an UNRELATED emptiness read is not a residue assertion"
+              "(is (= [] (rows-rendered container)))\n(is (zero? (retry-count)))"]
+
+             ["nor is the assertion named in a message string"
+              "(is (pos? n) \"call ms/residue-clean! after teardown\")"]
+
+             ["nor a var whose name merely ends in it"
+              "(def my-residue-clean! 1)"]]]
+      (is (not (residue-asserted? source)) note))
+
+    (doseq [[note source]
+            [["a call through the facade's alias is the proof"
+              "(ms/residue-clean! \"FH-CTRL-018 — after teardown\")"]
+
+             ["so is a referred call"
+              "(residue-clean! where [[\"the connection table\" #(count @table)]])"]
+
+             ["and a call carrying books, after a shared teardown, in the real shape"
+              (str "(ms/destroy-root! container root)\n"
+                   ";; and now read what survived it\n"
+                   "(ms/residue-clean! where [[\"the registry\" #(root/live-root-ids)]])")]]]
+      (is (residue-asserted? source) note))))
+
+(deftest the-comment-stripper-leaves-the-code-and-only-the-code
+  (testing "The rule above is exactly as good as this function, so it is
+            driven rather than trusted — including the shapes that make a
+            naive stripper wrong: a `;` inside a string, an escaped quote,
+            and a char literal spelling either.
+
+            Offsets are preserved (a removed character becomes a space), so
+            the assertions below are about WHAT SURVIVES rather than about
+            spacing."
+    (let [tokens (fn [s] (remove empty? (str/split (code-only s) #"\s+")))]
+      (is (= ["(f" "1)"] (tokens "(f 1) ; a comment"))
+          "a line comment is gone")
+      (is (= ["(f" ")"] (tokens "(f \"a ; b\") ; c"))
+          "a semicolon inside a string neither opens a comment nor survives")
+      (is (= ["(f" ")"] (tokens "(f \"she said \\\"hi\\\"\")"))
+          "an escaped quote does not close the string early")
+      (is (= ["(f" ")"] (tokens "(f \\; \\\")"))
+          "a char literal semicolon or quote is neither delimiter")
+      (is (= ["(a)" "(b)"] (tokens "(a) ;; gone\n(b)"))
+          "a line comment ends at its newline, and the code after it survives")
+      (is (= ["(re-find" "#" "x)"] (tokens "(re-find #\"\\(zero\\?\" x)"))
+          "a regex literal is a string — its dispatch `#` is code, and the
+           pattern inside it never is, so a rule looking for a call cannot
+           be satisfied by one written in a pattern"))
+    (testing "and the newline structure survives, so a reported line number would"
+      (is (= 3 (count (str/split-lines (code-only "(a) ; x\n;; y\n(b)"))))))))
+
+(deftest every-record-declares-a-residue-claim-it-can-be-held-to
   (testing "Per rf2-drpa3.182.7 acceptance 3: the roster's value here is
-            that the residue claim is COUNTABLE rather than hidden. All
-            three spine members now claim `:residue :none`, and the row
-            above is what holds each of them to it.
+            that the residue claim is COUNTABLE rather than hidden. This
+            row is the census, and it holds in both directions — a record
+            regressing from `:none` to `:unasserted` reds, and so does a
+            newly enrolled witness whose claim is neither.
 
-            Two of them arrived (rf2-n9rzw), and the gap each closed was a
-            different one. FH-CTRL-018 tore its root down and asserted
-            nothing about what survived. FH-REACT-007 reset its registries
-            in a per-test `:init-fn`, which is cleanup BEFORE a test rather
-            than evidence about the one that just ran — a retained boundary
-            was masked by the next reset instead of reported. Both now end
-            at the shared `residue-clean!`, read after teardown.
+            It is stated over the WHOLE roster rather than over a hardcoded
+            three, which is what lets the control witnesses enrol without
+            editing this file. `:evidence` is a required record key, so
+            there is no third answer — a record cannot decline to say.
 
-            This row remains a statement of the CURRENT state, and that is
-            its job in both directions: a record regressing to
-            `:unasserted`, or a fourth member enrolled without a residue
-            claim, reds HERE rather than passing quietly."
-    (is (= {:FH-REACT-007    :none
-            :FH-CTRL-018     :none
-            :FH-BEHAVIOR-005 :none}
+            The initial three are named separately because acceptance 3 was
+            about them, and the gap each closed was a different one.
+            FH-CTRL-018 tore its root down and asserted nothing about what
+            survived. FH-REACT-007 reset its registries in a per-test
+            `:init-fn`, which is cleanup BEFORE a test rather than evidence
+            about the one that just ran — a retained boundary was masked by
+            the next reset instead of reported. Both now end at the shared
+            `residue-clean!`, read after teardown (rf2-n9rzw)."
+    (doseq [record roster/records]
+      (is (contains? roster/residue-statuses
+                     (get-in record [:fh/record :evidence :residue]))
+          (str (:fh/id record) " declares what a mounted run leaves behind")))
+    (is (= {"FH-BEHAVIOR-005" :none
+            "FH-CTRL-018"     :none
+            "FH-REACT-007"    :none}
            (into {} (map (fn [id]
                            [id (get-in (roster/by-id id)
                                        [:fh/record :evidence :residue])])
-                         roster/spine-ids))))))
+                         roster/initial-spine-ids)))
+        "and the three initial-spine members have each EARNED :none")))
 
 ;; ---------------------------------------------------------------------------
 ;; The resolver itself
