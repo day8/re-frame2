@@ -1620,12 +1620,32 @@
       ;; always-on listener so load-order / optional-artefact mistakes are
       ;; visible in production, not only under dev traces. The fx is
       ;; dropped; the cascade continues with the remaining `:fx` entries.
+      ;;
+      ;; rf2-g0mep — `:failing-id fx-id` is what makes the ALWAYS-ON record
+      ;; name WHICH fx was missing. Spec 009 §Observability channels states
+      ;; the attribution rule generally: every always-on error record carries
+      ;; `:failing-id` naming the failing COMPONENT's own code identifier
+      ;; whenever that component is DISTINCT from the dispatched event. Here
+      ;; `:event-id` is the DISPATCHING event and the unregistered fx-id is the
+      ;; failing component, so `emit-error-both!`'s lift applies — without this
+      ;; key the id rode ONLY `:rf.fx/id` on the dev-trace tags (DCE'd under
+      ;; `:advanced` + `goog.DEBUG=false`) and an off-box shipper learnt an fx
+      ;; was missing but not which one. The three sibling fx emit sites in this
+      ;; file (`fx-handler-exception`, `override-fallthrough`,
+      ;; `reserved-fx-override`) all stamp it; this was the lone outlier.
+      ;;
+      ;; The lifted slot is a bare code identifier — the same privacy class as
+      ;; `:event-id`, and the tight-record discipline is intact: `:rf.fx/args`
+      ;; stays on the dev trace and does NOT reach the production record.
+      ;; This category defines no `:reason`, and `dispatch-on-error!` drops
+      ;; nil-valued attribution slots, so the record gains exactly one key.
       (emit-fx-error! :rf.error/no-such-fx
                       origin-event
                       origin-event-id
                       frame-id
                       nil
-                      {:rf.fx/id   fx-id
+                      {:failing-id fx-id
+                       :rf.fx/id   fx-id
                        :rf.fx/args args
                        :frame      frame-id
                        :recovery   :no-recovery})))))))))

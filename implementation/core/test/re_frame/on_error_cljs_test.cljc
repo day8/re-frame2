@@ -406,7 +406,8 @@
 (deftest listener-fires-on-no-such-fx
   (testing "Per rf2-goum9x: an unknown fx-id fans `:rf.error/no-such-fx`
             through the always-on listener (previously dev-trace-only).
-            The fx is dropped; the cascade continues."
+            The fx is dropped; the cascade continues.
+            Per rf2-g0mep the record also NAMES the unknown fx-id."
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -417,7 +418,19 @@
         (is (some? r) "listener received :rf.error/no-such-fx")
         (is (= [:goum9x/run-unknown-fx] (:event r)))
         (is (= :goum9x/run-unknown-fx (:event-id r)))
-        (is (= :rf/default (:frame r)))))))
+        (is (= :rf/default (:frame r)))
+        ;; rf2-g0mep — `:event-id` is the DISPATCHING event, so the
+        ;; unregistered fx-id is a DISTINCT failing component and Spec 009's
+        ;; attribution rule applies: `fx.cljc` stamps `:failing-id` on the
+        ;; trace-payload and `emit-error-both!` lifts it onto this record.
+        ;; Without it an off-box shipper learns an fx was missing but not which.
+        (is (= :goum9x/never-registered (:failing-id r))
+            ":failing-id names the UNKNOWN fx-id")
+        ;; The fx ARGS stay on the dev trace: an unregistered fx-id has no
+        ;; registration to read a `:sensitive` declaration off, so they must
+        ;; not reach this production-surviving record.
+        (is (not (contains? r :rf.fx/args))
+            "the unaddressable args do NOT ride the always-on record")))))
 
 (deftest listener-fires-on-override-fallthrough
   (testing "Per rf2-goum9x: an `:fx-overrides` entry redirecting to an

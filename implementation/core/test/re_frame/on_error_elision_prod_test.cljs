@@ -329,7 +329,10 @@
 
 (deftest no-such-fx-listener-survives-prod
   (testing "Per rf2-goum9x: an unknown fx-id fans `:rf.error/no-such-fx`
-            through the always-on listener under `goog.DEBUG=false`."
+            through the always-on listener under `goog.DEBUG=false`.
+            Per rf2-g0mep the record NAMES the unknown fx-id under that gate —
+            this is the posture the defect was invisible in, because the fx-id
+            rode only `:rf.fx/id` on the DCE'd dev-trace tags."
     (let [seen (atom [])]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -339,7 +342,10 @@
       (let [r (some (fn [x] (when (= :rf.error/no-such-fx (:error x)) x)) @seen)]
         (is (some? r) "listener received :rf.error/no-such-fx under prod")
         (is (= :goum9x/prod-unknown-fx (:event-id r)))
-        (is (= :rf/default (:frame r)))))))
+        (is (= :rf/default (:frame r)))
+        (is (= :goum9x/prod-never (:failing-id r))
+            ":failing-id names the UNKNOWN fx-id under `goog.DEBUG=false`
+             (rf2-g0mep) — the whole point of the always-on record")))))
 
 (deftest override-fallthrough-listener-survives-prod
   (testing "Per rf2-goum9x: an `:fx-overrides` redirect to an unregistered
