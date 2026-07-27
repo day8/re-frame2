@@ -110,9 +110,13 @@ The server renders under a fresh per-request frame (a gensym, in
 in `run`). The same
 [schema](../../../../docs/core/glossary.md#schema) is registered explicitly
 against *each* with a `{:frame …}` override, because that's where the
-`:cards` commit actually validates on either side. The server then drops
-its per-request frame-id from the payload, so the client's explicit
-`:frame` stands rather than tripping a frame-id mismatch.
+`:cards` commit actually validates on either side. That validation is a
+development-time assertion: a production build performs the registration
+and elides the check ([Spec 010 §Production
+builds](../../../../spec/010-Schemas.md#production-builds)), so neither
+commit is verified in a release build. The server then drops its
+per-request frame-id from the payload, so the client's explicit `:frame`
+stands rather than tripping a frame-id mismatch.
 
 The other subtlety is the boundary itself. `ssr/boundary` is a
 **component**, not a hiccup keyword, and that is load-bearing rather than
