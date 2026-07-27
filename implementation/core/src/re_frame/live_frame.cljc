@@ -144,6 +144,7 @@
   and `re-frame.error` (fail-loud diagnostics) — all already in the core spine."
   (:require [re-frame.image-assembly :as asm]
             [re-frame.registrar      :as registrar]
+            [re-frame.source-store   :as source-store]
             [re-frame.frame          :as frame]
             [re-frame.interop        :as interop]
             [re-frame.error          :as error]
@@ -621,6 +622,30 @@
   nil)
 
 ;; ===========================================================================
+;; Construction-window pool mark (rf2-djkr0)
+;; ===========================================================================
+
+(defn- registration-pool-mark
+  "A cheap VALUE identifying the registration pool a generation would be sealed
+  against right now. Equal marks across two reads ⇒ no `reg-*` / `forget-*` /
+  `clear-*` / `register-standard!` landed between them.
+
+  The three legs are exactly the live-store legs of `image-assembly`'s
+  resolved-generation cache key, and for the same reason: the monotonic
+  `store-generation` bumps on every source-store mutation, `store-identity`
+  disambiguates two distinct stores sitting at the same generation integer
+  (rf2-1x2zuc), and `standard-generation` bumps on any framework-standard
+  registration. Cheap enough to read twice per construction — two map lookups
+  and an atom deref.
+
+  `make-frame` reads it either side of the seal→publish window; see the
+  rf2-djkr0 invariant at that call site for what the comparison decides."
+  []
+  [(source-store/store-identity)
+   (source-store/store-generation)
+   (asm/standard-generation)])
+
+;; ===========================================================================
 ;; make-frame — the ONE public constructor (EP-0024 §One constructor)
 ;; ===========================================================================
 
@@ -726,6 +751,14 @@
          ;; record), else a process-unique anonymous id so a no-id (direct) value
          ;; is still runnable while bypassing the PUBLIC frame-id space.
          runnable-id (if (some? id) id (frame/anon-frame-id))
+         ;; rf2-djkr0 — the pool as it stands BEFORE the seal. Compared against a
+         ;; second reading after the record is published; see the invariant at
+         ;; that comparison below. Read here (not after the seal) so the window
+         ;; the comparison covers is never SHORTER than the real one: a
+         ;; registration landing between this read and the assembly is already
+         ;; IN the sealed generation, so the mark it provokes is at worst
+         ;; redundant, and the flush it arms is a per-frame no-op.
+         pool-mark   (registration-pool-mark)
          ;; Resolve the generation FIRST so a bad `:images` fails loud BEFORE any
          ;; record is created — a conflict leaves no half-created frame.
          ;;
@@ -813,40 +846,49 @@
        ;; and a FAILED re-construction preserves the OLD provenance row, matching
        ;; the engine's own no-residue-on-failure contract.
        (record-frame-generation-pool! runnable-id descriptors)
-       ;; rf2-djkr0 — THE INVARIANT: a registration that lands while a frame is
+       ;; rf2-djkr0 — THE INVARIANT: a PARTIALLY-CONSTRUCTED frame is never
+       ;; observable as live, so a registration that lands while a frame is
        ;; mid-construction is never lost.
        ;;
        ;; The generation above was SEALED before `upsert-frame!` published the
-       ;; record (it has to be: a bad `:images` must fail loud BEFORE any record
-       ;; exists, so a conflict leaves no half-created frame). Between those two
-       ;; points the frame is not in `frames`, so it is not in `live-frame-ids`
-       ;; — and a `reg-*` racing that gap fires the registration hook against an
-       ;; EMPTY live-frame set. `mark-dirty-and-schedule!` correctly skips there
-       ;; (rf2-h4q6cy: with nothing image-loaded a flush is a guaranteed no-op,
-       ;; and every `reg-event` / `reg-sub` / `reg-fx` fires that hook, so the
-       ;; skip is a real hot-path win). The consequence was that the mark was
-       ;; never made for THIS frame either, and the record landed carrying a
-       ;; generation predating the registration with nothing left to flush it —
-       ;; permanently stale, `dispatch` reporting `:rf.error/no-such-handler`
-       ;; for a handler `registrar/lookup` was holding at that moment.
+       ;; record, and it has to be: a bad `:images` must fail loud BEFORE any
+       ;; record exists, so a conflict leaves no half-created frame. Between
+       ;; those two points the frame is not in `frames`, hence not in
+       ;; `live-frame-ids` — and a `reg-*` racing that gap fires the registration
+       ;; hook against an EMPTY live-frame set. `mark-dirty-and-schedule!`
+       ;; correctly skips there (rf2-h4q6cy: with nothing image-loaded a flush is
+       ;; a guaranteed no-op, and every `reg-event` / `reg-sub` / `reg-fx` fires
+       ;; that hook, so the skip is a real hot-path win). The consequence was
+       ;; that no mark was made for THIS frame either: the record landed carrying
+       ;; a generation predating the registration, with nothing left to flush it.
+       ;; Permanently stale — `dispatch` reporting `:rf.error/no-such-handler`
+       ;; for a handler `registrar/lookup` was holding at that very moment.
        ;;
        ;; So the CONSTRUCTOR makes the mark the hook could not make on its
-       ;; behalf. Unconditional, and here rather than in the hook: the record is
-       ;; published by now, so the frame is image-loaded and the hook's skip is
-       ;; left exactly as it was; and from this point on any further `reg-*`
-       ;; DOES see the frame and marks for itself. The coalescing gate means a
-       ;; burst of constructions still arms at most ONE flush, and that flush is
-       ;; the RESILIENT sweep — per-frame conditional (a frame whose composition
-       ;; re-resolves identically is left untouched, a cache hit) and
-       ;; diagnosing rather than throwing, so this adds no failure mode to the
-       ;; construction path.
+       ;; behalf, and makes it HERE, after publication: by now the frame is
+       ;; image-loaded, so the hook's skip is left exactly as it was, and from
+       ;; this point on any further `reg-*` sees the frame and marks for itself.
+       ;; The window is closed end to end.
+       ;;
+       ;; CONDITIONAL, because an unconditional mark is not free of consequence:
+       ;; it would leave the projection dirty after EVERY construction, and a
+       ;; flag set here is flushed by some later, unrelated resolution. Marking
+       ;; only when the pool actually MOVED under us keeps every non-racing
+       ;; construction — which is all of them outside this defect — byte-for-byte
+       ;; as before. The comparison is exact: any `reg-*` / `forget-*` / `clear-*`
+       ;; / `register-standard!` bumps a leg of `registration-pool-mark`.
+       ;;
+       ;; The armed flush is the RESILIENT sweep — per-frame conditional (a frame
+       ;; whose composition re-resolves identically is left untouched, a
+       ;; generation-cache hit) and diagnosing rather than throwing — so this
+       ;; adds NO failure mode to the construction path.
        ;;
        ;; JVM-only as a DEFECT (CLJS is single-threaded: no `reg-*` can
        ;; interleave between the seal and the publish, both inside one
-       ;; synchronous call), but the repair is common `.cljc` code — on CLJS it
-       ;; is simply a mark the next `reg-*` would have made anyway, coalesced
-       ;; into the same single `next-tick` flush.
-       (mark-dirty-and-schedule!)
+       ;; synchronous call), but the repair is common `.cljc` code — on CLJS the
+       ;; comparison simply never differs.
+       (when (not= pool-mark (registration-pool-mark))
+         (mark-dirty-and-schedule!))
        ;; Return the frame VALUE — the lifecycle token (generation not embedded;
        ;; read from the record by id). It carries the exact incarnation token
        ;; (`@token-box`) so `destroy-frame!` of this value is incarnation-EXACT.
