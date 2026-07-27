@@ -162,7 +162,7 @@
     :on-scroll       [:inbox/scrolled]
     :on-key          [:inbox/key-pressed]
     :on-activate     [:inbox/opened]
-    :row             (v/render-fn [k _] [item-cell {:item-key k}])}])
+    :row             (v/render-fn [k _index _total] [item-cell {:item-key k}])}])
 
 ;; ---------------------------------------------------------------------------
 ;; Browser seams

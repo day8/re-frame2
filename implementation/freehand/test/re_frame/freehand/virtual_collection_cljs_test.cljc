@@ -110,6 +110,47 @@
   [{:keys [item-key]}]
   [:span {:data-part "cell"} (v/sub [:inbox/label item-key])])
 
+(v/defview plain-row
+  "The ENGINE's row content, for the caller below. It carries the three
+  arguments the engine's row slot supplies — key, absolute index, total —
+  so a test can read off the tree that all three arrived."
+  {:props [:map [:item-key :some] [:index :int] [:total :int]]}
+  [{:keys [item-key index total]}]
+  [:span {:data-part "cell" :data-index index :data-total total}
+   (v/sub [:inbox/label item-key])])
+
+(v/defview grid-caller
+  "A caller of the ENGINE ALONE, wearing GRID semantics — the shape the
+  pilot's editing grid has and the one a listbox-hard-coded control could
+  not host. Nothing about a listbox appears anywhere in it: the role, the
+  row count and the row's own semantics are all supplied here, and the
+  engine contributes the window, the canvas and the positioning."
+  [{:keys [row-extent viewport-extent overscan]}]
+  [coll/virtual-collection
+   {:row-keys        (v/sub [:inbox/ids])
+    :row-extent      row-extent
+    :viewport-extent viewport-extent
+    :scroll-offset   (v/sub [:inbox/scroll])
+    :overscan        overscan
+    :on-scroll       [:inbox/scrolled]
+    :attrs           {:id "grid" :role "grid" :aria-rowcount 10000}
+    :row             (v/render-fn [k i total]
+                       [plain-row {:item-key k :index i :total total}])}])
+
+(v/defview undecorated-caller
+  "The engine with NO `:attrs` at all — the reading that says the roles
+  above were the CALLER's rather than defaults the engine supplies."
+  [{:keys [row-extent viewport-extent overscan]}]
+  [coll/virtual-collection
+   {:row-keys        (v/sub [:inbox/ids])
+    :row-extent      row-extent
+    :viewport-extent viewport-extent
+    :scroll-offset   (v/sub [:inbox/scroll])
+    :overscan        overscan
+    :on-scroll       [:inbox/scrolled]
+    :row             (v/render-fn [k i total]
+                       [plain-row {:item-key k :index i :total total}])}])
+
 (v/defview inbox
   "The whole call site, and it is the length the bead asks for. Four reads
   and three intents drive a ten-thousand-row list; the control receives no
@@ -126,7 +167,7 @@
     :on-scroll       [:inbox/scrolled]
     :on-key          [:inbox/key-pressed]
     :on-activate     [:inbox/opened]
-    :row             (v/render-fn [k _] [item-cell {:item-key k}])}])
+    :row             (v/render-fn [k _index _total] [item-cell {:item-key k}])}])
 
 ;; ---------------------------------------------------------------------------
 ;; Seams
@@ -186,6 +227,102 @@
   (mapv #(:item-key (:props %)) (cells tree)))
 
 (defn- dom-ids-of [tree] (mapv #(:id (t/attrs %)) (rows tree)))
+
+(defn- tree-of
+  "Render an alternative caller of the same collection — used by the
+  semantic-neutrality laws, which need the ENGINE without the listbox."
+  [view]
+  (t/with-render (t/render [view caller-props])))
+
+;; ===========================================================================
+;; FH-CTRL-021 — the engine is mechanics and the semantics are the caller's
+;; ===========================================================================
+
+(deftest fh-ctrl-021-the-engine-names-no-role-and-the-caller-names-them-all
+  (testing "Per FH-CTRL-021: virtualization mechanics and widget semantics
+            are different layers, and the engine holds only the first. An
+            undecorated engine renders a viewport with NO role, NO
+            `data-component` and NO accessible position anywhere — it is a
+            scroll host, a canvas and positioned boxes, and that is all it
+            claims to be.
+
+            The row shells it positions are `role=\"presentation\"` for the
+            same reason: they are geometry, so the accessibility tree sees
+            the caller's row rather than the engine's box."
+    (register!)
+    (seed!)
+    (let [tree     (tree-of undecorated-caller)
+          viewport (viewport tree)
+          shells   (part tree "row-shell")]
+      (is (nil? (:role (t/attrs viewport)))
+          "the engine's viewport names no role of its own")
+      (is (nil? (:data-component (t/attrs viewport)))
+          "and claims to be no named component")
+      (is (seq shells) "non-vacuous: it really did render a window")
+      (is (= (vec (repeat (count shells) "presentation"))
+             (mapv #(:role (t/attrs %)) shells))
+          "every positioned shell is presentational")
+      (is (empty? (t/find-all tree #(some? (:aria-posinset (t/attrs %)))))
+          "and nothing anywhere states an accessible position — that
+           spelling is a decision the engine does not make"))))
+
+(deftest fh-ctrl-021-one-engine-carries-listbox-and-grid-semantics-alike
+  (testing "Per FH-CTRL-021: this is why the engine is separate. The SAME
+            engine, at the same offset over the same collection, renders a
+            `listbox` of `option`s under [[coll/virtual-list]] and a `grid`
+            under a caller that supplies grid semantics through `:attrs` —
+            W3C's own listbox pattern sends collections of interactive rows
+            to the grid pattern, so a listbox-hard-coded virtual list could
+            not host the second caller without a second engine.
+
+            The mechanics are identical across the two, which is the half
+            that makes it ONE engine rather than two: the same window, the
+            same row count, the same canvas extent."
+    (register!)
+    (seed!)
+    (let [listbox (render-tree)
+          grid    (tree-of grid-caller)]
+      (is (= "listbox" (:role (t/attrs (viewport listbox))))
+          "the listbox wrapper wears the listbox role")
+      (is (= "grid" (:role (t/attrs (viewport grid))))
+          "and the grid caller wears `grid` — through the same seam")
+      (is (= "10000" (:aria-rowcount (t/attrs (viewport grid))))
+          "with the grid's own row-count spelling, which the listbox has no
+           opinion about")
+      (is (= (:data-window-first (t/attrs (viewport listbox)))
+             (:data-window-first (t/attrs (viewport grid))))
+          "one window arithmetic under both")
+      (is (= (count (part listbox "row-shell")) (count (part grid "row-shell")))
+          "one row count under both")
+      (is (empty? (part grid "row"))
+          "non-vacuous: the grid caller has no `option` rows at all — the
+           listbox layer really is absent rather than merely restyled"))))
+
+(deftest fh-ctrl-021-the-row-slot-receives-key-index-and-total
+  (testing "Per FH-CTRL-021: the engine hands its row slot the three facts
+            virtualization makes hard to state honestly — the row's KEY,
+            its ABSOLUTE index and the collection's TOTAL. Those three are
+            what `aria-posinset`/`aria-setsize` spell for a listbox and
+            `aria-rowindex`/`aria-rowcount` for a grid, so handing them over
+            rather than spelling them is exactly what makes one engine serve
+            both."
+    (register!)
+    (seed!)
+    (let [{:keys [scroll-offset index]} (:first-key-at ctrl-021)
+          _     (scroll-to! scroll-offset)
+          tree  (tree-of grid-caller)
+          cells (mapv t/attrs (part tree "cell"))
+          total (str (:item-count ctrl-021))]
+      (is (seq cells) "non-vacuous: rows rendered")
+      (is (= (mapv str (range index (+ index (count cells))))
+             (mapv :data-index cells))
+          "each row's slot saw its ABSOLUTE index, ascending, with no
+           renumbering to the window")
+      (is (not= "0" (:data-index (first cells)))
+          "non-vacuous: the first rendered row is not the first item")
+      (is (= (vec (repeat (count cells) total)) (mapv :data-total cells))
+          "and every one saw the collection's true total, which is the fact
+           the DOM itself does not contain"))))
 
 ;; ===========================================================================
 ;; FH-CTRL-021 — the window is arithmetic
