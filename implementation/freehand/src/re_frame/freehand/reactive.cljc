@@ -91,10 +91,12 @@
   interpreted walk. A field cannot change lanes by gaining
   `{:compiled true}`, because there is no second decision to diverge.
 
-  `nil` outside a render — an elided ViewCell has no candidate, so
-  declarative intent under it has no commit to belong to and a plain
-  function is returned unchanged, which is the sentence the interpreted
-  walk already writes for markup with no boundary above it."
+  With NO candidate — an elided ViewCell, or a lowering reached outside a
+  render — the answer is [[re-frame.freehand.events/unsited]]'s, which is
+  the sentence the interpreted walk already writes for markup with no
+  boundary above it: declarative intent has no commit to belong to and is
+  dropped, while the values that never wanted a site (`v/raw-fn`,
+  `v/render-fn`, a bare fn) are returned unchanged."
   [site-id value element]
   (if-some [cand (cell/current-candidate)]
     (events/site (cell/candidate-events cand)
@@ -102,4 +104,4 @@
                  value
                  events/default-payload
                  element)
-    (when (fn? value) value)))
+    (events/unsited value)))

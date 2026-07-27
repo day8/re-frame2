@@ -345,13 +345,13 @@
                         (done)))))))))
 
 (deftest a-v-event-carrier-with-no-candidate-loses-its-conversion
-  (testing "The `v/event` spelling degrades on the same fork, and worse:
-            `handler-proxy`'s no-candidate arm answers the CARRIER only if
-            it is a function, so what reaches React is either nothing at
-            all or a value with none of the committed-site guarantees.
-            Either way the conversion the author declared never runs
-            against a dispatcher. The assertion pins the OBSERVABLE — no
-            dispatch — because that is what an application sees."
+  (testing "The `v/event` spelling degrades on the same fork: its whole
+            point is a committed site to dispatch through, there is none,
+            so `handler-proxy`'s no-candidate arm writes no prop at all
+            (`events/unsited` classifies it as needing the site it cannot
+            have). The conversion the author declared never runs against a
+            dispatcher. The assertion pins the OBSERVABLE — no dispatch —
+            because that is what an application sees."
     (if-not (browser?)
       (skip! "the browser job runs the mount assertions")
       (async done
@@ -386,9 +386,11 @@
 (deftest a-bare-function-with-no-candidate-keeps-working-and-loses-its-site
   (testing "The THIRD degradation, and the most dangerous of the three
             for an OPT-IN, because it looks like success. A bare function
-            at a native `:on-*` is the one value `handler-proxy`'s
-            no-candidate arm hands back — so it is attached as an ordinary
-            DOM handler and it FIRES. What it silently loses is everything
+            at a native `:on-*` is one of the three values
+            `handler-proxy`'s no-candidate arm hands back (a `v/raw-fn`
+            and a `v/render-fn` are the others, per rf2-nzmuy) — so it is
+            attached as an ordinary DOM handler and it FIRES. What a bare
+            function silently loses is everything
             a committed site is: the frame the commit bound, `:once`,
             retirement at unmount, the controlled-input door verdict, and
             a stable identity across re-renders. An author who wrongly
