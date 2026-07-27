@@ -13,12 +13,11 @@
 ;;   - machines-viz/ (day8/re-frame2-machines-viz)
 ;;   - mcp-base/     (day8/re-frame2-mcp-base)
 ;;
-;;   Of those five, only xray, story and machines-viz have a release
-;;   workflow today. story-mcp and mcp-base carry coordinates but no
-;;   publish path: both declare day8/de-dupe by git coordinate, which
-;;   `clein pom` drops silently and which is not on Clojars. That is
-;;   rf2-2ii52, held pending an operator ruling — do not cut a tag for
-;;   either until it lands.
+;;   Each of those five has a release workflow. story, story-mcp and
+;;   mcp-base share ONE glob (`story-v*`, release-story.yml) because
+;;   they are a shipping set with a dependency order between them:
+;;   mcp-base and story deploy first, story-mcp last (rf2-4u3t1,
+;;   rf2-2ii52). xray and machines-viz have a glob each.
 ;;
 ;;   npm, not Clojars, no :clein/build, deliberately outside the
 ;;   lockstep inventory:

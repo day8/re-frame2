@@ -33,7 +33,7 @@ Unqualified envelope slots — `:dropped-sensitive`, `:elided-large` — are per
 | Var | Key | Shape |
 |---|---|---|
 | `overflow-key` | `:rf.mcp/overflow` | `{:limit :reached :token-count N :cap-tokens M :tool "…" :hint "…"}` |
-| `dedup-table-key` | `:rf.mcp/dedup-table` | `{<cache-map>}` (de-dupe library) |
+| `dedup-table-key` | `:rf.mcp/dedup-table` | `{<cache-map>}` (`re-frame.mcp-base.dedup`) |
 | `diff-from-key` | `:rf.mcp/diff-from` | Slot pointer keyword (`:db-before`) |
 | `cursor-stale-reason` | `:rf.mcp/cursor-stale` | Error-result `:reason` value for an invalid continuation position |
 | `cache-hit-key` | `:rf.mcp/cache-hit` | `{:tool … :digest … :hint …}` (content-free; agent host correlates by cache key) |

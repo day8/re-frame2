@@ -47,7 +47,7 @@
   ## Why no separate bench/ artefact
 
   Same reasoning as `dedup_benchmark_test`: re-frame2-pair-mcp already wires
-  every dependency the wire-pipeline pulls in (mcp-base, day8/de-dupe,
+  every dependency the wire-pipeline pulls in (mcp-base,
   sensitive, summary), already runs under `npm test`, and the
   ratchets surface to the same log a contributor reads when
   iterating on the per-pipeline arm. A separate runner would

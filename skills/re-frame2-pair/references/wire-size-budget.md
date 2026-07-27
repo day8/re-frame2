@@ -9,7 +9,7 @@ re-frame2-pair-mcp tool responses fit a tight wire-token budget
 
 ## de-dupe — round-tripping the wire form
 
-**What it is.** Structural-sharing preserver from `day8/de-dupe`
+**What it is.** Structural-sharing preserver from `re-frame.mcp-base.dedup`
 (`.cljc`). Persistent data structures share subtrees in memory; `pr-str` flattens them.
 de-dupe walks the value, hash-pools repeated subtrees, and rewrites the structure as a
 flat cache map keyed by `de-dupe.cache/cache-N` namespaced symbols. The companion
@@ -26,12 +26,15 @@ MCP marker:
 ```
 
 The `:rf.mcp/dedup-table` key is the marker; the inner map is the
-de-dupe library's flat cache shape.
+codec's flat cache shape.
 
-**How to expand.** One call:
+**How to expand.** One call, from `day8/re-frame2-mcp-base` (the
+artefact both MCP servers share; the codec was vendored into it from
+`day8/de-dupe` so the expansion is reachable from an ordinary Clojars
+coordinate):
 
 ```clojure
-(require '[de-dupe.core :as dedup])
+(require '[re-frame.mcp-base.dedup :as dedup])
 
 (dedup/expand (get payload :rf.mcp/dedup-table))
 ;; => the original structure with sharing restored

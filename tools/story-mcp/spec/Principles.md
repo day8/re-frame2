@@ -223,7 +223,7 @@ The discipline applies across three axes:
   slots (`:app-db` + `:rendered-hiccup` + `:snapshot`; repeated event
   records in the recorder's `:captured` vector). Those three carry
   `:dedup-eligible? true`: their `:structuredContent` is run through
-  `day8/de-dupe` (collapsing repeated subtrees into a flat cache map
+  `re-frame.mcp-base.dedup` (collapsing repeated subtrees into a flat cache map
   under the cross-MCP `{:rf.mcp/dedup-table …}` marker) BEFORE the
   token-cap measures the payload. The per-call `:max-tokens` override
   (integer cap; `0` disables; absent ⇒ the `mcp-base.overflow`
@@ -259,7 +259,7 @@ single op blow the session.
 ## Structural dedup at the wire boundary
 
 Three tools — `preview-variant`, `run-variant`, `record-as-variant` —
-pass their `:structuredContent` payload through `day8/de-dupe` before
+pass their `:structuredContent` payload through `re-frame.mcp-base.dedup` before
 the wire-boundary token-cap check. Repeated subtrees in the payload —
 the same `:app-db` slice reappearing in `:rendered-hiccup` and
 `:snapshot`, the same argument map repeating across recorder captures
@@ -289,7 +289,7 @@ A deduped payload is wrapped in the cross-MCP marker:
 `re-frame.mcp-base.vocab/dedup-table-key` — byte-identical with
 re-frame2-pair-mcp's emissions, so an agent host that learned the
 slot on either server reconstructs the payload uniformly via
-`(de-dupe.core/expand cache-map)`. Per `tools/mcp-conformance/wire-vocab/`
+`(re-frame.mcp-base.dedup/expand cache-map)`. Per `tools/mcp-conformance/wire-vocab/`
 the marker key is a cross-MCP reserved literal under the `:rf.mcp/*`
 single-root scheme (Conventions §Reserved namespaces).
 

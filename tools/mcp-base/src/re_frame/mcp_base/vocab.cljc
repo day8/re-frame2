@@ -55,8 +55,8 @@
 
 (def dedup-table-key
   "Top-level marker on a structurally-deduped payload. The value is the
-  de-dupe library's flat cache map; the agent expands locally via
-  `de-dupe.core/expand`.
+  codec's flat cache map; the agent expands locally via
+  `re-frame.mcp-base.dedup/expand`.
   Shape: `{:rf.mcp/dedup-table <cache-map>}`."
   :rf.mcp/dedup-table)
 

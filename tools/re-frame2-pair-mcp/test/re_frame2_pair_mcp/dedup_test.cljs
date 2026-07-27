@@ -4,10 +4,10 @@
 
   Per `tools/re-frame2-pair-mcp/spec/Principles.md` mechanism (Structural
   dedup), every `:rf/epoch-record` slice and each subscribe-tick events
-  vector is passed through `day8/de-dupe` before the wire-cap check.
+  vector is passed through `re-frame.mcp-base.dedup` before the wire-cap check.
   Repeated subtrees (notably the per-record `:db-before` reference after
   diff-encoding) collapse into a flat cache map that the agent host
-  reconstructs via `de-dupe.core/expand`.
+  reconstructs via `re-frame.mcp-base.dedup/expand`.
 
   ## What this file pins — and what it deliberately does NOT
 

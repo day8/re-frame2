@@ -5,7 +5,7 @@
 //
 // ## The contract this pins
 //
-// `lib/dedup-envelope.cjs` `expandCache` reconstructs the day8/de-dupe
+// `lib/dedup-envelope.cjs` `expandCache` reconstructs the
 // structural-dedup cache (`:rf.mcp/dedup-table`) the MCP servers emit on
 // the wire. The cycle-guard installs a distinct in-progress sentinel and
 // throws `cyclic dedup cache` when a ref resolves to it, so a cache ref
@@ -118,7 +118,7 @@ test('non-dedup envelope passes through untouched', () => {
 // ---------------------------------------------------------------------
 // rf2-6i2yi4 finding 5: a de-duped map KEY (not just VALUE) is expanded.
 //
-// The real `de-dupe.core/expand` dispatches on `map-entry?` before
+// The real `re-frame.mcp-base.dedup/expand` dispatches on `map-entry?` before
 // `coll?` and expands BOTH halves of every map-entry; `cachable?`
 // permits a de-duped map key. A decoder that only recurses into `v[k]`
 // while using `k` verbatim leaves a de-duped key as the raw
@@ -157,7 +157,7 @@ test('a de-duped map key that expands to a plain string is used directly (no JSO
 // rf2-6i2yi4 finding 7: eagerly validate EVERY cache entry, not just
 // those reachable from cache-0.
 //
-// The real `de-dupe.core/decompress-cache` expands every key before
+// The real `re-frame.mcp-base.dedup/decompress-cache` expands every key before
 // picking cache-0 off the result. Before this fix, `expandCache` called
 // only `expandEntry(ROOT_CACHE_ID)`, so a malformed entry unreachable
 // from the root (an "orphan") was never visited and decoded cleanly —

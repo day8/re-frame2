@@ -101,7 +101,7 @@ const FIXTURE_VARIANT = 'story.mcp-conformance/probe.primary';
 // story-mcp's tools (`preview-variant`, `run-variant`,
 // `record-as-variant`) ship their payloads wrapped in
 // `{:rf.mcp/dedup-table <cache>}` at the wire boundary — a real MCP
-// client decodes via `de-dupe.core/expand` before user code sees it.
+// client decodes via `re-frame.mcp-base.dedup/expand` before user code sees it.
 // Routing every structuredContent read through `structured` mirrors that
 // (a no-op on payloads without the marker), so a future tool gaining or
 // losing dedup-eligibility doesn't break this suite.

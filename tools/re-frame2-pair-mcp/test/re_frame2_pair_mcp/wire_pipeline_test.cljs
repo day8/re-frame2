@@ -8,7 +8,7 @@
   which carry `:server-elided`).
 
   THE CONTRACT: the arm counts markers over the PRE-dedup (`encoded`)
-  payload. `day8/de-dupe` pools N identical `:rf.size/large-elided` maps
+  payload. `re-frame.mcp-base.dedup` pools N identical `:rf.size/large-elided` maps
   into ONE structural-sharing cache entry, so counting over the
   POST-dedup payload would report `:elided-large == 1` instead of N
   (the markers themselves always ride the wire intact — only the scalar

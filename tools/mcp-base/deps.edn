@@ -5,20 +5,23 @@
 ;; See spec/README.md for the namespace contracts.
 ;;
 ;; Runtime sources must load on both JVM and CLJS and must not depend on
-;; implementation/. `day8/de-dupe` is the only external runtime dep.
-;; The library ships independently as `day8/re-frame2-mcp-base`.
+;; implementation/. The artefact has NO external runtime dependency
+;; beyond Clojure itself, so its published pom is complete by
+;; construction. The library ships independently as
+;; `day8/re-frame2-mcp-base`.
+;;
+;; rf2-2ii52 — it used to carry one: `day8/de-dupe`, by `:git/url`. That
+;; is a coordinate `clein pom` cannot express, so it was DROPPED silently
+;; from the generated pom and both this artefact and story-mcp would have
+;; published a jar missing a runtime dependency (Clojars has no yank).
+;; The library is not on Clojars and cannot be put there under the `day8`
+;; group — Clojars refuses NEW projects in unverified, non-reverse-domain
+;; groups — so there was no `:mvn/version` to rewrite to. Mike ruled
+;; route (b): the codec is now VENDORED into
+;; `re-frame.mcp-base.dedup`, which carries the upstream MIT notice and
+;; the list of changes made while absorbing it.
 {:paths ["src"]
- :deps  {org.clojure/clojure {:mvn/version "1.12.0"}
-
-         ;; Structural dedup of persistent data structures. The library
-         ;; substitutes repeated subtrees with
-         ;; namespaced-symbol references (`de-dupe.cache/cache-N`); the
-         ;; flat cache map round-trips back through `expand` on the agent
-         ;; host. `.cljc` both arms, so it loads into story-mcp's JVM
-         ;; classpath and re-frame2-pair-mcp's shadow-cljs build alike.
-         day8/de-dupe        {:git/url "https://github.com/day8/de-dupe.git"
-                              :git/tag "v0.3.0"
-                              :git/sha "367de784faf13c710a895bed867f36a36e594a2a"}}
+ :deps  {org.clojure/clojure {:mvn/version "1.12.0"}}
 
  :aliases
  ;; Malli is test-only. mcp-base's runtime sources stay Malli-free at
@@ -77,14 +80,11 @@
   ;; Same convention as tools/story/deps.edn's `:main re-frame.story`; for
   ;; a library jar this only populates the manifest's Main-Class.
   ;;
-  ;; NOT YET PUBLISHABLE, and `:main` does not change that: the
-  ;; `day8/de-dupe` runtime coord above is a `:git/url`, which `clein pom`
-  ;; silently DROPS, so a jar built today would ship a pom missing a
-  ;; runtime dependency. That is an operator decision (publish de-dupe to
-  ;; Clojars / vendor it / accept unpublishable) tracked on rf2-2ii52, and
-  ;; the lockstep gate's git-coord check now names it out loud rather than
-  ;; letting a release discover it. No deploy workflow exists for this
-  ;; coordinate until that ruling lands.
+  ;; PUBLISHES on the `story-v*` tag, AHEAD of story-mcp, which depends on
+  ;; this artefact at `:local/root` and therefore cannot resolve until it
+  ;; is on Clojars — see .github/workflows/release-story.yml. mcp-base has
+  ;; no in-repo dependency of its own, so nothing has to publish ahead of
+  ;; IT.
   :clein/build
   {:lib      day8/re-frame2-mcp-base
    :main     re-frame.mcp-base.vocab

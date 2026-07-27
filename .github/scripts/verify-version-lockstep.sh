@@ -516,15 +516,15 @@ check_clein_main() {
 # Scope is the MAIN :deps map only — alias :extra-deps (clein itself,
 # test-runner, …) are build-time and never reach the pom.
 #
-# KNOWN-UNRESOLVED, deliberately listed rather than silently tolerated:
-# `day8/de-dupe` is a runtime dep of mcp-base and story-mcp and is NOT on
-# Clojars (searched: no results; https://clojars.org/day8/de-dupe is a 404).
-# Resolving it is a product decision — publish it, vendor it, or accept that
-# these two artefacts are not Clojars-publishable — tracked on rf2-2ii52.
-# Neither artefact has a deploy workflow, so nothing can ship a broken pom
-# today. DELETE THIS LINE when the ruling lands; the gate then completes.
-GIT_COORD_KNOWN_UNRESOLVED=(day8/de-dupe)
-
+# There is deliberately NO allowlist. One used to sit here — a single
+# `GIT_COORD_KNOWN_UNRESOLVED=(day8/de-dupe)` entry holding open the
+# operator decision on the last such coordinate, with the instruction
+# "DELETE THIS LINE when the ruling lands". Mike ruled route (b) on
+# rf2-2ii52 (vendor the codec into mcp-base) and the line went with it. An
+# allowlist is the wrong shape for this check anyway: an unpublishable
+# runtime coordinate is not a policy exception, it is an artefact that
+# cannot ship a correct pom. If one appears again the answer is to publish
+# it, vendor it, or move the edge to late-bind — not to record it here.
 check_no_git_coords_in_runtime_deps() {
   local deps_file="$1"
   local rel_label="$2"
@@ -538,10 +538,7 @@ check_no_git_coords_in_runtime_deps() {
 
   while read -r lib; do
     [[ -z "${lib}" ]] && continue
-    for known in "${GIT_COORD_KNOWN_UNRESOLVED[@]}"; do
-      [[ "${lib}" == "${known}" ]] && continue 2
-    done
-    echo "::error file=${rel_label}::runtime dep '${lib}' uses a :git/url coordinate — 'clein pom' SKIPS it silently, so a published jar would omit a runtime dependency (publish it to Clojars, vendor it, or add it to GIT_COORD_KNOWN_UNRESOLVED with a tracking bead)"
+    echo "::error file=${rel_label}::runtime dep '${lib}' uses a :git/url coordinate — 'clein pom' SKIPS it silently, so a published jar would omit a runtime dependency and Clojars has no yank. Publish it to Clojars under a coordinate this artefact can pin, vendor it into the artefact, or move the edge to late-bind."
     errors=$((errors + 1))
   done < <(grep -B 0 -E '\{:git/url' <<< "${main_deps}" \
            | grep -oE '[^[:space:]{]+[[:space:]]+\{:git/url' \
