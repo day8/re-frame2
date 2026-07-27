@@ -112,11 +112,36 @@
 ;;   was always guarded explicitly here (the re-entry guard); folding it
 ;;   into the set makes the classification uniform and keeps the one-shot,
 ;;   never-re-enter-projection contract enforced at the same chokepoint.
+;;
+;; rf2-6jqa8 — THE THREE `:rf.error/safe-redirect-*` CATEGORIES, and they are
+;; the sharpest case in the set. `:rf.server/safe-redirect`'s five-step gate
+;; is deliberately EMIT-AND-NO-OP rather than throw (`response.cljc`
+;; §safe-redirect): "the cascade continues, the response's `:redirect` stays
+;; unchanged". The request is not degraded at all — the page renders exactly
+;; as it would have, minus a redirect the framework refused to perform. That
+;; refusal IS the mitigation working.
+;;
+;; Promoting these onto the always-on axis without this skip would have made
+;; `error-emit-projection-listener` buffer them and the default projector's
+;; `:else` arm stamp the locked generic 500 — handing an attacker a trivial
+;; denial of service: `?next=javascript:alert(1)` would turn a healthy page
+;; into a 500. That is the inverse of the bead's intent. The governing rule
+;; is the one stated at the head of this block and it is absolute here:
+;; PROMOTION CHANGES WHAT SHIPPERS SEE, NEVER WHAT THE WIRE DOES.
+;;
+;; The skip is at this chokepoint, so it is symmetric across BOTH buffering
+;; listeners — which also closes the pre-existing dev-side asymmetry: on the
+;; trace-cb path these categories were projection-eligible, so a rejected
+;; redirect could stamp a 500 in a dev build while a production build (where
+;; nothing buffered at all) answered 200. Same wire in both postures now.
 (def ^:private non-projection-eligible-errors
   #{:rf.error/ssr-head-resolution-failed
     :rf.error/ssr-ring-error-view-failed
     :rf.error/ssr-streaming-writer-failed
-    :rf.error/sanitised-on-projection})
+    :rf.error/sanitised-on-projection
+    :rf.error/safe-redirect-invalid-url
+    :rf.error/safe-redirect-scheme-rejected
+    :rf.error/safe-redirect-host-disallowed})
 
 (defn- non-projection-eligible-error?
   "True when `operation` names a recoverable-degradation error category

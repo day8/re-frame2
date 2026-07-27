@@ -50,6 +50,9 @@
   (:require [clojure.string]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
+            [re-frame.ssr.egress :as egress]
             [re-frame.ssr.http-validation :as http-validation]
             [re-frame.trace :as trace])
   #?(:clj (:import [java.net URI URISyntaxException])))
@@ -678,12 +681,77 @@
      ;; §Effect handling on the server.
      nil))
 
-(defn- emit-safe-redirect-error!
-  "Emit a structured :rf.error/safe-redirect-* trace and return nil so
-  the fx body can `(or (emit-...) ...)` to a no-op."
+(defn- safe-redirect-tags
+  "The `:rf.error/safe-redirect-*` tag map for a rejected redirect — built
+  ONCE and fanned along BOTH error axes, so the production record and the
+  dev trace cannot disagree about the same rejection.
+
+  EP-0015 (rf2-6jqa8): `:location` is BY CONSTRUCTION caller-untrusted —
+  that is the entire reason `:rf.server/safe-redirect` exists as the sibling
+  of the caller-trusted `:rf.server/redirect` — and a rejected target
+  routinely looks like `?next=https://evil.example.com/cb?token=…`.
+  `egress/redact-url-tag` scrubs the query / fragment carrier VALUES (keeping
+  the structured path, and keeping the scheme and host, which on THIS path
+  are the security signal) HERE, before the tags reach either axis. So the
+  scrub covers the always-on production record exactly as it covers the dev
+  trace.
+
+  Nothing else in the map is caller data: `:frame` is a frame id, `:scheme`
+  and `:host` are parsed URL components, `:reason` is a framework enum (one
+  string on the parse-failure arm), `:allowlist` is the CALL'S OWN policy
+  input, and `:recovery` is fixed."
+  [tags]
+  (-> (merge {:recovery :no-recovery} tags)
+      (egress/redact-url-tag :location)))
+
+(defn- dispatch-safe-redirect-record!
+  "Fan the rejected redirect out on the ALWAYS-ON error axis (rf2-6jqa8) —
+  the production-survivable sibling of the dev `trace/emit-error!` emitted
+  beside it.
+
+  WHY. Until this promotion a rejection reached the outside world ONLY
+  through `trace/emit-error!`, gated on `interop/debug-enabled?`. The
+  five-step gate itself is production-real and REJECTS correctly under
+  `-Dre-frame.debug=false` — that half was never in doubt — but the
+  rejection is a silent no-op on the wire (the fx returns nil, the response
+  carries no redirect), so on a production JVM an attacker-supplied
+  `?next=javascript:alert(1)` produced NO Sentry event, NO Datadog metric
+  and NO frame-owned `:observability :errors` record. A security team could
+  not see open-redirect probing against their own app.
+
+  Note the asymmetry that motivated it: the CRLF / NUL gate on the SAME fx
+  THROWS, so it rides `:rf.error/fx-handler-exception` and has always been
+  always-on. Two halves of one security surface had opposite production
+  observability.
+
+  The record is the general NON-EVENT union shape — this is not a dispatched-
+  event failure, so it rides `dispatch-error-record!` rather than the
+  event-centric `dispatch-on-error!`. `tags` arrives already redacted (see
+  [[safe-redirect-tags]]). Reached through the
+  `:error-emit/dispatch-error-record` late-bind hook, the same indirection
+  `ssr/boot` and `ssr/error-projector` use; a no-op when the hook is unbound.
+  Returns nil."
   [operation tags]
-  (trace/emit-error! operation
-                     (merge {:recovery :no-recovery} tags))
+  (when-let [dispatch-error-record!
+             (late-bind/get-fn :error-emit/dispatch-error-record)]
+    (dispatch-error-record!
+      (assoc tags
+             :error operation
+             :time  (interop/now-ms))))
+  nil)
+
+(defn- emit-safe-redirect-error!
+  "Fan a structured `:rf.error/safe-redirect-*` rejection along BOTH error
+  axes and return nil so the fx body can `(or (emit-...) ...)` to a no-op.
+
+  Axis 1 is the ALWAYS-ON `error-emit` record (rf2-6jqa8) — the half that
+  reaches an off-box shipper in a production build. Axis 2 is the dev trace,
+  unchanged. The tag map is built once by [[safe-redirect-tags]] so the two
+  cannot disagree, and it is REDACTED before either sees it."
+  [operation tags]
+  (let [tags (safe-redirect-tags tags)]
+    (dispatch-safe-redirect-record! operation tags)
+    (trace/emit-error! operation tags))
   nil)
 
 (defn safe-redirect-fx
