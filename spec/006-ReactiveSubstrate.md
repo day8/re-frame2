@@ -1269,12 +1269,29 @@ These are normative (R-2). Each names the bug class it deletes.
    has its identity (`:node-key`), version, and the frame/registry epochs compared against
    the render's probe evidence; any movement in the render→commit gap — including a same-id
    frame **reincarnation** the `:node-key` axis catches when version + epochs coincide —
-   advances the cell's revision and notifies, and the host corrects **before paint**. On a
+   advances the cell's revision and notifies, and the host corrects **before paint**. Two
+   cases make that comparison load-bearing, and the second is the stronger one. On a
    **non-watchable headless host** a retained site has no value-movement watch, so this
    comparison is its *only* correction — a staged-only comparison would leave a retained
-   site's headless movement caught by nothing. *(Deletes: painting a frame computed from
-   stale reads; a coincident-version reincarnation misread as unchanged; a retained
-   headless site that self-corrects through no channel.)*
+   site's headless movement caught by nothing. On a **watchable** host a newly **staged**
+   site has no watch either, because `acquire!` installs the change watch *during* the
+   commit that needed it — the movement the comparison exists to catch has already happened
+   by the time that watch is in place. The two failures are not symmetric. A retained site
+   whose commit skipped the comparison publishes stale and then self-heals one window later,
+   when its earlier-installed watch fires; a **staged** site publishes stale and **nothing
+   ever corrects it**, because a dependency's *first* render has no earlier channel to heal
+   through. That is what a panel mounting exactly as a permission drops, a user switches, or
+   a record is redacted looks like: a value wrong on arrival and wrong for as long as it is
+   shown. The comparison is therefore not a headless-only concession — it is a staged site's
+   only correction on **every** host, watchable ones included. Both directions are pinned by
+   shipped rows: the retained case in
+   `implementation/freehand/test/re_frame/freehand/shell_cljs_test.cljc`, and the staged
+   case — over the real observation port and sub-cache, on a watchable browser host — in
+   `implementation/freehand/test/re_frame/freehand/shell_tear_dom_cljs_test.cljs`.
+   *(Deletes: painting a frame computed from stale reads; a coincident-version
+   reincarnation misread as unchanged; a retained headless site that self-corrects through
+   no channel; a staged site that paints stale on a dependency's first render and never
+   heals.)*
 6. **One notification per cell per render batch — the boundary is the host checkpoint, not
    drain quiescence and not epoch close.** A **render batch** is the pending read/render
    window that ends at the **earliest** host checkpoint to reach it — the next CLJS host
