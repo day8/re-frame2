@@ -1017,6 +1017,24 @@ dedupe advisories, the grouped order, and the identity diff. R6 proves the
 integrated view. No slice is permission to build a second Xray graph or a
 general-purpose public plan debugger.
 
+> **Erratum — 2026-07-27 (rf2-dlkou, recording the rf2-9sluz ruling).** R2's
+> **identity diff** ships as the identity partition on the existing activation
+> `:rf.resource/route-plan` row — `:ensured-identities` / `:kept-identities` /
+> `:removed-identities` beside the `:ensured` / `:kept` / `:removed` counts,
+> with `:identities` carrying the planner's grouped plan order. The vectors are
+> named for what the runtime **did**, not for the diff: a retained-but-unusable
+> identity takes the ordinary ensure path, so a vector named `:added` would
+> disagree with the `:ensured` count beside it. Everything else in the bullet
+> list above is **deliberately not projected**: occurrence/dependency groups,
+> the per-contributor requirement mapping, and local `:after` edges are internal
+> planning mechanics, and Xray's static route/resource graph, the
+> planning-failure evidence, and `:redundant-children` are the authorities for
+> what a reader would otherwise want from them. No route-plan panel, no public
+> plan value, and **no eleventh conformance row** — conformance for the
+> correction is the enriched shape pinned in the R2 partial-activation fixture
+> plus the shape-driven egress test. A future EP that graduates a plan
+> projection owns its own row.
+
 `:rf.resource/route-plan` is the existing Spec 016 route/resource graph
 operation and is extended rather than replaced by a parallel trace. Prefetch
 emits one `:rf.route/prefetched` summary trace; its plan trace carries
