@@ -139,7 +139,12 @@
   Per rf2-qm7k83 Part A `reg-app-schema` is an ordinary member of the
   `reg-*` family — the schema is the POSITIONAL value slot:
   `(reg-app-schema path schema)` (2-slot) / `(reg-app-schema path metadata
-  schema)` (3-slot, `metadata` carries the optional `:frame` target)."
+  schema)` (3-slot, `metadata` carries the optional `:frame` target).
+
+  DEVELOPMENT-BUILD ASSERTION. Registration itself runs in every build,
+  but the candidate validation it arms is dev-only: a production build
+  never checks the schema, so a violating candidate installs silently.
+  Per Spec 010 §Production builds."
   {:hook :schemas/reg-app-schema :artefact schemas-artefact :on-absent :throw
    :ex-data {:path path}}
   ([path schema]          :delegate)
@@ -160,7 +165,11 @@
 
   Returns the vector of paths registered. See `re-frame.schemas/reg-app-schemas`
   for full semantics and the singular-form fallback when deterministic
-  ordering matters."
+  ordering matters.
+
+  DEVELOPMENT-BUILD ASSERTION, as for the singular form: every entry
+  registers in a production build but is never checked there. Per Spec
+  010 §Production builds."
   {:hook :schemas/reg-app-schemas :artefact schemas-artefact :on-absent :throw}
   ([path->schema]      [path->schema {}])
   ([path->schema opts] :delegate))

@@ -518,7 +518,19 @@
 (defn reg-app-schema
   "Register a Malli schema at a path inside app-db. Validation runs in
   dev whenever an event handler returns a new app-db; failures emit
-  :rf.error/schema-validation-failure.
+  :rf.error/schema-validation-failure and reject the whole candidate
+  before it installs.
+
+  DEVELOPMENT-BUILD ASSERTION. That rejection is dev-only. A production
+  build (`:advanced` with `goog.DEBUG` false, or `-Dre-frame.debug=false`
+  on the JVM) still performs this registration — `app-schema-at` and
+  `app-schemas` keep answering, so tools and agents can introspect the
+  shape — but the candidate validator is elided, so nothing checks it.
+  A candidate that violates this schema installs silently: no rejection,
+  no rollback, no trace. Your app-db schemas do not run in production
+  builds. Keep the real invariant in the handler, and use the
+  `:rf.schema/at-boundary` interceptor where untrusted input must be
+  validated in production too. Per Spec 010 §Production builds.
 
   The schema is the positional value slot:
 
@@ -590,6 +602,11 @@
   The singular form `reg-app-schema` remains available and is used
   internally for each entry — every entry stamps its own per-frame side-
   table entry with source-coords captured from this call site.
+
+  DEVELOPMENT-BUILD ASSERTION, exactly as for the singular form: every
+  entry in the batch registers in a production build but is never checked
+  there, so a violating candidate installs silently. Your app-db schemas
+  do not run in production builds. Per Spec 010 §Production builds.
 
   Returns the vector of canonical paths registered, in map iteration order."
   ([path->schema] (reg-app-schemas path->schema {}))

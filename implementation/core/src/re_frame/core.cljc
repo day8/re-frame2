@@ -309,12 +309,26 @@
      (def ^{:doc "Fn-alias of the `reg-app-schema` macro for HoF / programmatic
   registration (no source-coord capture). Register a Malli schema at a
   path inside app-db (frame-scoped per Spec 010). Implementation ships
-  in `day8/re-frame2-schemas`. See `re-frame.core-schemas/reg-app-schema`
-  and spec/API.md §Registration."}
+  in `day8/re-frame2-schemas`.
+
+  DEVELOPMENT-BUILD ASSERTION. A production build registers the schema
+  (tools can still introspect it) but never checks it — a violating
+  candidate installs silently, with no rejection and no diagnostic. Your
+  app-db schemas do not run in production builds. Per Spec 010
+  §Production builds.
+
+  See `re-frame.core-schemas/reg-app-schema` and spec/API.md
+  §Registration."}
        reg-app-schema  rf-schemas/reg-app-schema)
      (def ^{:doc "Fn-alias of the `reg-app-schemas` macro for HoF /
   programmatic registration (no source-coord capture). Bulk-register a
   `{path -> schema}` map. Implementation ships in `day8/re-frame2-schemas`.
+
+  DEVELOPMENT-BUILD ASSERTION, as for the singular form: the batch
+  registers in a production build but is never checked there, so a
+  violating candidate installs silently. Your app-db schemas do not run
+  in production builds. Per Spec 010 §Production builds.
+
   See `re-frame.core-schemas/reg-app-schemas` and spec/API.md
   §Registration."}
        reg-app-schemas rf-schemas/reg-app-schemas)
@@ -548,7 +562,21 @@
        optional middle metadata map carries the `:frame` target). The path
        is the registration id. Captures source-coords (Spec 001) at this
        call site. Implementation ships in `day8/re-frame2-schemas`
-       (rf2-p7va). See `re-frame.core-schemas/reg-app-schema` for the full
+       (rf2-p7va).
+
+       DEVELOPMENT-BUILD ASSERTION. The schema you register here is
+       checked in dev builds only. A production build (`:advanced` with
+       `goog.DEBUG` false, or `-Dre-frame.debug=false` on the JVM) still
+       REGISTERS the schema so tools and agents can introspect it, but
+       never CHECKS it: the candidate validator is elided, so a candidate
+       that violates this schema installs silently — no rejection, no
+       rollback, no diagnostic. Your app-db schemas do not run in
+       production builds. Keep the real invariant in the handler, and
+       reach for the `:rf.schema/at-boundary` interceptor when untrusted
+       input has to be validated in production too. Per Spec 010
+       §Production builds.
+
+       See `re-frame.core-schemas/reg-app-schema` for the full
        signature."
        {:arglists '([path schema] [path metadata schema])})
 
@@ -556,8 +584,16 @@
        "Bulk-register a `{path -> schema}` map against the active frame
        (or the `:frame` opt). Plural form of `reg-app-schema`. Captures
        source-coords (Spec 001) at this call site. Implementation ships
-       in `day8/re-frame2-schemas` (rf2-p7va). See
-       `re-frame.core-schemas/reg-app-schemas` for the full signature."
+       in `day8/re-frame2-schemas` (rf2-p7va).
+
+       DEVELOPMENT-BUILD ASSERTION, exactly as for the singular form:
+       every schema in the batch registers in a production build but is
+       never checked there, so a violating candidate installs silently.
+       Your app-db schemas do not run in production builds. Per Spec 010
+       §Production builds.
+
+       See `re-frame.core-schemas/reg-app-schemas` for the full
+       signature."
        {:arglists '([path->schema] [path->schema opts])})
 
      (rm/defreg-macro reg-error-projector rf-ssr/-reg-error-projector

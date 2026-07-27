@@ -569,6 +569,19 @@
   :rf.error/schema-validation-failure with the registered explainer's
   output attached.
 
+  DEV-ONLY SURFACE — and this is the consumer-visible consequence, not
+  just an internal note. The whole body sits inside a
+  `(if interop/debug-enabled? ... true)` gate, so in a production build
+  this fn returns `true` without walking anything. `reg-app-schema` still
+  registers, but nothing checks the registered schemas, and the
+  candidate-rejection contract of Spec 010 §Per-step recovery row 4 does
+  not apply: a candidate that violates a registered app-db schema
+  INSTALLS, silently. Production app-db integrity is the handler's job;
+  the production-side validation surfaces are the
+  `:rf.schema/at-boundary` interceptor and the
+  `:schemas/validate-with-registered-fn` seam, neither of which is gated
+  this way. Per Spec 010 §Production builds and the rf2-bkvu5 ruling.
+
   Per Spec 010 §Per-frame schemas only the named frame's schemas are
   walked — schemas registered against sibling frames are ignored.
 
