@@ -635,7 +635,7 @@ A feature ships these artefacts as a coherent bundle:
 
 | Artefact | Required | Convention |
 |---|---|---|
-| **Schema** for the feature's `app-db` slice | yes | `(rf/reg-app-schema [:feature] FeatureSchema)` |
+| **Schema** for the feature's `app-db` slice | yes | `(rf/reg-app-schema [:feature] FeatureSchema)` — a dev-time assertion and an introspection surface, not a production guard (see below) |
 | **`:initial-events` init event** | yes | `:feature/initialise` — sets the slice to its initial value |
 | **State events** (the feature's instruction set) | yes | `:feature/verb-noun`, `:feature.subarea/verb-noun` |
 | **Subscriptions** | yes | `:feature/property` reading from `[:feature ...]` |
@@ -643,6 +643,18 @@ A feature ships these artefacts as a coherent bundle:
 | **Machine** for stateful flows | optional | `:feature.flow/machine` if the feature has multi-step interactions |
 | **Routes** | optional | If the feature has its own URL surface |
 | **Smoke test** covering the happy path | yes | Drives feature events, asserts state and renders |
+
+**What the schema row buys — and what it does not.** `reg-app-schema` is
+required because the registration is genuinely wanted: it documents the slice's
+shape, it catches your own mistakes the moment you make them, and it is what
+tools and agents read back through `(rf/app-schemas)`. But registering a schema
+and checking one are two different acts. A production build performs the
+registration and elides the check ([010 §Production
+builds](010-Schemas.md#production-builds)), so a candidate that violates
+`FeatureSchema` installs silently there — no rejection, no rollback, no trace.
+Write any rule that must hold in production as a branch in the handler, and put
+untrusted input behind the `:rf.schema/at-boundary` interceptor, which is the
+one validation seam that survives the gate.
 
 **Directory / namespace convention (CLJS reference):**
 
