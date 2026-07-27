@@ -35,11 +35,11 @@
 ;;;; What this suite does NOT cover: it is a PROSE-DRIFT / structural guard, not
 ;;;; a buildability smoke. It does not materialise the scaffold and run
 ;;;; `npm install` + `npx shadow-cljs compile app` — that heavier
-;;;; generated-project smoke is deferred (pre-publish, the framework coords
-;;;; resolve only against a reviewed monorepo checkout, so a full end-to-end
-;;;; build isn't a cheap per-PR gate yet). Run `npm run test:cljs` / the substrate
-;;;; contract tests for real-regression coverage of the wiring this skill
-;;;; teaches.
+;;;; generated-project smoke is deferred on COST, not on coordinate shape: a
+;;;; fresh npm install plus a cold ClojureScript compile is minutes of CI per
+;;;; run, and publishing the framework coords would not make it any cheaper.
+;;;; Run `npm run test:cljs` / the substrate contract tests for real-regression
+;;;; coverage of the wiring this skill teaches.
 ;;;;
 ;;;; NOT published — `package.json` :files excludes `tests/`.
 
