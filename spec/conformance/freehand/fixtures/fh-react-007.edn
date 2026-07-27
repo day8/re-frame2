@@ -158,15 +158,23 @@
   ;; perfectly and breaks every memoised consumer downstream, so the
   ;; recorded object is what a run leaves and `identical?` is what reads
   ;; it.
-  ;; `:residue :unasserted`. The mounted suite resets the host registry and
-  ;; the boundary table in its per-test `:init-fn`, which cleans up BEFORE
-  ;; each test rather than asserting anything AFTER one — so a crossing that
-  ;; retained a boundary would be masked by the next test's reset instead of
-  ;; reported. Earning `:residue :none` is acceptance 3's remaining work.
+  ;; `:residue :none`, and the mounted suite earns it. Every row that
+  ;; commits ends at `released!`, which reads the shared lifecycle's books
+  ;; — every container retired, empty and detached — together with the
+  ;; door's own live-root registry, AFTER the crossing unmounts through
+  ;; `v/unmount!`. The rows that mount nothing, the emitter-only adapter
+  ;; refusals, have no residue to read and assert none.
+  ;;
+  ;; This said `:unasserted` for as long as the per-test `:init-fn` was the
+  ;; only cleanup there was. Resetting the host registry and the boundary
+  ;; table BEFORE each test is not evidence about the test that just ran: a
+  ;; crossing that retained a boundary would be swallowed by the next
+  ;; test's reset rather than reported by its own. Moving the read to the
+  ;; END of the test is what made the absence falsifiable (rf2-n9rzw).
   :evidence
   {:reads   [:host/props :host/callback-identity]
    :counts  [:host/commits]
-   :residue :unasserted}
+   :residue :none}
 
   ;; The `:map-props` key-set boundary was recorded OPEN here (rf2-drpa3.182.3,
   ;; from the merged-PR audit of #7081) rather than pinned to the behaviour

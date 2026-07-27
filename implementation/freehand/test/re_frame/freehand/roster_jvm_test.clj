@@ -160,8 +160,10 @@
             Every mounted projection of a `:residue :none` record must read
             an absence after teardown. A record whose suites only unmount
             and remove, without asserting what survived, says
-            `:unasserted` — which is honest, countable, and what two of the
-            three spine members currently say."
+            `:unasserted` — honest, countable, and what two of the three
+            spine members said until they took the shared assertion
+            (rf2-n9rzw). All three carry `:none` now, so this row is
+            carrying all three rather than one."
     (doseq [record roster/spine
             :when  (= :none (get-in record [:fh/record :evidence :residue]))
             entry  (roster/tier record :mounted)]
@@ -205,18 +207,26 @@
       (is (some #(re-find % shared-assert) emptiness-assertion)
           "and reading the shared residue assertion afterwards is what earns the claim"))))
 
-(deftest the-spine-records-what-it-has-not-yet-earned
+(deftest the-spine-records-what-it-has-earned
   (testing "Per rf2-drpa3.182.7 acceptance 3: the roster's value here is
-            that the gap is COUNTABLE rather than hidden. FH-BEHAVIOR-005
-            earns `:residue :none` — both its projections read the
-            substrate's books empty after teardown, as exact zeros. The
-            other two tear down and assert nothing, and say so.
+            that the residue claim is COUNTABLE rather than hidden. All
+            three spine members now claim `:residue :none`, and the row
+            above is what holds each of them to it.
 
-            This row is a statement of the CURRENT state, and it is meant to
-            be edited when the mounted-lifecycle facade lands and the other
-            two earn `:none`. It is here so that happens deliberately."
-    (is (= {:FH-REACT-007    :unasserted
-            :FH-CTRL-018     :unasserted
+            Two of them arrived (rf2-n9rzw), and the gap each closed was a
+            different one. FH-CTRL-018 tore its root down and asserted
+            nothing about what survived. FH-REACT-007 reset its registries
+            in a per-test `:init-fn`, which is cleanup BEFORE a test rather
+            than evidence about the one that just ran — a retained boundary
+            was masked by the next reset instead of reported. Both now end
+            at the shared `residue-clean!`, read after teardown.
+
+            This row remains a statement of the CURRENT state, and that is
+            its job in both directions: a record regressing to
+            `:unasserted`, or a fourth member enrolled without a residue
+            claim, reds HERE rather than passing quietly."
+    (is (= {:FH-REACT-007    :none
+            :FH-CTRL-018     :none
             :FH-BEHAVIOR-005 :none}
            (into {} (map (fn [id]
                            [id (get-in (roster/by-id id)
