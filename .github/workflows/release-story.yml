@@ -1,14 +1,36 @@
-# Release workflow for tools/story/ (rf2-wht9a).
+# Release workflow for the Story shipping set (rf2-wht9a, rf2-2ii52).
 #
-# Publishes `day8/re-frame2-story` to Clojars on a tag push of the form
-# `story-v[0-9]+.[0-9]+.[0-9]+*` (e.g. `story-v0.0.1.alpha`).
+# On a tag push of the form `story-v[0-9]+.[0-9]+.[0-9]+*` (e.g.
+# `story-v0.0.1.alpha`) this publishes THREE Clojars artefacts, in
+# dependency order:
 #
-# # Why a separate workflow
+#   1. `day8/re-frame2-mcp-base`  (tools/mcp-base/)   — no in-repo deps
+#   2. `day8/re-frame2-story`     (tools/story/)      — 5 in-repo deps
+#   3. `day8/re-frame2-story-mcp` (tools/story-mcp/)  — depends on BOTH
 #
-# Same rationale as release-xray.yml: Story is a CONSUMER of the framework,
-# published from tools/, so it ships on its own cadence. The disjoint tag
-# prefix (`story-v…` vs `xray-v…` vs the framework's `v…`) keeps the
-# triggers from overlapping in either direction.
+# # Why one glob for three artefacts
+#
+# rf2-4u3t1 ruled that Story and its MCP surface ship as one set on the
+# EXISTING `story-v*` glob rather than each getting a tag: they are
+# specified as a shipping pair (tools/story/spec/006-MCP-Surface.md), and
+# a second glob would let the pair skew — an agent could resolve a
+# story-mcp built against a Story it cannot see. mcp-base joins the same
+# glob because story-mcp depends on it at `:local/root`, so it must be on
+# Clojars before story-mcp's pom can resolve. It has no in-repo
+# dependency of its own, so it needs nothing published ahead of it and
+# deploys alongside Story rather than behind it.
+#
+# (mcp-base is also consumed by tools/re-frame2-pair-mcp/, which ships on
+# npm and pulls the base through its shadow-cljs classpath, not Clojars —
+# so the pair server needs no tag of its own here.)
+#
+# # Why a separate workflow from the framework's
+#
+# Same rationale as release-xray.yml: these are CONSUMERS of the
+# framework, published from tools/, so they ship on their own cadence.
+# The disjoint tag prefix (`story-v…` vs `xray-v…` vs `machines-viz-v…`
+# vs the framework's `v…`) keeps the triggers from overlapping in either
+# direction.
 #
 # # What this workflow exists to prevent
 #
@@ -35,6 +57,16 @@
 # irreversible act reads the actual artefact, not the inputs that were
 # supposed to produce it.
 #
+# The story-mcp jobs below use the DERIVED pair of those two steps —
+# .github/scripts/rewrite-in-repo-coords.sh and
+# .github/scripts/preflight-tool-package.sh — which read the coordinate
+# set out of the artefact's own committed deps.edn instead of listing it.
+# That is the shape rf2-5dut1 and rf2-7fxf8 arrived at the hard way: Xray's
+# hand-written rewrite list fell from ten coordinates to two, and the
+# lockstep inventory saw 8 of 18, both while reporting green. A roster
+# cannot report on what it does not list. The Story job keeps its inline
+# list for now; converting it is a separate change with its own risk.
+#
 # # Dependency availability (the ordering contract)
 #
 # Story's rewritten pom pins five sibling coordinates at the lockstep
@@ -48,11 +80,18 @@
 # any coordinate is not yet published the job fails at classpath resolution
 # — before `clein deploy` can touch Clojars.
 #
+# The SAME mechanism orders the three artefacts within this workflow.
+# `deploy-story-mcp` `needs:` both `deploy-mcp-base` and `deploy-story`, so
+# it cannot start until they have published; and even if that edge were
+# wrong, its `clojure -P` would fail to resolve `day8/re-frame2-story` /
+# `day8/re-frame2-mcp-base` at the lockstep VERSION before anything was
+# deployed. Belt and braces, and the braces are structural.
+#
 # So the release ORDER for a given VERSION is:
 #
 #     v<VERSION>        (framework: core, reagent adapter, machines, http, …)
 #     xray-v<VERSION>   (Xray)
-#     story-v<VERSION>  (this workflow)
+#     story-v<VERSION>  (this workflow: mcp-base + Story, then story-mcp)
 #
 # # Lockstep versioning
 #
@@ -64,10 +103,13 @@
 #
 # # Failure recovery
 #
-# Clojars does not support yanking. If `deploy-story` fails AFTER the
+# Clojars does not support yanking. If any deploy job fails AFTER its
 # artefact is published (e.g. a network glitch on the upload
 # acknowledgement), DO NOT re-run with the same tag — Clojars will 409.
-# Bump VERSION, retag with the bumped value, and rerun.
+# Bump VERSION, retag with the bumped value, and rerun. With three
+# artefacts on one tag a partial publish is now possible (mcp-base lands,
+# story-mcp fails); the recovery is the same bump-and-supersede, and the
+# already-published members simply republish at the new VERSION.
 #
 # # Secrets
 #
@@ -79,6 +121,17 @@
 #
 # Mike triggers the first deploy manually by pushing the tag once the
 # framework and Xray tags for the same VERSION have published.
+#
+# CAVEAT, surfaced on rf2-2ii52 and NOT resolved by this workflow: none of
+# `day8/re-frame2-story`, `day8/re-frame2-story-mcp` or
+# `day8/re-frame2-mcp-base` exists on Clojars yet, and Clojars refuses NEW
+# projects in unverified, non-reverse-domain groups — the same 403 that
+# blocked `day8/de-dupe` on 2026-05-13 ("Group 'day8' isn't verified, so
+# can't contain new projects"). Existing projects in an old group may
+# publish new versions; a NEW project may not. Whether the `day8` group
+# can still take new projects is a release-wide coordinate-policy question
+# for Mike, and it applies to every unpublished `day8/re-frame2-*`
+# coordinate, not just these three. VERIFY BEFORE TAGGING.
 
 name: release-story
 
@@ -94,7 +147,7 @@ jobs:
   #    lockstep.
   # ─────────────────────────────────────────────────────────────────
   verify-version:
-    name: Verify Story tag matches lockstep VERSION
+    name: Verify story-v tag matches lockstep VERSION
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -115,13 +168,18 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Verify framework-wide lockstep contract
-        # Same script the framework release.yml + tests.yml run. Its
-        # tools/ loop covers tools/story/deps.edn and asserts all five
-        # :local/root coordinates the rewrite step below depends on.
+        # Same script the framework release.yml + test.yml run. Its
+        # tools/ loop covers all three artefacts this tag publishes —
+        # story, story-mcp and mcp-base — asserting each one's :version
+        # reference, every :local/root coordinate the rewrite steps below
+        # depend on, the `:main` clein's spec requires, and that no
+        # runtime coordinate is a form `clein pom` cannot express.
         run: ./.github/scripts/verify-version-lockstep.sh
 
   # ─────────────────────────────────────────────────────────────────
-  # 2. Pre-release test gate for the Story artefact.
+  # 2. Pre-release test gates. One per artefact, all fanning out from
+  #    verify-version so a red suite anywhere in the set stops the whole
+  #    tag before any deploy job starts.
   # ─────────────────────────────────────────────────────────────────
   test-story:
     name: Story pre-release test gate
@@ -155,8 +213,90 @@ jobs:
         working-directory: tools/story
         run: clojure -M:test
 
+
+  test-mcp-base:
+    name: mcp-base pre-release test gate
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-story-${{ hashFiles('tools/story/deps.edn', 'tools/story-mcp/deps.edn', 'tools/mcp-base/deps.edn', 'tools/xray/deps.edn', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-story-
+            ${{ runner.os }}-clj-
+
+      # The canonical cross-host dedup suite lives here, and since
+      # rf2-2ii52 so does the codec it exercises: day8/de-dupe was
+      # vendored into `re-frame.mcp-base.dedup` because a `:git/url`
+      # runtime coordinate is one `clein pom` drops silently, which left
+      # this artefact and story-mcp with no publish path at all. The
+      # vendored codec is now ours to keep green.
+      - name: JVM tests (mcp-base artefact)
+        working-directory: tools/mcp-base
+        run: clojure -M:test
+
+  test-story-mcp:
+    name: story-mcp pre-release test gate
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-story-${{ hashFiles('tools/story/deps.edn', 'tools/story-mcp/deps.edn', 'tools/mcp-base/deps.edn', 'tools/xray/deps.edn', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-story-
+            ${{ runner.os }}-clj-
+
+      - name: JVM tests (story-mcp artefact)
+        working-directory: tools/story-mcp
+        run: clojure -M:test
+
+      # The committed tool-descriptors.edn is a projection of the live
+      # tool registry; a stale one is a wrong catalogue shipped inside
+      # the jar. test.yml gates this on every PR. Assert it again here,
+      # because the tag is what actually publishes it.
+      - name: Assert tool-descriptors.edn matches the registry
+        working-directory: tools/story-mcp
+        run: clojure -M:gen --check
+
   # ─────────────────────────────────────────────────────────────────
-  # 3. Deploy Story. Rewrite → resolve → preflight → deploy.
+  # 3. Deploy. mcp-base and Story publish in parallel (neither depends
+  #    on the other); story-mcp waits for both.
+  #
+  #    Story: rewrite → resolve → preflight → deploy.
   # ─────────────────────────────────────────────────────────────────
   deploy-story:
     name: Deploy day8/re-frame2-story
@@ -243,6 +383,140 @@ jobs:
 
       - name: Deploy day8/re-frame2-story
         working-directory: tools/story
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -M:clein deploy
+
+  # ─────────────────────────────────────────────────────────────────
+  # mcp-base. NO rewrite step, deliberately: tools/mcp-base/deps.edn
+  # declares no in-repo `:local/root` coordinate at all. Its only runtime
+  # dependency is Clojure itself, which is why the preflight below can
+  # pass on a straight `clein pom`. That is the point of rf2-2ii52's
+  # vendoring: before it, this artefact's pom silently lost day8/de-dupe
+  # and no rewrite could repair it.
+  #
+  # `rewrite-in-repo-coords.sh` would REFUSE here (exit 2 on zero derived
+  # coordinates) rather than pass vacuously, so it is not called.
+  # ─────────────────────────────────────────────────────────────────
+  deploy-mcp-base:
+    name: Deploy day8/re-frame2-mcp-base
+    needs: [verify-version, test-mcp-base]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-story-${{ hashFiles('tools/story/deps.edn', 'tools/story-mcp/deps.edn', 'tools/mcp-base/deps.edn', 'tools/xray/deps.edn', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-story-
+            ${{ runner.os }}-clj-
+
+      # Reads the GENERATED pom and refuses to deploy unless it declares
+      # exactly what the committed deps.edn declares. Derived, not
+      # rostered. Last gate before an irreversible publish.
+      - name: Preflight the generated mcp-base package
+        working-directory: tools/mcp-base
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: >-
+          "$GITHUB_WORKSPACE/.github/scripts/preflight-tool-package.sh"
+          day8/re-frame2-mcp-base "$VERSION"
+
+      - name: Deploy day8/re-frame2-mcp-base
+        working-directory: tools/mcp-base
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -M:clein deploy
+
+  # ─────────────────────────────────────────────────────────────────
+  # story-mcp, LAST. It depends on both artefacts above at
+  # `:local/root`, so it cannot resolve until they are on Clojars. The
+  # `needs:` edge states that; `clojure -P` enforces it.
+  #
+  # Rewrite -> resolve -> preflight -> deploy, with the rewrite and the
+  # preflight both DERIVING their coordinate set from the committed
+  # deps.edn rather than repeating it here (rf2-5dut1 / rf2-7fxf8: the
+  # inline list is what drifted, everywhere it has been tried).
+  # ─────────────────────────────────────────────────────────────────
+  deploy-story-mcp:
+    name: Deploy day8/re-frame2-story-mcp
+    needs: [verify-version, test-story-mcp, deploy-mcp-base, deploy-story]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-story-${{ hashFiles('tools/story/deps.edn', 'tools/story-mcp/deps.edn', 'tools/mcp-base/deps.edn', 'tools/xray/deps.edn', 'implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-story-
+            ${{ runner.os }}-clj-
+
+      - name: Rewrite story-mcp :local/root to :mvn/version
+        working-directory: tools/story-mcp
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: >-
+          "$GITHUB_WORKSPACE/.github/scripts/rewrite-in-repo-coords.sh" "$VERSION"
+
+      # The ordering gate. Resolving the rewritten graph requires
+      # day8/re-frame2-story and day8/re-frame2-mcp-base to be ON Clojars
+      # at this VERSION. Both are deployed by this same workflow run, so
+      # a failure here means one of those deploys did not take.
+      - name: Verify every in-repo dependency is published at this VERSION
+        working-directory: tools/story-mcp
+        run: |
+          set -euo pipefail
+          if ! clojure -P; then
+            echo "::error::could not resolve the rewritten story-mcp dependency graph from Clojars. story-mcp publishes LAST on this tag, so check that deploy-mcp-base and deploy-story both succeeded, and that the framework (v<VERSION>) and Xray (xray-v<VERSION>) tags published first."
+            exit 1
+          fi
+
+      - name: Preflight the generated story-mcp package
+        working-directory: tools/story-mcp
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: >-
+          "$GITHUB_WORKSPACE/.github/scripts/preflight-tool-package.sh"
+          day8/re-frame2-story-mcp "$VERSION"
+
+      - name: Deploy day8/re-frame2-story-mcp
+        working-directory: tools/story-mcp
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
