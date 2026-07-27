@@ -68,6 +68,192 @@
   response-slots
   (atom {}))
 
+;; ---- the reserved `:rf.server/*` ARGS SHAPE gate (rf2-dtpfv) -------------
+;;
+;; WHAT WAS BROKEN. Spec 010 §Validation-order step 5 validates an fx's args
+;; against the `:schema` on its registration meta, and Spec 010 §Per-step
+;; recovery row 5 says the offending fx is `:skipped`. That gate is
+;; `re-frame.schemas.validate/validate-fx!`, whose body is
+;; `(if interop/debug-enabled? (run-validation …) true)` — and
+;; `interop/debug-enabled?` is read ONCE at namespace-load time. Under
+;; `-Dre-frame.debug=false` the boundary therefore does not run AT ALL and
+;; nothing is skipped: a malformed reserved fx RUNS, and its args land on the
+;; per-request response accumulator that `ssr/get-response` publishes to every
+;; host adapter. Measured at that surface before this gate existed:
+;;
+;;   [:rf.server/set-status "not-an-int"]              → :status "not-an-int"
+;;   [:rf.server/set-header {:name "X-Foo"}]           → ["X-Foo" nil]
+;;   [:rf.server/set-cookie {:name "session"}]         → {:name "session"}
+;;   [:rf.server/safe-redirect {:location "/ok"
+;;                              :status "not-int"}]    → the malformed redirect
+;;
+;; THE RULING (rf2-dtpfv, option (b)). The general step-5 gate for USER fx
+;; stays dev-only — trust-the-programmer covers user declarations, and paying
+;; a hot-path validation cost in every app to protect seven closed framework
+;; effects is posture-hostile. What trust-the-programmer does NOT cover is the
+;; framework's own wire-adjacent contract: these seven fx are a CLOSED set the
+;; framework itself publishes, their args feed the HTTP response head, and the
+;; accumulator is a PUBLIC host-adapter surface whose shape must not depend on
+;; which build you are running. So the reserved family guards its own args
+;; UNCONDITIONALLY, in every build.
+;;
+;; This is not a new ownership pattern — it COMPLETES the one already in this
+;; file. `validate-header-name!` / `validate-header-value!` /
+;; `validate-cookie-name!` / `validate-cookie-attr!` /
+;; `validate-redirect-location!` all `error/throw-error!` unconditionally
+;; before `swap-response!`, covering the CR/LF/NUL + token-grammar injection
+;; surface. They are the WIRE-GRAMMAR half. This section is the SHAPE half:
+;; the published TYPE contract of each args map (Spec 011 §Standard fx), which
+;; nothing enforced outside a debug build.
+;;
+;; MECHANISM — throw-through-containment, not skip-silently. The guards throw
+;; the canonical `re-frame.error/throw-error!` BEFORE the first
+;; `swap-response!`. The registered-fx containment in `re-frame.fx` then
+;; supplies the wanted semantics with zero new machinery: the accumulator is
+;; never mutated, sibling fx in the same `:fx` vector still run, an ALWAYS-ON
+;; `:rf.error/fx-handler-exception` record survives production, and SSR's error
+;; projection serves the sanitised 500. Fail-closed is right for a
+;; wire-adjacent programmer error that survived to production — a silently
+;; dropped `Set-Cookie` under a 200 is worse than an honest, observable 500.
+;;
+;; TAXONOMY — the line this gate does NOT cross. A malformed framework CALL is
+;; a programmer error and throws. An untrusted-INPUT policy decision — a
+;; `:rf.server/safe-redirect` target that parses but points off-origin — stays
+;; the existing non-projecting emit-and-no-op (see `safe-redirect-fx`). A
+;; caller-untrusted `:location` that is a STRING reaches the five-step gate
+;; exactly as before; only a `:location` that is not a string at all (a
+;; missing key, a keyword, a URI object) is a call the programmer got wrong.
+;;
+;; POSTURE. The recovery PATH still differs by build, and that is documented
+;; rather than hidden: dev-with-schemas gets the Malli step-5 skip plus its
+;; rich `:where :fx-args` diagnostic and the page still renders; production (or
+;; a schemas-less dev build) gets this guard's throw → containment → always-on
+;; record → sanitised 500. What no longer differs is the thing that matters:
+;; `get-response` never yields a malformed `:rf/response` shape in ANY build.
+;;
+;; COST. Cheap predicates over a closed set — `integer?`, `string?`,
+;; `boolean?`, a range compare, a table walk of at most eight cookie attrs. No
+;; Malli, no schemas-artefact dependency, no runtime schema interpretation, and
+;; nothing at all on the user-fx path.
+
+(def ^:private min-http-status
+  "Lowest status code the HTTP status line admits (RFC 9110 §15)."
+  100)
+
+(def ^:private max-http-status
+  "Highest status code the HTTP status line admits (RFC 9110 §15)."
+  599)
+
+(defn- reject-arg!
+  "Throw the catalogued `:rf.error/server-fx-args-invalid` (Spec 009) for a
+  reserved `:rf.server/*` fx argument that violates its published TYPE
+  contract. ONE category for the whole shape surface, with the offending
+  `:key` carried as data — the same decision `:rf.error/cookie-invalid-
+  attribute` records for the injection surface a few forms below: the
+  violation class is one fact, and WHICH key carried it is data, not a
+  distinct error id.
+
+  `value` never reaches the payload raw. A cookie `:value` is a session
+  token and a header `:value` routinely carries app-owned content, so both
+  the message and the ex-data slot carry `error/diag-value-summary` — the
+  EP-0015-safe SHAPE summary (`{:type …:count …:head …}`), which is also
+  precisely what a type violation needs to be diagnosable."
+  [fx-id arg-key value expected]
+  (error/throw-error!
+    :rf.error/server-fx-args-invalid
+    'rf.ssr/response
+    (str fx-id " " arg-key " must be " expected "; got "
+         (pr-str (error/diag-value-summary value))
+         ". Fix the fx args map at the dispatch site — the reserved"
+         " :rf.server/* fx guard their own args in every build, so this"
+         " rejection does not depend on -Dre-frame.debug.")
+    {:recovery :supply-a-well-formed-fx-argument
+     :extra    {:fx-id    fx-id
+                :key      arg-key
+                :value    (error/diag-value-summary value)
+                :expected expected}}))
+
+(defn- validate-args-map!
+  "Throw `:rf.error/server-fx-args-invalid` unless the fx's args value is a
+  map. Runs FIRST on every map-args fx so a non-map (a bare string, a vector)
+  fails with the catalogued category rather than as a raw host
+  `IllegalArgumentException` out of the first `contains?` / `get`."
+  [fx-id args]
+  (when-not (map? args)
+    (reject-arg! fx-id :args args "a map"))
+  args)
+
+(defn- validate-status!
+  "Throw `:rf.error/server-fx-args-invalid` unless `status` is an integer in
+  the RFC 9110 §15 status-code range. A non-integer status is the bead's
+  headline defect: it rode onto the accumulator, and only the Ring adapter's
+  `fail-closed-status` (host-specific, and silent on a production JVM)
+  stopped it reaching a wire. Shared by `:rf.server/set-status` and by both
+  redirect fx, whose `:status` flows through to `:status` per Spec 011
+  §Redirect precedence step 1."
+  [fx-id status]
+  (when-not (and (integer? status)
+                 (<= min-http-status status max-http-status))
+    (reject-arg! fx-id :status status
+                 (str "an integer HTTP status code in "
+                      min-http-status "–" max-http-status)))
+  status)
+
+(defn- validate-string-arg!
+  "Throw `:rf.error/server-fx-args-invalid` unless `v` is a string. Used for
+  the args a host adapter writes VERBATIM onto the response head."
+  [fx-id arg-key v]
+  (when-not (string? v)
+    (reject-arg! fx-id arg-key v "a string"))
+  v)
+
+(def ^:private cookie-attr-shape
+  "The published TYPE contract of the `:rf.server/cookie` attributes, as a
+  table of `[attr-key required? pred expected]`. Kept as an explicit literal
+  for the same reason `checked-cookie-attrs` below is: the accepted shape is
+  auditable in place rather than implied by a call sequence.
+
+  It mirrors `re-frame.ssr.server-fx-schemas/cookie` ROW FOR ROW, including
+  that schema's three documented INGRESS TOLERANCES — `:max-age`, `:expires`
+  and `:same-site` accept their canonical type OR a string, because apps
+  build cookie attrs from host data that arrives as strings and the
+  per-attribute CR/LF gate must SEE those strings to reject a forged
+  `\"3600\\r\\nSet-Cookie: admin=1\"`. A string `:expires` is deliberately
+  tolerated here and rejected later by the Ring materialiser
+  (`:rf.error/cookie-invalid-expires`), exactly as the schema's docstring
+  says. `ssr-reserved-fx-guards-test`'s acceptance corpus drives this table
+  and the Malli schema from one literal so the two cannot drift.
+
+  `:name` is NOT here — it keeps its own richer gate
+  (`validate-cookie-name!`), which deliberately admits a keyword / symbol to
+  mirror the Ring materialiser's `clojure.lang.Named` check."
+  [[:value     true  string?  "a string"]
+   [:path      false string?  "a string"]
+   [:domain    false string?  "a string"]
+   [:max-age   false #(or (integer? %) (string? %))
+    "an integer or a string"]
+   [:expires   false #(or (integer? %) (string? %))
+    "an integer of epoch millis, or a string"]
+   [:same-site false #(or (contains? #{:strict :lax :none} %) (string? %))
+    "one of :strict / :lax / :none, or a string"]
+   [:secure    false boolean? "a boolean"]
+   [:http-only false boolean? "a boolean"]])
+
+(defn- validate-cookie-shape!
+  "Walk `cookie-attr-shape` and throw `:rf.error/server-fx-args-invalid` on
+  the first attribute that is missing-though-required or present with the
+  wrong type. An explicit `nil` counts as absent for an optional attribute —
+  the same `(some? v)` convention `validate-cookie!` already applies to the
+  injection gate."
+  [fx-id cookie]
+  (doseq [[k required? ok? expected] cookie-attr-shape
+          :let [v (get cookie k)]]
+    (cond
+      (nil? v)      (when required?
+                      (reject-arg! fx-id k v (str expected ", and it is required")))
+      (not (ok? v)) (reject-arg! fx-id k v expected)))
+  cookie)
+
 ;; Header-value injection gate. set-header / append-header / redirect flow
 ;; caller-controlled
 ;; strings straight into the Ring response map; an attacker who controls
@@ -307,8 +493,15 @@
   CR/LF/NUL ban, so a string `:max-age` sourced from request context
   (`\"3600\\r\\nSet-Cookie: admin=1\"`) is rejected at the fx boundary
   rather than splitting the header on a non-Ring host."
-  [cookie]
-  (validate-cookie-name! (:name cookie))
+  [fx-id cookie]
+  (validate-args-map! fx-id cookie)
+  ;; Name first, so a name-less cookie keeps the catalogued
+  ;; `:rf.error/cookie-invalid-name` it has always thrown; SHAPE next
+  ;; (rf2-dtpfv), so a `:value`-less cookie no longer reaches the
+  ;; accumulator in a release build; the injection gate last, on values now
+  ;; known to be well-typed.
+  (validate-cookie-name!  (:name cookie))
+  (validate-cookie-shape! fx-id cookie)
   (doseq [attr-key checked-cookie-attrs
           :let  [v (get cookie attr-key)]
           :when (some? v)]
@@ -417,8 +610,12 @@
 
 (defn set-status-fx
   "Handler fn for `:rf.server/set-status`. Last-write-wins; multi-write
-  emits `:rf.warning/multiple-status-set`."
+  emits `:rf.warning/multiple-status-set`. Throws
+  `:rf.error/server-fx-args-invalid` — in EVERY build (rf2-dtpfv) — unless
+  the status is an integer in 100–599, so a string status can no longer
+  reach `ssr/get-response`."
   [{:keys [frame]} status]
+  (validate-status! :rf.server/set-status status)
   (let [resp (swap-response!
                frame
                (fn [r]
@@ -433,9 +630,19 @@
   with the same name (case-insensitive). Throws
   `:rf.error/header-invalid-name` on a name violating the RFC 7230
   §3.2.6 token grammar, and `:rf.error/header-invalid-value` on a value
-  carrying CR/LF/NUL."
-  [{:keys [frame]} {:keys [name value]}]
-  (validate-header-name!  name)
+  carrying CR/LF/NUL. Throws `:rf.error/server-fx-args-invalid` — in EVERY
+  build (rf2-dtpfv) — on a non-string `:name` / `:value`, so a `:value`-less
+  call can no longer put `[\"X-Foo\" nil]` on the accumulator."
+  [{:keys [frame]} {:keys [name value] :as args}]
+  (validate-args-map!    :rf.server/set-header args)
+  (validate-header-name! name)
+  ;; The string gate runs AFTER the grammar gate so a nil / keyword `:name`
+  ;; keeps the catalogued `:rf.error/header-invalid-name` it has always
+  ;; thrown ("" and ":x-foo" both fail the token grammar); what it adds is
+  ;; the case the grammar cannot see — a symbol or a number, which `(str …)`
+  ;; renders as a perfectly legal token and which therefore used to pass.
+  (validate-string-arg!  :rf.server/set-header :name  name)
+  (validate-string-arg!  :rf.server/set-header :value value)
   (validate-header-value! name value)
   (swap-response!
     frame
@@ -446,9 +653,14 @@
   header with the same name — required for Set-Cookie-style multi-valued
   headers. Throws `:rf.error/header-invalid-name` on a name violating the
   RFC 7230 §3.2.6 token grammar, and `:rf.error/header-invalid-value` on a
-  value carrying CR/LF/NUL."
-  [{:keys [frame]} {:keys [name value]}]
-  (validate-header-name!  name)
+  value carrying CR/LF/NUL. Throws `:rf.error/server-fx-args-invalid` — in
+  EVERY build (rf2-dtpfv) — on a non-string `:name` / `:value`; see
+  `set-header-fx` for why the string gate follows the grammar gate."
+  [{:keys [frame]} {:keys [name value] :as args}]
+  (validate-args-map!    :rf.server/append-header args)
+  (validate-header-name! name)
+  (validate-string-arg!  :rf.server/append-header :name  name)
+  (validate-string-arg!  :rf.server/append-header :value value)
   (validate-header-value! name value)
   (swap-response!
     frame
@@ -465,9 +677,12 @@
   boundary so non-ring host adapters get the same safety the ring
   materialiser (rf2-rpedl) provides at wire-write time, and rf2-xrk4w1
   collapses the per-attribute injection failures onto the one catalogued
-  id the ring serialiser already throws."
+  id the ring serialiser already throws. Throws
+  `:rf.error/server-fx-args-invalid` — in EVERY build (rf2-dtpfv) — on an
+  attribute violating its published type, so a `:value`-less cookie can no
+  longer reach `ssr/get-response`."
   [{:keys [frame]} cookie-map]
-  (validate-cookie! cookie-map)
+  (validate-cookie! :rf.server/set-cookie cookie-map)
   (swap-response!
     frame
     (fn [r] (update r :cookies (fnil conj []) cookie-map))))
@@ -475,14 +690,19 @@
 (defn delete-cookie-fx
   "Handler fn for `:rf.server/delete-cookie`. Sugar over set-cookie
   with :max-age 0 and an empty :value. Applies the same name, path, and
-  domain validation as `set-cookie-fx`."
-  [{:keys [frame]} {:keys [name path domain]}]
+  domain validation as `set-cookie-fx` — including the always-on
+  `:rf.error/server-fx-args-invalid` shape gate (rf2-dtpfv), which reaches
+  this fx's caller-supplied `:path` / `:domain` through the synthesised
+  cookie (`:value` / `:max-age` are framework-supplied and well-formed by
+  construction)."
+  [{:keys [frame]} {:keys [name path domain] :as args}]
+  (validate-args-map! :rf.server/delete-cookie args)
   (let [cookie (cond-> {:name    name
                         :value   ""
                         :max-age 0}
                  path   (assoc :path   path)
                  domain (assoc :domain domain))]
-    (validate-cookie! cookie)
+    (validate-cookie! :rf.server/delete-cookie cookie)
     (swap-response!
       frame
       (fn [r] (update r :cookies (fnil conj []) cookie)))))
@@ -546,11 +766,23 @@
   strings (e.g. a `?next=` URL param), use `:rf.server/safe-redirect`, which
   parses the URL, rejects javascript:/data:/vbscript:
   schemes, and supports `:relative-only?` / `:allow [...]` policies.
-  See Spec 011 §HTTP response contract §Standard fx."
+  See Spec 011 §HTTP response contract §Standard fx.
+
+  Throws `:rf.error/server-fx-args-invalid` — in EVERY build (rf2-dtpfv) —
+  on a non-string `:location` or a `:status` outside the integer 100–599
+  range. The documented NO-TARGET graceful path is untouched: `:location`
+  stays OPTIONAL, so a target-less redirect still sets `:redirect` and still
+  falls through to the adapter's `:rf.ssr/ssr-redirect-no-target` warn→3xx."
   [{:keys [frame]} redirect-map]
+  (validate-args-map! :rf.server/redirect redirect-map)
   (reject-retired-redirect-keys! redirect-map)
   (let [;; The canonical and only redirect target key.
         location  (:location redirect-map)
+        _         (when (some? location)
+                    ;; SHAPE first (rf2-dtpfv): the CR/LF/NUL gate below
+                    ;; `str`-coerces, so a keyword or URI object used to
+                    ;; sail through it and land on the accumulator.
+                    (validate-string-arg! :rf.server/redirect :location location))
         _         (when (some? location)
                     ;; Shared CR/LF/NUL header-splitting gate only — the
                     ;; sole structural gate on the caller-trusted path
@@ -561,6 +793,10 @@
                     ;; this same gate plus its own emit-based parse.
                     (validate-redirect-location! location))
         status    (or (:status redirect-map) 302)
+        ;; The redirect's :status flows through to the response :status
+        ;; (Spec 011 §Redirect precedence step 1), so it is held to the same
+        ;; always-on range gate as :rf.server/set-status.
+        _          (validate-status! :rf.server/redirect status)
         normalised (cond-> (assoc redirect-map :status status)
                      location (assoc :location location))
         resp (swap-response!
@@ -794,8 +1030,30 @@
   ;; keyed on a retired spelling would otherwise present as a missing
   ;; (nil) `:location` and fail as a generic parse error, hiding the
   ;; vocabulary mistake.
+  (validate-args-map! :rf.server/safe-redirect redirect-map)
   (reject-retired-redirect-keys! redirect-map)
-  ;; Run the CR/LF/NUL gate first — same defence-in-depth as the
+  ;; SHAPE gate (rf2-dtpfv), always-on, before anything is parsed. Note the
+  ;; taxonomy line this respects: a malformed CALL is a programmer error and
+  ;; throws; an untrusted INPUT that is a well-typed string but points
+  ;; off-origin stays the five-step gate's emit-and-no-op below. `:location`
+  ;; is REQUIRED here (unlike the caller-trusted `:rf.server/redirect`'s
+  ;; documented no-target path) because it is this fx's validation TARGET —
+  ;; a target-less safe-redirect has no defensible interpretation. A blank
+  ;; string is still a string and still takes the parse-failure arm.
+  (validate-string-arg! :rf.server/safe-redirect :location location)
+  (validate-status!     :rf.server/safe-redirect (or status 302))
+  (when (some? relative-only?)
+    (when-not (boolean? relative-only?)
+      (reject-arg! :rf.server/safe-redirect :relative-only? relative-only?
+                   "a boolean")))
+  (when (some? allow)
+    (when-not (and (sequential? allow) (every? string? allow))
+      ;; A scalar `:allow "app.example.com"` would `seq` into CHARACTERS and
+      ;; silently build a per-character allowlist — fail-closed, but a
+      ;; policy the caller never wrote. Reject the call instead.
+      (reject-arg! :rf.server/safe-redirect :allow allow
+                   "a sequence of host strings")))
+  ;; Run the CR/LF/NUL gate next — same defence-in-depth as the
   ;; caller-trusted redirect-fx. A safe-redirect caller
   ;; passing a CRLF-bearing location is presumably trying both vectors;
   ;; reject at the same fx boundary the trusted variant uses.
