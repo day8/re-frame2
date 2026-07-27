@@ -128,8 +128,10 @@
 
  ;; THE COMPOSITION SCALARS. There are TWO a host can report a composing
  ;; Enter through: `isComposing` is the standard flag, and `keyCode` 229 is
- ;; the sentinel every engine has emitted for two decades and what Chromium
- ;; actually sends. They are pressed as SEPARATE presses, one signal each,
+ ;; the UI Events legacy-algorithm value — the compatibility fallback for
+ ;; engines that report the candidate-accepting Enter with `isComposing`
+ ;; FALSE (WebKit bug 165004, fixed April 2026 via bug 311717 and kept here
+ ;; for deployed engines). They are pressed as SEPARATE presses, one each,
  ;; because an event carrying both cannot tell a reader of both from a
  ;; reader of either — and the implementation this row exists to catch is
  ;; precisely the one that consults only `isComposing`.
@@ -141,7 +143,7 @@
  ;; the record, so a control that wrongly took the composing Enter would
  ;; commit once and leave the plain Enter behind it a no-op — one selection
  ;; either way, and the row is green in both worlds. That reading was tried
- ;; and mutation-tested; it stayed green with the Chromium sentinel deleted.
+ ;; and mutation-tested; it stayed green with the 229 fallback deleted.
  ;;
  ;; So the withholding row presses FOUR keys, and each one carries part of
  ;; the proof:

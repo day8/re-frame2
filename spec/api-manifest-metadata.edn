@@ -1706,6 +1706,14 @@
   ;; answers the question through one function rather than re-deciding it, and
   ;; neither is reached by writing a form.
   ;;
+  ;; `composing?` joins them for the same reason one level down (rf2-drpa3.182.16).
+  ;; `key-intent` shares the buffered field's Enter/Escape POLICY; `composing?`
+  ;; shares the HOST ADAPTATION beneath it — the `nativeEvent` hop React's
+  ;; synthetic keyboard event forces and the `keyCode` 229 compatibility
+  ;; fallback — which is the part a kit member cannot re-derive safely and the
+  ;; part whose failure mode is silent. Central ownership is also what lets the
+  ;; fallback eventually retire without chasing copies.
+  ;;
   ;; The two controls are declared views, so their `:kind` is derived from the
   ;; live var like any other; nothing here is curated but the three axes.
   ;; =========================================================================
@@ -1713,6 +1721,7 @@
   ["re-frame.freehand.controls" "buffered-field"] {:tier :front-porch :owner "004" :status "EP-0036"}
   ["re-frame.freehand.controls" "release"]        {:tier :front-porch :owner "004" :status "EP-0036"}
   ["re-frame.freehand.controls" "key-intent"]     {:tier :advanced    :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.controls" "composing?"]     {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand.controls" "commit-key"]     {:tier :advanced    :owner "004" :status "EP-0036"}
   ["re-frame.freehand.controls" "cancel-key"]     {:tier :advanced    :owner "004" :status "EP-0036"}
 

@@ -31,14 +31,16 @@
  ;; THE COMPOSING ENTER. The same key, with a composition in flight — the
  ;; Enter that accepts an input-method candidate. There are TWO scalars a
  ;; host can report it through: `isComposing` is the standard flag, and
- ;; `keyCode` 229 is the sentinel every engine has emitted for two decades
- ;; and what Chromium actually sends.
+ ;; `keyCode` 229 is the UI Events legacy-algorithm value — the
+ ;; compatibility fallback for engines that report the candidate-accepting
+ ;; Enter with `isComposing` FALSE (WebKit bug 165004, fixed April 2026 via
+ ;; bug 311717 and kept here for engines already deployed without it).
  ;;
  ;; They are pinned as SEPARATE presses, one signal each, and that is the
  ;; law rather than an arrangement. A single event carrying BOTH cannot tell
  ;; a reader of both from a reader of either: an implementation that consults
- ;; only `isComposing` — the one this row exists to catch, because it is the
- ;; one that breaks on Chromium — stays green against it. Each press below
+ ;; only `isComposing` — the one this row exists to catch — stays green
+ ;; against it. Each press below
  ;; sets one signal and leaves the other at the plain Enter's value, so each
  ;; is falsifiable on its own.
  :composing-key-code 229
