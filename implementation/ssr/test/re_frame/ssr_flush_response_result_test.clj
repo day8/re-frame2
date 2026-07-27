@@ -47,9 +47,17 @@
 (defn- buffer-error!
   "Buffer a projecting error trace against `frame-id` through the dev trace
   listener (debug-on default), exactly as a drain-time error would. The
-  settle-point drain in `flush-response-result!` then projects it."
-  [frame-id operation]
-  (trace/emit-error! operation {:frame frame-id :recovery :for-test}))
+  settle-point drain in `flush-response-result!` then projects it.
+
+  `extra-tags` carries any discriminator the default projector's arm is
+  GATED on — for `:rf.error/no-such-handler` that is `:kind :route`
+  (rf2-ov56u): the 404 arm fires only for the URL-driven miss, so a
+  kind-less synthetic trace projects the locked 500 and would silently
+  turn a 404 assertion into a false negative."
+  ([frame-id operation] (buffer-error! frame-id operation nil))
+  ([frame-id operation extra-tags]
+   (trace/emit-error! operation
+                      (merge {:frame frame-id :recovery :for-test} extra-tags))))
 
 ;; ===========================================================================
 ;; flush-response-result! — returns the projected public-error alongside resp
@@ -72,7 +80,7 @@
   (testing "a projected 404 (routing miss) returns a 4xx public-error — the
             host keeps the app arm; only 500..599 diverts to the error page."
     (let [fid (make-server-frame :ssr/frr-404)]
-      (buffer-error! fid :rf.error/no-such-handler)
+      (buffer-error! fid :rf.error/no-such-handler {:kind :route})
       (let [{:keys [public-error]} (ssr/flush-response-result! fid)]
         (is (= 404 (:status public-error)))
         (is (<= 400 (:status public-error) 499)
@@ -109,7 +117,7 @@
     (let [f500 (make-server-frame :ssr/frr-a-500)
           f404 (make-server-frame :ssr/frr-b-404)]
       (buffer-error! f500 :rf.error/handler-exception)
-      (buffer-error! f404 :rf.error/no-such-handler)
+      (buffer-error! f404 :rf.error/no-such-handler {:kind :route})
       (let [a (ssr/flush-response-result! f500)
             b (ssr/flush-response-result! f404)]
         (is (= 500 (:status (:public-error a))) "frame A keeps its 500")
