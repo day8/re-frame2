@@ -11,7 +11,10 @@
  *      (rf2-mwx08);
  *   2. a lane that ran ZERO tests, whose `Ran 0 tests containing 0
  *      assertions. / 0 failures, 0 errors.` summary satisfies a
- *      failure-tally-only verdict (rf2-qqzmf).
+ *      failure-tally-only verdict (rf2-qqzmf);
+ *   3. a cljs.test async row that called `done` twice, which `run-block`
+ *      degrades to a `println` on the already-realized continuation and so
+ *      can never reach the failure tally (rf2-u0cy4).
  *
  * Both are pinned statically for the same reason: these runners drive a
  * headless Chromium end-to-end, so their verdict paths are not cleanly
@@ -136,6 +139,59 @@ test('run-browser-tests: a malformed floor is refused, never a silent default (r
     src,
     /if\s*\(\s*minTests\s*===\s*null\s*\)\s*return\s+2\s*;/,
     'a malformed floor must exit 2 (configuration error), distinct from 1 (red)',
+  );
+});
+
+test('run-browser-tests: a double-fired cljs.test `done` is fatal, not diagnostic noise (rf2-u0cy4)', () => {
+  const src = read('run-browser-tests.cjs');
+  // The literal cljs.test emits from run-block's realized? branch. If this
+  // string drifts in a ClojureScript upgrade the guard silently stops
+  // matching, so pin the literal itself as well as the wiring.
+  assert.match(
+    src,
+    /Async test called done more than one time/,
+    'must match the cljs.test duplicate-done warning literal',
+  );
+  assert.match(
+    src,
+    /const\s+fatalConsole\s*=\s*\[\]/,
+    'must track fatal console lines in a dedicated array, not merely in diagnostics',
+  );
+  assert.match(
+    src,
+    /page\.on\(\s*['"]console['"][\s\S]{0,320}?fatalConsole\.push\(/,
+    'the console handler must push matching lines into the dedicated array',
+  );
+  assert.match(
+    src,
+    /if\s*\(\s*fatalConsole\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,900}?return\s+1\s*;/,
+    'must fail the run (return 1) when a duplicate `done` was captured, even on a green summary',
+  );
+  // Like the pageerror arm, the check is worthless after the green return.
+  const fatalIdx = src.search(/if\s*\(\s*fatalConsole\.length\s*>\s*0\s*\)/);
+  const greenIdx = src.search(/formatCompactSummary\(/);
+  assert.ok(fatalIdx > -1 && greenIdx > -1, 'both call-sites must exist');
+  assert.ok(
+    fatalIdx < greenIdx,
+    'the duplicate-done fatal check must precede the green compact-summary return',
+  );
+});
+
+test('run-browser-tests: diagnostics are stamped at capture time, not flush time (rf2-76lhy)', () => {
+  const src = read('run-browser-tests.cjs');
+  // The buffer flushes in one burst, so a timeout trail without capture-time
+  // offsets records WHICH namespaces a run reached and nothing about how long
+  // any of them took. This is dormant in a healthy tree — only a timeout ever
+  // flushes it — so it needs a static pin exactly like the test-count floor.
+  assert.match(
+    src,
+    /process\.hrtime\.bigint\(\)/,
+    'must take a monotonic clock reading, not Date.now()',
+  );
+  assert.match(
+    src,
+    /page\.on\(\s*['"]console['"][\s\S]{0,320}?diagnostics\.add\(\s*`\$\{capturedAt\(\)\}/,
+    'the console handler must stamp each captured line as it arrives',
   );
 });
 

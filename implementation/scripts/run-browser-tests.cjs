@@ -88,6 +88,25 @@ const RUN_STARTED_AT = process.hrtime.bigint();
 const capturedAt = () =>
   `[+${(Number(process.hrtime.bigint() - RUN_STARTED_AT) / 1e9).toFixed(2)}s]`;
 
+// rf2-u0cy4: the one console line that is a DEFECT, not noise.
+//
+// Console output is diagnostic-only here by deliberate design (rf2-mwx08) —
+// only `pageerror` is fatal. That policy has one hole. When a cljs.test async
+// row calls `done` twice, `run-block` finds its continuation already realized
+// and degrades the second call to a `println`:
+//
+//     (if (realized? d) (println "WARNING: Async test called done more than one time.") @d)
+//
+// So the defect cannot reach the failure tally — it is structurally incapable
+// of failing an assertion. It shipped to main exactly once already (PR #7162
+// swapped in a teardown helper that calls `done`, leaving five pre-existing
+// trailing `(done)` calls, so every async row in that suite double-fired); the
+// lane was green and a human reading the diff caught it (rf2-0ke4x, #7164).
+//
+// Promoting the literal is general across the whole mounted tier rather than a
+// textual lint over one suite's source, which is why it belongs here.
+const FATAL_CONSOLE_RE = /Async test called done more than one time/;
+
 // The test-count floor (rf2-qqzmf). ONE name across every whole-suite lane:
 // the JVM runner (re-frame.test-quiet.runner) and the CLJS node runner
 // (re-frame.test-quiet.shadow-node) read the same variable. Because it is
@@ -233,10 +252,15 @@ async function main() {
     // suite happened not to assert on). Console output stays diagnostic-
     // only; only `pageerror` is fatal. Mirrors the rf2-wf5al fix.
     const pageErrors = [];
+    // rf2-u0cy4: tracked separately from `consoleLines` for the same reason
+    // `pageErrors` is — a fatal signal must not be recoverable only by
+    // re-scanning diagnostics that a green run never flushes.
+    const fatalConsole = [];
     diagnostics.add(`URL: ${URL}`);
     page.on('console', (msg) => {
       const text = msg.text();
       consoleLines.push(text);
+      if (FATAL_CONSOLE_RE.test(text)) fatalConsole.push(text);
       diagnostics.add(`${capturedAt()} [browser:${msg.type()}] ${text}`);
     });
     page.on('pageerror', (err) => {
@@ -328,6 +352,23 @@ async function main() {
         `cljs.test summary was green, but the browser emitted ` +
           `${pageErrors.length} uncaught pageerror(s) — failing the run (rf2-mwx08).`,
       );
+      printSummaryDetails(summary);
+      flushDiagnostics(diagnostics);
+      return 1;
+    }
+
+    // rf2-u0cy4: likewise for a double-fired cljs.test `done`. cljs.test
+    // degrades it to a console warning, so the tally above can never see it.
+    if (fatalConsole.length > 0) {
+      console.error(
+        `cljs.test summary was green, but ${fatalConsole.length} async ` +
+          `row(s) called \`done\` more than once — failing the run (rf2-u0cy4). ` +
+          `A duplicate \`done\` means the row's continuation was already ` +
+          `realized: usually a teardown fixture that calls \`done\` alongside ` +
+          `a trailing \`(done)\` the test still makes itself. cljs.test cannot ` +
+          `fail this, so the lane must.`,
+      );
+      for (const line of fatalConsole) console.error(`  ${line}`);
       printSummaryDetails(summary);
       flushDiagnostics(diagnostics);
       return 1;
