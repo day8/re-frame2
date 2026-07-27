@@ -244,7 +244,15 @@
   The residue assertion is what earns the row's claim rather than asserting
   it. It runs AFTER teardown, over the facade's own books — every root this
   test created, and what each left behind — so a root that failed to
-  unmount reds HERE instead of contaminating the next suite in the process."
+  unmount reds HERE instead of contaminating the next suite in the process.
+
+  It OWNS the `done` call, the way `mount-support`'s `run-async` and
+  `each-mode` own theirs: a row that ends here must NOT call `done` itself.
+  Five did, once this replaced a `teardown!` that left `done` to the caller,
+  and nothing went red — `cljs.test` guards `run-block` with a `realized?`
+  delay, so the second call degrades to a console warning rather than
+  corrupting async state (rf2-0ke4x). A duplicate is therefore invisible to
+  the browser gate and has to be kept out by this rule instead."
   [container root done]
   (ms/destroy-root! container root)
   (ms/residue-clean! "FH-CTRL-018 — after teardown")
@@ -293,8 +301,7 @@
                         "non-vacuous: the typing really moved the value")
                     (is (= (count value-after-typing) (first (caret field)))
                         "with the caret at the end, where the user left it")
-                    (finish! container root done)
-                    (done))))
+                    (finish! container root done))))
               (.catch (fail-and-finish! container root done))))))))
 
 (deftest fh-ctrl-018-a-mid-string-insert-leaves-the-caret-where-the-user-put-it
@@ -325,8 +332,7 @@
                          to the start would also produce")
                     (is (not= (count value-after-insert) caret-after-insert)
                         "nor the position a reset to the END would produce")
-                    (finish! container root done)
-                    (done))))
+                    (finish! container root done))))
               (.catch (fail-and-finish! container root done))))))))
 
 (deftest fh-ctrl-018-a-blur-commits-the-draft
@@ -360,8 +366,7 @@
                                      "the blur committed")
                                  (is (= committed-value (committed))
                                      "carrying the draft the user could see")
-                                 (finish! container root done)
-                                 (done)))
+                                 (finish! container root done)))
                         (.catch (fail-and-finish! container root done))))))
               (.catch (fail-and-finish! container root done))))))))
 
@@ -428,8 +433,7 @@
                       (is (not= commits-after-composing-enter
                                 commits-after-plain-enter)
                           "non-vacuous: the fixture's two answers really differ")
-                      (finish! container root done)
-                      (done)))
+                      (finish! container root done)))
                   (.catch (fail-and-finish! container root done))))))
         (.catch (fail-and-finish! container root done)))))
 
@@ -525,7 +529,6 @@
                                 "the commit that follows carries the restored value")
                             (is (not= value-after-insert (committed))
                                 "non-vacuous: it is not the draft the caller refused")
-                            (finish! container root done)
-                            (done)))
+                            (finish! container root done)))
                         (.catch (fail-and-finish! container root done))))))
               (.catch (fail-and-finish! container root done))))))))
