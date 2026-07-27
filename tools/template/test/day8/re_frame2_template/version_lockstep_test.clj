@@ -26,6 +26,12 @@
     - org.clojure/clojure      ↔ `implementation/core/deps.edn` :deps
     - org.clojure/clojurescript ↔ `implementation/core/deps.edn` :deps
 
+  The emitted TOOLS coordinates (`day8/re-frame2-xray`,
+  `day8/re-frame2-story`) are the one pair with no version to be in
+  lockstep with, because the tools tier ships on its own tags and none
+  have been cut. `tools-coords-are-git-coords` guards their coordinate
+  SHAPE instead — see the section comment above it.
+
   Template-owned (NOT guarded — no single impl source-of-truth):
   cljfmt, clj-kondo/clj-kondo, org.clojure/tools.namespace. The impl
   tree pins none of these as deps.edn coords — clj-kondo is installed
@@ -245,6 +251,85 @@
                    "tools/template/src/day8/re_frame2_template/hooks.clj.")))
         (finally
           (delete-recursively tmp))))))
+
+;; --- tools-tier coordinate shape ----------------------------------------
+;;
+;; The framework tier and the tools tier ship on different triggers
+;; (docs/release-process.md §The tools tier). A `v*` tag publishes the
+;; thirteen framework artefacts and NO tools: Xray ships on `xray-v*`,
+;; Story on `story-v*`. Neither tool tag has ever been cut, so an
+;; `:mvn/version` coord for either names a Clojars artefact that does not
+;; exist — and the day the framework publishes, every generated project
+;; would resolve its framework coords and 404 on Xray (rf2-57bjg).
+;;
+;; So the emitted tools coords are git coords against the public
+;; monorepo, and this guard holds that shape. It CANNOT guard the pin's
+;; freshness — a commit of this repository has no in-repo source of truth
+;; a test could read — so it checks what it honestly can: the coord is a
+;; git coord and never an `:mvn/version`, its `:deps/root` names a
+;; directory that really exists, and the SHA literal is a full hex commit
+;; id. Bumping the pin stays a human obligation, documented on
+;; `:rf2-tools-sha` in hooks.clj.
+;;
+;; When `xray-v*` / `story-v*` finally ship, this guard is what tells you
+;; to come back and flip both coords to `:mvn/version` — invert the
+;; assertions then, rather than deleting them.
+
+(defn- assert-tools-coord-shape!
+  "Assert the emitted `deps` map pins `sym` as a git coord into the
+  monorepo at `deps-root`."
+  [deps sym deps-root]
+  (let [coord (get-in deps [:deps sym])]
+    (is (some? coord) (str "emitted deps.edn carries a " sym " coord"))
+    (when coord
+      (is (nil? (:mvn/version coord))
+          (str sym " must NOT carry an :mvn/version pin — the tools tier "
+               "ships on its own tags (xray-v* / story-v*), which a "
+               "framework v* tag does not cut, so the Maven coordinate "
+               "does not exist on Clojars (rf2-57bjg). Emit a git coord "
+               "until the tool release lands."))
+      (is (= "https://github.com/day8/re-frame2.git" (:git/url coord))
+          (str sym " must resolve from the public re-frame2 monorepo"))
+      (is (= deps-root (:deps/root coord))
+          (str sym " must point :deps/root at " deps-root))
+      (is (re-matches #"[0-9a-f]{40}" (str (:git/sha coord)))
+          (str sym " must pin a full 40-character commit SHA (got "
+               (pr-str (:git/sha coord)) ") — bump :rf2-tools-sha in "
+               "tools/template/src/day8/re_frame2_template/hooks.clj."))
+      (let [dir (io/file (repo-root) deps-root)]
+        (is (.isDirectory dir)
+            (str sym "'s :deps/root (" deps-root ") must name a real "
+                 "directory in the monorepo"))))))
+
+(deftest tools-coords-are-git-coords
+  (testing "emitted Xray / Story coords are git coords, not unpublishable :mvn/version pins"
+    (let [tmp (tmp-dir "rf2-template-tools-coords-")]
+      (try
+        ;; The default Reagent scaffold carries Xray only; the with-Story
+        ;; scaffold carries both, plus the machines resolution pin the
+        ;; pair needs (tools.deps gives each git coord its own monorepo
+        ;; checkout, so the shared :local/root machines dep would
+        ;; otherwise arrive as two paths for one library).
+        (let [deps (read-edn (io/file (run-template! tmp "acme/my-app" :reagent) "deps.edn"))]
+          (assert-tools-coord-shape! deps 'day8/re-frame2-xray "tools/xray")
+          (is (nil? (get-in deps [:deps 'day8/re-frame2-story]))
+              "the default scaffold carries no Story coord"))
+        (finally (delete-recursively tmp))))
+    (let [tmp (tmp-dir "rf2-template-tools-coords-story-")]
+      (try
+        (let [deps (read-edn (io/file (run-template! tmp "acme/my-app" :reagent true) "deps.edn"))]
+          (assert-tools-coord-shape! deps 'day8/re-frame2-xray "tools/xray")
+          (assert-tools-coord-shape! deps 'day8/re-frame2-story "tools/story")
+          (is (= (get-in deps [:deps 'day8/re-frame2-xray :git/sha])
+                 (get-in deps [:deps 'day8/re-frame2-story :git/sha]))
+              "both tool coords ride ONE reviewed commit — that is what keeps
+               Xray and Story in lockstep with each other pre-publish")
+          (is (some? (get-in deps [:deps 'day8/re-frame2-machines :mvn/version]))
+              "the with-Story scaffold pins day8/re-frame2-machines: it is the
+               only library Xray and Story both reach through their separate
+               monorepo checkouts, and without a top-level pin the classpath
+               fails to build (rf2-57bjg)"))
+        (finally (delete-recursively tmp))))))
 
 (deftest rf2-version-lockstep
   (testing "Template's :rf2-version literal matches repo-root VERSION"

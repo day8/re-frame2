@@ -213,8 +213,11 @@ clojure -Tnew create :template io.github.day8/re-frame2-template \
         :include-story? true
 ```
 
-Adds `day8/re-frame2-story` to `deps.edn` (lockstep with the core
-coord version), emits `stories.cljs` next to `events.cljs` /
+Adds `day8/re-frame2-story` to `deps.edn` (a git coord at the same
+reviewed commit as Xray — Story is a tools-tier artefact and ships on
+`story-v*`, which no framework `v*` tag cuts; see
+[002-Generated-Shape §Tools-tier coords](002-Generated-Shape.md#tools-tier-coords)),
+emits `stories.cljs` next to `events.cljs` /
 `subs.cljs` / `views.cljs`, and swaps `core.cljs` for the hash-routing
 variant. Story serves off the same `:app` build, so `npm run watch`
 covers both — visit `#/stories` for the playground, `#/` for the

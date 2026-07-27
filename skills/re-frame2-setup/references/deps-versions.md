@@ -15,7 +15,9 @@ How to choose **which** re-frame2 artefacts to depend on, and **what version** t
 
 ## The lockstep contract
 
-re-frame2 ships **ten Maven artefacts in lockstep** (core + 7 per-feature + 2 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release, and `day8/re-frame2-xray` rides the same line. Mixing versions across `day8/re-frame2-*` coordinates is **unsupported and undefined** — the runtime contract is bound to a single coordinated VERSION.
+re-frame2 ships **ten Maven artefacts in lockstep** (core + 7 per-feature + 2 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release, and `day8/re-frame2-xray` rides the same VERSION line. Mixing versions across `day8/re-frame2-*` coordinates is **unsupported and undefined** — the runtime contract is bound to a single coordinated VERSION.
+
+**Same VERSION, different release trigger — and that matters when you write the coordinate.** The ten framework artefacts ship together on a `v*` tag. Xray and Story are **tools**, and the tools tier ships on its own per-tool tags — `xray-v*`, `story-v*` — which a framework `v*` tag does not cut ([`docs/release-process.md` §The tools tier](../../../docs/release-process.md)). So the framework publishing does **not** publish Xray, and a `day8/re-frame2-xray {:mvn/version "<VERSION>"}` coordinate stays a 404 until an `xray-v*` release lands, however current `<VERSION>` is. Give the tools a `:git/sha` coordinate until then — that is what the [generator template](#choosing-the-coordinate-publication-state-decides-the-shape) emits too.
 
 **Lockstep is a build/dependency discipline, not a boot-time runtime check.** `rf/init!` only checks you handed it an adapter spec map (nil / non-map rejected); the spec carries a `:kind` discriminator, **not** a VERSION, so the runtime never compares per-artefact versions at boot. The enforcement that *does* exist is **build-time**: `tools/template/test/day8/re_frame2_template/version_lockstep_test.clj` fails if the template's pinned `:rf2-version` / `:shadow-version` / `:react-version` literals drift from their sources of truth. Keep every coordinate at one VERSION because a mixed set is undefined, not because a guard will catch it.
 
@@ -66,7 +68,7 @@ The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`,
 2. **`CHANGELOG.md`** / **the GitHub releases page** — list released VERSIONs; a tag `v<VERSION>` gives the matching `:git/sha`.
 3. **Clojars** (`clojars.org/day8/re-frame2` and siblings) — the authority for whether a `:mvn/version` actually resolves. **If the artefact 404s on Clojars, `:mvn/version` is not an option yet** — use `:git/sha` / `:local/root`.
 
-(The generator template ships a **pinned baseline** in its `hooks.clj`. Like the manual route it is not yet a published-coord scaffold — it emits `:mvn/version` framework coords but is gated against a `:local/root` rewrite pre-publish; see [`../README.md` §Relationship to the generator template](../README.md#relationship-to-the-generator-template).)
+(The generator template ships a **pinned baseline** in its `hooks.clj` and emits the same mixed shape this page teaches: `:mvn/version` for the framework coords — forward-correct, gated against a `:local/root` rewrite pre-publish — and a pinned `:git/sha` for the tools coords, because no `xray-v*` / `story-v*` tag has been cut. See [`../README.md` §Relationship to the generator template](../README.md#relationship-to-the-generator-template).)
 
 **Never invent a version. Never silently pick `latest`. Never write a `:mvn/version` framework coord that 404s on Clojars.** If the author hasn't supplied a pin, stop and ask before editing any dep file.
 
@@ -142,10 +144,15 @@ Keep the route **in lockstep**: pull every `day8/re-frame2*` coordinate from the
 day8/re-frame2         {:mvn/version "<VERSION>"}
 day8/re-frame2-reagent {:mvn/version "<VERSION>"}
 day8/re-frame2-schemas {:mvn/version "<VERSION>"}
-day8/re-frame2-xray    {:mvn/version "<VERSION>"}
+;; Xray is a TOOL and ships on its own `xray-v*` tag, which the framework's
+;; `v*` tag does not cut. Keep it on the :git/sha coord above until an
+;; `xray-v*` release exists — the framework publishing does not publish Xray.
+day8/re-frame2-xray    {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "tools/xray"}
 ```
 
-Replace `<VERSION>` with the published VERSION (**every `day8/re-frame2-*` line gets the same value**). Verify it resolves on Clojars first — see the version-discovery sources above.
+Replace `<VERSION>` with the published VERSION (**every framework `day8/re-frame2-*` line gets the same value**). Verify it resolves on Clojars first — see the version-discovery sources above. The three framework coords and the Xray tool coord flip to `:mvn/version` on **different** tags, so expect this file to carry the mixed shape for a while; check Clojars per artefact rather than assuming the framework release brought the tools with it.
+
+**A caveat if you ever hold two tools coords at once** (Xray *and* Story, the shape the generator's `:include-story?` scaffold emits). `tools.deps` gives each git coordinate its own checkout of the monorepo, so the two tools' shared in-repo `:local/root` dependencies arrive as two different paths for the same library and the classpath fails to build — `No known ancestor relationship between local versions for day8/re-frame2-machines`. A top-level coordinate for the shared library wins over both and settles it; `day8/re-frame2-machines` is the one the day-one shape does not already pin, and it belongs on the classpath anyway, because Story runs its loader lifecycle as a re-frame2 state machine.
 
 Notes on the pins:
 - The Clojure / ClojureScript versions match the re-frame2 repo's core artefact (`implementation/core/deps.edn`) and the template; start with these, bump only if shadow-cljs and Reagent support newer.

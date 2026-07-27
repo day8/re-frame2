@@ -47,7 +47,13 @@ The runtime deps line carries four re-frame2 coords:
 `schema.cljs` whole-app-db schema validates rather than soft-passing
 per Spec 010), and `day8/re-frame2-xray` (the in-app devtools panel,
 preloaded on the `:app` build — see [§Xray devtools](#xray-devtools)
-below). All four ride the same `{{rf2-version}}` pin.
+below). The three framework coords ride the same `{{rf2-version}}` pin.
+Xray does not: it belongs to the **tools tier**, which ships on its own
+tags (`xray-v*`), and a framework `v*` tag publishes no tools at all —
+so an `:mvn/version` Xray coord would name a Clojars artefact that does
+not exist. It rides a `{{rf2-tools-sha}}` git coord against the public
+monorepo instead (rf2-57bjg); the with-Story scaffold pins Story the
+same way. See [§Tools-tier coords](#tools-tier-coords) below.
 
 `shadow-cljs.edn` ships `:source-paths ["src" "test" "dev"]` so the
 `:test` build (`:target :node-test`, `:ns-regexp "-test$"`) picks
@@ -108,9 +114,8 @@ element-shaped React substrate (its README notes the devtools story
 honestly; element-substrate support is parked behind a demand
 trigger). Three wiring points land on the Reagent scaffold:
 
-- **deps.edn** carries the `day8/re-frame2-xray` runtime coord at the
-  same `{{rf2-version}}` pin as the core coord (Xray publishes in
-  lockstep).
+- **deps.edn** carries the `day8/re-frame2-xray` runtime coord as a
+  `{{rf2-tools-sha}}` git coord — see [§Tools-tier coords](#tools-tier-coords).
 - **shadow-cljs.edn** preloads `day8.re-frame2-xray.preload` under the
   `:app` build's `:devtools {:preloads …}` key. shadow honours
   `:devtools` only under `watch` / `compile`, never `release`, so the
@@ -143,6 +148,45 @@ surface. See [DESIGN-RATIONALE §9](DESIGN-RATIONALE.md)
 for the WHY and the release-elision guarantee. The generated
 `README.md` documents the runtime experience (the
 `Ctrl+Shift+C` toggle, what each panel shows).
+
+## Tools-tier coords
+
+Two of the coordinates a Reagent scaffold emits are not framework
+artefacts. Xray, and Story under `:include-story? true`, belong to the
+**tools tier**, and the two tiers ship on different triggers
+([`docs/release-process.md` §The tools tier](../../../docs/release-process.md)):
+a `v*` tag publishes the thirteen framework artefacts and no tools at
+all — Xray ships on `xray-v*`, Story on `story-v*`. Neither tool tag has
+been cut.
+
+So the template emits them as **git coords** against the public
+monorepo, pinned to the single reviewed commit `{{rf2-tools-sha}}`
+(hooks.clj carries the pin and the obligation to bump it). Anything else
+would arm a landmine at first publish: an `:mvn/version` tools coord
+sits harmlessly unresolvable today only because the framework coords
+beside it are equally unresolvable, and the day the framework publishes
+every generated project would resolve its framework coords and 404 on
+Xray (rf2-57bjg). The git shape is also what
+[`skills/re-frame2-setup/references/deps-versions.md`](../../../skills/re-frame2-setup/references/deps-versions.md)
+teaches the hand-wired route, so the two front doors agree.
+
+**The with-Story scaffold pays one extra coordinate for this.**
+`tools.deps` gives every git coordinate its own checkout of the
+monorepo, so Xray's and Story's shared in-repo `:local/root`
+dependencies arrive as two different paths for the same library and the
+classpath fails to build (`No known ancestor relationship between local
+versions for day8/re-frame2-machines`). A top-level coordinate wins over
+both, and every other shared library is already pinned in the emitted
+file — `day8/re-frame2-machines` is the only one left, and it is
+genuinely on the app's classpath, since Story runs its loader lifecycle
+as a re-frame2 state machine. Both the git coords and that pin retire
+together when `xray-v*` / `story-v*` ship.
+
+`version_lockstep_test.clj` guards the shape (git, never
+`:mvn/version`; a real `:deps/root`; a full 40-character SHA; one commit
+shared by both tools). It cannot guard the pin's freshness — a commit of
+this repository has no in-repo source of truth a test could read — so
+bumping stays a human obligation, documented on `:rf2-tools-sha`.
 
 ## Resource tree (template-side)
 
@@ -265,7 +309,8 @@ the template's own additions.
 | `{{csp-style-src-note}}` | The plain-CSS index.html CSP-comment `style-src` bullet: Reagent's names Xray's inline-style reliance; `:uix`'s doesn't reference a panel the scaffold doesn't ship. | per-substrate comment text |
 | `{{csp-style-src-note-tailwind}}` | The Tailwind index.html CSP-comment `style-src` bullet — same honesty split, with the Tailwind Play-CDN clauses shared. | per-substrate comment text |
 | `{{substrate-badge-url}}` | shields.io badge URL by substrate | `https://img.shields.io/badge/substrate-Reagent-1abc9c.svg` |
-| `{{rf2-version}}` | re-frame2 coord version | `0.0.1.alpha` |
+| `{{rf2-version}}` | re-frame2 FRAMEWORK coord version | `0.0.1.alpha` |
+| `{{rf2-tools-sha}}` | The reviewed monorepo commit the TOOLS coords (`day8/re-frame2-xray`, `day8/re-frame2-story`) resolve from — the tools ship on their own tags, so they have no published Maven version to pin. See [§Tools-tier coords](#tools-tier-coords). | `ede00fd3bebc28340054159ab555e2214601f34f` |
 | `{{shadow-version}}` | shadow-cljs pin | `3.4.10` |
 | `{{react-version}}` | react & react-dom pin | `19.2.0` |
 
