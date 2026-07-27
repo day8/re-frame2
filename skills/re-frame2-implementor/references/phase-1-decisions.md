@@ -338,7 +338,7 @@ This is the single error-observability surface; recovery is the framework's type
 
 **Three answers, not two.**
 
-- **Yes-runtime-schema.** Use a host-native schema library — Malli (CLJS), Zod (JS/TS, Squint). The bulk of that validation is a development tool: the validator family sits behind the host's debug gate and is eliminated from a release build. **One arm is not, and eliding it makes the port non-conforming** — see the second constraint below. This is the natural answer for the dynamically-typed in-scope hosts (CLJS, Squint).
+- **Yes-runtime-schema.** Use a host-native schema library — Malli (CLJS), Zod (JS/TS, Squint). The bulk of that validation is a development tool: the validator family sits behind the host's debug gate and is eliminated from a release build. **Two checks are not, and eliding them makes the port non-conforming** — see the second constraint below. This is the natural answer for the dynamically-typed in-scope hosts (CLJS, Squint).
 - **Yes-via-host-types.** Use the host's type system — TypeScript types, F# discriminated unions, Kotlin/JS sealed classes, Scala case classes, PureScript sum types, Melange / ReScript / Reason variants. The compiler enforces shapes at build time; runtime boundary validation (e.g. Zod for TS) is optional. The natural answer for the statically-typed in-scope hosts.
 - **No.** Skip schemas entirely. Permitted by the spec but rarely the right call — the schema layer is what AI agents read to learn the runtime's shapes.
 
