@@ -73,6 +73,21 @@ const TIMEOUT_MS = parseInt(process.env.BROWSER_TEST_TIMEOUT_MS || String(DEFAUL
 const POLL_MS = 200;
 const VERBOSE_TESTS = isVerboseTests();
 
+// rf2-76lhy: stamp diagnostics at CAPTURE time, not at flush time.
+//
+// The buffer is flushed in a single burst, so every line lands on the log
+// within the same millisecond and the surrounding log's own timestamps say
+// nothing about when the line was produced — verified on a real CI timeout,
+// where all 66 buffered `Testing <ns>` lines carried the same flush stamp.
+// Without a capture-time offset, "namespace 66 was still running when the
+// clock expired" is indistinguishable from "namespace 66 never returned".
+// With one, the trail a timeout already dumps IS a per-namespace duration
+// profile: consecutive `Testing <ns>` offsets subtract to that namespace's
+// wall-clock cost, and the outlier names itself.
+const RUN_STARTED_AT = process.hrtime.bigint();
+const capturedAt = () =>
+  `[+${(Number(process.hrtime.bigint() - RUN_STARTED_AT) / 1e9).toFixed(2)}s]`;
+
 // The test-count floor (rf2-qqzmf). ONE name across every whole-suite lane:
 // the JVM runner (re-frame.test-quiet.runner) and the CLJS node runner
 // (re-frame.test-quiet.shadow-node) read the same variable. Because it is
@@ -222,16 +237,16 @@ async function main() {
     page.on('console', (msg) => {
       const text = msg.text();
       consoleLines.push(text);
-      diagnostics.add(`[browser:${msg.type()}] ${text}`);
+      diagnostics.add(`${capturedAt()} [browser:${msg.type()}] ${text}`);
     });
     page.on('pageerror', (err) => {
       pageErrors.push(err.stack || err.message);
-      diagnostics.add(`[browser:pageerror] ${err.message}`, 'stderr');
+      diagnostics.add(`${capturedAt()} [browser:pageerror] ${err.message}`, 'stderr');
       if (err.stack) diagnostics.add(err.stack, 'stderr');
     });
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame()) {
-        diagnostics.add(`[browser:navigation] ${frame.url()}`);
+        diagnostics.add(`${capturedAt()} [browser:navigation] ${frame.url()}`);
       }
     });
 
