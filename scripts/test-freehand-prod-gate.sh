@@ -122,22 +122,105 @@ known_red=(
   #    pass (the `ssr-compatibility-checks-test` treatment), not a blanket
   #    posture guard.
   #
-  #    TWO OF THE FOUR ARE CLEARED (rf2-74a89, and read them before triaging
-  #    the two below — they are the worked examples).  `evidence-seam-` and
-  #    `occurrence-index-cljs-test` now assert the CELL LIFECYCLE both
-  #    surfaces are a projection OF — `:published` / `:abandoned`,
-  #    `:connected` / `:disconnected`, the published dependency set and
-  #    committed frame, the advanced generation of a compatible reload —
-  #    outside the arm, with every record / row / escape assertion kept
-  #    verbatim inside it, NEGATIVES INCLUDED.  Each also gained the
-  #    production-real counterpart this note asks for, stated as a positive
-  #    fact rather than an absence: an installed sink is called ZERO times, a
-  #    throwing sink is unreachable rather than merely contained, a record the
-  #    evidence schema would refuse is not a production failure mode at all
-  #    because none is built, and `the-index-costs-a-production-build-nothing`
-  #    holds two live occurrences across a read and finds no rows.
-  re-frame.freehand.explain-render-cljs-test      #  35 + 1 error
-  re-frame.freehand.tool-reads-cljs-test          #  58
+  #    ALL FOUR CLEARED 2026-07-28 (rf2-74a89).  Each keeps every record /
+  #    row / escape / read assertion VERBATIM inside a
+  #    `(when interop/debug-enabled? …)` arm, NEGATIVES INCLUDED, and each
+  #    gained the production-real counterpart this note asks for — stated as
+  #    a POSITIVE fact rather than an absence, because "nothing happened" is
+  #    what a vacuous pass says too:
+  #
+  #      * `evidence-seam` / `occurrence-index` assert the CELL LIFECYCLE
+  #        both surfaces are a projection OF — `:published` / `:abandoned`,
+  #        `:connected` / `:disconnected`, the published dependency set and
+  #        committed frame, the advanced generation of a compatible reload —
+  #        outside the arm.  Beside them: an installed sink is called ZERO
+  #        times, a throwing sink is UNREACHABLE rather than merely
+  #        contained, a record the evidence schema would refuse is not a
+  #        production failure mode at all because none is built, and
+  #        `the-index-costs-a-production-build-nothing` holds two live
+  #        occurrences across a read and finds no rows — not tidiness, but
+  #        unbounded growth avoided in the one build where nothing reads it.
+  #      * `tool-reads` was the largest entry and had the cleanest answer:
+  #        `v/manifest` is the ONE read `tool.cljc` exempts from the gate,
+  #        and it is byte-identical in both postures, because the analyzer
+  #        ran at macro expansion.  The three id-taking reads are
+  #        PROJECTIONS of it, so the census itself —
+  #        two subscription sites, four event sites, the five per-site facts
+  #        rf2-z0blg made the manifest publish, and the interpreted
+  #        declaration's absent analysis — is now asserted at its source in
+  #        both postures.  `the-index-holds-one-row-per-declaration-not-a-
+  #        history` needed no arm at all: `registry/register!` is ungated,
+  #        only the CALL SITE in the expansion carries the gate.
+  #      * `explain-render` is the most one-sided, and its docstring says so
+  #        rather than dressing it up: the read is gated at the door and both
+  #        structures it folds are dev-only.  It earns its place on the
+  #        CORRELATED COMMIT PATH — `connect!` binds `trace/*handler-scope*`
+  #        and commits inside a cascade, which nothing else in the artefact's
+  #        suites drives — plus the door's inertness: under the gate a
+  #        DECLARED, MOUNTED, CORRELATED view answers `nil`, never an
+  #        envelope carrying `:explanations []` with `:complete? true` on it.
+  #        An empty-but-confident answer would tell a tool nothing is
+  #        rendering in a build where plenty is, which is worse than no
+  #        answer at all.
+  #
+  #    THE VACUOUS PASSES THIS ROSTER LINE WAS HIDING, so the next reader
+  #    knows the shape: `(= [] seen)` and `(nil? (last-evidence-sink-escape))`
+  #    over an elided seam; `(= [] (rows-for …))` after a disconnect, after an
+  #    abandoned render and before a reconnect; `(nil? (:loss r))` over a nil
+  #    projection; `(nil? (:cause e))`, `(nil? (:dispatch-id e))` and
+  #    `(= [] (:candidates e))` over an explanation that does not exist;
+  #    `(every? #(not (contains? % :value)) …)` over an empty read set; and
+  #    `an-undeclared-id-answers-nil` in TWO namespaces, where under the gate
+  #    every id answers nil so the nil says nothing about the id.  Each is
+  #    inside its posture arm now.
+
+  # ── rf2-74a89 — THE PROPS-SCHEMA CLOSURE, CLEARED 2026-07-28.  READ THIS
+  #    ONE BEFORE ASSUMING THE NEXT LOOK-ALIKE IS A DEFECT.
+  #    `descriptor.cljc` ~line 591 gates the whole closing-schema arm and
+  #    says why: "a schema is a compile-time and tooling fact: production
+  #    renders the same tree either way, and the CLJS branch folds away".  So
+  #    under the gate an UNDECLARED prop on a closing schema is ACCEPTED.
+  #    That is the same class as Spec 010's `validate-fx!` (routing's
+  #    `nav-fx-schemas`, rf2-o5dbf batch 7) and NOT the rf2-9c2jf class: the
+  #    COMPILED tier still refuses the identical row statically at analyze
+  #    time, in either posture, and that is now asserted directly by
+  #    `which-tier-refuses-an-undeclared-prop-depends-on-the-posture` — with
+  #    a non-map props slot refused in BOTH postures beside it, because the
+  #    call ABI is always on and that is what makes the boundary's production
+  #    `:accept` a verdict rather than a check that never ran.
+  #
+  #    `behaviors-` and `errors-tree-cljs-test` were the same mechanism seen
+  #    from a caller: each drove a malformed boundary call and asserted
+  #    `:rf.error/view-bad-props`.  Under the gate the call is STILL REFUSED
+  #    — the door's OWN always-on roster check fires instead — so REFUSED is
+  #    asserted posture-independently (neither namespace stated it before)
+  #    and only the id rides the dev arm.
+  #
+  #    AND THE TRAP ON THE WAY OUT, which was the bulk of the work here: this
+  #    suite's POSITIVE controls passed under the gate for the wrong reason.
+  #    The schema-less arm, the open escape and the opaque-schema arm all
+  #    assert a boundary `:accept`, and under the gate EVERYTHING accepts.
+  #    All three travel inside the posture arm with the reject rows.
+
+  # ── rf2-74a89 — SOURCE-COORD ELISION, CLEARED 2026-07-28.  `v/describe`'s
+  #    `:source` is REGISTRATION metadata and `defview` emits the slim
+  #    `prod-coords-form` for it under the gate, which omits `:column` —
+  #    matching core's `reg-*` elision.  The MANIFEST's coordinates are a
+  #    compile-time analyzer fact and survive byte-identical, so the
+  #    inheritance claim keeps its full strength by naming the declaration's
+  #    column the same way `event-column` was already named, with the
+  #    verbatim descriptor equality in the dev arm proving the two agree.
+  #    Two always-on rows were added: every roster coordinate is TOTAL in
+  #    either posture (the property production depends on, and the one an
+  #    over-eager elision would take), and the registration coord really is
+  #    elided — so the asymmetry is a decision rather than a drift.
+
+  # ── THE ROSTER IS EMPTY, and the `-n` machinery STAYS (see
+  #    `test-routing-prod-gate.sh`, cleared the same way).  It is what makes
+  #    the exclusion polarity real: every one of this artefact's test
+  #    namespaces now runs under `-Dre-frame.debug=false` BY DEFAULT, and the
+  #    next namespace that goes red under the gate has a documented place to
+  #    be rostered — with a bead — instead of quietly reddening the job.
 )
 
 # ---------------------------------------------------------------------------
@@ -230,11 +313,14 @@ fi
 # ordinary churn; raise it when the roster shrinks materially.
 #
 # Calibrated against the first green run: 125 namespaces / 1159 tests / 7930
-# assertions (2026-07-28).  1000 is ~14% headroom, the same ratio
-# `test-routing-prod-gate.sh` and `test-ssr-prod-gate.sh` settled on — low
-# enough not to trip on ordinary churn, high enough that losing a tenth of the
-# lane cannot report itself green.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1000}"
+# assertions (2026-07-28), floor 1000.  RAISED to 1090 with the roster's last
+# line (rf2-74a89, 2026-07-28): the lane now runs 135 of 135 namespaces / 1268
+# tests / 8457 assertions, and a floor left at the 125-namespace number would
+# no longer notice the whole triage batch disappearing.  1090 keeps the same
+# ~14% headroom `test-routing-prod-gate.sh` and `test-ssr-prod-gate.sh`
+# settled on — low enough not to trip on ordinary churn, high enough that
+# losing a tenth of the lane cannot report itself green.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1090}"
 
 args=()
 for ns in $runnable; do
