@@ -723,10 +723,10 @@
            (is (= (:recorded-sites sub-007) (count (cell/candidate-reads cand)))))))))
 
 ;; ===========================================================================
-;; Invariant 5 — moved evidence corrects before paint, on the RETAINED set
+;; Invariant 5 — moved evidence corrects before paint
 ;; ===========================================================================
 ;;
-;; Spec 006 §The six frozen invariants, invariant 5. These two rows exist to
+;; Spec 006 §The six frozen invariants, invariant 5. These rows exist to
 ;; make one failure mode LOUD: a commit that stops re-reading a retained
 ;; dependency — because every site kept its query, its target and its handle,
 ;; so re-reading looks like work worth skipping — is not faster, it is torn.
@@ -740,6 +740,17 @@
 ;; degenerates into always correcting. The real-port row does the same over
 ;; the actual observation port and the actual sub-cache, because a mock can
 ;; drift away from the port it stands for.
+;;
+;; The last row is the STAGED half of the same law, and it is the half with
+;; nothing to fall back on (rf2-anmdr). A retained site's change watch was
+;; installed by an EARLIER commit, so on a host whose derived values ARE
+;; watchable a move the commit misses still self-heals one window later. A
+;; staged site's watch is installed by the very commit that needed it —
+;; after the move — so a commit that skips the comparison publishes the
+;; render's stale value and nothing is left to correct it. That difference is
+;; only visible on a watchable host, where `shell_tear_dom_cljs_test.cljs`
+;; measures it; this row pins the staged behaviour itself, over the same port
+;; and the same fixture as its siblings.
 
 (def ^:private tear-probe
   "What the RENDER probed: one live node, one identity, one version, one
@@ -835,6 +846,79 @@
             (is (> (cell/revision c) before)
                 "movement in the render→commit gap advanced the revision, so
                  the host corrects before paint")))))))
+
+(defn- staged-commit
+  "One FIRST commit of `q` over the REAL observation port and the REAL
+  sub-cache, with `move!` run in the render→commit gap.
+
+  The cell is fresh, so its prior committed set is EMPTY: there is no
+  handle to retain, and `obs/acquire!` — with whatever change watch that
+  acquire installs — runs DURING this commit, which is after `move!` has
+  already happened. That is what makes the site STAGED rather than
+  retained, and `:prior-set` reports it from the cell's own state rather
+  than from the shape of the calling code.
+
+  Answers `:probe` — whether the render found a live node or probed cold,
+  which is which axis the tear check compares — `:delta`, how far the
+  commit moved the revision, and `:published`, the value the bundle
+  carries."
+  [q move!]
+  (let [c      (cell/cell :shell/panel)
+        cand   (render! c fid [q])
+        prior  (cell/dependencies c)
+        probed (:node-version (:evidence (get (cell/candidate-reads cand) 0)))
+        before (cell/revision c)]
+    (move!)
+    (let [out {:commit    (cell/commit! cand)
+               :prior-set prior
+               :probe     (if (nil? probed) :cold :live)
+               :delta     (- (cell/revision c) before)
+               :published (:value (first (:observations (cell/evidence c))))}]
+      (cell/disconnect! c)
+      out)))
+
+(deftest invariant-5-a-real-node-moving-in-the-gap-corrects-a-staged-site
+  (testing "The row above's sibling, over the same real port and the same
+            real sub-cache, but on the site's FIRST commit. `obs/acquire!`
+            installs that site's change watch DURING this commit — after
+            the move — so on ANY host, watchable or not, no watch can have
+            fired about it. The commit's own re-read is the whole of the
+            guarantee here: skip it and the bundle publishes the render's
+            stale value with nothing left to correct it.
+
+            Both probe temperatures are exercised, because the check
+            compares a different axis on each. The first read of a node
+            anywhere probes COLD and the comparison falls back to `rf=` on
+            the value; a panel mounting over a node another boundary
+            already owns probes LIVE and the comparison rides the node
+            version. Each is paired with its UNMOVED control, so the row
+            fails both if the comparison stops happening and if it
+            degenerates into correcting unconditionally."
+    (rf/reg-sub :tear/staged (fn [db _] (:v db)))
+    (testing "cold probe — the first read of this node anywhere"
+      (seed! fid {:v 1})
+      (is (= {:commit :published :prior-set {} :probe :cold :delta 0 :published 1}
+             (staged-commit [:tear/staged :cold-control] (fn [] nil)))
+          "the control — nothing moved in the gap, so nothing is corrected")
+      (is (= {:commit :published :prior-set {} :probe :cold :delta 1 :published 2}
+             (staged-commit [:tear/staged :cold-moved] (fn [] (seed! fid {:v 2}))))
+          "the node moved in the gap, the bundle published what the COMMIT
+           read rather than what the render probed, and the revision
+           advanced so the host corrects before paint"))
+    (testing "live probe — a panel mounting over a node another boundary owns"
+      (seed! fid {:v 1})
+      (let [q     [:tear/staged :live]
+            owner (cell/cell :shell/other)]
+        (render+commit! owner fid [q])
+        (is (= {:commit :published :prior-set {} :probe :live :delta 0 :published 1}
+               (staged-commit q (fn [] nil)))
+            "the control — the node is live and unmoved, so nothing is corrected")
+        (is (= {:commit :published :prior-set {} :probe :live :delta 1 :published 2}
+               (staged-commit q (fn [] (seed! fid {:v 2}))))
+            "and a live node that moves in the gap is caught on the node
+             version axis, on a handle this commit acquired for the first
+             time")
+        (cell/disconnect! owner)))))
 
 ;; ===========================================================================
 ;; The shell's own value surface
