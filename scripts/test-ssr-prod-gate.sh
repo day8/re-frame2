@@ -388,10 +388,18 @@ fi
 #
 # RAISED 380 -> 410 by rf2-76gom / rf2-lwtlk.  The roster is down to 2 entries
 # and the lane runs 473 tests / 2093 assertions across 48 of 50 namespaces.
-# Raise it once more when `ssr-end-to-end-test` comes off behind rf2-dtpfv;
-# that is the last entry other than the rf2-bkvu5 hold, and the `-n`
-# machinery goes away with it.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-410}"
+#
+# RAISED 410 -> 425 by rf2-lwtlk when `flows-integration-test` came off behind
+# the rf2-bkvu5 ruling.  This raise is CONVENTION MAINTENANCE, not a response
+# to that one namespace: 9 tests is 1.8% of the lane and no floor with usable
+# headroom could ever notice 9 tests vanishing.  What had drifted is the
+# headroom itself — the lane grew 473 -> 490 tests (2093 -> 2184 assertions,
+# now 50 of 51 namespaces) while the floor stayed at 410, widening the gap
+# from the ~13% this file has twice calibrated to, to 16.3%.  425 restores
+# ~13% against the observed 490.  Raise it once more when
+# `ssr-end-to-end-test` comes off behind rf2-dtpfv; that is the LAST entry,
+# and the `-n` machinery goes away with it.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-425}"
 
 args=()
 for ns in $runnable; do
