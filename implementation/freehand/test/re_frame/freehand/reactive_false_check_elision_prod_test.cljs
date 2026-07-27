@@ -29,8 +29,9 @@
   `{goog.DEBUG false}`, runner `re-frame.prod-elision-runner`). The
   default `:browser-test` / `:node-test` regexes do not match this
   suffix, so nothing here runs in a development posture."
-  (:require ["react" :as react]
-            [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+  (:require ["react-dom" :as react-dom]
+            ["react-dom/client" :as rdc]
+            [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.freehand :as v]
@@ -65,13 +66,14 @@
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
 
-(defn- act
-  [thunk]
-  (try
-    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-    (js/Promise.resolve (react/act (fn [] (js/Promise.resolve (thunk)))))
-    (catch :default e
-      (js/Promise.reject e))))
+;; `react/act` is a DEVELOPMENT-only export: the production React build
+;; does not carry it, and reaching for it here answered
+;; `TypeError: act is not a function` — which is itself a small reminder
+;; that a browser assertion written in a dev posture is not automatically
+;; a production one. `react-dom/flushSync` is the production-available
+;; way to force the mount's render to run synchronously, so a render that
+;; throws rethrows to THIS caller instead of surfacing as an unhandled
+;; asynchronous error nothing here could observe.
 
 (defn- caught-id
   [thunk]
@@ -142,30 +144,44 @@
   (testing "The whole question, in the configuration it will actually
             ship in: a boundary with NO ViewCell, mounted through React,
             in an `:advanced` bundle with the debug gate folded away. The
-            body reads; the read has no owner; the render fails loud
-            instead of committing a page that will never update again."
+            body reads; the read has no owner; the render fails loud and
+            NOTHING is committed, rather than a page that will never
+            update again being put on screen.
+
+            HOW the failure arrives is a production fact worth recording,
+            because it is not how it arrives in development. React 19
+            routes an uncaught render error to the root's
+            `onUncaughtError` and does NOT rethrow it to the caller that
+            asked for the render — not even inside `flushSync`. In
+            development `react/act` collects and rethrows it, so a dev
+            assertion can simply catch the mount; in production the same
+            error reaches the page as an uncaught error instead. It is
+            still loud (a `window` error event, the console, and any
+            `onerror` reporter an application has installed) and the
+            boundary is still not committed — but a caller cannot
+            `try`/`catch` it, which is exactly the kind of difference this
+            file exists to find."
     (if-not (browser?)
       (is true "a real React mount needs a DOM host")
-      (async done
+      (let [container  (js/document.createElement "div")
+            caught     (atom nil)
+            react-root (rdc/createRoot
+                         container
+                         #js {:onUncaughtError (fn [e _info] (reset! caught e))})]
         (register!)
         (seed! {:total 41})
         (is (= :elided (:view-cell (v/manifest elided-but-reads)))
             "non-vacuous: the analysis really did elide the ViewCell")
-        (let [container (js/document.createElement "div")]
-          (.appendChild js/document.body container)
-          (-> (act #(v/mount [elided-but-reads {}] container {:frame fid}))
-              (.then (fn [mounted]
-                       (is false
-                           (str "the shell-free mount SUCCEEDED in production and rendered "
-                                (pr-str (some-> (.querySelector container "#leak")
-                                                .-textContent))
-                                " — a read with no owner was not refused"))
-                       (when mounted (.unmount (.-react-root ^root/Root mounted)))
-                       (.remove container)
-                       (done)))
-              (.catch (fn [e]
-                        (is (= outside-render (:rf.error/id (ex-data e)))
-                            (str "refused loudly at the read, in production; got "
-                                 (pr-str e)))
-                        (.remove container)
-                        (done)))))))))
+        (.appendChild js/document.body container)
+        (try
+          (try
+            (react-dom/flushSync
+              (fn [] (.render react-root (fr/element [elided-but-reads {}]))))
+            (catch :default e (reset! caught e)))
+          (is (= outside-render (:rf.error/id (ex-data @caught)))
+              (str "refused with the stable id in a production bundle; got "
+                   (pr-str @caught)))
+          (is (nil? (some-> (.querySelector container "#leak") .-textContent))
+              "and NOTHING was committed — no silently stale boundary reached the page")
+          (finally
+            (.remove container)))))))

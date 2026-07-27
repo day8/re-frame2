@@ -129,6 +129,16 @@
   [_]
   [:div#parent [reactive-child {}]])
 
+(v/defview elided-snapshot-read
+  "Elided by proof, and it performs the NON-reactive read the flag's
+  contract names as staying legal: the ambient 1-arity
+  `rf/subscribe-once`. The analyzer records no site for it — it is an
+  ordinary function call, not a `sub` — so the ViewCell is elided, and
+  the ambient form then has no frame scope to resolve against."
+  {:compiled true}
+  [_]
+  [:p#snapshot (str (rf/subscribe-once [:spike/total]))])
+
 (v/defview owning-button
   "The CONTROL for the event arms: the identical authored markup inside a
   boundary that DOES own a shell, so the site is committed and the click
@@ -171,6 +181,49 @@
                         (is (= :rf.error/view-read-outside-render
                                (:rf.error/id (ex-data e)))
                             (str "refused loudly at the read; got " (pr-str e)))
+                        (.remove container)
+                        (done)))))))))
+
+(deftest a-shell-free-boundary-still-resolves-a-frame-for-a-snapshot-read
+  (testing "The ruling keeps `rf/subscribe-once` legal under the flag — a
+            snapshot the programmer asked for — and this checks that the
+            promise survives losing the shell, because it was not obvious
+            that it would. The shell's `cell/with-capture` binds
+            `frame/*current-frame*`, and a shell-free boundary gets no
+            such binding; the reason the ambient 1-arity still resolves
+            is the OTHER scope tier. `frame/resolve-current-frame` reads
+            the React frame CONTEXT through the `:adapter/current-frame`
+            hook, and a context value is available to any component
+            rendering under the provider `v/mount` installs — shell or no
+            shell. So the snapshot read resolves the mounting frame and
+            returns its value.
+
+            What the boundary does NOT acquire is a `useContext`
+            SUBSCRIPTION to that context, because it calls no hook. It
+            performs no reactive read either, so there is nothing for a
+            provider retarget to invalidate — and its reactive children
+            each own their own `useContext`. See
+            `a-reactive-child-of-a-shell-free-parent-keeps-its-own-shell`."
+    (if-not (browser?)
+      (skip! "the browser job runs the mount assertions")
+      (async done
+        (register!)
+        (seed! {:total 41})
+        (is (= :elided (:view-cell (v/manifest elided-snapshot-read)))
+            "non-vacuous: a subscribe-once is not a site, so the cell is elided")
+        (let [container (host-node!)]
+          (-> (act #(v/mount [elided-snapshot-read {}] container {:frame fid}))
+              (.then (fn [mounted]
+                       (is (= "41" (text container "#snapshot"))
+                           "the ambient one-shot read resolved the mounting frame
+                            through the React frame context, with no shell above it")
+                       (when mounted (.unmount (.-react-root ^root/Root mounted)))
+                       (.remove container)
+                       (done)))
+              (.catch (fn [e]
+                        (is false
+                            (str "the snapshot read failed in a shell-free boundary: "
+                                 (pr-str e)))
                         (.remove container)
                         (done)))))))))
 
@@ -263,6 +316,21 @@
         (let [container (host-node!)]
           (-> (act #(v/mount [owning-button {}] container {:frame fid}))
               (.then (fn [mounted]
+                       ;; The HOT-RELOAD AXIS, pinned where it currently
+                       ;; stands. `shell-signature` is
+                       ;; `[lowering (:view-cell (manifest view))]`, and an
+                       ;; interpreted declaration has no manifest — so today
+                       ;; every interpreted view signs `[:interpreted nil]`.
+                       ;; `{:reactive false}` must move that second element
+                       ;; (the compiled tier already signs `[:compiled
+                       ;; :elided]` vs `[:compiled :present]`), which is what
+                       ;; mints a new component type and buys the ONE clean
+                       ;; remount acceptance 5 asks for. Nothing else has to
+                       ;; be built for it.
+                       (is (= [:interpreted nil]
+                              (:signature (get (fr/boundary-cache)
+                                               (:view-id (v/describe owning-button)))))
+                           "the interpreted shell signature is the axis the flag must move")
                        (-> (act #(click! container "#owned"))
                            (.then (fn [_]
                                     (is (true? (:pressed (db)))

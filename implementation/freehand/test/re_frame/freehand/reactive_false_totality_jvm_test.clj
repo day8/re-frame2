@@ -106,6 +106,14 @@
   [_]
   [:div [inline-read {}]])
 
+(v/defview snapshot-read
+  "The NON-reactive read the flag is documented to leave legal: a one-shot
+  `rf/subscribe-once`, a snapshot the programmer asked for. Its ambient
+  1-arity resolves the frame through the scope chain — and a shell is one
+  of the things that establishes that scope."
+  [_]
+  [:p (str (rf/subscribe-once [:spike/n]))])
+
 ;; ===========================================================================
 ;; 1 — the single door
 ;; ===========================================================================
@@ -197,7 +205,48 @@
           (str "refused with debug-enabled? = " interop/debug-enabled?)))))
 
 ;; ===========================================================================
-;; 3 — the hole: an OUTER candidate is donated to, not masked
+;; 3 — the shell binds the ambient frame, and shell-free loses it
+;; ===========================================================================
+
+(deftest the-shell-is-what-binds-the-ambient-frame
+  (testing "A THIRD thing the ViewCell owns, beyond reads and event
+            sites: `cell/with-capture` establishes the candidate's frame
+            as `frame/*current-frame*` for the body's synchronous extent,
+            and nothing else does. A shell-free boundary therefore runs
+            under whatever ambient frame its CALLER happened to have —
+            which, under React, is none, because a component's render is
+            not inside its parent's dynamic extent.
+
+            That turns out NOT to cost the flag anything, and the reason
+            is worth recording next to the mechanism: ambient frame
+            resolution has a SECOND tier. `frame/resolve-current-frame`
+            reads the React frame context through the
+            `:adapter/current-frame` hook, which any component under the
+            provider can see, so the ambient `rf/subscribe-once` the
+            flag's contract keeps legal still resolves in a shell-free
+            boundary —
+            `reactive-false-shell-free-dom-cljs-test` mounts exactly that
+            and reads the value back off the DOM. What is isolated here
+            is the dynamic-var tier alone, with a DIFFERENT frame on the
+            candidate so the binding is visible whatever the caller's own
+            scope already is."
+    (seed! {:n 5})
+    (let [other   :spike/other-frame
+          cand    (cell/candidate (cell/cell :spike/snapshot) other)
+          outside frame/*current-frame*]
+      (is (not= other outside)
+          "non-vacuous: the candidate's frame is not the ambient one already")
+      (cell/with-capture cand
+        (fn []
+          (is (= other frame/*current-frame*)
+              "inside the shell, the ambient frame IS the candidate's")
+          (is (map? (tree/render [snapshot-read {}]))
+              "so an ambient one-shot read in the body resolves")))
+      (is (= outside frame/*current-frame*)
+          "and the binding is scoped to the body's extent, nothing wider"))))
+
+;; ===========================================================================
+;; 4 — the hole: an OUTER candidate is donated to, not masked
 ;; ===========================================================================
 
 (deftest a-nested-body-donates-its-read-to-an-open-outer-candidate
