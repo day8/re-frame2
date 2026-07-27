@@ -254,6 +254,25 @@
         (is (= :failed-closed-to-500 (:recovery ev))
             "the warning carries the fail-closed recovery disposition")))))
 
+(deftest redirect-arm-emits-exactly-one-fail-closed-warning
+  (testing "rf2-gblft: the DEV-axis half of the double-emit fix. A target-less
+            redirect carrying a non-integer `:status` used to call
+            `fail-closed-status` twice — once to fill the no-target warning's
+            `:status` payload, once to build the response map — so one rewrite
+            emitted TWO `:rf.ssr/ssr-non-integer-status` warnings (measured). The
+            wire status is now resolved once and shared by both, and the
+            no-target warning still reports the fail-closed value it landed on.
+            The always-on half is
+            `status-rewrite-always-on-test/one-rewrite-fans-exactly-one-record`."
+    (let [warnings (collect-non-integer-status-warnings
+                     (fn []
+                       (let [ring (pipeline/ssr-response->ring-response
+                                    {:redirect {:status "302"}} nil)]
+                         (is (= 500 (:status ring))
+                             "the redirect arm still fails closed to 500"))))]
+      (is (= 1 (count warnings))
+          "ONE rewrite emits ONE warning, on the redirect arm too"))))
+
 (deftest integer-status-emits-no-fail-closed-warning
   (testing "rf2-njkw94: a genuine integer status (the contract-compliant path)
             emits NO ssr-non-integer-status warning — the trace is a
