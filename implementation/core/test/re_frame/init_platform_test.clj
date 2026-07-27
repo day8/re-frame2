@@ -15,7 +15,22 @@
     2. `init-platform` toggles the marker; subsequent `:platforms`
        gating reflects the new value (the gate is the load-bearing
        observable — flipping the marker should flip the trace shape).
-    3. Invalid input raises `:rf.error/invalid-platform`."
+    3. Invalid input raises `:rf.error/invalid-platform`.
+
+  ## Posture split (rf2-d2841)
+
+  All three contract points are production-real and are asserted WITHOUT a
+  posture guard: the default marker read, the flip, the `:platforms` GATE
+  ITSELF (whether the handler body ran — the load-bearing observable named
+  in point 2), and the registration-time throw. They run in the ordinary
+  `clojure -M:test` suite AND in `scripts/test-core-prod-gate.sh`.
+
+  `:rf.fx/skipped-on-platform` is a bare `trace/emit!` warning (fx.cljc
+  §handle-one-fx) with no always-on twin, so under the real gate nothing is
+  emitted BY DESIGN. Its assertions are kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841` — including the
+  negative on the flip-to-client leg, which over an empty ring would pass
+  whether the gate passed or skipped."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -84,9 +99,14 @@
 
       (is (true? @fired?)
           "the :client-only fx ran because the active platform is now :client")
-      (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
-        (is (empty? skips)
-            "no :rf.fx/skipped-on-platform trace — the gate passed")))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). A NEGATIVE
+      ;; over the trace ring: under `-Dre-frame.debug=false` the ring is empty
+      ;; by design, so `empty?` would pass whether the gate passed or skipped.
+      ;; The production-visible half of "the gate passed" is `@fired?` above.
+      (when interop/debug-enabled?
+        (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
+          (is (empty? skips)
+              "no :rf.fx/skipped-on-platform trace — the gate passed"))))))
 
 (deftest init-platform-flip-to-server-skips-client-only-fx
   (testing "with the default (init-platform :server) marker, a
@@ -109,11 +129,16 @@
 
       (is (false? @fired?)
           "the :client-only fx did NOT run on :server")
-      (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
-        (is (= 1 (count skips))
-            "exactly one :rf.fx/skipped-on-platform trace")
-        (is (= :server (get-in (first skips) [:tags :rf.fx/platform]))
-            ":rf.fx/platform stamp matches the active marker")))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+      ;; `:rf.fx/skipped-on-platform` is a bare `trace/emit!` warning with no
+      ;; always-on twin; the SKIP it reports is asserted above and runs in
+      ;; both postures.
+      (when interop/debug-enabled?
+        (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
+          (is (= 1 (count skips))
+              "exactly one :rf.fx/skipped-on-platform trace")
+          (is (= :server (get-in (first skips) [:tags :rf.fx/platform]))
+              ":rf.fx/platform stamp matches the active marker"))))))
 
 ;; ---- 3. Validation ---------------------------------------------------------
 

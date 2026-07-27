@@ -155,7 +155,6 @@ known_red=(
   re-frame.configure-test
   re-frame.core-epoch-egress-profile-test
   re-frame.cross-frame-dispatch-sync-warn-test
-  re-frame.db-noop-commit-test
   re-frame.db-pending-trace-test
   re-frame.dispatched-trace-cofx-test
   re-frame.doc-metadata-prod-elision-test
@@ -172,7 +171,6 @@ known_red=(
   re-frame.handler-source-test
   re-frame.image-inline-metadata-normalization-cljs-test
   re-frame.image-no-emit-trace-gate-cljs-test
-  re-frame.init-platform-test
   re-frame.interceptor-override-summary-trace-test
   re-frame.live-frame-reload-cljs-test
   re-frame.machine-action-outcome-classification-cljs-test
@@ -180,7 +178,6 @@ known_red=(
   re-frame.non-serialisable-event-payload-warn-test
   re-frame.observation-port-cljs-test
   re-frame.override-capture-trace-test
-  re-frame.pattern-smoke-test
   re-frame.reg-event-cljs-test
   re-frame.reg-meta-noswallow-cljs-test
   re-frame.reg-view-injection-test
@@ -195,7 +192,6 @@ known_red=(
   re-frame.sub-cycle-cljs-test
   re-frame.sub-dispose-trace-test
   re-frame.sub-parametric-inputs-test
-  re-frame.sub-topology-test
   re-frame.subs-inline-normalization-cljs-test
   re-frame.substrate-source-test
   re-frame.substrate.derived-container-replaced-cljs-test
