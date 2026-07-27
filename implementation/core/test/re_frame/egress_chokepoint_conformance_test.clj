@@ -256,7 +256,35 @@
      ;; record adds only a host `:exception` residual (the documented exception
      ;; non-goal) + a `:component-stack` host string + `:recovery :contained`.
      ;; No slot lifts a value out of an event / app-db slice.
-     re-frame.freehand.errors})
+     re-frame.freehand.errors
+
+     ;; rf2-ov56u / ruling rf2-rqje9 — `re-frame.routing.url-change`'s
+     ;; `emit-route-miss-error!` ships the URL-driven `:rf.error/no-such-handler`
+     ;; `:kind :route` miss on the always-on axis, so an unroutable SSR request
+     ;; answers 404 rather than a soft-404 200 under `-Dre-frame.debug=false`.
+     ;; VETTED structural-only: every slot but one is a fixed framework keyword
+     ;; or a structural id — `:error`, `:kind :route`,
+     ;; `:recovery :replaced-with-default`, `:frame`, `:time`, and `:reason`,
+     ;; which is only ever `:match-error` (the `match-url-fail-closed`
+     ;; discriminator) or `:malformed-url`. No prose and so no interpolation of
+     ;; an untrusted value into it (the ssr/hydrate hazard), no exception
+     ;; residual, and no slot lifts a value out of an event vector or an app-db
+     ;; slice.
+     ;;
+     ;; The one non-enum slot, `:url`, is the navigation LOCATOR, scrubbed by
+     ;; `routing.egress/redact-url-tag` inside `route-miss-tags` — BEFORE either
+     ;; axis sees it — so query VALUES and the whole opaque `#fragment` are
+     ;; already the `rf/redacted` sentinel on the record that fans out. It sits
+     ;; on THIS list rather than the routing arm because `project-egress` is the
+     ;; wrong instrument here, not the costlier one: it projects tree slots
+     ;; against the FRAME'S CLASSIFICATION registry, and a route MISS has no
+     ;; matched route → no `:params` / `:query` schema to path-target — which is
+     ;; precisely why the blanket `redact-url-carriers` policy exists. Under a
+     ;; live frame no declared path covers `:url`, so `project-egress` would ride
+     ;; it through untouched; under a frameless one it would blanket-redact the
+     ;; structured path the ruling deliberately keeps. The carrier scrub is the
+     ;; stronger guarantee on this path.
+     re-frame.routing.url-change})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
