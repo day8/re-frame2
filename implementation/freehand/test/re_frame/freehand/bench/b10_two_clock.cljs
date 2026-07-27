@@ -147,6 +147,42 @@
   (let [{:keys [build channels]} (get config-shapes shape)]
     (build channels leaf)))
 
+(defn deep-fresh
+  "Rebuild every collection in `x`, so nothing above a scalar leaf is
+  `identical?` to what it came from while everything is `=` to it.
+
+  A shallow copy would not do. `rf=` short-circuits on identity at every
+  level, so a top-level-only copy of a nested spec costs a walk of the
+  TOP LEVEL and then five identity hits — which is not what an
+  application pays when a library hands it a freshly parsed config, and
+  would have understated the Vega shape's equality cost by the depth of
+  its nesting."
+  [x]
+  (cond
+    (map? x)    (into {} (map (fn [[k v]] [k (deep-fresh v)])) x)
+    (vector? x) (mapv deep-fresh x)
+    :else       x))
+
+(defn touch-one-leaf
+  "A deep-fresh copy of `cfg` with exactly ONE scalar leaf different.
+  Spelled per shape, because the shapes' leaves are in different places
+  and a generic walk would be a third thing to get wrong."
+  [shape cfg gen]
+  (let [fresh (deep-fresh cfg)]
+    (case shape
+      :vega   (assoc-in fresh [:encoding :ch0 :axis :title] (str "Field " gen))
+      :spread (assoc fresh :r0 gen))))
+
+(defn dissoc-leaf
+  "`cfg` with the one leaf [[touch-one-leaf]] moves removed, so a
+  read-back can prove ONE leaf changed rather than merely that something
+  did. Without it a `:one-leaf` arm that replaced the whole config would
+  pass its own verification."
+  [shape cfg]
+  (case shape
+    :vega   (update-in cfg [:encoding :ch0 :axis] dissoc :title)
+    :spread (dissoc cfg :r0)))
+
 ;; ---------------------------------------------------------------------------
 ;; re-frame registrations — the CONSUMER path, never a store poke
 ;; ---------------------------------------------------------------------------
@@ -215,17 +251,15 @@
     (swap! applied-count inc)
     {:db (update db :cells (fn [cells] (into [] (map identity) cells)))}))
 
-;; The behavior-config crossing. `:stable` re-installs the value already
-;; there — identical, not merely equal. `:fresh-equal` installs a freshly
-;; built map with the same contents. `:one-leaf` installs a freshly built
-;; map differing in exactly one leaf.
-(rf/reg-event :b10/config-offered
-  (fn [{:keys [db]} [_ mode shape gen]]
+;; The behavior-config crossing. The config to install is built by the
+;; CALLER, outside the measured window, and handed in whole — because a
+;; reducer that built a 900-entry map inside the window would be timing
+;; `into` rather than equality, and the difference between the three
+;; modes is exactly what this axis exists to isolate.
+(rf/reg-event :b10/config-install
+  (fn [{:keys [db]} [_ cfg]]
     (swap! applied-count inc)
-    {:db (case mode
-           :stable      db
-           :fresh-equal (assoc db :config (build-config shape 0))
-           :one-leaf    (assoc db :config (build-config shape gen)))}))
+    {:db (assoc db :config cfg)}))
 
 ;; ---------------------------------------------------------------------------
 ;; The behavior — the host clock's owner
@@ -246,11 +280,11 @@
   {:timing  :passive
    :connect (fn [{:keys [node config]}]
               (swap! behavior-log update :connect inc)
-              (set! (.. node -dataset -leaves) (str (count config)))
+              (.setAttribute node "data-leaves" (str (count config)))
               nil)
    :update  (fn [{:keys [node config]}]
               (swap! behavior-log update :update inc)
-              (set! (.. node -dataset -leaves) (str (count config)))
+              (.setAttribute node "data-leaves" (str (count config)))
               nil)
    :disconnect (fn [_] (swap! behavior-log update :disconnect inc) nil)})
 
@@ -273,15 +307,40 @@
                     :value       (v/sub [:b10/field])
                     :on-input    [:b10/typed ::v/value]}])
 
+(v/defview host-panel
+  "The behavior with the config subscription read AT ITS OWN BOUNDARY.
+  The `:hoisted` half of the pair below."
+  [_]
+  [v/behavior {:use host-clock :target :b10/host :config (v/sub [:b10/config])}
+   [:div.b10host {:data-testid "b10-host"}]])
+
 (v/defview surface
-  [{:keys [n]}]
-  [:div.b10
-   [v/behavior {:use host-clock :target :b10/host :config (v/sub [:b10/config])}
-    [:div.b10host {:data-testid "b10-host"}]]
-   [field {}]
-   [:div.b10cells
-    (for [i (range n)]
-      [cell {:key i :i i}])]])
+  "The page, in two spellings that differ in ONE thing: where the config
+  subscription is read.
+
+    :parent  the config sub is read HERE, in the view that also builds
+             the 300 cells — the shape an author naturally writes when
+             the behavior's config comes from app-db.
+    :leaf    the config sub is read inside [[host-panel]], one boundary
+             down, so the cells' parent does not depend on it.
+
+  Nothing else changes: the same behavior, the same config, the same
+  cells, the same field. The pair exists because the cost of a config
+  change turned out to be an order of magnitude larger than the cost of
+  a cell change while moving FEWER DOM nodes, and the obvious
+  explanation — that the whole subtree reconciles — is the sort of thing
+  that should be measured rather than asserted."
+  [{:keys [n read-at]}]
+  (let [cfg (when (= :parent read-at) (v/sub [:b10/config]))]
+    [:div.b10
+     (if (= :parent read-at)
+       [v/behavior {:use host-clock :target :b10/host :config cfg}
+        [:div.b10host {:data-testid "b10-host"}]]
+       [host-panel {}])
+     [field {}]
+     [:div.b10cells
+      (for [i (range n)]
+        [cell {:key i :i i}])]]))
 
 ;; ===========================================================================
 ;; Reading the page
@@ -429,42 +488,58 @@
                       (fn [_] true)))})
 
 (defn config-mode
-  "One rung of the behavior-config axis at one shape."
+  "One rung of the behavior-config axis at one shape.
+
+  The config to install is derived from WHATEVER IS CURRENTLY IN THE
+  STORE and built before the clock starts. Both halves of that matter.
+  Building outside keeps `into` out of the window; deriving from the
+  current value is what makes the arm order-independent — a first
+  version built each mode's config from a fixed generation, so a
+  `:fresh-equal` crossing that happened to follow a `:one-leaf` one was
+  not equal to anything and failed its own read-back in 7 of every 10
+  samples. Rotating arm order is what exposed it."
   [mode shape]
   {:id   (keyword (str (name shape) "-" (name mode)))
    :mode mode :shape shape
    :run! (fn [container observer]
            (let [gen    (next-gen!)
-                 before (:config (frame/frame-app-db-value frame-id))]
+                 before (:config (frame/frame-app-db-value frame-id))
+                 cfg    (case mode
+                          :stable      before
+                          :fresh-equal (deep-fresh before)
+                          :one-leaf    (touch-one-leaf shape before gen))]
              (crossing! container observer
-                        (fn [] (rf/dispatch-sync [:b10/config-offered mode shape gen]
-                                                 {:frame frame-id}))
+                        (fn [] (rf/dispatch-sync [:b10/config-install cfg] {:frame frame-id}))
                         (fn [_]
                           (let [after (:config (frame/frame-app-db-value frame-id))]
                             (case mode
                               :stable      (identical? before after)
                               :fresh-equal (and (not (identical? before after))
                                                 (= before after))
-                              :one-leaf    (not= before after)))))))})
+                              :one-leaf    (and (not= before after)
+                                                (= (dissoc-leaf shape before)
+                                                   (dissoc-leaf shape after)))))))))})
 
 ;; ===========================================================================
 ;; Mount / teardown
 ;; ===========================================================================
 
 (defn mount!
-  "Mount the surface into a fresh attached container. Answers
+  "Mount the surface into a fresh attached container. `read-at` is
+  `:parent` or `:leaf` — see [[surface]]. Answers
   `{:container :handle :observer}`."
-  [shape]
+  ([shape] (mount! shape :parent))
+  ([shape read-at]
   (let [container (js/document.createElement "div")]
     (.appendChild js/document.body container)
     (reset-behavior-log!)
     (let [handle (react-dom/flushSync
                    (fn []
-                     (v/mount [surface {:n cells-n}] container
+                     (v/mount [surface {:n cells-n :read-at read-at}] container
                               {:frame         {:id             frame-id
                                                :initial-events [[:b10/seed cells-n shape]]}
                                :disambiguator :b10/two-clock})))]
-      {:container container :handle handle :observer (observe! container)})))
+      {:container container :handle handle :observer (observe! container)}))))
 
 (defn release!
   [{:keys [container handle observer]}]
