@@ -199,6 +199,16 @@
           (assoc-in [:deps 'day8/re-frame2-story]
                     {:local/root (rel-of "tools/story")})
 
+          ;; The with-story scaffold also pins day8/re-frame2-machines —
+          ;; the resolution pin the two tools' git coords need, and a
+          ;; real runtime dep besides (Story's loader lifecycle is a
+          ;; machine). It is an :mvn/version coord like the framework
+          ;; ones, so it needs the same rewrite or the local run tries to
+          ;; resolve an unpublished alpha off Clojars (rf2-57bjg).
+          (contains? (:deps deps) 'day8/re-frame2-machines)
+          (assoc-in [:deps 'day8/re-frame2-machines]
+                    {:local/root (rel-of "implementation/machines")})
+
           ;; The SSR scaffold adds day8/re-frame2-ssr + day8/re-frame2-ssr-ring
           ;; (re-frame.ssr + re-frame.ssr.ring live under implementation/ssr +
           ;; implementation/ssr-ring). Rewrite them the same way so the
