@@ -60,11 +60,29 @@
   step-1 validation really has been elided. Without it, \"the handler did not
   run\" would prove nothing about which mechanism stopped it.
 
+  ## Surface 2 has a SECOND half (rf2-mwv4e)
+
+  Surface 2 above pins that the boundary REFUSAL survives the gate. Until
+  rf2-mwv4e its REPORT did not, and nothing in this namespace noticed: the
+  boundary deftest captured neither axis, unlike its recordable-cofx
+  neighbours, so \"the handler was skipped\" passed while the rejection was
+  silent AND its `:events` record read `:outcome :ok` — an off-box shipper saw
+  a dispatch that succeeded. The rejection now fans one always-on
+  STRUCTURAL-ONLY `:rf.error/schema-validation-failure` record (`:source
+  :boundary`) and settles `:outcome :rejected`, and the deftests below pin
+  BOTH, under this same real gate, including the key set CLOSED and the
+  ABSENCE of every payload-bearing slot. That absence is the egress contract:
+  whatever this record carries ships to Sentry / Datadog, and a rejected
+  boundary payload is attacker-controlled by definition.
+
   Deliberately NOT used: `with-redefs` on `interop/debug-enabled?`. The flag is
   read once at namespace-load time; a rebind cannot reach it (rf2-f7qj4)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.set :as set]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
+            [re-frame.event-emit :as event-emit]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
@@ -78,6 +96,7 @@
   (schemas/clear-schemas-by-frame!)
   (trace/clear-listeners!)
   (error-emit/clear-error-listeners!)
+  (event-emit/clear-event-listeners!)
   (rf/init! plain-atom/adapter)
   ;; `registrar/clear-all!` drops the framework-standard interceptor
   ;; registrations; `init!` re-seeds them, including `:rf.schema/at-boundary`
@@ -104,6 +123,57 @@
 
 (defn- record-of [records error-kw]
   (first (filter #(= error-kw (:error %)) records)))
+
+(defn- record-both-axes
+  "Capture BOTH always-on axes across one body — the `:errors` axis
+  (`register-error-listener!`) and the `:events` axis
+  (`register-event-listener!`). Returns `{:errors [...] :events [...]}`.
+
+  Together these two records are the WHOLE of what an off-box shipper receives
+  from a production build: the dev trace surface is gated on
+  `interop/debug-enabled?` and sees nothing here. rf2-mwv4e's defect lived
+  precisely in the gap between them — the `:errors` axis carried no record and
+  the `:events` axis reported `:outcome :ok` — so a test that reads one axis
+  alone cannot see it."
+  [body-fn]
+  (let [errors (atom [])
+        events (atom [])]
+    (error-emit/register-error-listener! ::rec (fn [r] (swap! errors conj r)))
+    (event-emit/register-event-listener! ::rec (fn [r] (swap! events conj r)))
+    (try (body-fn)
+         (finally
+           (error-emit/unregister-error-listener! ::rec)
+           (event-emit/unregister-event-listener! ::rec)))
+    {:errors @errors :events @events}))
+
+(defn- boundary-records [{:keys [errors]}]
+  (filterv #(= :rf.error/schema-validation-failure (:error %)) errors))
+
+(defn- event-record-for [{:keys [events]} event-id]
+  (first (filter #(= event-id (:event-id %)) events)))
+
+(def ^:private boundary-record-keys
+  "The CLOSED key set of the always-on boundary-rejection record (rf2-mwv4e).
+
+  Pinned rather than sampled: this record egresses to Sentry / Datadog, so a
+  slot added later reaches a shipper whether or not anyone reviewed it. Every
+  member is a framework keyword or a structural identifier — `:event-id` /
+  `:failing-id` / `:schema-id` are all the registered handler's id, not caller
+  data. Widening this set is an EGRESS decision; read
+  `re-frame.egress-chokepoint-conformance-test`'s allow-list entry first."
+  #{:error :where :source :event-id :failing-id :schema-id :frame :recovery :time})
+
+(def ^:private payload-bearing-keys
+  "Slots the RICH DEV TRACE carries that the always-on record must NEVER.
+
+  `:value` / `:received` are the rejected event vector itself; `:explain` is
+  the validator's explanation, which quotes it; `:schema` is the declared form;
+  `:reason` is prose that INTERPOLATES the offending value. At a system
+  boundary that value is attacker-controlled or user-private by definition and
+  may carry secrets in keys the schema never declared, so it is omitted
+  outright rather than scrubbed — no schema-aware redactor can be trusted to
+  have seen an undeclared key."
+  #{:event :value :received :explain :schema :reason})
 
 (defn- db-of [] (rf/app-db-value :rf/default))
 
@@ -252,6 +322,168 @@
       (rf/dispatch-sync [:prod/boundary 42])
       (is (= 1 @calls) "the conforming payload reached the handler")
       (is (= 42 (:n (db-of))) "and committed"))))
+
+;; ===========================================================================
+;; Surface 2, second half — the rejection is OBSERVABLE, and says so truthfully
+;; ===========================================================================
+
+(deftest at-boundary-rejection-fans-one-structural-record-in-every-posture
+  (testing "rf2-mwv4e — the refusal reaches an off-box shipper. Before this,
+            a production boundary rejection emitted NOTHING: the check ran, the
+            handler was skipped, and `trace/emit-error!` — its only report —
+            sits behind `interop/debug-enabled?`. An opt-in production security
+            gate was invisible to the person who opted in.
+
+            It now fans exactly ONE always-on record. `EXACTLY ONE` is
+            load-bearing in the DEV arm of this posture-independent deftest:
+            dev refuses in step-1 and production refuses inside the boundary
+            interceptor, and both routes converge on a single emit site in the
+            router tail, so neither posture can double-report a rejection."
+    (let [calls (atom 0)]
+      (rf/reg-event :prod/boundary
+        {:schema       [:cat [:= :prod/boundary] :int]
+         :interceptors [:rf.schema/at-boundary]}
+        (fn [{:keys [db]} [_ n]]
+          (swap! calls inc)
+          {:db (assoc db :n n)}))
+      (let [captured (record-both-axes
+                       #(rf/dispatch-sync [:prod/boundary "not-an-int"]))
+            records  (boundary-records captured)
+            rec      (first records)]
+        (is (zero? @calls)
+            "precondition: the handler was skipped (the security half)")
+        (is (nil? (:n (db-of)))
+            "precondition: nothing committed to app-db")
+        (is (= 1 (count records))
+            (str "EXACTLY ONE always-on boundary record. Red at 0 means the "
+                 "rejection is silent in this posture again — the defect this "
+                 "bead closed. Red above 1 means the dev and production "
+                 "enforcement routes have both emitted, which the single "
+                 "router-tail emit site exists to prevent."))
+        (is (= :event (:where rec))
+            "`:where :event` — the slot the SSR default projector reads to
+             answer 400 rather than the locked generic 500")
+        (is (= :boundary (:source rec))
+            "`:source :boundary` — the discriminator separating this
+             production-reachable arm from the dev-only `validate-*!` arms of
+             the same category")
+        (is (= :prod/boundary (:event-id rec))
+            "attributed to the dispatch, so a shipper can count per-event")
+        (is (= :prod/boundary (:failing-id rec)))
+        (is (= :prod/boundary (:schema-id rec)))
+        (is (= :rf/default (:frame rec))
+            "and to the owning frame, so a multi-frame server host can route
+             it per-request")
+        (is (= :no-recovery (:recovery rec)))
+        (is (number? (:time rec)))))))
+
+(deftest at-boundary-rejection-record-is-structural-only-in-every-posture
+  (testing "rf2-mwv4e — the EGRESS contract. Whatever this record carries ships
+            off-box. A schema failure's natural detail is THE VALUE THAT
+            FAILED, and at a system boundary (an HTTP response, a websocket
+            frame, a `postMessage`, a query string) that value is
+            attacker-controlled or user-private by definition — it can carry
+            secrets in keys the declared schema never anticipated, so no
+            schema-aware redactor can be trusted to have seen them.
+
+            Structural-only is therefore STRICTER here than the EP-0015 scrub
+            the safe-redirect / route-miss records use: there the untrusted URL
+            IS the observability payload and is redacted in place; here every
+            payload-derived slot is omitted OUTRIGHT and no scrub applies.
+
+            The key set is pinned CLOSED, not sampled. A slot added later
+            reaches a shipper whether or not anyone reviewed it, and this
+            assertion is the review."
+    (rf/reg-event :prod/boundary
+      {:schema       [:cat [:= :prod/boundary] :int]
+       :interceptors [:rf.schema/at-boundary]}
+      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+    (let [secret   "sentinel-secret-value"
+          captured (record-both-axes
+                     #(rf/dispatch-sync [:prod/boundary {:password secret}]))
+          rec      (first (boundary-records captured))]
+      (is (some? rec) "precondition: the rejection fanned its record")
+      (is (= boundary-record-keys (set (keys rec)))
+          (str "the key set is CLOSED. A NEW slot here is an egress decision: "
+               "read the `re-frame.router` entry on "
+               "`egress-chokepoint-conformance-test`'s structural-only "
+               "allow-list before widening it."))
+      (is (empty? (set/intersection payload-bearing-keys (set (keys rec))))
+          (str "no payload-bearing slot rides the always-on record — the "
+               "event vector, `:value`, `:received`, `:explain`, the schema "
+               "form and the interpolated `:reason` are DEV-TRACE ONLY."))
+      (is (not (str/includes? (pr-str rec) secret))
+          (str "and the rejected payload's own content appears NOWHERE in the "
+               "record, by any route — not in a `:reason` sentence, not in an "
+               "`:explain` map, not stringified into an identifier.")))))
+
+(deftest at-boundary-rejection-settles-outcome-rejected-in-every-posture
+  (testing "rf2-mwv4e — the sharper half of the defect. Silence would have been
+            bad enough; the always-on `:events` record REPORTED SUCCESS. The
+            handler produced no `:db`, so the cascade reached its ordinary tail
+            and settled `:ok` — an off-box shipper watching the event stream
+            saw a dispatch that worked.
+
+            `:rejected` is a public event-outcome addition and it says exactly
+            what happened. Neither existing non-`:ok` value fits: `:error`
+            means the interceptor chain threw (it did not) and `:rolled-back`
+            means a candidate state transition was refused before install (no
+            candidate ever existed — the handler never ran). Overloading either
+            would corrupt working semantics; keeping `:ok` preserved a known
+            lie."
+    (rf/reg-event :prod/boundary
+      {:schema       [:cat [:= :prod/boundary] :int]
+       :interceptors [:rf.schema/at-boundary]}
+      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+    (let [captured (record-both-axes
+                     #(rf/dispatch-sync [:prod/boundary "not-an-int"]))
+          evt      (event-record-for captured :prod/boundary)]
+      (is (some? evt) "the always-on `:events` record fired for the dispatch")
+      (is (= :rejected (:outcome evt))
+          (str "`:outcome :rejected`. Red with `:ok` means production "
+               "monitoring is again being told a refused untrusted payload "
+               "settled cleanly — it cannot separate hostile input from a "
+               "healthy dispatch.")))))
+
+(deftest at-boundary-pass-emits-no-record-and-settles-ok-in-every-posture
+  (testing "rf2-mwv4e — the negative control for both halves. The promotion is
+            not simply stamping every dispatch through a guarded handler: a
+            CONFORMING payload fans no boundary record and settles `:ok`, so a
+            shipper's `:rejected` count is a count of real refusals and its
+            silence is real silence."
+    (rf/reg-event :prod/boundary
+      {:schema       [:cat [:= :prod/boundary] :int]
+       :interceptors [:rf.schema/at-boundary]}
+      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+    (let [captured (record-both-axes #(rf/dispatch-sync [:prod/boundary 42]))]
+      (is (empty? (boundary-records captured))
+          "a passing payload fans NO always-on boundary record")
+      (is (= :ok (:outcome (event-record-for captured :prod/boundary)))
+          "and settles `:ok`"))))
+
+(deftest unguarded-schema-refusal-is-not-a-boundary-rejection-in-every-posture
+  (testing "rf2-mwv4e — the promotion's NARROWNESS, pinned. A handler carrying
+            a `:schema` but NOT referencing `:rf.schema/at-boundary` is a
+            DEV-ONLY validation surface (Spec 010 §Production builds,
+            rf2-bkvu5): in dev step-1 refuses it, in production it is elided
+            and the handler simply runs. Neither posture may fan the always-on
+            record or report `:rejected` — that would invent a production
+            signal which, for this handler, cannot exist.
+
+            Posture-independent by construction: it asserts only the two facts
+            that hold either way. WHETHER the handler ran differs by posture
+            and is the `^:prod-gate` discriminator's business, not this one's."
+    (rf/reg-event :prod/unguarded-obs
+      {:schema [:cat [:= :prod/unguarded-obs] :int]}      ;; no at-boundary ref
+      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+    (let [captured (record-both-axes
+                     #(rf/dispatch-sync [:prod/unguarded-obs "not-an-int"]))]
+      (is (empty? (boundary-records captured))
+          (str "no always-on record: the boundary interceptor is not in this "
+               "handler's chain, so there is no production gate to report on."))
+      (is (not= :rejected (:outcome (event-record-for captured
+                                                      :prod/unguarded-obs)))
+          "and no `:rejected` outcome — `:rejected` means a BOUNDARY refusal"))))
 
 ;; ===========================================================================
 ;; The discriminator — gate lane ONLY

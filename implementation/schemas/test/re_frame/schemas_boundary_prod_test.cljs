@@ -23,9 +23,21 @@
        boundary's production validation branch runs.
     2. `re-frame.trace/emit-error!` ALSO elides under the same gate
        (its body sits inside `(when interop/debug-enabled? ...)`) — the
-       boundary's failure-trace emission is silent in production.
+       boundary's failure-TRACE emission is silent in production, and
+       stays that way: the rich `:value` / `:explain` diagnosis is
+       exactly what must not egress.
     3. The handler-skip recovery (`:rf/skip-handler?` set on the
-       context) is the load-bearing observable surface.
+       context) is the load-bearing SECURITY surface.
+    4. rf2-mwv4e — and the rejection is now OBSERVABLE here too. The
+       silence in (2) is the trace axis ONLY; the refusal additionally
+       fans one always-on STRUCTURAL-ONLY record through
+       `register-error-listener!`, which carries no gate and survives
+       `:advanced`. That axis is the whole point: before it, this
+       `:advanced` build was the exact configuration in which a refused
+       untrusted payload told nobody. Pinning both here — trace EMPTY,
+       always-on record PRESENT — is what proves the two axes are
+       genuinely separate rather than one surface everyone assumed
+       survived.
 
   We deliberately use the ns suffix `-prod-test` (not `-cljs-test`) so
   the default `:browser-test` and `:node-test` builds (whose regexes
@@ -101,13 +113,16 @@
             builds: under `:advanced` + `goog.DEBUG=false`,
             `trace/emit-error!` also elides (its body sits inside
             `(when interop/debug-enabled? ...)`). The boundary's failure
-            emission therefore does NOT fire a trace in production —
-            the handler-skip is silent.
+            emission therefore does NOT fire a TRACE in production.
 
             This pins the dual-elision contract: trace gate AND boundary
             gate both fold under the same closure-define. A registered
             trace callback would never see a boundary emission because
-            the entire emit body has DCE'd."
+            the entire emit body has DCE'd. rf2-mwv4e keeps this pin
+            deliberately: the trace is where the rejected VALUE and the
+            validator's `:explain` ride, and those are precisely what a
+            production build must not carry. The production REPORT lives
+            on the always-on axis instead — see the deftest below."
     (let [calls (atom 0)]
       (rf/reg-event :api/strict
         {:schema [:cat [:= :api/strict] :int]
@@ -123,6 +138,48 @@
         ;; reach the callback by design.
         (is (empty? @traces)
             "no traces observed — Spec 009 §Production builds elision contract holds")))))
+
+(deftest boundary-rejection-is-observable-on-the-always-on-axis-in-prod
+  (testing "rf2-mwv4e — the counterpart to the elision pin above, in the ONE
+            configuration where it mattered most. Under `:advanced` +
+            `goog.DEBUG=false` the boundary check runs, the handler is skipped,
+            and the trace surface is gone. Until this bead that was the whole
+            story: a refused untrusted payload emitted nothing anywhere, and
+            the always-on `:events` record for the dispatch read `:outcome
+            :ok` — a shipper saw a dispatch that succeeded.
+
+            `register-error-listener!` carries no debug gate, so the structural
+            record below survives the same closure-define that erased the
+            trace. Red here means the promotion did not survive `:advanced`,
+            which is the only build where it was needed."
+    (rf/reg-event :api/strict
+      {:schema [:cat [:= :api/strict] :int]
+       :interceptors [:rf.schema/at-boundary]}
+      (fn [_ _] {}))
+    (let [errors (atom [])
+          events (atom [])]
+      (rf/register-listener! :errors ::rec (fn [r] (swap! errors conj r)))
+      (rf/register-listener! :events ::rec (fn [r] (swap! events conj r)))
+      (try
+        (rf/dispatch-sync [:api/strict "not-an-int"])
+        (finally
+          (rf/unregister-listener! :errors ::rec)
+          (rf/unregister-listener! :events ::rec)))
+      (let [rec (first (filter #(= :rf.error/schema-validation-failure (:error %))
+                               @errors))
+            evt (first (filter #(= :api/strict (:event-id %)) @events))]
+        (is (some? rec)
+            "the always-on boundary record survived :advanced + goog.DEBUG=false")
+        (is (= :boundary (:source rec)) ":source :boundary")
+        (is (= :event (:where rec)) ":where :event")
+        (is (= :api/strict (:event-id rec)) "attributed to the dispatch")
+        ;; Structural-only: the rejected payload must not egress. The JVM
+        ;; namespace `re-frame.always-on-validation-production-test` pins the
+        ;; key set CLOSED; this arm pins the one fact `:advanced` could change.
+        (is (not (re-find #"not-an-int" (pr-str rec)))
+            "and carries NOTHING from the rejected payload")
+        (is (= :rejected (:outcome evt))
+            "the :events record reports :rejected, not the old :ok lie")))))
 
 (deftest boundary-direct-before-invocation-in-prod
   (testing "Per Spec 010 §Per-step recovery step 1: directly invoking the
