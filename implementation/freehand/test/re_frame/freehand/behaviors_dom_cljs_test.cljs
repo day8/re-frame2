@@ -33,7 +33,6 @@
   also matches the node suites' broader regex, where it has no DOM to mount
   and says so rather than passing quietly."
   (:require ["react" :as react]
-            ["react-dom/client" :as rdc]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; The DOOR, required alongside the internal namespace on
@@ -44,6 +43,7 @@
             [re-frame.freehand.behavior-views :as bv]
             [re-frame.freehand.behaviors :as behaviors]
             [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.shell :as shell]
             [re-frame.live-frame :as live-frame]
@@ -54,7 +54,12 @@
   (test-support/make-reset-runtime-fixture
     {:adapter       plain-atom/adapter
      :ambient-frame nil
-     :async?        true}))
+     :async?        true
+     ;; Scope the shared lifecycle ledger to this test. Bookkeeping only —
+     ;; it forgets what the previous test mounted and tears nothing down, so
+     ;; `ms/residue-clean!` reads a leak AFTER a test rather than a reset
+     ;; hiding one before the next.
+     :init-fn       (fn [] (ms/reset-ledger!))}))
 
 (def ^:private fh-004 (conf/fixture :FH-BEHAVIOR-004))
 (def ^:private fh-005 (conf/fixture :FH-BEHAVIOR-005))
@@ -71,31 +76,26 @@
   rather than a description."
   :dom/behaviors-other)
 
-(defn- browser? []
-  (and (exists? js/document) (some? (.-createElement js/document))))
+;; The mounted LIFECYCLE — the `act` boundary, the `[container root]` pair
+;; and the teardown — comes from `re-frame.freehand.mount-support`, the one
+;; facade the browser tier shares (rf2-n9rzw). This file used to carry its
+;; own byte-identical copy of each.
 
-(defn- skip! [why]
-  (is true (str "a real React mount needs a DOM host — " why)))
+(defn- released!
+  "FH-BEHAVIOR-005's absence, read AFTER teardown: the facade's own books
+  (every root retired, its container empty and detached) plus the
+  substrate's two — the connection table and the live target index — as
+  EXACT zeros rather than thresholds.
 
-(defn- act
-  "A React 19 `act` boundary as a promise, so assertions run after the
-  commit AND its flushed effects rather than racing them."
-  [thunk]
-  (try
-    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-    (js/Promise.resolve (react/act (fn [] (js/Promise.resolve (thunk)))))
-    (catch :default e
-      (js/Promise.reject e))))
-
-(defn- mount! []
-  (let [container (js/document.createElement "div")]
-    (.appendChild js/document.body container)
-    [container (rdc/createRoot container)]))
-
-(defn- teardown! [container root]
-  (.unmount root)
-  (.remove container)
-  nil)
+  The rows below already compare those two books against the fixture's
+  stated `:after-teardown` answers, which is what earns the claim. This
+  adds the half no per-suite teardown can make: that the ROOT itself went,
+  which is the leak that contaminates every later suite in the process
+  rather than this one."
+  [where]
+  (ms/residue-clean! where
+                     [["the connection table"  #(behaviors/connection-count)]
+                      ["the live target index" #(behaviors/target-ids)]]))
 
 (defn- setup! []
   (behaviors/reset-connections!)
@@ -159,13 +159,13 @@
             the candidate really runs and really never commits: the lifecycle
             transcript must be empty and the connection table must be zero.
             The same tree, committed, then connects exactly once."
-    (if-not (browser?)
-      (skip! "the browser job runs the commit-only assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the commit-only assertions")
       (async done
         (setup!)
         (reset! suspender-renders 0)
-        (let [[container root] (mount!)]
-          (-> (act #(.render root (probe-element true)))
+        (let [[container root] (ms/create-root!)]
+          (-> (ms/act #(.render root (probe-element true)))
               (.then (fn [_]
                        (is (pos? @suspender-renders)
                            "the candidate really rendered — it reached the suspending sibling")
@@ -175,18 +175,18 @@
                            "so NOTHING connected")
                        (is (zero? (behaviors/connection-count))
                            "and the connection table is empty")
-                       (act #(.render root (probe-element false)))))
+                       (ms/act #(.render root (probe-element false)))))
               (.then (fn [_]
                        (is (= (:committed fh-004) (bv/ops))
                            "the COMMITTED render connects, exactly once")
                        (is (= 1 (behaviors/connection-count)))
                        (is (= #{:probe/one} (behaviors/target-ids))
                            "and claims the semantic id the use site declared")
-                       (teardown! container root)
+                       (ms/destroy-root! container root)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container root)
+                        (ms/destroy-root! container root)
                         (done)))))))))
 
 (deftest fh-behavior-004-update-observes-movement-not-renders
@@ -196,20 +196,20 @@
             scroll offset for no reason at all — so a re-render carrying an
             equal config must leave the transcript untouched, and a moved one
             must arrive with both the new config and the previous one."
-    (if-not (browser?)
-      (skip! "the browser job runs the update assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the update assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)]
-          (-> (act #(.render root (element [bv/plain {:label "a"}])))
+        (let [[container root] (ms/create-root!)]
+          (-> (ms/act #(.render root (element [bv/plain {:label "a"}])))
               (.then (fn [_]
                        (is (= (:committed fh-004) (bv/ops)))
                        ;; an equal config, rendered again
-                       (act #(.render root (element [bv/plain {:label "a"}])))))
+                       (ms/act #(.render root (element [bv/plain {:label "a"}])))))
               (.then (fn [_]
                        (is (= (:equal-config fh-004) (bv/ops))
                            "an rf=-equal config is not movement")
-                       (act #(.render root (element [bv/plain {:label "moved"}])))))
+                       (ms/act #(.render root (element [bv/plain {:label "moved"}])))))
               (.then (fn [_]
                        (is (= (:moved-config fh-004) (bv/ops))
                            "a moved config reconciles the host, once")
@@ -219,11 +219,11 @@
                              "with the previous config alongside the new one")
                          (is (= (:memory (:moved fh-004)) memory)
                              "and the private memory :connect returned"))
-                       (teardown! container root)
+                       (ms/destroy-root! container root)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container root)
+                        (ms/destroy-root! container root)
                         (done)))))))))
 
 (deftest fh-behavior-004-layout-timing-runs-before-passive
@@ -233,12 +233,12 @@
             transcript in document order would prove the timing was ignored.
             The layout connection must come first, and its DOM write must be
             visible on the node."
-    (if-not (browser?)
-      (skip! "the browser job runs the timing assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the timing assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)]
-          (-> (act #(.render root (element [bv/mixed-timing {}])))
+        (let [[container root] (ms/create-root!)]
+          (-> (ms/act #(.render root (element [bv/mixed-timing {}])))
               (.then (fn [_]
                        (is (= (:timing-order fh-004) (mapv :behavior @bv/transcript))
                            "the declared timing overrides document order")
@@ -246,11 +246,11 @@
                          (is (= value (attr container ".node[data-id='layout']" attribute))
                              "and the layout behavior's DOM write is on its node"))
                        (is (= 2 (behaviors/connection-count)))
-                       (teardown! container root)
+                       (ms/destroy-root! container root)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container root)
+                        (ms/destroy-root! container root)
                         (done)))))))))
 
 ;; ===========================================================================
@@ -268,13 +268,13 @@
             that was never written. `:disconnect` runs EXACTLY once — both
             timing arms are installed on every render, and only the arm that
             connected may release."
-    (if-not (browser?)
-      (skip! "the browser job runs the teardown assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the teardown assertions")
       (async done
         (setup!)
-        (let [[control-container control-root] (mount!)
-              [container root]                 (mount!)]
-          (-> (act #(.render control-root (element [bv/control-mount {}])))
+        (let [[control-container control-root] (ms/create-root!)
+              [container root]                 (ms/create-root!)]
+          (-> (ms/act #(.render control-root (element [bv/control-mount {}])))
               (.then (fn [_]
                        (let [{:keys [connections targets lifecycle]} (:control fh-005)]
                          (is (= connections (behaviors/connection-count))
@@ -283,17 +283,17 @@
                          (is (= lifecycle (bv/ops))))
                        (is (some? (.querySelector control-container ".node"))
                            "and it really did mount the same node")
-                       (act #(teardown! control-container control-root))))
+                       (ms/act #(ms/destroy-root! control-container control-root))))
               (.then (fn [_]
                        (is (= 0 (behaviors/connection-count))
                            "tearing the control down changes nothing either")
-                       (act #(.render root (element [bv/plain {}])))))
+                       (ms/act #(.render root (element [bv/plain {}])))))
               (.then (fn [_]
                        (let [{:keys [connections targets lifecycle]} (:mounted fh-005)]
                          (is (= connections (behaviors/connection-count)))
                          (is (= (set targets) (behaviors/target-ids)))
                          (is (= lifecycle (bv/ops))))
-                       (act #(teardown! container root))))
+                       (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (let [{:keys [connections targets lifecycle]} (:after-teardown fh-005)]
                          (is (= connections (behaviors/connection-count))
@@ -302,6 +302,10 @@
                              "and the live target index holds nothing")
                          (is (= lifecycle (bv/ops))
                              "with :disconnect having run exactly once"))
+                       ;; BOTH roots — the control and the behaving one —
+                       ;; are read here, which is what the shared ledger
+                       ;; buys over a per-suite teardown.
+                       (released! "FH-BEHAVIOR-005 — after the last unmount")
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
@@ -313,21 +317,22 @@
             behavior must be released by the layout arm and by that arm only
             — a second release would show as a duplicate `:disconnect`, and a
             release by the wrong arm would show as none at all."
-    (if-not (browser?)
-      (skip! "the browser job runs the layout teardown assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the layout teardown assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)]
-          (-> (act #(.render root (element [bv/layout-timed {}])))
+        (let [[container root] (ms/create-root!)]
+          (-> (ms/act #(.render root (element [bv/layout-timed {}])))
               (.then (fn [_]
                        (is (= 1 (behaviors/connection-count)))
-                       (act #(teardown! container root))))
+                       (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (let [{:keys [connections targets lifecycle]}
                              (:layout-after-teardown fh-005)]
                          (is (= connections (behaviors/connection-count)))
                          (is (= (set targets) (behaviors/target-ids)))
                          (is (= lifecycle (bv/ops))))
+                       (released! "FH-BEHAVIOR-005 — after the layout arm releases")
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
@@ -339,24 +344,25 @@
             and leaves the other's claim installed. A release keyed on the
             TARGET rather than the connection would be the same test with the
             survivor's claim missing."
-    (if-not (browser?)
-      (skip! "the browser job runs the partial-teardown assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the partial-teardown assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)]
-          (-> (act #(.render root (element [bv/pair {}])))
+        (let [[container root] (ms/create-root!)]
+          (-> (ms/act #(.render root (element [bv/pair {}])))
               (.then (fn [_]
                        (is (= 2 (behaviors/connection-count)))
                        (is (= #{:probe/one :probe/two} (behaviors/target-ids)))
-                       (act #(.render root (element [bv/plain {}])))))
+                       (ms/act #(.render root (element [bv/plain {}])))))
               (.then (fn [_]
                        (let [{:keys [connections targets]} (:partial-teardown fh-005)]
                          (is (= connections (behaviors/connection-count)))
                          (is (= (set targets) (behaviors/target-ids))
                              "the survivor's claim is untouched"))
-                       (act #(teardown! container root))))
+                       (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (zero? (behaviors/connection-count)))
+                       (released! "FH-BEHAVIOR-005 — after the survivor's own unmount")
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
@@ -375,16 +381,16 @@
             named node carries the mark and the decoy carries nothing at all.
             It travels the real effect path, dispatched from an ordinary
             re-frame event handler."
-    (if-not (browser?)
-      (skip! "the browser job runs the command-delivery assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the command-delivery assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)
+        (let [[container root] (ms/create-root!)
               {:keys [command marked untouched lifecycle]} (:delivered fh-006)]
-          (-> (act #(.render root (element [bv/pair {}])))
+          (-> (ms/act #(.render root (element [bv/pair {}])))
               (.then (fn [_]
                        (is (= 2 (behaviors/connection-count)))
-                       (act #(rf/dispatch-sync [:probe/command command]
+                       (ms/act #(rf/dispatch-sync [:probe/command command]
                                                {:frame frame-id}))))
               (.then (fn [_]
                        (is (= lifecycle (bv/ops))
@@ -397,11 +403,11 @@
                            "and the live DECOY was untouched")
                        (is (= :probe/one (:target (last @bv/transcript)))
                            "the context carried the target it was addressed by")
-                       (teardown! container root)
+                       (ms/destroy-root! container root)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container root)
+                        (ms/destroy-root! container root)
                         (done)))))))))
 
 (deftest fh-behavior-006-a-command-does-not-cross-into-another-frame
@@ -423,14 +429,14 @@
             process-wide at this instant, which is what makes an empty `:live`
             an assertion rather than an accident: naming it would offer a
             recovery the command could never have taken."
-    (if-not (browser?)
-      (skip! "the browser job runs the frame-scope assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the frame-scope assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)
+        (let [[container root] (ms/create-root!)
               {:keys [command outcome untouched lifecycle]}
               (:crossing (:frame-scope fh-006))]
-          (-> (act #(.render root (element-in decoy-frame-id [bv/plain {}])))
+          (-> (ms/act #(.render root (element-in decoy-frame-id [bv/plain {}])))
               (.then (fn [_]
                        (is (= 1 (behaviors/connection-count))
                            "the decoy frame really holds the only live claim")
@@ -455,11 +461,11 @@
                            "and the other frame's node was not touched")
                        (is (= lifecycle (bv/ops))
                            "no host work ran at all")
-                       (teardown! container root)
+                       (ms/destroy-root! container root)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container root)
+                        (ms/destroy-root! container root)
                         (done)))))))))
 
 (deftest fh-behavior-006-one-target-per-frame-is-not-ambiguous
@@ -470,25 +476,25 @@
             refused. A process-global target index would collapse the pair and
             refuse both. Both commands travel the real effect path, so the frame
             they are scoped by is the one the fx context supplied."
-    (if-not (browser?)
-      (skip! "the browser job runs the per-frame delivery assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the per-frame delivery assertions")
       (async done
         (setup!)
-        (let [[container-a root-a] (mount!)
-              [container-b root-b] (mount!)
+        (let [[container-a root-a] (ms/create-root!)
+              [container-b root-b] (ms/create-root!)
               {:keys [per-frame lifecycle]} (:frame-scope fh-006)
               [origin decoy]                per-frame]
-          (-> (act #(.render root-a (element-in frame-id [bv/plain {}])))
-              (.then (fn [_] (act #(.render root-b (element-in decoy-frame-id
+          (-> (ms/act #(.render root-a (element-in frame-id [bv/plain {}])))
+              (.then (fn [_] (ms/act #(.render root-b (element-in decoy-frame-id
                                                                [bv/plain {}])))))
               (.then (fn [_]
                        (is (= 2 (behaviors/connection-count))
                            "two live connections, one per frame")
                        (is (= #{:probe/one} (behaviors/target-ids))
                            "claiming the SAME semantic target")
-                       (act #(rf/dispatch-sync [:probe/command (:command origin)]
+                       (ms/act #(rf/dispatch-sync [:probe/command (:command origin)]
                                                {:frame frame-id}))))
-              (.then (fn [_] (act #(rf/dispatch-sync [:probe/command (:command decoy)]
+              (.then (fn [_] (ms/act #(rf/dispatch-sync [:probe/command (:command decoy)]
                                                      {:frame decoy-frame-id}))))
               (.then (fn [_]
                        (doseq [[container {:keys [note marked]}]
@@ -499,13 +505,13 @@
                              note))
                        (is (= lifecycle (bv/ops))
                            "each command ran exactly once, and neither was refused")
-                       (teardown! container-a root-a)
-                       (teardown! container-b root-b)
+                       (ms/destroy-root! container-a root-a)
+                       (ms/destroy-root! container-b root-b)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container-a root-a)
-                        (teardown! container-b root-b)
+                        (ms/destroy-root! container-a root-a)
+                        (ms/destroy-root! container-b root-b)
                         (done)))))))))
 
 (deftest fh-behavior-006-every-other-outcome-is-a-visible-refusal
@@ -515,14 +521,14 @@
             are driven at the channel itself rather than through the event
             loop, so the assertion is on the diagnostic the channel raises
             rather than on whatever an fx wrapper makes of it."
-    (if-not (browser?)
-      (skip! "the browser job runs the command-refusal assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the command-refusal assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)]
+        (let [[container root] (ms/create-root!)]
           (letfn [(step [remaining]
                     (if-let [{:keys [note view command outcome]} (first remaining)]
-                      (-> (act #(.render root (element [(case view
+                      (-> (ms/act #(.render root (element [(case view
                                                           :pair  bv/pair
                                                           :twins bv/twins)
                                                         {}])))
@@ -537,11 +543,11 @@
                       (js/Promise.resolve :done)))]
           (-> (step (:refusals fh-006))
               (.then (fn [_]
-                       (teardown! container root)
+                       (ms/destroy-root! container root)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container root)
+                        (ms/destroy-root! container root)
                         (done))))))))))
 
 (deftest fh-behavior-006-a-command-is-refused-after-teardown-never-queued
@@ -550,20 +556,20 @@
             for a future mount — a queued imperative request would arrive at
             a node the application has since changed its mind about, and a
             future mount is driven by state and config or by a fresh event."
-    (if-not (browser?)
-      (skip! "the browser job runs the post-teardown assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the post-teardown assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)
+        (let [[container root] (ms/create-root!)
               {:keys [command outcome]} (:after-teardown fh-006)]
-          (-> (act #(.render root (element [bv/plain {}])))
+          (-> (ms/act #(.render root (element [bv/plain {}])))
               (.then (fn [_]
                        (is (= conf/no-throw
                               (conf/caught-id
                                 #(behaviors/command!
                                    frame-id {:target :probe/one :op :mark})))
                            "the command works while the connection is live")
-                       (act #(teardown! container root))))
+                       (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (= outcome (conf/caught-id
                                         #(behaviors/command! frame-id command)))
@@ -581,19 +587,19 @@
             must be INERT rather than firing into a successor. The suite holds
             the context past its own teardown, which is the only way to prove
             the fence rather than merely never exercise it."
-    (if-not (browser?)
-      (skip! "the browser job runs the fenced-dispatch assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the fenced-dispatch assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)
+        (let [[container root] (ms/create-root!)
               {:keys [event while-live after-teardown]} (:fenced-dispatch fh-006)]
-          (-> (act #(.render root (element [bv/plain {}])))
+          (-> (ms/act #(.render root (element [bv/plain {}])))
               (.then (fn [_]
                        (is (some? @bv/last-dispatch)
                            "connect handed the behavior an outward dispatch")
                        (is (= while-live (@bv/last-dispatch event))
                            "which is live while its connection is")
-                       (act #(teardown! container root))))
+                       (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (= after-teardown (@bv/last-dispatch event))
                            "and inert the moment the connection is released")
@@ -636,28 +642,28 @@
             step later; and the mutations are read off the instance's OWN cell,
             so the evidence is that the entries ran against the SAME instance
             rather than that some map happened to survive."
-    (if-not (browser?)
-      (skip! "the browser job runs the memory-ownership assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the memory-ownership assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)
+        (let [[container root] (ms/create-root!)
               {:keys [lifecycle instance mutations command moved]} fh-009
               memory-at (fn [op] (some #(when (= op (:op %)) (:memory %))
                                        @bv/transcript))]
-          (-> (act #(.render root (element [bv/mutating {}])))
+          (-> (ms/act #(.render root (element [bv/mutating {}])))
               (.then (fn [_]
                        (is (= 1 (behaviors/connection-count)))
                        ;; a MOVED config, so `:update` really runs
-                       (act #(.render root (element [bv/mutating moved])))))
+                       (ms/act #(.render root (element [bv/mutating moved])))))
               (.then (fn [_]
                        (is (= instance (:instance (memory-at :update)))
                            "`:update` receives the instance `:connect` built")
-                       (act #(rf/dispatch-sync [:probe/command command]
+                       (ms/act #(rf/dispatch-sync [:probe/command command]
                                                {:frame frame-id}))))
               (.then (fn [_]
                        (is (= instance (:instance (memory-at :mutate)))
                            "and so does the command, AFTER `:update` returned nothing")
-                       (act #(teardown! container root))))
+                       (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (= lifecycle (bv/ops))
                            "the whole lifecycle ran, in order")
@@ -671,7 +677,7 @@
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container root)
+                        (ms/destroy-root! container root)
                         (done)))))))))
 
 ;; ===========================================================================
@@ -696,15 +702,15 @@
             lifecycle entry and no route to a host instance, absent because
             the projection is built from the record's public half rather
             than filtered out of its whole."
-    (if-not (browser?)
-      (skip! "the browser job runs the projection assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the projection assertions")
       (async done
         (setup!)
-        (let [[container root]        (mount!)
+        (let [[container root]        (ms/create-root!)
               {:keys [present absent]} (:connection-keys fh-008)
               connected                (:connected fh-008)
               no-target                (:no-target fh-008)]
-          (-> (act #(.render root (element [bv/plain {}])))
+          (-> (ms/act #(.render root (element [bv/plain {}])))
               (.then (fn [_]
                        (let [rows (behaviors/active-connections)
                              row  (first rows)]
@@ -727,24 +733,24 @@
                              "carrying the frame the connection was committed under")
                          (is (pos-int? (:generation row))
                              "and the generation the release will name"))
-                       (act #(.render root (element [bv/no-target {}])))))
+                       (ms/act #(.render root (element [bv/no-target {}])))))
               (.then (fn [_]
                        (let [row (first (behaviors/active-connections))]
                          (is (= (disj (set present) :target) (set (keys row)))
                              "a behavior nothing commands projects NO target — absent, never nil")
                          (is (= (:config no-target) (:config row))))
-                       (act #(.render root (element [bv/pair {}])))))
+                       (ms/act #(.render root (element [bv/pair {}])))))
               (.then (fn [_]
                        (let [rows (behaviors/active-connections)]
                          (is (= 2 (count rows)))
                          (is (= (sort (map :generation rows)) (map :generation rows))
                              "projected oldest first, by the generation that ordered them")
                          (is (= [:probe/one :probe/two] (mapv :target rows))))
-                       (teardown! container root)
+                       (ms/destroy-root! container root)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container root)
+                        (ms/destroy-root! container root)
                         (done)))))))))
 
 (deftest fh-behavior-008-the-command-log-records-what-was-asked-and-decided
@@ -755,14 +761,14 @@
             resolved behavior and generation appear on a delivered row only,
             and the operation's return value — the connection's private
             memory — has no representation here at all."
-    (if-not (browser?)
-      (skip! "the browser job runs the command-traffic assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the command-traffic assertions")
       (async done
         (setup!)
-        (let [[container root]        (mount!)
+        (let [[container root]        (ms/create-root!)
               {:keys [present absent]} (:log-keys fh-008)
               traffic                  (:traffic fh-008)]
-          (-> (act #(.render root (element [bv/plain {}])))
+          (-> (ms/act #(.render root (element [bv/plain {}])))
               (.then (fn [_]
                        (is (empty? (behaviors/command-log))
                            "a mount commands nothing, so the log starts empty")
@@ -794,11 +800,11 @@
                                      (str note " — and no generation"))))
                            (is (every? (set present) (keys got))
                                (str note " — the key roster is closed"))))
-                       (teardown! container root)
+                       (ms/destroy-root! container root)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container root)
+                        (ms/destroy-root! container root)
                         (done)))))))))
 
 (deftest fh-behavior-008-the-command-log-is-a-bounded-window
@@ -808,13 +814,13 @@
             eviction is proved rather than assumed: the run's only refusal
             is issued FIRST, so a cap that discarded the newest rows would
             still be holding it."
-    (if-not (browser?)
-      (skip! "the browser job runs the bounded-window assertions")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the bounded-window assertions")
       (async done
         (setup!)
-        (let [[container root] (mount!)
+        (let [[container root] (ms/create-root!)
               {:keys [overflow-by op target evicted]} (:bounded fh-008)]
-          (-> (act #(.render root (element [bv/plain {}])))
+          (-> (ms/act #(.render root (element [bv/plain {}])))
               (.then (fn [_]
                        (conf/caught-id #(behaviors/command! frame-id evicted))
                        (is (= [:refused] (mapv :outcome (behaviors/command-log)))
@@ -826,9 +832,9 @@
                              "the window holds the limit and no more")
                          (is (every? #(= :delivered (:outcome %)) rows)
                              "and the OLDEST rows were the ones dropped"))
-                       (teardown! container root)
+                       (ms/destroy-root! container root)
                        (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (teardown! container root)
+                        (ms/destroy-root! container root)
                         (done)))))))))
