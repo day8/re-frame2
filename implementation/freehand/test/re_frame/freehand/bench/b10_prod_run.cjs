@@ -1,0 +1,154 @@
+#!/usr/bin/env node
+// B10's production driver — build, serve, run, print.
+//
+// The rates B10 publishes should describe the artefact a consumer ships
+// (`:advanced`, `goog.DEBUG false`), and shadow's `:browser-test` target
+// cannot be compiled that way — `cljs-test-display`'s `goog.define`s
+// collide under the Closure compiler. So the production reading rides a
+// plain `:browser` module built by merging an output directory and an
+// `:init-fn` into the existing `:freehand-release` build id, exactly as
+// B6's `b6_prod_run.cjs` does.
+//
+// **Nothing in `implementation/shadow-cljs.edn` changes.** The bead that
+// asked for this run assumed a new build target was needed and named the
+// hot-zone file as the reason it had not been done; B6 had already shown
+// the target is unnecessary. `--config-merge` supplies the two keys that
+// differ, and `:freehand-release` supplies `:optimizations :advanced`
+// and `goog.DEBUG false` — the only two properties this reading is
+// about. The run reports the build it actually got, off `goog.DEBUG`, so
+// the claim is checked rather than assumed.
+//
+//   node implementation/freehand/test/re_frame/freehand/bench/b10_prod_run.cjs
+//
+// Prints every published record as EDN on stdout and exits non-zero if
+// the run did not reach its own controls.
+
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const http = require('node:http');
+const path = require('node:path');
+
+const IMPL = path.resolve(__dirname, '../../../../..');
+const OUT_DIR = process.env.B10_OUT_DIR || 'out/b10-prod';
+const INIT_FN = process.env.B10_INIT_FN || 're-frame.freehand.bench.b10-prod-app/-main';
+
+const PORT = Number(process.env.B10_PORT || 8128);
+
+// A browser has no `process.env`, so provenance reaches the page only as a
+// COMPILE-TIME define — the same route `:browser-test-freehand-bench` uses.
+// Exporting the variables and stopping there would tell this runner and not
+// the bundle, and the record would publish `:d021 :not-release-evidence` with
+// a nil revision. `--config-merge` deep-merges, so `goog.DEBUG false` from
+// `:freehand-release` survives alongside these; the run reports the build it
+// actually got, so a merge that clobbered it would be visible rather than
+// silent.
+const REVISION = process.env.RF2_REVISION || '';
+const HARDWARE = process.env.RF2_HARDWARE_CLASS || '';
+
+// `B10_DEBUG=true` keeps `:advanced` and flips `goog.DEBUG` back ON — the
+// ABLATION arm. The published development figures were taken from a
+// different build id, a different page and a different runner, so reading
+// the dev-to-production gap off them alone attributes it to `:advanced` when
+// part of it could be any of those. This arm changes exactly one define and
+// nothing else: same entry, same page, same driver, same optimiser. What it
+// isolates is the Spec 009 instrumentation seam's own cost, which is the
+// term the bead asks to publish. The run reports the `goog.DEBUG` it
+// actually got, so the arm cannot silently be the wrong one.
+const DEBUG = process.env.B10_DEBUG === 'true';
+// A separate output directory per arm, so the two bundles cannot overwrite
+// each other and a stale one cannot be served as the other.
+const OUT_DIR_D = DEBUG ? `${OUT_DIR}-debug` : OUT_DIR;
+const OUT = path.join(IMPL, OUT_DIR_D);
+
+// ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
+// whitespace when the EDN contains a newline, and reports
+// `EOF while reading` from a fragment. Keep it on one line.
+const CONFIG_MERGE =
+  `{:output-dir "${OUT_DIR_D}" :asset-path "." ` +
+  `:compiler-options {:closure-defines ` +
+  `{goog.DEBUG ${DEBUG} ` +
+  `re-frame.freehand.bench.provenance/build-revision "${REVISION}" ` +
+  `re-frame.freehand.bench.provenance/build-hardware-class "${HARDWARE}"}} ` +
+  `:modules {:main {:init-fn ${INIT_FN}}}}`;
+
+function build() {
+  console.error('[b10] building :advanced bundle ...');
+  // `node cli/runner.js` rather than the `.cmd` shim: spawning a shim on
+  // Windows needs `shell: true`, and a shell concatenates argv, which is
+  // the other way the config-merge EDN gets torn in half.
+  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
+  const r = spawnSync(
+    process.execPath,
+    [runner, 'release', 'freehand-release', '--config-merge', CONFIG_MERGE],
+    { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
+  );
+  if (r.status !== 0) {
+    console.error(`[b10] build failed with status ${r.status}`);
+    process.exit(1);
+  }
+}
+
+const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'application/json' };
+
+function serve() {
+  fs.writeFileSync(
+    path.join(OUT, 'index.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>B10</title></head>' +
+      '<body><div id="app"></div><script src="main.js"></script></body></html>'
+  );
+  return http
+    .createServer((req, res) => {
+      const rel = decodeURIComponent(req.url.split('?')[0]);
+      const file = path.join(OUT, rel === '/' ? 'index.html' : rel);
+      if (!file.startsWith(OUT) || !fs.existsSync(file)) {
+        res.writeHead(404).end('not found');
+        return;
+      }
+      res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
+      fs.createReadStream(file).pipe(res);
+    })
+    .listen(PORT);
+}
+
+async function run() {
+  const { chromium } = require('playwright');
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  page.on('console', (msg) => {
+    const t = msg.text();
+    if (t.startsWith(';; B10') || t.startsWith(';; B6')) console.log(t);
+  });
+  page.on('pageerror', (e) => console.error('[b10] page error:', e.message));
+  // `waitUntil: 'commit'` for rf2-dczpv's reason: the entry starts running
+  // during page load, so the `load` event cannot fire until the whole run
+  // yields — waiting for it would be waiting for the benchmark, against a
+  // budget separate from the one below.
+  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'commit', timeout: 60 * 1000 });
+  await page.waitForFunction('window.B10_DONE === true || window.B10_ERROR', null, {
+    timeout: 20 * 60 * 1000,
+  });
+  const err = await page.evaluate('window.B10_ERROR || null');
+  const results = await page.evaluate('window.B10_RESULTS || {}');
+  await browser.close();
+  return { err, results };
+}
+
+(async () => {
+  build();
+  const server = serve();
+  let outcome;
+  try {
+    outcome = await run();
+  } finally {
+    server.close();
+  }
+  for (const [k, v] of Object.entries(outcome.results)) {
+    console.log(`;; ==== B10 PROD ${k} ====`);
+    console.log(v);
+  }
+  if (outcome.err) {
+    console.error(`[b10] FAILED: ${outcome.err}`);
+    process.exit(1);
+  }
+  console.error('[b10] ok');
+})();
