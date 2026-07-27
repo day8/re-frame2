@@ -275,7 +275,25 @@
     ;; `re-frame.ssr-safe-redirect-production-test`.
     :rf.error/safe-redirect-invalid-url
     :rf.error/safe-redirect-scheme-rejected
-    :rf.error/safe-redirect-host-disallowed})
+    :rf.error/safe-redirect-host-disallowed
+    ;; rf2-mwv4e / rf2-lvsen: ONE ARM of `:rf.error/schema-validation-failure`
+    ;; graduated `always-on` in the Spec 009 catalogue — the
+    ;; `:rf.schema/at-boundary` rejection (`:source :boundary`, `:where
+    ;; :event`). The category's dev-time `validate-*!` arms stay diagnostic,
+    ;; but the `Channel` column is per-category (the `:rf.error/no-such-handler`
+    ;; shape, whose row reads always-on though only its `:kind :route` arm was
+    ;; promoted), so the CATEGORY belongs in this set. Spec 010 keeps the
+    ;; boundary check UNGATED because it is the production answer for untrusted
+    ;; ingress, so the rejection was always real under `goog.DEBUG=false` —
+    ;; what was missing was the signal, and the skipped handler produced no
+    ;; `:db`, so the `:events` record read `:outcome :ok` for a refusal. The
+    ;; emit SITE is `re-frame.router`'s pipeline tail
+    ;; (`emit-boundary-rejection-record!`), off the `:rf/boundary-rejected?`
+    ;; marker the interceptor stamps; the STRUCTURAL-ONLY record it fans is
+    ;; pinned by `re-frame.always-on-validation-production-test`. This leg
+    ;; drives the category through `dispatch-error-record!` (the
+    ;; `record-categories` branch below) to prove the listener fan-out.
+    :rf.error/schema-validation-failure})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
@@ -315,7 +333,13 @@
     ;; categories use.
     :rf.error/safe-redirect-invalid-url
     :rf.error/safe-redirect-scheme-rejected
-    :rf.error/safe-redirect-host-disallowed})
+    :rf.error/safe-redirect-host-disallowed
+    ;; rf2-mwv4e / rf2-lvsen: a boundary rejection is not a dispatched-event
+    ;; FAILURE — nothing threw, the handler simply never ran — so the router's
+    ;; tail reaches the same non-event union-record helper rather than the
+    ;; event-centric `dispatch-on-error!`, whose positional shape would carry
+    ;; the `:event` wire value the structural record deliberately omits.
+    :rf.error/schema-validation-failure})
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
