@@ -44,7 +44,25 @@
   substrate carried it. The Ring-level wire pin (the boundary still
   ships a 500 with the default template) lives in
   `re-frame.ssr.ring-test/handler-error-view-throw-falls-back-to-default-
-  template`; this suite pins the SKIP directly at the core level."
+  template`; this suite pins the SKIP directly at the core level.
+
+  ## Posture split (rf2-lwtlk)
+
+  Tests (1) and (2) drive the DEV bus through `trace/emit-error!`, whose
+  emit site sits inside the load-time `interop/debug-enabled?` gate. Under
+  `-Dre-frame.debug=false` nothing is emitted, so (1) — a NEGATIVE, 'not
+  buffered, still 200' — passes for the wrong reason (it would pass with
+  the listener deleted) and (2)'s control reds on an empty buffer. Both
+  are kept VERBATIM inside `(when interop/debug-enabled? …)` arms: they
+  are assertions ABOUT the dev listener, which is the surface their names
+  and docstrings claim.
+
+  Tests (3) and (4) are the production-visible counterparts and run under
+  BOTH postures, calling `error-emit-projection-listener` DIRECTLY — the
+  always-on path a `-Dre-frame.debug=false` JVM SSR host uses. (4) is what
+  stops the guard costing coverage: `:rf.error/sub-exception` genuinely
+  reaches production on that axis, so the no-over-skip control is
+  adjudicated for real under the gate rather than only in dev."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -81,20 +99,26 @@
             and does NOT flip the response status off 200 — the dev-only
             `error-projection-listener` skips the category by design."
     (let [fid (make-server-frame)]
-      ;; Stamp the frame exactly as resolve-error-body's catch arm does.
-      (trace/emit-error! :rf.error/ssr-ring-error-view-failed
-                         {:frame     fid
-                          :exception "synthetic error-view failure"
-                          :ex-class  "clojure.lang.ExceptionInfo"
-                          :recovery  :fell-back-to-default-error-template})
-      (is (empty? (get @error-listener/pending-error-traces fid))
-          "the error-view-failed trace was SKIPPED — not buffered into
-           pending-error-traces (so a later get-response / re-flush can't
-           re-project it and flip the already-stamped status)")
-      (is (= 200 (:status (ssr/get-response fid)))
-          "status stays 200 — the error-view failure degraded gracefully
-           to the locked default template; the default projector (→ 500)
-           never ran for this category"))))
+      ;; rf2-lwtlk — DEV ARM. `trace/emit-error!` no-ops under
+      ;; `-Dre-frame.debug=false`, so both assertions below would hold with
+      ;; the listener ripped out: a negative over a bus that emitted
+      ;; nothing. The production counterpart is test (3), which calls the
+      ;; always-on listener directly and is posture-independent.
+      (when interop/debug-enabled?
+        ;; Stamp the frame exactly as resolve-error-body's catch arm does.
+        (trace/emit-error! :rf.error/ssr-ring-error-view-failed
+                           {:frame     fid
+                            :exception "synthetic error-view failure"
+                            :ex-class  "clojure.lang.ExceptionInfo"
+                            :recovery  :fell-back-to-default-error-template})
+        (is (empty? (get @error-listener/pending-error-traces fid))
+            "the error-view-failed trace was SKIPPED — not buffered into
+             pending-error-traces (so a later get-response / re-flush can't
+             re-project it and flip the already-stamped status)")
+        (is (= 200 (:status (ssr/get-response fid)))
+            "status stays 200 — the error-view failure degraded gracefully
+             to the locked default template; the default projector (→ 500)
+             never ran for this category")))))
 
 ;; ===========================================================================
 ;; (2) NO OVER-SKIP — a GENUINE drain-time error fired through the same
@@ -111,16 +135,21 @@
             non-200 — confirming the error-view-failed skip is targeted,
             not a listener that silently drops everything."
     (let [fid (make-server-frame)]
-      (trace/emit-error! :rf.error/sub-exception
-                         {:frame     fid
-                          :exception (ex-info "sub boom" {})
-                          :recovery  :no-recovery})
-      (is (seq (get @error-listener/pending-error-traces fid))
-          "a genuine drain-time failure IS buffered for projection")
-      (is (not= 200 (:status (ssr/get-response fid)))
-          "and it projects a non-200 — the listener is doing real work;
-           the error-view-failed skip in (1) is therefore meaningful and
-           does NOT over-skip a real failure's fail-closed status"))))
+      ;; rf2-lwtlk — DEV ARM: the emit is `trace/emit-error!`, so under the
+      ;; production gate this control observes an empty buffer. The category
+      ;; itself DOES reach production, so the control is not lost — it is
+      ;; re-run on the always-on axis by test (4).
+      (when interop/debug-enabled?
+        (trace/emit-error! :rf.error/sub-exception
+                           {:frame     fid
+                            :exception (ex-info "sub boom" {})
+                            :recovery  :no-recovery})
+        (is (seq (get @error-listener/pending-error-traces fid))
+            "a genuine drain-time failure IS buffered for projection")
+        (is (not= 200 (:status (ssr/get-response fid)))
+            "and it projects a non-200 — the listener is doing real work;
+             the error-view-failed skip in (1) is therefore meaningful and
+             does NOT over-skip a real failure's fail-closed status")))))
 
 ;; ===========================================================================
 ;; (3) Always-on substrate — symmetry guard. The error-view-failed trace
@@ -140,18 +169,58 @@
             buffered nor projected. Symmetric with the dev path so the
             contract holds whichever substrate carries the trace."
     (let [fid (make-server-frame)]
-      (with-redefs [interop/debug-enabled? false]
-        ;; The error-emit record shape per `error-emit/dispatch-on-error!`.
-        (error-listener/error-emit-projection-listener
-          {:error      :rf.error/ssr-ring-error-view-failed
-           :event      nil
-           :event-id   nil
-           :frame      fid
-           :time       0
-           :exception  (ex-info "synthetic error-view failure" {})
-           :elapsed-ms 0})
-        (is (empty? (get @error-listener/pending-error-traces fid))
-            "the always-on listener also skips the error-view-failed
-             category — not buffered")
-        (is (= 200 (:status (ssr/get-response fid)))
-            "status stays 200 on the production substrate too")))))
+      ;; rf2-lwtlk — the `with-redefs [interop/debug-enabled? false]` this
+      ;; test used to wrap has been dropped, not replaced. `debug-enabled?`
+      ;; is read ONCE at namespace-load time, so a rebind cannot reach the
+      ;; gate, and this test calls the always-on listener DIRECTLY anyway —
+      ;; there is no gate on the path. The namespace now runs in
+      ;; `scripts/test-ssr-prod-gate.sh`, where the property is false for
+      ;; real; that is the evidence.
+      ;;
+      ;; The error-emit record shape per `error-emit/dispatch-on-error!`.
+      (error-listener/error-emit-projection-listener
+        {:error      :rf.error/ssr-ring-error-view-failed
+         :event      nil
+         :event-id   nil
+         :frame      fid
+         :time       0
+         :exception  (ex-info "synthetic error-view failure" {})
+         :elapsed-ms 0})
+      (is (empty? (get @error-listener/pending-error-traces fid))
+          "the always-on listener also skips the error-view-failed
+           category — not buffered")
+      (is (= 200 (:status (ssr/get-response fid)))
+          "status stays 200 on the production substrate too"))))
+
+;; ===========================================================================
+;; (4) Always-on NO-OVER-SKIP control — the production counterpart of (2).
+;;     rf2-lwtlk. On a `-Dre-frame.debug=false` JVM the dev bus is silent,
+;;     so "the error-view-failed record was not buffered" is only meaningful
+;;     next to "a genuine drain-time record on the SAME listener WAS".
+;; ===========================================================================
+
+(deftest always-on-path-genuine-drain-time-error-still-projects-non-200
+  (testing "rf2-sccp5 / rf2-lwtlk (no over-skip, always-on):
+            `:rf.error/sub-exception` — a reactive sub throwing mid-render,
+            fail-closed per rf2-vvwmi — delivered to the ALWAYS-ON
+            `error-emit-projection-listener` IS buffered and projects a
+            non-200. The category rides `dispatch-on-error!` in production,
+            so unlike the dev control this one has a live producer in the
+            posture that ships: an over-broad skip would silently turn an
+            unusable page into a 200 on a real server."
+    (let [fid (make-server-frame)]
+      (error-listener/error-emit-projection-listener
+        {:error      :rf.error/sub-exception
+         :event      nil
+         :event-id   nil
+         :frame      fid
+         :time       0
+         :exception  (ex-info "sub boom" {})
+         :elapsed-ms 0})
+      (is (seq (get @error-listener/pending-error-traces fid))
+          "a genuine drain-time failure IS buffered by the always-on listener")
+      (is (= 500 (:status (ssr/get-response fid)))
+          "and it projects the default projector's fail-closed 500 — the
+           always-on listener is doing real work in this posture, so the
+           error-view-failed skip in (3) is targeted and does not swallow a
+           real failure's status"))))

@@ -31,7 +31,28 @@
   substrate carried it. This suite pins the skip directly at the core
   level, independent of the Ring handler (whose own wire-level pin lives
   in `re-frame.ssr.ring-test/handler-throwing-head-fn-ships-degraded-200-
-  not-projected-error`)."
+  not-projected-error`).
+
+  ## Posture split (rf2-lwtlk)
+
+  Tests (1) and (2) drive the DEV bus through `trace/emit-error!`, whose
+  emit site sits inside the load-time `interop/debug-enabled?` gate. Under
+  `-Dre-frame.debug=false` nothing is emitted, so (1) — a NEGATIVE, 'not
+  buffered, still 200' — passes for the wrong reason (it would pass with
+  the listener deleted), and (2)'s control observes an empty buffer and
+  reds. Both are kept VERBATIM inside `(when interop/debug-enabled? …)`
+  arms: they are assertions ABOUT the dev listener, and (2) additionally
+  uses `:rf.error/schema-validation-failure`, a category that is dev-only
+  by design (boundary validation is itself production-elided, Spec 010
+  §Production builds).
+
+  Tests (3) and (4) are the production-visible counterparts and run under
+  BOTH postures: they call `error-emit-projection-listener` DIRECTLY — the
+  always-on path a `-Dre-frame.debug=false` JVM SSR host actually uses —
+  so the skip AND its control are adjudicated for real under the gate. (4)
+  is the one that stops the guard costing coverage: without a positive
+  control on the always-on axis, (3) alone would be a negative nobody had
+  proved could ever be positive."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -68,17 +89,23 @@
             and does NOT flip the response status off 200 — the dev-only
             `error-projection-listener` skips the category by design."
     (let [fid (make-server-frame)]
-      ;; Stamp the frame exactly as resolve-head's catch arm does.
-      (trace/emit-error! :rf.error/ssr-head-resolution-failed
-                         {:frame     fid
-                          :exception (ex-info "synthetic head failure" {:reason :test})
-                          :recovery  :no-recovery})
-      (is (empty? (get @error-listener/pending-error-traces fid))
-          "the head trace was SKIPPED — not buffered into
-           pending-error-traces (so a later get-response can't project it)")
-      (is (= 200 (:status (ssr/get-response fid)))
-          "status stays 200 — the head failure degraded gracefully; the
-           default projector (→ 500) never ran for this category"))))
+      ;; rf2-lwtlk — DEV ARM. `trace/emit-error!` no-ops under
+      ;; `-Dre-frame.debug=false`, so both assertions below would hold with
+      ;; the listener ripped out: a negative over a bus that emitted
+      ;; nothing. The production counterpart is test (3), which calls the
+      ;; always-on listener directly and is posture-independent.
+      (when interop/debug-enabled?
+        ;; Stamp the frame exactly as resolve-head's catch arm does.
+        (trace/emit-error! :rf.error/ssr-head-resolution-failed
+                           {:frame     fid
+                            :exception (ex-info "synthetic head failure" {:reason :test})
+                            :recovery  :no-recovery})
+        (is (empty? (get @error-listener/pending-error-traces fid))
+            "the head trace was SKIPPED — not buffered into
+             pending-error-traces (so a later get-response can't project it)")
+        (is (= 200 (:status (ssr/get-response fid)))
+            "status stays 200 — the head failure degraded gracefully; the
+             default projector (→ 500) never ran for this category")))))
 
 ;; ===========================================================================
 ;; (2) A buffering chokepoint contrast — a NON-degradation category fired
@@ -93,15 +120,22 @@
             confirming the head-category skip is targeted, not a listener
             that silently drops everything."
     (let [fid (make-server-frame)]
-      (trace/emit-error! :rf.error/schema-validation-failure
-                         {:frame     fid
-                          :exception (ex-info "schema boom" {})
-                          :recovery  :no-recovery})
-      (is (seq (get @error-listener/pending-error-traces fid))
-          "a non-degradation category IS buffered for projection")
-      (is (not= 200 (:status (ssr/get-response fid)))
-          "and it projects a non-200 — the listener is doing real work;
-           the head-category skip in (1) is therefore meaningful"))))
+      ;; rf2-lwtlk — DEV ARM, on two counts. `trace/emit-error!` is
+      ;; dev-gated, AND `:rf.error/schema-validation-failure` is a
+      ;; DELIBERATELY dev-only category: boundary validation is itself
+      ;; production-elided (Spec 010 §Production builds), so no production
+      ;; reject exists for this control to observe. The always-on control
+      ;; is test (4).
+      (when interop/debug-enabled?
+        (trace/emit-error! :rf.error/schema-validation-failure
+                           {:frame     fid
+                            :exception (ex-info "schema boom" {})
+                            :recovery  :no-recovery})
+        (is (seq (get @error-listener/pending-error-traces fid))
+            "a non-degradation category IS buffered for projection")
+        (is (not= 200 (:status (ssr/get-response fid)))
+            "and it projects a non-200 — the listener is doing real work;
+             the head-category skip in (1) is therefore meaningful")))))
 
 ;; ===========================================================================
 ;; (3) Always-on substrate — symmetry guard. Post-rf2-hhutya the head trace
@@ -123,18 +157,59 @@
             with the dev path so the contract holds whichever substrate
             carries the trace."
     (let [fid (make-server-frame)]
-      (with-redefs [interop/debug-enabled? false]
-        ;; The error-emit record shape per `error-emit/dispatch-on-error!`.
-        (error-listener/error-emit-projection-listener
-          {:error      :rf.error/ssr-head-resolution-failed
-           :event      nil
-           :event-id   nil
-           :frame      fid
-           :time       0
-           :exception  (ex-info "synthetic head failure" {})
-           :elapsed-ms 0})
-        (is (empty? (get @error-listener/pending-error-traces fid))
-            "the always-on listener also skips the head category — not
-             buffered")
-        (is (= 200 (:status (ssr/get-response fid)))
-            "status stays 200 on the production substrate too")))))
+      ;; rf2-lwtlk — the `with-redefs [interop/debug-enabled? false]` this
+      ;; test used to wrap has been dropped, not replaced. It never bought
+      ;; anything: `interop/debug-enabled?` is read ONCE at namespace-load
+      ;; time, so a rebind cannot reach the gate, and this test calls the
+      ;; always-on listener DIRECTLY anyway — there is no gate on the path.
+      ;; The namespace now runs in `scripts/test-ssr-prod-gate.sh`, where
+      ;; the property is false for real; that is the evidence.
+      ;;
+      ;; The error-emit record shape per `error-emit/dispatch-on-error!`.
+      (error-listener/error-emit-projection-listener
+        {:error      :rf.error/ssr-head-resolution-failed
+         :event      nil
+         :event-id   nil
+         :frame      fid
+         :time       0
+         :exception  (ex-info "synthetic head failure" {})
+         :elapsed-ms 0})
+      (is (empty? (get @error-listener/pending-error-traces fid))
+          "the always-on listener also skips the head category — not
+           buffered")
+      (is (= 200 (:status (ssr/get-response fid)))
+          "status stays 200 on the production substrate too"))))
+
+;; ===========================================================================
+;; (4) Always-on CONTROL — the production counterpart of (2). rf2-lwtlk.
+;;     Without this, the guard on (2) would leave the always-on skip in (3)
+;;     as a negative nobody had proved could ever be positive: on a
+;;     `-Dre-frame.debug=false` JVM the dev bus is silent, so "the head
+;;     record was not buffered" is only meaningful next to "a
+;;     non-degradation record on the SAME listener WAS".
+;; ===========================================================================
+
+(deftest always-on-path-control-non-head-error-still-projects
+  (testing "rf2-lia3i / rf2-lwtlk (control, always-on): a frame-stamped
+            NON-degradation category delivered to the ALWAYS-ON
+            `error-emit-projection-listener` IS buffered and projects a
+            non-200. `:rf.error/handler-exception` is used deliberately —
+            unlike the dev control's `:rf.error/schema-validation-failure`
+            it really does reach production (via `dispatch-on-error!`), so
+            this control has a live producer in the posture that ships."
+    (let [fid (make-server-frame)]
+      (error-listener/error-emit-projection-listener
+        {:error      :rf.error/handler-exception
+         :event      [:load/article]
+         :event-id   :load/article
+         :frame      fid
+         :time       0
+         :exception  (ex-info "handler boom" {})
+         :elapsed-ms 0})
+      (is (seq (get @error-listener/pending-error-traces fid))
+          "a non-degradation category IS buffered by the always-on listener")
+      (is (= 500 (:status (ssr/get-response fid)))
+          "and it projects the default projector's generic 500 — the
+           always-on listener is doing real work in this posture, so the
+           head-category skip in (3) is a targeted skip and not a listener
+           that drops everything"))))

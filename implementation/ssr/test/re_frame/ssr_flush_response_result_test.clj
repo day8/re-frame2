@@ -24,16 +24,23 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]
             [re-frame.trace :as trace]))
 
+;; rf2-lwtlk — ORDER MATTERS. The wholesale `clear-error-listeners!` used to
+;; run INSIDE `reset-runtime`'s body, i.e. AFTER it. `reset-runtime` re-installs
+;; the `re-frame.ssr` façade's own ALWAYS-ON `::error-projection` listener (via
+;; `(require 're-frame.ssr :reload)`), and that listener IS the production
+;; status-projection path — clearing it afterwards left the always-on axis
+;; unarmed for every test here, so the namespace could only ever observe the
+;; dev bus. Clear FIRST (drop whatever a prior namespace left), then let the
+;; reset arm the projector.
 (use-fixtures :each
   (fn [t]
-    (tf/reset-runtime
-      (fn []
-        (error-emit/clear-error-listeners!)
-        (t)))))
+    (error-emit/clear-error-listeners!)
+    (tf/reset-runtime t)))
 
 (defn- make-server-frame
   "A `:server`-platform frame using the default projector (no-such-handler →
@@ -45,19 +52,45 @@
   id)
 
 (defn- buffer-error!
-  "Buffer a projecting error trace against `frame-id` through the dev trace
-  listener (debug-on default), exactly as a drain-time error would. The
-  settle-point drain in `flush-response-result!` then projects it.
+  "Buffer a projecting error trace against `frame-id` exactly as a drain-time
+  error would. The settle-point drain in `flush-response-result!` then
+  projects it.
+
+  BOTH AXES, deliberately (rf2-lwtlk). This helper used to fire
+  `trace/emit-error!` alone — the DEV bus, whose emit sites sit inside the
+  load-time `interop/debug-enabled?` gate. Under `-Dre-frame.debug=false`
+  nothing was ever buffered, so twelve assertions below observed a clean
+  200 / a nil public-error and this namespace was rostered known-red: the
+  drain-classification contract had never executed in the posture that
+  ships. It is not a dev contract. `flush-response-result!` is the surface
+  a HOST ADAPTER calls on a production JVM to decide the 4xx app arm from
+  the 5xx error arm.
+
+  Both categories used here are on the ALWAYS-ON error axis in production —
+  `:rf.error/handler-exception` through `dispatch-on-error!`, and
+  `:rf.error/no-such-handler {:kind :route}` through
+  `dispatch-error-record!` since rf2-ov56u. So the honest fix is a
+  production-reachable channel, not a `(when interop/debug-enabled? …)`
+  guard: emit on both, the way a real always-on-catalogued site does
+  (`emit-error-both!`), and the whole namespace becomes
+  posture-independent. In dev both listeners buffer and last-write-wins
+  makes the duplicate benign — the same benign duplication
+  `error-projection-listener`'s own docstring records.
 
   `extra-tags` carries any discriminator the default projector's arm is
   GATED on — for `:rf.error/no-such-handler` that is `:kind :route`
   (rf2-ov56u): the 404 arm fires only for the URL-driven miss, so a
   kind-less synthetic trace projects the locked 500 and would silently
-  turn a 404 assertion into a false negative."
+  turn a 404 assertion into a false negative. It rides `:tags` on the dev
+  trace and a flat slot on the always-on record; the always-on projection
+  listener lifts every flat slot back onto `:tags`, so the projector sees
+  the same event either way."
   ([frame-id operation] (buffer-error! frame-id operation nil))
   ([frame-id operation extra-tags]
-   (trace/emit-error! operation
-                      (merge {:frame frame-id :recovery :for-test} extra-tags))))
+   (let [tags (merge {:frame frame-id :recovery :for-test} extra-tags)]
+     (trace/emit-error! operation tags)
+     (error-emit/dispatch-error-record!
+       (merge {:error operation :time (interop/now-ms)} tags)))))
 
 ;; ===========================================================================
 ;; flush-response-result! — returns the projected public-error alongside resp
