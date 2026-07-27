@@ -108,11 +108,27 @@ known_red=(
   #    rf2-ov56u's merge; that wait is over.  Re-run and split; do not read
   #    a red here as the 200-for-404 defect returning, and check
   #    `ssr-route-miss-404-production-test` first if you suspect it has.
+  #
+  #    FOUR OF THE FIVE ARE NOW CLEARED, and only ONE of them cleared by
+  #    guarding.  `ssr-flush-response-result-test`'s helper was re-pointed
+  #    at the ALWAYS-ON axis instead — both categories it uses
+  #    (`handler-exception`, `no-such-handler {:kind :route}`) reach
+  #    production, so the drain-classification contract a host adapter
+  #    depends on now executes in the posture that ships, with no guard and
+  #    no assertion moved.  Its fixture also stopped calling
+  #    `clear-error-listeners!` AFTER `reset-runtime`, which had been
+  #    wiping the `re-frame.ssr` façade's own always-on `::error-projection`
+  #    listener and leaving the production path unarmed for every test in
+  #    the file.  `ssr-head-resolution-no-project-test`,
+  #    `ssr-error-view-failed-no-project-test` and
+  #    `ssr-error-two-frame-attribution-test` DID need dev arms for their
+  #    `trace/emit-error!` halves — including two NEGATIVES that were
+  #    passing vacuously over an empty ring — and each gained a
+  #    production-posture counterpart so the guard did not cost coverage:
+  #    an always-on positive control for the two skip-set suites, and a
+  #    throwing-handler two-frame attribution pin for the third (whose only
+  #    trigger, the navigate-reject, is production-elided per Spec 010).
   re-frame.ssr-end-to-end-test                    # 119
-  re-frame.ssr-error-two-frame-attribution-test   #   5
-  re-frame.ssr-error-view-failed-no-project-test  #   2
-  re-frame.ssr-flush-response-result-test         #  12
-  re-frame.ssr-head-resolution-no-project-test    #   2
 
   # ── rf2-lwtlk — SOURCE-COORD ANNOTATION.  CLEARED.  All three namespaces
   #    (`source-coord-parity-test`, `ssr-keyword-head-contract-test`,
