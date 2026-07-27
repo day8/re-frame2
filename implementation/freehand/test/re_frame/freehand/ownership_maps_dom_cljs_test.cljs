@@ -460,12 +460,17 @@
                        survived it, which a recipe that returned the void
                        mutator's answer would not have: the memory it needs to
                        release is still there")
-                  (is (= 1 (:connections (substrate))))
+                  (is (= 1 (:connections (substrate)))
+                      "FH-BEHAVIOR-010 — and one connection is claiming the target,
+                       so the absence asserted below is a release rather than a
+                       counter nothing ever wrote")
                   (ms/act (fn [] (v/unmount! mounted) nil))))
               (.then (fn [_] (run-deferrals!)))
               (.then (fn [_]
                        (ms/remove-node! container)
-                       (is (= (:after-reclamation behavior-010) (absence)))
+                       (is (= (:after-reclamation behavior-010) (absence))
+                           "FH-BEHAVIOR-010 — zero maps, zero listeners, zero
+                            overlays, zero roots, and both substrate books empty")
                        (released! "FH-BEHAVIOR-010 — after the ordinary teardown")
                        (done)))
               (.catch (fn [e] (is false (str "case rejected: " e)) (done)))))))))
@@ -579,7 +584,9 @@
                             closed by the AUTHOR's release rather than by the
                             substrate waiting for it")
                        (ms/remove-node! container)
-                       (is (= (:after-reclamation behavior-010) (absence)))
+                       (is (= (:after-reclamation behavior-010) (absence))
+                           "FH-BEHAVIOR-010 — and the same absence as every other route,
+                            reached one task later than the substrate's")
                        (released! "FH-BEHAVIOR-010 — after the deferred release")
                        (done)))
               (.catch (fn [e] (is false (str "case rejected: " e)) (done)))))))))
