@@ -15,6 +15,8 @@
   facade owns the two `events/reg-event` calls so a `:reload`
   re-wires them on a fresh registrar."
   (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.routing.decisions :as decisions]
             [re-frame.routing.egress :as egress]
@@ -23,6 +25,76 @@
             [re-frame.routing.resolve :as resolver]
             [re-frame.routing.scroll :as scroll]
             [re-frame.trace :as trace]))
+
+(defn- route-miss-tags
+  "The `:rf.error/no-such-handler` `:kind :route` tag map for a URL-driven
+  not-found fallback — built ONCE and fanned along BOTH error axes, so the
+  production record and the dev trace cannot disagree about the same miss.
+
+  `:kind :route` discriminates this miss from the event / frame handler
+  misses (Spec 009 §Error event catalogue — `:kind` is mandatory on every
+  `:rf.error/no-such-handler` emit) and is what the SSR default projector
+  gates its `404` arm on (Spec 011 §Default projector). rf2-4ic0f: the
+  `:reason` (a `match-url` throw pre-empts the malformed scan, so the two
+  are mutually exclusive — throw-reason wins) keeps the structured error
+  uniform across the trace and the route slice. The `:frame` tag (present
+  when the caller threads it in) lets the SSR error-projection listener
+  attribute the miss per-frame.
+
+  EP-0015 (rf2-n1f4rh): `:rf.error/no-such-handler` is a
+  production-survivable / off-box-observable category EP-0015 requires to
+  FAIL CLOSED. A route-miss URL has no matched route → no schema to
+  consult, and is the class most likely to carry secret carriers
+  (`?token=…`, `#access_token=…`). `egress/redact-url-tag` scrubs the
+  query / fragment carrier VALUES (keeping the structured path + `:reason`)
+  HERE, before the tags reach either axis — so the redaction covers the
+  always-on production record exactly as it covers the dev trace."
+  [{:keys [url frame throw-reason malformed?]}]
+  (-> (cond-> {:url      url
+               :kind     :route
+               :recovery :replaced-with-default}
+        frame        (assoc :frame frame)
+        throw-reason (assoc :reason throw-reason)
+        malformed?   (assoc :reason :malformed-url))
+      egress/redact-url-tag))
+
+(defn- emit-route-miss-error!
+  "Fan the URL-driven route miss out on the ALWAYS-ON error axis (rf2-ov56u,
+  ruling rf2-rqje9) — the production-survivable sibling of the dev
+  `trace/emit-error!` the caller emits alongside it.
+
+  WHY. Until this promotion the miss reached the wire ONLY through
+  `trace/emit-error!`, gated on `interop/debug-enabled?`. Under the
+  documented production gate (`-Dre-frame.debug=false`, `:advanced` +
+  `goog.DEBUG=false`) nothing buffered, the SSR error projector had nothing
+  to project, and a request for an unroutable URL answered HTTP 200 — a
+  soft 404. Spec 009's catalogue already classifies
+  `:rf.error/no-such-handler` as always-on with `:kind :route`, so this
+  conforms the implementation to the spec rather than widening the axis.
+
+  The record is the general NON-EVENT union shape
+  `{:error <kw> :frame <id-or-nil> :time <ms> + flat category keys}` — this
+  is not a dispatched-event failure, so it rides `dispatch-error-record!`
+  rather than the event-centric `dispatch-on-error!`. `tags` arrives
+  already redacted (see [[route-miss-tags]]): the record carries the
+  category, `:kind :route`, `:frame`, `:time`, `:recovery` and the
+  structured `:reason` / redacted `:url` — never a raw query / fragment
+  carrier value and never an app-db slice. The SSR
+  `error-emit-projection-listener` lifts every non-`:error` slot onto
+  `:tags` generically, so `[:tags :kind]` reaches the projector's `404`
+  gate identically on both axes.
+
+  Reached through the `:error-emit/dispatch-error-record` late-bind hook —
+  routing ships above core's require graph, the same indirection
+  `router.diagnostics` uses. A no-op when the hook is unbound. Returns nil."
+  [tags]
+  (when-let [dispatch-error-record!
+             (late-bind/get-fn-cached :error-emit/dispatch-error-record)]
+    (dispatch-error-record!
+      (assoc tags
+             :error :rf.error/no-such-handler
+             :time  (interop/now-ms))))
+  nil)
 
 (defn- fragment-only-fx
   "Spec 012 §Fragments rules 1-4: the new URL differs from the current
@@ -300,15 +372,31 @@
       ;; projection). The raw URL IS the source here.
       (let [route-plan (resolver/route-plan {:cause  cause
                                              :source {:url url}
-                                             :target resolved-target})]
-        ;; rf2-u8qe7y: the fail-closed warning telemetry
-        ;; (`:rf.warning/malformed-url` for a `match-url` throw / malformed
-        ;; %-encoding — rf2-6t1xb / rf2-4ic0f; `:rf.warning/no-not-found-route`
-        ;; when the not-found fallback has no registered route — rf2-0zr2o /
-        ;; Spec 012 §Route-not-found §3) is shared pre-commit policy with the
-        ;; programmatic path. Both build the SAME intent list from the same
-        ;; inputs via `plan/fallback-telemetry-intents`, so the two paths
-        ;; cannot drift (the drift navigate.cljc:426-437 documents). The
+                                             :target resolved-target})
+            ;; rf2-ov56u: ONE redacted tag map, TWO error axes. Built here
+            ;; so the always-on production record and the dev trace below
+            ;; describe the same miss with the same redaction.
+            miss-tags  (when fallback?
+                         (route-miss-tags {:url          url
+                                           :frame        frame
+                                           :throw-reason throw-reason
+                                           :malformed?   malformed?}))]
+        ;; Axis 1 — ALWAYS-ON (rf2-ov56u, ruling rf2-rqje9). Survives
+        ;; `-Dre-frame.debug=false` / `:advanced` + `goog.DEBUG=false`, so the
+        ;; SSR error projector has something to project and an unroutable URL
+        ;; answers 404 in the build you actually ship. Fires FIRST, matching
+        ;; `error-emit/emit-error-both!`'s axis order.
+        (when miss-tags
+          (emit-route-miss-error! miss-tags))
+        ;; Axis 2 — the dev trace surface, alongside the shared fail-closed
+        ;; warning telemetry. rf2-u8qe7y: (`:rf.warning/malformed-url` for a
+        ;; `match-url` throw / malformed %-encoding — rf2-6t1xb / rf2-4ic0f;
+        ;; `:rf.warning/no-not-found-route` when the not-found fallback has no
+        ;; registered route — rf2-0zr2o / Spec 012 §Route-not-found §3) is
+        ;; shared pre-commit policy with the programmatic path. Both build the
+        ;; SAME intent list from the same inputs via
+        ;; `plan/fallback-telemetry-intents`, so the two paths cannot drift
+        ;; (the drift navigate.cljc:426-437 documents). The
         ;; `:rf.error/no-such-handler` error is URL-driven-specific (every
         ;; URL-driven fallback is a handler-miss; the programmatic `{:url}`
         ;; miss is the documented not-found escape hatch, not a
@@ -320,31 +408,8 @@
                      :no-not-found? (and fallback? (nil? route-meta))
                      :url           url
                      :frame         frame})
-            ;; :rf.error/no-such-handler discriminates from event / frame
-            ;; handler misses by :kind :route. rf2-4ic0f: carry the
-            ;; `:reason` (throw pre-empts the malformed scan, so the two are
-            ;; mutually exclusive — throw-reason wins) so the structured
-            ;; error is uniform across the trace + the slice. The :frame tag
-            ;; (present when the caller threads it in) lets the SSR
-            ;; error-projection listener attribute the trace per-frame.
             fallback?
-            (conj [:emit-error :rf.error/no-such-handler
-                   ;; EP-0015 (rf2-n1f4rh): `:rf.error/no-such-handler` is a
-                   ;; production-survivable / off-box-observable error
-                   ;; category EP-0015 requires to FAIL CLOSED. The route-miss
-                   ;; URL has no matched route → no schema to consult, and is
-                   ;; the class most likely to carry secret carriers
-                   ;; (`?token=…`, `#access_token=…`). Redact the query/
-                   ;; fragment carrier VALUES (keep the structured path +
-                   ;; `:reason`) before the error crosses the trace / log /
-                   ;; SSR-projection egress boundary.
-                   (-> (cond-> {:url url
-                                :kind :route
-                                :recovery :replaced-with-default}
-                         frame        (assoc :frame frame)
-                         throw-reason (assoc :reason throw-reason)
-                         malformed?   (assoc :reason :malformed-url))
-                       egress/redact-url-tag)])))
+            (conj [:emit-error :rf.error/no-such-handler miss-tags])))
         ;; EP-0037 R0b: ONE `:rf.route/planned` trace per door commit branch, so
         ;; the R0 diagnostic projection is REACHABLE from an executed navigation
         ;; rather than only from a tool holding a plan value. This door stands for
