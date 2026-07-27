@@ -126,8 +126,10 @@ That edge is stronger than the pom requires — it also blocks `ssr-ring` behind
 | `tools/xray/` | `day8/re-frame2-xray` | `xray-v*` | [`release-xray.yml`](../.github/workflows/release-xray.yml) |
 | `tools/story/` | `day8/re-frame2-story` | `story-v*` | [`release-story.yml`](../.github/workflows/release-story.yml) |
 | `tools/machines-viz/` | `day8/re-frame2-machines-viz` | `machines-viz-v*` | [`release-machines-viz.yml`](../.github/workflows/release-machines-viz.yml) |
-| `tools/story-mcp/` | `day8/re-frame2-story-mcp` | — | none yet (see below) |
-| `tools/mcp-base/` | `day8/re-frame2-mcp-base` | — | none yet (see below) |
+| `tools/story-mcp/` | `day8/re-frame2-story-mcp` | `story-v*` | [`release-story.yml`](../.github/workflows/release-story.yml) |
+| `tools/mcp-base/` | `day8/re-frame2-mcp-base` | `story-v*` | [`release-story.yml`](../.github/workflows/release-story.yml) |
+
+Three of the five share one glob. `story-v*` publishes `mcp-base`, `story` and `story-mcp` together, in that dependency order — rf2-4u3t1 ruled that Story and its MCP surface ship as a set rather than each taking a tag, because they are specified as a shipping pair and a second glob would let them skew; `mcp-base` joins them because `story-mcp` depends on it and it must be on Clojars first. It has no in-repo dependency of its own, so it publishes alongside Story rather than behind it.
 
 Two further tools sit outside Clojars entirely and outside this runbook: the pair MCP server ships on npm as `@day8/re-frame2-pair-mcp`, and the app template ships as a git coordinate on a `template-v*` tag via [`template-release.yml`](../.github/workflows/template-release.yml). Neither carries a `:clein/build` alias, which is why the lockstep script's tools inventory excludes them.
 
@@ -137,15 +139,21 @@ Tool jars pin their in-repo siblings at the lockstep VERSION, and those siblings
 
 1. `v<VERSION>` — the framework tier: core and every leaf.
 2. `machines-viz-v<VERSION>` and `xray-v<VERSION>` — both consume core only.
-3. `story-v<VERSION>` — Story pins five siblings, Xray among them.
+3. `story-v<VERSION>` — publishes `mcp-base`, then `story` (five siblings, Xray among them), then `story-mcp` (which pins both).
 
 That ordering is enforced structurally rather than by this list. After each workflow rewrites `:local/root` → `:mvn/version`, `clojure -P` resolves the rewritten graph from Clojars, so a coordinate that has not published yet fails the job at classpath resolution — before `clein deploy` can touch Clojars. Story goes further and adds a package preflight that parses the *generated* pom and refuses to deploy unless all five coordinates are present at the exact VERSION. That gate reads the artefact rather than the inputs that were supposed to produce it, which is the right posture in front of an irreversible act.
 
+The `mcp-base` and `story-mcp` jobs added in rf2-2ii52 do the same, with one difference worth copying: neither the rewrite list nor the preflight's expected set is written down anywhere. [`rewrite-in-repo-coords.sh`](../.github/scripts/rewrite-in-repo-coords.sh) reads every `:local/root` coordinate out of the artefact's own `deps.edn`, and [`preflight-tool-package.sh`](../.github/scripts/preflight-tool-package.sh) derives the whole expected dependency set from the *committed* copy of that same file, then asserts the generated pom matches it exactly — present, complete, at the lockstep VERSION, and nothing extra. Add a dependency to either artefact and both gates cover it on the next release with no edit to the workflow. That is the lesson of the open question below and of rf2-7fxf8: a hand-maintained roster cannot report on what it does not list, so its green is an active false assurance rather than a merely missing check.
+
 > **Open question — Xray's pom (rf2-5dut1).** `tools/xray/deps.edn` declares ten in-repo runtime coordinates, but `release-xray.yml` rewrites only two of them and the lockstep inventory names only one. Since `clein pom` silently skips `:local/root`, a jar cut from that workflow today would ship a pom missing eight dependencies — and one of them, `day8/re-frame2-freehand`, cannot be pinned at all because `implementation/freehand/` is deliberately unpublished until the EP-0036 F6 gate. Treat `xray-v*` as unproven until that is settled.
 
-### The two without a publish path
+### How `story-mcp` and `mcp-base` got their publish path
 
-`story-mcp` and `mcp-base` carry Clojars coordinates and pass the lockstep gate, but neither can ship yet. Both declare `day8/de-dupe` as a runtime dependency via a git coordinate; `clein pom` drops git coordinates silently, and the library is not on Clojars, so a jar built today would publish a pom missing a runtime dep. Because story-mcp depends on mcp-base, neither moves until the other does. Publishing, vendoring or dropping `de-dupe` is the open decision — **rf2-2ii52, held pending an operator ruling.** Until it is settled, do not cut a tag for either.
+Both carried Clojars coordinates and passed the lockstep gate for months while being unshippable. Both declared `day8/de-dupe` as a runtime dependency via a git coordinate, and `clein pom` drops git coordinates silently — so a jar built from either would have published a pom missing a runtime dep, with no yank to undo it. There was no rewrite that repaired it: the library is not on Clojars, and Clojars refuses NEW projects in unverified, non-reverse-domain groups, so `day8/de-dupe` could not be put there under that name.
+
+Mike ruled route (b) on rf2-2ii52: the 271-line codec was **vendored into `re-frame.mcp-base.dedup`**, carrying the upstream MIT notice, and every `day8/de-dupe` coordinate was removed. `mcp-base` now has no runtime dependency but Clojure itself, so its pom is complete by construction, and `story-mcp`'s two remaining coordinates are both `:local/root` — the class the rewrite repairs and the preflight proves.
+
+> **Verify before the first tag (rf2-2ii52).** None of `day8/re-frame2-story`, `day8/re-frame2-story-mcp` or `day8/re-frame2-mcp-base` exists on Clojars yet, and the verified-group rule that blocked `day8/de-dupe` applies to any NEW project in the `day8` group — the 2026-05-13 attempt got a 403 reading "Group 'day8' isn't verified, so can't contain new projects". Whether the group can still take new projects is a release-wide coordinate-policy question, and it applies to every unpublished `day8/re-frame2-*` coordinate, not only these three.
 
 ### Recovery
 
@@ -222,7 +230,7 @@ The contract:
 - Every non-core artefact references core by `:local/root` — `"../core"` from a per-feature artefact, `"../../core"` from an adapter, `"../../implementation/core"` from a tool. The release workflow rewrites these to `:mvn/version` at deploy time.
 - No artefact's committed `deps.edn` carries a literal `:mvn/version` for any `day8/re-frame2-*` artefact in a non-comment line.
 - Every `implementation/*/deps.edn` declaring a `:clein/build` alias appears in the lockstep inventory **and** `release.yml`'s deploy jobs (the inventory guard), so a new publishable artefact cannot be omitted silently.
-- Each tool jar is *packageable*, not merely version-pinned: `:clein/build` carries the `:main` key clein's spec requires, and no runtime coordinate is a form `clein pom` cannot express. Both classes had already shipped unnoticed before rf2-2ii52 added the checks — an artefact can be perfectly pinned and still impossible to build.
+- Each tool jar is *packageable*, not merely version-pinned: `:clein/build` carries the `:main` key clein's spec requires, and no runtime coordinate is a form `clein pom` cannot express. Both classes had already shipped unnoticed before rf2-2ii52 added the checks — an artefact can be perfectly pinned and still impossible to build. The second check carries no allowlist: an unpublishable runtime coordinate is not a policy exception to record, it is an artefact that cannot ship a correct pom.
 
 The tools half of the inventory is narrower than the implementation half: it asserts the coordinates listed in the script's `TOOLS_LOCAL_ROOTS`, which is a hand-maintained list rather than a scan of each tool's `:deps`. A coordinate absent from that list is a coordinate nothing asserts is rewritable — see the Xray caveat under [§The tools tier](#the-tools-tier).
 
@@ -246,6 +254,7 @@ There is intentionally no per-artefact version override. Adding one would break 
 
 - [.github/workflows/release.yml](../.github/workflows/release.yml) — the release pipeline for the framework tier.
 - [.github/workflows/release-xray.yml](../.github/workflows/release-xray.yml), [release-story.yml](../.github/workflows/release-story.yml), [release-machines-viz.yml](../.github/workflows/release-machines-viz.yml) — the per-tool release pipelines; each header carries the rationale for its own rewrite set.
+- [.github/scripts/rewrite-in-repo-coords.sh](../.github/scripts/rewrite-in-repo-coords.sh), [preflight-tool-package.sh](../.github/scripts/preflight-tool-package.sh) — the derived rewrite + preflight pair, which read their coordinate set out of the artefact's own `deps.edn` instead of listing it.
 - [.github/workflows/template-release.yml](../.github/workflows/template-release.yml) — the app template's git-coordinate release.
 - [tools/README.md](../tools/README.md) — what each tool is and which coordinate it publishes under.
 - [.github/workflows/test.yml](../.github/workflows/test.yml) — PR-time tests including lockstep drift detection.
