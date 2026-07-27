@@ -40,10 +40,15 @@
     3. The key set, pinned CLOSED. A slot added to this record reaches
        Sentry / Datadog in a production build, so it must be a deliberate
        change rather than a drift.
-    4. The redaction. `:location` is BY CONSTRUCTION attacker-controlled and
-       is the class most likely to carry `?token=…` / `#access_token=…`. The
-       EP-0015 scrub runs INSIDE the tag builder, before either axis sees
-       it.
+    4. The PROJECTION (rf2-6jqa8 AUDIT-REOPEN). The record carries parsed
+       STRUCTURAL components only — never a URL, and never the app's own
+       allowlist. The first shipped shape put a carrier-scrubbed `:location`
+       on the record; that scrub is the right blanket policy over the app's
+       OWN URL space, but it does string surgery only after the first `?` or
+       `#`, so on an arbitrary FOREIGN URL the userinfo (`alice:pw@`), the
+       whole path (a reset token) and any value-less query key rode out
+       verbatim — and `:allowlist` shipped the app's security configuration
+       beside them. One test per leak, each with its own sentinel.
     5. The wire is UNTOUCHED. Promotion changes what shippers see, never
        what the wire does — the rule this artefact's `error_listener.cljc`
        states at the head of `non-projection-eligible-errors`. A rejected
@@ -175,7 +180,13 @@
              [{:location "https://evil.example.com/" :relative-only? true}
               :rf.error/safe-redirect-host-disallowed :relative-only-violation]
              [{:location "https://evil.example.com/" :allow ["app.example.com"]}
-              :rf.error/safe-redirect-host-disallowed :not-in-allowlist]]]
+              :rf.error/safe-redirect-host-disallowed :not-in-allowlist]
+             ;; rf2-6jqa8 AUDIT-REOPEN: this arm's `:reason` used to be the
+             ;; free prose "URL did not parse". A closed keyword is what makes
+             ;; the slot aggregatable AND keeps the vocabulary framework-owned
+             ;; on the one arm whose input did not parse.
+             [{:location ""}
+              :rf.error/safe-redirect-invalid-url :parse-failed]]]
       (let [hits (safe-redirect-records (:records (reject! args)))
             r    (first hits)]
         (is (= 1 (count hits)) (str args " — exactly one record"))
@@ -200,11 +211,16 @@
 
 (deftest the-production-record-carries-exactly-the-enumerated-slots
   (testing "rf2-6jqa8 EGRESS REVIEW: this record is what a
-            `-Dre-frame.debug=false` build sends off-box, so the fail-closed
-            scrub is only half the job — the other half is keeping the shape
-            tight. Pin the key set CLOSED: a slot added here reaches Sentry /
-            Datadog in production, so it must be a deliberate change, not a
-            drift."
+            `-Dre-frame.debug=false` build sends off-box, so pinning the shape
+            is the job. The key set is CLOSED because it is produced by a
+            `select-keys` against one allowlist — a slot added to a tag map at
+            any of the eight emit arms simply does not reach Sentry / Datadog,
+            and WIDENING the record is an edit to
+            `egress/safe-redirect-record-slots` that reddens this test.
+
+            The per-arm sets differ only in which STRUCTURAL discriminator the
+            arm was able to parse. No arm carries `:location`, and none carries
+            `:allowlist`."
     (let [scheme (first (safe-redirect-records
                           (:records (reject! {:location "javascript:alert(1)"}))))
           host   (first (safe-redirect-records
@@ -212,50 +228,163 @@
                                               :allow    ["app.example.com"]}))))
           parse  (first (safe-redirect-records
                           (:records (reject! {:location ""}))))]
-      (is (= #{:error :time :recovery :frame :location :scheme}
+      (is (= #{:error :time :recovery :frame :scheme}
              (set (keys scheme)))
-          "scheme rejection — no :db, no event vector, no exception, no raw carrier")
-      (is (= #{:error :time :recovery :frame :location :host :reason :allowlist}
+          "scheme rejection — the scheme is the discriminator; no raw URL")
+      (is (= #{:error :time :recovery :frame :host :reason}
              (set (keys host)))
-          "host rejection — :allowlist is the CALL'S OWN policy input, not user data")
-      (is (= #{:error :time :recovery :frame :location :reason}
+          "host rejection — the target host and which policy arm fired; the
+           app's OWN allowlist does NOT ship")
+      (is (= #{:error :time :recovery :frame :reason}
              (set (keys parse)))
-          "parse failure — the unparseable location and why"))))
+          "parse failure — nothing parsed, so the category and a closed
+           :reason are all there is to say")
+      (is (every? keyword? (keep :reason [scheme host parse]))
+          "every :reason is a closed keyword, never free prose — prose on an
+           attacker-influenced arm is how raw material re-enters a record"))))
 
 ;; ===========================================================================
-;; (4) THE REDACTION — EP-0015 fail-closed, applied before either axis
+;; (4) THE PROJECTION — no URL secrets, no allowlist
 ;; ===========================================================================
+;;
+;; The AUDIT-REOPEN half of rf2-6jqa8.  The first shipped shape scrubbed the
+;; `:location` with `egress/redact-url-carriers` and put the scrubbed string on
+;; the record.  That is the right blanket policy for ordinary route diagnostics
+;; over the app's OWN URL space (rf2-ov56u's route-miss `:url`), and it is NOT
+;; a fail-closed projection of an ARBITRARY ATTACKER-SUPPLIED FOREIGN URL: the
+;; policy does string surgery only after the first `?` or `#`, so everything to
+;; the LEFT of them — userinfo, the whole path — rode out verbatim, as did a
+;; value-less query key.  The record also shipped the application's own
+;; `:allowlist`.
+;;
+;; So the production record is now a strict STRUCTURAL PROJECTION of the
+;; diagnostics rather than a scrubbed copy of them: parsed components only,
+;; never a URL.  Below is one test per leak, each with a sentinel that is
+;; present in the input by construction, so a regression names its own slot.
 
-(deftest the-attacker-controlled-location-is-scrubbed-before-it-egresses
-  (testing "rf2-6jqa8: `:location` is BY CONSTRUCTION caller-untrusted —
-            that is the entire reason `:rf.server/safe-redirect` exists as
-            the sibling of the caller-trusted `:rf.server/redirect` — and a
-            rejected `?next=` target is the class most likely to carry
-            `?token=…` / `#access_token=…`. The scrub runs INSIDE
-            `safe-redirect-tags`, before either axis sees the map."
-    (let [hostile "https://evil.example.com/cb?code=s3cr3t-query-value&flag#s3cr3t-fragment-value"
-          r       (first (safe-redirect-records
-                           (:records (reject! {:location hostile
-                                               :allow    ["app.example.com"]}))))
-          loc     (:location r)]
-      (is (not (str/includes? loc "s3cr3t-query-value"))
-          "the query carrier VALUE does not egress")
-      (is (not (str/includes? loc "s3cr3t-fragment-value"))
-          "the opaque #fragment does not egress")
-      (is (str/includes? loc "code=")
-          "the query KEY survives — a dashboard still sees a `code` parameter
-           was present, which is the shape signal, not the secret")
-      (is (str/includes? loc "evil.example.com")
-          "the HOST survives: on this path it IS the security signal, and a
-           host cannot carry a query-string carrier")
+(defn- record-strings
+  "Every string anywhere in `record` — the values a shipper serialises. The
+  leak assertions below scan THIS rather than a named slot, so a secret that
+  reappears under some *other* key is caught just as well as one that
+  reappears under `:location`."
+  [record]
+  (filter string? (tree-seq coll? seq record)))
+
+(defn- ships? [record needle]
+  (boolean (some #(str/includes? % needle) (record-strings record))))
+
+(deftest userinfo-does-not-egress
+  (testing "rf2-6jqa8 AUDIT-REOPEN leak 1: a URL's userinfo component carries
+            credentials outright (RFC 3986 §3.2.1; OpenTelemetry's URL
+            conventions say user / password MUST NOT be recorded). It sits
+            LEFT of any `?`, so the carrier scrub never reached it and
+            `https://alice:pw@host/` shipped whole."
+    (let [r (first (safe-redirect-records
+                     (:records (reject! {:location "https://alice:s3cr3t-userinfo-pw@evil.example.com/private"
+                                         :allow    ["app.example.com"]}))))]
+      (is (not (ships? r "s3cr3t-userinfo-pw"))
+          "the password in the userinfo component does not egress")
+      (is (not (ships? r "alice"))
+          "nor the username")
       (is (= "evil.example.com" (:host r))
-          "and it is also named structurally, so a dashboard need not parse"))))
+          "and the record is still worth having: the parsed host — the thing
+           an operator ranks probes by — is named structurally, WITHOUT the
+           credentials that travelled beside it"))))
+
+(deftest path-borne-secrets-do-not-egress
+  (testing "rf2-6jqa8 AUDIT-REOPEN leak 1 (second half): opaque secrets live
+            in PATH segments too — a password-reset token is the canonical
+            case. The path is left of the `?`, so the carrier scrub kept it
+            deliberately ('keep the structured path'), which is right for the
+            app's own URL space and wrong for a foreign one."
+    (let [r (first (safe-redirect-records
+                     (:records (reject! {:location "https://evil.example.com/reset/s3cr3t-path-token?x=1"
+                                         :allow    ["app.example.com"]}))))]
+      (is (not (ships? r "s3cr3t-path-token"))
+          "the opaque path segment does not egress")
+      (is (not (ships? r "/reset/"))
+          "nor the path structure around it"))))
+
+(deftest value-less-query-keys-do-not-egress
+  (testing "rf2-6jqa8 AUDIT-REOPEN leak 1 (third half): the carrier policy
+            PRESERVES a value-less query key by design — the key names the
+            shape, not the secret. True over the app's own URL space; over an
+            attacker's, the attacker chooses the key, so the key IS the
+            payload."
+    (let [r (first (safe-redirect-records
+                     (:records (reject! {:location "https://evil.example.com/x?s3cr3t-bare-flag"
+                                         :allow    ["app.example.com"]}))))]
+      (is (not (ships? r "s3cr3t-bare-flag"))
+          "an attacker-chosen value-less query key does not egress"))))
+
+(deftest the-applications-own-allowlist-does-not-egress
+  (testing "rf2-6jqa8 AUDIT-REOPEN leak 2: `:allowlist` is not user data —
+            it is worse. It is the app's SECURITY CONFIGURATION, unbounded in
+            size, and shipping it off-box hands whoever reads the sink the
+            exact boundary they are probing. `:reason :not-in-allowlist`
+            already says which arm fired; the contents add nothing an operator
+            cannot read from their own config."
+    (let [r (first (safe-redirect-records
+                     (:records (reject! {:location "https://evil.example.com/"
+                                         :allow    ["app.example.com"
+                                                    "s3cr3t-internal-admin.example.com"]}))))]
+      (is (not (ships? r "s3cr3t-internal-admin.example.com"))
+          "no allowlist entry egresses")
+      (is (not (contains? r :allowlist))
+          "and the slot itself is gone, not merely emptied")
+      (is (= :not-in-allowlist (:reason r))
+          "the DISCRIMINATION survives — an operator still knows the
+           allowlist arm rejected this, which is the actionable half"))))
+
+(deftest the-record-still-names-the-failure-it-exists-to-report
+  (testing "rf2-6jqa8: a record scrubbed to uselessness fails the ruling's own
+            purpose — an opt-in security gate must be observable to the person
+            who opted in. Tightening is only defensible while the STRUCTURAL
+            facts survive, so pin them here rather than trusting the key-set
+            test to imply it. The raw URL was never the value; the probe class
+            and the target were."
+    (let [js   (first (safe-redirect-records
+                        (:records (reject! {:location "javascript:alert(1)"}))))
+          host (first (safe-redirect-records
+                        (:records (reject! {:location "https://evil.example.com/x"
+                                            :allow    ["app.example.com"]}))))]
+      (is (= :rf.error/safe-redirect-scheme-rejected (:error js))
+          "which gate refused")
+      (is (= "javascript" (:scheme js))
+          "and the probe class, aggregatable across a spike")
+      (is (= "evil.example.com" (:host host))
+          "and the target host — an operator can block it, or recognise their
+           own misconfiguration in it")
+      (is (every? some? (map :frame [js host]))
+          "frame-attributed, so a multi-tenant host knows WHICH app was probed"))))
+
+(deftest structural-discriminators-are-normalised-for-aggregation
+  (testing "rf2-6jqa8: `:scheme` / `:host` exist to be COUNTED. Schemes are
+            case-insensitive (RFC 3986 §3.1) and DNS names likewise (RFC 1035
+            §2.3.3), so a prober alternating case would otherwise fragment one
+            spike across many dashboard buckets — an evasion that costs the
+            attacker nothing. The projection lower-cases both."
+    (let [scheme (first (safe-redirect-records
+                          (:records (reject! {:location "MAILTO:evil@example.com"}))))
+          host   (first (safe-redirect-records
+                          (:records (reject! {:location "https://EVIL.Example.COM/x"
+                                              :allow    ["app.example.com"]}))))]
+      (is (= "mailto" (:scheme scheme)))
+      (is (= "evil.example.com" (:host host))))))
 
 (deftest the-scrub-is-total-over-the-shapes-a-location-can-take
-  (testing "rf2-6jqa8: `redact-url-carriers` is reached for EVERY rejection
-            arm including the parse-failure one, where `:location` may be
-            nil, blank or a non-string. Asserted on the pure fn so the
-            totality claim needs no bus at all."
+  (testing "rf2-6jqa8: `redact-url-carriers` no longer stands between the
+            attacker's URL and PRODUCTION — the structural projection above
+            does — but it still scrubs the `:location` on the DEV diagnostics
+            (and rf2-ov56u's route-miss `:url`), so its totality is still a
+            claim worth pinning: it is reached for EVERY rejection arm
+            including the parse-failure one, where `:location` may be nil,
+            blank or a non-string. Asserted on the pure fn so the totality
+            claim needs no bus at all.
+
+            Read the two together and the EP-0015 relationship is the point:
+            the dev operator sees their own process in full detail, and the
+            production record is a strict projection of it."
     (is (nil? (egress/redact-url-carriers nil)))
     (is (= 42 (egress/redact-url-carriers 42)))
     (is (= "" (egress/redact-url-carriers "")))

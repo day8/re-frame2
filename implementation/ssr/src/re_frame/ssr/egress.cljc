@@ -104,11 +104,125 @@
   slot is absent.
 
   Applied by `re-frame.ssr.response`'s `safe-redirect-tags` BEFORE the tag
-  map reaches EITHER error axis, so the always-on production record and the
-  dev trace carry the same already-scrubbed value and cannot disagree about
-  the same rejection."
+  map reaches EITHER error axis, so both the DEV trace and (historically) the
+  always-on record carried the same already-scrubbed value and could not
+  disagree about the same rejection.
+
+  Since rf2-6jqa8's egress tightening the always-on record carries no URL at
+  all — see [[project-safe-redirect-record]] — so this scrub's remaining
+  consumer on THIS path is the dev trace. It stays because the dev trace is
+  still an egress surface in the weaker sense (a local operator's screen, a
+  captured test fixture), and because a scrubbed diagnostic is the honest
+  input to a projection."
   ([tags] (redact-url-tag tags :location))
   ([tags slot]
    (if (contains? tags slot)
      (update tags slot redact-url-carriers)
      tags)))
+
+;; ---------------------------------------------------------------------------
+;; The always-on record projection (rf2-6jqa8 AUDIT-REOPEN)
+;; ---------------------------------------------------------------------------
+;;
+;; WHY A PROJECTION AND NOT A BIGGER SCRUB.  [[redact-url-carriers]] is the
+;; Spec 015 blanket CARRIER policy: it redacts query / fragment values and
+;; keeps everything else, which is exactly right over the app's OWN URL space
+;; (rf2-ov56u's route-miss `:url`, where the path is a route the app authored
+;; and the host is the app's own).  A rejected safe-redirect target is not
+;; that.  It is an ARBITRARY FOREIGN URL chosen by whoever is probing, so
+;; every component is attacker-authored and "keep everything except the
+;; carriers" inverts the burden of proof.  Concretely, the carrier policy does
+;; string surgery only after the first `?` or `#`, so it never reached:
+;;
+;;   - the USERINFO component — `https://alice:pw@host/…` shipped credentials
+;;     whole (RFC 3986 §3.2.1; OpenTelemetry's URL conventions say user /
+;;     password MUST NOT be recorded),
+;;   - the PATH — a password-reset token in a path segment is the canonical
+;;     opaque path-borne secret, and the policy keeps the path DELIBERATELY,
+;;   - a VALUE-LESS query key — preserved by design, because a key names the
+;;     shape rather than the secret; true of the app's own URL space, false
+;;     when the attacker picks the key.
+;;
+;; Widening the scrub to cover those would leave nothing but the scheme and
+;; host anyway, and would still be a DENY-list — one more URL component away
+;; from a leak.  So the record is built the other way round, as an ALLOW-list
+;; over parsed structural components.  That is fail-closed by construction: a
+;; slot added to any emit arm's tag map does not reach a shipper unless
+;; someone edits [[safe-redirect-record-slots]] and reddens the test that pins
+;; it.
+;;
+;; This is the EP-0015 diagnostics/egress relationship in its ordinary form —
+;; the dev trace keeps the rich (scrubbed) map, and the production record is a
+;; strict projection of it, not a copy.
+
+(def safe-redirect-record-slots
+  "The CLOSED set of tag slots the ALWAYS-ON `:rf.error/safe-redirect-*`
+  record may carry off-box, over and above the `:error` / `:time` the
+  union-record helper assoc's.
+
+  Every member is either framework-owned or a PARSED URL COMPONENT — never a
+  URL, never caller-supplied policy data:
+
+    `:frame`     the frame id — attribution, so a multi-tenant host knows
+                 which app was probed.
+    `:recovery`  fixed `:no-recovery`.
+    `:reason`    a closed framework keyword naming which gate arm fired.
+    `:scheme`    the parsed, lower-cased scheme (`\"javascript\"`) — the
+                 aggregatable probe class.
+    `:host`      the parsed, lower-cased host (`\"evil.example.com\"`) — the
+                 target, which an operator can block or recognise as their
+                 own misconfiguration.
+
+  Deliberately ABSENT: `:location` (the attacker's URL, in any form, scrubbed
+  or not) and `:allowlist` (the application's own security configuration —
+  unbounded policy data whose contents hand a reader the exact boundary being
+  probed, and which `:reason :not-in-allowlist` already discriminates without
+  disclosing)."
+  #{:frame :recovery :reason :scheme :host})
+
+(def ^:private normalised-slots
+  "The projected slots that are PARSED URL COMPONENTS, and so must be
+  case-normalised to aggregate. `:frame` / `:recovery` / `:reason` are
+  framework-owned values that already have one spelling each."
+  #{:scheme :host})
+
+(defn- normalise-component
+  "Lower-case a parsed URL component so it AGGREGATES. Schemes are
+  case-insensitive (RFC 3986 §3.1) and DNS labels likewise (RFC 1035 §2.3.3),
+  so without this a prober alternating case fragments one spike across many
+  dashboard buckets — an evasion that costs the attacker nothing and costs
+  the operator the signal. Non-strings ride back unchanged."
+  [v]
+  (if (string? v) (str/lower-case v) v))
+
+(defn safe-redirect-record-tags
+  "Project the safe-redirect DIAGNOSTIC tag map down to the closed structural
+  map the always-on error axis may ship off-box: [[safe-redirect-record-slots]]
+  only, with `:scheme` / `:host` normalised for aggregation.
+
+  Applied by `re-frame.ssr.response`'s `dispatch-safe-redirect-record!` — the
+  one function that reaches the `:error-emit/dispatch-error-record` hook — so
+  the projection is inseparable from the egress rather than being a discipline
+  each of the eight rejection arms has to remember.
+
+  Note the direction: the result is BUILT FROM the closed slot set rather than
+  filtered down to it, so an unrecognised tag has no path into the record even
+  in principle. A slot whose component did not parse is omitted rather than
+  carried as nil, which is why the per-arm key sets differ — each arm names
+  exactly the discriminators it actually had.
+
+  The result is intentionally SMALL. Losing the exact URL in production is a
+  good trade: an operator keeps an aggregatable probe class, the target host,
+  the arm that fired and the frame, without accepting credentials, opaque path
+  material, arbitrary attacker-chosen query keys or unbounded policy data. If
+  richer local diagnosis is wanted, it is already on the dev trace beside
+  this — derive a further view deliberately rather than widening what a
+  `-Dre-frame.debug=false` build sends to Sentry."
+  [tags]
+  (into {}
+        (keep (fn [slot]
+                (when-some [v (get tags slot)]
+                  [slot (if (normalised-slots slot)
+                          (normalise-component v)
+                          v)])))
+        safe-redirect-record-slots))
