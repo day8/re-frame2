@@ -664,6 +664,39 @@
               "and the key reaches one too — the control decides no keyboard
                policy of its own"))))))
 
+(deftest fh-ctrl-021-the-offset-is-controlled-through-one-guarded-layout-seam
+  (testing "Per FH-CTRL-021: `:scroll-offset` is CONTROLLED, so the render
+            is only half of it — the other half is a `:layout` behavior
+            that lands the offset on the live viewport before paint. The
+            structural tree records that seam as an inert marker, which is
+            what lets a headless render prove the mechanism exists, that it
+            is the substrate's ONE sanctioned host seam rather than a ref
+            or an effect, and that what it carries is the application's own
+            number.
+
+            There is exactly ONE such marker for one collection. A second
+            would be a second reconciliation racing the first."
+    (register!)
+    (seed!)
+    (let [{:keys [scroll-offset]} (:first-key-at ctrl-021)
+          markers #(t/find-all % (fn [n] (and (map? n)
+                                              (= :re-frame.freehand/behavior
+                                                 (:view-id n)))))
+          at      #(:props (first (markers (render-tree))))]
+      (is (= 1 (count (markers (render-tree))))
+          "one collection, one reconciliation")
+      (is (= coll/reconcile-scroll (:use (at)))
+          "and it is the collection's own registered behavior")
+      (is (= {:scroll-offset 0} (:config (at)))
+          "carrying the offset the frame holds, as DATA — a config a tool
+           can read and a snapshot can print")
+      (scroll-to! scroll-offset)
+      (is (= {:scroll-offset scroll-offset} (:config (at)))
+          "and it FOLLOWS the frame, which is what makes the direction
+           app-db -> viewport exist at all")
+      (is (not= 0 scroll-offset)
+          "non-vacuous: the offset really moved"))))
+
 (deftest fh-ctrl-021-the-control-owns-no-record-and-needs-no-address
   (testing "Per FH-CTRL-021: the control is props-only. It never asks for a
             `v/controller-key`, so it has no record to address, no

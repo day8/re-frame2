@@ -16,6 +16,12 @@
   - **a keyboard move that reveals.** Pressing a key at the edge of the
     window has to move the active row, move the offset and move the host,
     as one epoch. Only a browser has the host.
+  - **the offset landing on a LIVE viewport.** `:scroll-offset` is
+    controlled, so state moves the host and not merely the window: a
+    persisted offset restores onto a freshly mounted viewport, and a
+    state-only move drags a viewport that is already showing rows. Neither
+    is producible by scrolling, and a structural tree has no `scrollTop`
+    to read.
   - **what a run leaves behind.** Virtualization mounts and unmounts rows
     continuously, so a leaked boundary ACCUMULATES rather than merely
     persisting. This is the witness where `:residue :none` is worth the
@@ -28,10 +34,12 @@
   decided by a value the application moves, so the re-render has to reach
   the host the way it does in production.
 
-  **Nothing reaches into the control.** Every offset is moved by the
-  browser scrolling or by the application's own event; every reading is
-  taken off `document`. The one place the test writes to the host is the
-  application's own effect, which is where a host write belongs.
+  **Nothing reaches into the control, and nothing writes the host.** Every
+  offset is moved by the browser scrolling, by the application's own event
+  or by replacing app-db; every reading is taken off `document`. The
+  application registers NO host-writing effect, which is what makes every
+  `scrollTop` this file reads a fact about the collection's own
+  reconciliation rather than about the test's arrangements.
 
   **A scroll cycle is a full window turnover.** Consecutive stops barely
   overlap, so nearly every row in the window is replaced at every stop.
@@ -103,11 +111,6 @@
   (rf/reg-sub :inbox/active (fn [db _] (get-in db [:inbox :active])))
   (rf/reg-sub :inbox/label  (fn [db [_ k]] (str "row " k)))
 
-  (rf/reg-fx :inbox/scroll-to
-    (fn [_ {:keys [id offset]}]
-      (when-let [el (.getElementById js/document id)]
-        (set! (.-scrollTop el) offset))))
-
   ;; The browser scrolled. `::v/scroll-top` carried the host's own property
   ;; into an ordinary event, and this is the only place it lands.
   (rf/reg-event :inbox/scrolled
@@ -115,9 +118,11 @@
       {:db (assoc-in db [:inbox :scroll] offset)}))
 
   ;; A key was pressed. The application decides what the key means, moves
-  ;; the active row, computes the offset that reveals it and moves the host
-  ;; — all in ONE handler, so the three settle as one epoch. The control
-  ;; contributed the arithmetic and no policy.
+  ;; the active row and computes the offset that reveals it — ONE handler,
+  ;; ONE epoch, and NO effect: the viewport follows because the offset is
+  ;; controlled, so the application never touches the host. This registry is
+  ;; the shape of the correction: there is no `:inbox/scroll-to` here to
+  ;; register.
   (rf/reg-event :inbox/key-pressed
     (fn [{:keys [db]} [_ pressed]]
       (if (= pressed (:key-down ctrl-021))
@@ -130,8 +135,7 @@
                                          next-i)]
           {:db (-> db
                    (assoc-in [:inbox :active] next-i)
-                   (assoc-in [:inbox :scroll] offset))
-           :fx [[:inbox/scroll-to {:id list-id :offset offset}]]})
+                   (assoc-in [:inbox :scroll] offset))})
         {:db db})))
 
   (rf/reg-event :inbox/opened
@@ -418,12 +422,13 @@
                           (is (not= key-from-offset key-to-offset)
                               "non-vacuous: the reveal really did require a scroll")
                           (settled #(= key-to-offset (.-scrollTop (viewport-el)))
-                                   "the application's effect moves the host")))
+                                   "the controlled offset moves the host")))
                       (.then
                         (fn [_]
                           (is (= key-to-offset (.-scrollTop (viewport-el)))
-                              "the host followed, from an ordinary effect — the
-                               control never writes it")
+                              "the host followed because the offset is
+                               CONTROLLED — the application registered no
+                               scroll effect at all")
                           (is (some? (.getElementById js/document key-to-dom-id))
                               "and the newly active row is now in the document")
                           (is (= key-to-dom-id
@@ -431,6 +436,103 @@
                               "named by the viewport that still holds focus")
                           (finish! container root done "after the keyboard move")))
                       (.catch (fail-and-finish! container root done)))))
+              (.catch (fail-and-finish! container root done))))))))
+
+;; ===========================================================================
+;; FH-CTRL-021 — the offset is CONTROLLED, so the viewport follows the state
+;; ===========================================================================
+;;
+;; These two are the direction a render cannot go on its own, and they are
+;; the reason `:scroll-offset` is controlled rather than a cache trailing the
+;; DOM. Neither can be produced by scrolling: the first has no gesture before
+;; the mount and the second has none after it. Nothing here writes the host —
+;; the application registers no effect that could — so a viewport that moves
+;; moved because the collection reconciled it.
+
+(deftest fh-ctrl-021-a-non-zero-offset-is-restored-onto-a-fresh-viewport
+  (testing "Per FH-CTRL-021: the offset is in app-db BEFORE anything mounts,
+            which is what a reload into a persisted position, a deep link
+            and a restored snapshot all look like. Render alone picks the
+            remote window from it and paints those rows thousands of pixels
+            down the canvas — and leaves the fresh viewport at scrollTop 0,
+            showing blank. That internally inconsistent state is the bug the
+            reconciliation closes, and this row reads the viewport to prove
+            it is closed.
+
+            Stated POSITIVELY, because there is no un-reconciled mode left
+            to contrast with: one prop, one meaning."
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the restoration assertions")
+      (async done
+        (reg!)
+        (let [{:keys [restore-offset restore-first]} ctrl-021
+              _ (seed! {:scroll restore-offset})
+              [container root] (ms/create-root!)]
+          (-> (render! root)
+              (.then
+                (fn [_]
+                  (ms/live!)
+                  (is (= restore-offset (offset-in-db))
+                      "the offset was in app-db before the mount")
+                  (settled #(= restore-offset (.-scrollTop (viewport-el)))
+                           "the fresh viewport is moved to the persisted offset")))
+              (.then
+                (fn [_]
+                  (is (= restore-offset (.-scrollTop (viewport-el)))
+                      "the viewport holds the persisted offset — not 0, which
+                       is where a render-only collection would have left it")
+                  (is (= restore-first (window-first))
+                      "and the window the canvas painted is the one that
+                       offset selects, so the two agree rather than the box
+                       showing blank above the rows")
+                  (is (pos? restore-offset)
+                      "non-vacuous: the restored offset is not the default")
+                  (finish! container root done "after a restore onto a fresh mount")))
+              (.catch (fail-and-finish! container root done))))))))
+
+(deftest fh-ctrl-021-a-state-only-offset-move-drags-a-mounted-viewport
+  (testing "Per FH-CTRL-021: the TIME-TRAVEL half, and the one that
+            distinguishes a controlled offset from a merely restorable one.
+            The collection is already mounted and already showing rows when
+            the offset moves in STATE alone — no gesture, no scroll event,
+            no effect, exactly the shape `restore-epoch` leaves behind. The
+            viewport follows it.
+
+            This is what the shipped control could not do before the
+            reconciliation: it could time-travel the window VALUE, and the
+            mounted viewport would sit where the user's thumb last left it."
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the time-travel assertions")
+      (async done
+        (reg!)
+        (seed! {})
+        (let [{:keys [time-travel-offset time-travel-first]} ctrl-021
+              [container root] (ms/create-root!)]
+          (-> (render! root)
+              (.then
+                (fn [_]
+                  (ms/live!)
+                  (is (= 0 (.-scrollTop (viewport-el)))
+                      "the mounted viewport starts at the top")
+                  (is (= 0 (window-first)) "showing the first window")
+                  ;; Move the STATE and nothing else. `replace-app-db!` is the
+                  ;; snapshot seam, so this is a restore rather than a scroll.
+                  (frame/replace-app-db!
+                    fid (assoc-in (app-db) [:inbox :scroll] time-travel-offset))
+                  (settled #(= time-travel-offset (.-scrollTop (viewport-el)))
+                           "a state-only offset move drags the viewport after it")))
+              (.then
+                (fn [_]
+                  (is (= time-travel-offset (.-scrollTop (viewport-el)))
+                      "the MOUNTED viewport followed the state — the direction
+                       a render cannot produce")
+                  (is (= time-travel-first (window-first))
+                      "and the window is the one that offset selects, so the
+                       host and the render agree on one fact")
+                  (is (= time-travel-offset (offset-in-db))
+                      "with app-db still holding it — the reconciliation
+                       writes the host, never the frame")
+                  (finish! container root done "after a state-only offset move")))
               (.catch (fail-and-finish! container root done))))))))
 
 ;; ===========================================================================

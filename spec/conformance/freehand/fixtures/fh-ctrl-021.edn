@@ -1,5 +1,5 @@
 {:fh/id  "FH-CTRL-021"
- :fh/law "A fixed-extent virtual collection renders a WINDOW and states the collection: the visible window is pure arithmetic whose row count is bounded by the viewport and independent of the item count, the rows carry the caller's stable keys at their absolute indices so a window movement re-keys nothing, exactly one item subscription exists per RENDERED row rather than per item, the scroll position is ordinary frame data the control never writes, and every rendered row states the collection's true size and its own true position while the DOM holds only the window. The virtualization ENGINE is semantic-neutral — it names no role, its positioned row shells are presentational, and its row slot receives the row's key, its absolute index and the collection's total — so one engine carries a listbox and a grid alike, and the listbox is a thin wrapper over it holding no second window arithmetic and no second scroll host."
+ :fh/law "A fixed-extent virtual collection renders a WINDOW and states the collection: the visible window is pure arithmetic whose row count is bounded by the viewport and independent of the item count, the rows carry the caller's stable keys at their absolute indices so a window movement re-keys nothing, exactly one item subscription exists per RENDERED row rather than per item, and every rendered row states the collection's true size and its own true position while the DOM holds only the window. The scroll position is ordinary frame data and it is CONTROLLED in both directions: the render picks the window from it, and one guarded `:layout` reconciliation lands it on the live viewport before paint whenever the node disagrees — so a persisted offset restores onto a fresh mount and a state-only move drags a viewport that is already showing rows, while an ordinary user scroll writes no host state at all. The virtualization ENGINE is semantic-neutral — it names no role, its positioned row shells are presentational, and its row slot receives the row's key, its absolute index and the collection's total — so one engine carries a listbox and a grid alike, and the listbox is a thin wrapper over it holding no second window arithmetic and no second scroll host."
 
  :frame   :rf.test/virtual-collection
  :list-id "inbox"
@@ -136,10 +136,28 @@
  :offset-hiding-active  160000
  :offset-showing-active 0
 
+ ;; RESTORATION — the CONTROLLED offset, in the direction render cannot go.
+ ;;
+ ;; Two readings, and they are different facts. The first is a viewport
+ ;; that has never been scrolled: the offset is in app-db BEFORE the
+ ;; mount, so the window is remote and a viewport left at scrollTop 0
+ ;; would paint those rows far below the fold and show blank. The second
+ ;; is a viewport already mounted and already showing rows, whose offset
+ ;; then moves in STATE alone — the shape a `restore-epoch` leaves, where
+ ;; no user gesture and no host event happened at all.
+ ;;
+ ;; Both windows are the ones the mounted scroll stops above already name,
+ ;; restated here so the restoration rows read their own numbers.
+ :restore-offset      3200
+ :restore-first       98
+ :time-travel-offset  160000
+ :time-travel-first   4998
+
  ;; KEYBOARD. One press at the bottom edge of the first window: the
  ;; application's handler moves the active index and computes the reveal
  ;; offset in the same event, so the move and the scroll settle as one
- ;; epoch.
+ ;; epoch — and the viewport follows because the offset is CONTROLLED,
+ ;; with no application effect writing the host.
  :key-down            "ArrowDown"
  :key-from-index      11
  :key-to-index        12
@@ -165,7 +183,7 @@
 
   :mounted
   [{:ns  re-frame.freehand.virtual-collection-dom-cljs-test
-    :law "In Chromium a real scroll moves the window through the application's own event and nowhere else — the host's scrollTop and app-db hold ONE fact — the viewport keeps focus while the active row is unmounted and remounted beneath it, a keyboard move reveals a row that was not rendered, and after repeated full-window scroll cycles a teardown leaves no connected occurrence and no row node behind."}]
+    :law "In Chromium a real scroll moves the window through the application's own event and nowhere else — the host's scrollTop and app-db hold ONE fact — the viewport keeps focus while the active row is unmounted and remounted beneath it, a keyboard move reveals a row that was not rendered, a persisted offset is restored onto a freshly mounted viewport and a state-only offset move drags a viewport that is already showing rows, and after repeated full-window scroll cycles a teardown leaves no connected occurrence and no row node behind. The application registers no host-writing effect, so every scrollTop read is a fact about the collection's own reconciliation."}]
 
   ;; The reads a run leaves for a reader are the two the DOM and the tree
   ;; carry without instrumentation — the rendered row count and the window

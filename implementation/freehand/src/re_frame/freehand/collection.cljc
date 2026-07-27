@@ -18,13 +18,15 @@
   | [[window]] | the visible window, as pure arithmetic |
   | [[reveal-offset]] | the smallest scroll that puts a row wholly on screen |
   | [[row-dom-id]] | the browser-facing address of a rendered row |
+  | [[reconcile-scroll]] | the guarded `:layout` write that lands the offset |
   | [[virtual-collection]] | the ENGINE — viewport, canvas, positioned row shells |
   | [[virtual-list]] | a thin LISTBOX over the engine |
   | [[virtual-row]] | the listbox's own row — not a call-site surface |
 
-  Three of the six are pure functions of scalars, which is where the
+  Three of the seven are pure functions of scalars, which is where the
   correctness lives. Nothing here schedules, measures, throttles, observes
-  a resize, or owns a frame.
+  a resize, or owns a frame; the one imperative entry is a guarded write of
+  one property on one node.
 
   ## Two layers, because virtualization is not a widget
 
@@ -91,8 +93,12 @@
   `scrollTop` reaches an ordinary event and lands in app-db, where a tool
   can read it, an epoch can carry it and a snapshot can restore it. The
   control keeps no host slot, no ref, no local atom and no controller
-  record, which is why a re-render, a hot reload and a restored snapshot
-  are all uneventful: there is nothing to reconcile.
+  record: app-db is the single home, and the viewport is RECONCILED to it
+  rather than consulted alongside it. That reconciliation
+  ([[reconcile-scroll]]) is the one place a host property is written, it
+  runs before paint, and it writes only when the node disagrees — so a
+  restored snapshot lands on a viewport that follows it, while an ordinary
+  user scroll moves no host state at all.
 
   **Row content in its own props.** The control never receives an item. It
   receives `:row-keys` — the ordered vector of IDENTITIES — and a `:row`
@@ -289,6 +295,67 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; The one direction render cannot carry: state back onto a live viewport
+;; ---------------------------------------------------------------------------
+;;
+;; `:scroll-offset` decides which rows are rendered, and a render can do that
+;; much on its own. What a render CANNOT do is move a host property: a freshly
+;; mounted viewport sits at scrollTop 0 while the canvas paints rows 96-124 at
+;; 3072px, and the box shows blank. The same hole swallows a time-travel
+;; restore — the window value moves, the mounted viewport does not follow —
+;; which is why the offset is CONTROLLED here rather than a cache trailing the
+;; DOM.
+;;
+;; Writing the offset back onto the node is host work, and `v/behavior`'s
+;; `:layout` timing is the one seam the substrate sanctions for it: before
+;; paint, because a restore that ran after paint would show the wrong rows for
+;; one frame.
+
+(defn- reconcile-scroll-offset!
+  "Move `node`'s `scrollTop` to `offset`, but ONLY when they differ — so a
+  write that would change nothing fires no spurious scroll event, and the
+  behavior never overwrites an offset the viewport already holds. The
+  ordinary user scroll is exactly that case: the DOM already carries the
+  value app-db has just learned, so the guard makes it a no-op and the
+  user's thumb is never fought."
+  [node offset]
+  #?(:cljs
+     (let [offset (max 0 (long (or offset 0)))]
+       (when (not= (.-scrollTop node) offset)
+         (set! (.-scrollTop node) offset))))
+  nil)
+
+(v/defbehavior reconcile-scroll
+  "Write the collection's `:scroll-offset` back onto the viewport, before
+  paint.
+
+  `:config` carries `{:scroll-offset n}` — DATA, the offset alone.
+  `:connect` restores it into a freshly mounted viewport; `:update` follows
+  it when the value MOVES while the DOM has not, which is the time-travel
+  and programmatic-set case. Both write through
+  [[reconcile-scroll-offset!]], so an ordinary user scroll — where app-db is
+  merely trailing the DOM — moves no host state at all.
+
+  An offset past the end of the collection needs no clamping here: the host
+  clamps its own `scrollTop`, the resulting `scroll` event carries the real
+  value into the application's own handler, and the next config is the
+  corrected one. The offset self-corrects through the ordinary path rather
+  than through arithmetic duplicated at the seam.
+
+  Attaching this is imperative host work and the cost is deliberate and
+  small — one node, one property, two lifecycle entries, no memory to
+  release. It is not a promotion cost: the compiled grammar admits the
+  behavior form, so a virtual collection compiles with the reconciliation in
+  place exactly as it did without."
+  {:timing  :layout
+   :connect (fn [{:keys [node config]}]
+              (reconcile-scroll-offset! node (:scroll-offset config))
+              nil)
+   :update  (fn [{:keys [node config]}]
+              (reconcile-scroll-offset! node (:scroll-offset config))
+              nil)})
+
+;; ---------------------------------------------------------------------------
 ;; The engine — mechanics, and no semantics at all
 ;; ---------------------------------------------------------------------------
 
@@ -302,11 +369,26 @@
   | `:row-keys` | REQUIRED — the ordered vector of stable item identities |
   | `:row-extent` | REQUIRED — the FIXED row height, in pixels |
   | `:viewport-extent` | REQUIRED — the scroll host's height, in pixels |
-  | `:scroll-offset` | REQUIRED — the caller's scroll position |
+  | `:scroll-offset` | REQUIRED — the CONTROLLED scroll position |
   | `:row` | REQUIRED — a `v/render-fn` of `[row-key index total]` |
   | `:on-scroll` | REQUIRED — the scroll intent; `::v/scroll-top` is appended |
   | `:overscan` | optional — rows rendered beyond each edge |
   | `:attrs` | optional — attributes for the viewport, through `v/spread-safe` |
+
+  ## `:scroll-offset` is CONTROLLED, in both directions
+
+  It is not a cache of what the host happens to hold. The render picks the
+  window from it, and [[reconcile-scroll]] lands it on the live viewport
+  before paint whenever the two disagree. Both directions matter and each
+  one alone is a bug: render alone leaves a freshly mounted viewport at
+  scrollTop 0 under rows painted at 3072px, and the DOM alone leaves the
+  offset somewhere no epoch, snapshot or tool can see. Together they make
+  the offset ordinary application state that a `restore-epoch` can move on
+  a MOUNTED viewport, not merely a window value.
+
+  There is no opt-out. One prop must not carry two meanings, and the
+  un-reconciled mode is the blank-viewport bug rather than a lighter
+  configuration of the same idea.
 
   ## Why it is semantic-neutral
 
@@ -375,29 +457,30 @@
                        :overscan        overscan})
         from  (:first w)
         to    (+ from (:count w))]
-    [:div (v/spread-safe
-            {:data-part         "viewport"
-             :data-window-first from
-             :data-window-count (:count w)
-             :style             {:height   viewport-extent
-                                 :overflow "auto"
-                                 :position "relative"}
-             :on-scroll         (conj on-scroll ::v/scroll-top)}
-            attrs)
-     [:div {:data-part "canvas"
-            :style     {:position "relative"
-                        :height   (:extent w)}}
-      (for [i (range from to)
-            :let [k (nth row-keys i)]]
-        [:div {:key       k
-               :data-part "row-shell"
-               :role      "presentation"
-               :style     {:position "absolute"
-                           :left     0
-                           :right    0
-                           :top      (* i row-extent)
-                           :height   row-extent}}
-         (v/slot row k i total)])]]))
+    [v/behavior {:use reconcile-scroll :config {:scroll-offset scroll-offset}}
+     [:div (v/spread-safe
+             {:data-part         "viewport"
+              :data-window-first from
+              :data-window-count (:count w)
+              :style             {:height   viewport-extent
+                                  :overflow "auto"
+                                  :position "relative"}
+              :on-scroll         (conj on-scroll ::v/scroll-top)}
+             attrs)
+      [:div {:data-part "canvas"
+             :style     {:position "relative"
+                         :height   (:extent w)}}
+       (for [i (range from to)
+             :let [k (nth row-keys i)]]
+         [:div {:key       k
+                :data-part "row-shell"
+                :role      "presentation"
+                :style     {:position "absolute"
+                            :left     0
+                            :right    0
+                            :top      (* i row-extent)
+                            :height   row-extent}}
+          (v/slot row k i total)])]]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The listbox — one widget over the engine
@@ -501,7 +584,9 @@
   registers. There is no host slot, no ref and no controller record, which
   is what makes the scroll position an epoch-carried,
   snapshot-restorable, tool-readable application fact rather than a number
-  living in a host node that no re-frame reader can see.
+  living in a host node that no re-frame reader can see — and the engine's
+  guarded reconciliation is what makes the restore land on a MOUNTED
+  viewport rather than only on the next window it picks.
 
   ## Reading it back
 

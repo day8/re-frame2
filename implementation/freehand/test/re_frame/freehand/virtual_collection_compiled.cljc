@@ -45,7 +45,7 @@
 
   Dev/test scope ONLY."
   (:require [re-frame.freehand :as v]
-            [re-frame.freehand.collection :refer [row-dom-id window]]
+            [re-frame.freehand.collection :refer [reconcile-scroll row-dom-id window]]
             [re-frame.freehand.virtual-collection-cljs-test :refer [item-cell]]))
 
 (v/defview virtual-collection
@@ -72,29 +72,30 @@
                        :overscan        overscan})
         from  (:first w)
         to    (+ from (:count w))]
-    [:div (v/spread-safe
-            {:data-part         "viewport"
-             :data-window-first from
-             :data-window-count (:count w)
-             :style             {:height   viewport-extent
-                                 :overflow "auto"
-                                 :position "relative"}
-             :on-scroll         (conj on-scroll ::v/scroll-top)}
-            attrs)
-     [:div {:data-part "canvas"
-            :style     {:position "relative"
-                        :height   (:extent w)}}
-      (for [i (range from to)
-            :let [k (nth row-keys i)]]
-        [:div {:key       k
-               :data-part "row-shell"
-               :role      "presentation"
-               :style     {:position "absolute"
-                           :left     0
-                           :right    0
-                           :top      (* i row-extent)
-                           :height   row-extent}}
-         (v/slot row k i total)])]]))
+    [v/behavior {:use reconcile-scroll :config {:scroll-offset scroll-offset}}
+     [:div (v/spread-safe
+             {:data-part         "viewport"
+              :data-window-first from
+              :data-window-count (:count w)
+              :style             {:height   viewport-extent
+                                  :overflow "auto"
+                                  :position "relative"}
+              :on-scroll         (conj on-scroll ::v/scroll-top)}
+             attrs)
+      [:div {:data-part "canvas"
+             :style     {:position "relative"
+                         :height   (:extent w)}}
+       (for [i (range from to)
+             :let [k (nth row-keys i)]]
+         [:div {:key       k
+                :data-part "row-shell"
+                :role      "presentation"
+                :style     {:position "absolute"
+                            :left     0
+                            :right    0
+                            :top      (* i row-extent)
+                            :height   row-extent}}
+          (v/slot row k i total)])]]]))
 
 (v/defview virtual-row
   "`collection/virtual-row`, PROMOTED — the addressed, selectable `option`,
