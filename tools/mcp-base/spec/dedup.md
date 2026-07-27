@@ -1,7 +1,7 @@
 # `dedup` — the structural-dedup codec and the wire-boundary encode step
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> Owns the cross-MCP structural dedup outright: the equality-based codec (`de-dupe-eq` / `expand`), the cache-element wire shape, and the encode policy (`empty-payload?`, `no-substitutions?`, `dedup-value`) layered on top. The codec was vendored from `day8/de-dupe` v0.3.0 under rf2-2ii52 — see [§Provenance](#provenance-vendored-from-day8de-dupe). Diff-encode (the epoch `:db-after` transform that runs just before dedup) lives in [`diff-encode.md`](diff-encode.md); the wire-cap that runs just after lives in [`cap.md`](cap.md).
+> Owns the cross-MCP structural dedup outright: the equality-based codec (`de-dupe-eq` / `expand`), the cache-element wire shape, and the encode policy (`empty-payload?`, `no-substitutions?`, `dedup-value`) layered on top. The codec was vendored from `day8/de-dupe` v0.3.0 under rf2-2ii52 — see [§Provenance](#provenance--vendored-from-day8de-dupe). Diff-encode (the epoch `:db-after` transform that runs just before dedup) lives in [`diff-encode.md`](diff-encode.md); the wire-cap that runs just after lives in [`cap.md`](cap.md).
 
 This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
