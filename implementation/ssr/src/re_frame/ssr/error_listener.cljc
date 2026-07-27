@@ -328,12 +328,10 @@
 
   This listener covers every `:rf.error/*` category that fires through
   `trace/emit-error!` — which is a SUPERSET of the always-on axis, not a
-  disjoint set. Two projection-eligible categories ride the dev bus ALONE
-  and therefore elide under `interop/debug-enabled? = false`:
+  disjoint set. ONE projection-eligible category rides the dev bus ALONE
+  and therefore elides under `interop/debug-enabled? = false`:
   `:rf.error/no-such-route` (the `route-url` caller-misuse throw, Spec 009
-  catalogues it diagnostic) and `:rf.error/schema-validation-failure`
-  (boundary validation is itself production-elided per Spec 010
-  §Production builds, so no production reject exists to project).
+  catalogues it diagnostic).
 
   The rest arrive on BOTH buses, and the always-on
   `error-emit-projection-listener` (below) is their production status
@@ -342,9 +340,26 @@
   fail-closed 5xx, not recover to a silent 200),
   `:rf.error/no-such-handler` (both the `:kind :event` dispatch miss and —
   since rf2-ov56u — the `:kind :route` URL miss the default projector maps
-  to 404), and `:rf.error/drain-depth-exceeded` (rf2-fcbrjo). In dev both
-  listeners fire for those — last-write-wins + idempotent projection makes
-  the duplicate benign."
+  to 404), `:rf.error/drain-depth-exceeded` (rf2-fcbrjo), and — since
+  rf2-mwv4e — `:rf.error/schema-validation-failure` from the
+  `:rf.schema/at-boundary` interceptor, which the default projector's
+  `:where`-gated arm maps to 400 (RFC 9110 §15.5.1: a refused request
+  payload is a client fault, not a server one). In dev both listeners fire
+  for those — last-write-wins + idempotent projection makes the duplicate
+  benign.
+
+  THE BOUNDARY ENTRY USED TO SIT IN THE DEV-ONLY LIST, and both halves of
+  its stated reason were wrong even before rf2-mwv4e promoted it. Boundary
+  validation is the ONE validation surface Spec 010 §Production builds keeps
+  ungated: the CHECK was never elided, only its `trace/emit-error!` — the
+  same overclaim rf2-mnmzh and rf2-bx4bf corrected elsewhere — so a
+  production reject always existed; what did not exist was a record to
+  project it from. rf2-mwv4e supplied that record (structural-only,
+  `:source :boundary`), it is absent from `non-projection-eligible-errors`
+  below, and the generic tag-lift in `error-emit-projection-listener` puts
+  its `:where :event` where `error_projector/default-error-projector-fn`
+  looks. `re-frame.ssr-boundary-rejection-400-production-test` is the
+  witness, and it runs under the REAL gate."
   [event]
   (when (= :error (:op-type event))
     (let [op (:operation event)]
