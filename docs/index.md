@@ -14,9 +14,16 @@ v2 has breaking changes, but there's a [migration skill](skills/re-frame-migrati
 
 ## Status
 
-Pre-alpha. I'm still preserving optionality.
+Alpha. I'm still preserving optionality.
 
-I'd be interested in your feedback if you want to try it. But nothing is published to Clojars or npm yet, so point your `deps.edn` at this repo directly — via a `:git/sha` coordinate, or `:local/root` on a local clone.
+I'd be interested in your feedback if you want to try it. re-frame2 is on Clojars at `0.0.1.alpha`. A release publishes thirteen coordinates at one version, so pin every `day8/re-frame2-*` you use at the same one:
+
+```clojure
+day8/re-frame2         {:mvn/version "0.0.1.alpha"}
+day8/re-frame2-reagent {:mvn/version "0.0.1.alpha"}
+```
+
+Nothing is published to npm; re-frame2 ships no npm code. The developer tools — Xray and Story among them — release on their own tags rather than the framework's, so those still come from a `:git/sha` or `:local/root` coordinate against a clone.
 
 ## The shape
 

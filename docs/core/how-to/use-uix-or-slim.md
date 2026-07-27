@@ -77,9 +77,9 @@ A build *may* carry two adapters on its classpath, but `init!` installs exactly 
 | UIx | `day8/re-frame2-uix` | `com.pitch/uix.core` (UIx 2 publishes as Maven 1.x) |
 | reagent-slim | `day8/reagent-slim` | `reagent2` (ships inside it) |
 
-!!! note "Coordinates are not published yet"
+!!! note "One version across the set"
 
-    re-frame2 is pre-alpha; these coordinates publish with the first public release. Inside the repo the adapters build from [`implementation/adapters/`](../../../implementation/adapters).
+    All three adapters are on Clojars, and a release ships them at the same version as `day8/re-frame2` itself — so pin the adapter and the core together, at one version. Inside the repo they build from [`implementation/adapters/`](../../../implementation/adapters).
 
 ## Step 2 — Write a UIx view
 

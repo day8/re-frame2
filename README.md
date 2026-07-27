@@ -92,11 +92,11 @@ Well, beyond the novel parts, re-frame2 comes with SOTA batteries in various dim
 
 ## Status
 
-Pre-alpha. I'm still preserving optionality.
+Alpha. I'm still preserving optionality.
 
-We are building apps against the ClojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
+We are building apps against the ClojureScript reference implementation, and it is now on Clojars at `0.0.1.alpha`. re-frame2 is not one jar: a `v*` tag publishes thirteen coordinates in lockstep, all at the same version, and [CHANGELOG.md](CHANGELOG.md#what-a-release-publishes) lists every one of them with what it gives you. Nothing goes to NPM — re-frame2 ships no npm code, and the one npm package in this repo, the `@day8/re-frame2-pair-mcp` server, has a release line of its own. The developer tools under [`tools/`](tools/) — Xray among them — also ship on their own tags rather than the framework's.
 
-You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. And use the Skills, Luke: [re-frame-migration](skills/re-frame-migration/) for you-know-what, then [re-frame2-pair](skills/re-frame2-pair/) for coding. Finally, use [re-frame2-pair-retro](skills/re-frame2-pair-retro/) to do a session retrospective and file an issue if you find friction.
+You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, pin `day8/re-frame2 {:mvn/version "0.0.1.alpha"}` in `deps.edn`, put every other `day8/re-frame2-*` coordinate at that same version, and hold on for dear life. And use the Skills, Luke: [re-frame-migration](skills/re-frame-migration/) for you-know-what, then [re-frame2-pair](skills/re-frame2-pair/) for coding. Finally, use [re-frame2-pair-retro](skills/re-frame2-pair-retro/) to do a session retrospective and file an issue if you find friction.
 
 
 ## AI-first

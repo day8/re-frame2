@@ -32,7 +32,7 @@ From Part 2 onward the app talks to a Conduit API — either a hosted demo or an
 ## What you need
 
 - **Node.js** (18+), **a JDK** (11+), and the **Clojure CLI**. Here's why all three, since "install three runtimes" deserves an explanation: npm runs the build tool's launcher and supplies React; the ClojureScript compiler runs on the JVM, which is why a JDK is in the list; and `clojure` resolves the JVM-side dependencies declared in `deps.edn`.
-- **A checkout of re-frame2.** A bit of pre-alpha honesty: re-frame2 isn't on a Maven repository yet, so you depend on a local checkout cloned next to your project rather than a published version. Once it ships, the `:local/root` entries below become ordinary `:mvn/version` coordinates and this whole step evaporates.
+- **A checkout of re-frame2**, cloned next to your project. The framework itself is published on Clojars, so you could pin it by version — but this tutorial keeps Xray open from the first page onward, and Xray is a tool that ships on its own release tag, which hasn't gone out yet. One sibling checkout serves every coordinate below, which beats mixing a published framework with an unpublished tool.
 
 ```bash
 git clone https://github.com/day8/re-frame2.git
