@@ -1,0 +1,98 @@
+;; FH-BEHAVIOR-010 — ownership routing for an imperative SDK that owns its own
+;; DOM subtree: ONE idempotent reclamation path, entered from either side.
+;;
+;; The Google Maps JavaScript API is the shape this row exists for, and it is
+;; the hardest of the three third-party shapes because the library owns things
+;; the substrate normally owns. `new google.maps.Map(node, opts)` takes the node
+;; over — it builds and rebuilds a subtree React never sees — and it runs its own
+;; render loop. An `OverlayView` goes further: its `onAdd` hands the author a
+;; PANE NODE the LIBRARY created, and the only way to put a Freehand view in it
+;; is an explicit nested root. And reclamation can be initiated from EITHER side:
+;; the author's `:disconnect`, or the library's own removal callback firing
+;; because the user, the map, or a control took the overlay away.
+;;
+;; Two initiators and one set of resources is where an integration leaks. This
+;; row states the routing that does not: the behavior owns the root identity, and
+;; the two initiators share ONE reclamation path that is a no-op after the first
+;; entry — so host-removal-then-disconnect, disconnect-then-host-removal, and
+;; repeated reclamation all end in the same absence.
+;;
+;; WHAT RUNS, AND WHAT DOES NOT. The proof mounts a surrogate that reproduces the
+;; Maps API's OWNERSHIP SHAPE — construction over a caller's node, a void-returning
+;; `setOptions`, a listener handle released by `.remove()`, an `OverlayView` whose
+;; `onAdd` supplies a host-created pane and whose `onRemove` is the host-removal
+;; callback — and nothing of Google's code. That is deliberate and it is stated
+;; here rather than implied: `google.maps` is loaded from the network under an API
+;; key against a billed account, so a CI lane cannot execute it, and a proof that
+;; pretended otherwise would be measuring a network. The law below is FREEHAND's —
+;; who owns the node, who owns the update, and what survives teardown — and it is
+;; the surrogate's job to present the same ownership boundary the real library
+;; presents, not to be it. See `:evidence :limits`.
+{:fh/id "FH-BEHAVIOR-010"
+ :fh/law
+ "An imperative SDK that owns its own DOM subtree is routed to a registered behavior, which owns the root identity: the connection's memory is one mutable cell, a host-created pane receives an EXPLICIT nested Freehand root, and reclamation is ONE idempotent path entered from both the host-removal callback and `:disconnect` — so either order, and any number of repetitions, leave zero maps, zero listeners, zero overlays and zero nested roots, while the substrate's own connection table and target index are already empty at the instant of unmount."
+
+ ;; What one committed connection owns. The nested root is the point: a pane the
+ ;; LIBRARY created is not a container Freehand chose, so putting a view in it is
+ ;; an explicit island rather than a portal (Spec 004 §No neutral portal).
+ :connected
+ {:maps 1 :listeners 1 :overlays 1 :nested-roots 1}
+
+ ;; The reclamation orders. `:entered` is every entry into the ONE path, in
+ ;; order; `:did-work` is the entries that actually released anything. The
+ ;; difference between the two vectors IS the idempotence — a path that released
+ ;; twice would show two, and a path that released nothing would show none.
+ :reclamation
+ [{:case    "disconnect alone: the author initiates, and the library's own teardown re-enters through the host-removal callback"
+   :entered [:disconnect :host-removal]
+   :did-work [:disconnect]}
+  {:case    "the HOST removes the overlay first — the user, a control, or the map took it away — and `:disconnect` arrives afterwards to find nothing left to do"
+   :entered [:host-removal :disconnect]
+   :did-work [:host-removal]}
+  {:case    "repeated reclamation: the same path entered twice more by hand after it has already run"
+   :entered [:manual :manual :disconnect]
+   :did-work [:manual]}]
+
+ ;; Acceptance 1's absence, and every book reads an EXACT ZERO rather than a
+ ;; threshold. The first three are the LIBRARY's own books — it knows what it
+ ;; still holds — and the last three are the substrate's.
+ :after-reclamation
+ {:maps 0 :listeners 0 :overlays 0 :nested-roots 0 :connections 0 :targets []}
+
+ ;; The gap Spec 004 §Commit-only connection and total cleanup states in prose:
+ ;; "React will not unmount a nested root from inside a render, so a behavior
+ ;; that opened one defers the unmount and its second tree is still open at the
+ ;; moment the substrate's own absence is already true."
+ ;;
+ ;; It is measured here rather than trusted, because it is the one place an
+ ;; author's leak check can be written against the wrong clock: a check that
+ ;; reads the author's own host resources at the instant the substrate's books
+ ;; go empty reads them one task too early, and reports a leak that is not one.
+ :the-deferral-gap
+ {:at-unmount    {:connections 0 :targets [] :nested-roots 1}
+  :one-task-later {:connections 0 :targets [] :nested-roots 0}}
+
+ ;; ---------------------------------------------------------------------------
+ ;; The roster record (rf2-drpa3.182.7)
+ ;; ---------------------------------------------------------------------------
+ :fh/record
+ {:source [re-frame.freehand.behaviors re-frame.freehand.root]
+
+  ;; NO structural tier, for FH-BEHAVIOR-003's reason: on the structural host a
+  ;; behavior is an inert marker that connects nothing, so there is no ownership
+  ;; to route and no reclamation to observe. The index row binds this law to
+  ;; `interpreted host:google-maps` for exactly that reason.
+  :mounted
+  [{:ns  re-frame.freehand.ownership-maps-dom-cljs-test
+    :law "A behavior owning a Maps-shaped SDK reclaims through ONE idempotent path entered from both the host-removal callback and `:disconnect`: either order and any repetition end with zero maps, zero listeners, zero overlays and zero nested Freehand roots, and the nested root's deferred release is measured across the task boundary rather than assumed."}]
+
+  :evidence
+  {:reads   [:behaviors/connections :behaviors/targets :root/live-root-ids]
+   :counts  [:maps/live :maps/listeners :maps/overlays]
+   :residue :none
+   ;; Stated in the record, not only in prose, so a reader of the roster sees
+   ;; the boundary without opening the suite.
+   :limits  ["Google's `google.maps` code is NOT executed: it loads from the network under an API key against a billed account, which no CI lane can do. The mounted proof drives a surrogate reproducing the API's ownership shape — node takeover, void-returning `setOptions`, a listener handle released by `.remove()`, an `OverlayView` supplying a host-created pane and calling back on removal — so what is proven is Freehand's ownership routing at that boundary, not Google's implementation of it."
+             "No npm dependency was added for this row. A real `@googlemaps/js-api-loader` in the browser lane would make the gate a test of a network."]}
+
+  :prose :executable}}
