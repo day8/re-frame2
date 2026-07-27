@@ -52,7 +52,7 @@ Story integration tests live alongside the stories file, not under `test/` — t
 
 Boundary schemas live in one `schema.cljs` at the top of the feature tree; each `reg-app-schema` attaches a Malli schema to a path the feature owns (`examples/real-apps/realworld_http/schema.cljs:1-23`). A single project-wide `schema.cljs` is the default; a larger app that vendors a sub-feature with its own boundary may keep a feature-local `schema.cljs` the top-level one requires.
 
-Do not co-locate schema registrations inside the feature file that uses them — one place makes "what does the app validate?" answerable by reading one file (Cardinal Rule 4: schemas at boundaries, not everywhere).
+Do not co-locate schema registrations inside the feature file that uses them — one place makes "what does the app validate?" answerable by reading one file (Cardinal Rule 4: schemas at boundaries, not everywhere). Read that file as "what the app asserts **in development**": `reg-app-schema` is elided from production builds, so the always-on boundary gates (`:rf.schema/at-boundary` refs, Managed HTTP `:decode`) live with their handlers, not here.
 
 ## SSR — `.cljc` with reader conditionals
 

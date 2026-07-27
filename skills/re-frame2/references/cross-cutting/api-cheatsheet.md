@@ -12,7 +12,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-sub` | `(id (fn [db query-v] value))` layer-1 · `(id :<- […] … (fn [inputs query-v] value))` static · `(id (fn [query-v] [[:q…]…]) (fn [inputs query-v] value))` parametric — input fn returns a **vector of query vectors** (EP-0004), NOT `subscribe` reactions |
 | `rf/reg-view` | `(sym [args] body)` — defn-shape, auto-injects `dispatch`/`subscribe` |
 | `rf/reg-view*` | `(id metadata? render-fn)` — runtime form |
-| `rf/reg-app-schema` | `(path schema)` / `(path {:frame frame} schema)` — schema is the positional value slot, optional middle metadata map carries `:frame`; boundary validation; needs `day8/re-frame2-schemas` |
+| `rf/reg-app-schema` | `(path schema)` / `(path {:frame frame} schema)` — schema is the positional value slot, optional middle metadata map carries `:frame`; **dev-build assertion** — registered in production, never checked there, so it is not the production boundary guard (`:rf.schema/at-boundary` is); needs `day8/re-frame2-schemas` |
 | `rf/reg-machine` | `(id metadata? machine-spec)` — registration macro stays on the façade (call-site coord capture, no owned-ns macro form); needs `day8/re-frame2-machines`. The plain-fn runtime form `reg-machine*` is the owned-ns surface `re-frame.machines/reg-machine*`, **not** on the `rf/` façade |
 | `rf/reg-flow` | `(flow-id metadata derive-fn)` — 3-slot: id first, pure derive fn last; `metadata` carries `:inputs` / `:output-path` (both REQUIRED) + optional `:doc` / `:schema` / `:frame`. A `:derive` inside the metadata is rejected (`:rf.error/invalid-flow-metadata`). Needs `day8/re-frame2-flows` |
 | `rf/reg-route` | `(id metadata-map path)` — path is the third positional arg; needs `day8/re-frame2-routing` |
@@ -121,7 +121,7 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 |---|---|
 | `re-frame.schemas/app-schema-at` / `app-schemas` / `app-schemas-digest` | read-only schema queries — owned-ns surface, **not** on the `rf/` façade (the `reg-app-schema` registration macro stays on `rf/`) |
 | `re-frame.schemas/set-schema-validator!` / `set-schema-explainer!` | swap-in non-Malli validator — owned-ns surface, **not** on the `rf/` façade |
-| `rf/validate-at-boundary-interceptor` | production-side validation interceptor |
+| `rf/validate-at-boundary-interceptor` | production-side validation interceptor — the registration-boundary Var; reference it from a handler's metadata `:interceptors` by its registered id `:rf.schema/at-boundary`. The one schema surface that survives a production build |
 
 ## Privacy / egress — `015 Data Classification` (see `cross-cutting/privacy-and-elision.md`)
 
