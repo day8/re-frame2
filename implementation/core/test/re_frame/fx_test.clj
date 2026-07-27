@@ -389,16 +389,16 @@
       ;; `:rf.error/no-such-fx` ALWAYS-ON, so an unknown fx-id is observable
       ;; off-box under `-Dre-frame.debug=false`.
       ;;
-      ;; NOTE (rf2-g0mep, filed): the always-on RECORD does not name WHICH
-      ;; fx-id was unknown. `fx.cljc`'s `:rf.error/no-such-fx` trace-payload
-      ;; omits `:failing-id`, so `emit-error-both!`'s attribution lift does
-      ;; not fire and `:rf.fx/id` stays on the DCE'd trace tags — even though
-      ;; Spec 009 §Component attribution states the rule as "every always-on
-      ;; error record carries `:failing-id` naming the failing COMPONENT
-      ;; whenever that component is DISTINCT from the dispatched event", and
-      ;; the three sibling emit sites in the same file (`fx-handler-exception`,
-      ;; `override-fallthrough`, `reserved-fx-override`) all stamp it. That is
-      ;; a production-source question, filed rather than papered over here.
+      ;; rf2-g0mep — the record must name WHICH fx-id was unknown. Spec 009
+      ;; §Observability channels states the attribution rule generally: every
+      ;; always-on error record carries `:failing-id` naming the failing
+      ;; COMPONENT whenever that component is DISTINCT from the dispatched
+      ;; event. Here `:event-id` is the DISPATCHING event, so the unregistered
+      ;; fx-id is exactly such a component. `fx.cljc`'s trace-payload stamps
+      ;; `:failing-id fx-id` and `emit-error-both!` lifts it onto the always-on
+      ;; record; remove that key from the emit site and the `:failing-id`
+      ;; assertion below reds while the dev-trace arm stays green — the fx-id
+      ;; would once again ride ONLY the DCE'd `:rf.fx/id` tag.
       (let [records (filter #(= :rf.error/no-such-fx (:error %)) @errors)]
         (is (= 1 (count records))
             "exactly ONE always-on record reached the :errors listener")
@@ -407,9 +407,28 @@
               ":event-id carries the dispatching event id")
           (is (= [:fx-test/missing] (:event r)))
           (is (= :rf/default (:frame r))
-              ":frame names the frame the unknown fx-id was dispatched in")))
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The offending
-      ;; fx-id itself is observable only here (see the NOTE above).
+              ":frame names the frame the unknown fx-id was dispatched in")
+          (is (= :fx-test/never-registered (:failing-id r))
+              ":failing-id names the UNKNOWN fx-id — the failing component,
+               distinct from the dispatched event (rf2-g0mep)")
+          ;; The record is a PRODUCTION EGRESS surface: every slot here reaches
+          ;; off-box shippers (Sentry / Datadog) through the frame-owned
+          ;; `:observability :errors` sink. Pin the key set CLOSED so a future
+          ;; slot is a deliberate decision, not a drive-by. `:rf.fx/args` in
+          ;; particular must NOT appear — an unregistered fx-id has no
+          ;; registration to read a `:sensitive` declaration off, so its args
+          ;; are the documented EP-0025 fail-open and stay on the dev trace.
+          (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms
+                   :failing-id :source-coord}
+                 (set (keys r)))
+              "the always-on record carries the tight rf2-bacs4 keys, the
+               rf2-3un2g :source-coord for the dispatching event, and exactly
+               one attribution slot — :failing-id (rf2-g0mep). No :reason (the
+               category defines none, and nil attribution slots are dropped)
+               and no :rf.fx/args.")))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). `:rf.fx/id` is
+      ;; the dev-trace spelling of the same id the always-on record now carries
+      ;; as `:failing-id`.
       (when interop/debug-enabled?
         (let [missing-traces (filter #(= :rf.error/no-such-fx (:operation %))
                                      @traces)]
