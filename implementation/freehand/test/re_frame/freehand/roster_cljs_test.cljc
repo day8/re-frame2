@@ -27,22 +27,41 @@
 ;; Enrolment — the spine is the three vertical fixtures, and it is complete
 ;; ---------------------------------------------------------------------------
 
-(deftest the-spine-is-enrolled-and-nothing-loaded-empty
+(deftest the-initial-spine-is-enrolled-and-nothing-loaded-empty
   (testing "Per rf2-drpa3.182.7 §INITIAL SPINE: the declared host, the
             serious form and the deferred foreign-handle surrogate are all
-            rostered, and each resolved to a real joined record. A roster
-            that quietly shrank to the ids it could resolve would let this
-            suite pass over a law it stopped loading — the worst failure a
-            table-driven gate has — so the COUNT is asserted alongside the
-            membership."
-    (is (= 3 (count roster/spine))
-        "three records, one per spine member")
-    (is (= #{"FH-REACT-007" "FH-CTRL-018" "FH-BEHAVIOR-005"}
-           (set (map :fh/id roster/spine)))
-        "and they are the three the spine names")
-    (doseq [id roster/spine-ids]
+            rostered, and each resolved to a real joined record.
+
+            Membership is DISCOVERED — a law is rostered exactly when its
+            fixture carries `:fh/record` — so this row states a floor and
+            not a total: the control witnesses enrol by editing their own
+            fixtures, and a row asserting `(= 3 (count …))` would have made
+            each of them edit this file to land. What still has to hold is
+            that discovery found something and found THESE: a roster that
+            quietly shrank to the records it could resolve would let this
+            suite pass over a law it stopped loading, which is the worst
+            failure a table-driven gate has."
+    (is (seq roster/records) "discovery enrolled something at all")
+    (is (= (count roster/records) (count (set roster/ids)))
+        "and every enrolled record has a distinct id")
+    (doseq [id roster/initial-spine-ids]
       (is (some? (roster/by-id id))
-          (str (name id) " resolves to a rostered record")))))
+          (str id " resolves to a rostered record")))))
+
+(deftest enrolment-is-a-property-of-the-fixture
+  (testing "Per rf2-drpa3.182.7 §INITIAL SPINE, and what makes the roster
+            EXTENSIBLE rather than a list: `roster/ids` is derived from the
+            fixtures that carry a record, not authored. So a witness enrols
+            by writing its own index row and its own `:fh/record`, and the
+            five control witnesses can land in parallel without queueing
+            behind one line of a shared vector.
+
+            The initial three are a SUBSET of the roster, and stating that
+            as `every?` rather than as equality is the whole difference."
+    (is (every? (set roster/ids) roster/initial-spine-ids)
+        "the initial spine is enrolled")
+    (is (= roster/ids (sort roster/ids))
+        "and the roster is id-ordered, so its value is stable to read and diff")))
 
 (deftest every-rostered-record-carries-its-whole-identity
   (testing "Per rf2-drpa3.182.7 acceptance 1: one record answers every
@@ -54,7 +73,7 @@
             lost one of them names WHICH."
     (doseq [{id :fh/id law :fh/law index-law :index/law record :fh/record
              :keys [paragraph modes hosts status]}
-            roster/spine]
+            roster/records]
       (is (seq law)          (str id " states its law"))
       (is (seq index-law)    (str id " is addressed by an index row"))
       (is (seq paragraph)    (str id " cites a canonical spec paragraph"))
@@ -63,16 +82,28 @@
       (is (= :active status) (str id " is an active law"))
       (is (seq (:source record))
           (str id " names the source it is a law about"))
+      (is (seq (:evidence record))
+          (str id " states what a run leaves behind"))
       (is (contains? roster/prose-statuses (:prose record))
           (str id " declares the status of the prose describing it")))))
 
 (deftest the-roster-is-sound
   (testing "Per rf2-drpa3.182.7 acceptance 1: the whole roster validates —
-            no malformed record, no duplicated id, and no fixture whose
-            `:fh/law` has drifted from the index row that addresses it. The
-            failure message is the defect list itself, so a red row reads as
-            a sentence about a law."
-    (let [ds (roster/roster-defects roster/spine)]
+            no malformed record, no duplicated id, and no record claiming a
+            proof tier the index row's host axis rules out. The failure
+            message is the defect list itself, so a red row reads as a
+            sentence about a law.
+
+            NOT among those, and stated here because a previous version of
+            this narration claimed it (merged-PR audit #7098): the fixture's
+            `:fh/law` and the index row's are never compared. They say the
+            same law at different lengths by convention, so equality would
+            be the wrong law — and a gate whose prose claims a check it does
+            not perform is worse than no check, because a reader stops
+            looking. The relationship the two files DO hold is the id, and
+            it is held harder than a defect: a fixture whose `:fh/id`
+            disagrees with the row that names its file fails the COMPILE."
+    (let [ds (roster/roster-defects roster/records)]
       (is (= [] ds) (str "roster defects:\n" (pr-str ds))))))
 
 ;; ---------------------------------------------------------------------------
@@ -87,7 +118,7 @@
             it carries, and no two proofs of one law state the SAME law — a
             record that gave two projections one sentence would be
             describing neither."
-    (doseq [{:keys [fh/id] :as record} roster/spine]
+    (doseq [{:keys [fh/id] :as record} roster/records]
       (let [ps (roster/proofs record)]
         (is (seq ps) (str id " names at least one proof"))
         (doseq [{:keys [tier ns law]} ps]
@@ -168,14 +199,14 @@
             diffs. It says nothing about which answers the settled rows
             reached — those rows assert themselves."
     (is (= [] (filterv #(seq (get-in (roster/by-id %) [:fh/record :open]))
-                       roster/spine-ids))
-        "no spine member is holding an open question")
+                       roster/initial-spine-ids))
+        "no initial-spine member is holding an open question")
     (testing "and whatever a FUTURE note says, its shape holds: keyed by the
               bead that owns the question, stated in words. Vacuous today by
               design — the row above is what keeps it that way — and it is
               the half that survives the list going empty, so a note added
               later cannot be an unattributable shrug."
-      (doseq [id   roster/spine-ids
+      (doseq [id   roster/ids
               :let [open (get-in (roster/by-id id) [:fh/record :open])]]
         (is (every? keyword? (keys open))
             (str id " keys each open question by the bead that owns it"))
@@ -231,6 +262,14 @@
    :index/law "a probe law"
    :fh/record {:source     '[re-frame.freehand.probe]
                :structural [{:ns 're-frame.freehand.probe-cljs-test :law "headlessly"}]
+               ;; `:evidence` is on the CONTROL because it is required, and
+               ;; it was not always: while it was optional this record
+               ;; omitted it and was asserted valid, so a future member
+               ;; could have declined to say what it left behind with the
+               ;; whole roster gate green (merged-PR audit #7098). A control
+               ;; that is missing a mandatory key is a control that proves
+               ;; the key is not mandatory.
+               :evidence   {:residue :unasserted}
                :prose      :executable}})
 
 (defn- one-defect
@@ -260,6 +299,8 @@
               (assoc-in sound [:fh/record :wombat] 1)                       :fh/record]
              ["a missing required key"
               (update sound :fh/record dissoc :source)                      :fh/record]
+             ["a record that declines to say what a run leaves behind"
+              (update sound :fh/record dissoc :evidence)                    :fh/record]
              ["a source that is not a vector of namespace symbols"
               (assoc-in sound [:fh/record :source] "re-frame.freehand")     :source]
              ["an empty source vector — a law is about SOMETHING"
@@ -356,4 +397,28 @@
                             [(assoc sound :hosts #{:jvm :browser}
                                     :fh/record (assoc (:fh/record sound)
                                                  :ssr [{:ns 're-frame.freehand.probe-ssr-jvm-test
-                                                        :law "to HTML"}]))])))))))
+                                                        :law "to HTML"}]))])))))
+    (testing "and a QUALIFIED host — `host:google-maps`, `host:framer-motion`
+              — reaches the browser, because a named third-party door exists
+              nowhere else. Without this the ownership-routing witnesses
+              could not declare the mounted tier they live on: their index
+              rows are exactly the `host:<name>` ones, and a rule reading
+              that axis literally would have called every one of their
+              mounted proofs a defect."
+      (is (= #{:browser} (roster/tier-hosts-of #{[:host "google-maps"]})))
+      (is (= #{:jvm :browser} (roster/tier-hosts-of #{:jvm [:host "vega"]})))
+      (is (= [] (roster/roster-defects
+                  [(assoc sound :hosts #{[:host "google-maps"]}
+                          :fh/record (-> (:fh/record sound)
+                                         (dissoc :structural)
+                                         (assoc :mounted
+                                                [{:ns 're-frame.freehand.probe-dom-cljs-test
+                                                  :law "against the real Maps door"}])))]))
+          "a qualified-host law proves itself mounted")
+      (is (= [:ssr] (mapv :field
+                          (roster/roster-defects
+                            [(assoc sound :hosts #{[:host "google-maps"]}
+                                    :fh/record (assoc (:fh/record sound)
+                                                 :ssr [{:ns 're-frame.freehand.probe-ssr-jvm-test
+                                                        :law "to HTML"}]))])))
+          "and reaching the browser is not reaching SSR"))))
