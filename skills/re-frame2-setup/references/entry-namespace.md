@@ -88,7 +88,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
 - **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix`, drop the `reagent/reagent` pin, **drop the `day8/re-frame2-xray` coord** (this route ships no Xray — see the build-wiring bullet below), and add the substrate's Maven deps **at the exact versions the generator template pins** (the template is the source of truth — do not chase latest or invent a version, same discipline as the Reagent/React/shadow pins in [`deps-versions.md`](deps-versions.md)). The UIx day-one framework set is **three** coords — core + `-uix` + `-schemas` — matching the template's `_uix/deps.edn`:
 
-  > **Pre-publish coordinate shape.** The `day8/re-frame2-uix` **framework** coord below shows `:mvn/version "<VERSION>"` (the post-publish shape); pre-publish it takes the `:git/sha` / `:local/root` form like the Reagent day-one set — see [`deps-versions.md` §Choosing the coordinate](deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape). The `com.pitch/uix.*` substrate deps are on Clojars and keep `:mvn/version`.
+  > **Coordinate shape.** All three framework coords below are `:mvn/version` at one `<VERSION>`, and this route carries no tool coord to complicate that — dropping `-xray` is what makes it uniform. The `:git/sha` and `:local/root` alternatives, for an unreleased commit or a checkout you're editing, are in [`deps-versions.md` §Choosing the coordinate](deps-versions.md#choosing-the-coordinate). The `com.pitch/uix.*` substrate deps are on Clojars and keep `:mvn/version` too.
 
   ```clojure
   ;; UIx — replace the reagent line with (framework coord post-publish shape; pre-publish use :git/sha):
