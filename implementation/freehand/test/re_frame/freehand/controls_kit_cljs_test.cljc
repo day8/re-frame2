@@ -339,4 +339,4 @@
          (is (= public-vars (set (mapv (comp name key)
                                        (ns-publics 're-frame.freehand.controls))))
              "the kit's published roster is exactly two controls, the release,
-              the keyboard law and its two key names")))))
+              the keyboard law with its reader and its two key names")))))
