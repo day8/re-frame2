@@ -59,7 +59,56 @@
                        ;; classpath.
                        day8/re-frame2-ssr           {:local/root "../ssr"}
                        day8/re-frame2-test-quiet    {:local/root "../test-quiet"}}
-         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+         ;; `-e :prod-gate` excludes the ONE namespace that is a statement
+         ;; about the JVM it runs in rather than about Freehand:
+         ;; `re-frame.freehand.prod-gate-lane-pin-test` asserts
+         ;; unconditionally that `-Dre-frame.debug=false` is on this JVM's
+         ;; command line. It belongs to the `:prod-gate` lane below and is
+         ;; red anywhere else BY DESIGN — a pin softened to "check the
+         ;; property if it is set" would pass vacuously in exactly the case
+         ;; it exists to catch (rf2-8alkj). So `:test` and `:prod-gate` are
+         ;; a two-way partition; every test still runs exactly once across
+         ;; them.
+         :main-opts   ["-m" "re-frame.test-quiet.runner" "-e" ":prod-gate"]}
+
+  ;; rf2-8alkj — the PRODUCTION-GATE lane, as a MODIFIER composed onto
+  ;; `:test`: `clojure -M:test:prod-gate`. `:extra-paths` / `:extra-deps`
+  ;; merge in from `:test` (so the classpath cannot drift between the two
+  ;; lanes), while `:jvm-opts` and `:main-opts` come from here —
+  ;; `:main-opts` is last-wins in tools.deps, which is what lets this alias
+  ;; drop `-e :prod-gate` and pick the pin up.
+  ;;
+  ;; WHY THE FLAG LIVES IN `:jvm-opts` AND NOT ON A COMMAND LINE. SECURITY.md
+  ;; documents `-Dre-frame.debug=false` as the JVM/SSR production setting, and
+  ;; `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
+  ;; rf2-f8x2i / rf2-hnrwo closed this hole for core, routing and ssr; this
+  ;; artefact was the one whole artefact still executed by NO suite under the
+  ;; documented production posture. Every suite that calls itself a
+  ;; "production gate" test rebinds the Var with `with-redefs` AFTER the
+  ;; framework has loaded, and a load-time gate is invisible to that — the
+  ;; hole rf2-9c2jf came through in core (`dispatch-sync` a total no-op under
+  ;; the gate, green for as long as it existed). Putting the property in the
+  ;; alias makes it part of the LANE's definition rather than something a job
+  ;; has to remember, and `re-frame.freehand.prod-gate-lane-pin-test` fails
+  ;; the run if it ever stops arriving.
+  ;;
+  ;; WHY FREEHAND SPECIFICALLY. The `{:reactive false}` opt-out (rf2-oxlpy) is
+  ;; precisely a SAFETY MECHANISM whose production behaviour is the thing under
+  ;; test, and the evidence/elision spine (`re-frame.freehand.evidence`) exists
+  ;; to be COMPILED AWAY in a release build. PR #7177 closed the CLJS half of
+  ;; that gap; this alias is the JVM half.
+  ;;
+  ;; NOT THE WHOLE SUITE, YET. Under the real gate a documented slice of this
+  ;; artefact's test namespaces is red, essentially all of it asserting dev
+  ;; instrumentation (evidence records, `:rf.freehand/*` traces, source coords)
+  ;; inline with semantics. Those are legitimate dev-posture tests, not
+  ;; defects. The runnable roster lives in
+  ;; `scripts/test-freehand-prod-gate.sh`, which appends `-n` selectors for
+  ;; every namespace MINUS a documented known-red list, so a NEW namespace
+  ;; joins the lane by default. Do not invoke this alias bare; run the script.
+  :prod-gate
+  {:jvm-opts  ["-Dre-frame.debug=false"]
+   :main-opts ["-m" "re-frame.test-quiet.runner"]}
 
   ;; The B-spine measurement harness (D021). No extra paths and no extra
   ;; deps: the harness is ordinary artefact source under :paths, because
