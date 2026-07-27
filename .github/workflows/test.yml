@@ -2082,6 +2082,95 @@ jobs:
           fi
           echo "OK: implementation/freehand names no re-frame.ui dependency"
 
+  # rf2-8alkj — the Freehand suite under the REAL production gate.
+  #
+  # WHAT WAS MISSING. `SECURITY.md` documents `-Dre-frame.debug=false` as the
+  # JVM/SSR production setting and `re-frame.interop/debug-enabled?` reads it
+  # ONCE at namespace-load time. rf2-f8x2i closed that hole for
+  # `implementation/core` and rf2-hnrwo for `routing` and `ssr`. Freehand — 133
+  # test namespaces, the whole EP-0036 view substrate — was the one remaining
+  # artefact executed by NO suite under the documented production posture. The
+  # suites that CALL THEMSELVES production-gate tests rebind the Var with
+  # `with-redefs` AFTER the framework has loaded, and a load-time gate is
+  # invisible to that; rf2-9c2jf (`dispatch-sync` running its handler zero
+  # times under the gate) is what that blind spot costs.
+  #
+  # WHY FREEHAND, SPECIFICALLY. Two of this artefact's mechanisms are ABOUT the
+  # production posture rather than merely subject to it. The `{:reactive false}`
+  # opt-out (rf2-oxlpy) is a safety mechanism whose production behaviour is the
+  # thing under test — rf2-3slzz's totality probe was deliberately written
+  # posture-agnostic so a second run genuinely IS the production posture, and
+  # CI only ever ran the dev one. And `re-frame.freehand.evidence` exists in
+  # order to be compiled away in a release build; PR #7177 armed the CLJS half
+  # of that gap (`cljs-freehand-evidence-elision`), and this job is the JVM
+  # half.
+  #
+  # WHY IT IS A SEPARATE JOB AND NOT A FLAG ON `jvm-freehand`. The two lanes
+  # make different claims and neither substitutes for the other: `jvm-freehand`
+  # proves the artefact's behaviour WITH its dev instrumentation, this job
+  # proves the semantics that must survive WITHOUT it. Same artefact, same
+  # classpath (the `:prod-gate` alias is a modifier composed onto `:test`),
+  # same cache key — only the JVM posture differs.
+  #
+  # THE JOB CANNOT PASS VACUOUSLY. `re-frame.freehand.prod-gate-lane-pin-test`
+  # runs inside the lane and asserts unconditionally that `re-frame.debug`
+  # reads `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it.
+  # If the property ever stops arriving, this job goes RED rather than
+  # green-on-the-wrong-posture — which is the failure mode that matters,
+  # because the lane's roster is by construction a subset of what already
+  # passes in dev posture. The pin was proved to have teeth by INVERSION: the
+  # same roster run with `-Dre-frame.debug=true` reds exactly its two deftests
+  # and nothing else, so without the pin a lost flag would be invisible.
+  #
+  # SCOPE. Not the whole suite yet: 8 of 133 test namespaces are red under the
+  # real gate (147 failures / 7 errors), in three shapes — the dev-only tooling
+  # substrate (occurrence index, evidence seam, tool reads, explain-render, all
+  # built only inside `interop/debug-enabled?`), the props-schema closure
+  # (dev-only by explicit design at `descriptor.cljc` ~591, the same class as
+  # Spec 010's `validate-fx!`), and source-coord elision. The roster and the
+  # triage bead (rf2-74a89) live in `scripts/test-freehand-prod-gate.sh`. What
+  # runs here today is 125 namespaces / 1159 tests / 7930 assertions, green.
+  # The roster is an EXCLUSION list, so a new namespace joins this lane by
+  # default and has to be excluded deliberately.
+  jvm-freehand-prod-gate:
+    name: JVM freehand under the production gate (-Dre-frame.debug=false)
+    # Same surface gate as jvm-freehand: it is the same artefact.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      # Deliberately the SAME cache key as jvm-freehand — identical classpath,
+      # so the two jobs warm one cache instead of competing for two.
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-freehand-${{ hashFiles('implementation/freehand/deps.edn', 'implementation/core/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-freehand-
+            ${{ runner.os }}-clj-
+
+      # The script prints the property, the pin, the roster size and the
+      # excluded count before it runs anything, so the job's own log carries
+      # the evidence of which posture it ran in.
+      - name: Run the Freehand suite under -Dre-frame.debug=false
+        run: bash scripts/test-freehand-prod-gate.sh
+
   jvm-spec-resource:
     name: JVM spec-resource (clojure -M:test)
     # The build-time reader for committed spec/ data
@@ -4975,6 +5064,15 @@ jobs:
       # `needs:` cannot span workflow files, so until this line the freehand
       # JVM lane was visible but ADVISORY.
       - jvm-freehand
+      # rf2-8alkj — required for the same reason `jvm-core-prod-gate` is. This
+      # was the last whole artefact that no lane ran under the documented
+      # production posture, and what it covers is not incidental: the
+      # `{:reactive false}` opt-out is a SAFETY mechanism whose production
+      # behaviour is the thing under test, and `re-frame.freehand.evidence`
+      # exists in order to be compiled away in a release build. Advisory would
+      # reproduce the original hole in a new shape — a gate nobody's merge
+      # waits on.
+      - jvm-freehand-prod-gate
       - jvm-spec-resource
       - jvm-reply-conformance
       - jvm-derivation-conformance
