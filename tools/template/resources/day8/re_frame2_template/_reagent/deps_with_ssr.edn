@@ -18,9 +18,10 @@
 ;;                                wires the SSR runtime's per-request
 ;;                                lifecycle to a Ring-shaped server.
 ;;
-;; All six re-frame2 coords ride the same version (schemas + xray + ssr +
-;; ssr-ring lockstep with core). Bump them together when you upgrade
-;; re-frame2.
+;; The five FRAMEWORK coords ride one version (schemas + ssr + ssr-ring
+;; lockstep with core); bump them together when you upgrade re-frame2.
+;; Xray is a TOOL, and the tools ship on their own tags, so it rides a
+;; git coord instead — see the note above it.
 ;;
 ;; `ring/ring-jetty-adapter` is the dev/test host — any Ring-shaped server
 ;; (HttpKit / Pedestal / Reitit-ring) consumes the same `ssr-handler`; see
@@ -44,9 +45,17 @@
          day8/re-frame2-schemas    {:mvn/version "{{rf2-version}}"}
          ;; In-app devtools panel — auto-opens into the app-provided
          ;; [data-rf-xray-host] right-side layout host. Wired via
-         ;; :devtools/preloads in shadow-cljs.edn. Lockstep with the core
-         ;; coord — Xray publishes at the same version.
-         day8/re-frame2-xray      {:mvn/version "{{rf2-version}}"}
+         ;; :devtools/preloads in shadow-cljs.edn.
+         ;;
+         ;; A GIT coord, deliberately. re-frame2's tools ship on their
+         ;; own tags — Xray on `xray-v*` — and the framework's `v*` tag
+         ;; publishes no tools at all, so there is no Xray on Clojars to
+         ;; pin an :mvn/version at. This coordinate resolves the panel
+         ;; from the monorepo at one reviewed commit. Move it to
+         ;; {:mvn/version "…"} once an `xray-v*` release lands.
+         day8/re-frame2-xray       {:git/url   "https://github.com/day8/re-frame2.git"
+                                    :git/sha   "{{rf2-tools-sha}}"
+                                    :deps/root "tools/xray"}
          ;; SSR runtime + Ring host adapter (Spec 011). The render path
          ;; lives on the JVM (see the :server alias); the `:rf/hydrate`
          ;; event auto-registers on the client at ns-load.
