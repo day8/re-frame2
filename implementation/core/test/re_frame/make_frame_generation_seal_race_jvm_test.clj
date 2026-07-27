@@ -219,3 +219,31 @@
     (rf/reg-sub :seal-race/boot-sub (fn [db _] db))
     (is (false? @@dirty-flag)
         "the registration hook took the no-image-loaded-frame skip")))
+
+;; ---------------------------------------------------------------------------
+;; 4. THE MARK IS CONDITIONAL, and that is load-bearing rather than an
+;;    optimisation. An UNCONDITIONAL mark on the construction path leaves the
+;;    projection dirty after every `make-frame`, and a flag set here is flushed
+;;    by some later, unrelated resolution — which is observable: it reprojects a
+;;    frame mid-`upsert-frame!`, before `record-frame-generation-pool!` has
+;;    updated the provenance row, so a re-`make-frame` reload resolves against
+;;    the PREVIOUS pool and its freshly installed generation is clobbered.
+;;    (`live-frame-reload-cljs-test/reload-swaps-generation-preserving-frame-
+;;    memory` is where that surfaces.) An ordinary construction must therefore
+;;    leave global projection state exactly as it found it.
+;; ---------------------------------------------------------------------------
+
+(deftest construction-with-no-racing-registration-leaves-the-projection-clean
+  (testing "a make-frame that nothing raced marks nothing — the pool did not
+            move across its seal→publish window"
+    (is (false? @@dirty-flag) "the flag starts clear")
+    (rf/reg-event :seal-race/quiet (fn [{:keys [db]} _] {:db db}))
+    (rf/make-frame {:id :seal-race/quiet-frame})
+    (is (false? @@dirty-flag)
+        "an unraced construction left the projection clean")
+    ;; And a SECOND construction with a frame already standing likewise — this
+    ;; is the shape that leaks a flag into an unrelated test when the mark is
+    ;; unconditional.
+    (rf/make-frame {:id :seal-race/quiet-frame-2})
+    (is (false? @@dirty-flag)
+        "a second unraced construction left the projection clean too")))
