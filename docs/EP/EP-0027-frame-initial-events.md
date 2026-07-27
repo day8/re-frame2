@@ -92,8 +92,12 @@ event form, `reg-event`; EP-0018 removed `reg-event-db` / `reg-event-fx`.)
 ```
 
 - It returns a `{:db new-db}` effect, so it replaces the **app-db partition only**
-  (it cannot touch runtime-db) and rides the **normal post-commit app-db schema
-  validation / rollback** like any `:db` effect.
+  (it cannot touch runtime-db) and rides the **normal app-db candidate validation**
+  like any `:db` effect: the value is checked *before* install and a violating
+  candidate is rejected rather than written and undone (rf2-uhk9ko retired the
+  install-then-rollback pair). That check is a development-build assertion — it is
+  elided from production, where a violating candidate installs (rf2-bkvu5; see
+  [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds)).
 - It **validates exactly one map argument**: a missing, `nil`, non-map, or extra-trailing
   argument fails with `:rf.error/set-db-bad-value`. Set app-db empty with `[:rf/set-db {}]`.
 - It **replaces all of app-db** (it is not a merge); for partial updates, write an
