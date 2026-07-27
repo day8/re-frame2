@@ -163,6 +163,22 @@ Identical to the framework tier: Clojars has no yank, so recovery is bump-and-su
 
 Every tool workflow has the same first-publish protocol as the framework: Mike pushes the first tag by hand once the Clojars secrets are wired and the tags this tool depends on have published. Subsequent releases run automatically on tag push.
 
+### The generator template's tools pin
+
+Because a `v*` tag publishes no tools, the app template cannot name them with an `:mvn/version`. [`hooks.clj`](../tools/template/src/day8/re_frame2_template/hooks.clj) therefore carries a `:rf2-tools-sha` substitution, and every emitted `deps*.edn` spends it on a **git coord into this monorepo** for `day8/re-frame2-xray` and `day8/re-frame2-story` (rf2-57bjg). An `:mvn/version` there would look fine today — it is unresolvable in the same harmless way the framework coords beside it are — and would start 404ing on the day the framework tier first publishes, which is the day nobody would be looking at the template.
+
+[`version_lockstep_test.clj`](../tools/template/test/day8/re_frame2_template/version_lockstep_test.clj)'s `tools-coords-are-git-coords` guards the coord **shape**: git and never `:mvn/version`, a `:deps/root` that names a real directory, a full 40-character SHA, one commit shared by both tools. It cannot guard **freshness** — a commit of this repository has no in-repo source of truth a test could read against. That leaves two human obligations, and they are recorded here because a release is when each falls due.
+
+**Bump the pin when you cut a framework tag.** In the release commit, set `:rf2-tools-sha` to that commit's parent — the tip of `main` you are releasing from. A commit cannot name its own SHA, and it does not need to: the release commit carries only `VERSION`, `CHANGELOG.md` and the migration corpus ([§Pre-flight checklist](#pre-flight-checklist)), so it touches no `tools/` file and its parent *is* the tools code the tag ships. Skip the bump and a project generated from the new release resolves its framework coords at the tag while its Xray and Story ride whichever commit was current the last time somebody remembered — a version skew that compiles.
+
+**Retire the git coords when the tool tags ship.** Once `xray-v*` and `story-v*` have both published at the lockstep VERSION, the workaround becomes the liability: a generated project would pin one monorepo commit for its tools beside framework coords naming a release. Retirement is all-or-nothing — the two tools share the pin, so flipping one alone reintroduces exactly the skew a shared SHA exists to prevent.
+
+1. Flip both tools coords to `{:mvn/version "{{rf2-version}}"}` in every template `deps*.edn` that carries the pin. `grep -rl 'rf2-tools-sha' tools/template/resources/` is the roster, derived rather than written down here, so a scaffold added after this paragraph cannot be missed by it.
+2. Drop the top-level `day8/re-frame2-machines` pin from `_reagent/deps_with_story.edn`. It exists *only* because two git coords into one monorepo get two checkouts, and `tools.deps` then refuses their shared `:local/root` sibling (`No known ancestor relationship between local versions for day8/re-frame2-machines`). Two `:mvn/version` coords resolve once and need no such pin.
+3. Drop `:rf2-tools-sha` from `hooks.clj`, and its row from [`tools/template/spec/002-Generated-Shape.md`](../tools/template/spec/002-Generated-Shape.md) §Substitutions.
+4. **Invert `tools-coords-are-git-coords` rather than deleting it** — assert `:mvn/version` at the lockstep VERSION and the *absence* of a `:git/sha`. That guard is the only thing that would notice a tools coord drifting back to a git pin later; deleting it on the grounds that it has served its purpose throws away the half that still has one.
+5. Flip the hand-wired route in the same change. [`skills/re-frame2-setup/references/deps-versions.md`](../skills/re-frame2-setup/references/deps-versions.md) teaches the git shape for the tools deliberately, so that the generator and the manual instructions agree; leave it behind and the project's two front doors start contradicting each other about the same coordinate.
+
 ## Pre-flight checklist
 
 Before tagging:
@@ -172,6 +188,7 @@ Before tagging:
 - [ ] [`migration/from-re-frame-v1/README.md`](../migration/from-re-frame-v1/README.md) carries a fresh `M-NN` entry if the release contains a breaking change. (The migration corpus stays flat through 1.0; numbering is monotonic.)
 - [ ] [`CHANGELOG.md`](../CHANGELOG.md) updated for the release, **including its artefact roster**. The GitHub Release body links to it, so it is the canonical narrative — and that link is pinned to the tag, not to `main`, so the CHANGELOG has to be right at the moment of tagging. A later correction on `main` will not reach a release body that has already been cut.
 - [ ] The tag's commit is the same commit that updates VERSION + the migration corpus + CHANGELOG (one release commit).
+- [ ] `:rf2-tools-sha` in [`tools/template/src/day8/re_frame2_template/hooks.clj`](../tools/template/src/day8/re_frame2_template/hooks.clj) bumped to the release commit's parent, so a project generated from this release gets tools built from the code it ships — see [§The generator template's tools pin](#the-generator-templates-tools-pin). Confirm it with `git diff --stat <pin> HEAD -- tools/`, which must be empty.
 - [ ] Locally green: `./.github/scripts/verify-version-lockstep.sh` passes. (The CI gate runs the same script; running locally first surfaces drift in seconds.)
 
 ## Recovery from a partial deploy
