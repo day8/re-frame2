@@ -38,7 +38,46 @@
 
   Host-neutral throughout: the boundary is shared machinery and the analyzer
   is pure with resolution injected, so every row runs under
-  `clojure -M:test` and `npm run test:freehand` alike."
+  `clojure -M:test` and `npm run test:freehand` alike.
+
+  ## Posture split (rf2-74a89)
+
+  Read this one before reporting an acceptance regression, because the
+  honest answer is not the convenient one: **the closing schema is DEV-ONLY
+  BY EXPLICIT DESIGN.** `descriptor.cljc` gates the whole closing-schema arm
+  on `interop/debug-enabled?` and says why — \"a schema is a compile-time
+  and tooling fact: production renders the same tree either way, and the
+  CLJS branch folds away\". So under the real `-Dre-frame.debug=false` gate
+  the BOUNDARY accepts an undeclared prop. That is the same class as Spec
+  010's `validate-fx!`, and it is NOT the rf2-9c2jf class: the tier that
+  actually holds the line for a compiled build — the ANALYZER, at build
+  time — refuses the identical row in either posture.
+
+  Which makes the split unusually sharp, and the vacuous-pass trap unusually
+  easy to walk into. Under the gate every boundary row answers `:accept`, so
+  every deftest asserting a boundary `:accept` — the schema-less arm, the
+  open escape, the opaque schema, the two-modes-agree row — passes for the
+  wrong reason: nothing ran, so nothing objected. Those travel into the
+  `(when interop/debug-enabled? …)` arm WITH the reject rows, kept verbatim,
+  rather than being left outside it to report a green that proved nothing.
+
+  What this namespace contributes to `scripts/test-freehand-prod-gate.sh` is
+  therefore everything that is not the boundary's schema check, and it is
+  most of the file: the whole ANALYZER surface (three deftests, every row of
+  the matrix, in both postures); the declaration-time refusal of a reserved
+  slot, which is macro machinery and runs at expansion; the reserved-slot
+  and opacity projections, which are pure functions over the authored form;
+  and `describe`'s `:props-schema`, which is carried in production — so
+  `absence-is-reported-as-absence-never-as-any` is a real absence rather
+  than a key the gate elided wholesale.
+
+  Beside them, `which-tier-refuses-an-undeclared-prop-depends-on-the-posture`
+  states the arrangement above directly, through the real load-time gate
+  rather than a `with-redefs` rebind that cannot reach one (rf2-9c2jf): the
+  analyzer refuses every reject row in either posture, the boundary refuses
+  exactly when the gate is open, and a non-map props slot is refused in BOTH
+  — the call ABI is always on, which is what makes the boundary's `:accept`
+  a verdict rather than an absent check."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.freehand :as v]
@@ -46,7 +85,8 @@
             [re-frame.freehand.compiler.env :as env]
             [re-frame.freehand.conformance :as conf]
             [re-frame.freehand.descriptor :as descriptor]
-            [re-frame.freehand.props-schema :as props-schema]))
+            [re-frame.freehand.props-schema :as props-schema]
+            [re-frame.interop :as interop]))
 
 (def props-004 (conf/fixture :FH-PROPS-004))
 
@@ -155,16 +195,23 @@
       (is (<= 2 (count (filter #(= :reject (:verdict %)) (:calls props-004))))
           "and more than one way to be rejected"))))
 
+;; rf2-74a89 — the three deftests below are the BOUNDARY's schema check, which
+;; the production gate elides wholesale (see the ns docstring's "Posture
+;; split"). Their reject rows go red under the gate and their accept rows pass
+;; vacuously, so both halves are kept verbatim inside the dev arm rather than
+;; one half being left outside it to report a green that proved nothing.
+
 (deftest the-boundary-returns-the-declared-verdict-in-both-modes
   (testing "Per FH-PROPS-004: the same schema, the same props, the same
             answer — whichever mode the declaration selected. `normalize-call`
             is the normalizer both emitters share, so this is the delivered-
             props arm for the compiled tier as much as the interpreted one."
-    (doseq [{:keys [props verdict why]} (:calls props-004)
-            [mode view] by-mode]
-      (is (= verdict (boundary-verdict view props))
-          (str mode " — " (pr-str props) " is " (name verdict)
-               (when why (str ": " why)))))))
+    (when interop/debug-enabled?
+      (doseq [{:keys [props verdict why]} (:calls props-004)
+              [mode view] by-mode]
+        (is (= verdict (boundary-verdict view props))
+            (str mode " — " (pr-str props) " is " (name verdict)
+                 (when why (str ": " why))))))))
 
 (deftest the-two-modes-never-disagree
   (testing "Stated as its own row rather than inferred from the two above: a
@@ -172,22 +219,25 @@
             two red assertions and no statement of what they mean. THIS is the
             promotion claim — `{:compiled true}` changes the lowering, never
             the contract."
-    (doseq [{:keys [props]} (:calls props-004)]
-      (is (= (boundary-verdict interpreted-row props)
-             (boundary-verdict compiled-row props))
-          (str "interpreted and compiled agree about " (pr-str props))))))
+    (when interop/debug-enabled?
+      (doseq [{:keys [props]} (:calls props-004)]
+        (is (= (boundary-verdict interpreted-row props)
+               (boundary-verdict compiled-row props))
+            (str "interpreted and compiled agree about " (pr-str props)))))))
 
 (deftest a-rejection-names-the-undeclared-props-and-the-declared-roster
   (testing "A rejection that only said `no` would send an author looking. The
             message names every offending key — not just the first — and the
             roster the schema declared, so the fix is visible without opening
             the declaration."
-    (let [msg (conf/caught-message
-               #(descriptor/normalize-call compiled-row [{:extra 1 :other 2}]))]
-      (is (some? msg) "the breach raises")
-      (doseq [k [":extra" ":other" ":id" ":label"]]
-        (is (re-find (re-pattern k) msg)
-            (str "the message names " k))))))
+    (when interop/debug-enabled?
+      (let [msg (conf/caught-message
+                 #(descriptor/normalize-call compiled-row [{:extra 1 :other 2}]))]
+        (is (some? msg) "the breach raises")
+        (doseq [k [":extra" ":other" ":id" ":label"]]
+          (is (re-find (re-pattern k) msg)
+              (str "the message names " k)))))))
+
 
 ;; ---------------------------------------------------------------------------
 ;; Surface 3 — the analyzer, at build time
@@ -254,6 +304,43 @@
           (str "no schema, no closure: " (pr-str props))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-74a89 — WHICH tier holds the closure, in each posture
+;; ---------------------------------------------------------------------------
+
+(deftest which-tier-refuses-an-undeclared-prop-depends-on-the-posture
+  (testing "The arrangement the ns docstring describes, asserted through the
+            REAL load-time gate rather than a `with-redefs` rebind that cannot
+            reach one (rf2-9c2jf). Three claims over the SAME reject rows:
+
+            the ANALYZER refuses each of them in either posture — that is the
+            tier a compiled build's guarantee actually rests on, and it is
+            unconditional; the BOUNDARY refuses them exactly when the gate is
+            open, which is the dev-only closing-schema arm stated as a fact
+            rather than left as an unexplained red; and a NON-MAP props slot is
+            refused in both postures, because the call ABI is always on. That
+            last row is what makes the boundary's production `:accept` a
+            verdict rather than an absent check — without it, `normalize-call`
+            doing nothing at all would look identical."
+    (let [rejects (filterv #(= :reject (:verdict %)) (:calls props-004))]
+      (is (<= 2 (count rejects))
+          "more than one reject row, so the rows below are about a decision
+           rather than a case")
+      (doseq [{:keys [props why]} rejects]
+        (is (= :reject (analyzer-verdict 'schema-child props))
+            (str "analyzer, in either posture — " (pr-str props)
+                 (when why (str ": " why))))
+        (is (= (if interop/debug-enabled? :reject :accept)
+               (boundary-verdict compiled-row props))
+            (str "boundary — " (pr-str props)
+                 (if interop/debug-enabled?
+                   ": refused, the closing-schema arm is live"
+                   ": ACCEPTED, the closing-schema arm is elided by design"))))
+      (is (= :reject (boundary-verdict compiled-row nil))
+          "and the call ABI is always on: a non-map props slot is refused in
+           either posture, so an `:accept` above is a verdict the boundary
+           reached and not a check that never ran"))))
+
+;; ---------------------------------------------------------------------------
 ;; The escape, and the reserved slots
 ;; ---------------------------------------------------------------------------
 
@@ -264,8 +351,13 @@
             declaration option. Proven at both surfaces, because an escape
             honoured at render and ignored at build would be worse than none."
     (doseq [{:keys [props verdict]} (:open-calls props-004)]
-      (is (= verdict (boundary-verdict open-row props))
-          (str "boundary, open schema — " (pr-str props)))
+      ;; rf2-74a89 — dev-instrumentation arm (see ns docstring). Every
+      ;; `:open-calls` verdict is `:accept`, and under the gate the boundary
+      ;; accepts everything, so this row would pass without an escape existing
+      ;; at all. The ANALYZER row beside it holds in both postures.
+      (when interop/debug-enabled?
+        (is (= verdict (boundary-verdict open-row props))
+            (str "boundary, open schema — " (pr-str props))))
       (is (= verdict (analyzer-verdict 'open-child props))
           (str "analyzer, open schema — " (pr-str props))))))
 
@@ -290,10 +382,17 @@
             declaration is an ordinary view in both modes — it accepts every
             props map the matrix carries, including the ones the schema'd view
             refuses, because it made no statement about them."
-    (doseq [view [schema-less-row compiled-schema-less-row]
-            {:keys [props]} (:calls props-004)]
-      (is (= :accept (boundary-verdict view props))
-          (str (:view-id (v/describe view)) " accepts " (pr-str props))))))
+    ;; rf2-74a89 — dev-instrumentation arm (see ns docstring). Under the gate
+    ;; EVERY declaration accepts every props map, so "the schema-less one
+    ;; accepts them" would say nothing about being schema-less. The always-on
+    ;; half of the optional arm is the analyzer's
+    ;; (`an-unschemad-child-closes-nothing-at-a-compiled-call-site`) and the
+    ;; projection's (`absence-is-reported-as-absence-never-as-any`).
+    (when interop/debug-enabled?
+      (doseq [view [schema-less-row compiled-schema-less-row]
+              {:keys [props]} (:calls props-004)]
+        (is (= :accept (boundary-verdict view props))
+            (str (:view-id (v/describe view)) " accepts " (pr-str props)))))))
 
 (deftest absence-is-reported-as-absence-never-as-any
   (testing "Per FH-PROPS-004: an undeclared contract and a deliberately
@@ -335,10 +434,17 @@
             surface that reads the schema as a VALUE as well as the one that
             reads it as a form: an opacity honoured at build time and forgotten
             at render would be two contracts wearing one name."
-    (doseq [{:keys [props]} (:calls props-004)
-            [mode view]     (assoc opaque-by-mode :reference registry-row)]
-      (is (= :accept (boundary-verdict view props))
-          (str mode " — an opaque schema admits " (pr-str props))))
+    ;; rf2-74a89 — dev-instrumentation arm (see ns docstring). Same vacuity as
+    ;; the schema-less arm: under the gate nothing closes, so "the opaque one
+    ;; closes nothing" is satisfied by a boundary that never looked. The cause
+    ;; these rows are the symptom of —
+    ;; `an-opaque-schema-derives-no-closing-roster-from-what-tooling-reads` —
+    ;; is pure over the authored form and holds in both postures.
+    (when interop/debug-enabled?
+      (doseq [{:keys [props]} (:calls props-004)
+              [mode view]     (assoc opaque-by-mode :reference registry-row)]
+        (is (= :accept (boundary-verdict view props))
+            (str mode " — an opaque schema admits " (pr-str props)))))
     (is (true? (:closes-nothing-at-every-surface? (:opaque props-004)))
         "the fixture states the same expectation the rows above assert")))
 
