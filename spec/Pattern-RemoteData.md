@@ -274,7 +274,7 @@ Per [011-SSR.md](011-SSR.md):
 A remote-data implementation conforms to this convention when:
 
 - Each remote resource has a slice with the standard `:status`/`:data`/`:error`/`:loaded-at`/`:attempt` shape.
-- Slice is `reg-app-schema`-bound (dynamic hosts) or typed (static hosts).
+- Slice is `reg-app-schema`-bound (dynamic hosts) or typed (static hosts). The two are not equivalent guarantees: a static host's type checks at compile time and holds in every build, while `reg-app-schema` arms a development-time assertion that is elided from production ([010 §Production builds](010-Schemas.md#production-builds)). An invariant this slice must actually maintain in production belongs in the lifecycle handlers.
 - The three required lifecycle events (load / loaded / load-failed) are registered, each with `:doc`. The fourth, `reset`, is optional — register it where the feature needs to clear the slice.
 - At least three subs (`:status`, `:data`, `:loading?`) per resource.
 - The `:http` fx (or equivalent) has `:platforms` set so SSR works.
