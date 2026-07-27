@@ -271,13 +271,22 @@
             The behavior's own `:update` call count is recorded alongside,
             because whether Freehand elides an update whose config is
             unchanged is a question this fixture ANSWERS by counting
-            rather than asserts by reading the runtime."
+            rather than asserts by reading the runtime.
+
+            Each shape runs at BOTH read sites — the config subscription
+            read in the view that also builds the 300 cells, and read one
+            boundary down inside the behavior's own panel. The pair is
+            here because a first pass found a config change an order of
+            magnitude more expensive than a cell change while moving
+            FEWER DOM nodes, and the obvious explanation deserved a
+            measurement rather than a sentence."
     (if-not (browser?) (skip)
       (async done
         (let [out (atom {})]
           (try
-            (doseq [shape [:vega :spread]]
-              (let [mnt (b10/mount! shape)]
+            (doseq [shape   [:vega :spread]
+                    read-at [:parent :leaf]]
+              (let [mnt (b10/mount! shape read-at)]
                 (try
                   (b10/reset-behavior-log!)
                   (let [before (b10/behavior-calls)
@@ -290,13 +299,14 @@
                                          (b10/burn-arm burn-ms)]
                                         sampling)))
                         after  (b10/behavior-calls)]
-                    (swap! out assoc shape
+                    (swap! out assoc [shape read-at]
                            {:rounds rs
                             :behavior-updates (- (:update after) (:update before))
                             :leaves (get-in b10/config-shapes [shape :leaves])})
                     (doseq [r rs [id s] r]
                       (is (zero? (:unverified s))
-                          (str shape "/" id ": " (:unverified s) " unverified of " (:n s)))))
+                          (str shape "/" read-at "/" id ": "
+                               (:unverified s) " unverified of " (:n s)))))
                   (finally (b10/release! mnt)))))
             (h/publish!
               "B10 M2 / config equality"
@@ -306,10 +316,15 @@
                 {:shapes       (into {} (map (fn [[k v]] [k (select-keys v [:leaves :channels])]))
                                      b10/config-shapes)
                  :modes        [:stable :fresh-equal :one-leaf]
+                 :read-sites   [:parent :leaf]
                  :crossing     :dispatch-sync
                  :cells        b10/cells-n
                  :measurement-method
-                 (str "the same window as M1. :stable re-installs the value already in "
+                 (str "the same window as M1, at both read sites — :parent reads the config "
+                      "subscription in the view that also builds the 300 cells, :leaf reads "
+                      "it one boundary down inside the behavior's own panel; nothing else "
+                      "differs between them. "
+                      "the same window as M1. :stable re-installs the value already in "
                       "app-db — identical, not merely equal — and is verified by identity; "
                       ":fresh-equal installs a freshly built map of the same contents and is "
                       "verified by the reference moving while the value does not; :one-leaf "
