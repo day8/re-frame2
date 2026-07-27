@@ -44,12 +44,13 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 95 namespaces, 1153 tests, 5327
+# What is left IS green, and it is not a rump: 99 namespaces, 1186 tests, 5468
 # assertions, exit 0 — versus the zero suites that had ever executed under this
 # posture before.  (It was 88 / 934 / 4340 before rf2-d2841 split the spine's
 # dev-instrumentation assertions away from the semantics beside them, and
 # 94 / 1106 / 5135 before that bead's second pass took `fx-test` — the largest
-# single entry, 107 failures and 25 errors across ~20 deftests — off the list.)
+# single entry, 107 failures and 25 errors across ~20 deftests — plus
+# `sub-topology`, `init-platform`, `pattern-smoke` and `db-noop-commit`.)
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -136,6 +137,18 @@ known_red=(
   #    catalogue before guarding anything: `diagnostic` means dev-only by
   #    design (`:rf.error/effect-map-shape`), `always-on` means there is a
   #    production witness to be had.
+  #
+  #    AND THE DEV-ONLY HALF IS NOT ALWAYS A TRACE. `sub-topology-test`'s
+  #    was REFLECTION METADATA — `:doc` and the auto-captured `:ns` / `:line`
+  #    / `:file` source-coords, elided in production — while the topology
+  #    SHAPE around them was entirely posture-independent. The false-green
+  #    that shape produces is worth recognising on sight: a negative about a
+  #    key that is elided WHOLESALE (`no-doc-key-when-not-supplied`) passes
+  #    under the gate because the key never exists, not because the
+  #    registration omitted it. Same class as a negative over an empty ring,
+  #    different subject. `db-noop-commit-test` is the counter-example worth
+  #    copying: its adversarial discriminators read frame-state OBJECT
+  #    IDENTITY off `frame/frame-state-value`, which needs no channel at all.
   #
   #    NOTE for whoever finishes this list: a namespace whose EVERY deftest
   #    is about the dev trace (the `trace-listener-*` cohort, `trace-test`,
