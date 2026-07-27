@@ -127,10 +127,28 @@
   mutation itself, arriving through the cache. The edge holds in both
   directions.
 
-  If a future change makes step 2 pass, the roster has decoupled from the
-  index. The fix is to restore the dependency edge; it is NOT to clear the
-  cache, because clearing the cache is the broken state's own behaviour and
-  hides exactly the defect being looked for.
+  Enrolment-by-discovery widened that read to every fixture the index
+  names, and the widening was measured the same way rather than assumed —
+  it is a stronger claim than the first, because it is about a file the
+  roster had NEVER read:
+
+      1. warm cache, unmodified          1311 tests, 0 failures   (3 compiled)
+      2. `:fh/record` added to
+         `fh-call-001.edn`, a law that
+         was not enrolled and whose
+         fixture nothing here had read,
+         `.shadow-cljs` left alone       3 rows red               (3 compiled)
+      3. reverted, cache still warm      1311 tests, 0 failures   (3 compiled)
+
+  Step 2 red on `enrolment-is-a-property-of-the-fixture`, on
+  `the-roster-is-sound` and on the resolution rows, every message naming
+  FH-CALL-001 — a record ARRIVING through the cache, which is the case a
+  witness creates the first time it enrols.
+
+  If a future change makes either step 2 pass, the roster has decoupled
+  from the file it read. The fix is to restore the dependency edge; it is
+  NOT to clear the cache, because clearing the cache is the broken state's
+  own behaviour and hides exactly the defect being looked for.
 
   Dev/test scope ONLY. This namespace lives under `test/` and nothing in a
   production bundle may reach it."
