@@ -610,28 +610,36 @@
   [{:keys [id row-keys row-extent viewport-extent scroll-offset row on-scroll
            overscan active-index on-key on-activate]
     :as   props}]
-  [virtual-collection
-   {:row-keys        row-keys
-    :row-extent      row-extent
-    :viewport-extent viewport-extent
-    :scroll-offset   scroll-offset
-    :overscan        overscan
-    :on-scroll       on-scroll
-    :attrs           (merge (dissoc props :row-keys :row-extent :viewport-extent
-                                    :scroll-offset :row :on-scroll :overscan
-                                    :active-index :on-key :on-activate)
-                            {:role                  "listbox"
-                             :tabindex              0
-                             :data-component        "rf-virtual-list"
-                             :aria-activedescendant (when active-index
-                                                      (row-dom-id id active-index))
-                             :on-key-down           (when on-key
-                                                      (conj on-key ::v/key))})
-    :row             (v/render-fn [k i total]
-                       [virtual-row {:dom-id      (row-dom-id id i)
-                                     :index       i
-                                     :item-count  total
-                                     :row-key     k
-                                     :row         row
-                                     :active?     (= i active-index)
-                                     :on-activate on-activate}])}])
+  (let [w         (window {:item-count      (count row-keys)
+                           :row-extent      row-extent
+                           :viewport-extent viewport-extent
+                           :scroll-offset   scroll-offset
+                           :overscan        overscan})
+        rendered? (and (some? active-index)
+                       (<= (:first w) active-index)
+                       (< active-index (+ (:first w) (:count w))))]
+    [virtual-collection
+     {:row-keys        row-keys
+      :row-extent      row-extent
+      :viewport-extent viewport-extent
+      :scroll-offset   scroll-offset
+      :overscan        overscan
+      :on-scroll       on-scroll
+      :attrs           (merge (dissoc props :row-keys :row-extent :viewport-extent
+                                      :scroll-offset :row :on-scroll :overscan
+                                      :active-index :on-key :on-activate)
+                              {:role                  "listbox"
+                               :tabindex              0
+                               :data-component        "rf-virtual-list"
+                               :aria-activedescendant (when rendered?
+                                                        (row-dom-id id active-index))
+                               :on-key-down           (when on-key
+                                                        (conj on-key ::v/key))})
+      :row             (v/render-fn [k i total]
+                         [virtual-row {:dom-id      (row-dom-id id i)
+                                       :index       i
+                                       :item-count  total
+                                       :row-key     k
+                                       :row         row
+                                       :active?     (= i active-index)
+                                       :on-activate on-activate}])}]))

@@ -664,6 +664,51 @@
               "and the key reaches one too — the control decides no keyboard
                policy of its own"))))))
 
+(deftest fh-ctrl-021-activedescendant-is-omitted-while-the-active-row-is-unrendered
+  (testing "Per FH-CTRL-021: `aria-activedescendant` names an element by
+            IDREF, and WAI-ARIA 1.2 makes a non-matching IDREF an author
+            error — the active descendant is required to be visible or
+            scrolled into view. Virtualization is precisely the situation
+            that produces a dangling one: the active row scrolls out, its
+            element unmounts, and an attribute naming it now points at
+            nothing.
+
+            So the attribute is present exactly when the row it names is
+            RENDERED, and absent otherwise. Absent is the honest answer —
+            the alternative, keeping a dead reference so the relationship
+            'looks' intact, is the defect rather than the courtesy. DOM
+            focus stays on the viewport either way, which is the separate
+            law that keeps the keyboard alive.
+
+            The listbox decides this from the SAME `window` the engine
+            renders from — one arithmetic called twice, not two."
+    (register!)
+    (seed!)
+    (let [{:keys [active-index active-dom-id offset-hiding-active
+                  offset-showing-active]} ctrl-021
+          named #(:aria-activedescendant (t/attrs (viewport (render-tree))))]
+      (scroll-to! offset-showing-active)
+      (is (= active-dom-id (named))
+          "the active row is on screen, so the viewport names it")
+      (is (= 1 (count (filter #(= active-dom-id (:id (t/attrs %)))
+                              (rows (render-tree)))))
+          "non-vacuous: the element that IDREF names really is in the tree")
+
+      (scroll-to! offset-hiding-active)
+      (is (empty? (filter #(= active-dom-id (:id (t/attrs %)))
+                          (rows (render-tree))))
+          "scrolled away, the named element is gone from the tree")
+      (is (nil? (named))
+          "and the attribute goes with it — no dangling IDREF is published")
+      (is (some? active-index)
+          "non-vacuous: there IS an active index throughout; the attribute
+           is absent because the ROW is unrendered, not because the
+           selection was cleared")
+
+      (scroll-to! offset-showing-active)
+      (is (= active-dom-id (named))
+          "and it returns, on the same address, when the row does"))))
+
 (deftest fh-ctrl-021-the-offset-is-controlled-through-one-guarded-layout-seam
   (testing "Per FH-CTRL-021: `:scroll-offset` is CONTROLLED, so the render
             is only half of it — the other half is a `:layout` behavior
