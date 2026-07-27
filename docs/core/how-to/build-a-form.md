@@ -70,6 +70,8 @@ Two schemas, because they answer two different questions. `FormSlice` describes 
 
 With those bound, a `:status` outside the enum, or a malformed draft, now fails at write time instead of surfacing as a confusing render three components deep. The runtime [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/schema-validation-failure` carrying `:where :app-db`, the failing path, the bad value, and a Malli explanation — and crucially **the write never lands**: app-db keeps its pre-event value and the dispatch is treated as failed. That early failure is worth a lot when you're debugging — a schema violation points at the *handler that wrote the bad value*, not the view that tripped over it later. ([Validate with schemas](validate-with-schemas.md) covers the vocabulary.)
 
+Read "at write time" as "at write time *in dev*". Both of these schemas are development-time assertions: a production build registers them and never checks them, so there the bad `:status` lands and the dispatch succeeds. That is deliberate — it is also why the validation rules you actually need enforced live in the handler, and why anything arriving from outside your app goes through `:rf.schema/at-boundary`. [The elision is spelled out here](validate-with-schemas.md#in-production-the-checks-vanish), and this page returns to it when the submit path meets the server.
+
 !!! note "Bind a feature's slices in one call"
 
     Two `reg-app-schema` calls are fine for one form, but a feature module with several forms usually declares the lot in a single `reg-app-schemas` (note the plural), which takes a `{path -> schema}` map and keeps the whole feature's shape contract in one place:
