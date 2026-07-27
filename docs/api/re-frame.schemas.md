@@ -30,6 +30,7 @@ The registration macros live in `re-frame.core` and route through the schemas ar
   (reg-app-schema path metadata schema)
   ```
 - **Description**: Attach a Malli schema to an `app-db` path.
+  - **Development-build assertion, not a production guarantee.** A production build still performs this registration — `app-schema-at` and `app-schemas` keep answering — but the candidate validator is elided, so nothing checks the schema. A candidate that violates it installs silently: no rejection, no rollback, no trace. Your app-db schemas do not run in production builds. Keep the invariant that must hold in production in the handler, and use [`validate-at-boundary-interceptor`](re-frame.core.md) (`:rf.schema/at-boundary`) where untrusted input must be validated in production too.
   - The schema is the **positional value slot** (rf2-qm7k83 Part A), uniform with the rest of the `reg-*` family. The optional middle metadata map carries the frame target under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys.
   - The **path is the registration id**. App-db schemas are path-keyed and live in the schemas artefact's per-frame side-table; they are NOT a registrar kind. `(app-schema-at [:user])` looks up by the same path vector.
   - `path` is a sequential `get-in` path of concrete segments, normalized to canonical vector form. `[]` registers a whole-`app-db` root schema. Returns the normalized path.
@@ -55,6 +56,7 @@ The registration macros live in `re-frame.core` and route through the schemas ar
   (reg-app-schemas {path-1 schema-1, ...} opts-or-frame-id)
   ```
 - **Description**: Bulk plural form of `reg-app-schema`.
+  - **Development-build assertion**, exactly as for the singular form: every entry registers in a production build but is never checked there.
   - Each entry routes through the singular form and is stamped with this call's source coords.
   - The optional second arg names the frame for every entry: an opts map (`{:frame target}`), a bare frame-id keyword, or a frame value. One frame per call.
   - Returns the vector of paths registered, in map-iteration order. `{}` is the documented empty no-op.

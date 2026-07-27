@@ -1429,7 +1429,7 @@ Malli schemas attached to `app-db` paths; validated on writes in dev, elided in 
   (reg-app-schema path schema)
   (reg-app-schema path metadata schema)
   ```
-- Attach this Malli schema to this `app-db` path. The schema is the positional value slot; the optional middle metadata map carries the `:frame` target (rf2-qm7k83 Part A). **Path is the registration id** — the only `reg-*` that is path-keyed rather than id-keyed. Full contract in [re-frame.schemas.md](re-frame.schemas.md).
+- Attach this Malli schema to this `app-db` path. The schema is the positional value slot; the optional middle metadata map carries the `:frame` target (rf2-qm7k83 Part A). **Path is the registration id** — the only `reg-*` that is path-keyed rather than id-keyed. **Development-build assertion**: production registers the schema but never checks it, so a violating candidate installs silently — see [re-frame.schemas.md](re-frame.schemas.md) for the full contract.
 
 #### `reg-app-schemas`
 
@@ -1439,7 +1439,7 @@ Malli schemas attached to `app-db` paths; validated on writes in dev, elided in 
   (reg-app-schemas {path-1 schema-1, path-2 schema-2, ...})
   (reg-app-schemas {path-1 schema-1, ...} opts)
   ```
-- The bulk plural form. It registers many path→schema entries against the active frame (or the `:frame` opt) in one call; each entry is stamped with this call's source coords. Returns the vector of paths registered. Full contract in [re-frame.schemas.md](re-frame.schemas.md).
+- The bulk plural form. It registers many path→schema entries against the active frame (or the `:frame` opt) in one call; each entry is stamped with this call's source coords. Returns the vector of paths registered. **Development-build assertion**, as for the singular form. Full contract in [re-frame.schemas.md](re-frame.schemas.md).
 
 ### SSR → [re-frame.ssr.md](re-frame.ssr.md)
 
