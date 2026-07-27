@@ -1134,9 +1134,38 @@
   ;; on BOTH targets and the cross-runtime asserts continue firing in
   ;; Node. The split eliminates the ~14m of duplicate Chromium compile
   ;; + run on the ~3500-test bulk that needs no browser signal.
+  ;;
+  ;; rf2-mf4uy — and the `re-frame.freehand.bench.*` DOM suites are
+  ;; excluded, because a BENCHMARK does not belong in a correctness gate.
+  ;;
+  ;; They are not slow by accident: they burn wall clock on purpose,
+  ;; driving real-time windows of computed duration and publishing the
+  ;; distributions as D021 `:status :evidence` — which by construction
+  ;; cannot gate anything (`re-frame.freehand.bench.measure` refuses to
+  ;; build a duration measurement carrying a threshold at all). Measured
+  ;; on this bundle with the rf2-76lhy capture-time profile: 870 tests
+  ;; across 152 namespaces in 73.0s, of which ONE namespace
+  ;; (`bench.b10-two-clock-dom-cljs-test`) was 34.6s and the seven bench
+  ;; namespaces together were 50.2s — 71% of the lane's wall clock in 5%
+  ;; of its namespaces, against a median namespace of 0.040s. Every
+  ;; conversation about this lane's timeout budget (rf2-15047 raised it
+  ;; 120s -> 360s) was really a conversation about those seven.
+  ;;
+  ;; They keep running, in the build that exists for them:
+  ;; `:browser-test-freehand-bench` below selects exactly this excluded
+  ;; set, and `npm run bench:freehand-browser` runs it. The two selectors
+  ;; PARTITION the repo's `*_dom_cljs_test` namespaces — every one is
+  ;; matched by exactly one of them, which is what stops this exclusion
+  ;; from being a silent deletion. `_browser-dom-lane-partition.test.cjs`
+  ;; derives both patterns from THIS file and proves it on every PR.
+  ;;
+  ;; The negative lookahead is evaluated by `re-find` against the
+  ;; namespace string (shadow-cljs's `find-test-namespaces`), so `^` pins
+  ;; the match to position 0 and the trailing `$` makes the whole pattern
+  ;; a full-string test.
   :browser-test
   {:target    :browser-test
-   :ns-regexp "-dom-cljs-test$"
+   :ns-regexp "^(?!re-frame\\.freehand\\.bench\\.).*-dom-cljs-test$"
    :test-dir  "out/browser-test"
    :runner-ns shadow.test.browser
    :compiler-options
@@ -1269,9 +1298,18 @@
   ;;
   ;; The ns-regexp selects the bench's own DOM suites and nothing else, so
   ;; the captured console is the evidence rather than a 757-test transcript
-  ;; to sift. Those same namespaces still run under the broader
-  ;; `:browser-test` gate on every PR — this build adds a revision, not a
-  ;; second copy of the coverage.
+  ;; to sift.
+  ;;
+  ;; rf2-mf4uy — and since the `:browser-test` gate now EXCLUDES exactly
+  ;; this set, those namespaces run here and nowhere else in a browser.
+  ;; This build is no longer "a revision added to coverage the PR gate
+  ;; already had"; it is the coverage. The two `:ns-regexp`s are
+  ;; complementary halves of one partition over the repo's
+  ;; `*_dom_cljs_test` namespaces, and `_browser-dom-lane-partition.test.cjs`
+  ;; derives both from this file and reds on every PR if a namespace ever
+  ;; falls between them or into both. The 30 rows here are measurement;
+  ;; the 7 of them that carry no `(browser?)` guard also run under
+  ;; `:node-test` on every PR, where their arithmetic still gates.
   ;;
   ;; Run by `npm run bench:freehand-browser`; the workflow's browser lane
   ;; captures its console and uploads it beside the JVM and Node artefacts.
