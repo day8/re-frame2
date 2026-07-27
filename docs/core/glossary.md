@@ -468,7 +468,7 @@ Related: [app-db](#app-db), [frame](#frame). Paths: `:rf.db/runtime`, children `
 
 ### **schema**
 
-A data description of a value's shape — `[:map [:sku :string] [:qty :int]]` — in **Malli** (default). Attach to an [app-db](#app-db) path (`reg-app-schema`), an event, or an HTTP `:decode` step. Runtime checks at a named boundary in dev; [elides](#elide) the check in production. Schema-as-data supports validate, coerce, and tooling round-trips.
+A data description of a value's shape — `[:map [:sku :string] [:qty :int]]` — in **Malli** (default). Attach to an [app-db](#app-db) path (`reg-app-schema`), an event, or an HTTP `:decode` step. Checks run at a named boundary, but whether one survives a production build depends on which boundary: `reg-app-schema`'s app-db check and the plain event check are development assertions and [elide](#elide), while an event handler carrying `:rf.schema/at-boundary` and a managed-HTTP `:decode` schema are checked in **every** build. Schema-as-data supports validate, coerce, and tooling round-trips.
 
 Related: [Validate with schemas](how-to/validate-with-schemas.md).
 
