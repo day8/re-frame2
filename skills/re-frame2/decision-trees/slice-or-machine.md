@@ -95,7 +95,7 @@ This question only applies after Step 1 picked slice.
 
 - **Pattern-slice?** If the slice is the canonical shape of a named pattern (RemoteData's 5-key slice; Forms' 7-key slice), use the pattern's canonical path convention. Pattern leaves name the slot.
 - **Feature-prefix?** Otherwise, the slice belongs at `[:<feature-prefix> ...]` per [`spec/Conventions.md` §Feature-modularity prefix convention](../../../spec/Conventions.md). Pick a feature keyword for the app's namespace; never start with `:rf/` (reserved).
-- **Schema?** Register a schema for the slice via `reg-app-schema` only if the slice crosses a trust boundary (incoming HTTP payload, persisted state on restore). Don't schema-fence every internal key (per SKILL.md cardinal rule 4).
+- **Schema?** Register a schema for the slice via `reg-app-schema` only if the slice crosses a trust boundary (incoming HTTP payload, persisted state on restore). Don't schema-fence every internal key (per SKILL.md cardinal rule 4). And note what that registration buys: it is a dev-build assertion, elided from production, so if the boundary needs to hold in the deployed bundle the ingesting handler also needs a `:rf.schema/at-boundary` ref — [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md).
 
 ## Step 4 — the prompt-language tie-breaker
 

@@ -35,6 +35,22 @@ Registrations are **frame-scoped** — the schema attaches to a path inside one 
 
 `reg-app-schema` validates the **app-db partition only**; the runtime-db partition (machine snapshots, route slice, elision declarations under `:rf.runtime/*`) is governed by its own framework schemas. So your `reg-app-schema` set describes a *pure* application contract with no framework state mixed in — the payoff of the two-partition frame. Keep calling it "the app-db schema"; it covers exactly the partition you own.
 
+## `reg-app-schema` is a development-build assertion
+
+This is the single most important thing to know about the surface, and it decides which tool a real trust boundary needs.
+
+A production build — `:advanced` with `goog.DEBUG` false, or `-Dre-frame.debug=false` on the JVM — still **registers** every schema, so tools and agents can introspect them, but never **checks** one. The candidate validator is elided along with the rest of the dev-time validation, so a candidate that violates a registered schema installs silently: no rejection, no rollback, no diagnostic, because the diagnostic is part of what got elided. Your app-db schemas do not run in production builds.
+
+That is deliberate and settled (Spec 010 §Production builds; ruled 2026-07-27) — production trusts the programmer, and the elision is what keeps the reason strings, keywords and validator derefs out of the shipped bundle. It is not a gap waiting to be closed, so don't reach for a workaround that turns it back on.
+
+What it means for how you write code:
+
+- **A registered schema is a tripwire that catches *you*, during development.** It is worth having on every boundary path for exactly that reason, and the same is true of handler `:schema` metadata.
+- **It is not a guard on the deployed bundle.** Keep the real invariant in the handler — code that runs unconditionally.
+- **Where untrusted data must be rejected in production too, use the boundary interceptor** (below). It survives the production gate and is the only schema surface that does.
+
+The improver skill's [`schemaless-events.md`](../../../re-frame2-improver/references/schemaless-events.md) is the audit-side counterpart: a handler ingesting untrusted input while carrying only `:schema` / `reg-app-schema` is a finding, not a pass.
+
 ## What `:schema` does on a handler
 
 Every `reg-*` macro accepts a `:schema` key in its metadata-map:
@@ -81,15 +97,15 @@ From `examples/core/seven_guis/flight_booker/core.cljs`:
    [:start-text  :string]
    [:return-text :string]])
 
-(rf/reg-app-schema [:flight] FlightState)
+(rf/reg-app-schema [:flight] FlightState)               ;; dev-only
 
 (rf/reg-event :flight/set-trip-type
   {:doc    "User changed the trip-type combo."
-   :schema [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
+   :schema [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}   ;; dev-only
   (fn [{:keys [db]} [_ trip-type]] {:db (assoc-in db [:flight :trip-type] trip-type)}))
 ```
 
-The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:schema` on the handler validates the dispatched event vector.
+The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:schema` on the handler validates the dispatched event vector. Both are dev-build assertions, which is the right choice here — the trip-type combo is the app's own UI, not a trust boundary. A handler ingesting a server payload would additionally reference `:rf.schema/at-boundary`.
 
 ## Swapping the validator
 
@@ -110,7 +126,8 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 ## Common gotchas
 
 - **`reg-app-schema` is a no-op without the schemas artefact.** The macro emits a `late-bind` lookup; without `re-frame.schemas` loaded, the call throws `:rf.error/schemas-artefact-missing` at runtime, not at compile time. Always require `re-frame.schemas` at app boot if you call this.
-- **`:schema` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape enforcement, use `reg-app-schema`.
+- **`:schema` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape checking in dev, use `reg-app-schema`.
+- **Neither `reg-app-schema` nor a bare `:schema` reaches production.** Both are elided from a production build, so "I registered a schema for that path" is not an answer to "what stops bad data getting in?" — see §`reg-app-schema` is a development-build assertion. The production answer is `:rf.schema/at-boundary`, an always-on validator in the handler body, or a decoding gate such as Managed HTTP's `:decode`.
 - **Boundary interceptor without `:schema` is rejected at registration.** Referencing `:rf.schema/at-boundary` under metadata `:interceptors` on a handler that has no `:schema` metadata raises `:rf.error/at-boundary-missing-schema` from `reg-event` — the handler is not installed. Either attach a `:schema` to the metadata-map or remove the ref.
 - **Boundary validation is dev-OR-prod, never both.** Dev-mode step-1 has already validated by the time the boundary interceptor runs; the boundary becomes the validator in production builds when step-1 is elided.
 - **Schemas are frame-scoped.** Re-registering a schema on the same `[path]` of the same frame replaces; the same path on a different frame is a separate registration.

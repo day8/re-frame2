@@ -12,7 +12,7 @@ The prompt mentions: a form, validation, "show errors after submit", inline fiel
 
 ## The re-frame2 features this pattern uses
 
-- **`reg-app-schema`** for the slice path; **plus** a separate schema for the form's *value* (what the form collects, e.g. `LoginForm`). Two schemas: one for the slice container, one for the draft's shape.
+- **`reg-app-schema`** for the slice path; **plus** a separate schema for the form's *value* (what the form collects, e.g. `LoginForm`). Two schemas: one for the slice container, one for the draft's shape. Both are **dev-build assertions** — elided from production — so they catch a malformed write while you develop but do not validate user input in the deployed bundle. That job belongs to `:form.feature/submit`'s own validation pass below, which runs unconditionally and is what fills `:errors`.
 - **`reg-event :form.feature/initialise`** — seed `:draft` with defaults; `:status :idle` (returns `{:db ...}`).
 - **`reg-event :form.feature/edit-field`** — update `:draft`; add the field to `:touched` (returns `{:db ...}`).
 - **`reg-event :form.feature/blur-field`** — add to `:touched` (if not already); run per-field validation (returns `{:db ...}`).
@@ -91,8 +91,9 @@ The dominant shape. Lifted from `spec/Pattern-Forms.md` (mirrored in `examples/r
 (def LoginForm
   [:map [:email [:re #".+@.+"]] [:password [:string {:min 8}]]])
 
-(rf/reg-app-schema [:auth :login] FormSlice)
-(rf/reg-app-schema [:auth :login :draft] LoginForm)
+(rf/reg-app-schema [:auth :login] FormSlice)              ;; dev-only
+(rf/reg-app-schema [:auth :login :draft] LoginForm)       ;; dev-only — the always-on
+                                                         ;; check is validate-against below
 
 (rf/reg-event :form.login/submit
   (fn [{:keys [db]} _]
