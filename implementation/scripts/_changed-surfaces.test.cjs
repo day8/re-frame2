@@ -2843,15 +2843,77 @@ test('the freehand arm is ARTEFACT-ROOT matching, not an enumeration (rf2-drpa3.
 });
 
 test('implementation/freehand/** stays OFF the heavy per-feature gates (rf2-drpa3.58)', () => {
-  // Scope guard, not an aspiration: Freehand ships no production-bundle
-  // requirer and no testbed the smokes mount, so those tiers would be pure
-  // cost. Widen the classifier case (and this test) when it gains one —
-  // implementation/ui/* is the precedent. cljs_browser LEFT this list under
-  // rf2-drpa3.70: the artefact now has mounted-DOM tests, so that gate stopped
-  // being cost and became the only place they can run.
+  // Scope guard, not an aspiration: bundle_isolation measures the examples
+  // set and Freehand mounts no testbed the smokes drive, so those tiers would
+  // be pure cost. Widen the classifier case (and this test) when it gains one
+  // — implementation/ui/* is the precedent. cljs_browser LEFT this list under
+  // rf2-drpa3.70 (the artefact gained mounted-DOM tests) and cljs_prod under
+  // rf2-kll2x (it gained an `-elision-prod-test` suite); in both cases the
+  // gate stopped being cost and became the only place the tests can run.
   const result = classify('implementation/freehand/src/re_frame/freehand.cljc');
-  for (const key of ['cljs_prod', 'bundle_isolation', 'ui_gates', 'ui_smoke']) {
+  for (const key of ['bundle_isolation', 'ui_gates', 'ui_smoke']) {
     assert.equal(result[key], 'false', `freehand must not arm ${key} yet`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// rf2-kll2x — the production-elision lane.
+//
+// rf2-3slzz added the first Freehand namespace matching `-elision-prod-test$`,
+// so the first Freehand code riding `:browser-test-prod-elision` (`:advanced` +
+// `{goog.DEBUG false}`). It was on that build's classpath from the day it
+// landed — freehand/test is on the global :source-paths — but cljs_prod stayed
+// false on a Freehand-only PR, so `cljs-browser-prod-elision` SKIPPED and only
+// the unconditional nightly ever ran it. Same false-green shape rf2-drpa3.58 /
+// .61 / .70 closed for the host and browser tiers of this same tree.
+// ---------------------------------------------------------------------------
+
+test('the Freehand production-posture surfaces arm cljs_prod (rf2-kll2x)', () => {
+  // The suite itself, plus every Freehand file that can invalidate it and is
+  // matched by a case SHADOWING the artefact root — a POSIX `case` takes the
+  // first match, so those narrower cases must replicate the arm or they
+  // silently narrow it. cell.cljc carries `observe!`'s candidate consultation
+  // (the check under test); freehand.cljc is the door the suite declares and
+  // reads through.
+  for (const file of [
+    'implementation/freehand/test/re_frame/freehand/reactive_false_check_elision_prod_test.cljs',
+    'implementation/freehand/src/re_frame/freehand/cell.cljc',
+    'implementation/freehand/src/re_frame/freehand.cljc',
+    'implementation/freehand/src/re_frame/freehand/control.cljc',
+    'implementation/freehand/src/re_frame/freehand/shell.cljs',
+    'implementation/freehand/test/re_frame/freehand/release_app.cljs',
+  ]) {
+    assert.equal(
+      classify(file).cljs_prod,
+      'true',
+      `${file} can invalidate the production-posture proof — it must schedule cljs-browser-prod-elision`,
+    );
+  }
+});
+
+test('the Freehand prod-elision namespace actually exists (rf2-kll2x)', () => {
+  // The classifier never stats a path, so the row above would stay green if
+  // the suite were renamed or deleted — routing a lane at nothing. Pin its
+  // existence with the routing, and pin the suffix the build's ns-regexp
+  // (`-elision-prod-test$`) selects on: rename it and the file compiles into
+  // no build at all.
+  const file =
+    'implementation/freehand/test/re_frame/freehand/reactive_false_check_elision_prod_test.cljs';
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, file)),
+    `${file} must exist — it is the production proof this routing exists to run`,
+  );
+  assert.match(path.basename(file), /_elision_prod_test\.cljs$/);
+});
+
+test('Freehand PROSE does not pay for an :advanced compile (rf2-kll2x)', () => {
+  // Same reasoning as the browser arm: the widening is about what a
+  // production compile does to Freehand code, and Markdown is not compiled.
+  for (const file of [
+    'implementation/freehand/README.md',
+    'implementation/freehand/doc/design/emitters.md',
+  ]) {
+    assert.equal(classify(file).cljs_prod, 'false', `${file} must not arm cljs_prod`);
   }
 });
 

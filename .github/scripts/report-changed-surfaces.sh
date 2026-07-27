@@ -798,12 +798,17 @@ else
         # shell.cljs is armed here directly rather than leaned on the law
         # (rf2-xwa4n, merged-PR audit of #6888).
         #
-        # The three host arms below are replicated from the artefact-root case:
+        # The four arms below are replicated from the artefact-root case:
         # a POSIX `case` takes the FIRST match, so this case SHADOWS
         # `implementation/freehand/*` — it must widen, never narrow.
+        # cljs_prod joined that replication under rf2-kll2x, and cell.cljc is
+        # the reason it is not merely bookkeeping: `cell/observe!` carries the
+        # candidate consultation whose PRODUCTION survival
+        # reactive_false_check_elision_prod_test.cljs exists to prove.
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true
+        cljs_prod=true
         freehand_evidence_elision=true
         # rf2-zl8ao — the release entry is SHARED with the B5 reachability
         # probe: `:freehand-release` is the production half of both control
@@ -871,12 +876,17 @@ else
         # backstop for a NEW production edge appearing outside these files is
         # the unconditional nightly run in expensive-tests.yml.
         #
-        # The three host arms below are replicated from the artefact-root
+        # The four arms below are replicated from the artefact-root
         # case: a POSIX `case` takes the FIRST match, so this case SHADOWS
         # `implementation/freehand/*` — it must widen, never narrow.
+        # cljs_prod joined that replication under rf2-kll2x: freehand.cljc is
+        # the public door `reactive_false_check_elision_prod_test.cljs` reads
+        # and declares through (`v/sub`, `v/defview`, `v/manifest`), so a
+        # change here can invalidate the production proof outright.
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true
+        cljs_prod=true
         freehand_reachability=true
         ;;
       implementation/freehand/*)
@@ -914,19 +924,41 @@ else
         # than mounting. That is the same false-green shape rf2-drpa3.58/.61
         # closed for the host suites, one tier up.
         #
-        # Still NOT cljs_prod / bundle_isolation / ui_gates / ui_smoke: no
-        # bundle those gates measure requires Freehand (cljs_prod builds the
-        # `elision-probe` pair, bundle_isolation the examples set), and Freehand
-        # mounts no testbed those smokes drive. Widen each the moment that
-        # changes — the `implementation/ui/*` case above is the worked
-        # precedent.
+        # rf2-kll2x — cljs_prod, the widening the note below said to make "the
+        # moment that changes". It changed: rf2-3slzz added
+        # reactive_false_check_elision_prod_test.cljs, the first Freehand
+        # namespace matching the `-elision-prod-test$` regexp and so the first
+        # Freehand code riding `:browser-test-prod-elision` (`:advanced` +
+        # `{goog.DEBUG false}`, runner re-frame.prod-elision-runner). It is on
+        # that build's classpath already — freehand/test is on the global
+        # :source-paths — so the suite compiled and ran from the day it landed,
+        # but only on the unconditional nightly (expensive-tests.yml). At PR
+        # time cljs_prod stayed false and cljs-browser-prod-elision SKIPPED, so
+        # a Freehand change that broke the PRODUCTION posture of the
+        # `{:reactive false}` read check merged green and surfaced the next
+        # morning on a different commit. Same false-green shape rf2-drpa3.58 /
+        # .61 / .70 closed for the host and browser tiers of this same tree.
+        #
+        # The subject is a SAFETY mechanism, which is why the production half
+        # is not optional: a boundary wrongly declared shell-free must refuse
+        # at the first offending render in a shipped bundle, not only in dev.
+        # A `with-redefs` on `interop/debug-enabled?` cannot reach a load-time
+        # gate at all, so `:advanced` is the only place the claim can be made.
+        #
+        # Still NOT bundle_isolation / ui_gates / ui_smoke: bundle_isolation
+        # measures the examples set, and Freehand mounts no testbed those
+        # smokes drive. Widen each the moment that changes — the
+        # `implementation/ui/*` case above is the worked precedent.
         #
         # rf2-xwa4n — Freehand DOES now have `:advanced` release builds of its
         # own (`:freehand-release` and its control twin), so the older reading
         # of this note as "Freehand ships nothing under :advanced" no longer
         # holds. Those builds are covered by the dedicated
         # freehand_evidence_elision output, armed narrowly on the probe's
-        # primary inputs in the case above — not by these four.
+        # primary inputs in the case above — not by the three still withheld.
+        # They are a different claim from cljs_prod's: those two builds weigh
+        # a Freehand RELEASE bundle, `:browser-test-prod-elision` runs Freehand
+        # ASSERTIONS under a production compile. Neither substitutes.
         #
         # rf2-nutll — examples_compile is armed too, but from the FIRST case
         # block (where the examples_compile roster lives) rather than here:
@@ -935,6 +967,7 @@ else
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true
+        cljs_prod=true
         ;;
       implementation/scripts/run-ui-bench.cjs)
         # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
