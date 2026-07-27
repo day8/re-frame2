@@ -33,8 +33,7 @@
             [re-frame.story-mcp.tools.lifecycle :as lifecycle]
             [re-frame.story-mcp.tools.recorder :as recorder-tool]
             [re-frame.story-mcp.tools.registry :as registry]
-            [re-frame.substrate.plain-atom :as plain-atom])
-  (:import (java.util.concurrent CountDownLatch TimeUnit)))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ResultIO mirror over story-mcp's CLJ-map result shape — used by the
 ;; cap-honours-default test to sum tokens without reaching into cap's
@@ -65,6 +64,14 @@
 ;; `reset-story-and-config` can clear it.
 (def ^:private declared-class (atom {}))
 
+;; The single key every driven recorder push registers its `add-watch` under
+;; (see `drive-events-during-recording`). Fixed rather than generated on
+;; purpose: with one key there is at most one driver watch on the recorder at
+;; any moment, a second drive displaces the first instead of stacking, and the
+;; fixture can retract a straggler by name without knowing whether one exists.
+;; Defined here (above the fixture) for the same reason `declared-class` is.
+(def ^:private drive-watch-key ::drive-events-during-recording)
+
 (defn reset-story-and-config
   "Each test gets a fresh Story registry + write-gate set to false (the
   documented default per spec/003-Write-Surface-Gating.md). Tests that need writes flip
@@ -93,6 +100,12 @@
   ;; Recorder atom is per-process — clear between tests so a previous
   ;; test's captured events don't bleed in.
   (recorder/clear!)
+  ;; And retract any driver watch whose window never opened, so a test that
+  ;; armed a push and then failed before invoking the tool cannot have that
+  ;; push fire into the NEXT test's recording (rf2-zrdog). The watch normally
+  ;; retracts itself the instant it fires; this covers the path where it never
+  ;; does. `remove-watch` on an absent key is a no-op.
+  (remove-watch recorder/state drive-watch-key)
   ;; Disable epoch-ring recording for the duration of each story-mcp test
   ;; (restored below). story-mcp's OWN artefact carries NO epoch dep, so a
   ;; standalone `cd tools/story-mcp && clojure -M:test` never loads
@@ -1765,95 +1778,71 @@
 ;;
 ;; The recorder normally captures events off the trace bus; for these tests
 ;; we drive `recorder/record-event!` directly during the tool's blocking
-;; window via a worker thread so the assertions exercise the start →
-;; capture → snippet plumbing without needing a live trace emitter.
+;; window so the assertions exercise the start → capture → snippet
+;; plumbing without needing a live trace emitter.
 ;; ---------------------------------------------------------------------------
 
 (defn- drive-events-during-recording
-  "Spawn a worker thread that polls for the recorder's open window, then
-  pushes `events` once `recording?` flips true. Polling `recording?`
-  avoids a `Thread/sleep delay-ms` race
-  — on a slow CI runner a fixed sleep could either fire BEFORE
-  `start-recording!` (events dropped, capture truncated) or AFTER
-  `stop-recording!` (same outcome). Polling `recording?` from the worker
-  end means we never depend on a sleep window outlasting the tool.
+  "Arrange for `events` to be pushed into the recorder's window the
+  instant that window opens, and return.
 
-  The worker's poll has a hard 5s upper bound — well past any
-  realistic tool latency — and bails silently if the recorder never
-  opens (the test asserts `:recorded-event-count` on the result and
-  catches a truncated capture there).
+  The push rides an `add-watch` on `recorder/state`. `start-recording!`
+  is one `(swap! state start …)`, so the watch runs SYNCHRONOUSLY on the
+  tool's own thread, inside that swap, with `:recording?` already true
+  and `stop-recording!` still an unreached line further down
+  `tool-record-as-variant`. The driver and the window therefore meet
+  causally: there is no interval in which the push can be early or late,
+  because there is no interval at all.
 
-  Returns the worker thread so a test can `.join` (with timeout) when
-  it needs determinism on whether the worker has finished pushing.
+  rf2-zrdog — what this replaces, and why the replacement is not another
+  timing assumption. The capture used to be driven from a worker thread
+  that polled `recording?`, and the flake was a scheduling race at the
+  START of the window: the caller opened a fixed 100 ms window while the
+  worker's start-to-first-poll latency was whatever the OS scheduler
+  felt like — under 1 ms idle, 82 ms measured with the cores saturated,
+  which is exactly what a full-namespace aggregate run does. Past 100 ms
+  the push landed after `stop-recording!`, `record-event!` no-opped
+  (`append` appends only while `:recording?`), and the test failed on
+  `(pos? 0)` having done nothing wrong.
 
-  rf2-zrdog — why the caller blocks on a start latch. Polling
-  `recording?` fixes the *stop* end of the race but not the *start*
-  end: the caller used to spawn the thread and immediately invoke the
-  tool, so the window the worker had to hit was a fixed 100ms of wall
-  clock measured from `start-recording!`, while the worker's
-  start-to-first-poll latency was whatever the OS scheduler felt like.
-  Idle, that latency measures under 1ms and the push always lands. With
-  the cores saturated — which is exactly what a full-namespace
-  aggregate run does — it was measured at 82ms, leaving 18ms of margin
-  against the window; one more scheduling hiccup and the worker reaches
-  its first poll after `stop-recording!` has already closed the window.
-  `record-event!` then no-ops (`append` appends only while
-  `:recording?`), the capture comes back empty, and the test fails on
-  `(pos? 0)` having done nothing wrong. That is a load-dependent flake,
-  not shared recorder state — the recorder atom is reset per test by the
-  fixture and no leftover worker was ever observed firing into another
-  test's window.
+  A `CountDownLatch` handshake was added to close that (PR #7129) and did
+  not: the worker counted the latch down as its FIRST act, before
+  computing its deadline or probing `recording?`, so the caller was
+  released while the worker was merely live rather than actually polling
+  — one deschedule after `.countDown` and the window closed unattended.
+  Worse, the caller ignored `.await`'s boolean and opened the window
+  after a timeout anyway, while the worker's own 5 s deadline was created
+  only when the worker eventually ran; a late worker could therefore
+  still be alive and fire into a LATER test's window. A watch has no
+  thread, no deadline, no timeout path and nothing left running when this
+  fn returns, so all three failure modes are gone by construction rather
+  than by margin.
 
-  So the handoff is synchronised rather than assumed: the worker counts
-  down `polling` as its first act, and this fn does not return until
-  that latch trips. By the time the caller opens the window the thread
-  is live and in its poll loop, and the unbounded thread-start term is
-  out of the race entirely. The latch wait carries the same 5s bound as
-  the poll itself so a thread that never starts fails the test rather
-  than hanging the suite.
+  The watch retracts itself before pushing, which both keeps
+  `record-event!`'s own `swap!` from re-entering it and guarantees that
+  exactly one window is driven per call. `reset-story-and-config`
+  retracts it again for the case the window never opens at all.
 
-  EP-0017: the 2-arity `(drive-events-during-recording
-  events cofx-vec)` pushes a parallel, index-aligned vector of captured
-  flat `:rf.cofx` maps (the framework `:rf/time-ms` + any provided facts
-  a dispatch carried) via the recorder's 2-arity `record-event!`, so a
-  test can exercise the capture→write-back cofx-preservation path the
-  same way the live trace listener does."
+  Capture is now EXACT: every event in `events` lands, so a test may
+  assert the count it drove rather than deriving one from the result.
+
+  EP-0017: the 2-arity `(drive-events-during-recording events cofx-vec)`
+  pushes a parallel, index-aligned vector of captured flat `:rf.cofx`
+  maps (the framework `:rf/time-ms` + any provided facts a dispatch
+  carried) via the recorder's 2-arity `record-event!`, so a test can
+  exercise the capture→write-back cofx-preservation path the same way the
+  live trace listener does."
   ([events] (drive-events-during-recording events nil))
   ([events cofx-vec]
-   (let [cofx-vec (vec (or cofx-vec []))
-         ;; Trips the moment the worker is live and about to poll, so the
-         ;; caller can open the recording window knowing the thread is
-         ;; already running rather than merely created (rf2-zrdog).
-         polling  (CountDownLatch. 1)
-         worker   (doto (Thread.
-                          ^Runnable
-                          (fn []
-                            (.countDown polling)
-                            ;; Poll `recording?` with a 1ms park between probes —
-                            ;; fine-grained so the worker fires promptly once the
-                            ;; window opens. Bails after 5s if the recorder never
-                            ;; opens (a tool bug; the test assertions will catch it).
-                            (let [deadline (+ (System/nanoTime) (* 5 1000000000))]
-                              (loop []
-                                (cond
-                                  (recorder/recording?)
-                                  (doseq [[i ev] (map-indexed vector events)]
-                                    (recorder/record-event! ev (get cofx-vec i)))
-
-                                  (< (System/nanoTime) deadline)
-                                  (do (Thread/sleep 1)
-                                      (recur))
-
-                                  ;; Timed out; bail. The test's
-                                  ;; :recorded-event-count assertion will
-                                  ;; surface the miss.
-                                  :else nil)))))
-                    (.setDaemon true)
-                    (.start))]
-     ;; Bounded so a thread that never starts fails the assertion below
-     ;; rather than hanging the suite.
-     (.await polling 5 TimeUnit/SECONDS)
-     worker)))
+   (let [cofx-vec (vec (or cofx-vec []))]
+     (add-watch recorder/state drive-watch-key
+                (fn [_ _ old new]
+                  (when (and (not (:recording? old)) (:recording? new))
+                    ;; Retract FIRST: `record-event!` swaps this same atom.
+                    (remove-watch recorder/state drive-watch-key)
+                    (doseq [[i ev] (map-indexed vector events)]
+                      (recorder/record-event! ev (get cofx-vec i))))))
+     nil)))
 
 (deftest record-as-variant-not-found
   (testing "unknown source variant ⇒ tool-execution error"
@@ -1927,8 +1916,11 @@
       ;; so the STORED body (`variant->edn`) reads `:play-script` carrying
       ;; the captured events as a LIVE, replayable script. Each captured
       ;; event becomes a `[:dispatch ...]` step.
-      ;; The exact count is derived from `:recorded-event-count` because
-      ;; the live-recorder capture races the :duration-ms window.
+      ;; The count is read back from `:recorded-event-count` rather than
+      ;; hard-coded. It is now deterministic — the driver's push fires inside
+      ;; `start-recording!`'s own swap (rf2-zrdog), so all driven events land —
+      ;; but reading it keeps this test about the SHAPE of the written-back
+      ;; body, with the count itself pinned by the tests that assert it.
       (let [body (story/variant->edn :story.button/primary)]
         (is (nil? (:play body))
             "the legacy dead :play slot must NOT be written")
@@ -1955,8 +1947,8 @@
       (is (= :story.button/recorded (:new-variant-id s)))
       (is (pos? n) "the recorder captured at least one event")
       ;; Write-back assocs the public `:script` slot, lowered to
-      ;; the shipping `:play-script` slot in storage (count derived from
-      ;; `:recorded-event-count` — capture races the :duration-ms window).
+      ;; the shipping `:play-script` slot in storage (count read back from
+      ;; `:recorded-event-count`; deterministic since rf2-zrdog).
       (is (= {:script (vec (repeat n [:dispatch [:counter/inc]])) :auto-run? true}
              (:play-script (story/variant->edn :story.button/recorded))))
       (is (nil? (:play (story/variant->edn :story.button/recorded))))
@@ -2050,14 +2042,14 @@
     ;; against the frame's app-db (proving the slot the runner executes
     ;; is the one write-back wrote).
     ;;
-    ;; The live-recorder capture races the tool's :duration-ms window
-    ;; (the worker may push 1–N of the driven events before
-    ;; `stop-recording!` closes the window), so the EXPECTED replay count
-    ;; is derived from `:recorded-event-count` rather than hard-coded —
-    ;; the invariant under test is "`:n` after replay == number of
-    ;; captured `:test/bump` steps", which holds regardless of how many
-    ;; the race captured. We require at least one capture so the replay
-    ;; path is genuinely exercised.
+    ;; The EXPECTED replay count is read back from `:recorded-event-count`
+    ;; rather than hard-coded, because the invariant under test is "`:n`
+    ;; after replay == number of captured `:test/bump` steps" and that is
+    ;; what should be asserted here whatever the capture was. Capture is no
+    ;; longer a race — the driver's push fires inside `start-recording!`'s own
+    ;; swap (rf2-zrdog), so all three driven events land — and the `(pos? n)`
+    ;; precondition below now reads as a guard on the replay path being
+    ;; genuinely exercised rather than as a hedge against a truncated window.
     (config/set-allow-writes! true)
     ;; A real event handler whose effect is observable in app-db.
     (rf/reg-event :test/bump (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
@@ -2181,9 +2173,14 @@
           s (:structuredContent r)
           n (:recorded-event-count s)]
       (is (success? r))
-      (is (pos? n))
+      ;; Exactly the two events driven, not merely some (rf2-zrdog): the push
+      ;; now rides a watch that fires inside `start-recording!`'s own swap, so
+      ;; "how many landed" is not a scheduling outcome. `(pos? n)` here was
+      ;; what the old worker-thread race failed, and a derived count would
+      ;; have kept passing had the race merely truncated instead of emptying.
+      (is (= 2 n) "both driven events landed inside the window")
       (let [body (story/variant->edn :story.button/no-cofx)]
-        (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
+        (is (= {:script    [[:dispatch [:counter/inc]] [:dispatch [:counter/inc]]]
                 :auto-run? true}
                (:play-script body))
             "no captured cofx → bare 2-element dispatch steps, unchanged from pre-fix")
