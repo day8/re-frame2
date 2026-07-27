@@ -64,9 +64,10 @@ const URL = process.env.BROWSER_TEST_URL || 'http://localhost:8021';
 // and it fails through THIS runner — which dumps the console trail and the
 // namespaces reached — rather than as an opaque runner kill.
 //
-// Per-lane needs differ; $BROWSER_TEST_TIMEOUT_MS remains the override (see
-// check-ui-mounted-prod-elision.cjs, which pins its negative-control run
-// lower on purpose).
+// Per-lane needs differ; $BROWSER_TEST_TIMEOUT_MS remains the override.
+// check-ui-mounted-prod-elision.cjs still pins 120000 for its negative-
+// control mutant run — left alone deliberately: that run is EXPECTED to
+// fail, so it wants a short leash, not this budget.
 const DEFAULT_TIMEOUT_MS = 360000;
 const TIMEOUT_MS = parseInt(process.env.BROWSER_TEST_TIMEOUT_MS || String(DEFAULT_TIMEOUT_MS), 10);
 const POLL_MS = 200;
