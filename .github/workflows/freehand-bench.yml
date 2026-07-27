@@ -321,6 +321,24 @@ jobs:
   # rows were asserted on every PR and their evidence was never captured
   # anywhere.
   #
+  # AND SINCE rf2-mf4uy THIS JOB IS THE ONLY BROWSER THAT RUNS THEM. It used to
+  # be a second run of suites the per-PR `:browser-test` gate already covered,
+  # adding a revision rather than coverage. It is not any more: those seven
+  # namespaces were 71% of that gate's wall clock in 5% of its namespaces — one
+  # of them, `bench.b10-two-clock`, 49% on its own — and a benchmark charged
+  # against a correctness gate's timeout budget makes every conversation about
+  # that budget a conversation about the benchmark. The gate now excludes them
+  # by `:ns-regexp`, and `implementation/scripts/_browser-dom-lane-partition.
+  # test.cjs` proves on every PR that the two selectors partition the repo's
+  # `*_dom_cljs_test` namespaces, so nothing can fall between them unnoticed.
+  #
+  # The cadence for the mounted rows is therefore this workflow's — scheduled
+  # and dispatchable, not per-PR — which is the cadence D021 asked for anyway.
+  # What did NOT move: the deterministic rows in those same files that carry no
+  # `(browser?)` guard (the fixture arithmetic, the two-arms/two-lowerings
+  # checks, the published-record field census) still match `:node-test`'s
+  # `cljs-test$` and still gate on every PR.
+  #
   # THE ARTEFACT IS THE CONSOLE. A browser has no stdout, so the records are
   # published to the console as EDN (`;;`-prefixed headers, exactly the
   # comment convention the other two lanes' stdout artefacts use). The
