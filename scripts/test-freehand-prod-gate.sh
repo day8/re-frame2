@@ -121,45 +121,23 @@ known_red=(
   #    the lane excludes, or a production-real counterpart added in the same
   #    pass (the `ssr-compatibility-checks-test` treatment), not a blanket
   #    posture guard.
-  re-frame.freehand.evidence-seam-cljs-test       #  22 + 1 error
+  #
+  #    TWO OF THE FOUR ARE CLEARED (rf2-74a89, and read them before triaging
+  #    the two below — they are the worked examples).  `evidence-seam-` and
+  #    `occurrence-index-cljs-test` now assert the CELL LIFECYCLE both
+  #    surfaces are a projection OF — `:published` / `:abandoned`,
+  #    `:connected` / `:disconnected`, the published dependency set and
+  #    committed frame, the advanced generation of a compatible reload —
+  #    outside the arm, with every record / row / escape assertion kept
+  #    verbatim inside it, NEGATIVES INCLUDED.  Each also gained the
+  #    production-real counterpart this note asks for, stated as a positive
+  #    fact rather than an absence: an installed sink is called ZERO times, a
+  #    throwing sink is unreachable rather than merely contained, a record the
+  #    evidence schema would refuse is not a production failure mode at all
+  #    because none is built, and `the-index-costs-a-production-build-nothing`
+  #    holds two live occurrences across a read and finds no rows.
   re-frame.freehand.explain-render-cljs-test      #  35 + 1 error
-  re-frame.freehand.occurrence-index-cljs-test    #  22 + 1 error
   re-frame.freehand.tool-reads-cljs-test          #  58
-
-  # ── rf2-74a89 — THE PROPS-SCHEMA CLOSURE.  Dev-only by EXPLICIT design, and
-  #    the entry to read before assuming the next look-alike is a defect.
-  #    `descriptor.cljc` ~line 591 gates the whole closing-schema arm and says
-  #    why: "a schema is a compile-time and tooling fact: production renders
-  #    the same tree either way, and the CLJS branch folds away".  So under
-  #    the gate an UNDECLARED prop on a closing schema is ACCEPTED rather than
-  #    refused, and `props-schema-cljs-test`'s "the breach raises" reads
-  #    `(some? msg)` over nil.  That is the same class as Spec 010's
-  #    `validate-fx!` (routing's `nav-fx-schemas`, rf2-o5dbf batch 7) and NOT
-  #    the rf2-9c2jf class: the COMPILED tier still refuses the same
-  #    declaration statically at analyze time, in either posture.
-  #
-  #    THE OTHER TWO ARE THE SAME MECHANISM SEEN FROM A CALLER, and their
-  #    shape is worth reading before anyone reports an acceptance regression:
-  #    each drives a malformed boundary call and asserts the id
-  #    `:rf.error/view-bad-props`.  Under the gate the call is STILL REFUSED —
-  #    the boundary's OWN always-on roster check fires instead
-  #    (`:rf.error/behavior-bad-args`, `:rf.error/error-boundary-bad-args`).
-  #    Only the diagnostic id differs, so the always-on witness to assert in
-  #    their place is "refused", with the id itself in the dev arm.
-  #
-  #    And note the trap on the way out: this suite's POSITIVE control passes
-  #    under the gate for the wrong reason — nothing ran, so nothing objected.
-  re-frame.freehand.behaviors-cljs-test           #   1
-  re-frame.freehand.errors-tree-cljs-test         #   1
-  re-frame.freehand.props-schema-cljs-test        #   7 + 4 errors
-
-  # ── rf2-74a89 — SOURCE-COORD ELISION, prod-elided at the core `reg-view`
-  #    registration boundary.  Same class as core's
-  #    `source-coord-prod-elision-test`; here the declaration's coord loses
-  #    its `:column` under the gate and the inheritance assertion compares
-  #    unequal maps.  Dev arm for the coord itself; the manifest SHAPE around
-  #    it is posture-independent and should be asserted outside the arm.
-  re-frame.freehand.manifest-source-coord-jvm-test #  1
 )
 
 # ---------------------------------------------------------------------------
