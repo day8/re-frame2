@@ -137,9 +137,40 @@
       npx shadow-cljs release ui-bench --config-merge '{...}'
       node --expose-gc out/write-attribution.js
 
+  ## The registration shape is part of the instrument
+
+  The ladder's subscriptions carry SOURCE COORDS by default, because that is
+  what a consumer's application has: `reg-sub` reached through its macro
+  captures `:ns` / `:file` / `:line`, and those coords are what make
+  `handler-scope-from-meta` build a cumulative coord map AND a three-key
+  trigger map on top of the `HandlerScope` record. Without them
+  `trigger-handler-from-meta` returns nil and the record is all there is.
+  The same ladder reads **120.1 B/sub coord-less against 744.2 B/sub
+  coord-carrying — a factor of six** — and the coord-less arm was the
+  default the first published per-subscription figures came off, which is
+  why they understate a real application (rf2-4k5hs).
+
+  So the default is now the coord-carrying shape and every figure quoted
+  from this harness comes off it. `WA_COORDS=0` still runs the coord-less
+  ladder, and it is worth keeping: it is the cleanest way to isolate what
+  the coords themselves cost. It is a labelled CONTROL, not a figure to
+  publish.
+
+  ## What a byte count here is, and is not
+
+  These are NODE figures and the target is the BROWSER. Node ships V8 with
+  pointer compression OFF and Chrome ships it ON, so a tagged slot is 8
+  bytes here and 4 there — which is why the SMI control reads the regime off
+  the process rather than assuming it. An absolute from this harness can
+  therefore mis-rank for the browser, and any per-call absolute quoted from
+  it elsewhere should carry its runtime and say so plainly. rf2-x0fe2 tracks
+  the missing browser figures. Ratios between two arms measured the same way
+  are unaffected by any of this.
+
   Environment: WA_N (subscriptions, default 300), WA_SAMPLES,
   WA_WARMUP, WA_ORDER=rev (run the arms back-to-front — if the answer
-  survives that, arm order is not a confound)."
+  survives that, arm order is not a confound), WA_COORDS=0 (register the
+  ladder's subs WITHOUT source coords — the control arm, not the default)."
   (:require [goog.object :as gobj]
             [goog.string :as gstring]
             [goog.string.format]
@@ -588,17 +619,20 @@
   ;; index so every subscription is a distinct cache entry with a distinct
   ;; body closure — the shape a real application's 300 boundaries have.
   ;;
-  ;; `coords?` (WA_COORDS=1) decides whether those registrations carry SOURCE
-  ;; COORDS, and it is not a detail (rf2-zxv06). This ns requires
-  ;; `re-frame.core` WITHOUT `:include-macros true`, so `rf/reg-sub` here is
-  ;; the plain FUNCTION and no call site is captured — the registrar slot
-  ;; comes out `{}`. A real application writes `(rf/reg-sub …)` in a namespace
-  ;; that does get the macro, so its slots carry `:ns` / `:file` / `:line`
-  ;; (`:column` is dev-only and absent under `:advanced` + goog.DEBUG=false).
-  ;; That is the difference between `P-SCOPE` and `P-SCOPEM` — a factor of six
-  ;; — so the ladder can be run either way and the header prints which it is.
-  ;; The DEFAULT stays coord-less, which is what rf2-jr76s measured, so the
-  ;; recorded slope remains comparable.
+  ;; `coords?` decides whether those registrations carry SOURCE COORDS, and it
+  ;; is not a detail (rf2-zxv06, rf2-4k5hs). This ns requires `re-frame.core`
+  ;; WITHOUT `:include-macros true`, so `rf/reg-sub` here is the plain FUNCTION
+  ;; and no call site is captured — left alone, the registrar slot comes out
+  ;; `{}`. A real application writes `(rf/reg-sub …)` in a namespace that does
+  ;; get the macro, so its slots carry `:ns` / `:file` / `:line` (`:column` is
+  ;; dev-only and absent under `:advanced` + goog.DEBUG=false). That is the
+  ;; difference between `P-SCOPE` and `P-SCOPEM` — a factor of six.
+  ;;
+  ;; So the DEFAULT hands the registrar the production meta explicitly, which
+  ;; is the shape a consumer's application actually registers. `WA_COORDS=0`
+  ;; runs the coord-less ladder instead: a labelled CONTROL that isolates what
+  ;; the coords cost, and not an arm any published figure comes off. The
+  ;; header prints which arm ran, either way.
   (doseq [i (range cells-n)]
     (let [body (fn [db _] (get-in db [:cells i]))
           qid  (keyword "wa" (str "cell" i))]
@@ -693,7 +727,10 @@
         samples  (env-int "WA_SAMPLES" 40)
         warmup   (env-int "WA_WARMUP" 3)
         rev?     (= "rev" (env "WA_ORDER" ""))
-        coords?  (= "1" (env "WA_COORDS" ""))
+        ;; rf2-4k5hs — the coord-carrying registration is the DEFAULT, because
+        ;; that is what a consumer's macro-registered subs give the registrar.
+        ;; `WA_COORDS=0` selects the coord-less control.
+        coords?  (not= "0" (env "WA_COORDS" "1"))
         ns-per-frame [0 (js/Math.round (/ n 4)) (js/Math.round (/ n 2)) n]]
     (rf/init! (spine/make-react-adapter
                 (spine/make-react-spine
@@ -716,9 +753,13 @@
     (println (gstring/format ";; node %s  V8 %s  pointer-compression=%s (Chrome ships it ON: a tagged slot is 4 B there, 8 B here)"
                      (.-node js/process.versions) (.-v8 js/process.versions)
                      (if (= 1 (gobj/getValueByKeys js/process "config" "variables" "v8_enable_pointer_compression")) "ON" "OFF")))
-    (println (gstring/format ";; n=%d samples=%d warmup=%d order=%s frames=%s coords=%s"
+    (println (gstring/format ";; n=%d samples=%d warmup=%d order=%s frames=%s"
                      n samples warmup (if rev? "REVERSED" "forward")
-                     (pr-str ns-per-frame) (if coords? "ON" "off")))
+                     (pr-str ns-per-frame)))
+    (println (gstring/format ";; registration = %s"
+                     (if coords?
+                       "COORD-CARRYING (default — the shape a real application registers)"
+                       "COORD-LESS (WA_COORDS=0 — the CONTROL arm; do not quote a figure from this run)")))
     ;; PROVENANCE, not decoration (rf2-zxv06). `handler-scope-from-meta`'s cost
     ;; is dominated by whether the registrar slot carries source coords: with
     ;; `:ns` / `:file` / `:line` it builds a coord map AND a trigger map on top
@@ -822,6 +863,7 @@
         (println (gstring/format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write" (fmt slope)))
         (println ";;")
         (println ";; WHERE THE PER-SUBSCRIPTION BYTES GO (each arm × n, reported per sub)")
+        (println ";;   P-SCOPE is the COORD-LESS control; P-SCOPEM is the production shape")
         (doseq [l ["P-BODY" "P-EQDB" "P-SCOPE" "P-SCOPEM" "P-SCOPEH" "P-INHER" "P-INHERH"
                    "P-EMIT" "P-MEMO" "Q-SCHED" "Q-SCHEDJS" "P-VALS" "P-RKV"]]
           (let [v (/ (b l) n)]
