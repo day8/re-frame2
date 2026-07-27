@@ -284,7 +284,41 @@
      ;; it through untouched; under a frameless one it would blanket-redact the
      ;; structured path the ruling deliberately keeps. The carrier scrub is the
      ;; stronger guarantee on this path.
-     re-frame.routing.url-change})
+     re-frame.routing.url-change
+
+     ;; rf2-6jqa8 — `re-frame.ssr.response`'s `dispatch-safe-redirect-record!`
+     ;; ships the three `:rf.error/safe-redirect-*` rejections on the always-on
+     ;; axis, so an attempted open redirect / `javascript:` scheme reaches an
+     ;; off-box shipper in a production build instead of being silently
+     ;; no-op'd. (The CRLF / NUL gate on the SAME fx already rode
+     ;; `:rf.error/fx-handler-exception` and was always-on — two halves of one
+     ;; security surface with opposite production observability.)
+     ;; VETTED structural-only: every slot but one is a fixed framework keyword
+     ;; or a parsed URL component — `:error`, `:recovery :no-recovery`,
+     ;; `:frame`, `:time`, `:scheme` and `:host` (parsed off the location, and
+     ;; on this path they ARE the security signal), `:reason` (a framework enum
+     ;; plus one framework-authored string on the parse-failure arm), and
+     ;; `:allowlist`, which is the CALL'S OWN policy input rather than caller
+     ;; data. No prose interpolating an untrusted value (the ssr/hydrate
+     ;; hazard), no exception residual, and no slot lifts a value out of an
+     ;; event vector or an app-db slice. The key set is pinned CLOSED by
+     ;; `re-frame.ssr-safe-redirect-production-test`.
+     ;;
+     ;; The one non-enum slot, `:location`, is BY CONSTRUCTION caller-untrusted
+     ;; — that is the entire reason `:rf.server/safe-redirect` exists as the
+     ;; sibling of the caller-trusted `:rf.server/redirect` — and it is
+     ;; scrubbed by `ssr.egress/redact-url-tag` inside `safe-redirect-tags`,
+     ;; BEFORE either axis sees it, so query VALUES and the whole opaque
+     ;; `#fragment` are already the `rf/redacted` sentinel on the record that
+     ;; fans out. It sits on THIS list rather than the routing arm for the same
+     ;; reason `re-frame.routing.url-change` does: `project-egress` projects
+     ;; tree slots against the FRAME'S CLASSIFICATION registry, and a REJECTED
+     ;; redirect has no matched route and no schema to path-target. Under a
+     ;; live frame no declared path covers `:location`, so `project-egress`
+     ;; would ride it through untouched; under a frameless one it would
+     ;; blanket-redact the scheme and host that are the whole point of the
+     ;; record. The carrier scrub is the stronger guarantee on this path.
+     re-frame.ssr.response})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
