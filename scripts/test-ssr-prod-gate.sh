@@ -128,7 +128,54 @@ known_red=(
   #    an always-on positive control for the two skip-set suites, and a
   #    throwing-handler two-frame attribution pin for the third (whose only
   #    trigger, the navigate-reject, is production-elided per Spec 010).
-  re-frame.ssr-end-to-end-test                    # 119
+  #
+  #    THE FIFTH IS HELD ON A NEW FINDING — rf2-dtpfv (P1).  Re-measured
+  #    2026-07-28, `ssr-end-to-end-test` is 116 reds across 40 deftests.  39
+  #    of those deftests are mechanical trace-sourcing.  ONE is not:
+  #    `ssr-server-fx-args-schema-boundary` fails SEVEN SEMANTIC assertions
+  #    because the behaviour genuinely differs.  `validate-fx!` is
+  #    `(if interop/debug-enabled? (run-validation …) true)`, so the Spec 010
+  #    §Validation-order step-5 fx-args boundary does not run in a release
+  #    build and its documented `:skipped` recovery never happens: a
+  #    malformed `:rf.server/*` fx RUNS and its args land on the response
+  #    accumulator.  Measured at `ssr/get-response`:
+  #    `[:rf.server/set-status "not-an-int"]` leaves `:status "not-an-int"`;
+  #    a `:value`-less `set-header` leaves `["X-Foo" nil]`; a `:value`-less
+  #    `set-cookie` leaves `{:name "session"}`; a non-int safe-redirect
+  #    `:status` lands whole.  ssr-ring's `fail-closed-status` saves the WIRE
+  #    on a Ring host — but that net is host-specific and its only signal is
+  #    a dev-bus warning.  Do NOT split those seven to green the namespace;
+  #    rf2-dtpfv carries the ruling.
+  #
+  #    THE OTHER 39 ARE READY the moment it lands, and the method per
+  #    cluster is known — measured, not guessed:
+  #      * fx-handler-exception (~60 reds: header / cookie / redirect-spelling
+  #        / CRLF-NUL gates).  NO GUARD.  `emit-fx-error!` fans BOTH axes
+  #        (fx.cljc `emit-error-both!`), so re-point `capture-fx-traces!` at
+  #        the `:errors` stream alongside `:trace`, normalising the union
+  #        record to `{:operation :op-type :tags}`.  Every consumer reads
+  #        only `(-> ev :tags :exception)`, and the exception object is the
+  #        same on both axes, so nothing else moves.  Note the gates
+  #        THEMSELVES are production-live — only their observation was
+  #        dev-sourced.
+  #      * the two `ssr-default-error-projector-*` tests, the
+  #        `:rf.error/sanitised-on-projection` diagnostics, and
+  #        `direct-ssr-layer-projects-view-time-exception`.  Same treatment:
+  #        all three categories ride the always-on axis today
+  #        (`dispatch-on-error!`, `emit-always-on-error!`).  Watch the
+  #        `(not-any? … :sanitised-on-projection …)` NEGATIVE at ~line 951 —
+  #        it is vacuous under the gate and becomes real with dual capture.
+  #      * the `:rf.warning/*` cluster (`multiple-status-set`,
+  #        `multiple-redirects`), `:rf.ssr/hydration-mismatch` and the
+  #        head-mismatch trace.  Genuinely dev-only warnings — dev arms; the
+  #        last-write-wins SEMANTICS they sit beside are already
+  #        posture-independent and green here.
+  #      * the `safe-redirect` cluster (~17 reds).  Dev arms, and file
+  #        nothing new: rf2-6jqa8 already records WHY.  The rejection
+  #        assertions — `(nil? (:redirect (get-response f)))`, the
+  #        security-load-bearing half — are posture-independent and green
+  #        under the gate TODAY.  Only the diagnostic is dev-only.
+  re-frame.ssr-end-to-end-test                    # 116 (rf2-dtpfv)
 
   # ── rf2-lwtlk — SOURCE-COORD ANNOTATION.  CLEARED.  All three namespaces
   #    (`source-coord-parity-test`, `ssr-keyword-head-contract-test`,
@@ -322,9 +369,14 @@ fi
 # 21 entries to 7, and the lane runs 436 tests / 2014 assertions across 42 —
 # so 215 had stopped being a floor and become a formality: the lane could have
 # lost HALF its namespaces and still cleared it.  380 restores the original
-# ~13% headroom against the current observed count.  Raise it again as the
-# remaining seven come off.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-380}"
+# ~13% headroom against the current observed count.
+#
+# RAISED 380 -> 410 by rf2-76gom / rf2-lwtlk.  The roster is down to 2 entries
+# and the lane runs 473 tests / 2093 assertions across 48 of 50 namespaces.
+# Raise it once more when `ssr-end-to-end-test` comes off behind rf2-dtpfv;
+# that is the last entry other than the rf2-bkvu5 hold, and the `-n`
+# machinery goes away with it.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-410}"
 
 args=()
 for ns in $runnable; do
