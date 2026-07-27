@@ -1,0 +1,217 @@
+;; FH-CTRL-020 — the typeahead witness: a composed control with an anchored
+;; popover (rf2-drpa3.182.8).
+;;
+;; A typeahead is the control a view substrate gets to prove itself on,
+;; because it is where four hard things meet at once: a draft the caller can
+;; reject, real latency with two answers in flight for two different
+;; questions, a listbox that must be positioned against an input it is not a
+;; child of, and a keyboard protocol that must not fight an input method.
+;;
+;; The values below are split by what can PROVE them. Everything above
+;; §BROWSER is a fact about a value and is asserted from one `.cljc` on the
+;; JVM and in Node; everything below it needs a real engine — a top layer, a
+;; layout, a focus ring, a live keyboard event — and is asserted in Chromium.
+{:fh/id "FH-CTRL-020"
+ :fh/law
+ "A composed control holds its whole protocol in ordinary frame data and borrows the platform for everything else: the suggestion list is a popover ANCHORED to the input by declared CSS anchor positioning — no measured geometry, no observer, nothing to release — arrow keys move `aria-activedescendant` while focus never leaves the input, a plain Enter and a pointer choice commit the same option and an Enter carrying a live IME composition commits nothing, Escape and the browser's own light dismissal each close it without committing and are reconciled through the author's toggle handler, a reply naming a superseded token is inert while a retry supersedes the failure it retries, and one owner event releases the record totally."
+
+ ;; ---------------------------------------------------------------------------
+ ;; The instance, and the ids derived from it
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; Every id the control mints is a function of the instance name, which is
+ ;; what lets two typeaheads share a page without sharing an anchor, a
+ ;; listbox or an active-descendant.
+ :field-name   "reviewer"
+ :component-id "kit/typeahead"
+ :input-id     "kit-typeahead-reviewer"
+ :listbox-id   "kit-typeahead-reviewer-list"
+ :option-ids   ["kit-typeahead-reviewer-option-0" "kit-typeahead-reviewer-option-1"]
+ :anchor-name  "--kit-typeahead-reviewer"
+
+ ;; The PUBLIC part addresses present once the control has an answer to
+ ;; show. A part id is API — a caller styles and a tool reads through these.
+ ;; `retry` is absent here and present only under an error, which is a state
+ ;; the failure row below reaches on purpose.
+ :parts      ["root" "label" "input" "status" "list" "option"]
+ :error-part "retry"
+
+ ;; ---------------------------------------------------------------------------
+ ;; The anchoring, as DECLARED
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; The input publishes an anchor name and nothing else. The list positions
+ ;; itself against that name with `anchor()` insets and hands collision
+ ;; handling to `position-try-fallbacks`.
+ ;;
+ ;; Both maps are pinned WHOLE rather than key by key, and that is the point
+ ;; of the row that reads them: a style asserted key by key stays green when
+ ;; a measured offset is added beside the constants. Every value here is a
+ ;; lexical constant, so a rectangle computed at render time cannot hide in
+ ;; it — the substrate measured nothing, which is why there is nothing to go
+ ;; stale and no observer to release.
+ ;;
+ ;; `:margin "0"` is the one number, and it is retiring the UA stylesheet's
+ ;; own centring margin rather than expressing a measurement; `:right` and
+ ;; `:bottom` are `auto` for the same reason — the UA gives every popover
+ ;; `inset: 0`, and leaving those two at 0 would stretch the list to the
+ ;; viewport instead of sizing it to its content.
+ :input-style {:anchor-name "--kit-typeahead-reviewer"}
+
+ :list-style {:position               "fixed"
+              :position-anchor        "--kit-typeahead-reviewer"
+              :top                    "anchor(bottom)"
+              :left                   "anchor(left)"
+              :right                  "auto"
+              :bottom                 "auto"
+              :margin                 "0"
+              :position-try-fallbacks "flip-block"
+              :min-width              "anchor-size(width)"}
+
+ :popover-mode "auto"
+
+ ;; ---------------------------------------------------------------------------
+ ;; The data a run drives
+ ;; ---------------------------------------------------------------------------
+ :query         "an"
+ :later-query   "ann"
+ :results       [{:value "amir" :label "Amir Haddad"}
+                 {:value "anna" :label "Anna Novak"}]
+ :retry-results [{:value "anna" :label "Anna Novak"}]
+ :error-message "offline"
+
+ ;; One ArrowDown from a fresh answer set.
+ :active-index   1
+ :active-value   "anna"
+ ;; And the first option, which is what a pointer choice takes and what an
+ ;; Enter with no arrow pressed would take — deliberately DIFFERENT from
+ ;; `:active-value`, so a row that confused the two could not be green.
+ :first-index    0
+ :first-value    "amir"
+
+ ;; ---------------------------------------------------------------------------
+ ;; The keyboard grammar, as a table
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; Enter and Escape are DELEGATED to the kit's own `c/key-intent` rather
+ ;; than re-decided, and the arrows are withheld during a composition for
+ ;; exactly the reason Enter is: while a candidate window is open ArrowDown
+ ;; moves through the input method's candidates. A control that steals it
+ ;; there has the same defect one key over — invisible to every keyboard its
+ ;; author owns.
+ :key-table
+ [{:key "Enter"     :composing? false :intent :commit}
+  {:key "Enter"     :composing? true  :intent nil}
+  {:key "Escape"    :composing? false :intent :cancel}
+  {:key "Escape"    :composing? true  :intent nil}
+  {:key "ArrowDown" :composing? false :intent :next}
+  {:key "ArrowDown" :composing? true  :intent nil}
+  {:key "ArrowUp"   :composing? false :intent :previous}
+  {:key "ArrowUp"   :composing? true  :intent nil}
+  {:key "a"         :composing? false :intent nil}]
+
+ ;; ===========================================================================
+ ;; BROWSER — the facts a structural assertion cannot reach
+ ;; ===========================================================================
+
+ ;; THE ANCHOR MEASUREMENT. The list's top-left corner IS the input's
+ ;; bottom-left corner, because `anchor(bottom)` and `anchor(left)` say so.
+ ;; The tolerance is sub-pixel rounding and nothing else — this is not a
+ ;; "roughly below" claim.
+ ;;
+ ;; The row that reads it mounts a CONTROL popover in the same document
+ ;; carrying no `position-anchor` at all, so the assertion is falsifiable:
+ ;; an unanchored popover takes the UA's centred placement, and a run in
+ ;; which the anchoring silently did nothing would put the two in the same
+ ;; place.
+ :anchor-tolerance-px 1
+
+ ;; THE COMPOSITION SCALARS. There are TWO a host can report a composing
+ ;; Enter through: `isComposing` is the standard flag, and `keyCode` 229 is
+ ;; the sentinel every engine has emitted for two decades and what Chromium
+ ;; actually sends. They are pressed as SEPARATE presses, one signal each,
+ ;; because an event carrying both cannot tell a reader of both from a
+ ;; reader of either — and the implementation this row exists to catch is
+ ;; precisely the one that consults only `isComposing`.
+ :plain-key-code     13
+ :composing-key-code 229
+
+ ;; WHAT A WITHHELD ENTER LEAVES BEHIND, and the shape is chosen so the row
+ ;; can actually FAIL. Counting selections cannot do it: a commit RETIRES
+ ;; the record, so a control that wrongly took the composing Enter would
+ ;; commit once and leave the plain Enter behind it a no-op — one selection
+ ;; either way, and the row is green in both worlds. That reading was tried
+ ;; and mutation-tested; it stayed green with the Chromium sentinel deleted.
+ ;;
+ ;; So the withholding row presses FOUR keys, and each one carries part of
+ ;; the proof:
+ ;;
+ ;;   ArrowDown       the WIRING control — it moves the active descendant on
+ ;;                   screen and takes the control's own `:seen` count to
+ ;;                   one, so "the composing Enter dispatched nothing" is a
+ ;;                   statement about the composition rather than about a
+ ;;                   listener that was never attached.
+ ;;   composing Enter the press under test.
+ ;;   ArrowUp         the LIVENESS probe. It can only move the highlight if
+ ;;                   the record survived — a wrongly-taken Enter retired it
+ ;;                   — so it is what makes the withholding observable.
+ ;;   plain Enter     the TIMING control and the commit. The composing press
+ ;;                   had the same queue, the same node and more time.
+ ;;
+ ;; The committed value is therefore the whole verdict. `:committed-after-
+ ;; withheld-enter` is the option the ArrowUp moved back to; `:committed-if-
+ ;; enter-were-taken` is what a control that took the composing Enter would
+ ;; have committed instead. They are DIFFERENT on purpose, and the row
+ ;; asserts both — the one that must be there and the one that must not.
+ :seen-after-arrow                 1
+ :selections-after-composing-enter 0
+ :selections-after-plain-enter     1
+ :committed-after-withheld-enter   "amir"
+ :committed-if-enter-were-taken    "anna"
+
+ ;; ---------------------------------------------------------------------------
+ ;; The roster record (rf2-drpa3.182.7)
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; `re-frame.freehand.roster` joins this with the index row that addresses
+ ;; the id. The fields the index already carries — modes, hosts, status,
+ ;; paragraph — are deliberately absent: they are read from the row, not
+ ;; restated.
+ :fh/record
+ {;; The control under test, and the three substrate surfaces it borrows
+  ;; rather than re-implements: the kit's keyboard decision and owner
+  ;; release, the reserved desired-state property, and the reconciler that
+  ;; turns that property into a real `showPopover`/`hidePopover`.
+  :source [re-frame.freehand.typeahead-witness
+           re-frame.freehand.controls
+           re-frame.freehand.web
+           re-frame.freehand.top-layer]
+
+  :structural
+  [{:ns  re-frame.freehand.typeahead-witness-cljs-test
+    :law "Everything the control declares rather than does: one instance identity across input, status and listbox with the ARIA wiring that lets focus stay put, a popover whose openness is the reserved desired-state fact and whose position is LEXICAL CONSTANTS naming an anchor — so no measured geometry can hide in the tree — a pure keyboard grammar that delegates Enter and Escape to the kit's own rule, and all three fences as comparisons over ordinary frame data."}]
+
+  :mounted
+  [{:ns  re-frame.freehand.typeahead-witness-dom-cljs-test
+    :law "Against a real Chromium commit: the list is promoted to the top layer and its top-left corner lands on the input's bottom-left corner — measured against a CONTROL popover carrying no anchor, which is not there — arrow keys move the active descendant while `document.activeElement` never stops being the input, a plain Enter and a pointer click each commit and each return focus, an Enter carrying either composition signal commits nothing and discards nothing, Escape and a light dismiss both close without committing, a superseded reply arriving late is inert, and after the owner's release and unmount nothing survives."}]
+
+  ;; What a run leaves for a reader. The DOM's own value and active
+  ;; descendant, read off `document` rather than off the test's bookkeeping;
+  ;; and the two counters that make the withholding claims falsifiable —
+  ;; intents that reached the control, selections that reached the
+  ;; application.
+  ;;
+  ;; `:residue :none`, and the suite EARNS it rather than asserting it.
+  ;; Every row ends at `finish!`, which tears the mount down through the
+  ;; shared lifecycle and then calls `ms/residue-clean!` — every root the
+  ;; row created retired, each leaving its container empty and detached —
+  ;; plus the control's own book: the records root reads empty after the
+  ;; owner's release. The read happens AFTER teardown, which is the whole
+  ;; point; the same read in a per-test `:init-fn` masks a retained root
+  ;; instead of reporting it.
+  :evidence
+  {:reads   [:dom/value :dom/active-descendant :dom/popover-rect]
+   :counts  [:typeahead/seen :typeahead/selections]
+   :residue :none}
+
+  :prose :executable}}
