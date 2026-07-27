@@ -256,8 +256,10 @@
 (defn- handler-proxy
   "What this walk attaches at a handler slot: the site's STABLE PROXY when
   a candidate owns it, and — with no declared boundary above the element,
-  so no commit that could own a site — the caller's own plain function
-  unchanged, because declarative intent there has nothing to belong to."
+  so no commit that could own a site — [[re-frame.freehand.events/unsited]]'s
+  answer, which is the caller's own function for the values that never
+  wanted a site (`v/raw-fn`, `v/render-fn`, a bare fn) and nil for the
+  declarative intent that has nothing to belong to."
   [cand tag controlled? slot raw]
   (if (some? cand)
     (events/site (cell/candidate-events cand)
@@ -265,7 +267,7 @@
                  raw
                  events/default-payload
                  {:tag tag :controlled? controlled? :slot slot})
-    (when (fn? raw) raw)))
+    (events/unsited raw)))
 
 (defn ^:no-doc put-caller!
   "Fold a GUARDED `(v/spread-safe owned caller)` caller map UNDER a props

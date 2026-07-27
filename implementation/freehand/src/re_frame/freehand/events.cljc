@@ -978,6 +978,37 @@
                  (assoc plan :proxy proxy :payload payload-fn :door door?))
          proxy)))))
 
+(defn unsited
+  "What an event position answers when NO candidate owns it — no declared
+  boundary above it, so no commit a site could belong to.
+
+  [[site]]'s counterpart for an UNOWNED position, and deliberately its
+  echo: it answers exactly what `site` answers for the values that need no
+  committed site. `nil` for an empty position, and the authored function
+  itself for `v/render-fn` / `v/raw-fn`, the two roster roles that are
+  outside the committed-proxy scheme wherever they appear — a render
+  callback may run during an uncommitted foreign render, and a raw
+  function's identity is the caller's to own, so neither has anything to
+  lose by having no site. A bare function passes for the same reason: its
+  identity was never Freehand's to stabilize.
+
+  Every OTHER role — `:event-vector`, `:event-options`, `:event`,
+  `:handler` — wants the committed body, frame retargeting and retirement
+  a site is, and the caller has no boundary to give it one. Those answer
+  `nil` and the position goes unwritten, which is a LOSS the callers name
+  as such. Classifying here rather than testing `fn?` is what keeps the
+  loss to the roles that genuinely take one: a `Callback` is deliberately
+  not `fn?` in ClojureScript (see [[carrier-called-directly!]]), so a
+  `fn?` test drops the two roles that needed nothing (rf2-nzmuy).
+
+  A value outside the roster raises `:rf.error/view-bad-event` here as it
+  does at a sited position — one classification, both sides of the fork."
+  [value]
+  (when-some [plan (event-plan value)]
+    (case (:role plan)
+      (:render-fn :raw-fn :bare-fn) (:f plan)
+      nil)))
+
 (defn commit!
   "COMMIT time: publish `candidate`'s exact site table to its owner,
   targeted at `dispatch` — a one-argument fn taking the materialized
