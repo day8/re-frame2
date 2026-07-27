@@ -682,9 +682,16 @@
      nil))
 
 (defn- safe-redirect-tags
-  "The `:rf.error/safe-redirect-*` tag map for a rejected redirect — built
-  ONCE and fanned along BOTH error axes, so the production record and the
-  dev trace cannot disagree about the same rejection.
+  "The `:rf.error/safe-redirect-*` DIAGNOSTIC tag map for a rejected redirect
+  — built ONCE, so the production record and the dev trace cannot disagree
+  about the same rejection.
+
+  This is the RICH map: it goes to the dev trace as-is, and
+  `dispatch-safe-redirect-record!` projects it down to a closed structural
+  subset before the always-on axis sees it (rf2-6jqa8 AUDIT-REOPEN — see
+  `egress/safe-redirect-record-tags`). That is the ordinary EP-0015
+  relationship: a local operator sees their own process in full, and the
+  off-box record is a strict projection of it, never a copy.
 
   EP-0015 (rf2-6jqa8): `:location` is BY CONSTRUCTION caller-untrusted —
   that is the entire reason `:rf.server/safe-redirect` exists as the sibling
@@ -726,16 +733,31 @@
 
   The record is the general NON-EVENT union shape — this is not a dispatched-
   event failure, so it rides `dispatch-error-record!` rather than the
-  event-centric `dispatch-on-error!`. `tags` arrives already redacted (see
-  [[safe-redirect-tags]]). Reached through the
+  event-centric `dispatch-on-error!`. Reached through the
   `:error-emit/dispatch-error-record` late-bind hook, the same indirection
   `ssr/boot` and `ssr/error-projector` use; a no-op when the hook is unbound.
-  Returns nil."
+  Returns nil.
+
+  EGRESS (rf2-6jqa8 AUDIT-REOPEN). `tags` arrives as the DIAGNOSTIC map — the
+  scrubbed `:location`, the `:allowlist`, everything the dev trace shows — and
+  this function is the ONE place that reaches an off-box shipper, so it is
+  where the diagnostics are projected down to
+  `egress/safe-redirect-record-tags`: a closed set of parsed STRUCTURAL
+  components, no URL in any form, no allowlist. Projecting HERE rather than at
+  the eight call sites is what makes it fail-closed — a future emit arm cannot
+  forget, and a tag slot added upstream has no route to Sentry unless someone
+  edits `egress/safe-redirect-record-slots` and reddens the test pinning it.
+
+  Why a projection and not a wider scrub is argued in full in
+  `re-frame.ssr.egress`; the short version is that a rejected target is an
+  ARBITRARY FOREIGN URL, so the carrier scrub's keep-everything-but-the-
+  carriers shape left userinfo credentials, path-borne tokens and
+  attacker-chosen value-less query keys riding out verbatim."
   [operation tags]
   (when-let [dispatch-error-record!
              (late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record!
-      (assoc tags
+      (assoc (egress/safe-redirect-record-tags tags)
              :error operation
              :time  (interop/now-ms))))
   nil)
@@ -745,9 +767,11 @@
   axes and return nil so the fx body can `(or (emit-...) ...)` to a no-op.
 
   Axis 1 is the ALWAYS-ON `error-emit` record (rf2-6jqa8) — the half that
-  reaches an off-box shipper in a production build. Axis 2 is the dev trace,
-  unchanged. The tag map is built once by [[safe-redirect-tags]] so the two
-  cannot disagree, and it is REDACTED before either sees it."
+  reaches an off-box shipper in a production build, and which receives a
+  closed STRUCTURAL PROJECTION of the map rather than the map. Axis 2 is the
+  dev trace, which receives the diagnostics whole. The tag map is built once
+  by [[safe-redirect-tags]], with the URL scrub applied there, so the two
+  cannot disagree about the rejection they describe."
   [operation tags]
   (let [tags (safe-redirect-tags tags)]
     (dispatch-safe-redirect-record! operation tags)
@@ -822,10 +846,16 @@
         (cond
           ;; Step 1: parse failure
           (nil? uri)
+          ;; `:reason` is a closed framework keyword, not prose (rf2-6jqa8):
+          ;; this slot rides the always-on record off-box, where an
+          ;; aggregatable value is worth more than a sentence — and free
+          ;; prose on an attacker-influenced arm is how raw material finds
+          ;; its way back into a record. The sentence lives here, in the
+          ;; source, where a reader who needs it is already standing.
           (emit-safe-redirect-error! :rf.error/safe-redirect-invalid-url
                                      {:frame    frame
                                       :location location
-                                      :reason   "URL did not parse"})
+                                      :reason   :parse-failed})
 
           :else
           (let [scheme    #?(:clj (.getScheme    ^URI uri) :cljs nil)
