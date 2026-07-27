@@ -29,7 +29,13 @@
       candidate BEFORE install (rf2-uhk9ko, Option B): NO `db-changed` at
       all — the trace signature is the lone `:rf.error/schema-validation-
       failure` (`:rollback? true` = transaction rejected), and app-db
-      (including the flow's write) never changes.
+      (including the flow's write) never changes. This one bullet is a
+      DEV-POSTURE contract, and knowingly so: rf2-bkvu5 RULED (a) on
+      2026-07-27 that `reg-app-schema` candidate validation is a
+      DEVELOPMENT-ONLY assertion as designed — production trusts the
+      programmer, and a violating candidate installs. Both postures are
+      executed, in the two arms of
+      `flow-output-schema-failure-rejects-candidate-before-install`.
     - A flow THROW is a PRE-install throw: the event aborts, the pending
       `:db` is discarded, NO `db-changed`, no partial commit. The two
       recovery paths (schema-rejection vs flow-throw-abort) produce DISTINCT
@@ -134,6 +140,17 @@
 ;; `scripts/test-ssr-prod-gate.sh`.  The trace assertions are the
 ;; trace-LEVEL restatement each deftest's own comments already call
 ;; trace-level confirmation and trace signature.
+;;
+;; ONE arm in this file is NOT about the trace bus, and it is why this
+;; namespace was the last entry but one on the
+;; `scripts/test-ssr-prod-gate.sh` roster:
+;; `flow-output-schema-failure-rejects-candidate-before-install`'s REJECTION
+;; genuinely does not happen under the gate.  rf2-bkvu5 RULED (a) that this is
+;; by design — `reg-app-schema` is a development-only assertion; production
+;; trusts the programmer — so that deftest splits into a dev arm holding the
+;; rejection VERBATIM and a `when-not` arm that executes the ruled production
+;; behaviour.  Read its comments there before touching either arm: neither is
+;; a workaround for a red.
 
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
@@ -260,7 +277,10 @@
             whole candidate before install (rf2-uhk9ko): ONE schema-
             validation-failure, ZERO db-changed, and the WHOLE db (handler
             write AND flow write) keeps the pre-handler value — the
-            container is never touched"
+            container is never touched.  That rejection is a DEV-POSTURE
+            contract (rf2-bkvu5 RULED (a)); under -Dre-frame.debug=false
+            there is no validator and the violating candidate installs
+            whole, which the `when-not` arm executes"
     ;; Malli app-db schema: [:derived :doubled] must be a NON-NEGATIVE int.
     (rf/reg-app-schema [:derived] [:map [:doubled [:int {:min 0}]]])
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1 :derived {:doubled 0}}}))
@@ -285,14 +305,52 @@
         (reset! flow-outputs [])
         (rf/dispatch-sync [:set-n -3])
 
-        ;; The candidate never installed — neither the handler's :n write NOR
-        ;; the flow's bad output ever reached the container.
-        (is (= baseline-db (rf/app-db-value :rf/default))
-            "the whole db keeps the pre-handler value — the flow write rode
-             the same rejected candidate as the handler's :db")
-        (is (= 1 (get (rf/app-db-value :rf/default) :n))
-            ":n stayed at the pre-handler value (1) — the handler's own write
-             was rejected too (atomic candidate boundary)")
+        ;; ---- POSTURE SPLIT (rf2-lwtlk), on the rf2-bkvu5 ruling ----------
+        ;;
+        ;; rf2-bkvu5 RULED (a) on 2026-07-27: `reg-app-schema` candidate
+        ;; validation is a DEVELOPMENT-ONLY assertion, AS DESIGNED —
+        ;; production trusts the programmer. `router.cljc`'s `validate-event!`
+        ;; and `schemas/validate.cljc` each wrap the whole validator body in
+        ;; its own `(if interop/debug-enabled? … true)` gate, read ONCE at
+        ;; namespace-load time, so under `-Dre-frame.debug=false` nothing
+        ;; validates and there is nothing to reject.
+        ;;
+        ;; This is the one arm in this file that could NOT be cleared with a
+        ;; production-visible witness instead of a guard, and the reason is
+        ;; worth stating: the always-on error axis carries no
+        ;; `:rf.error/schema-validation-failure` here NOT because the emit is
+        ;; dev-only, but because the VALIDATION never runs to emit anything.
+        ;; The subject itself is absent. So the rejection assertions are kept
+        ;; VERBATIM in a dev arm, and the posture that ships gets its own arm
+        ;; below rather than silence.
+        (when interop/debug-enabled?
+          ;; The candidate never installed — neither the handler's :n write NOR
+          ;; the flow's bad output ever reached the container.
+          (is (= baseline-db (rf/app-db-value :rf/default))
+              "the whole db keeps the pre-handler value — the flow write rode
+               the same rejected candidate as the handler's :db")
+          (is (= 1 (get (rf/app-db-value :rf/default) :n))
+              ":n stayed at the pre-handler value (1) — the handler's own write
+               was rejected too (atomic candidate boundary)"))
+
+        ;; THE RULED PRODUCTION POSTURE, EXECUTED (rf2-lwtlk / rf2-bkvu5 (a)).
+        ;; Without this arm the deftest would fall silent under the gate on
+        ;; the very outcome it exists to pin, and this namespace's most
+        ;; consequential claim would go unasserted in the posture that ships.
+        ;; It is also the standing regression guard on the ruling: shapes (b)
+        ;; and (c) — validation surviving the gate, with or without rollback —
+        ;; were both REJECTED, so a change that quietly made `reg-app-schema`
+        ;; always-on reddens here and sends the reader to the bead.
+        (when-not interop/debug-enabled?
+          (is (= {:n -3 :derived {:doubled -6}} (rf/app-db-value :rf/default))
+              "with no validator to reject it, the SCHEMA-VIOLATING candidate
+               installs WHOLE — the flow's -6 and the handler's :n -3 land
+               together, so the atomic candidate boundary is intact and it is
+               the VALIDATION that is absent, not the all-or-nothing commit")
+          (is (= -6 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
+              "the named consequence of rf2-bkvu5 (a), read through the
+               ordinary app-db surface: a value the registered schema declares
+               impossible ([:int {:min 0}]) is live on a production server"))
 
         ;; SEMANTIC, posture-independent (rf2-lwtlk): the flow COMPUTED (its
         ;; bad output is what tripped the validator) even though nothing
