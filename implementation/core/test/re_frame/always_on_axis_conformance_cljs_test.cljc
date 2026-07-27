@@ -111,6 +111,18 @@
     :rf.error/ssr-head-resolution-failed
     :rf.error/sanitised-on-projection
     :rf.error/ssr-ring-error-view-failed
+    ;; rf2-gblft: the Ring materialiser's fail-closed `:status` rewrite
+    ;; graduated `always-on` in the Spec 009 catalogue. A non-integer `:status`
+    ;; on the resolved accumulator turns the app's 200 into a 500, and the
+    ;; flip's only signal was the `:rf.ssr/ssr-non-integer-status` DEV warning
+    ;; — measured 0 warnings under `-Dre-frame.debug=false`, so a production
+    ;; host answered 500 with no record of why on either axis. It now fans the
+    ;; NON-EVENT union record through `dispatch-error-record!` (the
+    ;; `malformed-hydration-payload` sibling — a materialiser rewrite is not a
+    ;; dispatched-event failure), FRAMELESS by design: the materialiser is a
+    ;; pure response-map → Ring-map fn with no frame argument. Driven through
+    ;; `dispatch-error-record!` below.
+    :rf.error/ssr-ring-response-status-invalid
     ;; rf2-nv3mua: the SSR hydration frame-id mismatch graduated `always-on`
     ;; in the Spec 009 catalogue. The `:rf/hydrate` HANDLER guards the direct-
     ;; `dispatch-sync` split path (the boot helper `hydrate!` validates +
@@ -313,6 +325,11 @@
     :rf.error/ssr-head-resolution-failed
     :rf.error/sanitised-on-projection
     :rf.error/ssr-ring-error-view-failed
+    ;; rf2-gblft: a fail-closed `:status` rewrite is a MATERIALISER fact, not a
+    ;; dispatched-event failure — it fires after the response is resolved and
+    ;; flushed — so it rides the same non-event union-record helper as its
+    ;; `ssr-ring-error-view-failed` sibling.
+    :rf.error/ssr-ring-response-status-invalid
     ;; rf2-nv3mua: the direct-dispatch frame-id-mismatch handler guard rides
     ;; the same non-event union-record helper as the malformed-payload guard.
     :rf.error/hydration-frame-id-mismatch
