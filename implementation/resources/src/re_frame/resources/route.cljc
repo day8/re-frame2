@@ -1097,17 +1097,49 @@
         ;; `:removed` the prior-plan identities this plan drops. A retained
         ;; identity that could not be adopted counts as ensured, so the trace
         ;; reports what actually happened.
-        added-count   (count (remove adopted? ordered))
-        removed-count (count (remove next-ids prev-ids))]
+        ;;
+        ;; rf2-dlkou (the rf2-9sluz ruling) — the counts stay as the compact
+        ;; headline and the row ALSO carries the exact partition, so one trace
+        ;; answers "which identity was ensured / kept / removed on this
+        ;; navigation" without diffing two consecutive rows. The vectors are
+        ;; named for what the runtime DID rather than for the diff: since the
+        ;; retained-entry liveness repair a retained-but-unusable identity takes
+        ;; the ordinary ensure path, so a vector named `:added` would disagree
+        ;; with the `:ensured` count beside it. `:ensured-identities` /
+        ;; `:kept-identities` ride `ordered`'s grouped plan order — the same
+        ;; order `:identities` carries. `:removed-identities` filters
+        ;; `prev-identities` IN PLACE rather than iterating the derived
+        ;; `prev-ids` set, so the prior plan's own order survives for any caller
+        ;; that threads a sequential collection (routing threads the set
+        ;; `commit-navigation` recorded, whose iteration order is at least
+        ;; content-stable). Nothing else from the EP's §Tooling list is
+        ;; projected — no occurrence/dependency groups, no per-contributor
+        ;; requirement mapping, no local `:after` edges (internal planning
+        ;; mechanics; Xray's static route/resource graph, the planning-failure
+        ;; evidence, and `:redundant-children` are the authorities).
+        ensured-identities (into [] (comp (remove adopted?) (map :scoped-key)) ordered)
+        kept-identities    (into [] (comp (filter adopted?) (map :scoped-key)) ordered)
+        removed-identities (filterv (complement next-ids) prev-identities)
+        added-count        (count ensured-identities)
+        removed-count      (count (remove next-ids prev-ids))]
     (trace/emit! :rf.event :rf.resource/route-plan
-                 (cond-> {:route-id   route-id
-                          :nav-token  nav-token
-                          :branch     (mapv :route-id branch)
-                          :ensured    added-count
-                          :kept       (- (count ordered) added-count)
-                          :removed    removed-count
-                          :blocking   (vec blocking)
-                          :identities (vec next-ids)}
+                 (cond-> {:route-id           route-id
+                          :nav-token          nav-token
+                          :branch             (mapv :route-id branch)
+                          :ensured            added-count
+                          :kept               (- (count ordered) added-count)
+                          :removed            removed-count
+                          :blocking           (vec blocking)
+                          ;; the planner's GROUPED PLAN ORDER — `ordered` is
+                          ;; post-dedupe (one entry per collapsed identity
+                          ;; group), so this carries each identity exactly once,
+                          ;; in the order the plan executes. `next-ids` is the
+                          ;; same content as a SET and rides the RETURN map
+                          ;; below, which `commit-navigation` consumes.
+                          :identities         (mapv :scoped-key ordered)
+                          :ensured-identities ensured-identities
+                          :kept-identities    kept-identities
+                          :removed-identities removed-identities}
                    (seq advisories) (assoc :redundant-children advisories)
                    plan-error       (assoc :plan-error true)))
     ;; The blocking set, identity set + plan-error ride back to
