@@ -49,6 +49,7 @@
             [re-frame.frame :as frame]
             [re-frame.freehand :as v]
             [re-frame.freehand.conformance :as conf]
+            [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.root :as root]
             [re-frame.live-frame :as live-frame]
@@ -286,28 +287,17 @@
      :init-fn       (fn []
                       (reset-ledger!)
                       (root/reset-registry!)
-                      (fr/reset-boundaries!))}))
+                      (fr/reset-boundaries!)
+                      ;; The facade's lifecycle ledger, scoped to this test.
+                      ;; Bookkeeping only — unlike the three resets above it
+                      ;; tears nothing down, which is what lets
+                      ;; `ms/residue-clean!` report a retained root AFTER a
+                      ;; test instead of a reset masking it before the next.
+                      (ms/reset-ledger!))}))
 
-(defn- browser? []
-  (and (exists? js/document) (some? (.-createElement js/document))))
-
-(defn- skip! [why]
-  (is true (str "a real React mount needs a DOM host — " why)))
-
-(defn- act
-  "A React 19 `act` boundary as a promise, so assertions run after the
-  commit AND its flushed effects rather than racing them."
-  [thunk]
-  (try
-    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-    (js/Promise.resolve (react/act (fn [] (js/Promise.resolve (thunk)))))
-    (catch :default e
-      (js/Promise.reject e))))
-
-(defn- host-node! []
-  (let [container (js/document.createElement "div")]
-    (.appendChild js/document.body container)
-    container))
+;; The mounted LIFECYCLE — the `act` boundary and the container — comes from
+;; `re-frame.freehand.mount-support`, the one facade the browser tier shares
+;; (rf2-n9rzw). This file used to carry its own byte-identical copies.
 
 (defn- setup! [db]
   (live-frame/make-frame {:id fid})
@@ -319,10 +309,28 @@
 (defn- mount! [container form] (v/mount form container {:frame fid}))
 (defn- q [container selector] (.querySelector container selector))
 
-(defn- teardown! [container mounted]
+(defn- teardown!
+  "Unmount through the DOOR — this suite mounts with `v/mount`, so the door
+  owns the React root and `v/unmount!` is the only correct release — then
+  retire the container through the shared lifecycle, which RECORDS what the
+  mount left behind for [[released!]] to read."
+  [container mounted]
   (v/unmount! mounted)
-  (.remove container)
+  (ms/remove-node! container)
   nil)
+
+(defn- released!
+  "Nothing a mounted crossing created survives it. The facade's own books
+  (every container retired, empty and detached) plus the door's live-root
+  registry, read AFTER teardown.
+
+  Reading it here is the whole point. The `:init-fn` above resets the root
+  registry and the boundary table BEFORE each test, so a crossing that
+  retained a root would be swallowed by the next test's reset rather than
+  reported by this one — which is exactly why FH-REACT-007 could not claim
+  `:residue :none` (rf2-n9rzw)."
+  [where]
+  (ms/residue-clean! where [["the door's live-root registry" #(root/live-root-ids)]]))
 
 (def ^:private seed {:label "alpha" :prefix "p1" :selections []})
 
@@ -346,12 +354,12 @@
             recently wrote. A host position that handed over the authored
             closure would pass the second and fail the first; one that
             memoised the closure would pass the first and fail the second."
-    (if-not (browser?)
-      (skip! "the browser job runs the mounted host crossing")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the mounted host crossing")
       (async done
         (setup! seed)
-        (let [container (host-node!)]
-          (-> (act #(mount! container [panel-page {}]))
+        (let [container (ms/host-node!)]
+          (-> (ms/act #(mount! container [panel-page {}]))
               (.then
                 (fn [mounted]
                   (let [panel (q container ".hook-panel")]
@@ -367,12 +375,12 @@
                          tree, not a portal or a nested root")
                     (is (= 1 (:live-panels @ledger))
                         "the wrapper's own mount effect ran exactly once"))
-                  (act (fn [] (.click (q container "button.select")) mounted))))
+                  (ms/act (fn [] (.click (q container "button.select")) mounted))))
               (.then
                 (fn [mounted]
                   (is (= ["p1-mark"] (read* [:d022/selections]))
                       "the :event position dispatched its event vector")
-                  (act (fn [] (.click (q container "button.note")) mounted))))
+                  (ms/act (fn [] (.click (q container "button.note")) mounted))))
               (.then
                 (fn [mounted]
                   (is (= ["noted"] (:notes @ledger))
@@ -383,7 +391,7 @@
                   ;; A commit that moves BOTH the rendered value and the
                   ;; callback's body, so the next two assertions cannot both
                   ;; be read off a tree that never re-rendered.
-                  (act (fn []
+                  (ms/act (fn []
                          (send! [:d022/prefix-changed "p2"])
                          (send! [:d022/label-changed "beta"])
                          mounted))))
@@ -397,12 +405,12 @@
                       "React was handed the SAME function object every time —
                        a declared position is one site, and a site owns its
                        identity")
-                  (act (fn [] (.click (q container "button.select")) mounted))))
+                  (ms/act (fn [] (.click (q container "button.select")) mounted))))
               (.then
                 (fn [mounted]
                   (is (= ["p1-mark" "p2-mark"] (read* [:d022/selections]))
                       "and that unchanged object ran the LATEST committed body")
-                  (act #(teardown! container mounted))))
+                  (ms/act #(teardown! container mounted))))
               (.then
                 (fn [_]
                   (let [held (first (:callback-ids @ledger))]
@@ -414,6 +422,7 @@
                          whatever owns the frame now"))
                   (is (= 0 (:live-panels @ledger))
                       "and the registered component's own cleanup ran")
+                  (released! "FH-REACT-007 — after the mounted crossing unmounts")
                   (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
@@ -429,18 +438,18 @@
             a scheme that keyed identity on either would let the stale
             reference fire into the new occurrence. It must stay inert while
             the successor's own callback works."
-    (if-not (browser?)
-      (skip! "the browser job runs the remount")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the remount")
       (async done
         (setup! seed)
-        (let [container (host-node!)]
-          (-> (act #(mount! container [panel-page {}]))
-              (.then (fn [mounted] (act #(teardown! container mounted))))
+        (let [container (ms/host-node!)]
+          (-> (ms/act #(mount! container [panel-page {}]))
+              (.then (fn [mounted] (ms/act #(teardown! container mounted))))
               (.then
                 (fn [_]
                   (let [stale     (first (:callback-ids @ledger))
-                        container (host-node!)]
-                    (-> (act #(mount! container [panel-page {}]))
+                        container (ms/host-node!)]
+                    (-> (ms/act #(mount! container [panel-page {}]))
                         (.then
                           (fn [mounted]
                             (stale "from-the-dead")
@@ -451,13 +460,19 @@
                                 "and the successor reused the ONE cached boundary
                                  for this view id, which is the reload invariant
                                  that makes the stale reference plausible")
-                            (act (fn [] (.click (q container "button.select")) mounted))))
+                            (ms/act (fn [] (.click (q container "button.select")) mounted))))
                         (.then
                           (fn [mounted]
                             (is (= ["p1-mark"] (read* [:d022/selections]))
                                 "while the successor's own callback is live")
-                            (act #(teardown! container mounted))))
-                        (.then (fn [_] (done)))
+                            (ms/act #(teardown! container mounted))))
+                        (.then (fn [_]
+                                 ;; BOTH mounts — the original and its
+                                 ;; successor — are read here, which is what
+                                 ;; the ledger buys: a remount that tore down
+                                 ;; only the second would red on the first.
+                                 (released! "FH-REACT-007 — after the remount unmounts")
+                                 (done)))
                         (.catch (fn [e]
                                   (is false (str "remount rejected: " e))
                                   (done)))))))
@@ -479,26 +494,28 @@
             it prepares the ONE value the authored Clojure map could not
             hold, and the crossing itself gains no per-prop conversion
             language for it."
-    (if-not (browser?)
-      (skip! "the browser job runs the chart mount")
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the chart mount")
       (async done
         (setup! seed)
-        (let [container (host-node!)]
-          (-> (act #(mount! container [vega-page {}]))
+        (let [container (ms/host-node!)]
+          (-> (ms/act #(mount! container [vega-page {}]))
               (.then
                 (fn [mounted]
                   (is (= "bar" (.getAttribute (q container ".vega-chart") "data-mark"))
                       "the adapter's JS object reached the library as one")
                   (is (= 2 (.-length (.querySelectorAll container ".vega-mark")))
                       "and the chart rendered from it")
-                  (act (fn [] (.click (q container "button.vega-mark")) mounted))))
+                  (ms/act (fn [] (.click (q container "button.vega-mark")) mounted))))
               (.then
                 (fn [mounted]
                   (is (= ["p1-10"] (read* [:d022/selections]))
                       "a value the LIBRARY chose came back as an ordinary
                        re-frame event")
-                  (act #(teardown! container mounted))))
-              (.then (fn [_] (done)))
+                  (ms/act #(teardown! container mounted))))
+              (.then (fn [_]
+                       (released! "FH-REACT-007 — after the chart unmounts")
+                       (done)))
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
                         (done)))))))))
