@@ -26,11 +26,33 @@
   realized edges live in the cache), and a declared self-reference
   cycle (which is allowed by registration — the topology surface
   reports the static :<- chain regardless of whether the resulting sub
-  would resolve at runtime)."
+  would resolve at runtime).
+
+  ## Posture split (rf2-d2841)
+
+  The topology's SHAPE — `:input-kind` discrimination, the literal `:<-`
+  query-vectors with their args, declaration order, the `:parametric`
+  sentinel, registry add / clear / re-register semantics, and verbatim
+  self-reference reporting — is production-real and is asserted WITHOUT a
+  posture guard, so it runs in the ordinary `clojure -M:test` suite AND in
+  `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+
+  Two of the entry's keys are REFLECTION METADATA and are elided in
+  production by design: `:doc`, and the `:ns` / `:line` / `:file`
+  source-coords `reg-sub` auto-captures. They exist for tooling (the same
+  class as the registry-entry `:doc` covered by
+  `re-frame.doc-metadata-prod-elision-test` and the `->interceptor`
+  `:source-coord`), so under the real gate the entry simply does not carry
+  them. Their assertions are kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841` — INCLUDING the
+  negative `no-doc-key-when-not-supplied`, which under the gate would pass
+  because `:doc` is never present rather than because the registration
+  omitted it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.subs :as subs]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -160,25 +182,46 @@
 (deftest source-coords-are-included
   (testing ":ns / :line / :file are auto-captured by reg-sub and surface in topology"
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (let [entry ((subs/sub-topology) :n)]
-      (is (some? (:ns entry))   ":ns captured at the call site")
-      (is (number? (:line entry)) ":line captured at the call site")
-      (is (some? (:file entry)) ":file captured at the call site"))))
+    ;; The sub itself is registered and projected in BOTH postures — the
+    ;; production-visible half, and the precondition for reading any coord
+    ;; off the entry at all.
+    (is (contains? (subs/sub-topology) :n)
+        "the sub is projected into the topology regardless of posture")
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). Source coords
+    ;; are reflection metadata, elided in production.
+    (when interop/debug-enabled?
+      (let [entry ((subs/sub-topology) :n)]
+        (is (some? (:ns entry))   ":ns captured at the call site")
+        (is (number? (:line entry)) ":line captured at the call site")
+        (is (some? (:file entry)) ":file captured at the call site")))))
 
 (deftest user-supplied-doc-passes-through
   (testing ":doc supplied via the meta-map first arg surfaces in topology"
     (rf/reg-sub :counter
                 {:doc "Counter sub — a layer-1 sub that reads :n from app-db."}
                 (fn [db _] (:n db)))
-    (is (= "Counter sub — a layer-1 sub that reads :n from app-db."
-           (:doc ((subs/sub-topology) :counter))))))
+    ;; Posture-independent: the meta-map first-arg REGISTRATION FORM is
+    ;; accepted and produces an ordinary layer-1 entry. A `reg-sub` that
+    ;; choked on the meta-map arity would fail here in either posture.
+    (is (= :db (:input-kind ((subs/sub-topology) :counter)))
+        "the meta-map registration form registers an ordinary layer-1 sub")
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+    (when interop/debug-enabled?
+      (is (= "Counter sub — a layer-1 sub that reads :n from app-db."
+             (:doc ((subs/sub-topology) :counter)))))))
 
 (deftest no-doc-key-when-not-supplied
   (testing ":doc is absent when the registration didn't supply one"
     ;; Don't surface a nil :doc — match the spec row's "keys present
     ;; when the registration carries them" semantics.
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (is (not (contains? ((subs/sub-topology) :n) :doc)))))
+    ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE about a key that is
+    ;; ELIDED WHOLESALE under `-Dre-frame.debug=false`: outside the arm it
+    ;; would pass because `:doc` is never present, not because this
+    ;; registration omitted it. Same false-green shape as a negative over an
+    ;; empty trace ring.
+    (when interop/debug-enabled?
+      (is (not (contains? ((subs/sub-topology) :n) :doc))))))
 
 ;; ---- registry semantics --------------------------------------------------
 

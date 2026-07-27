@@ -7,10 +7,25 @@
 
   One deftest per pattern. The docstring on each test cites the relevant
   Pattern-*.md section. Each test stays under ~50 lines — pin the shape,
-  not every edge case."
+  not every edge case.
+
+  ## Posture split (rf2-d2841)
+
+  Every pattern's SHAPE is production-real and is asserted WITHOUT a posture
+  guard, so this namespace runs in the ordinary `clojure -M:test` suite AND
+  in `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+
+  One observable is dev-only: the `:rf.machine.timer/stale-after` trace on
+  the stale-`:after`-timer leg of `pattern-stale-detection-shape`. It is a
+  `trace/emit!` with no always-on twin, so under the real gate nothing is
+  emitted BY DESIGN; its assertion is kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`. The SUPPRESSION
+  the trace reports — a stale timer leaving the snapshot unchanged — is the
+  production-real half and stays outside the arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -316,12 +331,17 @@
                           [:rf.machine.timer/after-elapsed 5000 captured [:loading]]))]
           (rf/unregister-listener! :trace ::stale)
           (is (= s3 s4) "stale timer firing leaves snapshot unchanged")
-          (is (some (fn [ev]
-                      (and (= :rf.machine.timer/stale-after (:operation ev))
-                           (= captured (:scheduled-epoch (:tags ev)))
-                           (= 3        (:current-epoch (:tags ev)))))
-                    @traces)
-              "expected :rf.machine.timer/stale-after trace with both epochs"))))))
+          (is (= 3 (get-in s4 [:data :rf/after-epoch [:loading]]))
+              "the live epoch is untouched by the stale firing — the suppression
+               did not consume or reset it")
+          ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
+          (when interop/debug-enabled?
+            (is (some (fn [ev]
+                        (and (= :rf.machine.timer/stale-after (:operation ev))
+                             (= captured (:scheduled-epoch (:tags ev)))
+                             (= 3        (:current-epoch (:tags ev)))))
+                      @traces)
+                "expected :rf.machine.timer/stale-after trace with both epochs")))))))
 
 ;; ---- Pattern-LongRunningWork ----------------------------------------------
 
