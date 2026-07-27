@@ -34,10 +34,29 @@
                    as evidence that no schema was violated.
     :flow-error  — a flow's `:output` threw (Spec 013 §Failure
                    semantics rule 3); the cascade halted before `:fx`.
+    :rejected    — the `:rf.schema/at-boundary` interceptor REFUSED the
+                   event's payload against the handler's `:schema`
+                   (Spec 010 §Production builds, rf2-mwv4e). The handler
+                   never ran; entered interceptors still unwound in
+                   full. This is the exact COMPLEMENT of `:rolled-back`
+                   on the production question: boundary validation is
+                   the one schema surface Spec 010 keeps UNGATED, so
+                   `:rejected` DOES have a producer in a release build —
+                   it is the outcome to alert on for hostile or
+                   malformed input at an untrusted ingress. Reported
+                   only when the boundary skip is the whole story: a
+                   chain throw (`:error`), a flow throw
+                   (`:flow-error`) or a candidate rollback
+                   (`:rolled-back`) during the unwind still wins.
+                   Paired with one always-on
+                   `:rf.error/schema-validation-failure` record
+                   (`:source :boundary`) on the `:errors` stream, which
+                   carries the identifiers; the offending VALUE rides
+                   the dev-only trace and never egresses.
 
   Every non-`:ok` value surfaces a failed dispatch to off-box shippers
-  so a rolled-back / flow-aborted dispatch is never mis-reported as a
-  clean `:ok`.
+  so a rolled-back / flow-aborted / boundary-refused dispatch is never
+  mis-reported as a clean `:ok`.
 
   Listener REGISTRATION sites SHOULD use `goog.DEBUG=false` as a
   belt-and-braces gate alongside an explicit config flag. The

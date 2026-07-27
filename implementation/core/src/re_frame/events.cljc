@@ -262,6 +262,27 @@
                   :id     id}}))
   nil)
 
+(defn boundary-guarded-handler?
+  "True when a registered event handler's `handler-meta` REFERENCES the
+  `:rf.schema/at-boundary` interceptor — i.e. the app opted this handler into
+  production-side boundary validation (Spec 010 §Production builds).
+
+  rf2-mwv4e — the DEV half of the boundary-rejection marker. In a dev build the
+  boundary interceptor is a no-op and step-1 `validate-event!` does the
+  refusing, so the router cannot tell a boundary refusal from an ordinary
+  dev-only schema refusal without asking this question. It asks it ONLY on the
+  refusal path (`run-chain`, when `event-ok?` is falsy), so the hot path pays
+  nothing.
+
+  Reads the AUTHORED chain — the same surface `reject-at-boundary-without-
+  schema!` checks at registration time, and the one the docs name as the opt-in
+  (`{:interceptors [:rf.schema/at-boundary]}`). A per-frame `:interceptors`
+  chain that attaches the interceptor globally is deliberately NOT counted: the
+  interceptor is meaningless without the HANDLER's own `:schema`, which is what
+  the registration-time check binds it to."
+  [handler-meta]
+  (attaches-validate-at-boundary-interceptor? (:interceptors handler-meta)))
+
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
 ;;
 ;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
