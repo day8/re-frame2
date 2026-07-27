@@ -61,7 +61,22 @@
     (is (every? (set roster/ids) roster/initial-spine-ids)
         "the initial spine is enrolled")
     (is (= roster/ids (sort roster/ids))
-        "and the roster is id-ordered, so its value is stable to read and diff")))
+        "and the roster is id-ordered, so its value is stable to read and diff"))
+
+  (testing "NON-VACUITY for discovery itself, which is the row that matters
+            most about it. The conformance index carries a hundred laws
+            with fixtures; a reader that enrolled every fixture it could
+            open would satisfy every membership assertion above and make
+            the whole roster meaningless, and it would do it QUIETLY —
+            each of those records would simply be reported missing a
+            `:fh/record`. So the discriminating half is asserted directly:
+            a law whose fixture carries no record is NOT rostered."
+    (is (nil? (roster/by-id :FH-CALL-001))
+        "FH-CALL-001 is an active law with a fixture and no roster record")
+    (is (nil? (roster/by-id :FH-PROPS-001))
+        "and so is FH-PROPS-001")
+    (is (nil? (roster/by-id :FH-EVENT-005))
+        "a retired law, whose row names no fixture at all, is not rostered either")))
 
 (deftest every-rostered-record-carries-its-whole-identity
   (testing "Per rf2-drpa3.182.7 acceptance 1: one record answers every
