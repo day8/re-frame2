@@ -137,6 +137,10 @@
   domain events for every user of a CJK input method, invisible to every
   keyboard the author owns.
 
+  The composition SCALAR is the kit's too:
+  [[re-frame.freehand.controls/composing?]] reads it off the host event, so
+  this witness holds no copy of the `nativeEvent`/`keyCode` 229 adaptation.
+
   The ARROWS are this control's own, and they are withheld during a
   composition for exactly the same reason: while a candidate window is
   open, ArrowDown moves through the IME's candidates and never through the
@@ -158,27 +162,6 @@
   [e]
   #?(:cljs (.-key e)
      :clj  (:key e)))
-
-(defn- host-composing?
-  "Is an IME composition in flight for this host keyboard event?
-
-  Two signals ORed: the standard `isComposing` flag — asked of the NATIVE
-  event where there is one, because React's synthetic keyboard event does
-  not carry it — and `keyCode` 229, the sentinel Chromium actually emits on
-  the Enter that accepts a candidate WITH `isComposing` false.
-
-  SPINE GAP, recorded rather than papered over: this mirrors
-  `re-frame.freehand.controls`'s own private `composing?`. The kit
-  publishes the DECISION ([[re-frame.freehand.controls/key-intent]]) but
-  not the READER, so a kit member with its own keyboard protocol can share
-  the rule and cannot share the scalars. The duplication is four lines and
-  it is the only one in this namespace; promoting the reader is a kit
-  change this witness is fenced out of, and rf2-drpa3.182.8 reports it."
-  [e]
-  #?(:cljs (let [flag (or (some-> (.-nativeEvent e) (.-isComposing))
-                          (.-isComposing e))]
-             (boolean (or flag (= 229 (.-keyCode e)))))
-     :clj  (boolean (:composing? e))))
 
 ;; ---------------------------------------------------------------------------
 ;; The record, and the fences over it
@@ -526,7 +509,7 @@
               :on-input              [:kit.ui.typeahead/typed k g ms on-search ::v/value]
               :on-key-down           (v/event [e]
                                        (when-let [intent (key-intent (host-key e)
-                                                                     (host-composing? e))]
+                                                                     (c/composing? e))]
                                          [:kit.ui.typeahead/keyed k g on-select intent]))}]
      ;; The status is DERIVED, never a local flag: `:pending?` is the
      ;; in-flight request's own state and `:stale?` is the gap between what

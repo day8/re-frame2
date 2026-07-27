@@ -31,7 +31,7 @@
   control that wrongly took the composing Enter commits once and leaves the
   plain Enter behind it a no-op — exactly one selection in both worlds. The
   row was mutation-tested into its current shape after that reading stayed
-  green with the Chromium sentinel deleted.
+  green with the `keyCode` 229 fallback deleted.
 
   So the sequence is ArrowDown, composing Enter, ArrowUp, plain Enter, and
   the verdict is WHICH option committed. The first arrow is the wiring
@@ -136,12 +136,13 @@
   INDEPENDENTLY: `:composing?` becomes `isComposing` and `:key-code`
   becomes `keyCode`, with no coupling between them.
 
-  That independence is the point. The reader beneath `key-intent` ORs the
-  standard flag together with the `keyCode` 229 sentinel Chromium actually
-  emits on the Enter that accepts a candidate, and an event carrying BOTH
-  cannot tell a reader of both from a reader of either — so the
+  That independence is the point. `c/composing?`, the reader beneath
+  `key-intent`, ORs the standard flag together with the `keyCode` 229
+  fallback that covers the engines which report the candidate-accepting
+  Enter with `isComposing` FALSE (WebKit bug 165004), and an event carrying
+  BOTH cannot tell a reader of both from a reader of either — so the
   implementation this row exists to catch, the one that consults only
-  `isComposing` and therefore breaks on Chromium, would stay green."
+  `isComposing`, would stay green."
   [node key {:keys [composing? key-code]}]
   (.dispatchEvent node (js/KeyboardEvent.
                          "keydown"
@@ -419,8 +420,8 @@
   looks like it can is a trap this row was mutation-tested out of: a commit
   RETIRES the record, so a control that wrongly took the composing Enter
   would commit once and leave the plain Enter behind it a no-op — exactly
-  one selection in both worlds, and the row stays green with the Chromium
-  sentinel deleted.
+  one selection in both worlds, and the row stays green with the `keyCode`
+  229 fallback deleted.
 
     * the **ArrowDown** is the WIRING control. It moves the highlight on
       screen and takes `:seen` to one, so `the composing Enter dispatched
@@ -513,13 +514,15 @@
                            done)))))
 
 (deftest fh-ctrl-020-a-keycode-229-enter-commits-nothing-with-iscomposing-false
-  (testing "Per FH-CTRL-020: the CHROMIUM FALLBACK, on its own. `keyCode`
-            229 is the sentinel Chromium emits on the Enter that accepts an
-            input-method candidate, and `isComposing` here is FALSE. This is
-            the press the compatibility claim is actually about: with both
-            signals set on one event, an implementation reading only
-            `isComposing` — the one that breaks on Chromium, which is the
-            whole reason the sentinel is consulted — would stay green."
+  (testing "Per FH-CTRL-020: the COMPATIBILITY FALLBACK, on its own.
+            `keyCode` 229 is what the UI Events legacy algorithm assigns
+            while an input method is processing a keydown, and `isComposing`
+            here is FALSE — the pairing WebKit bug 165004 reported, fixed in
+            April 2026 (bug 311717) and still live on deployed engines. This
+            is the press the compatibility claim is actually about: with
+            both signals set on one event, an implementation reading only
+            `isComposing` — the one the fallback exists to beat — would stay
+            green."
     (if-not (browser?)
       (ms/skip! "the browser job runs the composition assertions")
       (async done

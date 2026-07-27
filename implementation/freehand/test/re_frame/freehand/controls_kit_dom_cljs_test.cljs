@@ -33,10 +33,11 @@
   application's own event.
 
   **One composition signal per press.** `c/composing?` ORs the standard
-  `isComposing` flag together with the `keyCode` 229 sentinel, and an event
+  `isComposing` flag together with the `keyCode` 229 fallback, and an event
   carrying BOTH cannot fail for either of them individually — an
   implementation consulting only `isComposing`, which is precisely the one
-  that breaks on Chromium, would stay green against it. So the two
+  that breaks on the engines WebKit bug 165004 shipped, would stay green
+  against it. So the two
   withholding rows below press ONE signal each over one identical
   procedure, leaving the other scalar at the plain Enter's value, and each
   is falsifiable on its own.
@@ -185,11 +186,12 @@
   becomes `keyCode`, with no coupling between them.
 
   That independence is the point. `c/composing?` ORs the standard
-  `isComposing` flag together with the `keyCode` 229 sentinel Chromium
-  actually emits on the Enter that accepts a candidate, and an event
-  carrying BOTH cannot tell a reader of both from a reader of either — so
-  the implementation this row exists to catch, the one that consults only
-  `isComposing` and therefore breaks on Chromium, would stay green. Every
+  `isComposing` flag together with the `keyCode` 229 fallback that covers
+  the engines which report the candidate-accepting Enter with `isComposing`
+  FALSE (WebKit bug 165004), and an event carrying BOTH cannot tell a
+  reader of both from a reader of either — so the implementation this row
+  exists to catch, the one that consults only `isComposing`, would stay
+  green. Every
   press below sets ONE signal and leaves the other at the plain Enter's
   value."
   [node {:keys [composing? key-code]}]
@@ -457,18 +459,20 @@
           done)))))
 
 (deftest fh-ctrl-018-a-keycode-229-enter-commits-nothing-with-iscomposing-false
-  (testing "Per FH-CTRL-018: the CHROMIUM FALLBACK, on its own. `keyCode`
-            229 is the sentinel Chromium emits on the Enter that accepts an
-            input-method candidate, and `isComposing` here is FALSE — on
-            the native event and therefore on the synthetic one too.
+  (testing "Per FH-CTRL-018: the COMPATIBILITY FALLBACK, on its own.
+            `keyCode` 229 is what the UI Events legacy algorithm assigns
+            while an input method is processing a keydown, and `isComposing`
+            here is FALSE — on the native event and therefore on the
+            synthetic one too. That pairing is WebKit bug 165004, fixed in
+            April 2026 (bug 311717); the fallback stays for engines already
+            deployed without the fix.
 
             This is the press the row's compatibility claim was made about
             and the one it did not previously exercise: with both signals
             set on one event, an implementation reading only `isComposing`
-            — the implementation that breaks on Chromium, which is the
-            whole reason the sentinel is consulted at all — stayed green.
-            Here 229 is the only signal there is, so it is the only thing
-            that can withhold the commit."
+            — the implementation the fallback exists to beat — stayed
+            green. Here 229 is the only signal there is, so it is the only
+            thing that can withhold the commit."
     (if-not (ms/browser?)
       (ms/skip! "the browser job runs the composition assertions")
       (async done
