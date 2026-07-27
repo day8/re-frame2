@@ -14,7 +14,7 @@ We'll build the simplest thing that works first — a login form that validates 
 
 ??? info "Coming from React Hook Form or Formik?"
 
-    re-frame2 ships no `<Form>`, no `register()`, no `useForm`. A form is a *convention* built from the same events, subs, and schemas as everything else: state lives in [app-db](../glossary.md#app-db) (every keystroke is an inspectable event), the "validation resolver" is the Malli schema that guards the slice, and errors are subs.
+    re-frame2 ships no `<Form>`, no `register()`, no `useForm`. A form is a *convention* built from the same events, subs, and schemas as everything else: state lives in [app-db](../glossary.md#app-db) (every keystroke is an inspectable event), the nearest thing to a "validation resolver" is a Malli schema, and errors are subs. One difference to carry from the start: unlike a resolver, the schema is a development-time tripwire that a production build [elides](../glossary.md#elide) — the check that actually *rejects* a bad submit is code you write in the handler.
 
 ## 1. Create the slice — seven keys
 
@@ -41,7 +41,7 @@ Each key earns its place — drop one and the user notices. Three of them carry 
 
     It's tempting to dump every failure into `:errors` and be done. Resist. Field errors and transport errors render in completely different places — one sits under an input, the other is a banner that says "couldn't reach the server, try again." Conflating them means the view has to *guess* which kind it's holding. Two slots, two render sites, zero guessing. We'll lean on this split hard in step 2.
 
-Now bind two [schemas](../glossary.md#schema), one for the slice's shape and one for the value you're actually collecting. (A schema is a data description of a valid shape; here it guards what may be written into app-db.)
+Now bind two [schemas](../glossary.md#schema), one for the slice's shape and one for the value you're actually collecting. (A schema is a data description of a valid shape; here it is a tripwire on what gets written into app-db — checked in dev builds, [elided](../glossary.md#elide) from production ones.)
 
 ```clojure
 (def FormSlice
