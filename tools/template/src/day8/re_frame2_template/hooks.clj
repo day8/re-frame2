@@ -507,7 +507,32 @@
        ;; version_lockstep_test.clj; update the pins together.
        :rf2-version         "0.0.1.alpha"
        :shadow-version      "3.4.10"
-       :react-version       "19.2.0"})))
+       :react-version       "19.2.0"
+       ;; The reviewed re-frame2 commit the emitted TOOLS coords
+       ;; (day8/re-frame2-xray, day8/re-frame2-story) resolve from.
+       ;;
+       ;; Why the tools are pinned by SHA while the framework coords
+       ;; carry {{rf2-version}}: the two tiers ship on different
+       ;; triggers (docs/release-process.md §The tools tier). A `v*`
+       ;; tag publishes the framework artefacts and NO tools — Xray
+       ;; ships on `xray-v*`, Story on `story-v*`. Neither tool tag has
+       ;; been cut, so an :mvn/version tools coord names a Clojars
+       ;; artefact that does not exist: the day the framework publishes,
+       ;; every generated project would resolve its framework coords and
+       ;; 404 on Xray (rf2-57bjg). A git coord against the public
+       ;; monorepo resolves TODAY and keeps resolving after the
+       ;; framework tag, which is the shape the re-frame2-setup skill
+       ;; already teaches for Xray
+       ;; (skills/re-frame2-setup/references/deps-versions.md).
+       ;;
+       ;; MAINTENANCE: bump this to a reviewed `main` commit whenever
+       ;; the tools' public surface moves — there is no in-repo source
+       ;; of truth a lockstep guard could read for a commit of this
+       ;; repository, so version_lockstep_test.clj guards the coord
+       ;; SHAPE (git, never :mvn/version) and the SHA's form, not its
+       ;; freshness. When `xray-v*` / `story-v*` finally ship, retire
+       ;; this pin and move both tools coords back to {{rf2-version}}.
+       :rf2-tools-sha       "ede00fd3bebc28340054159ab555e2214601f34f"})))
 
 ;; -- template-fn ------------------------------------------------------------
 ;;

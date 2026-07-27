@@ -10,8 +10,9 @@
 ;;                                schema.cljs validates, not soft-passes).
 ;;   - day8/re-frame2-xray     — in-app devtools panel.
 ;;
-;; All four ride the same version (schemas + xray lockstep with core).
-;; Bump them together when you upgrade re-frame2.
+;; The three FRAMEWORK coords ride one version; bump them together when
+;; you upgrade re-frame2. Xray is a TOOL, and the tools ship on their own
+;; tags, so it rides a git coord instead — see the note above it.
 {:paths ["src"]
 
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
@@ -27,9 +28,17 @@
          day8/re-frame2-schemas    {:mvn/version "{{rf2-version}}"}
          ;; In-app devtools panel — auto-opens into the app-provided
          ;; [data-rf-xray-host] right-side layout host. Wired via
-         ;; :devtools/preloads in shadow-cljs.edn. Lockstep with
-         ;; the core coord — Xray publishes at the same version.
-         day8/re-frame2-xray      {:mvn/version "{{rf2-version}}"}
+         ;; :devtools/preloads in shadow-cljs.edn.
+         ;;
+         ;; A GIT coord, deliberately. re-frame2's tools ship on their
+         ;; own tags — Xray on `xray-v*` — and the framework's `v*` tag
+         ;; publishes no tools at all, so there is no Xray on Clojars to
+         ;; pin an :mvn/version at. This coordinate resolves the panel
+         ;; from the monorepo at one reviewed commit. Move it to
+         ;; {:mvn/version "…"} once an `xray-v*` release lands.
+         day8/re-frame2-xray       {:git/url   "https://github.com/day8/re-frame2.git"
+                                    :git/sha   "{{rf2-tools-sha}}"
+                                    :deps/root "tools/xray"}
 
          reagent/reagent           {:mvn/version "2.0.1"}}
 
