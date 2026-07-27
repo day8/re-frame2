@@ -149,20 +149,27 @@
   "`new google.maps.Map(node, opts)`. Takes `node` over: the library appends
   its own subtree and treats everything below as its own from here."
   [node opts]
-  (let [id  (fresh-id!)
-        own (.createElement js/document "div")]
+  (let [id     (fresh-id!)
+        own    (.createElement js/document "div")
+        centre (.createElement js/document "div")]
     (set! (.-className own) "gm-style")
-    (set! (.-textContent own) (str (:center opts)))
+    ;; The centre readout is its OWN node rather than the container's text,
+    ;; because the panes the library creates hang off `own` too — reading the
+    ;; container's `textContent` would read the author's overlay back as if it
+    ;; were the library's state.
+    (set! (.-className centre) "gm-center")
+    (set! (.-textContent centre) (str (:center opts)))
+    (.appendChild own centre)
     (.appendChild node own)
     (swap! live-maps assoc id node)
-    {:id id :node node :own own}))
+    {:id id :node node :own own :centre centre}))
 
 (defn- set-options!
   "`map.setOptions(…)`. VOID — the shape the memory law exists for."
   [m opts]
   (when-not (contains? @live-maps (:id m))
     (throw (ex-info "setOptions on a destroyed map" {:id (:id m)})))
-  (set! (.-textContent (:own m)) (str (:center opts)))
+  (set! (.-textContent (:centre m)) (str (:center opts)))
   nil)
 
 (defn- add-listener
@@ -242,12 +249,15 @@
 
 (defn- run-deferrals!
   "Run every deferred release, in order, and answer a promise that settles
-  one task later — so a caller reads the AFTER state on the right clock."
+  one task later — so a caller reads the AFTER state on the right clock.
+
+  Inside the `act` boundary, because unmounting a root is a React commit and
+  a commit outside `act` is a warning on the page rather than a measurement."
   []
   (let [pending @deferrals]
     (reset! deferrals [])
-    (doseq [f pending] (f))
-    (ms/tick!)))
+    (-> (ms/act (fn [] (doseq [f pending] (f)) nil))
+        (.then (fn [_] (ms/tick!))))))
 
 (defn- reclaim!
   "The ONE reclamation path, entered from the host-removal callback and from
@@ -375,10 +385,13 @@
   "What the LIBRARY and the door still hold, as one comparable map — the
   shape `:connected` and `:after-reclamation` are written in."
   []
-  {:maps         (count @live-maps)
-   :listeners    (count @live-listeners)
-   :overlays     (count @live-overlays)
-   :nested-roots (count (root/live-root-ids))})
+  {:maps      (count @live-maps)
+   :listeners (count @live-listeners)
+   :overlays  (count @live-overlays)
+   ;; The DOOR's registry, which holds the page's own root AND the island in
+   ;; the host's pane — two roots on one page, which is what an explicit
+   ;; nested root is and what a portal would have hidden.
+   :roots     (count (root/live-root-ids))})
 
 (defn- substrate
   "The SUBSTRATE's two books. A different clock from [[owned]], which is the
@@ -429,19 +442,20 @@
                 (fn [mounted]
                   (is (= (:connected behavior-010) (owned))
                       "one map over the behavior's node, one listener, one
-                       overlay, and one nested root in the pane the LIBRARY
+                       overlay, and TWO roots in the door's registry — the
+                       page's own, and the island in the pane the LIBRARY
                        created")
                   (is (some? (.querySelector container ".map-node .gm-style"))
                       "the SDK's own subtree is under the behavior's node, where
                        React will not touch it again")
                   (is (= "legend" (.-textContent (.querySelector container ".gm-pane .legend")))
                       "and the nested root really rendered into the host's pane")
-                  (is (= "0,0" (.-textContent (.querySelector container ".gm-style")))
+                  (is (= "0,0" (.-textContent (.querySelector container ".gm-center")))
                       "the initial config reached the library")
                   (ms/act (fn [] (send! [:maps/center-changed "1,1"]) mounted))))
               (.then
                 (fn [mounted]
-                  (is (= "1,1" (.-textContent (.querySelector container ".gm-style")))
+                  (is (= "1,1" (.-textContent (.querySelector container ".gm-center")))
                       "a config movement drove `set-options!` — and the recipe
                        survived it, which a recipe that returned the void
                        mutator's answer would not have: the memory it needs to
@@ -551,8 +565,7 @@
               (.then (fn [mounted] (ms/act (fn [] (v/unmount! mounted) nil))))
               (.then (fn [_]
                        (is (= (:at-unmount gap)
-                              (assoc (substrate) :nested-roots
-                                     (count (root/live-root-ids))))
+                              (assoc (substrate) :roots (count (root/live-root-ids))))
                            "at unmount: the SUBSTRATE's books are already empty —
                             an exact zero, not a threshold — while the author's
                             nested root is still open")
@@ -561,8 +574,7 @@
                        (run-deferrals!)))
               (.then (fn [_]
                        (is (= (:one-task-later gap)
-                              (assoc (substrate) :nested-roots
-                                     (count (root/live-root-ids))))
+                              (assoc (substrate) :roots (count (root/live-root-ids))))
                            "one task later both clocks agree, and the gap is
                             closed by the AUTHOR's release rather than by the
                             substrate waiting for it")
