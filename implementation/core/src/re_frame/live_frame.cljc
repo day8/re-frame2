@@ -596,29 +596,93 @@
 ;; bookkeeping in this ns. Trade-off accepted: a frame id that is destroyed
 ;; and never reused leaves a residual entry for the remainder of the process
 ;; (no destroy-time cleanup hook here) — harmless, since `reproject-live-frame!`
-;; is already a no-op for an unregistered id and a REUSED id's entry is always
-;; freshly overwritten by the next `make-frame` call, so the residue is never
-;; read incorrectly; only dev-process memory, bounded by the number of
-;; distinct frame ids ever created in a session.
+;; is already a no-op for an unregistered id and a REUSED id's entry is
+;; overwritten BEFORE the next `make-frame`'s engine commit (see the WHEN
+;; section below), so the residue is never read incorrectly; only dev-process
+;; memory, bounded by the number of distinct frame ids ever created in a
+;; session.
+;;
+;; ---- WHEN the row is written, and why that is load-bearing (rf2-rt4jz) ----
+;;
+;; The row is written BEFORE the `upsert-frame!` engine commit and rolled back
+;; EXACTLY on failure. It used to be written after the commit returned, which
+;; reads as the safer order — a failed construction cannot leave residue if it
+;; never writes — but it is not, because the record and the row are two stores
+;; and the frame is REPROJECTABLE the moment the first of them lands.
+;;
+;; `upsert-frame!` publishes the record carrying the new generation and then,
+;; still inside the call, runs the `:initial-events` setup steps (EP-0027).
+;; Those steps dispatch, so they pass through `call-with-frame-resolution`,
+;; whose read-time consult flushes any PENDING reprojection (rf2-h1vqa4 /
+;; rf2-9c2jf). Under the old order that flush read a row belonging to some
+;; PREVIOUS incarnation of the id — or to no generation at all — re-resolved
+;; the frame's composition against that wrong pool, and `set-generation!`d the
+;; result over the generation the constructor had just installed. The
+;; constructor returned having silently lost its own swap, with the row ending
+;; up correct and the GENERATION wrong. Not a race: one synchronous call, both
+;; hosts (`make-frame-generation-pool-window-jvm-test` reproduces it with no
+;; threads and no barrier).
+;;
+;; Writing FIRST makes the setup cascade's flush re-resolve the frame against
+;; the pool it was actually sealed from, which is a byte-for-byte identical
+;; generation and therefore no swap at all. rf2-ktmto9's no-residue contract —
+;; a failed creation records nothing, a failed re-construction preserves the
+;; old row — is then held EXPLICITLY by `restore-frame-generation-pool!`
+;; rather than implicitly by ordering, which is the stronger statement: it says
+;; what it means at the site, instead of depending on nothing ever resolving
+;; between the two writes.
+;;
+;; The one thing the early write does NOT buy: on a RE-construction the row
+;; names the incoming pool for the brief interval before `upsert-frame!`'s
+;; surgical swap installs the incoming generation, so a JVM-concurrent flush
+;; landing in THAT interval re-resolves the OUTGOING composition against the
+;; INCOMING pool. That is transient and self-correcting — the swap that
+;; follows overwrites it unconditionally, so no completed call can observe it —
+;; whereas the window it replaces corrupted the value the constructor returned.
+;; The remaining exposure is at worst one spurious
+;; `:rf.warning/reprojection-failed` diagnostic on the dev channel.
 
 (defonce ^{:private true
            :doc "frame id -> the descriptor pool its CURRENT generation was
   resolved against: nil for the live source store, a real descriptors value
-  for an explicit pool (`make-frame`'s 2-arity). Recorded by `make-frame` on
-  every SUCCESSFUL call (creation + hot-reload re-construction), AFTER the
-  `upsert-frame!` engine commit returns (rf2-ktmto9 — a failed creation records
-  nothing; a failed re-construction preserves the old row), so reprojection
-  re-resolves against the SAME provenance (rf2-rf3zgt) instead of silently
-  defaulting to the live store for a frame that was never resolved against
-  it. See the §Generation PROVENANCE section above for the full rationale."}
+  for an explicit pool (`make-frame`'s 2-arity). Written by `make-frame`
+  (creation + hot-reload re-construction) BEFORE the `upsert-frame!` engine
+  commit, so the row is already in step the moment the record can be
+  reprojected — in particular for the `:initial-events` cascade that runs
+  INSIDE that commit (rf2-rt4jz) — and rolled back exactly on failure by
+  `restore-frame-generation-pool!`, which is how rf2-ktmto9's contract (a
+  failed creation records nothing; a failed re-construction preserves the old
+  row) is kept. Reprojection then re-resolves against the SAME provenance
+  (rf2-rf3zgt) instead of silently defaulting to the live store for a frame
+  that was never resolved against it. See the §Generation PROVENANCE section
+  above for the full rationale."}
   frame-generation-pool
   (atom {}))
 
 (defn- record-frame-generation-pool!
-  "Record that `runnable-id`'s generation was just resolved against `descriptors`
-  (nil for the live store) — see `frame-generation-pool`. Returns nil."
+  "Record that `runnable-id`'s generation is being resolved against
+  `descriptors` (nil for the live store) — see `frame-generation-pool`.
+  Returns the PRIOR row as `[had-row? prior-descriptors]`, the exact input
+  `restore-frame-generation-pool!` needs to undo this write."
   [runnable-id descriptors]
-  (swap! frame-generation-pool assoc runnable-id descriptors)
+  (let [before (deref frame-generation-pool)]
+    (swap! frame-generation-pool assoc runnable-id descriptors)
+    [(contains? before runnable-id) (get before runnable-id)]))
+
+(defn- restore-frame-generation-pool!
+  "Undo one `record-frame-generation-pool!` write on `runnable-id`, restoring
+  the row to EXACTLY what it was: `prior` when the id had one, ABSENT when it
+  did not. The two cases are distinct and both matter — `nil` is a legitimate
+  recorded pool (it means \"the live source store\"), so an absent row cannot be
+  spelled by assoc'ing nil.
+
+  This is rf2-ktmto9's no-residue contract, stated (rf2-rt4jz): a failed
+  creation records nothing, and a failed re-construction preserves the old row.
+  Returns nil."
+  [runnable-id had-row? prior]
+  (if had-row?
+    (swap! frame-generation-pool assoc runnable-id prior)
+    (swap! frame-generation-pool dissoc runnable-id))
   nil)
 
 ;; ===========================================================================
@@ -833,19 +897,37 @@
      ;; VALUE (below) is what gives an owner exact teardown authority — with NO
      ;; post-return `frame-incarnation-token` re-sample that a concurrent
      ;; destroy + same-id reseat could race into a successor's token.
-     (let [token-box (volatile! nil)]
-       (frame/upsert-frame! runnable-id record-config token-box)
-       ;; Record which pool this generation was resolved against AFTER the engine
-       ;; commit returns successfully — see §Generation PROVENANCE above
-       ;; (rf2-rf3zgt): a later reprojection reads this back so it re-resolves
-       ;; against the SAME pool (explicit or live) rather than always falling
-       ;; through to the live store. Recorded on every SUCCESSFUL call (creation +
-       ;; hot-reload re-construction), so a re-`make-frame` that changes arity
-       ;; keeps the record current — and ordered after `upsert-frame!` (rf2-ktmto9,
-       ;; the failure-atomicity completion) so a FAILED creation records nothing
-       ;; and a FAILED re-construction preserves the OLD provenance row, matching
-       ;; the engine's own no-residue-on-failure contract.
-       (record-frame-generation-pool! runnable-id descriptors)
+     (let [token-box (volatile! nil)
+           ;; Record which pool this generation was resolved against — see
+           ;; §Generation PROVENANCE above (rf2-rf3zgt): a later reprojection
+           ;; reads this back so it re-resolves against the SAME pool (explicit
+           ;; or live) rather than always falling through to the live store.
+           ;; Written on every call (creation + hot-reload re-construction), so a
+           ;; re-`make-frame` that changes arity keeps the row current.
+           ;;
+           ;; rf2-rt4jz — BEFORE the engine commit, not after it. The record and
+           ;; this row are two stores, and the frame becomes REPROJECTABLE the
+           ;; moment the FIRST of them lands: `upsert-frame!` publishes the record
+           ;; carrying the new generation and then, still inside the call, runs
+           ;; the `:initial-events` setup steps, whose dispatches flush any
+           ;; pending reprojection through `call-with-frame-resolution`. Recording
+           ;; afterwards left that flush reading a PREVIOUS incarnation's row: it
+           ;; re-resolved the frame against the wrong pool and `set-generation!`d
+           ;; the result over what had just been installed, so the constructor
+           ;; returned having silently lost its own swap. One synchronous call,
+           ;; both hosts, no race.
+           ;;
+           ;; rf2-ktmto9's no-residue contract survives the move by being STATED
+           ;; instead of implied: the prior row is captured here and restored
+           ;; exactly if the commit throws, so a FAILED creation still records
+           ;; nothing and a FAILED re-construction still preserves the OLD row.
+           [had-pool-row? prior-pool]
+           (record-frame-generation-pool! runnable-id descriptors)]
+       (try
+         (frame/upsert-frame! runnable-id record-config token-box)
+         (catch #?(:clj Throwable :cljs :default) e
+           (restore-frame-generation-pool! runnable-id had-pool-row? prior-pool)
+           (throw e)))
        ;; rf2-djkr0 — THE INVARIANT: a PARTIALLY-CONSTRUCTED frame is never
        ;; observable as live, so a registration that lands while a frame is
        ;; mid-construction is never lost.
@@ -870,13 +952,26 @@
        ;; this point on any further `reg-*` sees the frame and marks for itself.
        ;; The window is closed end to end.
        ;;
-       ;; CONDITIONAL, because an unconditional mark is not free of consequence:
-       ;; it would leave the projection dirty after EVERY construction, and a
-       ;; flag set here is flushed by some later, unrelated resolution. Marking
-       ;; only when the pool actually MOVED under us keeps every non-racing
-       ;; construction — which is all of them outside this defect — byte-for-byte
-       ;; as before. The comparison is exact: any `reg-*` / `forget-*` / `clear-*`
-       ;; / `register-standard!` bumps a leg of `registration-pool-mark`.
+       ;; CONDITIONAL. Marking only when the pool actually MOVED under us keeps
+       ;; every non-racing construction — which is all of them outside this
+       ;; defect — byte-for-byte as before: no flag, and so no reprojection sweep
+       ;; over every image-loaded frame armed by an ordinary `make-frame`. The
+       ;; comparison is exact: any `reg-*` / `forget-*` / `clear-*` /
+       ;; `register-standard!` bumps a leg of `registration-pool-mark`.
+       ;;
+       ;; When rf2-djkr0 shipped, the conditionality was ALSO load-bearing for
+       ;; correctness: an unconditional mark leaves the projection dirty after
+       ;; every construction, a flag set here is flushed by some later unrelated
+       ;; resolution, and one of those was the `:initial-events` cascade running
+       ;; inside `upsert-frame!` — which reprojected against a stale provenance
+       ;; row and clobbered the generation a re-construction had just installed.
+       ;; rf2-rt4jz CLOSED that (the row is now written before the engine commit,
+       ;; §Generation PROVENANCE above), and the closure is measured, not
+       ;; assumed: with the row written first, forcing this mark unconditional
+       ;; leaves `live-frame-reload-cljs-test` — the suite that reddened under
+       ;; exactly that configuration — green. So the conditional now stands on
+       ;; the cost argument ALONE, and it stands: it is the cheaper shape, and
+       ;; `make-frame-generation-seal-race-jvm-test` §4 keeps it pinned.
        ;;
        ;; The armed flush is the RESILIENT sweep — per-frame conditional (a frame
        ;; whose composition re-resolves identically is left untouched, a
