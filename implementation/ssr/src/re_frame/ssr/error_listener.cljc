@@ -141,7 +141,16 @@
     :rf.error/sanitised-on-projection
     :rf.error/safe-redirect-invalid-url
     :rf.error/safe-redirect-scheme-rejected
-    :rf.error/safe-redirect-host-disallowed})
+    :rf.error/safe-redirect-host-disallowed
+    ;; rf2-gblft — the Ring materialiser's fail-closed `:status` rewrite. It
+    ;; fires at MATERIALISATION time, strictly AFTER the response is resolved
+    ;; and flushed, so a projection could only fight the 500 it is already
+    ;; reporting. Today its record is deliberately FRAMELESS (`:frame nil` —
+    ;; the materialiser is a pure map→map fn), so nothing routes here anyway;
+    ;; the entry is the same forward-looking symmetry the members above carry,
+    ;; and it is what makes a future change that gives the materialiser a frame
+    ;; safe rather than silently status-flipping every request it reports on.
+    :rf.error/ssr-ring-response-status-invalid})
 
 (defn- non-projection-eligible-error?
   "True when `operation` names a recoverable-degradation error category

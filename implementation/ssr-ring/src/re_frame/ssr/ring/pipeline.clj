@@ -39,6 +39,106 @@
 
 (set! *warn-on-reflection* true)
 
+;; ---- the fail-closed status rewrite reports itself ------------------------
+;;
+;; MEASURED under the real gate (`-Dre-frame.debug=false`) before this change:
+;; a non-integer `:status` reaching the materialiser rewrote the app's 200 to a
+;; 500 and emitted NOTHING. `trace/emit!` is the dev bus, so the warning count
+;; was 0 in production and 2 in dev — the 2 being a double-emit all of its own
+;; (below). An operator saw a 500 with no record of why, on either axis.
+;;
+;; WHAT STILL REACHES THIS (re-measured after PR #7204, rf2-dtpfv). The reserved
+;; `:rf.server/*` fx now guard their own args UNCONDITIONALLY, so the framework's
+;; own fx path can no longer feed the flip: `[:rf.server/set-status "not-an-int"]`
+;; leaves `:status 500` (a Long — the guard threw, containment fanned
+;; `:rf.error/fx-handler-exception`, the SSR projector stamped it) and
+;; `[:rf.server/redirect {:status "302"}]` leaves `:redirect nil`. What remains
+;; LIVE is the path the ruling reserved this net for: a HOST that hand-builds the
+;; accumulator (`re-frame.ssr.response/swap-response!`) or calls this PUBLIC
+;; materialiser with its own response map. That is a real caller — `get-response`
+;; is a documented host-adapter surface — so the arm is a backstop, not dead code,
+;; and a backstop that fires silently is the one thing it must not be.
+
+(def ^:private status-defect-record-slots
+  "The CLOSED key set of the always-on
+  `:rf.error/ssr-ring-response-status-invalid` record — the only keys
+  [[report-non-integer-status!]] builds it FROM.
+
+  BUILT FROM, never filtered down to. A deny-list scrub stays one component
+  away from the next leak (rf2-6jqa8 shipped four URL secrets before that
+  lesson landed); a closed allow-list means a slot someone adds upstream has no
+  route to Sentry even in principle. Pinned closed by
+  `pipeline-materialiser-test`, which also asserts the ABSENCE of `:status` by
+  name — the offending VALUE is the one thing this record must never carry.
+
+    :error       the category (union-record shape)
+    :frame       ALWAYS nil — see [[report-non-integer-status!]]
+    :time        the emit instant (union-record shape)
+    :where       the call site; a constant keyword, and the slot the three
+                 sibling `:rf.ssr/*` materialiser diagnostics already carry
+    :status-type the offending value's CLASS NAME — program structure, not app
+                 data (the documented `:ex-class` residual class), and the one
+                 lead that turns \"a 500 happened\" into \"something `str`-ed
+                 the status\"
+    :reason      a closed framework keyword, never prose (rf2-6jqa8: free prose
+                 on this axis is how raw material finds its way back into a
+                 record). The sentence stays on the dev trace, where a reader
+                 who needs it is already standing
+    :recovery    the fail-closed disposition"
+  #{:error :frame :time :where :status-type :reason :recovery})
+
+(defn ^:private report-non-integer-status!
+  "Report ONE non-integer response `:status` on BOTH observability axes and
+  return nil. The single emit site for the fail-closed rewrite, so the two axes
+  cannot disagree about the defect they describe and no arm can forget one.
+
+  Axis 1 is the ALWAYS-ON error-emit record (surface #4) — the half that
+  reaches an off-box shipper on a `-Dre-frame.debug=false` JVM SSR host, built
+  from the closed [[status-defect-record-slots]]. Axis 2 is the dev trace,
+  which keeps the diagnostics whole, INCLUDING the offending value: it is
+  DCE'd/gated, and a developer staring at a 500 wants to see the `\"404\"` that
+  caused it.
+
+  `:frame` is ALWAYS nil, and that is a deliberate constant rather than a
+  missing feature. This materialiser is a pure `(response-map, body) → Ring-map`
+  function with no frame argument; the two `with-frame` blocks in this
+  namespace both CLOSE before the happy-path call site, so an ambient read
+  would populate the slot on the error arm and leave it nil on exactly the path
+  this promotion exists for. A slot that is sometimes-populated with no way for
+  the consumer to tell which is worse than one that is honestly always nil —
+  the `:rf.error/malformed-hydration-payload` frameless spelling. The cost is
+  that the record takes only the corpus-wide route and not the frame-owned
+  `:observability :errors` sink, which for a wire-shape defect is the right
+  half anyway.
+
+  NON-PROJECTING: the category is a member of
+  `re-frame.ssr.error-listener/non-projection-eligible-errors`. It fires at
+  MATERIALISATION time, strictly after the status is resolved, so re-projecting
+  it could only fight the rewrite it is reporting."
+  [status]
+  (let [;; Computed ONCE and shared by both axes.
+        status-type (some-> status class .getName)]
+    (lifecycle/emit-always-on-error!
+      {:error       :rf.error/ssr-ring-response-status-invalid
+       :frame       nil
+       :time        (interop/now-ms)
+       :where       :ssr-ring/ssr-response->ring-response
+       :status-type status-type
+       :reason      :non-integer-status
+       :recovery    :failed-closed-to-500})
+    (trace/emit! :warning :rf.ssr/ssr-non-integer-status
+                 {:where       :ssr-ring/ssr-response->ring-response
+                  :status      status
+                  :status-type status-type
+                  :reason      (str "response :status is a non-integer value of "
+                                    "type " (or status-type "nil")
+                                    " — Ring statuses must be integers; the "
+                                    "materialiser fails closed to 500 rather than "
+                                    "emit a malformed Ring map (host-dependent; "
+                                    "almost certainly a caller bug)")
+                  :recovery    :failed-closed-to-500}))
+  nil)
+
 (defn ^:private fail-closed-status
   "Coerce a resolved response `:status` to a valid Ring status int,
   defaulting to `fallback` when absent.
@@ -49,26 +149,17 @@
   recovery point. Schema validation is optional, so this adapter is the last
   line: a non-integer status has
   no faithful coercion (we will not guess that \"404\" means 404), so we
-  fail closed to a 500 — a valid, fail-closed Ring response — and surface
-  the defect on the trace bus rather than ship a malformed map."
+  fail closed to a 500 — a valid, fail-closed Ring response — and REPORT the
+  rewrite on both axes ([[report-non-integer-status!]]) rather than ship a
+  malformed map or, worse, ship a silent one.
+
+  Call it ONCE per materialisation: the `:else` arm has a side effect, so a
+  second call for the same status fans a second record for one flip."
   [status fallback]
   (cond
-    (nil? status)         fallback
-    (integer? status)     status
-    :else
-    (do
-      (trace/emit! :warning :rf.ssr/ssr-non-integer-status
-                   {:where       :ssr-ring/ssr-response->ring-response
-                    :status       status
-                    :status-type (some-> status class .getName)
-                    :reason      (str "response :status is a non-integer value of "
-                                      "type " (or (some-> status class .getName) "nil")
-                                      " — Ring statuses must be integers; the "
-                                      "materialiser fails closed to 500 rather than "
-                                      "emit a malformed Ring map (host-dependent; "
-                                      "almost certainly a caller bug)")
-                    :recovery    :failed-closed-to-500})
-      500)))
+    (nil? status)     fallback
+    (integer? status) status
+    :else             (do (report-non-integer-status! status) 500)))
 
 (defn ssr-response->ring-response
   "Materialise the runtime's resolved response accumulator (per
@@ -88,7 +179,8 @@
   wire, and schema validation is optional. It must emit a
   valid Ring response regardless of what slipped past that gate: `:status`
   is coerced to an int (`fail-closed-status` — non-int fails closed to
-  500), the Location target is coerced to a string, and header values are
+  500, and REPORTS the rewrite on the always-on axis as well as the dev
+  trace), the Location target is coerced to a string, and header values are
   coerced to strings in the fold (`headers/merge-pair-into-header-map`).
 
   Content-Length is stripped from every response: the body is
@@ -100,7 +192,16 @@
    (if redirect
      (let [{:keys [location] redirect-status :status} redirect
            ;; `:location` is the only redirect target key.
-           target location]
+           target location
+           ;; Resolve the wire status ONCE, before the no-target warning that
+           ;; also reports it. `fail-closed-status` EMITS on its defect arm, so
+           ;; the previous two calls (the warning's payload and the response
+           ;; map) fanned TWO signals for ONE flip — measured as 2
+           ;; `:rf.ssr/ssr-non-integer-status` warnings for
+           ;; `{:redirect {:status "302"}}`. Harmless while the only consumer
+           ;; was a dev warning; a double record on an off-box shipper is a
+           ;; double alert.
+           wire-status (fail-closed-status (or redirect-status status) 302)]
        ;; A redirect with no target is a malformed wire response — a
        ;; 3xx with no `Location` leaves the browser nowhere to go. The
        ;; runtime accepts a target-less `:rf.server/redirect` (the
@@ -112,13 +213,13 @@
        (when-not target
          (trace/emit! :warning :rf.ssr/ssr-redirect-no-target
                       {:where    :ssr-ring/ssr-response->ring-response
-                       :status   (fail-closed-status (or redirect-status status) 302)
+                       :status   wire-status
                        :reason   (str ":rf.server/redirect set :redirect with no "
                                       ":location — the response carries a "
                                       "3xx status with no Location header (malformed "
                                       "redirect; the browser has no target)")
                        :recovery :warned-and-emitted-statusonly}))
-       {:status  (fail-closed-status (or redirect-status status) 302)
+       {:status  wire-status
         :headers (-> (headers/headers->ring-map+content-type-override
                        headers default-content-type)
                      (headers/append-set-cookies cookies)
