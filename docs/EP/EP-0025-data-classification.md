@@ -275,6 +275,19 @@ correctness:
   egress policy's fail-closed / fail-loud** behaviour — the projector redacts or errors
   rather than leaking.
 
+Those three rules hold in every build. One neighbouring guarantee does not, and it is
+worth naming here because the classification write is folded into the same candidate it
+governs. A registry write rides the candidate frame transition, and a candidate that
+fails app-db schema validation is discarded whole — `:db` write and classification alike
+— before anything installs. **That last gate is a dev-posture contract (rf2-bkvu5).**
+App-db candidate validation is elided from production builds, so a release build produces
+no schema rejections at all: every candidate installs, whatever the registered schemas
+say. The atomicity this EP relies on is unaffected — classification and `:db` are one
+frame-state transition in every build, and the malformed-payload abort above is always-on
+— but nobody should read "rejected candidates never classify" as a production guarantee
+that a *schema violation* will reject anything. See `spec/010-Schemas.md` §Production
+builds.
+
 **Vocabulary & lowering (reference).**
 
 - **Handler effects** (durable app-db) — bare `:sensitive` / `:large` / `:clear-sensitive`
