@@ -57,6 +57,8 @@ Both are registered:
 
 In a typed host, both are types: `LoginFormSlice` wraps `FormSlice` parameterised by a `LoginFormDraft` shape.
 
+These registrations are a **development tripwire**, not the form's validation. `reg-app-schema` checks are elided from production builds ([010 §Production builds](010-Schemas.md#production-builds)), so `LoginForm` will catch a malformed draft while you are developing and catch nothing in a release build. The user-facing validation that decides whether the submit button is enabled, and the server-side check that decides whether a submission is accepted, are both ordinary handler code — see [Pattern-FormAction §Validation is the handler's job](Pattern-FormAction.md#validation-is-the-handlers-job) for the server half.
+
 ## Canonical rules
 
 These are the load-bearing rules of the convention. Examples and views below all follow them.
