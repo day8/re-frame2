@@ -204,8 +204,11 @@
   ;; leaked boundary accumulates rather than merely persisting: the mounted
   ;; suite runs the scroll cycles repeatedly, tears the root down through
   ;; the shared lifecycle, and only then reads the substrate's own
-  ;; connected-occurrence index and the document — both must be EMPTY, as
-  ;; exact zeroes rather than thresholds.
+  ;; connected-occurrence index and the document — the listbox's `option`
+  ;; rows and the engine's positioned `row-shell`s each read separately,
+  ;; because the two layers each contribute a node per rendered row and a
+  ;; read covering one would be blind to a leak in the other. All three
+  ;; must be EMPTY, as exact zeroes rather than thresholds.
   :evidence
   {:reads   [:dom/window-first :dom/window-count]
    :counts  [:tree/rows-rendered :tree/item-reads]

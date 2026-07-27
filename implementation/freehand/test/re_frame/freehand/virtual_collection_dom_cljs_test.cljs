@@ -237,22 +237,28 @@
   shared lifecycle, assert that NOTHING it created survived, and end the
   async test.
 
-  Two books beyond the facade's own. The substrate's CONNECTED-OCCURRENCE
+  Three books beyond the facade's own. The substrate's CONNECTED-OCCURRENCE
   index is the one that matters: every row that scrolled into the window
   opened an occurrence and every row that scrolled out must have closed
   one, so a virtualized list that failed to release is a growing index
-  rather than a subtle slowdown. The document read is the second failure
-  shape — a row element re-parented out of the container survives its
-  root's teardown and would not appear in the first book at all.
+  rather than a subtle slowdown. The two document reads are the second
+  failure shape — an element re-parented out of the container survives its
+  root's teardown and would not appear in the first book at all — and there
+  are two because the two LAYERS each contribute a node per rendered row:
+  the engine's positioned `row-shell` and the listbox's `option` inside it.
+  A read covering only one of them would be blind to a leak in the other.
 
-  Both are read AFTER teardown, which is the whole point. It OWNS the
+  All three are read AFTER teardown, which is the whole point. It OWNS the
   `done` call, so a row that ends here must NOT call `done` itself."
   [container root done where]
   (ms/destroy-root! container root)
   (ms/residue-clean! (str "FH-CTRL-021 — " where)
                      [["the connected-occurrence index" #(occurrences/rows)]
                       ["every row node in the document"
-                       #(.-length (.querySelectorAll js/document "[data-part='row']"))]])
+                       #(.-length (.querySelectorAll js/document "[data-part='row']"))]
+                      ["every row shell in the document"
+                       #(.-length (.querySelectorAll js/document
+                                                     "[data-part='row-shell']"))]])
   (done))
 
 (defn- fail-and-finish!
