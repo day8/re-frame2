@@ -50,8 +50,17 @@
  ;; TWO WRITERS — the call authors `transform` as well. Both write the same
  ;; channel; the commit is simply later. `:library-book` is unchanged across
  ;; the clobber, which is the whole finding: the library does not know.
+ ;;
+ ;; The first row is not decoration. An authored `{:transform "…"}` is a Clojure
+ ;; map, and ordinary props cross SHALLOWLY AND EXACTLY (FH-REACT-002), so
+ ;; without the one `:map-props` adapter it arrives at React as the map it is and
+ ;; React's style writer finds no properties on it — no style is written, and
+ ;; there is no second writer to contest anything. A conflict has to be REAL
+ ;; before it is worth a row, so the conflict is established before it is
+ ;; measured.
  :two-writers
- {:after-library-write   "translateX(10px)"
+ {:authored-before-any-animation "translateX(0px)"
+  :after-library-write   "translateX(10px)"
   :after-authored-commit "translateX(3px)"
   :library-book          [[:animate 10]]
   :recovery              :drive-it-through-the-librarys-own-prop-never-through-style}

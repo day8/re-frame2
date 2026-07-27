@@ -171,10 +171,25 @@
   that is exactly the point of the two-writer case: nothing about the door
   stops a call authoring the property the library animates, because a door
   that policed a CSS property would be a door with an animation model in
-  it."
+  it.
+
+  The `:map-props` adapter is here for the reason the option exists — to
+  prepare a NON-PORTABLE HOST VALUE. Ordinary props cross shallowly and
+  exactly (FH-REACT-002), so an authored `{:transform \"…\"}` arrives at
+  React as the Clojure map it is, and React's style writer finds no
+  properties on it and writes nothing at all. That is not a near miss to be
+  papered over: it is the boundary doing its job, and it is measured in the
+  first assertion of [[a-second-writer-silently-overwrites-the-library]]
+  before the clobber it enables is measured.
+
+  The adapter is written to preserve the KEY SET exactly — it converts a
+  `:style` that is present and adds none that is not — because the answer
+  carries exactly the keys the call authored (Spec 004 §The one
+  ordinary-props adapter)."
   motion-box
-  {:children :optional
-   :ssr      :client-only})
+  {:children  :optional
+   :ssr       :client-only
+   :map-props (fn [p] (cond-> p (contains? p :style) (update :style clj->js)))})
 
 (v/defhost motion-collection
   "The retaining component. `:onExitComplete` is the ONE declared outward
@@ -361,6 +376,13 @@
           (-> (ms/act #(v/mount [contested-page {}] container {:frame fid}))
               (.then
                 (fn [mounted]
+                  (is (= (:authored-before-any-animation row) (transform-of container))
+                      "FH-REACT-010 — the authored style reached React at all. It
+                       only does because the declaration carries the ONE adapter:
+                       ordinary props cross shallowly and exactly, so a Clojure
+                       `{:transform …}` map arrives as the map it is and React's
+                       style writer finds nothing on it. A conflict has to be
+                       real before it can be measured")
                   (animate! 10)
                   (is (= (:after-library-write row) (transform-of container))
                       "the library wrote, and for the moment it holds the property")
