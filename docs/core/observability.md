@@ -432,7 +432,7 @@ exist:
 ;; :events — one record per processed event, after the run settles:
 {:event [:user/login "alice"]  :event-id :user/login
  :frame :app  :time 1716800000000
- :outcome :ok                ;; :ok | :error | :rolled-back | :flow-error
+ :outcome :ok                ;; :ok | :error | :rejected | :rolled-back | :flow-error
  :elapsed-ms 3}
 
 ;; :errors — one record per catalogued production-reachable runtime failure:
@@ -444,13 +444,23 @@ exist:
 
 The `:outcome` on an event record reports across *every* run-failure path, so a
 dispatch that aborted is never mis-reported as a clean `:ok`: `:ok` (committed, flows
-ran, `:fx` walked), `:error` (the handler or an interceptor threw), `:rolled-back`
-(schema validation rejected the candidate db before it installed — app-db kept its
-prior value), or `:flow-error` (a flow's output threw and halted the run). One caveat on
-that third value: the `:events` stream survives the production gate but app-db schema
-validation does not, so `:rolled-back` has no producer in a release build. A dispatch
-whose `:db` violates a registered schema installs anyway and reports `:ok` — the outcome
-is quiet in production by construction, not because your schemas are holding. See
+ran, `:fx` walked), `:error` (the handler or an interceptor threw), `:rejected` (the
+`:rf.schema/at-boundary` interceptor refused the event's payload, so the handler never
+ran), `:rolled-back` (schema validation rejected the candidate db before it installed —
+app-db kept its prior value), or `:flow-error` (a flow's output threw and halted the
+run).
+
+Two of those five behave differently either side of the production gate, and they are
+easier to remember as a pair. `:rolled-back` has no producer in a release build: the
+`:events` stream survives the gate but `reg-app-schema` candidate validation does not, so
+a dispatch whose `:db` violates a registered schema installs anyway and reports `:ok` —
+the outcome is quiet in production by construction, not because your schemas are holding.
+`:rejected` is the other way round, and it is the one that fires there. The boundary
+interceptor's check is ungated and so is its report: a refused payload settles
+`:outcome :rejected` here and fans one `:rf.error/schema-validation-failure` record
+(`:source :boundary`) onto the `:errors` stream beside it. That record is structural only
+— the event id, the schema id, the frame, and nothing derived from the payload, because a
+boundary payload is attacker-controlled or user-private by definition. See
 [Validate with schemas](how-to/validate-with-schemas.md#in-production-the-checks-vanish). The
 `:event` vector in both records is run through the framework's wire-elider once before
 fan-out — a large value becomes `:rf.size/large-elided`, a sensitive one
