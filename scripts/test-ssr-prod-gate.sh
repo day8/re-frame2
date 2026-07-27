@@ -181,30 +181,30 @@ known_red=(
   #    lands.  Do not split that one deftest before it does.
   re-frame.flows-integration-test                 #   2
 
-  # ── rf2-lwtlk / rf2-7vk3z — the conformance corpus.  Nine `ssr-*.edn`
-  #    fixtures fail under the gate, all nine on `:trace-emissions` claims
-  #    (`:rf.event/run-start` for `:rf/server-init` / `:rf/hydrate`), i.e.
-  #    the dev bus — the ordinary posture split.  Because the corpus is one
-  #    `(is (zero? (count failed)))` over every fixture, any one of them
-  #    keeps the whole namespace red.
+  # ── rf2-lwtlk / rf2-76gom — the conformance corpus.  CLEARED, and it did
+  #    NOT clear by guarding.  Nine `ssr-*.edn` fixtures used to fail here,
+  #    all nine on `:trace-emissions` claims read off the DEV bus, and two
+  #    of them ALSO reported `public-error actual: nil`.
   #
-  #    TWO of the nine ALSO report `public-error actual: nil`, and BOTH do so
-  #    for the same runner-side reason — not for a framework one.  The
-  #    runner's `pe-check` (ssr_conformance_test.clj ~753) sources its error
-  #    event from `@traces`, the DEV bus, before feeding it to
-  #    `ssr/project-error`; under the gate that collection is empty, so
-  #    `pe-check` reports nil whatever the framework did.  This is true of
-  #    `:ssr/error-sanitisation` (category `:rf.error/handler-exception`,
-  #    always-on) and — VERIFIED 2026-07-27, after rf2-ov56u landed — equally
-  #    of `:ssr/error-known-mapping` (the route miss, now always-on too).
-  #    rf2-ov56u did NOT clear that fixture, contrary to the rf2-rqje9
-  #    ruling's expectation; re-sourcing `pe-check` from the always-on axis
-  #    (the rf2-7vk3z shape) is what clears both, and it depends on no
-  #    ruling.  The framework behaviour the fixture is ABOUT is separately
-  #    proven in this lane by
-  #    `re-frame.ssr-route-miss-404-production-test`, and the projector
-  #    itself is green here via `re-frame.ssr-error-projector-substrate-test`.
-  re-frame.ssr-conformance-test                   #   1
+  #    The public-error half was never a framework fault: the runner's
+  #    `pe-check` sourced its error event from `@traces` before feeding
+  #    `ssr/project-error`, so under the gate it reported nil whatever the
+  #    framework did — `:ssr/error-known-mapping` did NOT clear with
+  #    rf2-ov56u for that reason, contrary to the rf2-rqje9 ruling's
+  #    expectation.  rf2-76gom re-sourced it from the ALWAYS-ON `:errors`
+  #    axis, synthesised into the projector's envelope by the same generic
+  #    lift `error-emit-projection-listener` performs, so both fixtures now
+  #    adjudicate the wire under the gate.  Mutation-proved: remove the
+  #    fallback and exactly those two go red here.
+  #
+  #    The `:trace-emissions` half kept its dev-bus assertions VERBATIM in a
+  #    dev arm AND gained a production counterpart rather than a hole: a
+  #    `{:operation :rf.event/run-start :tags {:rf.trace/event-id X}}` claim
+  #    says event X RAN, which the always-on `:events` substrate records in
+  #    production, so all 17 such claims are adjudicated under BOTH postures
+  #    (mutation-proved: stub the capture and nine fixtures go red).
+  #    `:trace-not-emitted` moved into the dev arm with them — a negative
+  #    over an empty ring passes with the runtime removed.
 
   # ── rf2-lwtlk — the PAYLOAD-POLICY suite.  CLEARED, and the roster note
   #    that asked for verification rather than assumption was answered:

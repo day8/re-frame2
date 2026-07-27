@@ -71,6 +71,52 @@
        - `:ssr/html-attr-present` (the rendered root element carries
          the named data-attribute).
 
+  ## Posture split (rf2-lwtlk / rf2-76gom)
+
+  This runner executes under BOTH `clojure -M:test` and the REAL
+  production gate `-Dre-frame.debug=false`
+  (`scripts/test-ssr-prod-gate.sh`), and the two postures do not observe
+  the same channels.
+
+    - `:trace-emissions` / `:trace-not-emitted` read `@traces`, the DEV
+      trace bus. Every emit site on it sits inside `interop/debug-enabled?`,
+      a LOAD-TIME gate, so under `-Dre-frame.debug=false` the ring is empty
+      for every fixture. Both channels are kept VERBATIM and adjudicated in
+      dev posture only. The negative channel is the one that matters most
+      here: `:trace-not-emitted` over an empty ring passes automatically —
+      it would hold with the runtime removed — so leaving it outside the
+      guard would have been a false green, not extra coverage.
+
+    - The `run-start` half of `:trace-emissions` DOES have a
+      production-visible counterpart, and it is used rather than skipped. A
+      `{:operation :rf.event/run-start :tags {:rf.trace/event-id X}}` claim
+      says event X RAN, and the always-on `:events` substrate (Spec 009
+      §Event-emit listener) records exactly that, in production.
+      `check-always-on-events` adjudicates those claims under BOTH postures;
+      an event that never ran reds it. Nine of the fifteen fixtures depend
+      on this for their only trace-shaped coverage under the gate.
+
+    - `:ssr/public-error` sources its error event from whichever axis
+      carries it — dev bus first (a superset in dev), else the always-on
+      `:errors` axis, synthesised into the projector's envelope by
+      `error-record->trace-event`. Sourcing it from `@traces` ALONE
+      reported `:actual nil` under the gate for every fixture whatever the
+      framework did (rf2-76gom); the always-on axis is the projector's
+      production status source of truth, so under the gate this channel now
+      adjudicates the wire.
+
+    - Every other channel — `:final-app-db`, `:sub-values`,
+      `:ssr/active-head`, `:ssr/request-result`,
+      `:ssr/rendered-head-contains`, `:ssr/html-attr-present`,
+      `:fixture/calls`, `:expect-error` — is posture-independent and runs
+      under the gate unchanged.
+
+  Two claims in the corpus have NO production counterpart and are dev-only
+  by design: `:rf.ssr/hydration-mismatch` (emitted solely through
+  `trace/emit-error!`, `hydrate.cljc`) and the `:source :ssr-hydration`
+  slot on a `run-start` trace (the always-on event record carries no
+  `:source`). Both remain asserted verbatim in the dev arm.
+
   ## Capability claim
 
   Per `spec/conformance/README.md` §Capability tagging, the runner
@@ -100,6 +146,7 @@
             [re-frame.core :as rf]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.head :as ssr-head]
@@ -404,13 +451,73 @@
 ;; ---- trace capture -------------------------------------------------------
 
 (defn- collect-traces
-  "Register a trace listener for the fixture's run; the returned atom
-  accumulates every captured trace event."
+  "Register a DEV trace listener for the fixture's run; the returned atom
+  accumulates every captured trace event.
+
+  DEV-ONLY BY CONSTRUCTION. `trace/register-listener!` feeds the
+  development trace bus, and every emit site on it sits inside
+  `interop/debug-enabled?` — a load-time gate. Under
+  `-Dre-frame.debug=false` this atom stays EMPTY for every fixture, which
+  is why the always-on captures below exist alongside it."
   [fixture-id]
   (let [traces (atom [])]
     (trace/register-listener! [fixture-id]
                               (fn [ev] (swap! traces conj ev)))
     traces))
+
+;; ---- always-on capture (rf2-76gom) ---------------------------------------
+;;
+;; Surface #4 — the `error-emit` / `event-emit` substrates, which survive
+;; `-Dre-frame.debug=false` and are what a production JVM SSR host actually
+;; ships off-box. These are NOT a fallback rendering of the dev bus: the
+;; always-on error axis is the SSR projector's production status source of
+;; truth (`re-frame.ssr.error-listener/error-emit-projection-listener`), so
+;; a fixture adjudicated against it is adjudicating the wire.
+
+(def ^:private always-on-error-listener-id ::always-on-errors)
+(def ^:private always-on-event-listener-id ::always-on-events)
+
+(defn- error-record->trace-event
+  "Synthesise the `{:operation :op-type :tags}` envelope the projector
+  pipeline consumes from an EP-0008 union error record `{:error <kw>
+  :frame <id> :time <ms> + flat category keys}`.
+
+  This is the SAME generic lift `error-emit-projection-listener`
+  performs — every non-`:error` slot rides onto `:tags`, `:recovery`
+  defaults to `:no-recovery` — so an event handed to `ssr/project-error`
+  from here is byte-for-byte the event the runtime's own always-on
+  projection listener would have handed it."
+  [record]
+  {:op-type   :error
+   :operation (:error record)
+   :tags      (-> (dissoc record :error)
+                  (update :recovery #(or % :no-recovery)))})
+
+(defn- collect-always-on-errors
+  "Register a listener on the ALWAYS-ON `:errors` stream for the fixture's
+  run; the returned atom accumulates every record, already in the
+  projector's trace-event envelope."
+  []
+  (let [records (atom [])]
+    (rf/register-listener! :errors always-on-error-listener-id
+                           (fn [record]
+                             (swap! records conj (error-record->trace-event record))))
+    records))
+
+(defn- collect-always-on-events
+  "Register a listener on the ALWAYS-ON `:events` stream for the fixture's
+  run; the returned atom accumulates one record per PROCESSED event (Spec
+  009 §Event-emit listener). This is the production counterpart of the dev
+  bus's `:rf.event/run-start` trace."
+  []
+  (let [records (atom [])]
+    (rf/register-listener! :events always-on-event-listener-id
+                           (fn [record] (swap! records conj record)))
+    records))
+
+(defn- clear-always-on-listeners! []
+  (rf/unregister-listener! :errors always-on-error-listener-id)
+  (rf/unregister-listener! :events always-on-event-listener-id))
 
 ;; ---- matchers ------------------------------------------------------------
 
@@ -470,6 +577,54 @@
             (when (some #(trace-matches? nt %) actual)
               (str "trace that should NOT have fired did: " (pr-str nt))))
           not-traces)))
+
+;; ---- the always-on counterpart of :trace-emissions (rf2-lwtlk) ------------
+
+(defn- expected-event-ids
+  "The event-ids a fixture's `:trace-emissions` names on its
+  `:rf.event/run-start` claims, in declaration order.
+
+  A `run-start` claim says THIS EVENT RAN. On the dev bus that is a
+  `:rf.event/run-start` trace; on the always-on `:events` substrate (Spec
+  009 §Event-emit listener) it is one record per PROCESSED event carrying
+  `:event-id`. The claim therefore has a production counterpart, and
+  `check-always-on-events` adjudicates it in BOTH postures."
+  [expected]
+  (into []
+        (keep (fn [exp]
+                (when (= :rf.event/run-start (:operation exp))
+                  (get-in exp [:tags :rf.trace/event-id]))))
+        expected))
+
+(defn- check-always-on-events
+  "Order-preserving subset match of the fixture's `run-start` event-ids
+  against the ALWAYS-ON `:events` records. Extras tolerated, exactly like
+  `check-trace-emissions`.
+
+  This runs under BOTH postures and is the reason nine fixtures adjudicate
+  something real under `-Dre-frame.debug=false` instead of being skipped:
+  an event that never ran produces no always-on record and reds here."
+  [expected event-records]
+  (loop [actual   (mapv :event-id event-records)
+         wanted   (expected-event-ids expected)
+         failures []]
+    (cond
+      (empty? wanted) failures
+      (empty? actual)
+      (into failures
+            (map #(str "expected always-on event record not seen: " (pr-str %)))
+            wanted)
+      :else
+      (let [want (first wanted)
+            i    (->> actual
+                      (map-indexed vector)
+                      (some (fn [[i a]] (when (= want a) i))))]
+        (if i
+          (recur (drop (inc i) actual) (rest wanted) failures)
+          (recur actual (rest wanted)
+                 (conj failures
+                       (str "expected always-on event record not seen: "
+                            (pr-str want)))))))))
 
 ;; ---- :fixture/calls runner -----------------------------------------------
 
@@ -628,6 +783,11 @@
   (try
     (let [fid          (:fixture/id fixture)
           traces       (collect-traces fid)
+          ;; rf2-76gom — the always-on axes, captured alongside the dev bus.
+          ;; Registered BEFORE `realise-handlers` / `make-frame` so the
+          ;; `:initial-events` cascade (`:rf/server-init`) is observed.
+          ao-errors    (collect-always-on-errors)
+          ao-events    (collect-always-on-events)
           _            (realise-handlers fixture)
           frame-config (or (:fixture/frame-config fixture) {})
           ;; `reset-runtime` already created :rf/default WITHOUT any
@@ -744,24 +904,60 @@
                 {:query    query-v
                  :expected expected-val
                  :actual   (rf/subscribe-once query-v {:frame :rf/default})}))
-            trace-failures (check-trace-emissions @traces
-                                                  (:trace-emissions expect))
-            not-emit-failures (check-trace-not-emitted @traces
-                                                       (:trace-not-emitted expect))
+            ;; ---- :trace-emissions / :trace-not-emitted ----------------
+            ;; POSTURE SPLIT (rf2-lwtlk). Both channels read `@traces`, the
+            ;; DEV trace bus, whose every emit site sits inside the
+            ;; load-time `interop/debug-enabled?` gate. Under
+            ;; `-Dre-frame.debug=false` the ring is empty for EVERY fixture,
+            ;; so `check-trace-emissions` reports a miss for a trace the
+            ;; framework was never going to emit, and — the quieter half —
+            ;; `check-trace-not-emitted` passes AUTOMATICALLY, a negative
+            ;; over an empty ring that would hold with the whole runtime
+            ;; ripped out. Kept VERBATIM, adjudicated in dev posture only.
+            ;;
+            ;; The production counterpart is `always-on-failures` below; the
+            ;; two are complementary, not a substitution.
+            trace-failures (when interop/debug-enabled?
+                             (check-trace-emissions @traces
+                                                    (:trace-emissions expect)))
+            not-emit-failures (when interop/debug-enabled?
+                                (check-trace-not-emitted @traces
+                                                         (:trace-not-emitted expect)))
+            ;; ---- the always-on counterpart (rf2-lwtlk) ----------------
+            ;; POSTURE-INDEPENDENT — runs under both. Every `run-start`
+            ;; claim in `:trace-emissions` asserts that an event RAN, and
+            ;; that fact survives the gate on the `:events` substrate. So
+            ;; the nine fixtures whose dev-bus claims elide still adjudicate
+            ;; a real, production-visible fact here rather than nothing.
+            always-on-failures (check-always-on-events (:trace-emissions expect)
+                                                       @ao-events)
+            always-on-claims   (count (expected-event-ids (:trace-emissions expect)))
             ;; ---- :ssr/public-error -----------------------------------
             expected-pe   (:ssr/public-error expect)
+            ;; rf2-76gom — SOURCE THE ERROR FROM WHICHEVER AXIS CARRIES IT.
+            ;; `@traces` is the DEV bus: under the production gate it is
+            ;; empty, so sourcing the error event from it alone reported
+            ;; `:actual nil` for BOTH public-error fixtures whatever the
+            ;; framework did — the check adjudicated a dev artefact, not the
+            ;; wire, and no framework fix could have moved it. The ALWAYS-ON
+            ;; `:errors` axis is the SSR projector's production status
+            ;; source of truth (`error-emit-projection-listener` is what
+            ;; stamps `:status` on a `-Dre-frame.debug=false` JVM), and
+            ;; `error-record->trace-event` hands `project-error` the same
+            ;; envelope that listener builds. Dev posture is unchanged: the
+            ;; dev bus is a superset there and still wins.
+            last-error    (or (last (filter #(= :error (:op-type %)) @traces))
+                              (last @ao-errors))
             pe-check
             (when expected-pe
-              (let [error-events (filter #(= :error (:op-type %)) @traces)
-                    last-error   (last error-events)]
-                (if last-error
-                  (let [actual (ssr/project-error :rf/default last-error)]
-                    {:expected expected-pe
-                     :actual   actual
-                     :passed?  (= expected-pe actual)})
+              (if last-error
+                (let [actual (ssr/project-error :rf/default last-error)]
                   {:expected expected-pe
-                   :actual   nil
-                   :passed?  false})))
+                   :actual   actual
+                   :passed?  (= expected-pe actual)})
+                {:expected expected-pe
+                 :actual   nil
+                 :passed?  false}))
             ;; ---- :ssr/active-head ------------------------------------
             expected-head (:ssr/active-head expect)
             head-check
@@ -804,6 +1000,7 @@
                                  (every? #(= (:expected %) (:actual %)) sub-checks)
                                  (empty? trace-failures)
                                  (empty? not-emit-failures)
+                                 (empty? always-on-failures)
                                  (empty? @dispatch-error-failures)
                                  (or (nil? pe-check) (:passed? pe-check))
                                  (or (nil? head-check) (:passed? head-check))
@@ -814,6 +1011,8 @@
          :sub-checks        sub-checks
          :trace-failures    trace-failures
          :not-emit-failures not-emit-failures
+         :always-on-failures always-on-failures
+         :always-on-claims  always-on-claims
          :dispatch-error-failures @dispatch-error-failures
          :pe-check          pe-check
          :head-check        head-check
@@ -823,7 +1022,13 @@
       {:fixture-id (:fixture/id fixture)
        :passed?    false
        :error      (.getMessage e)
-       :exception  e})))
+       :exception  e})
+    (finally
+      ;; rf2-76gom — the always-on registries are corpus-wide and are NOT
+      ;; cleared by `tf/reset-runtime` (the `re-frame.ssr` façade's own
+      ;; `::error-projection` listener lives there and must survive). Drop
+      ;; ONLY the two stand-ins this run registered, on every exit path.
+      (clear-always-on-listeners!))))
 
 ;; ---- the test entrypoint -------------------------------------------------
 
@@ -873,6 +1078,21 @@
           (str "ssr corpus runnable-fixture floor (>= 10): only "
                (count run) " executed — a fixtures-dir/cwd fault or a "
                "capability-vocab rename has orphaned the corpus."))
+      ;; rf2-lwtlk — the ALWAYS-ON claim floor, the same non-empty guard one
+      ;; level down. `check-always-on-events` is what keeps the corpus
+      ;; load-bearing under `-Dre-frame.debug=false`, where the dev-bus
+      ;; channels are (correctly) not adjudicated. A translation that
+      ;; silently stopped producing claims — a fixture rewrite that dropped
+      ;; its `:trace-emissions`, an `:rf.trace/event-id` rename — would leave
+      ;; the production posture asserting nothing on this channel while
+      ;; still reporting green. Today's corpus yields 17.
+      (is (>= (reduce + 0 (map #(:always-on-claims % 0) run)) 12)
+          (str "always-on event-claim floor (>= 12): the corpus produced "
+               (reduce + 0 (map #(:always-on-claims % 0) run))
+               " `:rf.event/run-start` claims translatable onto the "
+               "always-on `:events` substrate. Under the production gate "
+               "this channel is the one adjudicating :trace-emissions at "
+               "all — a collapse here is a silent loss of coverage."))
       ;; Silent-on-success (rf2-try1x): summary prints only on failure.
       (when (seq failed)
         (println)
@@ -907,6 +1127,8 @@
             (println "    trace:" tf))
           (doseq [nef (:not-emit-failures f)]
             (println "    not-emit:" nef))
+          (doseq [aof (:always-on-failures f)]
+            (println "    always-on:" aof))
           (doseq [def (:dispatch-error-failures f)]
             (println "    expect-error:" def))
           (when-let [pe (:pe-check f)]
