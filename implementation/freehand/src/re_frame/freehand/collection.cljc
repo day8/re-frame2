@@ -18,12 +18,43 @@
   | [[window]] | the visible window, as pure arithmetic |
   | [[reveal-offset]] | the smallest scroll that puts a row wholly on screen |
   | [[row-dom-id]] | the browser-facing address of a rendered row |
-  | [[virtual-list]] | the scroll host, the canvas, and the windowed rows |
-  | [[virtual-row]] | the list's own row shell — not a call-site surface |
+  | [[virtual-collection]] | the ENGINE — viewport, canvas, positioned row shells |
+  | [[virtual-list]] | a thin LISTBOX over the engine |
+  | [[virtual-row]] | the listbox's own row — not a call-site surface |
 
-  Three of the five are pure functions of scalars, which is where the
+  Three of the six are pure functions of scalars, which is where the
   correctness lives. Nothing here schedules, measures, throttles, observes
   a resize, or owns a frame.
+
+  ## Two layers, because virtualization is not a widget
+
+  [[virtual-collection]] is the ENGINE and it is SEMANTIC-NEUTRAL: it owns
+  the scroll host, the full-height canvas, the keyed positioned row shells
+  and the window arithmetic, and it names no ARIA role at all. Its row slot
+  receives the row's KEY, its ABSOLUTE INDEX and the collection's TOTAL —
+  the three facts virtualization makes hard to state honestly — and what
+  those facts are spelled AS is the caller's.
+
+  [[virtual-list]] is the listbox built on it: `role=\"listbox\"`, options,
+  selection, `aria-activedescendant`, and nothing else. It contains no
+  second window arithmetic and no second scroll host; it decorates the
+  engine's viewport through the ordinary forwarding seam and supplies the
+  engine's row slot.
+
+  The split is not anticipation, it is arithmetic against evidence. W3C's
+  own listbox pattern sends a collection of INTERACTIVE rows to the grid
+  pattern instead, whose cell and focus contract is materially different —
+  so a virtual list hard-coded to `option` cannot host an editing grid
+  without either a second engine or dishonest semantics. Mature
+  virtualizers split at exactly this line (TanStack Virtual keeps ranges
+  and keys independent of markup; react-window ships `List` and `Grid` as
+  distinct widgets over one mechanics class), and so does this.
+
+  What is deliberately NOT here: variable row heights, a columns model,
+  sorting, a grid framework, and any `:semantics` option pretending to
+  implement whole ARIA interaction patterns from a keyword. A first-party
+  grid is a separate decision that evidence has not yet demanded; an
+  application that needs grid semantics supplies them through the slot.
 
   ## The call site
 
@@ -37,7 +68,7 @@
         :on-scroll       [:inbox/scrolled]
         :on-key          [:inbox/key-pressed]
         :on-activate     [:inbox/opened]
-        :row             (v/render-fn [id _] [inbox-row {:id id}])}]
+        :row             (v/render-fn [id _index _total] [inbox-row {:id id}])}]
 
   and `inbox-row` is an ordinary declared view that reads its own item:
 
@@ -103,35 +134,36 @@
   real element of `item-count * row-extent` pixels, so a collection large
   enough to exceed the browser's maximum element height is outside it too.
 
-  ## Its relationship to the virtual-table PILOT — UNSETTLED (rf2-86i64)
+  ## Its relationship to the virtual-table PILOT — SETTLED (rf2-86i64)
 
   `re-frame.freehand.pilot-virtual-table`, under `test/`, is a windowed
   table written as CONSUMER code to answer a different question: can the
   public surface express a virtual table with no substrate machinery at
   all? It answered yes, and it is not enrolled in the conformance index —
-  it cites no `FH-` id.
+  it cites no `FH-` id. But it answered by writing a SECOND
+  implementation, and that was one too many.
 
-  This namespace answers the next question, which is DC-04's: does the
-  framework SHIP one, with an accepted law. So the two are a pilot and its
-  promotion rather than two designs — but they are currently two
-  IMPLEMENTATIONS, and that is one too many. Where they differ is written
-  down rather than left for a reader to discover:
+  rf2-86i64 settled it: this namespace is the sole survivor and the
+  pilot's component half is retired, while the pilot's APPLICATIONS live
+  on as callers of what is here. One engine, several honest uses. The
+  ruling brought two of the pilot's boundaries across rather than leaving
+  them to die with it:
 
-  - the pilot's window answers `{:start :end :count :skipped}` over
-    `{:total :row-h :viewport-h :scroll-top}`; [[window]] answers
-    `{:first :count :extent}` over the same five facts spelled the way the
-    props are;
-  - the pilot has no focus or keyboard law, and no residue assertion;
-    those are what FH-CTRL-021 adds;
-  - the pilot moves a live viewport's `scrollTop` back to a persisted
-    offset through a `:layout` behavior (`restore-scroll`), which also
-    buys it time-travel of a MOUNTED viewport. This control has no such
-    seam and pushes that direction to an application effect — a smaller
-    surface, and a strictly weaker answer.
+  - **the semantic-neutral engine**, because the pilot's own editing grid
+    is an existing consumer that cannot honestly be a listbox — it is
+    `role=\"grid\"` over a hundred controlled cells. That is why
+    [[virtual-collection]] exists and why it names no role.
+  - **the controlled `:scroll-offset`**, because the pilot's
+    `restore-scroll` moved a LIVE viewport to a persisted offset before
+    paint, which also buys time-travel of a mounted viewport. This control
+    originally had no such seam and pushed that direction to an
+    application effect — a strictly weaker answer, said so, and now has
+    the seam instead.
 
-  Which one survives, and whether the pilot's restoration seam should come
-  with it, is rf2-86i64's to settle. Until it does, prefer this namespace
-  for new code: it is the shipped one.
+  The pilot's deletion is sequenced behind this file: its applications are
+  rewritten as callers and its discriminating browser evidence is migrated
+  onto these declarations FIRST, and only then does the second
+  implementation go.
 
   Normative owner: [`spec/004-Views.md` §Controller state is ordinary
   frame data](../../../../../spec/004-Views.md#controller-state-is-ordinary-frame-data);
@@ -255,20 +287,132 @@
   [list-id index]
   (str list-id "-row-" index))
 
+
 ;; ---------------------------------------------------------------------------
-;; The row shell
+;; The engine — mechanics, and no semantics at all
+;; ---------------------------------------------------------------------------
+
+(v/defview virtual-collection
+  "(v/defview) The VIRTUALIZATION ENGINE: a scroll host, a canvas of the
+  collection's full height, and the keyed positioned shells of the visible
+  window. It names no ARIA role, and that is the whole point of it.
+
+  | prop | |
+  |---|---|
+  | `:row-keys` | REQUIRED — the ordered vector of stable item identities |
+  | `:row-extent` | REQUIRED — the FIXED row height, in pixels |
+  | `:viewport-extent` | REQUIRED — the scroll host's height, in pixels |
+  | `:scroll-offset` | REQUIRED — the caller's scroll position |
+  | `:row` | REQUIRED — a `v/render-fn` of `[row-key index total]` |
+  | `:on-scroll` | REQUIRED — the scroll intent; `::v/scroll-top` is appended |
+  | `:overscan` | optional — rows rendered beyond each edge |
+  | `:attrs` | optional — attributes for the viewport, through `v/spread-safe` |
+
+  ## Why it is semantic-neutral
+
+  Virtualization mechanics and widget semantics are different layers, and
+  a control that fuses them can only ever serve one widget. A virtual list
+  hard-coded to `role=\"listbox\"` cannot host an editing grid — W3C's own
+  listbox pattern sends collections of interactive rows to the GRID
+  pattern, whose cell, focus and keyboard contract is materially different
+  — so fusing them buys a second engine the first time a second widget
+  turns up. [[virtual-list]] is that first widget, built on this in a
+  hundred lines; a grid would be another, and neither is inside here.
+
+  So the engine emits mechanics and nothing else: `data-part` names, the
+  positioning, the canvas extent and the two window-evidence attributes.
+  The ROLE, the selection, the keyboard and the accessible position are
+  supplied by whoever calls it — through `:attrs` for the viewport, and
+  through the row slot for the rows.
+
+  `:attrs` is a MAP rather than the loose leftovers of the props, and that
+  is the grammar's doing rather than a taste: a render-slot callback is
+  legal only as a literal call-site prop value, so a wrapper that folded
+  its own props into a `merge` could not also hand this one a `:row`. The
+  explicit seam is the better shape anyway — it separates what the engine
+  IS configured by from what it merely carries to an element.
+
+  ## The row slot's three arguments
+
+  `:row` is invoked with the row's KEY, its ABSOLUTE INDEX and the
+  collection's TOTAL. Those three are exactly the facts virtualization
+  makes hard to state honestly — the DOM holds forty rows and the
+  collection holds ten thousand — so the engine hands them over rather
+  than deciding what they are called. `aria-posinset`/`aria-setsize`
+  spells them for a listbox and `aria-rowindex`/`aria-rowcount` for a
+  grid, and choosing between those is a semantic decision the engine has
+  no business making.
+
+  ## What it renders
+
+  Three parts, and no others: `viewport` (the scroll host), `canvas` (the
+  full-height box the rows are positioned inside), and `row-shell` (one
+  per rendered row — the absolutely positioned box the slot's content
+  renders inside). The shell is `role=\"presentation\"` because it is
+  geometry rather than meaning: the semantic element is the slot's, so the
+  accessibility tree sees the caller's row and not this box.
+
+  The viewport additionally carries `data-window-first` and
+  `data-window-count`, which are EVIDENCE rather than parts: they state
+  the window the render decided so a test, a screen recording or a tool
+  can read it off one element instead of counting children."
+  {:props [:map {:closed false}
+           [:row-keys :vector]
+           [:row-extent :int]
+           [:viewport-extent :int]
+           [:scroll-offset :int]
+           [:row :some]
+           [:on-scroll :vector]
+           [:overscan {:optional true} [:maybe :int]]
+           [:attrs {:optional true} [:maybe :map]]]}
+  [{:keys [row-keys row-extent viewport-extent scroll-offset row on-scroll
+           overscan attrs]}]
+  (let [total (count row-keys)
+        w     (window {:item-count      total
+                       :row-extent      row-extent
+                       :viewport-extent viewport-extent
+                       :scroll-offset   scroll-offset
+                       :overscan        overscan})
+        from  (:first w)
+        to    (+ from (:count w))]
+    [:div (v/spread-safe
+            {:data-part         "viewport"
+             :data-window-first from
+             :data-window-count (:count w)
+             :style             {:height   viewport-extent
+                                 :overflow "auto"
+                                 :position "relative"}
+             :on-scroll         (conj on-scroll ::v/scroll-top)}
+            attrs)
+     [:div {:data-part "canvas"
+            :style     {:position "relative"
+                        :height   (:extent w)}}
+      (for [i (range from to)
+            :let [k (nth row-keys i)]]
+        [:div {:key       k
+               :data-part "row-shell"
+               :role      "presentation"
+               :style     {:position "absolute"
+                           :left     0
+                           :right    0
+                           :top      (* i row-extent)
+                           :height   row-extent}}
+         (v/slot row k i total)])]]))
+
+;; ---------------------------------------------------------------------------
+;; The listbox — one widget over the engine
 ;; ---------------------------------------------------------------------------
 
 (v/defview virtual-row
-  "(v/defview) [[virtual-list]]'s OWN row shell — the positioned,
-  addressed, accessible box the caller's row content renders inside. It is
-  the list's implementation and not a call-site surface: a caller reaches
-  it only through `:row`.
+  "(v/defview) [[virtual-list]]'s OWN row — the addressed, selectable
+  `option` the caller's row content renders inside. It is the listbox's
+  implementation and not a call-site surface: a caller reaches it only
+  through `:row`.
 
-  It is a declared child rather than markup inlined into the list's loop,
-  and that is a requirement rather than a style. A row carries a committed
-  event site (`:on-click`) that closes over the row's own identity, and
-  the compiled grammar refuses a handler capturing a loop binding
+  It is a declared child rather than markup inlined into a loop, and that
+  is a requirement rather than a style. A row carries a committed event
+  site (`:on-click`) that closes over the row's own identity, and the
+  compiled grammar refuses a handler capturing a loop binding
   (`:rf.ui.compile/loop-capturing-handler`) precisely because a per-row
   committed slot needs a per-row instance. Its own catalogued recovery is
   to extract a declared child view and pass the binding as a prop, which
@@ -279,37 +423,34 @@
   `aria-posinset` is the row's ABSOLUTE position, `aria-setsize` is the
   collection's true size, and `aria-selected` is the caller's selection.
   A virtualized list that omitted them would tell a screen reader it holds
-  forty rows."
+  forty rows. All three are LISTBOX spellings of the three arguments
+  [[virtual-collection]]'s row slot hands over, which is the whole of what
+  makes this the semantic layer and that one the mechanical layer.
+
+  It carries no positioning: the engine's shell owns where the row IS, and
+  this owns what it MEANS."
   {:props [:map {:closed false}
            [:dom-id :string]
            [:index :int]
            [:item-count :int]
-           [:row-extent :int]
            [:row-key :some]
+           [:row :some]
            [:active? :boolean]
            [:on-activate {:optional true} [:maybe :vector]]]}
-  [{:keys [dom-id index item-count row-extent row-key active? on-activate children]}]
+  [{:keys [dom-id index item-count row-key row active? on-activate]}]
   [:div {:id            dom-id
          :role          "option"
          :data-part     "row"
          :aria-posinset (inc index)
          :aria-setsize  item-count
          :aria-selected (if active? "true" "false")
-         :style         {:position "absolute"
-                         :left     0
-                         :right    0
-                         :top      (* index row-extent)
-                         :height   row-extent}
+         :style         {:height "100%"}
          :on-click      (when on-activate (conj on-activate row-key))}
-   children])
-
-;; ---------------------------------------------------------------------------
-;; The list
-;; ---------------------------------------------------------------------------
+   (v/slot row row-key index item-count)])
 
 (v/defview virtual-list
-  "(v/defview) A fixed-extent virtual collection: a scroll host, a canvas
-  of the collection's full height, and the rows of the visible window.
+  "(v/defview) A fixed-extent virtual LISTBOX — [[virtual-collection]]
+  wearing `role=\"listbox\"`, and nothing more than that.
 
   | prop | |
   |---|---|
@@ -318,7 +459,7 @@
   | `:row-extent` | REQUIRED — the FIXED row height, in pixels |
   | `:viewport-extent` | REQUIRED — the scroll host's height, in pixels |
   | `:scroll-offset` | REQUIRED — the caller's scroll position |
-  | `:row` | REQUIRED — a `v/render-fn` of `[row-key index]` |
+  | `:row` | REQUIRED — a `v/render-fn` of `[row-key index total]` |
   | `:on-scroll` | REQUIRED — the scroll intent; `::v/scroll-top` is appended |
   | `:overscan` | optional — rows rendered beyond each edge |
   | `:active-index` | optional — the caller's active row, by position |
@@ -326,13 +467,27 @@
   | `:on-activate` | optional — the row intent; the row's key is appended |
   | anything else | forwarded to the scroll host through `v/spread-safe` |
 
+  ## It is a wrapper, and the emphasis is on how LITTLE it is
+
+  It runs no window arithmetic, owns no scroll host, positions nothing and
+  measures nothing — all of that is the engine's, and a second copy of any
+  of it here would be the two-implementations problem this control was
+  consolidated to end. What it adds is exactly the listbox pattern:
+  `role=\"listbox\"` and `tabindex 0` on the engine's viewport, `option`
+  rows carrying the accessible position and the selection,
+  `aria-activedescendant`, and a key intent.
+
+  It reads [[window]] once, to decide whether the active row is on screen.
+  That is the same pure function the engine renders from, called a second
+  time — one arithmetic used twice, not a second arithmetic.
+
   ## What it renders
 
-  Three semantic parts under one `data-component` scope, and no others:
-  `viewport` (the scroll host, which is also the focus holder), `canvas`
-  (the full-height box the rows are positioned inside), and `row`. The
-  roster is a deliberate public subset — a caller's stylesheet reaches
-  those three and nothing else — per Spec 004 §Theming and semantic parts.
+  Four semantic parts under one `data-component` scope, and no others:
+  `viewport`, `canvas` and `row-shell` are the engine's, and `row` is this
+  layer's `option`. The roster is a deliberate public subset — a caller's
+  stylesheet reaches those four and nothing else — per Spec 004 §Theming
+  and semantic parts.
 
   Everything inside a row is the caller's. The control emits no text, no
   cell, no divider and no chrome, because a list that owned its row markup
@@ -343,16 +498,10 @@
   Entirely in the application's frame. `:scroll-offset` and
   `:active-index` are values the caller reads out of app-db and passes
   down; `:on-scroll` and `:on-key` are ordinary intents the caller
-  registers. The control writes nothing anywhere, which is what makes the
-  scroll position an epoch-carried, snapshot-restorable, tool-readable
-  application fact rather than a number living in a host node that no
-  re-frame reader can see.
-
-  A caller who wants the browser's own scroll position to follow app-db
-  after a keyboard move sets `scrollTop` from an ordinary effect on the
-  element `:id` names. That direction is the application's, deliberately:
-  writing to the host from inside a render is how a scroll controller
-  starts fighting the user.
+  registers. There is no host slot, no ref and no controller record, which
+  is what makes the scroll position an epoch-carried,
+  snapshot-restorable, tool-readable application fact rather than a number
+  living in a host node that no re-frame reader can see.
 
   ## Reading it back
 
@@ -360,14 +509,7 @@
   collection. `(count (find-all tree #(= \"row\" (:data-part (attrs %)))))`
   is therefore the deterministic count of rendered rows — a fact a test
   asserts by equality, with no timing and no instrumentation — and it is
-  equal to `(:count (window …))` by construction.
-
-  The viewport additionally carries `data-window-first` and
-  `data-window-count`, which are EVIDENCE rather than parts: they state
-  the window the render decided so a test, a screen recording or a tool
-  can read it off one element instead of counting children. They are two
-  small attributes on one node per list, and they are what makes 'which
-  window is on screen' answerable without instrumenting the substrate."
+  equal to `(:count (window …))` by construction."
   {:props [:map {:closed false}
            [:id :string]
            [:row-keys :vector]
@@ -383,41 +525,28 @@
   [{:keys [id row-keys row-extent viewport-extent scroll-offset row on-scroll
            overscan active-index on-key on-activate]
     :as   props}]
-  (let [total (count row-keys)
-        w     (window {:item-count      total
-                       :row-extent      row-extent
-                       :viewport-extent viewport-extent
-                       :scroll-offset   scroll-offset
-                       :overscan        overscan})
-        from  (:first w)
-        to    (+ from (:count w))]
-    [:div (v/spread-safe
-            {:id                    id
-             :role                  "listbox"
-             :tabindex              0
-             :data-component        "rf-virtual-list"
-             :data-part             "viewport"
-             :data-window-first     from
-             :data-window-count     (:count w)
-             :aria-activedescendant (when active-index (row-dom-id id active-index))
-             :style                 {:height   viewport-extent
-                                     :overflow "auto"
-                                     :position "relative"}
-             :on-scroll             (conj on-scroll ::v/scroll-top)
-             :on-key-down           (when on-key (conj on-key ::v/key))}
-            (dissoc props :id :row-keys :row-extent :viewport-extent :scroll-offset
-                    :row :on-scroll :overscan :active-index :on-key :on-activate))
-     [:div {:data-part "canvas"
-            :style     {:position "relative"
-                        :height   (:extent w)}}
-      (for [i (range from to)
-            :let [k (nth row-keys i)]]
-        [virtual-row {:key         k
-                      :dom-id      (row-dom-id id i)
-                      :index       i
-                      :item-count  total
-                      :row-extent  row-extent
-                      :row-key     k
-                      :active?     (= i active-index)
-                      :on-activate on-activate}
-         (v/slot row k i)])]]))
+  [virtual-collection
+   {:row-keys        row-keys
+    :row-extent      row-extent
+    :viewport-extent viewport-extent
+    :scroll-offset   scroll-offset
+    :overscan        overscan
+    :on-scroll       on-scroll
+    :attrs           (merge (dissoc props :row-keys :row-extent :viewport-extent
+                                    :scroll-offset :row :on-scroll :overscan
+                                    :active-index :on-key :on-activate)
+                            {:role                  "listbox"
+                             :tabindex              0
+                             :data-component        "rf-virtual-list"
+                             :aria-activedescendant (when active-index
+                                                      (row-dom-id id active-index))
+                             :on-key-down           (when on-key
+                                                      (conj on-key ::v/key))})
+    :row             (v/render-fn [k i total]
+                       [virtual-row {:dom-id      (row-dom-id id i)
+                                     :index       i
+                                     :item-count  total
+                                     :row-key     k
+                                     :row         row
+                                     :active?     (= i active-index)
+                                     :on-activate on-activate}])}])

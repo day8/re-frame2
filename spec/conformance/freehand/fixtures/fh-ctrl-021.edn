@@ -1,5 +1,5 @@
 {:fh/id  "FH-CTRL-021"
- :fh/law "A fixed-extent virtual collection renders a WINDOW and states the collection: the visible window is pure arithmetic whose row count is bounded by the viewport and independent of the item count, the rows carry the caller's stable keys at their absolute indices so a window movement re-keys nothing, exactly one item subscription exists per RENDERED row rather than per item, the scroll position is ordinary frame data the control never writes, and every rendered row states the collection's true size and its own true position while the DOM holds only the window."
+ :fh/law "A fixed-extent virtual collection renders a WINDOW and states the collection: the visible window is pure arithmetic whose row count is bounded by the viewport and independent of the item count, the rows carry the caller's stable keys at their absolute indices so a window movement re-keys nothing, exactly one item subscription exists per RENDERED row rather than per item, the scroll position is ordinary frame data the control never writes, and every rendered row states the collection's true size and its own true position while the DOM holds only the window. The virtualization ENGINE is semantic-neutral — it names no role, its positioned row shells are presentational, and its row slot receives the row's key, its absolute index and the collection's total — so one engine carries a listbox and a grid alike, and the listbox is a thin wrapper over it holding no second window arithmetic and no second scroll host."
 
  :frame   :rf.test/virtual-collection
  :list-id "inbox"
@@ -159,7 +159,7 @@
 
   :structural
   [{:ns  re-frame.freehand.virtual-collection-cljs-test
-    :law "The window is pure arithmetic — bounded by the viewport, independent of the item count, clamped at both ends and total over a degenerate collection — and the tree it produces holds exactly that many rows, keyed by the caller's ids at their absolute indices, each stating the collection's true size, with exactly one item subscription per rendered row and none at all in the control itself."}
+    :law "The window is pure arithmetic — bounded by the viewport, independent of the item count, clamped at both ends and total over a degenerate collection — and the tree it produces holds exactly that many rows, keyed by the caller's ids at their absolute indices, each stating the collection's true size, with exactly one item subscription per rendered row and none at all in the control itself. The engine underneath names no role, positions presentational shells and hands its row slot the key, the absolute index and the total, so the same engine renders a listbox under the shipped wrapper and a grid under a caller that supplies grid semantics."}
    {:ns  re-frame.freehand.virtual-collection-parity-cljs-test
     :law "The same declarations promoted with `{:compiled true}` — the control, its row shell and the caller — render a tree equal to the interpreted one at every offset, with the same keys at the same absolute indices, so promotion is a keyword rather than a rewrite."}]
 

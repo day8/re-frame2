@@ -20,11 +20,13 @@
   against the twin, so a production body drifting out of the grammar reds
   here even if the twin does not.
 
-  **The whole vertical promotes.** The list, its row shell and the caller
-  all carry `{:compiled true}`, so the compiled arm is compiled through
-  every boundary the control owns rather than an interpreted caller
-  driving one compiled leaf. The manifest is the evidence: a real analysis
-  exists for each, with the event and slot sites the body writes.
+  **The whole vertical promotes.** The engine, the listbox row, the
+  listbox and the caller all carry `{:compiled true}`, so the compiled arm
+  is compiled through every boundary the control owns rather than an
+  interpreted caller driving one compiled leaf. The manifest is the
+  evidence: a real analysis exists for each, with the event and slot sites
+  the body writes — and where those sites LAND is itself the machine-checked
+  form of the engine/listbox split.
 
   **The control reads nothing.** The manifest's `:subscriptions` roster is
   the machine-checked form of the narrow-read design — the list and its
@@ -100,10 +102,12 @@
                twin below a promotion rather than a reimplementation."
        (let [reports (v/check "src/re_frame/freehand/collection.cljc")
              by-id   (into {} (map (juxt :view-id identity)) reports)]
-         (is (= #{:re-frame.freehand.collection/virtual-list
+         (is (= #{:re-frame.freehand.collection/virtual-collection
+                  :re-frame.freehand.collection/virtual-list
                   :re-frame.freehand.collection/virtual-row}
                 (set (keys by-id)))
-             "the checker found both declarations the control ships")
+             "the checker found all three declarations the control ships —
+              the engine, the listbox row and the listbox")
          (doseq [[view-id report] by-id]
            (is (:compile-eligible? report)
                (str view-id " is inside the compiled grammar as it stands"))
@@ -111,21 +115,23 @@
                (str view-id " raises no finding: " (pr-str (:findings report)))))))))
 
 (deftest fh-ctrl-021-the-whole-vertical-promotes-and-reads-nothing
-  (testing "Per FH-CTRL-021: the list, its row shell and the caller all
-            carry `{:compiled true}`, so a real analysis exists for each —
-            an interpreted declaration has none, which is what makes this
-            row a mode witness rather than a label.
+  (testing "Per FH-CTRL-021: the engine, the listbox row, the listbox and
+            the caller all carry `{:compiled true}`, so a real analysis
+            exists for each — an interpreted declaration has none, which is
+            what makes this row a mode witness rather than a label.
 
-            And the two the CONTROL owns have an EMPTY subscription roster.
-            That is the narrow-read design, machine-checked: a virtual
-            collection's reads belong to the caller and to each row's own
-            boundary, and there is no reactive site inside the control for
-            an item edit to reach."
-    (doseq [view [compiled/virtual-list compiled/virtual-row compiled/inbox]]
+            And the three the CONTROL owns have an EMPTY subscription
+            roster. That is the narrow-read design, machine-checked: a
+            virtual collection's reads belong to the caller and to each
+            row's own boundary, and there is no reactive site inside the
+            control for an item edit to reach."
+    (doseq [view [compiled/virtual-collection compiled/virtual-list
+                  compiled/virtual-row compiled/inbox]]
       (is (some? (v/manifest view))
           "a compiled declaration carries its analysis"))
 
-    (doseq [view [compiled/virtual-list compiled/virtual-row]]
+    (doseq [view [compiled/virtual-collection compiled/virtual-list
+                  compiled/virtual-row]]
       (is (= [] (:subscriptions (v/manifest view)))
           (str (:view-id (v/manifest view))
                " subscribes to nothing — every read in a virtual collection
@@ -137,11 +143,18 @@
              (set (map :query (:subscriptions (v/manifest compiled/inbox)))))
           "the caller's three reads are finite lexical sites"))
 
-    (testing "and the control's own event sites are the ones its body writes"
-      (is (= [:on-scroll :on-key-down :spread-safe]
-             (mapv :prop (:events (v/manifest compiled/virtual-list))))
-          "the list owns the scroll and the key, plus the forwarding seam
-           the caller's own attributes arrive through")
+    (testing "and the event sites land on the layer that owns the element
+              they are written on — which is how the split is visible to a
+              machine rather than only to a reader"
+      (is (= [:on-scroll :spread-safe]
+             (mapv :prop (:events (v/manifest compiled/virtual-collection))))
+          "the ENGINE owns the scroll — it owns the scroll host — plus the
+           forwarding seam every decorating attribute arrives through,
+           `:on-key-down` among them")
+      (is (= [] (mapv :prop (:events (v/manifest compiled/virtual-list))))
+          "the LISTBOX writes no element at all: it is a props map handed to
+           the engine, which is the machine-checked form of `it contains no
+           second scroll host`")
       (is (= [:on-click]
              (mapv :prop (:events (v/manifest compiled/virtual-row))))
           "and the row owns the activation — one committed slot per row,
