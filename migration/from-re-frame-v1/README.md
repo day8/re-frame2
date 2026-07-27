@@ -2933,6 +2933,8 @@ Apply this *modernisation* only if the user wants multi-frame support. The churn
 
 re-frame2 supports Malli schemas on `reg-event-*`, `reg-sub`, `reg-fx`, `reg-cofx`, and on `app-db` paths via `reg-app-schema`. Specs are validated in dev builds and elided in production.
 
+**Read that second sentence carefully if you are coming from a v1 validation interceptor.** A v1 codebase typically enforced `app-db` shape with a `check-spec-interceptor` on the handler chain — an ordinary interceptor that ran wherever you put it, production included. `reg-app-schema` is not that. It is a development-time assertion: a production build (`:advanced` with `goog.DEBUG` false) still registers the schema so tools and agents can introspect it, but the check is compile-time eliminated, so *your app-db schemas do not run in production builds*. A candidate that violates one installs silently — no rejection, no rollback, no trace. Do not port a production guarantee onto `reg-app-schema` and assume it carried across. An invariant that must hold in production stays in the handler, and untrusted input crossing a system boundary goes behind the `:rf.schema/at-boundary` interceptor, which survives the elision. Per [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds).
+
 Apply only with explicit user direction; this is a real authoring exercise, not a mechanical transformation.
 
 ### O-4. Convert namespaced top-level state to a frame for isolation
