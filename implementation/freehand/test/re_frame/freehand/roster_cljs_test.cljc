@@ -78,6 +78,41 @@
     (is (nil? (roster/by-id :FH-EVENT-005))
         "a retired law, whose row names no fixture at all, is not rostered either")))
 
+(deftest enrolment-is-key-PRESENCE-and-not-truthiness
+  (testing "The half of discovery that decides whether a fixture reaches the
+            validator at all. Enrolment shipped spelled as `(when (:fh/record
+            fix) …)`, which reads the same in English and is a different
+            rule: a fixture declaring `:fh/record nil` — a half-finished
+            witness, a key whose value a merge dropped, a `false` left by a
+            hand edit — DISAPPEARED from the roster instead of reaching
+            `defects`, whose first job is to reject a `:fh/record` that is
+            not a map.
+
+            The gate stayed green by losing the record, and that is the
+            failure mode a discovery-driven roster is uniquely exposed to:
+            with a hand-maintained membership vector the record would still
+            have been listed. It was reproduced by the merged-PR audit of
+            #7178 and is closed by [[re-frame.freehand.roster/enrolled?]]."
+    (is (roster/enrolled? {:fh/id "FH-PROBE-001" :fh/record {:source '[x]}})
+        "a fixture with a record is enrolled")
+    (is (roster/enrolled? {:fh/id "FH-PROBE-001" :fh/record nil})
+        "and so is one whose record is nil — the KEY is the declaration")
+    (is (roster/enrolled? {:fh/id "FH-PROBE-001" :fh/record false})
+        "and one whose record is false")
+    (is (not (roster/enrolled? {:fh/id "FH-PROBE-001"}))
+        "while a fixture that never mentions the key has declined")
+    (is (not (roster/enrolled? nil))
+        "and a fixture that is not a map at all cannot have declared anything"))
+
+  (testing "which matters only because of where such a record then lands: at
+            `defects`, reported, naming its law — rather than nowhere."
+    (doseq [[note record] [["nil"   {:fh/id "FH-PROBE-001" :fh/record nil}]
+                           ["false" {:fh/id "FH-PROBE-001" :fh/record false}]]]
+      (let [ds (roster/defects record)]
+        (is (= 1 (count ds)) (str "a :fh/record of " note " is ONE defect"))
+        (is (= "FH-PROBE-001" (:fh/id (first ds))) (str note " — names the law"))
+        (is (= :fh/record (:field (first ds)))     (str note " — names the field"))))))
+
 (deftest every-rostered-record-carries-its-whole-identity
   (testing "Per rf2-drpa3.182.7 acceptance 1: one record answers every
             question a reader has about a law — what states it, where it is
