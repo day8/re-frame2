@@ -456,6 +456,33 @@
 
 ;; ---- inside subscribe: the prefix ladder ----------------------------------
 
+;; rf2-x0fe2 — the ambient reader, PAIRED, because this is the one place the
+;; CLJS read path does MORE than the JVM one rather than less.
+;;
+;; `frame/resolve-current-frame` is a plain `*current-frame*` var read on the
+;; JVM. On CLJS it consults the `:adapter/current-frame` late-bind hook so the
+;; React-context tier is live — a hook lookup plus a routed-hook chain that
+;; bottoms out in `frame/current-frame`. Every ambient subscribe pays it, and
+;; nothing in the JVM decomposition can see it.
+;;
+;;   S0-VAR    `(frame/current-frame)` — the dynamic-var tier ALONE, which is
+;;             the whole of what the JVM does
+;;   S0-SCOPE  `(frame/resolve-current-frame)` — the shipped CLJS reader
+;;
+;; S0-SCOPE - S0-VAR is the React-context-tier consult, and it is a CLJS-ONLY
+;; term. The arms are in one process against one installed adapter, so the pair
+;; measures it rather than assuming it.
+
+(defn- arm-s0-var []
+  (let [{:keys [n]} @rig]
+    (dotimes [_ n] (keep! (frame/current-frame)))
+    nil))
+
+(defn- arm-s0-scope []
+  (let [{:keys [n]} @rig]
+    (dotimes [_ n] (keep! (frame/resolve-current-frame)))
+    nil))
+
 (defn- arm-s1-curfrm []
   (let [{:keys [n qs]} @rig]
     (dotimes [k n] (keep! (shipped-current-frame! (nth qs k))))
@@ -617,11 +644,85 @@
 
 ;; `call-with-frame-resolution` with a target that names no image-loaded frame:
 ;; the late-bind flush consult, the generation read and the thunk call, with NO
-;; `binding`. `S3-CWFR - S2-TGTID - N-CWFRNOG` is the dynamic binding, isolated.
+;; `binding`. This is the arm the JVM harness subtracts to isolate the binding.
 (defn- arm-n-cwfr-nogen []
   (let [{:keys [n]} @rig]
     (dotimes [_ n]
       (live-frame/call-with-frame-resolution nil (fn [] (keep! true))))
+    nil))
+
+;; THE EXACT ISOLATOR, and it is why this file does not simply copy the JVM
+;; harness's subtraction — TWICE over, because the obvious repair is also wrong.
+;;
+;; FAULT 1, in the JVM subtraction. `read_attribution.clj` isolates the binding
+;; as `S3-CWFR - S2-TGTID - N-CWFRNOG`. That assumes the only difference between
+;; `cwfr` on a real target and `cwfr` on `nil` is the binding — but a nil target
+;; SHORT-CIRCUITS `frame-resolution-generation`, so the difference also contains
+;; the generation read. On the JVM the binding was ~760 B and the generation read
+;; 16-40 B, so the conflation was 2-5% and invisible. Here the binding is
+;; predicted to be ZERO, so that residual would be ENTIRELY the generation read —
+;; a subtraction that reports the generation read AS the binding and manufactures
+;; a "CLJS binding cost" that does not exist.
+;;
+;; FAULT 2, in the obvious repair, and it was caught by this harness disagreeing
+;; with itself. Re-spelling cwfr's body INLINE and subtracting reads 64 B/read
+;; where standalone `N-BINDONLY` reads 0.1 — because `call-with-frame-resolution`
+;; takes a THUNK and its caller allocates a fresh closure per call, while an
+;; inline re-spelling allocates none and lets V8 elide what never escapes. The
+;; subtraction then prices the CLOSURE, and would have been published as the
+;; binding. Same shape of error as fault 1, opposite sign.
+;;
+;; So the pair below is SYMMETRIC: two sibling functions of identical arity and
+;; identical shape, each taking a thunk the arm allocates fresh, differing in
+;; exactly ONE token — `(binding [registrar/*generation* gen] (thunk))` against
+;; `(thunk)`. Same closure, same escape, same flush consult, same generation
+;; read. `N-CWFRBIND - N-CWFRGEN` is therefore the binding and nothing else.
+;;
+;; `cwfr-bind` is `call-with-frame-resolution`'s body verbatim (the `Q-SCHED`
+;; discipline — the measured expression pinned in the harness so it cannot drift
+;; under the attribution). That it is verbatim is CHECKED rather than asserted:
+;; `N-CWFRBIND` must agree with `N-CWFRRAW`, which calls the shipped function.
+
+(defn- cwfr-bind
+  "`live-frame/call-with-frame-resolution`'s body, verbatim. Its twin below
+  differs in one token; do not let them drift apart."
+  [frame-target thunk]
+  (when-let [flush! (late-bind/get-fn-cached :live-frame/flush-projection!)]
+    (flush!))
+  (if-let [gen (live-frame/frame-resolution-generation frame-target)]
+    (binding [registrar/*generation* gen]
+      (thunk))
+    (thunk)))
+
+(defn- cwfr-nobind
+  "`cwfr-bind` with the `binding` removed and NOTHING else changed."
+  [frame-target thunk]
+  (when-let [flush! (late-bind/get-fn-cached :live-frame/flush-projection!)]
+    (flush!))
+  (if-let [_gen (live-frame/frame-resolution-generation frame-target)]
+    (thunk)
+    (thunk)))
+
+(defn- call-thunk
+  "Prices what the cwfr arms pay for the CALLING CONVENTION alone: a fresh
+  closure per call, escaping to a same-arity function. `N-CWFRRAW - N-CALLTHUNK`
+  is then cwfr's own work with the harness's thunk overhead removed."
+  [thunk]
+  (thunk))
+
+(defn- arm-n-cwfr-bind []
+  (let [{:keys [n]} @rig]
+    (dotimes [_ n] (cwfr-bind fid (fn [] (keep! true))))
+    nil))
+
+(defn- arm-n-cwfr-gen []
+  (let [{:keys [n]} @rig]
+    (dotimes [_ n] (cwfr-nobind fid (fn [] (keep! true))))
+    nil))
+
+(defn- arm-n-callthunk []
+  (let [{:keys [n]} @rig]
+    (dotimes [_ n] (call-thunk (fn [] (keep! true))))
     nil))
 
 ;; rf2-8gb3t, the falsifiable pair: the RETIRED composition every caller wrote
@@ -885,6 +986,8 @@
                          ["RGSUB"      arm-rgsub       n]
                          ["RGREAD"     arm-rgread      n]
                          ;; inside subscribe — the prefix ladder
+                         ["S0-VAR"     arm-s0-var      n]
+                         ["S0-SCOPE"   arm-s0-scope    n]
                          ["S1-CURFRM"  arm-s1-curfrm   n]
                          ["S1-EAGER"   arm-s1-eager    n]
                          ["S2-TGTID"   arm-s2-tgtid    n]
@@ -905,6 +1008,9 @@
                          ["N-FLUSH"    arm-n-flush     n]
                          ["N-BINDONLY" arm-n-bindonly  n]
                          ["N-CWFRNOG"  arm-n-cwfr-nogen n]
+                         ["N-CWFRBIND" arm-n-cwfr-bind n]
+                         ["N-CWFRGEN"  arm-n-cwfr-gen  n]
+                         ["N-CALLTHUNK" arm-n-callthunk n]
                          ["N-CWFRWRAP" arm-n-cwfr-wrap n]
                          ["N-CWFRRAW"  arm-n-cwfr-raw  n]
                          ["N-LOOKGEN"  arm-n-lookgen   n]
@@ -958,9 +1064,19 @@
                                            :windows    (get-in run [:windows label] 0))]))
                          plan))
             b    (fn [l] (:p50 (get res l)))
-            ;; per-READ figures: every ladder arm runs n inner iterations
-            pr*  (fn [l] (/ (b l) n))
             noop (b "NOOP")
+            ;; per-READ figures. Every ladder arm runs `n` inner iterations, so
+            ;; the per-read figure is the per-call figure over n — which divides
+            ;; the harness's fixed per-call overhead down by n as well.
+            ;;
+            ;; RAW is the arm as measured; NET is net of `NOOP`, the same
+            ;; discipline `read_attribution.clj` applies to its own NOOP. NOOP
+            ;; is the bare `keep!` loop — the inner-loop skeleton EVERY arm
+            ;; shares — so the overhead it carries is common to all of them and
+            ;; cancels in any subtraction between two arms. Every decomposition
+            ;; below is quoted NET; the per-arm table above is RAW.
+            pr*  (fn [l] (/ (b l) n))
+            net* (fn [l] (/ (- (b l) noop) n))
             floor (/ noop n)]
         (doseq [[label _ per] plan]
           (let [r   (get res label)
@@ -1026,50 +1142,60 @@
                          ["DEREF     + re-frame's signal graph, cache HIT"        "DEREF"]
                          ["RGSUB     subscribe, no deref"                         "RGSUB"]
                          ["RGREAD    @(subscribe q) — the whole reader"           "RGREAD"]]]
-          (println (gstring/format ";;   %-52s %10s B/read%s"
-                           lbl (fmt (pr* l))
-                           (if (<= (pr* l) (* 1.5 floor)) "   <= FLOOR: an UPPER BOUND, not a measurement" ""))))
+          (println (gstring/format ";;   %-52s raw %9s   net %9s B/read%s"
+                           lbl (fmt (pr* l)) (fmt (net* l))
+                           (if (<= (net* l) floor)
+                             "   <= FLOOR: an UPPER BOUND, not a measurement" ""))))
         (println ";;")
         ;; --- inside subscribe -----------------------------------------------
         (println ";; rf2-j8ls2 — INSIDE subscribe's cache-HIT path (prefix ladder)")
-        (doseq [[lbl v] [["require-current-frame! (S1)"       (pr* "S1-CURFRM")]
-                         ["+ frame-target->id     (S2-S1)"    (- (pr* "S2-TGTID") (pr* "S1-CURFRM"))]
-                         ["+ call-with-frame-res  (S3-S2)"    (- (pr* "S3-CWFR") (pr* "S2-TGTID"))]
-                         ["+ frame + cache get    (S4-S3)"    (- (pr* "S4-PRELOOK") (pr* "S3-CWFR"))]
-                         ["+ the REF-COUNT ATTACH (RGSUB-S4)" (- (pr* "RGSUB") (pr* "S4-PRELOOK"))]
-                         ["= subscribe            (RGSUB)"    (pr* "RGSUB")]
-                         ["+ the deref            (RGREAD-RGSUB)" (- (pr* "RGREAD") (pr* "RGSUB"))]
-                         ["= the whole read       (RGREAD)"   (pr* "RGREAD")]]]
-          (println (gstring/format ";;   %-40s %10s B/read" lbl (fmt v))))
+        (println ";;   all figures NET of NOOP; shares are of RGSUB (= subscribe, cache hit)")
+        (let [rgsub (net* "RGSUB")
+              pct   (fn [v] (* 100.0 (/ v rgsub)))]
+          (doseq [[lbl v] [["  of S1: the var read      (S0-VAR)" (net* "S0-VAR")]
+                           ["  of S1: + the CLJS context hook (S0-SCOPE-S0-VAR)"
+                            (- (net* "S0-SCOPE") (net* "S0-VAR"))]
+                           ["require-current-frame! (S1)"       (net* "S1-CURFRM")]
+                           ["+ frame-target->id     (S2-S1)"    (- (net* "S2-TGTID") (net* "S1-CURFRM"))]
+                           ["+ call-with-frame-res  (S3-S2)"    (- (net* "S3-CWFR") (net* "S2-TGTID"))]
+                           ["+ frame + cache get    (S4-S3)"    (- (net* "S4-PRELOOK") (net* "S3-CWFR"))]
+                           ["+ the REF-COUNT ATTACH (RGSUB-S4)" (- (net* "RGSUB") (net* "S4-PRELOOK"))]
+                           ["= subscribe            (RGSUB)"    rgsub]
+                           ["+ the deref            (RGREAD-RGSUB)" (- (net* "RGREAD") (net* "RGSUB"))]
+                           ["= the whole read       (RGREAD)"   (net* "RGREAD")]]]
+            (println (gstring/format ";;   %-40s %10s B/read   %6.1f%%" lbl (fmt v) (pct v)))))
         (println ";; the retired spellings, as paired controls:")
-        (doseq [[lbl v] [["S1-EAGER (retired eager payload)"       (pr* "S1-EAGER")]
-                         ["S1-CURFRM (shipped, deferred)"          (pr* "S1-CURFRM")]
-                         ["rf2-a8bw0 saves (S1-EAGER - S1-CURFRM)" (- (pr* "S1-EAGER") (pr* "S1-CURFRM"))]
-                         ["N-CWFRWRAP (retired target wrapper)"    (pr* "N-CWFRWRAP")]
-                         ["N-CWFRRAW  (shipped, carried target)"   (pr* "N-CWFRRAW")]
-                         ["rf2-8gb3t saves (WRAP - RAW)"           (- (pr* "N-CWFRWRAP") (pr* "N-CWFRRAW"))]
-                         ["  ... predicted by N-RESTGT"            (pr* "N-RESTGT")]]]
+        (doseq [[lbl v] [["S1-EAGER (retired eager payload)"       (net* "S1-EAGER")]
+                         ["S1-CURFRM (shipped, deferred)"          (net* "S1-CURFRM")]
+                         ["rf2-a8bw0 saves (S1-EAGER - S1-CURFRM)" (- (net* "S1-EAGER") (net* "S1-CURFRM"))]
+                         ["N-CWFRWRAP (retired target wrapper)"    (net* "N-CWFRWRAP")]
+                         ["N-CWFRRAW  (shipped, carried target)"   (net* "N-CWFRRAW")]
+                         ["rf2-8gb3t saves (WRAP - RAW)"           (- (net* "N-CWFRWRAP") (net* "N-CWFRRAW"))]
+                         ["  ... predicted by N-RESTGT"            (net* "N-RESTGT")]]]
           (println (gstring/format ";;   %-40s %10s B/read" lbl (fmt v))))
         (println ";; the attach, part by part (RC-CAND is the SHIPPED form):")
         (doseq [l ["RC-ATTACH" "RC-CAND" "RC-GUARD" "RC-SWAPID" "RC-UPDIN"
                    "RC-NEST" "RC-ASSOC" "RC-EASSOC"]]
-          (println (gstring/format ";;   %-40s %10s B/read" l (fmt (pr* l)))))
+          (println (gstring/format ";;   %-40s %10s B/read" l (fmt (net* l)))))
         (doseq [[lbl v] [["update-in cost (ATTACH-GUARD)"
-                          (- (pr* "RC-ATTACH") (pr* "RC-GUARD"))]
+                          (- (net* "RC-ATTACH") (net* "RC-GUARD"))]
                          ["irreducible persistent write (ASSOC+EASSOC)"
-                          (+ (pr* "RC-ASSOC") (pr* "RC-EASSOC"))]
+                          (+ (net* "RC-ASSOC") (net* "RC-EASSOC"))]
                          ["ATTACH - CAND (what the rewrite saves)"
-                          (- (pr* "RC-ATTACH") (pr* "RC-CAND"))]]]
+                          (- (net* "RC-ATTACH") (net* "RC-CAND"))]]]
           (println (gstring/format ";;   %-40s %10s B/read" lbl (fmt v))))
         (println ";; rf2-ncjyt / rf2-ezwnl — the pre-node lookups:")
         (doseq [l ["N-RESTGT" "N-GENREAD" "N-FLUSH" "N-BINDONLY" "N-CWFRNOG"
-                   "N-LOOKGEN" "N-LOOKATOM"]]
+                   "N-CWFRBIND" "N-CWFRGEN" "N-CALLTHUNK" "N-LOOKGEN" "N-LOOKATOM"]]
           (println (gstring/format ";;   %-40s %10s B/read%s"
-                           l (fmt (pr* l))
-                           (if (<= (pr* l) (* 1.5 floor)) "   <= FLOOR (upper bound)" ""))))
+                           l (fmt (net* l))
+                           (if (<= (net* l) floor) "   <= FLOOR (upper bound)" ""))))
         (println (gstring/format ";;   %-40s %10s B/read"
                          "rf2-ezwnl key vector (LOOKGEN-LOOKATOM)"
-                         (fmt (- (pr* "N-LOOKGEN") (pr* "N-LOOKATOM")))))
+                         (fmt (- (net* "N-LOOKGEN") (net* "N-LOOKATOM")))))
+        (println ";;   ^ NOT on the cache-HIT read path: subscribe's hit branch performs no")
+        (println ";;     registrar/lookup. It runs per dispatch, per fx, per cofx and per")
+        (println ";;     subscribe MISS. Quoted here because rf2-ezwnl's reopen condition names it.")
         (println ";;")
         ;; --- THE HEADLINE ---------------------------------------------------
         (println ";; ==== THE TERM THIS BEAD IS ABOUT ====")
@@ -1077,15 +1203,74 @@
         (println ";;   call-with-frame-resolution reads ~760 B/call and is ~41-46% of")
         (println ";;   subscribe's cache-HIT allocation. CLJS `binding` is let + set! +")
         (println ";;   try/finally restore. PREDICTION, stated before the run: 0 B/read.")
-        (let [by-sub (- (pr* "S3-CWFR") (pr* "S2-TGTID") (pr* "N-CWFRNOG"))
-              standalone (pr* "N-BINDONLY")]
-          (println (gstring/format ";;   N-BINDONLY  standalone                    %10s B/read%s"
+        (let [exact      (- (net* "N-CWFRBIND") (net* "N-CWFRGEN"))
+              jvm-style  (- (net* "S3-CWFR") (net* "S2-TGTID") (net* "N-CWFRNOG"))
+              inline-err (- (net* "N-CWFRRAW") (net* "N-CALLTHUNK") (net* "N-GENREAD"))
+              fidelity   (- (net* "N-CWFRBIND") (net* "N-CWFRRAW"))
+              standalone (net* "N-BINDONLY")
+              rgsub      (net* "RGSUB")]
+          (println (gstring/format ";;   N-BINDONLY standalone                        %10s B/read%s"
                            (fmt standalone)
-                           (if (<= standalone (* 1.5 floor)) "   <= FLOOR (upper bound)" "")))
-          (println (gstring/format ";;   the binding by subtraction (S3-S2-CWFRNOG) %9s B/read"
-                           (fmt by-sub)))
-          (println (gstring/format ";;   the two agree to                          %10s B/read  (instrument floor %s B/read)"
-                           (fmt (js/Math.abs (- standalone by-sub))) (fmt3 floor))))
+                           (if (<= standalone floor) "   <= FLOOR (upper bound)" "")))
+          (println (gstring/format ";;   SYMMETRIC pair (N-CWFRBIND - N-CWFRGEN)      %10s B/read%s"
+                           (fmt exact)
+                           (if (<= (js/Math.abs exact) (* 2.0 floor))
+                             "   <= FLOOR (upper bound)" "")))
+          (println (gstring/format ";;   the two agree to                             %10s B/read   (instrument floor %s B/read)"
+                           (fmt (js/Math.abs (- standalone exact))) (fmt3 floor)))
+          (println (gstring/format ";;   -> the binding is %.2f%% of subscribe's cache-HIT allocation here"
+                           (* 100.0 (/ (max 0.0 exact) rgsub))))
+          (println ";;")
+          (println ";;   FIDELITY OF THE RE-SPELLING — cwfr-bind is call-with-frame-resolution's")
+          (println ";;   body verbatim, so the arm that calls it must agree with the arm that")
+          (println ";;   calls the shipped function. If these diverge the pair above is measuring")
+          (println ";;   something else and may not be quoted.")
+          (println (gstring/format ";;     N-CWFRBIND (re-spelled) %s   N-CWFRRAW (shipped) %s   delta %s B/read"
+                           (fmt (net* "N-CWFRBIND")) (fmt (net* "N-CWFRRAW")) (fmt fidelity)))
+          (println ";;")
+          (println ";;   TWO SUBTRACTIONS THAT LOOK RIGHT AND ARE NOT — both are on record")
+          (println ";;   because each one, published, would have been a precise wrong number.")
+          (println (gstring/format ";;     (a) the JVM harness's own (S3-S2-N-CWFRNOG)      %10s B/read"
+                           (fmt jvm-style)))
+          (println (gstring/format ";;         a nil target SHORT-CIRCUITS the generation read, so this residual")
+                   )
+          (println (gstring/format ";;         is the generation read (N-GENREAD %s B/read), not the binding."
+                           (fmt (net* "N-GENREAD"))))
+          (println ";;         On the JVM the binding was ~760 B and that conflation was 2-5%,")
+          (println ";;         so it did not matter there. Here it would be the whole answer.")
+          (println (gstring/format ";;     (b) an INLINE re-spelling of cwfr's body            %10s B/read"
+                           (fmt inline-err)))
+          (println (gstring/format ";;         cwfr takes a THUNK and its caller allocates one per call")
+                   )
+          (println (gstring/format ";;         (N-CALLTHUNK %s B/read). An inline re-spelling allocates none"
+                           (fmt (net* "N-CALLTHUNK"))))
+          (println ";;         and lets V8 elide what never escapes, so the subtraction prices")
+          (println ";;         the CLOSURE. Same error as (a), opposite sign."))
+        (println ";;")
+        ;; --- THE CLJS RANKING, which is the point of the exercise -----------
+        (println ";; ==== THE CLJS RANKING of subscribe's cache-HIT allocation ====")
+        (let [rgsub (net* "RGSUB")
+              terms [["the ref-count attach (RGSUB - S4-PRELOOK)"
+                      (- (net* "RGSUB") (net* "S4-PRELOOK"))]
+                     ["require-current-frame! (S1-CURFRM)"
+                      (net* "S1-CURFRM")]
+                     ["the frame + cache get (S4 - S3)"
+                      (- (net* "S4-PRELOOK") (net* "S3-CWFR"))]
+                     ["call-with-frame-resolution (S3 - S2)"
+                      (- (net* "S3-CWFR") (net* "S2-TGTID"))]
+                     ["frame-target->id (S2 - S1)"
+                      (- (net* "S2-TGTID") (net* "S1-CURFRM"))]]]
+          (doseq [[lbl v] (sort-by (comp - second) terms)]
+            (println (gstring/format ";;   %-52s %10s B/read  %6.1f%%"
+                             lbl (fmt v) (* 100.0 (/ v rgsub)))))
+          (println ";;   and call-with-frame-resolution splits:")
+          (doseq [[lbl v] [["the generation read (N-GENREAD)" (net* "N-GENREAD")]
+                           ["THE BINDING (N-CWFRBIND - N-CWFRGEN)"
+                            (- (net* "N-CWFRBIND") (net* "N-CWFRGEN"))]
+                           ["the late-bind flush consult (N-FLUSH)" (net* "N-FLUSH")]]]
+            (println (gstring/format ";;     %-50s %10s B/read  %6.1f%%%s"
+                             lbl (fmt v) (* 100.0 (/ v rgsub))
+                             (if (<= v floor) "   <= FLOOR" "")))))
         (println ";;")
         ;; --- arm order, LAST, and it governs everything above ---------------
         ;; The figures are printed and the refusal is about what may be QUOTED,
