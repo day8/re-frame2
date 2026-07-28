@@ -574,16 +574,27 @@ shipped spellings allocate essentially nothing, and the retired-vs-shipped
 the same stratum. The exception is the hoist, where the shipped half was
 also truncated: **744.1 B/sub saved, not 758.1**.
 
-- **A second discrepancy this exposed, not yet isolated.** The `SMI-*`
-  control reads **almost exactly twice** its own prediction — 1681.7
-  B/copy at D=100 against 848 predicted (+98.3%), 3293.5 against 1648
-  (+99.9%) — so the printed `SMI slope` of 16.11 B/slot is 2× the 8 B a
-  tagged slot occupies with pointer compression off. It is *not* the box
-  above: the `SMI-*` arms store an Smi, and the 2× survives the fix
-  unchanged. The regime conclusion the pair exists to draw is still the
-  right one (16.11 > the 6.0 threshold → compression OFF), and the `DBL`
-  slope it is read beside lands at +0.04%, so no figure here rests on it.
-  Filed rather than guessed at.
+- **A second discrepancy this exposed, since isolated and fixed.** The
+  `SMI-*` control read **almost exactly twice** its own prediction —
+  1664.3 B/copy at D=100 against 848 predicted, 3275.7 against 1648 — so
+  the printed `SMI slope` of 16.11 B/slot was 2× the 8 B a tagged slot
+  occupies with pointer compression off. It was *not* the box above: the
+  `SMI-*` arms store an Smi and the 2× survived that fix unchanged. The
+  fault was the **instrument's, not the prediction's** (`rf2-l3jv4`).
+  `.slice()`'s clone fast path is keyed on the receiver's elements kind,
+  and V8 keeps one inline cache per call *site* — per function body,
+  shared by every closure made from it. The six control arms were built
+  from one factory body, so the harness had **one `.slice()` site that
+  saw both `PACKED_SMI_ELEMENTS` and `PACKED_DOUBLE_ELEMENTS`**, and at
+  that polymorphic site the SMI receiver loses the fast path and the
+  clone allocates its elements store *twice*: `32 + 2 × (16 + 8D)` =
+  1664 at D=100, measured 1664.3. The double receivers keep their fast
+  path, which is why only half the pair was ever wrong. Splitting the
+  site per elements kind returns the arm to **848.3 B/copy against 848
+  predicted (+0.04%)** and the slope to **8.0027 B/slot (+0.03%)**. The
+  regime conclusion the pair exists to draw was the right one throughout
+  (compression OFF), and no figure in this document rested on the
+  absolute, so nothing here moves.
 - **`read-attribution` passes**, both factors, every arm, with its
   controls landing at **+0.000%** predicted against measured on both
   rungs (JVM, exact TLAB accounting).
