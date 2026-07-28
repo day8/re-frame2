@@ -252,6 +252,27 @@
 ;; sinks — Closure is entitled to delete an expression nothing reads, and this
 ;; surface has already published a `layout-ms` of exactly 0.000 because a
 ;; property read was dropped. Every arm feeds one of these.
+;;
+;; rf2-xu0ma — `sink` IS THE INSTRUMENT, so its own type is load-bearing.
+;; `keep!` is a type-PRESERVING increment: given an Smi it produces an Smi and
+;; allocates nothing; given a double it produces a double, and storing that
+;; double into the volatile's tagged field boxes a fresh `HeapNumber` — 16 B
+;; with pointer compression OFF, 12 B with it ON. An arm with a 300-iteration
+;; inner loop therefore reads 4800 B/call MORE than it costs, purely because
+;; something earlier in the plan left a double in this slot.
+;;
+;; It did. `arm-ctl` used to store `(aget c 0)` here, and `packed-doubles`
+;; element 0 is `0.5`, so every arm that ran after a `DBL-*` control and before
+;; an `SMI-*` one was charged that 4800 B — which under the reflecting schedule
+;; is exactly the odd-numbered rounds. Measured at +0.00% against the 4800 B
+;; prediction at five window sizes (node 24.13.0 / V8 13.6, pointer compression
+;; OFF); `-diagnose` re-runs the proof.
+;;
+;; THE INVARIANT, and it is why this comment is here: **`keep!` is the only
+;; writer of `sink`**. It is seeded with an Smi and only ever incremented, so it
+;; is an Smi for the whole run and no arm can allocate on another's behalf.
+;; Anything that wants to retain a VALUE rather than count one uses `sink2`,
+;; which no arm reads back and which is written at most once per call.
 
 (defonce ^:private sink (volatile! 0))
 (defonce ^:private sink2 (volatile! nil))
@@ -307,8 +328,14 @@
 (defn- arm-ctl [kind d]
   (let [t (get @ctl-templates (ctl-key kind d))]
     (fn []
+      ;; rf2-xu0ma — element 0 goes through `keep!`, NOT into `sink` directly.
+      ;; The read is what stops Closure deleting the copy, and it is preserved;
+      ;; what is dropped is the STORE, which used to put a double (`0.5`) in the
+      ;; counter every `DBL-*` call and leave it there for every arm that ran
+      ;; next. The control's own figure loses the 16 B box with it, which is
+      ;; the check: `DBL-100` is predicted to fall from 864 B/copy to 848.
       (let [c (.slice t)]
-        (vreset! sink (aget c 0)))
+        (keep! (aget c 0)))
       nil)))
 
 (defn- slope
@@ -1047,3 +1074,188 @@
           (println ";;   may be quoted.")
           (set! (.-exitCode js/process) 2))))
     (println (gstring/format ";; sink %s %s" @sink (some? @sink2)))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-xu0ma — the sink-typing probe
+;;
+;; `-main` above refuses on `P-SCOPEH`, `P-INHERH` and `P-RKV`, whose figures
+;; step by ~4800 B/call with the round's PARITY. This entry point prices the
+;; mechanism directly rather than inferring it, and it is the same instrument:
+;; the same `collect!`, the same `used-heap`, the same `measure`, the same rig.
+;;
+;; The claim under test, in one line: `keep!` increments a SHARED counter whose
+;; TYPE the control arms decide, and an increment of a double allocates.
+;;
+;;   - `keep!` is `(vreset! sink (if v (inc @sink) @sink))` — type-PRESERVING.
+;;   - `arm-ctl` is `(vreset! sink (aget c 0))` — it CLOBBERS the same slot with
+;;     an element of the control template.
+;;   - `packed-doubles` element 0 is `0.5`; `packed-smis` element 0 is `1`.
+;;
+;; So after any `DBL-*` arm the counter is a double and every subsequent `keep!`
+;; boxes a fresh `HeapNumber` — 8 B map word + 8 B payload = 16 B with pointer
+;; compression OFF — until an `SMI-*` arm puts an Smi back. `slot-order` runs
+;; the plan ASCENDING on even rounds (so `SMI-200` resets the counter before the
+;; body) and DESCENDING on odd ones (so a `DBL-*` arm is the last control the
+;; body sees). An arm with a 300-iteration inner loop therefore carries
+;; 300 x 16 = 4800 B/call on odd rounds and 0 on even ones.
+;;
+;; PREDICTION, stated before the measurement: seeding the counter with `0.5`
+;; rather than `1` costs `16 x iters` B/call, and nothing else about the loop
+;; changes. `WA_PROBE_REPS` sweeps the window size, because the second half of
+;; the bead — the step reading 606 B/call in one run and 4800 in another — is
+;; predicted to be this same 4800 TRUNCATED by scavenges once `reps x 4800`
+;; outgrows the nursery, and a sweep is what tells linear from truncated.
+
+(defn- sink-loop
+  "`iters` bare `keep!` calls and nothing else — the inner loop every refusing
+  arm shares, with the arm's own body removed."
+  [iters]
+  (fn [] (dotimes [_ iters] (keep! true)) nil))
+
+(defn- probe
+  "`windows` collection-free windows of `reps` calls of `f`, after seeding the
+  shared counter with `seed`. Answers RAW bytes per window plus a READ-BACK:
+  `verify` is handed the counter's value before and after the window and says
+  whether the writes the window was CREDITED with actually landed. A window
+  that fails it is UNVERIFIED and is reported as such rather than quietly
+  pooled."
+  [f reps windows seed verify]
+  (let [ds (array) unverified (volatile! 0)]
+    (dotimes [_ windows]
+      (vreset! sink seed)
+      (collect!)
+      (let [before @sink
+            h0     (used-heap)]
+        (dotimes [_ reps] (f))
+        (let [d (- (used-heap) h0)]
+          (when-not (verify before @sink reps) (vswap! unverified inc))
+          (.push ds d))))
+    (.sort ds (fn [a b] (- a b)))
+    {:lo (aget ds 0)
+     :p50 (aget ds (js/Math.floor (/ (alength ds) 2)))
+     :hi (aget ds (dec (alength ds)))
+     :unverified @unverified
+     :windows windows}))
+
+(defn- advanced-by
+  "READ-BACK for an arm that increments the counter `per` times per call: the
+  counter must have moved by exactly `per x reps`."
+  [per]
+  (fn [before after reps] (== (- after before) (* per reps))))
+
+(defn- probe-line [label reps r per-call-divisor]
+  (println (gstring/format ";;   %-22s reps=%-6d raw [%12s – %12s]  p50 %12s B   %10s B/call   %d unverified of %d"
+                   label reps
+                   (fmt (:lo r)) (fmt (:hi r)) (fmt (:p50 r))
+                   (fmt (/ (:p50 r) per-call-divisor))
+                   (:unverified r) (:windows r))))
+
+(defn ^:export -diagnose [& _]
+  (let [iters   (env-int "WA_N" 300)
+        windows (env-int "WA_PROBE_WINDOWS" 5)
+        sweep   (mapv #(js/parseInt % 10)
+                      (.split (env "WA_PROBE_REPS" "64,128,256,512,1024,2048,4000") ","))
+        pc-off? (not= 1 (gobj/getValueByKeys js/process "config" "variables"
+                                             "v8_enable_pointer_compression"))
+        box-b   (if pc-off? 16 12)]
+    (rf/init! (spine/make-react-adapter
+                (spine/make-react-spine
+                  {:substrate-name        "write-attribution"
+                   :gensym-prefix-sub     "wa-sub-"
+                   :gensym-prefix-derived "wa-derived-"
+                   :gensym-prefix-use-sub "wa-use-sub-"
+                   :use-memo              (fn [t _] (t))
+                   :use-callback          (fn [t _] t)
+                   :use-context           (fn [_] nil)})
+                {:kind :rf.adapter/write-attribution :frame-provider nil}))
+    (vreset! ctl-templates
+             (into {} (concat (map (fn [d] [(ctl-key "DBL" d) (packed-doubles d)]) ctl-double-ds)
+                              (map (fn [d] [(ctl-key "SMI" d) (packed-smis d)]) ctl-smi-ds))))
+    (build-rig! iters iters [0 (js/Math.round (/ iters 4)) (js/Math.round (/ iters 2)) iters] true)
+    (println ";; rf2-xu0ma — SINK-TYPING PROBE for write-attribution's refusing arms")
+    (println (gstring/format ";; node %s  V8 %s  pointer-compression=%s  debug-enabled?=%s  gc-exposed?=%s"
+                     (.-node js/process.versions) (.-v8 js/process.versions)
+                     (if pc-off? "OFF" "ON") interop/debug-enabled?
+                     (some? (gobj/get js/globalThis "gc"))))
+    (println (gstring/format ";; iters/call=%d  windows/point=%d  HeapNumber predicted at %d B"
+                     iters windows box-b))
+    ;; ---- the control templates, read back --------------------------------
+    (let [d0 (aget (get @ctl-templates (ctl-key "DBL" 100)) 0)
+          s0 (aget (get @ctl-templates (ctl-key "SMI" 100)) 0)]
+      (println (gstring/format ";; DBL template elt0 = %s (integral? %s)   SMI template elt0 = %s (integral? %s)"
+                       d0 (js/Number.isInteger d0) s0 (js/Number.isInteger s0))))
+    ;; ---- warm, the same discipline the measured plan uses -----------------
+    (let [f (sink-loop iters)]
+      (dotimes [_ 3] (f))
+      (dotimes [_ 6] (measure f 256 1))
+      (println ";;")
+      (println ";; PROBE 1 — the bare keep! loop, counter seeded Smi vs double")
+      (println (gstring/format ";;   PREDICTED difference: %d B x %d iters = %d B/call, at EVERY reps"
+                       box-b iters (* box-b iters)))
+      (doseq [reps sweep]
+        (let [smi (probe f reps windows 1 (advanced-by iters))
+              dbl (probe f reps windows 0.5 (advanced-by iters))
+              step (- (/ (:p50 dbl) reps) (/ (:p50 smi) reps))]
+          (probe-line "keep!-loop  seed=Smi" reps smi reps)
+          (probe-line "keep!-loop  seed=dbl" reps dbl reps)
+          (println (gstring/format ";;     -> step %10s B/call   predicted %d   %+.2f%%   (window at seed=dbl would be %s B if linear)"
+                           (fmt step) (* box-b iters)
+                           (* 100.0 (/ (- step (* box-b iters)) (* box-b iters)))
+                           (fmt (* reps (+ (* box-b iters) (/ (:p50 smi) reps))))))))
+      ;; ---- PROBE 2 — the positive control, predicted vs measured ----------
+      (println ";;")
+      (println ";; PROBE 2 — POSITIVE CONTROL: .slice() of a packed array, predicted vs measured")
+      (println ";;   predicted per copy = JSArray 32 B + backing store (16 B header + 8 B x D),")
+      (println ";;   and, in the RETIRED counter spelling only, one 16 B HeapNumber for the")
+      (println ";;   double the DBL arms store into the shared counter. The SMI arms store an")
+      (println ";;   Smi, so they are predicted to carry no box in EITHER spelling — which is")
+      (println ";;   what makes the pair diagnostic rather than decorative.")
+      (doseq [[kind d] (concat (map (fn [d] ["DBL" d]) ctl-double-ds)
+                               (map (fn [d] ["SMI" d]) ctl-smi-ds))]
+        (let [pred (+ 32 16 (* 8 d))
+              boxed? (= "DBL" kind)
+              pred-box (if boxed? (+ pred box-b) pred)
+              reps (max 1 (js/Math.round (/ 500000 pred)))
+              elt0 (aget (get @ctl-templates (ctl-key kind d)) 0)
+              ;; READ-BACK for the control: it writes the copy's element 0 into
+              ;; the counter, so after the window the counter must HOLD that
+              ;; element. A window where the copy was optimised away fails it.
+              ctl-arm (arm-ctl kind d)
+              _    (do (dotimes [_ 3] (ctl-arm)) (dotimes [_ 6] (measure ctl-arm 64 1)))
+              ;; The control is the ONE arm whose counter spelling this bead
+              ;; changes, so the read-back accepts either: the RETIRED spelling
+              ;; leaves the counter HOLDING elt0, the shipped one ADVANCES it
+              ;; once per call. Neither is satisfied if the copy did not run.
+              r    (probe ctl-arm reps windows 0.5
+                          (fn [before after reps]
+                            (or (== after elt0) (== (- after before) reps))))
+              meas (/ (:p50 r) reps)]
+          (println (gstring/format ";;   %s D=%-6d reps=%-5d measured %10s B/copy   no-box %6d (%+.2f%%)   +box %6d (%+.2f%%)   %d unverified of %d"
+                           kind d reps (fmt meas)
+                           pred (* 100.0 (/ (- meas pred) pred))
+                           pred-box (* 100.0 (/ (- meas pred-box) pred-box))
+                           (:unverified r) (:windows r)))))
+      ;; ---- PROBE 3 — the three refusing arms, both seeds ------------------
+      (println ";;")
+      (println ";; PROBE 3 — the refusing arms themselves, counter seeded both ways")
+      (doseq [[label f* reps per] [["P-SCOPEH" arm-p-scope-h 4000 iters]
+                                   ["P-SCOPEH" arm-p-scope-h 818  iters]
+                                   ["P-INHERH" arm-p-inher-h 818  iters]
+                                   ["P-INHERH" arm-p-inher-h 4000 iters]
+                                   ["P-RKV"    arm-p-rkv     1269 iters]
+                                   ["P-RKV"    arm-p-rkv     4000 iters]
+                                   ;; P-EMIT is the NEGATIVE control: it is the
+                                   ;; one 4000-rep arm with no `keep!` in it, and
+                                   ;; the one the guard passes. It must not step.
+                                   ["P-EMIT"   arm-p-emit    4000 0]]]
+        (dotimes [_ 3] (f*))
+        (dotimes [_ 6] (measure f* 256 1))
+        (let [smi (probe f* reps windows 1 (advanced-by per))
+              dbl (probe f* reps windows 0.5 (advanced-by per))]
+          (probe-line (str label " seed=Smi") reps smi reps)
+          (probe-line (str label " seed=dbl") reps dbl reps)
+          (println (gstring/format ";;     -> step %10s B/call  (%s B per inner iteration)"
+                           (fmt (- (/ (:p50 dbl) reps) (/ (:p50 smi) reps)))
+                           (fmt (/ (- (/ (:p50 dbl) reps) (/ (:p50 smi) reps)) iters))))))
+      (println ";;")
+      (println (gstring/format ";; sink %s %s" @sink (some? @sink2))))))
