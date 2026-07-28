@@ -365,13 +365,33 @@
                       plan)
               (.then
                 (fn [_]
-                  (doseq [{:keys [rate siblings offered expected applied]} @runs]
+                  (doseq [{:keys [rate siblings offered applied tail-ms tail-anchored?
+                                  offer-to-poll-start-ms predicted-gap-ms]} @runs]
                     (is (pos? offered)
                         (str "rate " rate " / k=" siblings ": the driver ran at all"))
                     (is (<= applied offered)
                         (str "rate " rate " / k=" siblings
                              ": the reducer cannot apply more than was offered ("
-                             applied " applied, " offered " offered)")))
+                             applied " applied, " offered " offered)"))
+                    ;; C3 — the tail anchor. `:tail-ms` claims to start at the
+                    ;; last offer, and the callback that ends the drive is one
+                    ;; interval PAST that offer. So the gap must exist and must
+                    ;; be at least half a requested period — `setInterval`
+                    ;; cannot fire faster than its period, so the floor holds
+                    ;; however far behind the browser has fallen. A tail read
+                    ;; off a clock restarted at settle time reports the poll
+                    ;; delay and cannot produce this gap at all, which is the
+                    ;; fault this assertion exists for.
+                    (is tail-anchored?
+                        (str "rate " rate " / k=" siblings
+                             ": the tail is anchored at the last offer — gap "
+                             offer-to-poll-start-ms " ms against a "
+                             (/ 1000.0 rate) " ms period (predicted "
+                             predicted-gap-ms " ms from the achieved rate)"))
+                    (is (and (number? tail-ms) (not (neg? tail-ms)))
+                        (str "rate " rate " / k=" siblings
+                             ": the tail is a real measurement, not nil ("
+                             (pr-str tail-ms) ")")))
                   (h/publish!
                     "B10 M3 / driven rates"
                     (b10/record
@@ -389,10 +409,15 @@
                             ":offered counts driver invocations; :applied is incremented "
                             "inside the reducer; :mutations counts DOM records; "
                             ":peak-backlog is the largest offered-minus-applied ever seen at "
-                            "an offer; :tail-ms is from the last offer to the page showing "
-                            "the last generation, polled at 4 ms with a 2000 ms ceiling; "
-                            ":latency-ms is the offer-to-DOM distribution read from the "
-                            "MutationObserver callback that carried each generation.")}
+                            "an offer; :tail-ms is from the LAST OFFER'S OWN TIMESTAMP to "
+                            "the MutationObserver's sighting of the last generation, with a "
+                            "4 ms poll and a 2000 ms ceiling serving only as the :settled? "
+                            "detector; :offer-to-poll-start-ms is the one-interval gap "
+                            "between those two instants and :tail-anchored? gates it against "
+                            "half a requested period, so a tail read off a clock restarted "
+                            "at settle time fails rather than publishes; :latency-ms is the "
+                            "offer-to-DOM distribution read from the MutationObserver "
+                            "callback that carried each generation.")}
                       {:warmup 0 :samples (count @runs)}
                       {:runs @runs}))
                   nil))

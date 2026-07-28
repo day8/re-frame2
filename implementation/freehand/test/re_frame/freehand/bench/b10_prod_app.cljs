@@ -339,8 +339,16 @@
                 plan)
         (.then
           (fn [_]
-            (let [bad (filterv (fn [{:keys [offered applied]}]
-                                 (or (not (pos? offered)) (> applied offered)))
+            ;; C3 rides here too: a driven run whose tail is not anchored at
+            ;; the last offer is incoherent in the same way a run that applied
+            ;; more than it offered is, and fails the arm rather than
+            ;; publishing a plausible wrong number.
+            (let [bad (filterv (fn [{:keys [offered applied tail-ms tail-anchored?]}]
+                                 (or (not (pos? offered))
+                                     (> applied offered)
+                                     (not tail-anchored?)
+                                     (not (number? tail-ms))
+                                     (neg? tail-ms)))
                                @runs)]
               (record! :m3
                        (b10/record
@@ -358,9 +366,14 @@
                                "measurement; :offered counts driver invocations; :applied is "
                                "incremented inside the reducer; :mutations counts DOM "
                                "records; :peak-backlog is the largest offered-minus-applied "
-                               "ever seen at an offer; :tail-ms is from the last offer to the "
-                               "page showing the last generation, polled at 4 ms with a "
-                               "2000 ms ceiling; :latency-ms is the offer-to-DOM distribution "
+                               "ever seen at an offer; :tail-ms is from the LAST OFFER'S OWN "
+                               "TIMESTAMP to the MutationObserver's sighting of the last "
+                               "generation, with a 4 ms poll and a 2000 ms ceiling serving "
+                               "only as the :settled? detector; :offer-to-poll-start-ms is "
+                               "the one-interval gap between those two instants and "
+                               ":tail-anchored? gates it against half a requested period, so "
+                               "a tail read off a clock restarted at settle time fails rather "
+                               "than publishes; :latency-ms is the offer-to-DOM distribution "
                                "read from the MutationObserver callback that carried each "
                                "generation.")}
                          {:warmup 0 :samples (count @runs)}
