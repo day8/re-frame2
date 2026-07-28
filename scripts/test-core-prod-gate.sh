@@ -239,11 +239,7 @@ known_red=(
   re-frame.observation-port-cljs-test
   re-frame.reg-meta-noswallow-cljs-test
   re-frame.registrar-warnings-test
-  re-frame.source-coord-jvm-test
-  re-frame.source-coords-test
   re-frame.sub-dispose-trace-test
-  re-frame.success-path-call-site-test
-  re-frame.success-path-trigger-handler-test
   re-frame.trace-buffer-test
   re-frame.trace-cascade-captured-test
   re-frame.trace-listener-concurrent-drain-serialization-test
@@ -258,7 +254,6 @@ known_red=(
   re-frame.trace-listener-test
   re-frame.trace-test
   re-frame.trace.structural-retention-cljs-test
-  re-frame.trigger-handler-coord-test
 )
 
 # ---------------------------------------------------------------------------
