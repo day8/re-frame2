@@ -186,13 +186,11 @@ known_red=(
   re-frame.cofx-cljs-test
   re-frame.cofx-envelope-test
   re-frame.db-pending-trace-test
-  re-frame.dispatched-trace-cofx-test
   re-frame.event-context-partition-test
   re-frame.frame-destroy-composed-test
   re-frame.frame-destroy-incarnation-jvm-test
   re-frame.interceptor-override-summary-trace-test
   re-frame.observation-port-cljs-test
-  re-frame.override-capture-trace-test
   re-frame.reg-meta-noswallow-cljs-test
   re-frame.registrar-warnings-test
   re-frame.source-coord-jvm-test
