@@ -106,6 +106,18 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
+      # rf2-2ii52 — check the checker BEFORE trusting its verdict on the tree.
+      # The runtime git-coordinate assertion shipped as a line-oriented text
+      # grep that could only see a coordinate when the library symbol and
+      # `{:git/url` sat on the same physical line; ordinary multiline deps.edn
+      # layout produced no finding, so the gate's green was a property of one
+      # file's whitespace rather than of the tree. It reads EDN structure now,
+      # and this step pins both layouts (plus the comment / `#_` discard /
+      # string-literal / alias-scoping cases the grep also misjudged) so the
+      # regression cannot come back quietly.
+      - name: Self-test the lockstep gate's own checkers
+        run: ./.github/scripts/verify-version-lockstep.sh --self-test
+
       - name: Verify lockstep version contract
         run: ./.github/scripts/verify-version-lockstep.sh
 
