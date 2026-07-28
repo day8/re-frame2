@@ -96,23 +96,30 @@
     happens to use — which a `FixedArray`-of-SMI control would NOT have been
     (4 B/slot compressed, 8 uncompressed).
 
-  Predicted and measured are both printed. If they disagree, suspect the
-  control first, and report the miss either way. Two misses are on record
-  and both are real:
+  Predicted and measured are both printed, for EVERY size and not merely
+  as a slope. If they disagree, suspect the control first, and report the
+  miss either way. Two misses are on record:
 
     * The SMALL double pair (D 100->200) lands, at +0.5%. The LARGE pair
       (1000->10000) reads +9%, because the 8 B/element model omits V8's
       page-tail filler — an 87 KB object wastes ~7% of a 256 KB page and
       that filler is genuine used-heap. It is a LARGE-object effect and
       every arm here allocates small ones, so the instrument is calibrated
-      in the regime it is used in.
-    * The SMI control reads 16.1 B/slot in forward arm order and 8.0027 in
-      REVERSED order — the difference being whether the 87 KB arm ran
-      immediately before it. A large-object arm inflates its successor,
-      reproducibly, and nothing in the method predicted that (rf2-88pie).
-      It is why every figure here is taken in both orders, and why the
-      pointer-compression regime is read off `process.config` rather than
-      off this control.
+      in the regime it is used in. STILL OPEN, and correctly so.
+    * The SMI control used to read 16.1 B/slot — twice its own prediction,
+      at both sizes. RESOLVED (rf2-l3jv4), and the fault was the
+      instrument's, not the prediction's: `arm-ctl` was ONE function body
+      closed over both kinds of template, so the harness had ONE
+      `.slice()` call site that saw both PACKED_SMI_ELEMENTS and
+      PACKED_DOUBLE_ELEMENTS receivers, and at that polymorphic site the
+      SMI receiver loses `.slice()`'s clone fast path and allocates its
+      elements store TWICE. Splitting the site per elements kind returns
+      the arm to 8.0 B/slot. See `arm-ctl-smi`. The effect is
+      order-INDEPENDENT — it does not depend on which kind the site saw
+      first — so it does not account for the reversed-order reading of
+      8.0027 recorded against this arm under rf2-88pie, which predates
+      several rebuilds of it and is not re-litigated here. Both orders are
+      still run, and both must now meet the prediction.
 
   ## The ladder
 
@@ -325,8 +332,40 @@
 
 (defn- ctl-key [kind d] (str kind "-" d))
 
-(defn- arm-ctl [kind d]
-  (let [t (get @ctl-templates (ctl-key kind d))]
+;; rf2-l3jv4 — TWO factories, one per ELEMENT KIND, and the duplication is the
+;; whole point.
+;;
+;; `.slice()`'s clone fast path is keyed on the RECEIVER'S ELEMENTS KIND, and
+;; V8 has one inline cache per call SITE — that is, per function BODY, shared
+;; by every closure made from it. A single `arm-ctl` body closed over both
+;; kinds of template therefore gave the harness ONE `.slice()` site with two
+;; receiver maps, and at that polymorphic site the PACKED_SMI receiver loses
+;; the fast path: the clone allocates its elements store TWICE, so a copy costs
+;; `32 + 2 x (16 + 8D)` rather than `32 + 16 + 8D`. The PACKED_DOUBLE receivers
+;; keep theirs and are unaffected, which is why only the SMI half of the pair
+;; was ever wrong.
+;;
+;; Measured in isolation, one node process, the same method, both shapes side
+;; by side (node 24.13.0 / V8 13.6, pointer compression OFF):
+;;
+;;                 shared site        split sites      predicted
+;;   SMI D=100     1665.9 B/copy      849.1 B/copy     848
+;;   SMI D=200     3275.8            1651.8          1648
+;;   DBL D=100      849.8             849.8            848
+;;
+;; So the PREDICTION was right and the INSTRUMENT was wrong — the arm was not
+;; measuring `.slice()` of a packed SMI array, it was measuring `.slice()` of a
+;; packed SMI array at a site that had also been shown doubles.
+;;
+;; Do not factor these two back together. If they are merged the SMI control
+;; silently doubles again, which is why the CONTROLS readout now prints
+;; predicted vs measured for every size rather than only a slope.
+
+(defn- arm-ctl-dbl
+  "The PACKED_DOUBLE control. Its `.slice()` site must never see any other
+  elements kind — see `arm-ctl-smi`, which is this body's deliberate twin."
+  [d]
+  (let [t (get @ctl-templates (ctl-key "DBL" d))]
     (fn []
       ;; rf2-xu0ma — element 0 goes through `keep!`, NOT into `sink` directly.
       ;; The read is what stops Closure deleting the copy, and it is preserved;
@@ -337,6 +376,23 @@
       (let [c (.slice t)]
         (keep! (aget c 0)))
       nil)))
+
+(defn- arm-ctl-smi
+  "The PACKED_SMI control, character-for-character `arm-ctl-dbl`'s body and
+  separate from it on purpose (rf2-l3jv4). Sharing one body gives V8 one
+  polymorphic `.slice()` site and doubles this arm's reading."
+  [d]
+  (let [t (get @ctl-templates (ctl-key "SMI" d))]
+    (fn []
+      (let [c (.slice t)]
+        (keep! (aget c 0)))
+      nil)))
+
+(defn- arm-ctl
+  "Dispatch to the per-kind factory. This function is not itself a `.slice()`
+  site; it only chooses which one the arm will use."
+  [kind d]
+  (if (= "SMI" kind) (arm-ctl-smi d) (arm-ctl-dbl d)))
 
 (defn- slope
   "Bytes per element between two control readings — the reading that cancels
@@ -973,10 +1029,39 @@
                            (fmt (apply min rnd)) (fmt (apply max rnd))))))
       (println ";;")
       (println ";; CONTROLS")
+      ;; rf2-l3jv4 — the ABSOLUTE, checked, at every size. The slopes below
+      ;; cancel both headers and so cannot see a constant FACTOR; printing only
+      ;; them is how an arm reading exactly twice its prediction at BOTH sizes
+      ;; went unremarked for as long as it did.
+      ;;
+      ;; The double control is checked against an asserted layout — JSArray
+      ;; 32 B + `FixedDoubleArray` (16 B header + 8 B x D) — which is safe
+      ;; because V8 never pointer-compresses a double, so that prediction holds
+      ;; in either regime.
+      ;;
+      ;; The SMI control is NOT checked that way, because its whole job is to
+      ;; READ the regime and predicting it from an assumed slot width would be
+      ;; circular. It is checked against the DOUBLE control at the SAME D
+      ;; instead — one measurement against another, from the same process and
+      ;; the same window, with no header asserted anywhere. With pointer
+      ;; compression OFF a tagged slot is 8 bytes and the two copies have
+      ;; identical layout, so the ratio must be 1.0000; with it ON every slot
+      ;; and both headers halve and it must be about 0.50.
       (doseq [d ctl-double-ds]
-        (println (gstring/format ";;   DBL D=%-6d %12s B/copy" d (fmt (b (ctl-key "DBL" d))))))
+        (let [m (b (ctl-key "DBL" d))
+              p (+ 32 16 (* 8 d))]
+          (println (gstring/format ";;   DBL D=%-6d %12s B/copy   predicted %7d  %+.2f%%"
+                           d (fmt m) p (* 100.0 (/ (- m p) p))))))
       (doseq [d ctl-smi-ds]
-        (println (gstring/format ";;   SMI D=%-6d %12s B/copy" d (fmt (b (ctl-key "SMI" d))))))
+        (let [m (b (ctl-key "SMI" d))
+              r (b (ctl-key "DBL" d))]
+          (println (gstring/format
+                     ";;   SMI D=%-6d %12s B/copy   x%.4f of DBL D=%d (%s B)  -> %s"
+                     d (fmt m) (/ m r) d (fmt r)
+                     (cond
+                       (< 0.95 (/ m r) 1.05) "8 B/slot, compression OFF"
+                       (< 0.45 (/ m r) 0.55) "4 B/slot, compression ON"
+                       :else                 "*** NEITHER — the SMI arm is not measuring a tagged-slot copy ***")))))
       (let [sm (slope b (ctl-key "DBL" 100) 100 (ctl-key "DBL" 200) 200)
             lg (slope b (ctl-key "DBL" 1000) 1000 (ctl-key "DBL" 10000) 10000)
             si (slope b (ctl-key "SMI" 100) 100 (ctl-key "SMI" 200) 200)]
@@ -986,10 +1071,15 @@
         (println (gstring/format
                    ";;   DBL slope, LARGE pair (1000->10000)  %.4f B/double  predicted 8.0000  %+.2f%%"
                    lg (* 100.0 (/ (- lg 8.0) 8.0))))
+        ;; rf2-l3jv4 — the regime is READ off this slope, so it cannot also be
+        ;; predicted from an assumed slot width. What CAN be checked, without
+        ;; circularity, is how close the slope sits to the exact width of the
+        ;; regime it just selected: a tagged slot is 8 bytes or 4, never 16.1.
         (println (gstring/format
-                   ";;   SMI slope, SMALL pair (100->200)     %.4f B/slot    -> pointer compression %s"
+                   ";;   SMI slope, SMALL pair (100->200)     %.4f B/slot    -> pointer compression %s   %+.2f%% off that width"
                    si (if (< si 6.0) "ON (4 B/slot, Chrome-like)"
-                          "OFF (8 B/slot, Node default)"))))
+                          "OFF (8 B/slot, Node default)")
+                   (let [w (if (< si 6.0) 4.0 8.0)] (* 100.0 (/ (- si w) w))))))
       (println ";;")
       (println ";; THE LADDER — bytes per WRITE")
       (doseq [[lbl v] [["MKDB      the application's own new-db value" (b "MKDB")]
