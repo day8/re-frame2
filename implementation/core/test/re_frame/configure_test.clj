@@ -23,10 +23,39 @@
   everything else is a silent no-op — `configure` returns `nil` and
   does not throw. Per-frame settings (e.g. SSR error projection,
   `:rf.trace/events-retained`) live on the frame's metadata, not on
-  this surface."
+  this surface.
+
+  ## Posture split (rf2-d2841)
+
+  The `:elision` knob is PRODUCTION STATE — `elision/current-config` is not
+  gated — and so are the closed-vocabulary rules: unknown keys return nil, a
+  non-map argument fails loud on an `assert`. Those run under
+  `scripts/test-core-prod-gate.sh` unchanged and are the substance of
+  \"closed and fixed-and-additive\".
+
+  The `:trace-buffer` knob is a different animal, and the tempting reading of
+  it is wrong. It is NOT \"a dev-only warning attached to production state\":
+  `trace.tooling/configure-trace-buffer!` opens BOTH of its arms with
+  `(when (and interop/debug-enabled? …))`, so under `-Dre-frame.debug=false`
+  the whole surface — the retention it sets AND the
+  `:rf.warning/trace-buffer-unrecognised-opts` it emits — is a no-op, and
+  `trace-buffer` itself returns `[]` because the ring is never allocated.
+  Every `:trace-buffer` assertion is therefore kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`.
+
+  That includes four assertions that currently PASS under the gate and pass
+  for no reason at all: `(is (<= (count (rf/trace-buffer :rf/default)) N))`
+  over an empty vector is true for every N, so outside the arm the retention
+  cap would certify itself with the ring never allocated — the same
+  false-green as a negative over an empty trace ring, and the reason
+  \"retention survived the bad call\" cannot be read off this surface in
+  production. The always-on residue kept beside them is the one production
+  claim the `:trace-buffer` key still makes: the call is a silent no-op that
+  returns nil and does not throw."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -60,11 +89,18 @@
 
 (deftest configure-known-keys-take-effect
   (testing ":trace-buffer events-retained is wired"
-    (rf/configure! {:trace-buffer {:events-retained 7}})
+    ;; ALWAYS-ON (rf2-d2841): the knob is a documented no-op under the
+    ;; production gate — it must still be ACCEPTED, silently, returning nil.
+    (is (nil? (rf/configure! {:trace-buffer {:events-retained 7}}))
+        ":trace-buffer is accepted and returns nil in BOTH postures")
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 20] (rf/dispatch-sync [:ping]))
-    (is (<= (count (rf/trace-buffer :rf/default)) 7)
-        ":trace-buffer {:events-retained 7} caps retained events at 7"))
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; `(<= (count []) 7)` is true for every N; the cap is unreadable here
+    ;; under the gate because the ring is never allocated.
+    (when interop/debug-enabled?
+      (is (<= (count (rf/trace-buffer :rf/default)) 7)
+          ":trace-buffer {:events-retained 7} caps retained events at 7")))
   (testing ":elision is wired (rf2-le2qu)"
     (rf/configure! {:elision {:rf.size/threshold-bytes 4096}})
     (is (= 4096 (:rf.size/threshold-bytes (elision/current-config)))
@@ -77,9 +113,20 @@
             retention unchanged, rather than silently doing nothing.
             :events-retained is the SOLE canonical opt — impl, core
             docstring, API.md, and Spec 009 all agree."
+    ;; ALWAYS-ON (rf2-d2841): a rejected opts shape is a no-op that returns
+    ;; nil rather than throwing — true in BOTH postures, and the only half of
+    ;; this deftest that survives the production gate.
+    (is (nil? (rf/configure! {:trace-buffer {:depth 200}}))
+        "the retired {:depth N} shape no-ops and returns nil in BOTH postures")
+    (is (nil? (rf/configure! {:trace-buffer {:events-retained -1}}))
+        "a negative :events-retained no-ops and returns nil in BOTH postures")
     ;; Establish a known retention first.
     (rf/configure! {:trace-buffer {:events-retained 9}})
-    (let [warnings (atom [])]
+    (when interop/debug-enabled?
+     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+     ;; The whole `configure-trace-buffer!` surface — warning AND retention —
+     ;; sits behind `interop/debug-enabled?`.
+     (let [warnings (atom [])]
       (rf/register-listener! :trace ::trace-buffer-opts
                              (fn [ev]
                                (when (= :rf.warning/trace-buffer-unrecognised-opts
@@ -116,7 +163,7 @@
         (is (= 2 (count @warnings))
             "the canonical {:events-retained N} shape does NOT warn")
         (finally
-          (rf/unregister-listener! :trace ::trace-buffer-opts))))))
+          (rf/unregister-listener! :trace ::trace-buffer-opts)))))))
 
 (deftest trace-buffer-severity-warning-filter-catches-unrecognised-opts
   (testing "rf2-ho20xj — a {:severity :warning} trace-buffer filter must
@@ -134,19 +181,28 @@
                     (rf/configure! {:trace-buffer {:depth 200}})
                     {:db db}))
     (rf/dispatch-sync [:bad-configure-call])
-    (let [warnings (rf/trace-buffer :rf/default {:flat true :severity :warning})]
-      (is (some #(= :rf.warning/trace-buffer-unrecognised-opts (:operation %))
-                warnings)
-          "a {:severity :warning} trace-buffer read surfaces
-          :rf.warning/trace-buffer-unrecognised-opts (rf2-ho20xj)"))
-    ;; Sanity: a {:severity :error} filter must NOT catch it — the whole
-    ;; point of the fix is that this category no longer masquerades as
-    ;; an :error op-type.
-    (let [errors (rf/trace-buffer :rf/default {:flat true :severity :error})]
-      (is (not (some #(= :rf.warning/trace-buffer-unrecognised-opts (:operation %))
-                     errors))
-          ":rf.warning/trace-buffer-unrecognised-opts no longer rides the
-          :error op-type"))))
+    ;; ALWAYS-ON (rf2-d2841): the bad `configure!` call from inside a handler
+    ;; must not derail the dispatch — the handler's `{:db db}` still commits.
+    (is (some? (rf/app-db-value :rf/default))
+        "the enclosing dispatch completed despite the rejected configure! call")
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; BOTH reads go inside: `trace-buffer` returns [] in production, so the
+    ;; `{:severity :error}` sanity NEGATIVE would pass over an empty vector —
+    ;; certifying "no longer rides the :error op-type" with nothing retained.
+    (when interop/debug-enabled?
+      (let [warnings (rf/trace-buffer :rf/default {:flat true :severity :warning})]
+        (is (some #(= :rf.warning/trace-buffer-unrecognised-opts (:operation %))
+                  warnings)
+            "a {:severity :warning} trace-buffer read surfaces
+            :rf.warning/trace-buffer-unrecognised-opts (rf2-ho20xj)"))
+      ;; Sanity: a {:severity :error} filter must NOT catch it — the whole
+      ;; point of the fix is that this category no longer masquerades as
+      ;; an :error op-type.
+      (let [errors (rf/trace-buffer :rf/default {:flat true :severity :error})]
+        (is (not (some #(= :rf.warning/trace-buffer-unrecognised-opts (:operation %))
+                       errors))
+            ":rf.warning/trace-buffer-unrecognised-opts no longer rides the
+            :error op-type")))))
 
 (deftest configure-unknown-key-is-silent-no-op
   (testing "rf2-mmlci — unknown keys silently no-op; configure returns nil"
@@ -173,8 +229,16 @@
     (rf/configure! {:no-such-key {}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 30] (rf/dispatch-sync [:ping]))
-    (is (<= (count (rf/trace-buffer :rf/default)) 11)
-        ":trace-buffer events-retained survived bracketing unknown-key calls"))
+    ;; ALWAYS-ON (rf2-d2841): whatever the posture, thirty dispatches bracketed
+    ;; by four unknown-key `configure!` calls still all landed — the
+    ;; production-visible half of "an unknown key perturbs nothing".
+    (is (some? (rf/app-db-value :rf/default))
+        "the bracketed dispatches ran to completion")
+    ;; rf2-d2841 — dev-instrumentation arm. `(<= (count []) 11)` is true for
+    ;; every N under the gate: the retention cap is unreadable in production.
+    (when interop/debug-enabled?
+      (is (<= (count (rf/trace-buffer :rf/default)) 11)
+          ":trace-buffer events-retained survived bracketing unknown-key calls")))
   (testing "rf2-dzxixe — a single map mixing known + unknown top-level
             keys applies the known subsystems and silently ignores the
             unknown ones (closed-and-additive)"
@@ -186,8 +250,12 @@
         ":elision applied from the composite map")
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 20] (rf/dispatch-sync [:ping]))
-    (is (<= (count (rf/trace-buffer :rf/default)) 6)
-        ":trace-buffer applied from the composite map; unknown keys ignored")))
+    ;; rf2-d2841 — dev-instrumentation arm. Same empty-vector false-green; the
+    ;; composite map's PRODUCTION half is the `:elision` assertion above,
+    ;; which is unguarded and is what proves "known subsystems applied".
+    (when interop/debug-enabled?
+      (is (<= (count (rf/trace-buffer :rf/default)) 6)
+          ":trace-buffer applied from the composite map; unknown keys ignored"))))
 
 (deftest configure-non-map-arg-fails-loud
   (testing "rf2-dzxixe — configure! takes a SINGLE nested config map.
