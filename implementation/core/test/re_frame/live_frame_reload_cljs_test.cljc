@@ -1022,11 +1022,18 @@
                    (:handler-fn (asm/resolve-descriptor
                                   (lf/frame-generation (lf/live-frame :rpf-good/main))
                                   :event :rpf-good/inc)))))
-          (testing "the bad frame's failure was DIAGNOSED (not a silent black
-                    hole) via a :rf.warning/reprojection-failed trace event
-                    naming the frame"
-            (is (= 1 (count @diagnosed)))
-            (is (= :rpf-bad/main (get-in (first @diagnosed) [:tags :frame])))))
+          ;; rf2-d2841 — `:rf.warning/reprojection-failed` rides the DIAGNOSTIC
+          ;; channel and emits nothing under -Dre-frame.debug=false. The
+          ;; production-visible half of the same claim is the assertion above:
+          ;; the sweep REACHED the good frame despite the bad frame throwing,
+          ;; which is the mid-sweep-abort defect this case exists for. Kept
+          ;; verbatim.
+          (when interop/debug-enabled?
+            (testing "the bad frame's failure was DIAGNOSED (not a silent black
+                      hole) via a :rf.warning/reprojection-failed trace event
+                      naming the frame"
+              (is (= 1 (count @diagnosed)))
+              (is (= :rpf-bad/main (get-in (first @diagnosed) [:tags :frame]))))))
         (finally
           (with-redefs [interop/next-tick (fn [_f] nil)]
             (reset! frame/frames {})

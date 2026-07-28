@@ -28,11 +28,28 @@
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
   `clojure -M:test` runner both pick it up. The teardown path is plain
-  CLJC; no DOM dependency."
+  CLJC; no DOM dependency.
+
+  ## Posture split (rf2-d2841)
+
+  Legs (a), (b), (c) and the rf2-c80lom no-raw-values property all read the
+  ALWAYS-ON `:errors` axis — which is the whole point of the EP-0008 C4
+  promotion — so they run under `scripts/test-core-prod-gate.sh` unchanged,
+  including the `(empty? @seen)` negatives, which are genuine there because
+  that channel is live.
+
+  Leg (d) is the only dev-posture material, and this file already said so:
+  \"the contract is that they ride the DIAGNOSTIC channel, not that they
+  survive prod\". Its deftest, and the one diagnostic-count row inside
+  `both-channels-fire-together`, are kept verbatim inside
+  `(when interop/debug-enabled? …)` arms. What `both-channels-fire-together`
+  proves in production posture is the half that matters there: ONE bounded
+  report carrying BOTH hook failures, rather than a per-hook flood."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.error-emit :as error-emit]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -259,6 +276,9 @@
 ;; ===========================================================================
 
 (deftest dev-per-hook-diagnostic-rows-still-emit
+ ;; rf2-d2841 — this deftest IS the diagnostic channel; it has no production
+ ;; residue by design (see the body's own comment). Kept verbatim in the arm.
+ (when interop/debug-enabled?
   (testing "Per rf2-ini4wr EP-0008 R2 / Spec 009: the per-hook
             `:rf.warning/teardown-hook-exception` DIAGNOSTIC trace still
             emits at its causal position inside `safe-call-hook!` (dev
@@ -287,7 +307,7 @@
                (set (map #(get-in % [:tags :hook]) warns)))
             "each diagnostic row names the hook that threw")
         (is (every? #(= :teardown/diagnostic (get-in % [:tags :frame])) warns)
-            "each diagnostic row is frame-attributed")))))
+            "each diagnostic row is frame-attributed"))))))
 
 (deftest both-channels-fire-together
   (testing "Per rf2-ini4wr: a single destroy with failing hooks fires
@@ -311,10 +331,19 @@
       (let [warns   (filter #(= :rf.warning/teardown-hook-exception (:operation %))
                             @traces)
             reps    (filter #(= :rf.error/frame-teardown-failed (:error %)) @reports)]
-        (is (= 2 (count warns)) "diagnostic channel: one per-hook row each")
+        ;; rf2-d2841 — the diagnostic half only exists in dev. The always-on
+        ;; half below is what a production build has, and it carries BOTH
+        ;; failures, which is the promotion this bead pinned.
+        (when interop/debug-enabled?
+          (is (= 2 (count warns)) "diagnostic channel: one per-hook row each"))
         (is (= 1 (count reps)) "always-on channel: ONE bounded report")
         (is (= 2 (count (:hook-failures (first reps))))
-            "the single report carries both hook failures")))))
+            "the single report carries both hook failures")
+        (is (= #{:ssr/on-frame-destroyed :schemas/on-frame-destroyed!}
+               (set (map :hook (:hook-failures (first reps)))))
+            "and names BOTH hooks on the always-on axis — the per-hook detail
+             the diagnostic channel carries is not lost in production, it is
+             folded into the one report")))))
 
 ;; ===========================================================================
 ;; (e) No-raw-values property of the always-on report (rf2-c80lom)
