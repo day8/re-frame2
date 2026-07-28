@@ -13,8 +13,31 @@
   `reg-fx` / `reg-cofx` / `reg-interceptor`): a retired key throws, an unknown
   bare key warns, and a valid registration still passes. The registrars are
   exercised through their underlying registration fns (the enforcement lives in
-  the fns, not the macro layer)."
+  the fns, not the macro layer).
+
+  ## Posture split (rf2-d2841)
+
+  The no-silent-swallow contract has TWO enforcement tiers and they do not
+  share a posture. The RETIRED-key tier is a `throw` and is always-on —
+  `retired-spec-key-hard-errors-per-registrar` was already green under
+  `scripts/test-core-prod-gate.sh` for a real reason, and stays unguarded. The
+  UNKNOWN-key tier is a `:rf.warning/unknown-registration-key` emit on the
+  dev trace bus, so under `-Dre-frame.debug=false` nothing is emitted and
+  `unknown-bare-key-warns-per-registrar` failed.
+
+  The warning assertions are guarded; what stays always-on beside them is the
+  half of the contract production DOES honour — the registration nevertheless
+  SUCCEEDED and the id is resolvable in the registrar (the cascade continued).
+
+  TEN VACUOUS PASSES CAME OFF (rf2-d2841 class 1 — a negative over an empty
+  trace ring), five per deftest across the five registrar kinds:
+  `namespaced-and-known-keys-pass-silently-per-registrar` and
+  `schema-v2-key-passes-where-spec-would-fail` both certify the absence of an
+  unknown-key warning with `(is (empty? warns))` over a stream that carries no
+  at all under the gate. Both deftests were GREEN there, each on one real
+  assertion (the no-throw) and five free ones."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.interop :as interop]
             [re-frame.events :as events]
             [re-frame.subs :as subs]
             [re-frame.fx :as fx]
@@ -111,20 +134,25 @@
       (testing (str kind)
         (let [warns (with-captured-warnings
                       #(register! kind id {:doc "ok" :bogus-key 1}))]
-          (is (= 1 (count warns))
-              (str "reg-" (name kind) " emits exactly one unknown-key warning"))
-          (let [{:keys [tags]} (first warns)]
-            (is (= kind (:kind tags)) ":kind names the registrar kind")
-            (is (= id (:id tags)) ":id names the registration")
-            (is (= [:bogus-key] (:unknown-keys tags))
-                ":unknown-keys names exactly the offending bare key")
-            (is (contains? (set (:known tags)) :doc)
-                ":known carries the recognised bare vocabulary")
-            (is (string? (:reason tags))))
-          ;; The registration nevertheless SUCCEEDED — no throw, and the id is
-          ;; resolvable in the registrar (the cascade continued safely).
+          ;; ALWAYS-ON (rf2-d2841): the registration nevertheless SUCCEEDED — no
+          ;; throw, and the id is resolvable in the registrar. That is the half
+          ;; of §No silent swallow a production build honours: an unknown key
+          ;; is a nudge, never a rejection, and the cascade continues.
           (is (some? (registrar/lookup kind id))
-              "the registration succeeded despite the unknown key"))))))
+              "the registration succeeded despite the unknown key")
+          ;; rf2-d2841 — the WARNING is a dev-trace emit; nothing is emitted
+          ;; under `-Dre-frame.debug=false`.
+          (when interop/debug-enabled?
+            (is (= 1 (count warns))
+                (str "reg-" (name kind) " emits exactly one unknown-key warning"))
+            (let [{:keys [tags]} (first warns)]
+              (is (= kind (:kind tags)) ":kind names the registrar kind")
+              (is (= id (:id tags)) ":id names the registration")
+              (is (= [:bogus-key] (:unknown-keys tags))
+                  ":unknown-keys names exactly the offending bare key")
+              (is (contains? (set (:known tags)) :doc)
+                  ":known carries the recognised bare vocabulary")
+              (is (string? (:reason tags))))))))))
 
 ;; ---- namespaced extension key + known keys — SILENT (the carve-out) -------
 
@@ -141,12 +169,18 @@
                                       (register! kind id
                                                  {:doc            "a valid registration"
                                                   :myapp/extra-id 42})))))]
+          ;; ALWAYS-ON: the carve-out does not throw, and the registration lands.
           (is (nil? @ed)
               (str "reg-" (name kind)
                    " with known + namespaced keys must not throw; got " (pr-str @ed)))
-          (is (empty? warns)
-              (str "no unknown-key warning for known + namespaced keys; got "
-                   (pr-str warns))))))))
+          (is (some? (registrar/lookup kind id))
+              "the namespaced-extension registration landed")
+          ;; rf2-d2841 — class-1 vacuous under the gate: the warning stream is
+          ;; empty for EVERY key there, carve-out or typo.
+          (when interop/debug-enabled?
+            (is (empty? warns)
+                (str "no unknown-key warning for known + namespaced keys; got "
+                     (pr-str warns)))))))))
 
 ;; ---- the schema-bearing kinds accept `:schema` (the v2 name) --------------
 
@@ -160,4 +194,8 @@
                       #(is (nil? (caught-ex-data
                                    (fn [] (register! kind id {:doc "x" :schema [:map]}))))
                            (str "reg-" (name kind) " accepts `:schema`")))]
-          (is (empty? warns) "`:schema` is a known key — no unknown-key warning"))))))
+          (is (some? (registrar/lookup kind id))
+              "the `:schema`-bearing registration landed")
+          ;; rf2-d2841 — class-1 vacuous under the gate, same shape as above.
+          (when interop/debug-enabled?
+            (is (empty? warns) "`:schema` is a known key — no unknown-key warning")))))))
