@@ -160,6 +160,27 @@
     ;; keyboard law and the five transitions ARE the surface, and only the
     ;; pointer plumbing beneath the view is `:cljs`-conditional (and `defn-`).
     re-frame.freehand.splitter
+    ;; The control kit's FIXED-SIZE VIRTUAL COLLECTION (rf2-drpa3.182.11,
+    ;; reshaped by the rf2-86i64 ruling into an engine + a listbox over it;
+    ;; proven by FH-CTRL-021). Sanctioned as a sibling by the rf2-cfhuv
+    ;; ruling — folding it into `re-frame.freehand.controls` was considered
+    ;; and REJECTED — because virtualization is a cohesive capability with an
+    ;; audience of its own: a library author composing their own list needs
+    ;; `window` and `reveal-offset` without the input-field kit, and
+    ;; `(require [re-frame.freehand.collection :as coll])` reads as exactly
+    ;; what it is.
+    ;;
+    ;; Enrolled by the same bead as the splitter above and for the same
+    ;; reason: it landed on main outside this list, so its seven public names
+    ;; were UNSCANNED rather than classified, and no documentation-coverage
+    ;; check reached them either.
+    ;;
+    ;; `.cljc` and host-neutral. Three of the seven are pure functions of
+    ;; scalars — the window arithmetic IS the correctness — so `ns-publics`
+    ;; is authoritative here as it is for `form`; the one imperative entry is
+    ;; a guarded write of one property on one node, and the CLJS half is
+    ;; reconciled by the probe.
+    re-frame.freehand.collection
     ;; The Freehand substrate's TOOL-TIER READER DOOR (rf2-hytu5, extended by
     ;; rf2-lvvl2 / rf2-xftdv / rf2-cpfbg; contract in Spec 004, the
     ;; instrumentation it serves in Spec 009). A sanctioned
