@@ -9,12 +9,41 @@
   Schema-attached `{:sensitive? true}` / `{:large? true}` slot props are NOT
   a route into this registry. These tests seed declarations through the
   effect path; the walker behaviour (marker shape, sensitive-wins-over-large,
-  idempotence, threshold interaction, frame isolation) is unchanged."
+  idempotence, threshold interaction, frame isolation) is unchanged.
+
+  ## Posture split (rf2-d2841)
+
+  ELISION IS PRODUCTION BEHAVIOUR and almost all of this file runs under
+  `scripts/test-core-prod-gate.sh` unchanged: marker shape, redaction of
+  declared `:sensitive` paths, the `include-large?` / `include-sensitive?`
+  bypasses, frame isolation, idempotence, and the fact that a frame-declared
+  `:large` path elides independent of the runtime threshold.
+
+  `:rf.warning/large-value-unschema'd` is a different matter. It is the
+  runtime AUTO-DETECT diagnostic — a dev-only `trace/emit!` site — and,
+  crucially, it is the ONLY observable the threshold has: the file's own
+  `unschema'd-large-value-warns-but-does-not-elide` establishes that a
+  schema-less large value is NOT elided, so the threshold changes nothing
+  about the returned wire value. Every threshold deftest therefore reads its
+  result off that warning, and all of them are kept verbatim inside
+  `(when interop/debug-enabled? …)` arms marked `rf2-d2841`.
+
+  That includes the ones that pass under the gate today, and they are the
+  reason to be careful here rather than the exception to it:
+  `threshold-zero-disables-runtime-auto-detect` asserts `(= 0
+  (count-unschema'd-warnings …))` twice, and `explicit-opt-wins-over-configured`
+  and `default-threshold-is-16384` each open with the same shape. Over a
+  trace stream that is empty for EVERY threshold, \"threshold 0 disables
+  auto-detect\" is true without the threshold existing. Their production
+  residue — that the configured value reaches `elision/current-config`, and
+  that the wire value is returned intact either way — is asserted outside the
+  arms."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -100,27 +129,38 @@
   (let [big    (apply str (repeat 3000 "ABCDEFGH"))
         traces (collect-traces! :elision-test/unschema'd)
         out    (rf/elide-wire-value {:user {:photo big}})]
+    ;; ALWAYS-ON: the wire value is unchanged. This is the half of the
+    ;; contract that survives the gate, and it is the load-bearing one — a
+    ;; diagnostic that started eliding would be the actual defect.
     (is (= big (get-in out [:user :photo]))
         "schema-less large values are not auto-elided")
-    (let [warnings (filterv #(= :rf.warning/large-value-unschema'd
-                                (:operation %))
-                            @traces)]
-      (is (= 1 (count warnings)))
-      (is (= [:user :photo] (get-in (first warnings) [:tags :path])))
-      (is (pos-int? (get-in (first warnings) [:tags :bytes])))
-      (is (= "Classify this path large by returning `:large [[...]]` from the event that writes it (EP-0025 commit-plane classification effect, alongside `:db`)."
-             (get-in (first warnings) [:tags :hint]))))
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    (when interop/debug-enabled?
+      (let [warnings (filterv #(= :rf.warning/large-value-unschema'd
+                                  (:operation %))
+                              @traces)]
+        (is (= 1 (count warnings)))
+        (is (= [:user :photo] (get-in (first warnings) [:tags :path])))
+        (is (pos-int? (get-in (first warnings) [:tags :bytes])))
+        (is (= "Classify this path large by returning `:large [[...]]` from the event that writes it (EP-0025 commit-plane classification effect, alongside `:db`)."
+               (get-in (first warnings) [:tags :hint])))))
     (rf/unregister-listener! :trace :elision-test/unschema'd)))
 
 (deftest unschema'd-large-warning-is-once-per-path
   (let [big    (apply str (repeat 3000 "ABCDEFGH"))
         traces (collect-traces! :elision-test/once)]
-    (rf/elide-wire-value {:photo big})
-    (rf/elide-wire-value {:photo big})
-    (rf/elide-wire-value {:photo big})
-    (is (= 1 (count (filter #(= :rf.warning/large-value-unschema'd
-                                (:operation %))
-                            @traces))))
+    ;; ALWAYS-ON: three identical walks return the value verbatim every time —
+    ;; the warn-once cache does not start eliding on the second pass.
+    (is (= [{:photo big} {:photo big} {:photo big}]
+           [(rf/elide-wire-value {:photo big})
+            (rf/elide-wire-value {:photo big})
+            (rf/elide-wire-value {:photo big})])
+        "repeat walks of the same unschema'd path leave the value intact")
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    (when interop/debug-enabled?
+      (is (= 1 (count (filter #(= :rf.warning/large-value-unschema'd
+                                  (:operation %))
+                              @traces)))))
     (rf/unregister-listener! :trace :elision-test/once)))
 
 ;; ---------------------------------------------------------------------------
@@ -149,12 +189,21 @@
         traces  (collect-traces! :elision-test/default-thresh)]
     ;; `under` here is genuinely under 16384 bytes once quoted (16000 chars
     ;; + 2 quote bytes = 16002), so no warning.
-    (rf/elide-wire-value {:a {:small under}})
-    (is (= 0 (count-unschema'd-warnings traces))
-        "value under the 16384 default does not trip the auto-detect warning")
-    (rf/elide-wire-value {:b {:big over}})
-    (is (= 1 (count-unschema'd-warnings traces))
-        "value over the 16384 default trips the warning")
+    ;; ALWAYS-ON: the documented default is readable straight off the config,
+    ;; with no channel involved.
+    (is (= 16384 (:rf.size/threshold-bytes (elision/current-config)))
+        "the documented 16384-byte default is the live configured threshold")
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; The auto-detect WARNING is the threshold's only observable, and under
+    ;; the gate the stream is empty for every value — so the `= 0` half would
+    ;; certify `under` as under-threshold without the threshold existing.
+    (when interop/debug-enabled?
+      (rf/elide-wire-value {:a {:small under}})
+      (is (= 0 (count-unschema'd-warnings traces))
+          "value under the 16384 default does not trip the auto-detect warning")
+      (rf/elide-wire-value {:b {:big over}})
+      (is (= 1 (count-unschema'd-warnings traces))
+          "value over the 16384 default trips the warning"))
     (rf/unregister-listener! :trace :elision-test/default-thresh)))
 
 (deftest configured-threshold-takes-effect
@@ -164,15 +213,22 @@
   ;; would have ignored.
   (let [small  (apply str (repeat 300 "y"))         ; ~302 bytes — under default, over 100
         traces (collect-traces! :elision-test/configured)]
-    ;; Baseline: under the default, no warning.
-    (rf/elide-wire-value {:a {:s small}})
-    (is (= 0 (count-unschema'd-warnings traces))
-        "300-byte string is under the 16384 default — no warning")
-    ;; Lower the configured threshold; now the same shape warns.
+    ;; ALWAYS-ON: `configure!` moves the live threshold, and the wire value
+    ;; comes back intact on both sides of the move (the knob governs the
+    ;; advisory, never the walk's output).
+    (is (= {:a {:s small}} (rf/elide-wire-value {:a {:s small}}))
+        "under the default the 300-byte string rides verbatim")
     (rf/configure! {:elision {:rf.size/threshold-bytes 100}})
-    (rf/elide-wire-value {:b {:s small}})
-    (is (= 1 (count-unschema'd-warnings traces))
-        "after (configure :elision {:rf.size/threshold-bytes 100}) the 300-byte string warns")
+    (is (= 100 (:rf.size/threshold-bytes (elision/current-config)))
+        "(configure! {:elision {:rf.size/threshold-bytes 100}}) moved the live threshold")
+    (is (= {:b {:s small}} (rf/elide-wire-value {:b {:s small}}))
+        "and the now-over-threshold string STILL rides verbatim — the knob
+         governs the advisory, not the walk")
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; The warning is the threshold's only observable.
+    (when interop/debug-enabled?
+      (is (= 1 (count-unschema'd-warnings traces))
+          "after (configure :elision {:rf.size/threshold-bytes 100}) the 300-byte string warns"))
     (rf/unregister-listener! :trace :elision-test/configured)))
 
 (deftest configure-threshold-reaches-elision-config
@@ -190,16 +246,21 @@
   (let [s      (apply str (repeat 300 "z"))          ; ~302 bytes
         traces (collect-traces! :elision-test/opt-wins)]
     (rf/configure! {:elision {:rf.size/threshold-bytes 50}})
-    ;; Configured 50 alone would warn for a 302-byte string; but the
-    ;; explicit per-call opt of 100000 raises the bar above it.
-    (rf/elide-wire-value {:a {:s s}} {:rf.size/threshold-bytes 100000})
-    (is (= 0 (count-unschema'd-warnings traces))
-        "explicit :rf.size/threshold-bytes opt (100000) overrides configured (50) — no warning")
-    ;; And conversely an explicit small opt wins over a large configured value.
-    (rf/configure! {:elision {:rf.size/threshold-bytes 1000000}})
-    (rf/elide-wire-value {:b {:s s}} {:rf.size/threshold-bytes 100})
-    (is (= 1 (count-unschema'd-warnings traces))
-        "explicit :rf.size/threshold-bytes opt (100) overrides configured (1000000) — warns")
+    ;; ALWAYS-ON: whichever threshold wins, an unschema'd value is returned
+    ;; verbatim — the precedence rule governs the advisory, never the walk.
+    (is (= {:a {:s s}} (rf/elide-wire-value {:a {:s s}} {:rf.size/threshold-bytes 100000}))
+        "a per-call threshold opt does not change the walk's output")
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; BOTH halves go inside: the `= 0` would pass over the gate's empty
+    ;; stream without the explicit opt having overridden anything.
+    (when interop/debug-enabled?
+      (is (= 0 (count-unschema'd-warnings traces))
+          "explicit :rf.size/threshold-bytes opt (100000) overrides configured (50) — no warning")
+      ;; And conversely an explicit small opt wins over a large configured value.
+      (rf/configure! {:elision {:rf.size/threshold-bytes 1000000}})
+      (rf/elide-wire-value {:b {:s s}} {:rf.size/threshold-bytes 100})
+      (is (= 1 (count-unschema'd-warnings traces))
+          "explicit :rf.size/threshold-bytes opt (100) overrides configured (1000000) — warns"))
     (rf/unregister-listener! :trace :elision-test/opt-wins)))
 
 (deftest threshold-zero-disables-runtime-auto-detect
@@ -209,14 +270,25 @@
   (let [big    (apply str (repeat 5000 "ABCDEFGH")) ; ~40002 bytes — well over default
         traces (collect-traces! :elision-test/zero)]
     (rf/configure! {:elision {:rf.size/threshold-bytes 0}})
-    (rf/elide-wire-value {:a {:big big}})
-    (is (= 0 (count-unschema'd-warnings traces))
-        "threshold 0 disables runtime auto-detect — no warning even for a 40KB string")
-    ;; Sanity: a per-call explicit 0 also disables, overriding a configured non-zero.
-    (rf/configure! {:elision {:rf.size/threshold-bytes 100}})
-    (rf/elide-wire-value {:b {:big big}} {:rf.size/threshold-bytes 0})
-    (is (= 0 (count-unschema'd-warnings traces))
-        "explicit threshold-bytes 0 opt disables runtime auto-detect for that call")
+    ;; ALWAYS-ON: 0 reaches the live config, and the 40KB unschema'd value
+    ;; still rides verbatim (auto-detect never elided it in the first place —
+    ;; `unschema'd-large-value-warns-but-does-not-elide`).
+    (is (= 0 (:rf.size/threshold-bytes (elision/current-config)))
+        "threshold 0 reaches the live elision config")
+    (is (= {:a {:big big}} (rf/elide-wire-value {:a {:big big}}))
+        "the 40KB unschema'd value rides verbatim under threshold 0")
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    ;; BOTH assertions here are `(= 0 …)` over the warning stream, which is
+    ;; empty for every threshold under the gate — "0 disables auto-detect"
+    ;; would be true with no auto-detect to disable.
+    (when interop/debug-enabled?
+      (is (= 0 (count-unschema'd-warnings traces))
+          "threshold 0 disables runtime auto-detect — no warning even for a 40KB string")
+      ;; Sanity: a per-call explicit 0 also disables, overriding a configured non-zero.
+      (rf/configure! {:elision {:rf.size/threshold-bytes 100}})
+      (rf/elide-wire-value {:b {:big big}} {:rf.size/threshold-bytes 0})
+      (is (= 0 (count-unschema'd-warnings traces))
+          "explicit threshold-bytes 0 opt disables runtime auto-detect for that call"))
     (rf/unregister-listener! :trace :elision-test/zero)))
 
 (deftest configured-threshold-does-not-affect-declared-elision

@@ -17,10 +17,38 @@
   genuinely-varying `not=` arg, and a primitive arg. The warning rides the
   diagnostic channel as `:rf.warning/sub-arg-cache-fragmentation` (Spec 009
   §Error event catalogue) via `trace/emit-error!`, dev-only
-  (`interop/debug-enabled?`-gated, DCE'd in production)."
+  (`interop/debug-enabled?`-gated, DCE'd in production).
+
+  ## Posture split (rf2-d2841)
+
+  The guardrail is a pure diagnostic, so every assertion about the warning —
+  the two FIRES deftests and all five STAYS SILENT ones — is kept verbatim
+  inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`. The
+  silent ones move with the loud ones deliberately: `(is (empty?
+  (fragmentation-events @acc)))` over the gate's empty stream certifies an
+  `identical?`-stable arg, a genuinely-varying arg and a primitive arg as
+  benign without the heuristic having looked at any of them. False-positive
+  aversion is the whole point of those five, and there is nothing to be
+  averse to when nothing fires.
+
+  What survives the gate is `:recovery :ignored` — THE SUBSCRIBE SUCCEEDS.
+  Each deftest asserts that unguarded, so the production lane pins that a
+  render-phase guardrail never refuses a subscription however the arg was
+  built. (The sub-cache itself has no production reader to count against:
+  `subs.tooling/sub-cache-snapshot` is CLJS-only and dev-gated on top.)
+
+  `warns-under-jvm-debug-enabled` was a statement about the RUNTIME rather
+  than the framework — \"`interop/debug-enabled?` is true on the JVM test
+  runtime\" — which the production lane falsifies by construction. It is now
+  two-armed and says more than it used to: the dev arm keeps the wired-path
+  pin, and the PROD arm asserts the emit is genuinely gone under
+  `-Dre-frame.debug=false`. That second arm is new coverage — the JVM
+  analogue of the CLJS elision probe, which until now had no JVM counterpart
+  for this category."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -78,9 +106,14 @@
     (let [acc (collect-traces! ::fresh-map)]
       (try
         ;; Three renders, each building a value-EQUAL but distinct map.
-        (dotimes [_ 3]
-          (rf/subscribe [:sub/param (fresh-opts)]))
-        (let [warns (fragmentation-events @acc)]
+        (let [subs (vec (repeatedly 3 #(rf/subscribe [:sub/param (fresh-opts)])))]
+          ;; ALWAYS-ON (rf2-d2841): `:recovery :ignored` — every subscribe
+          ;; succeeds. The guardrail is advisory and never refuses.
+          (is (every? some? subs)
+              "all three fresh-but-equal subscribes succeeded — the guardrail is advisory"))
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+        (when interop/debug-enabled?
+         (let [warns (fragmentation-events @acc)]
           (is (= 1 (count warns))
               "exactly one warning despite three fresh-but-equal subscribes")
           (let [[ev] warns
@@ -100,7 +133,7 @@
                 ":hint carries the human fix sentence")
             ;; `:recovery` is hoisted to the TOP LEVEL by `build-event`.
             (is (= :ignored (:recovery ev))
-                ":recovery :ignored — the subscribe succeeds; warning is diagnostic")))
+                ":recovery :ignored — the subscribe succeeds; warning is diagnostic"))))
         (finally
           (rf/unregister-listener! :trace ::fresh-map))))))
 
@@ -114,10 +147,14 @@
       (try
         ;; `(vec (list …))` builds a fresh-but-equal vector each call
         ;; (defeats literal-vector constant-folding).
-        (rf/subscribe [:sub/v (vec (list :a :b :c))])
-        (rf/subscribe [:sub/v (vec (list :a :b :c))])
-        (is (= 1 (count (fragmentation-events @acc)))
-            "value-equal fresh vectors fragment the cache — one warning")
+        ;; ALWAYS-ON (rf2-d2841): both subscribes succeed.
+        (is (every? some? [(rf/subscribe [:sub/v (vec (list :a :b :c))])
+                           (rf/subscribe [:sub/v (vec (list :a :b :c))])])
+            "both fresh-but-equal vector subscribes succeeded")
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+        (when interop/debug-enabled?
+          (is (= 1 (count (fragmentation-events @acc)))
+              "value-equal fresh vectors fragment the cache — one warning"))
         (finally
           (rf/unregister-listener! :trace ::fresh-vec))))))
 
@@ -130,14 +167,18 @@
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::two-ids)]
       (try
-        (rf/subscribe [:sub/one (into {} (hash-map :k 1))])
-        (rf/subscribe [:sub/one (into {} (hash-map :k 1))])
-        (rf/subscribe [:sub/two (into {} (hash-map :k 1))])
-        (rf/subscribe [:sub/two (into {} (hash-map :k 1))])
-        (let [warns (fragmentation-events @acc)
-              ids   (set (map #(-> % :tags :rf.sub/id) warns))]
-          (is (= 2 (count warns)) "one warning per fragmenting sub-id")
-          (is (= #{:sub/one :sub/two} ids)))
+        ;; ALWAYS-ON (rf2-d2841): all four subscribes succeed.
+        (is (every? some? [(rf/subscribe [:sub/one (into {} (hash-map :k 1))])
+                           (rf/subscribe [:sub/one (into {} (hash-map :k 1))])
+                           (rf/subscribe [:sub/two (into {} (hash-map :k 1))])
+                           (rf/subscribe [:sub/two (into {} (hash-map :k 1))])])
+            "both fragmenting sub-ids still subscribe successfully")
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+        (when interop/debug-enabled?
+          (let [warns (fragmentation-events @acc)
+                ids   (set (map #(-> % :tags :rf.sub/id) warns))]
+            (is (= 2 (count warns)) "one warning per fragmenting sub-id")
+            (is (= #{:sub/one :sub/two} ids))))
         (finally
           (rf/unregister-listener! :trace ::two-ids))))))
 
@@ -153,9 +194,15 @@
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::first-only)]
       (try
-        (rf/subscribe [:sub/param {:opts true}])
-        (is (empty? (fragmentation-events @acc))
-            "a single subscribe is never the fragmentation footgun")
+        ;; ALWAYS-ON (rf2-d2841).
+        (is (some? (rf/subscribe [:sub/param {:opts true}]))
+            "the first subscribe succeeds")
+        ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE over the trace
+        ;; stream: under the gate nothing fires for ANY arg shape, so the
+        ;; false-positive aversion this deftest exists for is untestable here.
+        (when interop/debug-enabled?
+          (is (empty? (fragmentation-events @acc))
+              "a single subscribe is never the fragmentation footgun"))
         (finally
           (rf/unregister-listener! :trace ::first-only))))))
 
@@ -168,10 +215,14 @@
     (let [acc        (collect-traces! ::stable)
           stable-arg {:filter :all :page 1}]   ;; built ONCE, reused
       (try
-        (dotimes [_ 3]
-          (rf/subscribe [:sub/param stable-arg]))
-        (is (empty? (fragmentation-events @acc))
-            "an identical?-stable arg is the GOOD case — no warning")
+        ;; ALWAYS-ON (rf2-d2841).
+        (is (every? some? (repeatedly 3 #(rf/subscribe [:sub/param stable-arg])))
+            "the identical?-stable arg subscribes successfully every time")
+        ;; rf2-d2841 — dev-instrumentation arm. Same empty-stream false-green
+        ;; shape as `first-subscribe-does-not-warn`.
+        (when interop/debug-enabled?
+          (is (empty? (fragmentation-events @acc))
+              "an identical?-stable arg is the GOOD case — no warning"))
         (finally
           (rf/unregister-listener! :trace ::stable))))))
 
@@ -185,11 +236,16 @@
     (let [acc (collect-traces! ::varying)]
       (try
         ;; Non-primitive but genuinely-different args every time.
-        (rf/subscribe [:sub/item {:id 1}])
-        (rf/subscribe [:sub/item {:id 2}])
-        (rf/subscribe [:sub/item {:id 3}])
-        (is (empty? (fragmentation-events @acc))
-            "genuinely-varying args are correct fragmentation, not a footgun")
+        ;; ALWAYS-ON (rf2-d2841).
+        (is (every? some? [(rf/subscribe [:sub/item {:id 1}])
+                           (rf/subscribe [:sub/item {:id 2}])
+                           (rf/subscribe [:sub/item {:id 3}])])
+            "genuinely-varying args subscribe successfully")
+        ;; rf2-d2841 — dev-instrumentation arm. Same empty-stream false-green
+        ;; shape as the other STAYS SILENT deftests.
+        (when interop/debug-enabled?
+          (is (empty? (fragmentation-events @acc))
+              "genuinely-varying args are correct fragmentation, not a footgun"))
         (finally
           (rf/unregister-listener! :trace ::varying))))))
 
@@ -203,14 +259,19 @@
     (let [acc (collect-traces! ::primitive)]
       (try
         ;; Keyword, string, and number args — all primitives — repeated.
-        (rf/subscribe [:sub/kw :all])
-        (rf/subscribe [:sub/kw :all])
-        (rf/subscribe [:sub/kw (str "page-" 1)])
-        (rf/subscribe [:sub/kw (str "page-" 1)])
-        (rf/subscribe [:sub/kw (+ 1 1)])
-        (rf/subscribe [:sub/kw (+ 1 1)])
-        (is (empty? (fragmentation-events @acc))
-            "primitive args are not the fragmentation hazard")
+        ;; ALWAYS-ON (rf2-d2841).
+        (is (every? some? [(rf/subscribe [:sub/kw :all])
+                           (rf/subscribe [:sub/kw :all])
+                           (rf/subscribe [:sub/kw (str "page-" 1)])
+                           (rf/subscribe [:sub/kw (str "page-" 1)])
+                           (rf/subscribe [:sub/kw (+ 1 1)])
+                           (rf/subscribe [:sub/kw (+ 1 1)])])
+            "keyword / string / number args all subscribe successfully")
+        ;; rf2-d2841 — dev-instrumentation arm. Same empty-stream false-green
+        ;; shape as the other STAYS SILENT deftests.
+        (when interop/debug-enabled?
+          (is (empty? (fragmentation-events @acc))
+              "primitive args are not the fragmentation hazard"))
         (finally
           (rf/unregister-listener! :trace ::primitive))))))
 
@@ -222,21 +283,31 @@
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::zero-arg)]
       (try
-        (dotimes [_ 3] (rf/subscribe [:sub/a]))
-        (is (empty? (fragmentation-events @acc))
-            "an arg-less subscription has no cache-key-fragmentation surface")
+        ;; ALWAYS-ON (rf2-d2841).
+        (is (every? some? (repeatedly 3 #(rf/subscribe [:sub/a])))
+            "the arg-less subscription succeeds every time")
+        ;; rf2-d2841 — dev-instrumentation arm. Same empty-stream false-green
+        ;; shape as the other STAYS SILENT deftests.
+        (when interop/debug-enabled?
+          (is (empty? (fragmentation-events @acc))
+              "an arg-less subscription has no cache-key-fragmentation surface"))
         (finally
           (rf/unregister-listener! :trace ::zero-arg))))))
 
 ;; ---------------------------------------------------------------------------
-;; JVM dev-path pin (the prod-elision shape is pinned by the CLJS elision
-;; probe `npm run test:elision`; on the JVM `debug-enabled?` is true)
+;; JVM posture pin — BOTH arms (rf2-d2841)
+;;
+;; This deftest used to assert only that `interop/debug-enabled?` is true on
+;; the JVM test runtime, which the `-Dre-frame.debug=false` lane falsifies by
+;; construction. It now pins the gate in BOTH directions off the SAME two
+;; subscribes: the emit lands when the gate is on, and is genuinely ABSENT
+;; when it is off. The second arm is the JVM counterpart of the CLJS elision
+;; probe (`npm run test:elision`) for this category, which had none.
 ;; ---------------------------------------------------------------------------
 
 (deftest warns-under-jvm-debug-enabled
-  (testing "interop/debug-enabled? is true on the JVM test runtime — the
-            guardrail's emit lands in the trace stream (the dev path is
-            wired). Production CLJS elision is pinned by the elision probe."
+  (testing "the fragmentation emit follows interop/debug-enabled? on the JVM:
+            present under the dev default, absent under -Dre-frame.debug=false"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 1}}))
     (rf/reg-sub :sub/param (fn [db [_ _o]] (:a db)))
     (rf/dispatch-sync [:init])
@@ -244,7 +315,11 @@
       (try
         (rf/subscribe [:sub/param (into {} (hash-map :x 1))])
         (rf/subscribe [:sub/param (into {} (hash-map :x 1))])
-        (is (seq (fragmentation-events @acc))
-            "a warning landed — JVM dev path is wired")
+        (if interop/debug-enabled?
+          (is (seq (fragmentation-events @acc))
+              "a warning landed — JVM dev path is wired")
+          (is (empty? (fragmentation-events @acc))
+              "the guardrail's emit is GONE under -Dre-frame.debug=false — the
+               JVM half of the production-elision contract"))
         (finally
           (rf/unregister-listener! :trace ::jvm-pin))))))
