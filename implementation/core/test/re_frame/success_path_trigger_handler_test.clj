@@ -25,9 +25,42 @@
 
   JVM-only — the dynamic-var binding mechanism is platform-agnostic.
   Mirror tests for the machine emit site live in
-  `implementation/machines/test/re_frame/machine_transition_trigger_handler_test.clj`."
+  `implementation/machines/test/re_frame/machine_transition_trigger_handler_test.clj`.
+
+  ## Posture split (rf2-d2841)
+
+  The docstring above is right that the SLOT \"rides the same
+  `interop/debug-enabled?` gate as the rest of the trace surface\", and there is
+  no success-path production channel to move it to — unlike the error axis,
+  where `error-emit/dispatch-on-error!` fans a tight record. So the
+  trace-shape and trace-placement claims are guarded.
+
+  What is NOT dev-only is the COORD ITSELF. `registrar/register!` calls
+  `source-coords/remember-error-coords!` unconditionally, so the always-on
+  `error-coords-by-id` registry holds the registration coordinate for every
+  macro-path `reg-fx` / `reg-sub` / `reg-cofx` / `reg-event` in BOTH postures
+  — it is what an off-box error shipper reads in production. Every case here
+  therefore keeps an always-on assertion on that registry, and the three
+  \"better no-data than poison-data\" cases keep theirs as a NEGATIVE on the
+  same registry with a macro-path control beside it, so the negative cannot
+  pass for free. Alongside those sit the posture-independent semantics the
+  trace was standing in for: the fx ran, the child dispatch committed, the sub
+  recomputed to the right value, the cofx supplied its fact.
+
+  TWELVE VACUOUS PASSES CAME OFF (rf2-d2841 class 3 — a positive assertion the
+  gate short-circuits). The three `…-matches-registrar-coord` deftests each
+  compare `(:ns handler-meta)` against `(:ns coord)` field by field, four
+  fields apiece. Under the gate `handler-meta` has been stripped of coord keys
+  AND the trace event does not exist, so every one of those twelve is
+  `nil = nil` — parity certified between two absences. `fx-handled-trigger-
+  matches-registrar-coord` was GREEN under the gate on nothing but those four.
+  Four more, class 4, sat in the `…-omits-trigger-…` trio and
+  `…-rides-at-top-level` pair: `(not (contains? handled …))` over the nil an
+  empty trace ring yields."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
+            [re-frame.source-coords :as sc]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -69,6 +102,34 @@
 (defn- events-of [evs op]
   (filterv #(= op (:operation %)) evs))
 
+(defn- assert-always-on-coord
+  "ALWAYS-ON (rf2-d2841): the registration coordinate the always-on
+  `error-coords-by-id` registry holds for `[kind id]`. `registrar/register!`
+  populates it unconditionally, so this is the production-posture statement of
+  the handler registration site is known — the substance
+  `:rf.trace/trigger-handler` carries on the dev trace."
+  [kind id]
+  (let [c (sc/error-coords-for kind id)]
+    (is (map? c)
+        (str "always-on registration coord present for " kind " " id))
+    (is (symbol? (:ns c))    ":ns is a symbol")
+    (is (string? (:file c))  ":file is a string")
+    (is (integer? (:line c)) ":line is an integer")
+    c))
+
+(defn- assert-no-always-on-coord
+  "ALWAYS-ON (rf2-d2841): a programmatic registration bypassed the macro path,
+  so the always-on registry has NOTHING for it — better no-data than
+  poison-data, stated where it survives production. `control-kind` /
+  `control-id` name a macro-path sibling registered in the same test, so the
+  negative cannot pass merely because the registry is empty."
+  [kind id control-kind control-id]
+  (is (nil? (sc/error-coords-for kind id))
+      (str "programmatic " kind " " id " stored no always-on coord"))
+  (is (some? (sc/error-coords-for control-kind control-id))
+      (str "control: macro-path " control-kind " " control-id
+           " DID store one, so the negative above is not free")))
+
 (defn- assert-trigger-shape
   "Assert the value at top-level `:rf.trace/trigger-handler` on `ev`
   carries the locked shape — `:kind`, `:id`, and a `:source-coord` map
@@ -92,15 +153,22 @@
    (not the enclosing event handler's) — Story/Xray want jump-to-source
    to land on the fx's reg-fx site, not the event-handler that produced
    the fx vector"
-    (rf/reg-fx :rf2-lf84g/my-fx
-               (fn [_ctx _args] :ok))
-    (rf/reg-event :rf2-lf84g/uses-my-fx
-                     (fn [_cofx _event]
-                       {:fx [[:rf2-lf84g/my-fx {:k 1}]]}))
-    (let [evs (record-traces #(rf/dispatch-sync [:rf2-lf84g/uses-my-fx]))
-          [handled] (events-of evs :rf.fx/handled)]
-      (is (some? handled) ":rf.fx/handled trace fired")
-      (assert-trigger-shape handled :fx :rf2-lf84g/my-fx))))
+    (let [ran (atom nil)]
+      (rf/reg-fx :rf2-lf84g/my-fx
+                 (fn [_ctx args] (reset! ran args) :ok))
+      (rf/reg-event :rf2-lf84g/uses-my-fx
+                       (fn [_cofx _event]
+                         {:fx [[:rf2-lf84g/my-fx {:k 1}]]}))
+      (let [evs (record-traces #(rf/dispatch-sync [:rf2-lf84g/uses-my-fx]))
+            [handled] (events-of evs :rf.fx/handled)]
+        ;; ALWAYS-ON (rf2-d2841): the fx really ran with its args, and its
+        ;; registration coord is on the always-on registry — the production
+        ;; half of "jump-to-source lands on the reg-fx site".
+        (is (= {:k 1} @ran) "the fx handler ran with its authored args")
+        (assert-always-on-coord :fx :rf2-lf84g/my-fx)
+        (when interop/debug-enabled?
+          (is (some? handled) ":rf.fx/handled trace fired")
+          (assert-trigger-shape handled :fx :rf2-lf84g/my-fx))))))
 
 (deftest fx-handled-trigger-rides-at-top-level
   (testing ":rf.trace/trigger-handler is a top-level field on success
@@ -110,10 +178,15 @@
                      (fn [_ _] {:fx [[:rf2-lf84g/top-level-fx {}]]}))
     (let [evs (record-traces #(rf/dispatch-sync [:rf2-lf84g/use-top-level]))
           [handled] (events-of evs :rf.fx/handled)]
-      (is (contains? handled :rf.trace/trigger-handler)
-          ":rf.trace/trigger-handler lives at top level")
-      (is (not (contains? (:tags handled) :rf.trace/trigger-handler))
-          ":rf.trace/trigger-handler does NOT live under :tags"))))
+      (assert-always-on-coord :fx :rf2-lf84g/top-level-fx)
+      ;; rf2-d2841 — GUARDED: top-level-vs-`:tags` is a trace-SHAPE claim, and
+      ;; the `:tags` negative was class-4 vacuous under the gate (`handled` is
+      ;; nil there, and `(contains? nil k)` is false for every k).
+      (when interop/debug-enabled?
+        (is (contains? handled :rf.trace/trigger-handler)
+            ":rf.trace/trigger-handler lives at top level")
+        (is (not (contains? (:tags handled) :rf.trace/trigger-handler))
+            ":rf.trace/trigger-handler does NOT live under :tags")))))
 
 (deftest fx-handled-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on
@@ -124,11 +197,21 @@
     (let [fx-meta (rf/handler-meta :fx :rf2-lf84g/coord-fx)
           evs     (record-traces #(rf/dispatch-sync [:rf2-lf84g/use-coord]))
           [hdl]   (events-of evs :rf.fx/handled)
-          coord   (-> hdl :rf.trace/trigger-handler :source-coord)]
-      (is (= (:ns     fx-meta) (:ns coord)))
-      (is (= (:file   fx-meta) (:file coord)))
-      (is (= (:line   fx-meta) (:line coord)))
-      (is (= (:column fx-meta) (:column coord))))))
+          coord   (-> hdl :rf.trace/trigger-handler :source-coord)
+          errc    (assert-always-on-coord :fx :rf2-lf84g/coord-fx)]
+      ;; rf2-d2841 — GUARDED, and this arm was the file's worst false green:
+      ;; under the gate `fx-meta` has been stripped of coord keys AND `coord`
+      ;; is nil, so all four comparisons were `nil = nil` and the whole deftest
+      ;; reported PASS on nothing. The always-on registry is where the coord
+      ;; still exists in production, so the parity claim is made there too.
+      (when interop/debug-enabled?
+        (is (= (:ns   fx-meta) (:ns errc)))
+        (is (= (:file fx-meta) (:file errc)))
+        (is (= (:line fx-meta) (:line errc)))
+        (is (= (:ns     fx-meta) (:ns coord)))
+        (is (= (:file   fx-meta) (:file coord)))
+        (is (= (:line   fx-meta) (:line coord)))
+        (is (= (:column fx-meta) (:column coord)))))))
 
 ;; ---- the reserved-fx-id path stamps the enclosing event handler -----------
 
@@ -142,11 +225,19 @@
     (let [evs       (record-traces #(rf/dispatch-sync [:rf2-lf84g/parent]))
           handled   (events-of evs :rf.fx/handled)
           parent-fx (first (filter #(= :dispatch (get-in % [:tags :rf.fx/id])) handled))]
-      (is (some? parent-fx) ":dispatch :rf.fx/handled fired")
-      ;; The reserved-fx-id path runs inside the parent event's
-      ;; *current-trigger-handler* binding (no inner fx binding kicks in
-      ;; for reserved fx-ids since there's no registered handler).
-      (assert-trigger-shape parent-fx :event :rf2-lf84g/parent))))
+      ;; ALWAYS-ON (rf2-d2841): the reserved `:dispatch` fx has no registration
+      ;; of its own, and the coord the trace attributes to it is the ENCLOSING
+      ;; event's — which the always-on registry holds. The child commit proves
+      ;; the reserved-fx path actually ran in this posture.
+      (assert-always-on-coord :event :rf2-lf84g/parent)
+      (is (true? (:child? (rf/app-db-value :rf/default)))
+          "the reserved :dispatch fx delivered the child event")
+      (when interop/debug-enabled?
+        (is (some? parent-fx) ":dispatch :rf.fx/handled fired")
+        ;; The reserved-fx-id path runs inside the parent event's
+        ;; *current-trigger-handler* binding (no inner fx binding kicks in
+        ;; for reserved fx-ids since there's no registered handler).
+        (assert-trigger-shape parent-fx :event :rf2-lf84g/parent)))))
 
 ;; ---- programmatic registration → no coord -> no trigger-handler -----------
 
@@ -165,11 +256,21 @@
     (let [reg-ev (requiring-resolve 're-frame.events/reg-event)]
       (reg-ev :rf2-lf84g/uses-prog-fx
               (fn [_ _] {:fx [[:rf2-lf84g/programmatic-fx {}]]})))
+    ;; A macro-path sibling in the same test, so the negative below has a
+    ;; control that discriminates rather than an empty registry.
+    (rf/reg-fx :rf2-lf84g/macro-fx (fn [_ _] :ok))
     (let [evs       (record-traces #(rf/dispatch-sync [:rf2-lf84g/uses-prog-fx]))
           [handled] (events-of evs :rf.fx/handled)]
-      (is (some? handled) ":rf.fx/handled fired")
-      (is (not (contains? handled :rf.trace/trigger-handler))
-          "programmatic fx-registration → no coord → field omitted"))))
+      ;; ALWAYS-ON (rf2-d2841): "better no-data than poison-data" is a
+      ;; PRODUCTION claim — the always-on registry is the sink that reaches an
+      ;; off-box shipper, and a programmatic registration must leave it empty.
+      (assert-no-always-on-coord :fx :rf2-lf84g/programmatic-fx
+                                 :fx :rf2-lf84g/macro-fx)
+      ;; rf2-d2841 — class-4 vacuous under the gate.
+      (when interop/debug-enabled?
+        (is (some? handled) ":rf.fx/handled fired")
+        (is (not (contains? handled :rf.trace/trigger-handler))
+            "programmatic fx-registration → no coord → field omitted")))))
 
 ;; ---- the field rides on every event in the cascade -----------------------
 
@@ -182,10 +283,16 @@
     (let [evs   (record-traces #(rf/dispatch-sync [:rf2-lf84g/changes-db]))
           [dbc] (events-of evs :rf.event/db-changed)
           [dof] (events-of evs :rf.fx/do-fx)]
-      (is (some? dbc) ":rf.event/db-changed fired")
-      (is (some? dof) ":rf.fx/do-fx fired")
-      (assert-trigger-shape dbc :event :rf2-lf84g/changes-db)
-      (assert-trigger-shape dof :event :rf2-lf84g/changes-db))))
+      ;; ALWAYS-ON (rf2-d2841): the db change these traces report happened, and
+      ;; the event's registration coord is on the always-on registry.
+      (is (= 1 (:n (rf/app-db-value :rf/default)))
+          "the db change the guarded traces report actually committed")
+      (assert-always-on-coord :event :rf2-lf84g/changes-db)
+      (when interop/debug-enabled?
+        (is (some? dbc) ":rf.event/db-changed fired")
+        (is (some? dof) ":rf.fx/do-fx fired")
+        (assert-trigger-shape dbc :event :rf2-lf84g/changes-db)
+        (assert-trigger-shape dof :event :rf2-lf84g/changes-db)))))
 
 ;; ---- out-of-band emits omit trigger-handler -------------------------------
 
@@ -196,13 +303,20 @@
       (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-event :rf2-lf84g/reg-time-event (fn [{:keys [db]} _] {:db db}))
-        (let [reg-traces (filter #(= :rf.registry/handler-registered (:operation %))
-                                 @seen)]
-          (is (seq reg-traces) "we saw at least one registration trace")
-          (doseq [ev reg-traces]
-            (is (not (contains? ev :rf.trace/trigger-handler))
-                (str "out-of-band " (:operation ev)
-                     " must omit :rf.trace/trigger-handler"))))
+        ;; ALWAYS-ON (rf2-d2841): registration itself is production behaviour —
+        ;; only the registration TRACE is dev-only. The handler is resolvable
+        ;; and its coord is on the always-on registry in both postures.
+        (is (some? (rf/handler-meta :event :rf2-lf84g/reg-time-event))
+            "the registration succeeded in this posture")
+        (assert-always-on-coord :event :rf2-lf84g/reg-time-event)
+        (when interop/debug-enabled?
+          (let [reg-traces (filter #(= :rf.registry/handler-registered (:operation %))
+                                   @seen)]
+            (is (seq reg-traces) "we saw at least one registration trace")
+            (doseq [ev reg-traces]
+              (is (not (contains? ev :rf.trace/trigger-handler))
+                  (str "out-of-band " (:operation ev)
+                       " must omit :rf.trace/trigger-handler")))))
         (finally
           (rf/unregister-listener! :trace ::rec))))))
 
@@ -223,11 +337,18 @@
    caused the recompute"
     (rf/reg-sub :rf2-npm2p/n
                 (fn [db _] (:n db)))
-    (let [evs (record-traces
-                (fn [] (deref (rf/subscribe [:rf2-npm2p/n]))))
+    (let [seen-value (atom ::unset)
+          evs (record-traces
+                (fn [] (reset! seen-value (deref (rf/subscribe [:rf2-npm2p/n])))))
           [run] (events-of evs :rf.sub/run)]
-      (is (some? run) ":rf.sub/run trace fired on recompute")
-      (assert-trigger-shape run :sub :rf2-npm2p/n))))
+      ;; ALWAYS-ON (rf2-d2841): the recompute the trace reports really happened
+      ;; (the sub yielded a value), and the sub's registration coord is on the
+      ;; always-on registry — resolved there under `[:sub …]`.
+      (is (not= ::unset @seen-value) "the sub recomputed and yielded a value")
+      (assert-always-on-coord :sub :rf2-npm2p/n)
+      (when interop/debug-enabled?
+        (is (some? run) ":rf.sub/run trace fired on recompute")
+        (assert-trigger-shape run :sub :rf2-npm2p/n)))))
 
 (deftest sub-run-trigger-rides-at-top-level
   (testing ":rf.trace/trigger-handler on :rf.sub/run is a top-level field,
@@ -238,11 +359,15 @@
     (let [evs   (record-traces
                   (fn [] (deref (rf/subscribe [:rf2-npm2p/top-level]))))
           [run] (events-of evs :rf.sub/run)]
-      (is (some? run))
-      (is (contains? run :rf.trace/trigger-handler)
-          ":rf.trace/trigger-handler lives at top level")
-      (is (not (contains? (:tags run) :rf.trace/trigger-handler))
-          ":rf.trace/trigger-handler does NOT live under :tags"))))
+      (assert-always-on-coord :sub :rf2-npm2p/top-level)
+      ;; rf2-d2841 — GUARDED trace-shape claim; the `:tags` negative was
+      ;; class-4 vacuous under the gate.
+      (when interop/debug-enabled?
+        (is (some? run))
+        (is (contains? run :rf.trace/trigger-handler)
+            ":rf.trace/trigger-handler lives at top level")
+        (is (not (contains? (:tags run) :rf.trace/trigger-handler))
+            ":rf.trace/trigger-handler does NOT live under :tags")))))
 
 (deftest sub-run-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on :rf.sub/run
@@ -254,12 +379,20 @@
           evs      (record-traces
                      (fn [] (deref (rf/subscribe [:rf2-npm2p/coord]))))
           [run]    (events-of evs :rf.sub/run)
-          coord    (-> run :rf.trace/trigger-handler :source-coord)]
-      (is (some? run))
-      (is (= (:ns     sub-meta) (:ns coord)))
-      (is (= (:file   sub-meta) (:file coord)))
-      (is (= (:line   sub-meta) (:line coord)))
-      (is (= (:column sub-meta) (:column coord))))))
+          coord    (-> run :rf.trace/trigger-handler :source-coord)
+          errc     (assert-always-on-coord :sub :rf2-npm2p/coord)]
+      ;; rf2-d2841 — GUARDED. Four `nil = nil` comparisons under the gate
+      ;; (stripped `handler-meta` vs an absent trace); the surviving parity
+      ;; claim is against the always-on registry above.
+      (when interop/debug-enabled?
+        (is (some? run))
+        (is (= (:ns   sub-meta) (:ns errc)))
+        (is (= (:file sub-meta) (:file errc)))
+        (is (= (:line sub-meta) (:line errc)))
+        (is (= (:ns     sub-meta) (:ns coord)))
+        (is (= (:file   sub-meta) (:file coord)))
+        (is (= (:line   sub-meta) (:line coord)))
+        (is (= (:column sub-meta) (:column coord)))))))
 
 (deftest sub-run-trigger-is-sub-not-enclosing-event
   (testing "when a sub fires during a dispatch (the event handler's
@@ -288,12 +421,22 @@
     (let [evs   (record-traces
                   (fn [] (rf/dispatch-sync [:rf2-npm2p/changes-n])))
           [run] (events-of evs :rf.sub/run)]
-      (is (some? run) ":rf.sub/run fired inside the cascade")
-      ;; The KIND under trigger-handler is :sub, not :event. Even
-      ;; though the deref happens INSIDE the event handler's drain,
-      ;; the sub-recompute body rebinds the trigger-handler. Same
-      ;; shape as fx-handled — the inner binding wins over the outer.
-      (assert-trigger-shape run :sub :rf2-npm2p/from-cascade))))
+      ;; ALWAYS-ON (rf2-d2841): both coords exist and are DISTINCT in the
+      ;; always-on registry — which is what makes "the inner scope wins" a
+      ;; claim with teeth rather than a coincidence of two equal values.
+      (let [sub-c (assert-always-on-coord :sub   :rf2-npm2p/from-cascade)
+            ev-c  (assert-always-on-coord :event :rf2-npm2p/changes-n)]
+        (is (not= sub-c ev-c)
+            "the sub and the enclosing event have different coords"))
+      (is (= 1 (:n (rf/app-db-value :rf/default)))
+          "the cascade committed, so the recompute really fired inside it")
+      (when interop/debug-enabled?
+        (is (some? run) ":rf.sub/run fired inside the cascade")
+        ;; The KIND under trigger-handler is :sub, not :event. Even
+        ;; though the deref happens INSIDE the event handler's drain,
+        ;; the sub-recompute body rebinds the trigger-handler. Same
+        ;; shape as fx-handled — the inner binding wins over the outer.
+        (assert-trigger-shape run :sub :rf2-npm2p/from-cascade)))))
 
 (deftest programmatic-sub-omits-trigger-on-run
   (testing "a sub registered without the macro path (no source-coord
@@ -303,12 +446,18 @@
     (let [reg-fn (requiring-resolve 're-frame.subs/reg-sub)]
       (reg-fn :rf2-npm2p/programmatic
               (fn [db _] db)))
+    (rf/reg-sub :rf2-npm2p/macro-sub (fn [db _] db))
     (let [evs   (record-traces
                   (fn [] (deref (rf/subscribe [:rf2-npm2p/programmatic]))))
           [run] (events-of evs :rf.sub/run)]
-      (is (some? run) ":rf.sub/run fired")
-      (is (not (contains? run :rf.trace/trigger-handler))
-          "programmatic sub-registration → no coord → field omitted"))))
+      ;; ALWAYS-ON (rf2-d2841), with a macro-path control so the negative
+      ;; cannot pass merely because the registry is empty.
+      (assert-no-always-on-coord :sub :rf2-npm2p/programmatic
+                                 :sub :rf2-npm2p/macro-sub)
+      (when interop/debug-enabled?
+        (is (some? run) ":rf.sub/run fired")
+        (is (not (contains? run :rf.trace/trigger-handler))
+            "programmatic sub-registration → no coord → field omitted")))))
 
 ;; ---- cofx body carries the cofx's registration coord (rf2-npm2p) ----------
 ;;
@@ -350,8 +499,12 @@
     (let [evs     (record-traces
                     (fn [] (rf/dispatch-sync [:rf2-npm2p/uses-cofx])))
           [probe] (events-of evs :rf2-npm2p/probe)]
-      (is (some? probe) "custom trace fired from inside the cofx body")
-      (assert-trigger-shape probe :cofx :rf2-npm2p/instrumented-cofx))))
+      ;; ALWAYS-ON (rf2-d2841): the cofx's registration coord survives on the
+      ;; always-on registry; the custom trace it emits does not.
+      (assert-always-on-coord :cofx :rf2-npm2p/instrumented-cofx)
+      (when interop/debug-enabled?
+        (is (some? probe) "custom trace fired from inside the cofx body")
+        (assert-trigger-shape probe :cofx :rf2-npm2p/instrumented-cofx)))))
 
 (deftest cofx-body-trigger-rides-at-top-level
   (testing ":rf.trace/trigger-handler on a cofx-body trace is a
@@ -366,11 +519,15 @@
     (let [evs     (record-traces
                     (fn [] (rf/dispatch-sync [:rf2-npm2p/use-top-level-cofx])))
           [probe] (events-of evs :rf2-npm2p/probe)]
-      (is (some? probe))
-      (is (contains? probe :rf.trace/trigger-handler)
-          ":rf.trace/trigger-handler lives at top level")
-      (is (not (contains? (:tags probe) :rf.trace/trigger-handler))
-          ":rf.trace/trigger-handler does NOT live under :tags"))))
+      (assert-always-on-coord :cofx :rf2-npm2p/top-level-cofx)
+      ;; rf2-d2841 — GUARDED trace-shape claim; class-4 vacuous `:tags`
+      ;; negative under the gate.
+      (when interop/debug-enabled?
+        (is (some? probe))
+        (is (contains? probe :rf.trace/trigger-handler)
+            ":rf.trace/trigger-handler lives at top level")
+        (is (not (contains? (:tags probe) :rf.trace/trigger-handler))
+            ":rf.trace/trigger-handler does NOT live under :tags")))))
 
 (deftest cofx-body-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on a
@@ -386,12 +543,19 @@
           evs       (record-traces
                       (fn [] (rf/dispatch-sync [:rf2-npm2p/use-coord-cofx])))
           [probe]   (events-of evs :rf2-npm2p/probe)
-          coord     (-> probe :rf.trace/trigger-handler :source-coord)]
-      (is (some? probe))
-      (is (= (:ns     cofx-meta) (:ns coord)))
-      (is (= (:file   cofx-meta) (:file coord)))
-      (is (= (:line   cofx-meta) (:line coord)))
-      (is (= (:column cofx-meta) (:column coord))))))
+          coord     (-> probe :rf.trace/trigger-handler :source-coord)
+          errc      (assert-always-on-coord :cofx :rf2-npm2p/coord-cofx)]
+      ;; rf2-d2841 — GUARDED. Four `nil = nil` comparisons under the gate; the
+      ;; parity claim that survives is against the always-on registry above.
+      (when interop/debug-enabled?
+        (is (some? probe))
+        (is (= (:ns   cofx-meta) (:ns errc)))
+        (is (= (:file cofx-meta) (:file errc)))
+        (is (= (:line cofx-meta) (:line errc)))
+        (is (= (:ns     cofx-meta) (:ns coord)))
+        (is (= (:file   cofx-meta) (:file coord)))
+        (is (= (:line   cofx-meta) (:line coord)))
+        (is (= (:column cofx-meta) (:column coord)))))))
 
 (deftest programmatic-cofx-omits-trigger-on-body-trace
   (testing "a cofx registered without the macro path (no source-coord
@@ -406,9 +570,14 @@
     (rf/reg-event :rf2-npm2p/use-prog-cofx
                      {:rf.cofx/requires [:rf2-npm2p/prog-cofx]}
                      (fn [_ _] {}))
+    (rf/reg-cofx :rf2-npm2p/macro-cofx (fn [] :ok))
     (let [evs     (record-traces
                     (fn [] (rf/dispatch-sync [:rf2-npm2p/use-prog-cofx])))
           [probe] (events-of evs :rf2-npm2p/probe)]
-      (is (some? probe))
-      (is (not (contains? probe :rf.trace/trigger-handler))
-          "programmatic cofx-registration → no coord → field omitted"))))
+      ;; ALWAYS-ON (rf2-d2841), with a macro-path control.
+      (assert-no-always-on-coord :cofx :rf2-npm2p/prog-cofx
+                                 :cofx :rf2-npm2p/macro-cofx)
+      (when interop/debug-enabled?
+        (is (some? probe))
+        (is (not (contains? probe :rf.trace/trigger-handler))
+            "programmatic cofx-registration → no coord → field omitted")))))
