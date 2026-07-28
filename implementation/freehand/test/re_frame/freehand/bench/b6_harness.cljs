@@ -21,8 +21,9 @@
   A box with six other agents on it drifts, and it drifts on a timescale
   that runs all of one arm and then all of another straight into a
   systematic error. So every sample index mounts every arm, in an order
-  that ROTATES with the sample index — no arm is always first into a cold
-  cache, and no arm is always last into a loaded one.
+  that rotates AND REFLECTS with the sample index — see [[slot-order]] —
+  so that no arm is always first into a cold cache, no arm is always last
+  into a loaded one, and no arm always follows the same neighbour.
 
   ## Every figure is a ratio to the floor measured in the same round
 
@@ -170,16 +171,37 @@
 
 (defn- p50 [xs] (:p50 (m/summarise xs)))
 
+(defn slot-order
+  "Slot order for `k` arms at sample index `s`: rotate forward by `s`, then
+  REFLECT on odd indices.
+
+  The reflection is not decoration and this used to be a bare rotation.
+  `rf2-88pie` records a fault class in which an arm's reading depends on
+  what ran immediately before it, and a CYCLIC ROTATION DOES NOT VARY
+  THAT. Arm `a` sits at slot `(a - s) mod k`, so its predecessor is arm
+  `(a - 1) mod k` at every single sample index; rotating changes which arm
+  goes FIRST and nothing else. Every B6 row's published
+  `:measurement-method` said 'order rotating on the sample index' and
+  meant it as a mitigation, and it was not one.
+
+  Reversing a sequence replaces every `a -> a+1` adjacency with
+  `a -> a-1`, so alternating the two gives every arm two predecessors in
+  balance. `order_guard.cjs` carries the arithmetic proof of both halves
+  of that sentence, and the guard that refuses a figure the order moves."
+  [k s]
+  (let [xs (mapv #(mod (+ % s) k) (range k))]
+    (if (odd? s) (vec (rseq xs)) xs)))
+
 (defn round!
   "One round: `(+ warmup samples)` sample indices, every arm mounted at
-  every index, arm order rotating with the index. Answers `{id [ms …]}`
-  over the measured indices only."
+  every index, arm order rotating AND reflecting with the index — see
+  [[slot-order]]. Answers `{id [ms …]}` over the measured indices only."
   [arms props {:keys [warmup samples]}]
   (let [k   (count arms)
         acc (atom (zipmap (map :id arms) (repeat [])))]
     (dotimes [s (+ warmup samples)]
-      (dotimes [j k]
-        (let [arm (nth arms (mod (+ j s) k))
+      (doseq [j (slot-order k s)]
+        (let [arm (nth arms j)
               mnt (mount-arm! arm props)]
           (when (>= s warmup)
             (swap! acc update (:id arm) conj (:ms mnt)))

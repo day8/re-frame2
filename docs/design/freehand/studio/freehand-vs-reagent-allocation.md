@@ -316,7 +316,99 @@ harness in this repository, not a B8 quirk.
 
 ---
 
-## 5. What this does not cover
+## 5. A tenth fault class — and the mitigation this page claimed was not one
+
+`rf2-jr76s` filed `rf2-88pie` after a control read **16.1052 B/slot in
+forward arm order and 8.0027 in reversed**, against a prediction of
+8.000. The bead named the cause: *a large-object arm doubles the reading
+of its immediate successor*. The remedy it proposed was to run every
+plan in both orders.
+
+**Two things came out of building that remedy, and the second is the
+one that matters.**
+
+### The mitigation this page's provenance claims does not exist
+
+The Provenance below says "arm order rotating with the round", and
+`b8_run.cjs` really did select the arm for slot `j` of round `r` as
+`ARMS[(j + r) % n]`. **A cyclic rotation changes which arm goes first.
+It does not change which arm follows which.** Arm `a` sits at slot
+`(a − r) mod n` in every round, so its predecessor is arm `(a − 1) mod n`
+in every round. `order_guard.cjs` proves it arithmetically: over six
+rounds of four arms, rotation gives **every arm exactly one within-round
+predecessor**, and the only sample that differs is the one at the round
+seam — one in six.
+
+The same bare rotation was in `b6-harness/round!` and
+`b6-rows/update-round!`, and both published the same sentence in their
+`:measurement-method`. So every figure this page and the B6 rows carry
+was taken under a mitigation that was not one. **The figures are not
+withdrawn** — nothing here says the contamination occurred, only that
+this page could not have detected it — and §4's discipline applies:
+a mitigation that is not checked is an assumption.
+
+All three now rotate **and reflect** on odd indices, which replaces every
+`a → a+1` adjacency with `a → a−1` and gives each arm two predecessors in
+balance.
+
+### What a live reproduction says the cause actually is
+
+`order_guard.cjs --live` rebuilds the control in plain node — a
+`.slice()` of a packed SMI array, predicted 8.000 B/slot plus a
+16-byte header — and separates the factors a reversal moves together.
+**node 24.13.0, V8 13.6, pointer compression OFF**, `--expose-gc
+--min-semi-space-size=32 --max-semi-space-size=64`:
+
+| factor | reading | |
+|---|---|---|
+| **position in the run** — the same control, nothing else varying, sixteen consecutive windows | `10.32 10.26 10.26 10.26 10.33 10.28` then `8.12` ×10 | **+27% for six windows, then a step to the prediction** |
+| **the immediate predecessor** — position held fixed, warm | 8.1377 after an 87 KB-object arm, 8.1377 after a 3-element arm | **identical** |
+| the same, fresh process per reading, both measured first | 10.2900 after the large arm, 10.2588 after the small one | **0.3%** |
+| **window size** — a knob unrelated to order | cold: 16.50 at 32 slices against 8.12 at 8; warm: 8.2515 against 8.1377 | **2.03× cold, +1.4% warm** |
+
+Positive control: predicted **8.016** B/slot, settled **8.1221**
+(+1.3%), cold **10.3193** (+28.7%).
+
+**The immediate predecessor is worth a third of a percent. Everything
+else is one effect wearing three hats** — a site that has not run enough
+times reads 1.26× to 5.3× its settled value — and *both* a plan reversal
+*and* a change of window size move where in that curve an arm is
+measured. That is not a claim about what happened inside `rf2-jr76s`'s
+own harness, which is not reproduced here and whose mechanism stays
+undiagnosed. It is a claim about the remedy: **running a plan in both
+orders confounds adjacency with position, so it cannot say which of them
+it caught.**
+
+### The property, and what it refuses
+
+`order_guard.cjs` partitions every arm's samples by **what ran
+immediately before it** and by **where in the run it was measured**
+(first third against last third, in run order), and applies this
+repository's own rule: overlapping ranges mean indistinguishable, so a
+stratification is a finding only when the ranges are disjoint *and* the
+medians differ by more than a stated tolerance. An arm with one stratum
+on a factor is `unchecked`, and **unchecked refuses as loudly as
+contaminated** — a single-order result has not been checked and may not
+be quoted.
+
+`b8_run.cjs` runs the guard's self-test before the browser starts, the
+way §4's integrity probe runs before any figure is read, and **exits
+non-zero on a refusal** with the table printed but marked unquotable.
+The self-test is fixtures replayed from the recorded readings, so it is
+deterministic: it refuses the 2.01× on strata of one sample each, passes
+the same study's 0.43% slope, refuses a single-order plan, declines to
+fire on medians 20% apart whose ranges overlap, and catches the
+measured warm-up step — **which the bead's own proposed remedy would
+have missed**, because the predecessor never changes across it.
+
+**Not fixed here: the warm-up itself.** `b8_run.cjs` warms each arm with
+one four-write calibration window, and the sweep above says a site can
+take six. The guard detects an insufficient warm-up rather than
+preventing it; widening it is unmeasured work.
+
+---
+
+## 6. What this does not cover
 
 - **The broad view-leg ratio is an upper bound**, not a substrate result.
   §3 says why, and `rf2-mapni` is the arm that would close it.
@@ -353,7 +445,13 @@ harness in this repository, not a B8 quirk.
   run verbatim in the same driver (agreement ≤0.9% on every arm).
 - Sampling: 6 rounds, arm order rotating with the round, per-arm window
   sizing from a calibration probe, one un-read warm-up window per cell.
-  Collection-free windows only.
+  Collection-free windows only. **That rotation was not the mitigation it
+  reads as, and §5 says why**: it varies which arm goes first, not which
+  arm follows which, so these figures were taken with each arm's
+  predecessor effectively fixed. The driver now rotates and reflects, and
+  refuses a figure that either the predecessor or the position in the run
+  separates — a re-take under the guard would be needed to say the
+  figures below were unaffected, and none is claimed.
 - Gates green before any figure was read: bookkeeping identity exact in
   120/120 windows; kept÷dropped 1.0001; DOM read-back 0 unverified of
   2,400 per row; harness integrity probe passing inside the `:advanced`
