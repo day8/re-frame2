@@ -214,6 +214,7 @@ nav:
         - "Accessibility": core/freehand/authoring/accessibility.md
       - "Host edge":
         - "Host boundaries": core/freehand/host/host-boundaries.md
+        - "Ownership routing": core/freehand/host/ownership-routing.md
         - "JavaScript libraries": core/freehand/host/js-libraries.md
         - "Presence: enter and exit": core/freehand/host/presence.md
         - "SSR and hydration": core/freehand/host/ssr.md

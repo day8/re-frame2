@@ -438,6 +438,13 @@
     [ 6 "b104f110d013" host/async-chart]]
    "operate/limits-and-escapes.md"
    []
+   ;; Deliberately sample-free. The page routes an integration to a shape; the
+   ;; shapes' code lives one click away on `host/js-libraries.md` and
+   ;; `host/host-boundaries.md`, each block there already carrying its own row
+   ;; above. A routing page that reprinted them would be two copies of one
+   ;; sample drifting apart, which is the failure this roster exists to catch.
+   "host/ownership-routing.md"
+   []
    "get-running/mental-model.md"
    [[ 1 "207fd114bc23" first-view/greeting]
     [ 2 "0618d0abdbe2" first-view/greeting-call]

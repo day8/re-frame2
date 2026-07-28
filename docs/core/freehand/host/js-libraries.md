@@ -191,17 +191,42 @@ Conditional render stays familiar: drop the toast from app-db, remove the child;
 `AnimatePresence` is supposed to retain it through exit while `motion` reads
 presence through React context (one React tree under the Freehand host).
 
-### Honesty: designed, not yet a proven pilot
+### Honesty: the composition is proven; the vendor package is not installed here
 
-The **AnimatePresence-through-a-Freehand-boundary** path is **designed and
-argued**, not yet proven in a mounted exit pilot. Treat exit animation across a
-Freehand shell as a hypothesis until a test shows:
+This section used to say the **AnimatePresence-through-a-Freehand-boundary** path
+was designed and argued rather than proven, and to ask for a mounted exit pilot
+before you trusted it. That pilot exists. It is **`FH-REACT-010`**, and it
+measures exactly the three steps this section used to ask for:
 
-1. toast removed from app-db  
-2. exit motion runs  
-3. node is gone afterward  
+1. the child is dropped from what Freehand commits;  
+2. the library keeps it on the page, marked exiting, while the last commit’s
+   props no longer name it;  
+3. the library finishes, the child goes, and completion crosses back through the
+   one declared callback position as an ordinary event.  
 
-Enter-only motion is a weaker claim; exit is where composition usually breaks.
+The divergence in step 2 — between what is on the page and what the last commit
+handed over — **is** the retention, and there is no third book: the substrate
+holds nothing for it. So exit across a Freehand shell is no longer a hypothesis,
+and the routing question it raises is not *whether* it works but *who owns the
+retention*. [Ownership routing](ownership-routing.md) answers that one; the short
+version is that two owners over one keyed subtree is two clocks, and `v/presence`
+over a subtree the library is already animating is the second clock.
+
+The same row proves the half that fails silently rather than visibly: the animated
+property must have exactly **one writer**. Where your call does not author
+`transform`, the library’s imperative write survives an ordinary commit. Where it
+*also* authors it, the commit wins, the library’s own state and the DOM disagree,
+and nothing errors or warns.
+
+**What is still not proven, and it is worth being exact about which half.**
+`framer-motion` itself is not installed in this repository: a real animation is
+driven by `requestAnimationFrame` against a wall clock, so a gate built on it
+would be measuring frame timing rather than ownership. The mounted proof therefore
+drives a deterministic surrogate reproducing the ownership shape with the clock
+taken out, and the fixture says so in a machine-readable `:evidence :limits`. What
+remains outstanding is the **vendor’s own timing** — not the composition, and not
+the ownership boundary this page routes by.
+
 Compiled mode is a separate cliff: the compiled grammar refuses `v/client-only`
 outright and cannot see through a `createElement` call, so a view doing this work
 stays interpreted — which is fine, because promotion is per declaration.
@@ -407,7 +432,7 @@ refuses to be released.
 
 ### Proven, not merely argued
 
-Unlike the exit-animation path above, this one is mounted. The ordering that
+Like the exit-animation path above, this one is mounted. The ordering that
 matters — **unmount before the Promise resolves** — is asserted in
 `behavior_async_dom_cljs_test.cljs` against a deterministic surrogate: the late
 handle is disposed exactly once, never configured, and the library's book of
@@ -422,7 +447,7 @@ leak instead of wished away. A real third-party witness is still outstanding.
 | Question | Prefer |
 |---|---|
 | Fade/slide on enter/exit only? | **`v/presence` + CSS** |
-| Framer components only (`motion.*`, `AnimatePresence`)? | **React elements in child positions** (+ pilot for exit) |
+| Framer components only (`motion.*`, `AnimatePresence`)? | **React elements in child positions**; let the library own the retention (`FH-REACT-010`) |
 | You call Framer **hooks** (`useMotionValue`, …)? | a **small React component of your own** — hooks only inside that file |
 | Drive a non-React player (GSAP on a node)? | **Behavior** |
 | Construction answers a Promise? | **Behavior** whose `:connect` returns a **cell** ([Pattern E](#pattern-e--the-handle-arrives-later-promise-acquired-hosts)) |
@@ -449,7 +474,11 @@ motion bus.
 - **Headless** cores (TanStack Table core, etc.) — state in re-frame; Freehand
   markup; no host shape.  
 - **Heavy Radix / `asChild` product shell** — UIx (or similar) for that region;
-  Freehand as islands.  
+  Freehand as islands. Note this is a judgement about *scale*, not capability: a
+  single compound library crosses fine through one `v/defhost` of its wrapper
+  (`FH-REACT-009`). It is a whole shell built out of `asChild` composition —
+  where nearly every element is a cloned child — that is better owned by React
+  outright.  
 - **Fade/slide only** — presence + CSS before any motion library.
 
 ## Other libraries, same shapes
