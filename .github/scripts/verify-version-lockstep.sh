@@ -53,12 +53,15 @@
 #   ./.github/scripts/verify-version-lockstep.sh
 #   ./.github/scripts/verify-version-lockstep.sh --self-test
 #
-# `--self-test` checks the checker rather than the tree: it runs
-# check_no_git_coords_in_runtime_deps over a set of synthetic deps.edn and
-# asserts each verdict. That check shipped once as a line-oriented text grep
-# that only saw a git coordinate when the library symbol and its map sat on
-# the same physical line, so it passed a clean verdict on a tree it had not
-# actually read (rf2-2ii52). Both layouts are pinned there now.
+# `--self-test` checks the CHECKERS rather than the tree: it runs
+# check_no_git_coords_in_runtime_deps and check_clein_main over sets of
+# synthetic deps.edn and asserts each verdict. Both shipped once as
+# line-oriented text greps and both were wrong for the same reason — the first
+# only saw a git coordinate when the library symbol and its map sat on the same
+# physical line (rf2-2ii52), the second asked the WHOLE FILE for a `:main` at
+# the start of a line rather than the `:clein/build` map it claims to check
+# (rf2-1xacx). Each passed a verdict on a tree it had not actually read. Both
+# read EDN structure now, and the layouts are pinned below.
 #
 # rf2-ace2 / rf2-w05l / rf2-zha9 / rf2-lwtke.
 
@@ -371,44 +374,122 @@ check_no_git_coords_in_runtime_deps() {
   done <<< "${derived}"
 }
 
-# `--self-test` — the mutation pin, and the reason the rewrite above is
-# checkable rather than merely asserted. Each case is a deps.edn the checker
-# has to judge; the same-line and multiline forms are the pair the reopen
-# named, and the negative cases pin the scoping the grep also got wrong. Run
-# by .github/workflows/test.yml alongside the gate itself.
+# ---- rf2-1xacx: clein's own spec requires :main in :clein/build ----------
+#
+# Without it every clein invocation in the directory aborts before doing any
+# work:
+#
+#   Error in the :clein/build map: {…} - failed: (contains? % :main)
+#
+# An artefact can therefore be perfectly version-pinned and still be impossible
+# to package. rf2-4u3t1 found this in machines-viz; rf2-2ii52 found the same
+# thing in mcp-base. Asserting it here is what stops a third.
+#
+# THIS CHECK WAS THE SAME FAULT AS ITS SIBLING ABOVE, ONE FUNCTION OVER. It
+# asserted with `grep -qE '^[[:space:]]*:main[[:space:]]' "${deps_file}"` — a
+# WHOLE-FILE text grep that never went near the `:aliases -> :clein/build` map
+# it claims to be reading. It was wrong in both directions at once: a `:main`
+# sitting in any OTHER alias (a `:run` alias, say) satisfied it, so an
+# un-buildable artefact reported clean; and a perfectly good
+# `{:lib day8/x :main day8.x.core}` written on ONE LINE did not, so a buildable
+# one reported broken. A `:main ` at the start of a line inside a multiline
+# STRING satisfied it too. Of six probe shapes it judged three correctly.
+#
+# So it fetches `:aliases`, then `:clein/build`, then `:main` BY KEY, through
+# the same node EDN authority git_coord_libs() and local_root_coords() use —
+# node being the runtime actually available: test.yml runs this gate on a bare
+# `actions/checkout` with no JDK.
+#
+# Scope is NOT narrowed. Everything the grep flagged still reds, and a missing
+# `:clein/build` alias — which the grep only caught by accident, when the file
+# happened to carry no line-initial `:main` anywhere — now reds on its own
+# terms, because an artefact in TOOLS with no build alias is exactly as
+# un-packageable as one whose build alias lacks `:main`.
+
+# `present`, `absent`, or `no-build-alias` for the deps.edn's
+# `:aliases -> :clein/build -> :main`. Sibling of git_coord_libs(): same
+# reader, same fetch-by-key scoping, same fail-closed posture.
+clein_build_main() {
+  node -e '
+    const fs = require("fs");
+    const { readEdn, isMap, mapGetKeyword } = require(process.argv[1]);
+    const top = readEdn(fs.readFileSync(process.argv[2], "utf8"));
+    if (!isMap(top)) throw new Error("top-level form is not a map");
+    const aliases = mapGetKeyword(top, "aliases");
+    if (aliases === undefined) { process.stdout.write("no-build-alias\n"); process.exit(0); }
+    if (!isMap(aliases)) throw new Error(":aliases is not a map");
+    const build = mapGetKeyword(aliases, "clein/build");
+    if (build === undefined) { process.stdout.write("no-build-alias\n"); process.exit(0); }
+    if (!isMap(build)) throw new Error(":clein/build is not a map");
+    process.stdout.write(
+      (mapGetKeyword(build, "main") === undefined ? "absent" : "present") + "\n",
+    );
+  ' "${EDN_READER}" "$1"
+}
+
+# Fail-closed on an unreadable deps.edn (exit, not a counted drift), for the
+# same reason its two siblings do: a reader that could not reach the build
+# alias cannot be the basis for reporting that the artefact is buildable.
+check_clein_main() {
+  local deps_file="$1"
+  local rel_label="$2"
+  local verdict
+
+  if ! verdict="$(clein_build_main "${deps_file}")"; then
+    echo "::error file=${rel_label}::failed to read this deps.edn's :aliases -> :clein/build map structurally via implementation/scripts/lib/edn.cjs (is node on PATH? is the EDN well-formed?) — refusing to report a buildability verdict this script could not verify"
+    exit 2
+  fi
+
+  case "${verdict}" in
+    present) ;;
+    absent)
+      echo "::error file=${rel_label}:::clein/build is missing :main — clein's build-opts spec requires it, so every clein invocation in this directory aborts before doing any work (artefact is un-BUILDABLE)"
+      errors=$((errors + 1))
+      ;;
+    *)
+      echo "::error file=${rel_label}::no :aliases -> :clein/build alias — this artefact is published by clein, and clein has nothing to read here, so it cannot be BUILT at all"
+      errors=$((errors + 1))
+      ;;
+  esac
+}
+
+# `--self-test` — the mutation pin, and the reason the rewrites above are
+# checkable rather than merely asserted. Each case is a deps.edn a checker has
+# to judge. Run by .github/workflows/test.yml alongside the gate itself.
+#
+# $1 checker function, $2 label, $3 expectation (FLAGGED | CLEAN | REFUSED),
+# $4 deps.edn text. The checker runs inside a command substitution so its
+# fail-closed `exit 2` bounds itself to that subshell and its `errors`
+# increment cannot leak into the real tally.
+_self_test_case() {
+  local checker="$1" label="$2" expect="$3" body="$4" out rc verdict mark
+  self_test_cases=$((self_test_cases + 1))
+  printf '%s\n' "${body}" > "${SELF_TEST_TMP}/deps.edn"
+  if out="$("${checker}" "${SELF_TEST_TMP}/deps.edn" "self-test" 2>&1)"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  if [[ "${rc}" -eq 2 ]]; then
+    verdict=REFUSED
+  elif grep -q '::error' <<< "${out}"; then
+    verdict=FLAGGED
+  else
+    verdict=CLEAN
+  fi
+  if [[ "${verdict}" == "${expect}" ]]; then
+    mark="  ok"
+  else
+    mark="FAIL"
+    self_test_failures=$((self_test_failures + 1))
+  fi
+  printf '  %s  %-52s expected %-8s got %s\n' "${mark}" "${label}" "${expect}" "${verdict}"
+}
+
+# The same-line and multiline forms are the pair the rf2-2ii52 reopen named,
+# and the negative cases pin the scoping the grep also got wrong.
 git_coord_self_test() {
-  local tmp failures=0 cases=0
-
-  tmp="$(mktemp -d)"
-
-  # $1 label, $2 expectation (FLAGGED | CLEAN | REFUSED), $3 deps.edn text.
-  # The checker runs inside a command substitution so its fail-closed `exit 2`
-  # bounds itself to that subshell and its `errors` increment cannot leak into
-  # the real tally.
-  _git_coord_case() {
-    local label="$1" expect="$2" body="$3" out rc verdict mark
-    cases=$((cases + 1))
-    printf '%s\n' "${body}" > "${tmp}/deps.edn"
-    if out="$(check_no_git_coords_in_runtime_deps "${tmp}/deps.edn" "self-test" 2>&1)"; then
-      rc=0
-    else
-      rc=$?
-    fi
-    if [[ "${rc}" -eq 2 ]]; then
-      verdict=REFUSED
-    elif grep -q '::error' <<< "${out}"; then
-      verdict=FLAGGED
-    else
-      verdict=CLEAN
-    fi
-    if [[ "${verdict}" == "${expect}" ]]; then
-      mark="  ok"
-    else
-      mark="FAIL"
-      failures=$((failures + 1))
-    fi
-    printf '  %s  %-48s expected %-8s got %s\n' "${mark}" "${label}" "${expect}" "${verdict}"
-  }
+  _git_coord_case() { _self_test_case check_no_git_coords_in_runtime_deps "$@"; }
 
   echo "self-test: check_no_git_coords_in_runtime_deps"
 
@@ -472,19 +553,84 @@ git_coord_self_test() {
   # --- unreadable input is refused, never reported clean -------------------
   _git_coord_case 'malformed EDN' REFUSED \
 '{:deps {org.clojure/clojure {:mvn/version "1.12.0"}'
+}
 
-  rm -rf "${tmp}"
+# rf2-1xacx. The whole-file grep judged three of these six wrongly — in both
+# directions, which is why the pin carries CLEAN cases as well as FLAGGED ones.
+clein_main_self_test() {
+  _clein_main_case() { _self_test_case check_clein_main "$@"; }
 
-  if [[ "${failures}" -gt 0 ]]; then
-    echo "::error::self-test FAILED — ${failures} of ${cases} case(s) misjudged by check_no_git_coords_in_runtime_deps"
-    return 1
-  fi
-  echo "self-test PASSED — all ${cases} cases judged correctly"
-  return 0
+  echo "self-test: check_clein_main"
+
+  # --- :main in the build alias is what makes the artefact buildable -------
+  _clein_main_case ':main in :clein/build, one key per line' CLEAN \
+'{:aliases {:clein/build {:lib day8/re-frame2-xray
+                          :main day8.re-frame2.xray.main
+                          :version "0.0.1"}}}'
+
+  # The layout the grep could not see: nothing starts the line but `{`.
+  _clein_main_case ':main on the same line as :lib' CLEAN \
+'{:aliases {:clein/build {:lib day8/re-frame2-xray :main day8.re-frame2.xray.main}}}'
+
+  # --- and its absence must red however the file is laid out ---------------
+  _clein_main_case ':main absent from :clein/build' FLAGGED \
+'{:aliases {:clein/build {:lib day8/re-frame2-xray :version "0.0.1"}}}'
+
+  # The shape the grep false-PASSED: `:main` is present in the file, but in an
+  # alias clein never reads, so `clojure -M:clein pom` still aborts.
+  _clein_main_case ':main only in an unrelated alias' FLAGGED \
+'{:aliases {:clein/build {:lib day8/re-frame2-xray}
+           :run {:main-opts ["-m" "day8.re-frame2.xray"]
+                 :main day8.re-frame2.xray.main}}}'
+
+  # `:main ` at the start of a line inside a multiline string also satisfied
+  # the grep. Structure does not see into strings.
+  _clein_main_case ':main at line-start inside a string literal' FLAGGED \
+'{:aliases {:clein/build {:lib day8/re-frame2-xray
+                          :doc "usage:
+:main is set below
+"}}}'
+
+  _clein_main_case ':main removed with a #_ discard' FLAGGED \
+'{:aliases {:clein/build {:lib day8/re-frame2-xray
+                          #_:main #_day8.re-frame2.xray.main}}}'
+
+  # --- no build alias at all is un-buildable too, and says so --------------
+  _clein_main_case 'no :clein/build alias' FLAGGED \
+'{:aliases {:test {:extra-paths ["test"]}}}'
+
+  _clein_main_case 'no :aliases map at all' FLAGGED \
+'{:deps {org.clojure/clojure {:mvn/version "1.12.0"}}}'
+
+  # --- rf2-vr11t: the build alias ends with a discarded key ----------------
+  # The reader used to throw `unexpected '}'` on this, which made the WHOLE
+  # gate exit 2 — un-runnable, from an ordinary commented-out last entry.
+  _clein_main_case ':main present, alias ends with a #_ discard' CLEAN \
+'{:aliases {:clein/build {:lib day8/re-frame2-xray
+                          :main day8.re-frame2.xray.main
+                          #_:javac-opts #_["-source" "8"]}}}'
+
+  # --- unreadable input is refused, never reported clean -------------------
+  _clein_main_case 'malformed EDN' REFUSED \
+'{:aliases {:clein/build {:lib day8/re-frame2-xray'
 }
 
 if [[ "${1:-}" == "--self-test" ]]; then
-  if git_coord_self_test; then exit 0; else exit 1; fi
+  SELF_TEST_TMP="$(mktemp -d)"
+  self_test_cases=0
+  self_test_failures=0
+
+  git_coord_self_test
+  clein_main_self_test
+
+  rm -rf "${SELF_TEST_TMP}"
+
+  if [[ "${self_test_failures}" -gt 0 ]]; then
+    echo "::error::self-test FAILED — ${self_test_failures} of ${self_test_cases} case(s) misjudged"
+    exit 1
+  fi
+  echo "self-test PASSED — all ${self_test_cases} cases judged correctly"
+  exit 0
 fi
 
 # Populated by the :local/root presence checks below, then consumed by the
@@ -715,27 +861,10 @@ TOOLS=(xray story story-mcp machines-viz mcp-base)
 # It read `:version` and the `:local/root` coordinates, and nothing else. So
 # it reported "all 17 artefacts pinned" while `day8/re-frame2-machines-viz`
 # could not be BUILT at all, and while two artefacts carried a runtime
-# coordinate `clein pom` silently DROPS. Both are cheap to assert. The second
-# — check_no_git_coords_in_runtime_deps — is defined above, next to the EDN
-# reader it shares with the coordinate-inventory pass; the first is here.
-
-# (1) clein's own spec requires `:main` in `:clein/build`. Without it every
-# clein invocation in the directory aborts before doing any work:
-#
-#   Error in the :clein/build map: {…} - failed: (contains? % :main)
-#
-# An artefact can therefore be perfectly version-pinned and still be
-# impossible to package. rf2-4u3t1 found this in machines-viz; rf2-2ii52
-# found the same thing in mcp-base. Asserting it here is what stops a third.
-check_clein_main() {
-  local deps_file="$1"
-  local rel_label="$2"
-
-  if ! grep -qE '^[[:space:]]*:main[[:space:]]' "${deps_file}"; then
-    echo "::error file=${rel_label}:::clein/build is missing :main — clein's build-opts spec requires it, so every clein invocation in this directory aborts before doing any work (artefact is un-BUILDABLE)"
-    errors=$((errors + 1))
-  fi
-}
+# coordinate `clein pom` silently DROPS. Both are cheap to assert. Both —
+# check_clein_main (rf2-1xacx) and check_no_git_coords_in_runtime_deps
+# (rf2-2ii52) — are defined above, next to the EDN reader they share with the
+# coordinate-inventory pass, and both are pinned by `--self-test`.
 
 for tool in "${TOOLS[@]}"; do
   subpath="${TOOLS_PATHS[$tool]}"

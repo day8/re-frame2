@@ -106,15 +106,19 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
-      # rf2-2ii52 — check the checker BEFORE trusting its verdict on the tree.
-      # The runtime git-coordinate assertion shipped as a line-oriented text
-      # grep that could only see a coordinate when the library symbol and
-      # `{:git/url` sat on the same physical line; ordinary multiline deps.edn
-      # layout produced no finding, so the gate's green was a property of one
-      # file's whitespace rather than of the tree. It reads EDN structure now,
-      # and this step pins both layouts (plus the comment / `#_` discard /
-      # string-literal / alias-scoping cases the grep also misjudged) so the
-      # regression cannot come back quietly.
+      # rf2-2ii52 / rf2-1xacx — check the checkers BEFORE trusting their
+      # verdict on the tree. Both of this gate's buildability assertions
+      # shipped as line-oriented text greps, and both were wrong for the same
+      # reason. The runtime git-coordinate one could only see a coordinate when
+      # the library symbol and `{:git/url` sat on the same physical line, so
+      # ordinary multiline deps.edn layout produced no finding. The clein
+      # `:main` one asked the WHOLE FILE for a line-initial `:main` rather than
+      # the `:aliases -> :clein/build` map it claims to check, so a `:main` in
+      # any other alias passed it and a one-line build alias failed it. Each
+      # gate's green was a property of one file's whitespace rather than of the
+      # tree. Both read EDN structure now, and this step pins every layout
+      # (plus the comment / `#_` discard / string-literal / alias-scoping cases
+      # the greps also misjudged) so neither regression can come back quietly.
       - name: Self-test the lockstep gate's own checkers
         run: ./.github/scripts/verify-version-lockstep.sh --self-test
 
