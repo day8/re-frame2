@@ -392,7 +392,46 @@ const page = await browser.newPage();
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));
 
-await page.goto(url, { waitUntil: "networkidle" });
+/*
+ * The navigation's OWN ceiling, named (rf2-rbyyx).
+ *
+ * This `goto` carried no `timeout:`, so it took Playwright's 30s default —
+ * a budget nothing in this file could see or move, and one whose failure
+ * line (`Timeout 30000ms exceeded`) is indistinguishable from the 20000ms
+ * assertion waits immediately below it. The failure is worse here than
+ * elsewhere in the class because `networkidle` settles strictly LATER than
+ * `load`, so the default bites sooner relative to what is being waited for.
+ *
+ * `networkidle` is KEPT, and this is the site where keeping it matters most:
+ * the page under test deliberately ships NO Scittle <script>, because the
+ * contract being smoked is that the production bootstrap injects one — from
+ * `https://cdn.jsdelivr.net/npm/scittle@…` (see src/playground.mjs
+ * `SCITTLE_BASE`). So this page's settle genuinely depends on a fetch across
+ * the public internet from a CI runner. Switching to `'load'` or `'commit'`
+ * would push that CDN fetch onto the 20000ms `waitForFunction` below and make
+ * the lane FLAKIER, not tighter.
+ *
+ * 60s, therefore: three times the assertion budgets it must stay
+ * distinguishable from, and generous enough that a slow-but-working jsDelivr
+ * is not read as a broken bootstrap. Demonstrated (rf2-rbyyx): against a page
+ * whose subresource is held 35s, a bare `goto{waitUntil:'networkidle'}` dies
+ * at 30016ms, and the same call with `timeout: 60000` resolves at 35519ms.
+ */
+const NAV_TIMEOUT_MS = 60000;
+
+try {
+  await page.goto(url, { waitUntil: "networkidle", timeout: NAV_TIMEOUT_MS });
+} catch (e) {
+  throw new Error(
+    "NAVIGATION FAILED — this is the page.goto ceiling (waitUntil: " +
+      `'networkidle', timeout: ${NAV_TIMEOUT_MS}ms), NOT any of the 20000ms ` +
+      "assertion waits below, none of which had started. The page never " +
+      "settled, so nothing about the playground bundles has been observed. " +
+      "Note that settling requires the bootstrap's Scittle fetch from " +
+      "cdn.jsdelivr.net, so a CDN stall lands here (rf2-rbyyx). Underlying: " +
+      e.message
+  );
+}
 
 // The bootstrap must inject Scittle and mount the cells.
 await page.waitForFunction(
