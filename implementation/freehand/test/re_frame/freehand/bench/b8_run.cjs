@@ -59,8 +59,41 @@ function arg(name, dflt) {
   return i === -1 ? dflt : process.argv[i + 1];
 }
 
-const ROUNDS = Number(process.env.B8_ROUNDS || 5);
+// SIX, not five. The guard splits an arm's samples into thirds and
+// compares the first against the last; at five samples a third is ONE, and
+// a single-sample stratum carries no range, so the phase question has to be
+// adjudicated on a bare ratio. At six it is a range against a range, which
+// is the house rule the whole instrument is built on (rf2-tb345).
+const ROUNDS = Number(process.env.B8_ROUNDS || 6);
 const WRITES = Number(process.env.B8_WRITES || 40);
+
+// --- warm-up (rf2-tb345) ---------------------------------------------------
+//
+// A measurement site reads well above its settled value until it has run
+// several FULL-SIZE windows, and this driver used to warm each (arm, D) with
+// the single four-write calibration probe. Two independent readings say that
+// is nowhere near enough:
+//
+//   plain node, packed-SMI .slice() control, nothing else varying, sixteen
+//   consecutive windows:
+//       42.32 | 10.32 10.26 10.26 10.26 10.33 10.28 | 8.12 8.12 ... 8.12
+//   the first window 5.3x the settled value, the next SIX at +27%.
+//
+//   this driver's own first guarded run, B8_ROUNDS=4 --kind narrow: the
+//   `instrument` arm — the pseudo-arm whose entire purpose is to price the
+//   harness's own footprint as a CONSTANT — read 4,361 B/write in its first
+//   window and 440 in its last. 9.9x.
+//
+// So each (arm, D) is now warmed at its REAL window size, and warmed until
+// it has stopped TRENDING rather than for a fixed count somebody guessed: a
+// floor of `B8_WARMUP` windows, then keep going while the guard's own phase
+// rule still separates the first third of the trajectory from the last, to
+// a ceiling of `B8_WARMUP_MAX`. The whole trajectory is recorded and
+// printed, so "wide enough" is a claim the output can be checked against
+// rather than an assertion.
+const WARMUP = Number(process.env.B8_WARMUP || 6);
+const WARMUP_MAX = Number(process.env.B8_WARMUP_MAX || 10);
+const SETTLE_TOL = Number(process.env.B8_SETTLE_TOL || 0.10);
 const KINDS = (arg('kind', 'broad,narrow')).split(',');
 const NO_BUILD = process.argv.includes('--no-build');
 
@@ -452,21 +485,75 @@ async function main() {
   // the number of writes that fits its own allocation into one nursery.
   const TARGET = Number(process.env.B8_TARGET_BYTES || 3.0e6);
   const nFor = {};
+  const warmth = {};
   for (const kind of KINDS) {
     nFor[kind] = {};
+    warmth[kind] = {};
     for (const arm of ARMS) {
       nFor[kind][arm] = {};
+      warmth[kind][arm] = {};
       for (const d of arm === 'instrument' || LADDER_ARMS.includes(arm) ? [0, CTL_1, CTL_2] : [0]) {
-        // A calibration window, never read as data. It doubles as the
-        // warm-up pass — first-call compilation, inline caches and
-        // one-time module state are not what this asks about, and charged
-        // to round 1 they read as allocation per write.
+        // A calibration window, never read as data. Four writes is enough
+        // to SIZE the window and nothing like enough to warm it — which is
+        // the whole of rf2-tb345 — so it no longer doubles as the warm-up.
         const probe = await window_(arm, kind, d, false, 4);
         const perWrite = Math.max(1, probe.inPage.posSum / 4);
         const n = Math.max(2, Math.min(WRITES, Math.round(TARGET / perWrite)));
         nFor[kind][arm][d] = n;
+
+        // Now warm at the REAL window size, and keep going until the site
+        // has stopped TRENDING. Nothing here is read as data either; the
+        // trajectory is kept only so the claim "warm enough" can be checked.
+        //
+        // "Stopped trending" is asked with the GUARD'S OWN RULE rather than
+        // a second one invented here — `phase`, first third against last
+        // third, disjoint ranges AND medians beyond tolerance. That matters,
+        // because a first draft asked whether the last three windows sat
+        // within 10% of each other and could not tell a site that is still
+        // warming from one that is merely noisy: `reagent/D=0` spreads
+        // 23,637–54,096 B/write when fully warm and would have warmed to the
+        // ceiling for ever, while `instrument/D=0` genuinely oscillates
+        // 5,969 → 466 → 10,968 → 440 → 9,512 → 440 → 440 → 440 and must not
+        // stop at six. Asking the question the way the guard will ask it is
+        // also the only way this loop can promise anything about the guard.
+        const trail = [];
+        let settled = false;
+        while (trail.length < WARMUP_MAX) {
+          const w = await window_(arm, kind, d, false, n);
+          trail.push(w.inPage.posSum / n);
+          if (trail.length >= Math.max(4, WARMUP)) {
+            const v = guard.verdict(
+              trail.map((value, i) => ({ arm, value, predecessor: arm, position: i })),
+              { tolerance: SETTLE_TOL, factors: ['phase'] }
+            );
+            if (!v.contaminated) {
+              settled = true;
+              break;
+            }
+          }
+        }
+        // The settled value is the LAST THIRD'S MEDIAN, not the last
+        // window. `instrument/D=0` runs 11,824 → 6,041 → 16,372 → 440 →
+        // 5,846 → 440 → 440 → 440 → 440 → 14,109: it is not trending, which
+        // is what `settled` asks, but it is bimodal, and whichever window
+        // the loop happens to stop on would otherwise become the
+        // denominator. A median over the same third the guard adjudicates
+        // is the figure that does not depend on where the loop stopped.
+        const cold = trail[0];
+        const settledValue = guard.median(trail.slice(-Math.max(1, Math.floor(trail.length / 3))));
+        warmth[kind][arm][d] = {
+          writes: n,
+          windows: trail.length,
+          settled,
+          cold,
+          settledValue,
+          coldOverSettled: settledValue > 0 ? cold / settledValue : null,
+          trail,
+        };
         console.error(
-          `[b8] ${kind}/${arm}/D=${d}: ~${Math.round(perWrite)} B per write -> ${n} writes per window`
+          `[b8] ${kind}/${arm}/D=${d}: ~${Math.round(perWrite)} B per write -> ${n} writes per ` +
+            `window; warmed ${trail.length} windows, ${settled ? 'SETTLED' : 'STILL MOVING'} ` +
+            `[${trail.map((x) => Math.round(x)).join(' ')}]`
         );
       }
     }
@@ -519,7 +606,7 @@ async function main() {
   const sampler = await samplerControl(KINDS[0], nFor[KINDS[0]]['freehand-interpreted'][0], refBpd);
 
   await browser.close();
-  return { rows, sampler, retention, keptDropped, refBytesPerDouble: refBpd, nFor,
+  return { rows, sampler, retention, keptDropped, refBytesPerDouble: refBpd, nFor, warmth,
            integrity: integ, precise: { probes } };
 }
 
@@ -534,6 +621,56 @@ function stat(xs) {
   return { mean, min: s[0], max: s[s.length - 1], n: s.length };
 }
 const fmt = (v) => (v === null || v === undefined ? '-' : Math.round(v).toLocaleString('en-US'));
+
+// rf2-tb345. Was the warm-up wide enough? The claim is checkable, so it is
+// checked rather than asserted: every (arm, D) reports how far its FIRST
+// full-size window sat above the last one, how many windows it took to stop
+// moving, and whether it stopped at all inside the ceiling. A combination
+// that never settled is named — its arm's figures were taken on a moving
+// site and the guard's phase factor is the thing that will say so.
+function reportWarmth(warmth) {
+  console.log('\n;; ==== WARM-UP — how long each site takes to stop moving (rf2-tb345) ====');
+  console.log(
+    `;;   floor ${WARMUP} windows, ceiling ${WARMUP_MAX}, settled = the guard's own phase rule ` +
+      `no longer separates the trajectory's first third from its last at ` +
+      `${(SETTLE_TOL * 100).toFixed(0)}%; the calibration probe is NOT counted`
+  );
+  console.log(
+    ';;   kind/arm/D                      writes  windows   first window     settled  cold/settled  settled?'
+  );
+  const unsettled = [];
+  let worst = null;
+  for (const [kind, arms] of Object.entries(warmth || {})) {
+    for (const [arm, ds] of Object.entries(arms)) {
+      for (const [d, w] of Object.entries(ds)) {
+        const label = `${kind}/${arm}/D=${d}`;
+        if (!w.settled) unsettled.push(label);
+        if (w.coldOverSettled !== null && (worst === null || w.coldOverSettled > worst.r)) {
+          worst = { label, r: w.coldOverSettled };
+        }
+        console.log(
+          `;;   ${label.padEnd(32)}${String(w.writes).padStart(6)}` +
+            `${String(w.windows).padStart(9)}` +
+            `${fmt(w.cold).padStart(15)}${fmt(w.settledValue).padStart(12)}` +
+            `${(w.coldOverSettled === null ? '-' : w.coldOverSettled.toFixed(2) + 'x').padStart(14)}` +
+            `  ${w.settled ? 'yes' : 'NO — still trending'}`
+        );
+      }
+    }
+  }
+  if (worst) {
+    console.log(
+      `;;   worst first-window inflation: ${worst.label} read ${worst.r.toFixed(2)}x its settled ` +
+        'value — that is what a single calibration window used to charge to round 1'
+    );
+  }
+  console.log(
+    unsettled.length
+      ? `;;   NOT SETTLED inside the ceiling: ${unsettled.join(', ')} — raise B8_WARMUP_MAX`
+      : ';;   every site settled inside the ceiling'
+  );
+  return unsettled;
+}
 
 function report(out) {
   const { rows, sampler } = out;
@@ -853,6 +990,8 @@ function report(out) {
     `;;   -> the sampler reports ${((sampler.samplerTotal / sampler.counterAllocated) * 100).toFixed(1)}%` +
       ` of what was allocated; it is a retention instrument.`
   );
+
+  summary.warmupUnsettled = reportWarmth(out.warmth);
 
   if (refusals.length) {
     console.log('\n;; ==== ARM ORDER: THESE FIGURES ARE NOT REPORTABLE ====');
