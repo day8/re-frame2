@@ -177,7 +177,17 @@ Thumbs.db
 
 `shadow-cljs release app` produces an optimised bundle. No re-frame2-specific config needed.
 
-re-frame2's `:advanced`-compile elision contract (Spec 009) automatically strips dev-only diagnostics (`trace`, `epoch-history`, schema validation at boundary) when `goog.DEBUG` is false — which it is under `:advanced`. The author gets the elision for free; nothing to configure.
+re-frame2's `:advanced`-compile elision contract (Spec 009) automatically strips the dev-time machinery — `trace`, `epoch-history`, and the `validate-*!` family behind the `:schema` declarations the author writes over their own events, subs, fx, flows and `app-db` paths — when `goog.DEBUG` is false, which it is under `:advanced`. The author gets that for free; nothing to configure.
+
+**Do not read it as "schema validation is gone."** What may be elided is settled by ownership rather than by subject matter (Spec 000 C-000.35): a `:schema` the *programmer* declares is a development aid, so it goes; a check the *framework* makes on its own boundaries is a promise about framework behaviour, and a promise kept only in dev is not a promise. Five checks run in the release bundle exactly as they do in dev:
+
+- **`:rf.schema/at-boundary`** — the interceptor an author references by id on a handler that ingests untrusted input. Its check is ungated, so the release bundle still rejects a malformed payload: the handler is skipped and the value never reaches `app-db`.
+- **A declared route's `:params` / `:query` shape** — gated on the schemas artefact being loaded and a schema being declared, not on `goog.DEBUG`.
+- **A recordable coeffect's `:schema`** — an out-of-contract durable value is corrupt causal state, so this one throws in production rather than eliding.
+- **The reserved `:rf.server/*` response effects' own arguments** — a closed set the framework publishes, checked before they touch the response accumulator, identically in every build.
+- **A Malli schema handed to Managed HTTP's `:decode`** — an argument to the framework's own parse rather than a diagnostic layered over it, so it runs with the parse and a failing body classifies as `:rf.http/decode-failure` in release exactly as in dev.
+
+Surviving is not the same as reporting, and the two do not always travel together. The at-boundary arm does both: its rejection fans an always-on `:rf.error/schema-validation-failure` record and settles `:outcome :rejected` on the event record. What elides above it is the *rich* report — the event vector, the offending value, the Malli explanation — because a boundary payload is attacker-controlled by definition.
 
 ### Production hardening — serve CSP as a response header
 

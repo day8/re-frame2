@@ -47,7 +47,9 @@ What it means for how you write code:
 
 - **A registered schema is a tripwire that catches *you*, during development.** It is worth having on every boundary path for exactly that reason, and the same is true of handler `:schema` metadata.
 - **It is not a guard on the deployed bundle.** Keep the real invariant in the handler — code that runs unconditionally.
-- **Where untrusted data must be rejected in production too, use the boundary interceptor** (below). It survives the production gate and is the only schema surface that does.
+- **Where untrusted data must be rejected in production too, use the boundary interceptor** (below). It survives the production gate, and it is the survivor an application author actually reaches for.
+
+**What survives is settled by ownership, not by subject matter** (Spec 000 C-000.35). A `:schema` the *programmer* declares over their own registration is a development aid and elides, because a release build trusts the programmer. A check the *framework* makes on its own boundaries is a promise about framework behaviour, and a promise kept only in dev is not a promise — so the boundary interceptor is not alone. These also run in every build: a declared route's `:params` / `:query` shape (gated on the schemas artefact and a declared schema, not on `debug-enabled?`), a recordable coeffect's `:schema` (an out-of-contract durable value is corrupt causal state, so it *throws* rather than eliding), the reserved `:rf.server/*` response effects' checks on their own arguments, and a Malli schema handed to Managed HTTP's `:decode` — the last being an argument to the framework's own parse rather than a diagnostic layered over it. None of that softens the section above: a `reg-app-schema` registration and a handler's `:schema` metadata still do not run in production.
 
 The improver skill's [`schemaless-events.md`](../../../re-frame2-improver/references/schemaless-events.md) is the audit-side counterpart: a handler ingesting untrusted input while carrying only `:schema` / `reg-app-schema` is a finding, not a pass.
 
@@ -85,6 +87,8 @@ Behaviour matrix:
 - **Dev build** — no-op (step-1 validation already runs).
 - **Production with `:schema`** — runs the same validation inline.
 - **Registration without `:schema`** — rejected at `reg-event` time with `:rf.error/at-boundary-missing-schema`. The boundary interceptor is structurally meaningless without a schema; the registrar refuses to install the handler.
+
+Whichever arm does the checking, the *rejection* is identical: `:rf/skip-handler?` is set, the handler never runs, and the payload never reaches `app-db`. It also **reports** in both builds — one always-on `:rf.error/schema-validation-failure` record (`:source :boundary`, `:where :event`) plus `:outcome :rejected` on the event record. The dev and production routes share a single emit site, so a rejection can never produce two records. What a production record drops is the payload — no event vector, no offending value, no Malli explanation — because a boundary payload is attacker-controlled by definition. Surviving and reporting are separate claims about a check; on this one you get both.
 
 ## Canonical mini-example
 
