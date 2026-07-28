@@ -110,6 +110,37 @@
   `NOOP` is the fixed per-pass overhead every arm carries; every figure
   is reported both raw and net of it.
 
+  ## The arm order is a MEASURED property of this run (rf2-88pie/rf2-om73r)
+
+  Until `rf2-om73r` this file made one pass over the plan and reported one
+  mean per arm. `RM_ORDER=rev` offered a second pass in a SECOND PROCESS
+  whose numbers nothing here ever joined up, and a mean alone carries no
+  range — both against standing method.
+
+  So the plan now runs in `RM_ROUNDS` rounds, and the arm order ROTATES AND
+  REFLECTS with the round (`re-frame.bench.order-guard/slot-order`). A bare
+  cyclic rotation would not do: arm `a` sits at slot `(a - r) mod n`, so its
+  predecessor is `(a - 1) mod n` in every round and only the seam differs.
+  Reflecting on odd rounds replaces every `a -> a+1` adjacency with
+  `a -> a-1`, so each arm is measured after two different predecessors and
+  at spread positions in the run. Each arm reports the p50 ACROSS ROUNDS
+  with the full round range, never a mean alone.
+
+  `order-guard` then partitions every arm's per-round figures by WHAT RAN
+  BEFORE IT and by WHERE IN THE RUN it sat, applies the house rule —
+  overlapping ranges are indistinguishable — and REFUSES the run (exit code
+  2) if either factor separates an arm. It is the same rule as
+  `implementation/freehand/test/re_frame/freehand/bench/order_guard.cjs`,
+  expressed twice because this harness is JVM Clojure and there is no
+  JavaScript runtime in the process; both copies replay the same recorded
+  fixtures in their self-tests.
+
+  The whole plan is also warmed BEFORE any arm is measured, rather than each
+  arm warming itself immediately before its own reading. A site reads above
+  its settled value until it has run several times (`rf2-tb345`), and a
+  per-arm warm-up leaves that curve aligned with position in the plan, which
+  is exactly the confound the phase factor refuses.
+
   ## What does NOT transfer to ClojureScript
 
   Byte counts do not, and neither does one behaviour: the JVM plain-atom
@@ -126,11 +157,16 @@
       clojure -M:test -m re-frame.bench.read-attribution
 
   Environment: RM_N (dependencies, default 300), RM_ITERS, RM_WARMUP,
-  RM_ALLOC, RM_ORDER=rev (run the arms back-to-front — if the answer
-  survives that, arm order and the JIT state each arm inherits are not
-  confounds), RM_SUITE=port|subs|all (which ladder to run; `port` is the
-  default and is exactly the original thirteen arms)."
-  (:require [re-frame.core :as rf]
+  RM_ALLOC (timing and allocation passes per arm across ALL rounds),
+  RM_ROUNDS (default 6 — at least six, so the guard's phase thirds are
+  ranges rather than single samples), RM_TOLERANCE (the guard's
+  relative-median tolerance, default 0.10 — TLAB accounting is exact, so a
+  real arm reproduces to a fraction of a percent), RM_ORDER=rev (reverse the
+  base plan before scheduling — a knob now, not the mitigation),
+  RM_SUITE=port|subs|all (which ladder to run; `port` is the default and is
+  exactly the original thirteen arms)."
+  (:require [re-frame.bench.order-guard :as guard]
+            [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -151,6 +187,8 @@
   (.getThreadAllocatedBytes tmx (.getId (Thread/currentThread))))
 
 (defn- env-int [k d] (Integer/parseInt (or (System/getenv k) (str d))))
+
+(defn- env-num [k d] (Double/parseDouble (or (System/getenv k) (str d))))
 
 (def ^:private fid :rf/default)
 
@@ -521,10 +559,17 @@
             (range n))))
 
 (defn run
-  "Measure every arm and print the attribution. Answers the results map."
-  [{:keys [n iters warmup alloc-iters reverse-order? suite]
+  "Measure every arm and print the attribution. Answers the results map,
+  keyed by arm label, plus `::refused?` — the arm-order guard's verdict on
+  whether anything in it may be quoted."
+  [{:keys [n iters warmup alloc-iters reverse-order? suite rounds tolerance]
     :or   {n 300 iters 400 warmup 400 alloc-iters 200 reverse-order? false
-           suite "port"}}]
+           suite "port" rounds 6 tolerance 0.10}}]
+  ;; Ahead of everything: a broken guard makes every figure below
+  ;; unpublishable, and the checks are fixtures replayed from recorded
+  ;; readings, so this is deterministic and costs nothing.
+  (when-not (guard/print-self-test!)
+    (throw (ex-info "order guard self-test FAILED — nothing may be measured" {})))
   (.setThreadAllocatedMemoryEnabled tmx true)
   (let [sub-ids (mapv #(keyword "ra" (str "s" %)) (range n))
         qs      (mapv vector sub-ids)
@@ -534,9 +579,11 @@
       (rf/reg-sub id (fn [db _] (get-in db [:items i]))))
     (live-frame/make-frame {:id fid})
     (frame/replace-app-db! fid (db-of 0))
-    (println (format ";; debug-enabled? = %s  n=%d iters=%d warmup=%d alloc-iters=%d order=%s suite=%s"
-                     interop/debug-enabled? n iters warmup alloc-iters
+    (println (format ";; debug-enabled? = %s  n=%d iters=%d warmup=%d alloc-iters=%d rounds=%d base order=%s suite=%s"
+                     interop/debug-enabled? n iters warmup alloc-iters rounds
                      (if reverse-order? "REVERSED" "forward") suite))
+    (println (format ";; arm order ROTATES AND REFLECTS with the round (rf2-88pie); guard tolerance %.0f%%"
+                     (* 100.0 tolerance)))
     (binding [frame/*current-frame* fid]
       ;; Hold n subscriptions the way a mounted application holds them, so
       ;; every node is live for the whole run — which is what makes `probe`
@@ -580,10 +627,13 @@
                           {:gen g :probe probe-v :rgread rg-v :deref dr-v :raw raw-v}))))
       (let [advance! (fn [] (vswap! gen inc)
                        (frame/replace-app-db! fid (db-of @gen)))
-            measure
-            (fn [label f]
-              (dotimes [_ warmup] (advance!) (f n))
-              (let [us (/ (p50 (vec (repeatedly iters
+            ;; ONE round of one arm. Split out of the old `measure` so the
+            ;; plan can be walked several times in several orders — a figure
+            ;; taken from a plan run in one order has not been checked
+            ;; (rf2-88pie).
+            round!
+            (fn [f its allocs]
+              (let [us (/ (p50 (vec (repeatedly its
                                       (fn [] (advance!)
                                         (let [t0 (System/nanoTime)]
                                           (f n)
@@ -591,17 +641,14 @@
                           1000.0)
                     bs (double
                          (/ (loop [k 0 acc 0]
-                              (if (< k alloc-iters)
+                              (if (< k allocs)
                                 (do (advance!)
                                     (let [a0 (alloc-bytes)]
                                       (f n)
                                       (recur (inc k) (+ acc (- (alloc-bytes) a0)))))
                                 acc))
-                            alloc-iters))]
-                (println (format ";; %-9s %9.1f us %11.0f bytes %9.1f B/read"
-                                 label us bs (/ bs (double n))))
-                (flush)
-                {:label label :us us :bytes bs}))
+                            allocs))]
+                {:us us :bytes bs}))
             controls [["NOOP"    arm-noop]
                       ["CTRL-S"  arm-ctrl-small]
                       ["CTRL-L"  arm-ctrl-large]]
@@ -628,16 +675,63 @@
                        ["N-LOOKGEN" arm-n-lookgen]  ["N-LOOKATOM" arm-n-lookatom]]
             port?     (contains? #{"port" "all"} suite)
             subs?     (contains? #{"subs" "all"} suite)
-            plan (concat controls
-                         (when port? port-plan)
-                         (when subs? (if port? (rest subs-plan) subs-plan)))
-            res  (reduce (fn [acc [l f]] (assoc acc l (measure l f)))
-                         {}
-                         (if reverse-order? (reverse plan) plan))
+            plan (vec (concat controls
+                              (when port? port-plan)
+                              (when subs? (if port? (rest subs-plan) subs-plan))))
+            ;; The order the SCHEDULE indexes into. `plan` itself stays in
+            ;; base order, because the report below reads `(rest plan)` to
+            ;; skip NOOP.
+            ordered   (if reverse-order? (vec (reverse plan)) plan)
+            k         (count ordered)
+            its-per   (max 1 (quot iters rounds))
+            allocs-per (max 1 (quot alloc-iters rounds))
+            ;; --- warm the WHOLE plan before measuring any of it -----------
+            ;; A per-arm warm-up immediately before that arm's reading leaves
+            ;; the settling curve aligned with position in the plan, which is
+            ;; the confound the phase factor refuses (rf2-tb345).
+            _ (do (println (format ";; warming %d arms x %d passes before the first measured round"
+                                   k warmup))
+                  (flush)
+                  (doseq [[_ f] ordered]
+                    (dotimes [_ warmup] (advance!) (f n))))
+            ;; --- the measured rounds -------------------------------------
+            walked (reduce
+                     (fn [acc [round j]]
+                       (let [[label f] (nth ordered j)
+                             m         (round! f its-per allocs-per)]
+                         (-> acc
+                             (update-in [:us label] (fnil conj []) (:us m))
+                             (update-in [:bytes label] (fnil conj []) (:bytes m))
+                             (update :order conj {:arm         label
+                                                  :value       (:bytes m)
+                                                  :predecessor (:prev acc)
+                                                  :position    (count (:order acc))
+                                                  :round       round})
+                             (assoc :prev label))))
+                     {:us {} :bytes {} :order [] :prev nil}
+                     (vec (for [round (range rounds)
+                                j     (guard/slot-order k round)]
+                            [round j])))
+            res  (into {}
+                       (map (fn [[l _]]
+                              (let [bs (get-in walked [:bytes l])]
+                                [l {:label    l
+                                    :us       (p50 (get-in walked [:us l]))
+                                    :bytes    (p50 bs)
+                                    :bytes-lo (apply min bs)
+                                    :bytes-hi (apply max bs)
+                                    :rounds   bs}])))
+                       plan)
             b    (fn [l] (:bytes (get res l)))
             noop (b "NOOP")
             net  (fn [l] (- (b l) noop))
             per  (fn [l] (/ (net l) (double n)))]
+        (doseq [[l _] plan]
+          (let [r (get res l)]
+            (println (format ";; %-9s %9.1f us %11.0f bytes %9.1f B/read   rounds [%.0f – %.0f]"
+                             l (:us r) (:bytes r) (/ (:bytes r) (double n))
+                             (:bytes-lo r) (:bytes-hi r)))))
+        (flush)
         (println ";;")
         (doseq [[lbl elems] [["CTRL-S" ctrl-small-n] ["CTRL-L" ctrl-large-n]]]
           (let [pred (double (ctrl-bytes n elems))]
@@ -719,15 +813,39 @@
                           (- (net "PORT") (net "RESOLVE") (net "DEREF"))]]]
           (println (format ";;   %-38s %8.1f B/read  %5.1f%% of PORT"
                            lbl (/ v (double n)) (* 100.0 (/ v (net "PORT")))))))
-        res))))
+        ;; --- arm order, LAST, and it governs everything above -------------
+        ;; The refusal is about what may be QUOTED, not about throwing the
+        ;; measurement away, so the figures are printed either way and the
+        ;; exit code carries the verdict.
+        (println ";;")
+        (let [v (guard/verdict (:order walked) {:tolerance tolerance})]
+          (doseq [line (guard/report-lines v "the per-arm allocation figure, one round-mean per round")]
+            (println line))
+          (when (:refuse? v)
+            (println ";;")
+            (println ";; ==== ARM ORDER: THESE FIGURES ARE NOT REPORTABLE ====")
+            (println (str ";;   at least one arm reads differently for what preceded it, or for "
+                          "where in the run it"))
+            (println (str ";;   was measured (rf2-88pie). The table above stands as raw data; "
+                          "nothing in it may"))
+            (println ";;   be quoted."))
+          (flush)
+          (assoc res ::refused? (:refuse? v)))))))
 
 (defn -main [& _]
-  ((test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-   (fn []
-     (run {:n              (env-int "RM_N" 300)
-           :iters          (env-int "RM_ITERS" 400)
-           :warmup         (env-int "RM_WARMUP" 400)
-           :alloc-iters    (env-int "RM_ALLOC" 200)
-           :suite          (or (System/getenv "RM_SUITE") "port")
-           :reverse-order? (= "rev" (System/getenv "RM_ORDER"))})))
-  (shutdown-agents))
+  (let [refused? (volatile! false)]
+    ((test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+     (fn []
+       (vreset! refused?
+                (::refused?
+                 (run {:n              (env-int "RM_N" 300)
+                       :iters          (env-int "RM_ITERS" 400)
+                       :warmup         (env-int "RM_WARMUP" 400)
+                       :alloc-iters    (env-int "RM_ALLOC" 200)
+                       :rounds         (max 2 (env-int "RM_ROUNDS" 6))
+                       :tolerance      (env-num "RM_TOLERANCE" 0.10)
+                       :suite          (or (System/getenv "RM_SUITE") "port")
+                       :reverse-order? (= "rev" (System/getenv "RM_ORDER"))})))))
+    (shutdown-agents)
+    ;; A run whose figures the arm-order guard refused is not a green run.
+    (when @refused? (System/exit 2))))

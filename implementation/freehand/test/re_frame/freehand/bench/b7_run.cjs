@@ -50,12 +50,26 @@
 // read as SIX KILOBYTES on all three readers — V8 does not materialise
 // `'x'.repeat(n)`. The instrument was fine and the control was a
 // fiction. It is worth knowing that a control can fail this way.
+//
+// THE ARM ORDER IS A MEASURED PROPERTY OF THIS RUN, NOT AN ASSUMPTION.
+// The heap row used to select the arm for slot `j` of round `r` as
+// `HEAP_ARMS[(j + round) % n]` and describe it as "order rotating with the
+// round". A cyclic rotation changes which arm goes FIRST; it does not
+// change which arm follows which — arm `a` sits at slot `(a - r) mod n`,
+// so its predecessor is `(a - 1) mod n` in EVERY round and only the round
+// seam differs. It read as a mitigation and was not one (rf2-88pie,
+// rf2-om73r). `order_guard.cjs` now schedules the arms so every one of
+// them is measured after at least two different predecessors, labels every
+// reading with what preceded it and where in the run it sat, and REFUSES to
+// let this driver exit 0 on a figure that either factor separates. Its
+// self-test runs before the bundle is even built.
 
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
+const guard = require('./order_guard.cjs');
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
@@ -69,6 +83,11 @@ const ROOTS = Number(process.env.B7_ROOTS || 10);
 const CONTROL_DOUBLES = Number(process.env.B7_CONTROL_DOUBLES || 587500);
 const CONTROL_PREDICTED = CONTROL_DOUBLES * 8;
 const WANT_SNAPSHOT = process.env.B7_SNAPSHOT !== '0';
+// A relative difference of medians. A retention reading taken across a
+// mount/collect/release cycle moves several percent between rounds where an
+// allocation counter reading the same code twice does not, so this sits
+// above B8's noise floor and far below the 2.01x the recorded fault made.
+const TOLERANCE = Number(process.env.B7_TOLERANCE || 0.25);
 
 // The published arm set. `B7_ARMS` (comma-separated) overrides it, and
 // `B7_INIT_FN` points the bundle at a different `:init-fn` — the two seams
@@ -298,6 +317,9 @@ async function heapRow(chromium) {
   const { cdp, gc, read } = await makeReaders(page);
 
   const rounds = [];
+  const orderSamples = [];
+  let position = 0;
+  let previous = null;
   let unverified = 0;
   let mounts = 0;
 
@@ -338,10 +360,14 @@ async function heapRow(chromium) {
       baselineDriftCdp: ctlAfter.cdp - ctlBefore.cdp,
     };
 
-    // --- the arms, order rotating with the round -------------------------
+    // --- the arms, order rotating AND REFLECTING with the round ----------
+    // `guard.schedule` reflects on odd rounds, which is what actually
+    // varies which arm follows which; the bare rotation this loop used to
+    // do did not. Every reading carries the label of the arm measured
+    // immediately before it and its position in the whole run.
     const arms = {};
-    for (let j = 0; j < HEAP_ARMS.length; j++) {
-      const arm = HEAP_ARMS[(j + round) % HEAP_ARMS.length];
+    for (const j of guard.schedule(HEAP_ARMS.length, round)) {
+      const arm = HEAP_ARMS[j];
       await gc();
       const pre = await read();
       const verify = await page.evaluate(
@@ -364,6 +390,13 @@ async function heapRow(chromium) {
         bytesPerBoundaryPerf: (held.perf - pre.perf) / boundaries,
         raw: { pre, held, post },
       };
+      orderSamples.push({
+        arm,
+        value: arms[arm].bytesPerBoundaryCdp,
+        predecessor: previous,
+        position: position++,
+      });
+      previous = arm;
     }
     rounds.push({ round, control, arms });
   }
@@ -427,6 +460,7 @@ async function heapRow(chromium) {
     control: { shape: 'dense JS array of doubles', doubles: CONTROL_DOUBLES, predictedBytes: CONTROL_PREDICTED },
     verification: { mounts, unverified },
     perRound: rounds,
+    orderVerdict: guard.verdict(orderSamples, { tolerance: TOLERANCE }),
     snapshots,
   };
 }
@@ -489,14 +523,42 @@ function summariseHeap(row) {
         `${String(Math.round(res.mean)).padStart(10)}`
     );
   }
+  console.log(';;');
+  for (const line of guard.format(row.orderVerdict, 'B7 heap — retained B/boundary, reader A')) {
+    console.log(line);
+  }
+  if (row.orderVerdict.refuse) {
+    console.log(';;');
+    console.log(';; ==== ARM ORDER: THESE FIGURES ARE NOT REPORTABLE ====');
+    console.log(
+      ';;   at least one arm reads differently for what preceded it or for where in the run ' +
+        'it was measured (rf2-88pie). The table above stands only as raw data; nothing in it ' +
+        'may be quoted.'
+    );
+  }
 }
 
 (async () => {
+  // Does the arm-order guard still catch the faults it was built for?
+  // Ahead of the build, because a broken guard makes every figure below
+  // unpublishable and finding that out after a fifteen-minute run is
+  // wasteful. The checks are fixtures replayed from recorded readings, so
+  // this is deterministic.
+  const guardSelf = guard.selfTest();
+  for (const c of guardSelf.checks) {
+    console.error(`[b7] order-guard ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}`);
+  }
+  if (!guardSelf.ok) {
+    console.error('[b7] order guard self-test FAILED — nothing may be measured');
+    process.exit(1);
+  }
+
   build();
   const server = serve();
   const { chromium } = require('playwright');
   const out = { generatedAt: new Date().toISOString() };
   let failed = null;
+  let refused = false;
   try {
     if (ONLY !== 'heap') {
       console.error('[b7] mount-frame row ...');
@@ -515,6 +577,7 @@ function summariseHeap(row) {
       if (out.heap.verification.unverified > 0) {
         failed = `heap: ${out.heap.verification.unverified} unverified mounts`;
       }
+      refused = out.heap.orderVerdict.refuse;
     }
   } catch (e) {
     failed = String(e && e.stack ? e.stack : e);
@@ -530,6 +593,14 @@ function summariseHeap(row) {
   if (failed) {
     console.error(`[b7] FAILED: ${failed}`);
     process.exit(1);
+  }
+  // A run whose figures the arm-order guard refused is not a green run. The
+  // data is printed and the raw file is written — the refusal is about what
+  // may be QUOTED, not about throwing the measurement away. Exit 2, the
+  // same code `b8_run.cjs` uses for the same verdict.
+  if (refused) {
+    console.error('[b7] REFUSED by the arm-order guard (rf2-88pie): heap');
+    process.exit(2);
   }
   console.error('[b7] ok');
 })();

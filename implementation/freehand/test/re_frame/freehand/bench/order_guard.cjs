@@ -104,6 +104,22 @@
 // [[schedule]] reflects the rotation on odd rounds, which replaces every
 // `a -> a+1` adjacency with `a -> a-1`. `selfTest` proves both halves of
 // that arithmetically.
+//
+// ## What the `predecessor` factor can and cannot attribute (rf2-om73r)
+//
+// Under [[schedule]] an arm's predecessor is `(a - 1) mod n` on EVEN rounds
+// and `(a + 1) mod n` on ODD ones, so with only two orders available the
+// predecessor is a function of the round's PARITY. The two strata are
+// therefore "even rounds" and "odd rounds" wearing predecessor labels, and
+// a `predecessor` finding says *this figure moves with the plan* — which is
+// the whole property and reason enough to refuse — but it does NOT
+// establish that the immediate predecessor is the mechanism. Anything else
+// that alternates with the round direction lands in the same stratum.
+//
+// That is not a defect to paper over with a randomised order (see above for
+// why randomising is worse), and separating the two would need a third
+// distinct order per arm. It is stated here so that no report quotes a
+// `predecessor` stratum as evidence about adjacency specifically.
 
 // ---------------------------------------------------------------------------
 // The schedule
@@ -249,7 +265,14 @@ function adjudicate(strata, tolerance) {
   const use = powered.length >= 2 ? powered : strata;
   const lo = use[0];
   const hi = use[use.length - 1];
-  const ratio = lo.p50 === 0 ? Infinity : hi.p50 / lo.p50;
+  // An arm that allocates NOTHING reads zero in every stratum, and `0/0` is
+  // not an infinite separation — it is no separation at all. Left as
+  // `Infinity` this manufactures contamination out of two strata that agree
+  // exactly, and on two n=1 strata (which are adjudicated on the ratio
+  // alone) it FIRES — the one thing the house rule exists to prevent.
+  // `read-attribution`'s CACHEGET and NOOP arms are identically zero in
+  // every round and were the reproduction (rf2-om73r).
+  const ratio = hi.p50 === lo.p50 ? 1 : lo.p50 === 0 ? Infinity : hi.p50 / lo.p50;
   const disjoint = hi.min > lo.max;
   const degenerate = lo.n < 2 || hi.n < 2;
   const beyond = Math.abs(ratio - 1) > tolerance;
@@ -442,7 +465,23 @@ function selfTest() {
     `phase: ${one(vWarm, 'CTL-SMI-slice', 'phase').why}`
   );
 
-  // 6. CYCLIC ROTATION DOES NOT VARY ADJACENCY. Every arm keeps one
+  // 6. AN ARM THAT ALLOCATES NOTHING IS NOT INFINITELY CONTAMINATED.
+  //    `read-attribution`'s CACHEGET reads exactly 0 B in every round, so
+  //    both strata are zero; the pair is n=1 apiece here, which is the
+  //    case adjudicated on the ratio alone and therefore the case that
+  //    fires. It must not.
+  const zeros = [
+    { arm: 'CACHEGET', predecessor: 'PORT', position: 0, value: 0 },
+    { arm: 'CACHEGET', predecessor: 'DEREF', position: 1, value: 0 },
+  ];
+  const vZero = verdict(zeros, { tolerance: 0.1, factors: ['predecessor'] });
+  check(
+    'an arm that reads exactly zero in both strata is indistinguishable, not infinite',
+    one(vZero, 'CACHEGET', 'predecessor').status === 'clean',
+    one(vZero, 'CACHEGET', 'predecessor').why
+  );
+
+  // 7. CYCLIC ROTATION DOES NOT VARY ADJACENCY. Every arm keeps one
   //    predecessor in every round but the seam, so the order question is
   //    asked with a single sample in R. The reflecting schedule splits it.
   const R = 6;
