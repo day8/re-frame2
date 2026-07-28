@@ -36,7 +36,7 @@ every term.
 | `call-with-frame-resolution` | 720–800 | 41% | **112.3** | **6.6%** | collapses to a seventh |
 | — of which the **dynamic `binding`** | **~760** | **41–46%** | **0.1 ≤ floor** | **0.0%** | **VANISHES** |
 | — of which the generation read | 16–40 | ~2% | 48.0 | 2.8% | holds |
-| — of which the harness's own thunk | — | — | 64.0 | 3.8% | instrument, not product |
+| — of which the harness's own thunk | — | — | 64.0–128.1 | 3.8% | instrument, not product — and **bimodal**, see below |
 | `(frame/frame id)` + `(get @cache k)` | 0–8 | 0% | 96.7 | 5.7% | appears, small |
 | `frame-target->id` | 0 | 0% | 0.0 | 0.0% | free in both |
 | **= `subscribe`, cache hit, no deref** | **1220–1364** | | **1698.1** | | |
@@ -177,7 +177,9 @@ binding costs 48 B/read". It costs nothing.
 closure per call that *escapes*, while an inline re-spelling allocates one that
 does not, and V8 elides what it can prove never escapes. That subtraction prices
 the closure. Same error as (a), opposite sign. Confirmed directly:
-`N-CALLTHUNK` (one escaping thunk and nothing else) reads **64.0 B/read**.
+`N-CALLTHUNK` (one escaping thunk and nothing else) reads **64.0 B/read** in its
+settled mode — and `N-NEWFN`, which is nothing *but* a closure, reads the same,
+which is what pins that 64 B on the closure rather than on `cwfr`.
 
 **(c) The symmetric pair itself, when V8 compiles the two halves differently.**
 The repair for (b) was a symmetric pair: two sibling functions of identical arity
@@ -222,8 +224,44 @@ read the floor — measuring **nothing** — except in some windows, where it re
 `N-CWFRRAW`'s ranges simultaneously.
 
 The repair was to the **arm**, not the guard: the thunk is now stored where
-nothing can prove it dead. It escapes for real and the arm reads a stable
-64.0 B/read. **The guard's tolerance was never touched.**
+nothing can prove it dead. It escapes for real and the arm reads 64.0 B/read.
+**The guard's tolerance was never touched.**
+
+**And that repair went as far as a repair can go (`rf2-ktrvw`).** It removed the
+*elision*; it did not remove a residual ~64 B/read step, and nothing done to the
+arm could have. `N-NEWFN` creates one closure per inner iteration and does
+nothing else at all — no callee, no binding, not even a call — and it carries
+the same step:
+
+| arm | settled | high | step | = closures |
+|---|---:|---:|---:|---:|
+| `N-NEWFN` | 64.0 | 128.1 | 64.1 | 1.00 |
+| `N-CALLTHUNK` | 64.0 | 128.1 | 64.1 | 1.00 |
+| `N-CWFRNOG` | 64.0 | 128.6 | 64.6 | 1.01 |
+| `N-CWFRBIND` | 112.0 | 176.4 | 64.3 | 1.01 |
+| `N-CWFRGEN` | 112.0 | 176.6 | 64.6 | 1.01 |
+| `N-CWFRRAW` | 112.0 | 176.5 | 64.5 | 1.01 |
+
+B/read net of `NOOP`, reversed plan; the forward plan agrees at 64.1–77.4. The
+step is the **same absolute size** on arms whose totals differ by 75%, so it is
+additive and belongs to **closure creation**, not to any arm's subject.
+`N-CALLTHUNK − N-NEWFN` is 0.0 B/read against a prediction of 0, so `call-thunk`
+itself costs nothing beyond the closure.
+
+So a closure on this runtime is **two numbers, 64 B and 128 B, chosen per
+window with nothing in between** — and an arm whose subject is a closure cannot
+be re-shaped out of it without ceasing to measure the thing. A thunk-dominated
+arm is quotable as its **range**, and as an upper bound at the high mode, never
+as a p50 alone.
+
+It also explains why the forward plan now passes where it once refused: the step
+appears in the forward plan and the reversed one **alike**, so it is not a
+position effect, and the `phase` factor adjudicates it by luck — it fires when a
+third lands wholly in one mode and passes when a third straddles both. That is
+the house rule working correctly on a factor that does not describe the
+phenomenon. Widening the tolerance would hide a real bimodality and narrowing it
+would refuse at random, so the guard is **still** left alone. A later green run
+is not evidence the effect went away.
 
 **Refusal 2 — the instrument's upper working limit.** An `RA_N=1000` run was
 refused, and correctly: at n=1000 the arms are large enough that calibration
@@ -236,7 +274,13 @@ thing that run suggests, and it is left as a suggestion.
 25% tolerance was not widened. Both refusing arms are non-headline —
 `N-CALLTHUNK` is a control, and `N-CWFRNOG` is the arm this document explicitly
 says *not* to subtract with. Every headline term passed the guard in both orders.
-Filed as `rf2-ktrvw`.
+Filed as `rf2-ktrvw`, and **closed by the bimodality finding above**: the arms
+were not defective, they were measuring something that has two values, and the
+answer was to say so rather than to repair an arm or relax a guard.
+
+None of the headline terms is exposed to it. The binding figure is `N-BINDONLY`,
+which allocates no closure at all; the budget and symmetric-pair reconstructions
+each difference two arms carrying exactly one, so the mode cancels.
 
 ### Runs
 
