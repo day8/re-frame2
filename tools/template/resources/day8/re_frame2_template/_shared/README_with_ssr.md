@@ -103,18 +103,35 @@ shape written to the HTTP response — the two surfaces have different audiences
 The default projector maps `:rf.error/no-such-handler` → 404, client-input schema
 failures → 400, and everything else → a locked generic 500.
 
-Two of those three arms survive a release build; know which before you rely on
-one. `:rf.error/no-such-handler` — the unroutable URL — is always-on, so the 404
-holds in production. (Its lookalike `:rf.error/no-such-route`, raised when
-`route-url` is handed a route id nobody registered, is caller misuse, rides the
-dev trace bus alone, and never reaches the projector on a hardened server.) The
-**400 arm does not survive**. Schema validation is a development-build assertion,
-so under `:advanced` + `goog.DEBUG=false` — or the `-Dre-frame.debug=false` this
-server sets — no validator runs, `:rf.error/schema-validation-failure` is never
-emitted, and the projector is handed nothing to map: a malformed request body
-flows into the handler and the endpoint answers 200. An endpoint that owes its
-caller a 400 produces that status itself — validate the payload in the handler
-body and emit `[:rf.server/set-status 400]`. See
+All three arms reach the projector on a hardened server, but the 400 arm gets
+there only if you wire it. `:rf.error/no-such-handler` — the unroutable URL —
+is always-on, so the 404 holds in production. (Its lookalike
+`:rf.error/no-such-route`, raised when `route-url` is handed a route id nobody
+registered, is caller misuse, rides the dev trace bus alone, and never reaches
+the projector on a hardened server.)
+
+The 400 arm rides `:rf.error/schema-validation-failure` from the
+`:rf.schema/at-boundary` interceptor. Schema validation is *broadly* a
+development-build assertion — under `:advanced` + `goog.DEBUG=false`, or the
+`-Dre-frame.debug=false` this server sets, the validator family behind the
+`:schema` declarations you write over your own code does not run — but that one
+interceptor is the deliberate exception, and it is the arm a server endpoint
+leans on. Its check is ungated, so a handler registered
+`{:interceptors [:rf.schema/at-boundary]}` rejects a malformed request body in
+production: the handler is skipped, the payload never reaches app-db, and the
+rejection fans an always-on record the projector maps to 400 — the status
+[RFC 9110 §15.5.1](https://www.rfc-editor.org/rfc/rfc9110#section-15.5.1) asks
+of a refused payload.
+
+**This starter references that interceptor nowhere**, because it has no handler
+ingesting a request body yet. Add `:rf.schema/at-boundary` to each handler that
+does. A `:schema` on its own is a development tripwire, not a standing gate: a
+handler carrying only `:schema` runs on the unvalidated payload in production
+and the endpoint answers over whatever it produced.
+
+And the arm gives you the status, not the page. An endpoint that owes its caller
+a *body* — field-level errors, submitted values preserved — validates in the
+handler and emits `[:rf.server/set-status 400]` itself. See
 [Spec 010 §Production builds](https://github.com/day8/re-frame2/blob/main/spec/010-Schemas.md#production-builds).
 
 Override the projector per app with `reg-error-projector` and name it on the
