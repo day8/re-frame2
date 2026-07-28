@@ -51,6 +51,14 @@
 #
 # Usage:
 #   ./.github/scripts/verify-version-lockstep.sh
+#   ./.github/scripts/verify-version-lockstep.sh --self-test
+#
+# `--self-test` checks the checker rather than the tree: it runs
+# check_no_git_coords_in_runtime_deps over a set of synthetic deps.edn and
+# asserts each verdict. That check shipped once as a line-oriented text grep
+# that only saw a git coordinate when the library symbol and its map sat on
+# the same physical line, so it passed a clean verdict on a tree it had not
+# actually read (rf2-2ii52). Both layouts are pinned there now.
 #
 # rf2-ace2 / rf2-w05l / rf2-zha9 / rf2-lwtke.
 
@@ -256,6 +264,228 @@ assert_local_roots_inventoried() {
     fi
   done <<< "${derived}"
 }
+
+# ---- rf2-2ii52: the runtime coordinates `clein pom` cannot express -------
+#
+# `clein pom` can only express an :mvn/version coordinate. Handed a git
+# coordinate it prints "Skipping coordinate: …" and generates a pom WITHOUT
+# it — the same silent skip it has for :local/root, which the
+# :local/root → :mvn/version rewrite exists to repair. There is no equivalent
+# repair for a git coord: if the library is not on Clojars there is no version
+# to rewrite to. Publishing anyway ships a jar whose pom omits a runtime
+# dependency, and Clojars has no yank. This is not hypothetical — mcp-base and
+# story-mcp both carried `day8/de-dupe` by :git/url, and the pom clein
+# generated for story-mcp carried two of its ten dependencies.
+#
+# THIS CHECK USED TO BE A TEXT GREP, AND THE TEXT GREP WAS FORMATTING-BOUND.
+# It extracted with `grep -oE '[^[:space:]{]+[[:space:]]+\{:git/url'`, which
+# can only match when the library symbol and `{:git/url` sit on the SAME
+# physical line. Perfectly ordinary deps.edn layout — the symbol on one line,
+# its coordinate map opening on the next — produced no finding at all. So the
+# gate passed because the text happened to be laid out the way the regex
+# expected, not because the tree was clean, and the prevention this check was
+# added to provide was really a property of one file's whitespace. It was
+# wrong in the other direction too: it stripped only `;;`, so a `;`-commented
+# coordinate, a `#_`-discarded one, and the characters `{:git/url` sitting
+# inside a string literal each produced a spurious finding; and it delimited
+# the main :deps map with a `sed` line range running from `:deps` to
+# `:aliases`, which swallows every alias in the file if a deps.edn happens to
+# declare `:aliases` first. Of seven probe shapes it judged one correctly.
+#
+# So it reads STRUCTURE now, through the same node EDN authority
+# local_root_coords() uses above — and node is the runtime that is actually
+# available here: test.yml runs this gate on a bare `actions/checkout` with no
+# JDK, so a Clojure reader would break ordinary CI. The tag-push arm
+# (.github/scripts/preflight-tool-package.sh) runs where clojure IS installed
+# and asserts the stronger property this one cannot: that every coordinate
+# resolves to a real GAV in a pom clein actually generated.
+#
+# Scope is the MAIN :deps map only — alias :extra-deps (clein itself, the
+# cognitect test-runner) are build-time and never reach a published pom.
+# Fetching that map BY KEY is what makes the scoping exact, rather than a
+# guess about which line `:aliases` starts on.
+#
+# The class is "git coordinate", not "the literal characters :git/url". For an
+# `io.github.…` / `com.github.…` library tools.deps infers the URL from the
+# library name, so `{:git/tag "v0.5.1" :git/sha "dfb30dd"}` is a complete git
+# coordinate carrying no :git/url at all — a shape this very repo already uses
+# for the test-runner. Any key in the `git` namespace therefore counts, which
+# is a strict superset of what the grep caught.
+#
+# There is deliberately NO allowlist. One used to sit here — a single
+# `GIT_COORD_KNOWN_UNRESOLVED=(day8/de-dupe)` entry holding open the operator
+# decision on the last such coordinate, with the instruction "DELETE THIS LINE
+# when the ruling lands". Mike ruled route (b) on rf2-2ii52 (vendor the codec
+# into mcp-base) and the line went with it. An allowlist is the wrong shape
+# for this check anyway: an unpublishable runtime coordinate is not a policy
+# exception, it is an artefact that cannot ship a correct pom. If one appears
+# again the answer is to publish it, vendor it, or move the edge to late-bind
+# — not to record it here.
+
+# One `lib :git/key …` line per main-:deps coordinate carrying a key in the
+# `git` namespace, in declaration order. Sibling of local_root_coords(): same
+# reader, same main-:deps scoping, same fail-closed posture.
+git_coord_libs() {
+  node -e '
+    const fs = require("fs");
+    const { readEdn, isMap, isKeyword, mapGetKeyword } = require(process.argv[1]);
+    const top = readEdn(fs.readFileSync(process.argv[2], "utf8"));
+    if (!isMap(top)) throw new Error("top-level form is not a map");
+    const deps = mapGetKeyword(top, "deps");
+    if (deps === undefined) process.exit(0);
+    if (!isMap(deps)) throw new Error(":deps is not a map");
+    for (const [lib, coord] of deps.entries) {
+      if (!isMap(coord)) continue;
+      const gitKeys = coord.entries
+        .filter(([k]) => isKeyword(k) && k.name.startsWith("git/"))
+        .map(([k]) => ":" + k.name);
+      if (gitKeys.length === 0) continue;
+      if (lib === null || lib.edn !== "symbol") {
+        throw new Error("a dependency key in :deps is not a symbol");
+      }
+      process.stdout.write(lib.name + " " + gitKeys.join(" ") + "\n");
+    }
+  ' "${EDN_READER}" "$1"
+}
+
+# Fail-closed on an unreadable deps.edn (exit, not a counted drift), for the
+# same reason assert_local_roots_inventoried does: a reader that could not
+# enumerate the coordinates cannot be the basis for reporting that none of
+# them is a git coord.
+check_no_git_coords_in_runtime_deps() {
+  local deps_file="$1"
+  local rel_label="$2"
+  local derived entry lib keys
+
+  if ! derived="$(git_coord_libs "${deps_file}")"; then
+    echo "::error file=${rel_label}::failed to read this deps.edn's runtime coordinates structurally via implementation/scripts/lib/edn.cjs (is node on PATH? is the EDN well-formed?) — refusing to report a pom-expressibility verdict this script could not verify"
+    exit 2
+  fi
+
+  while IFS= read -r entry; do
+    [[ -z "${entry}" ]] && continue
+    lib="${entry%% *}"
+    keys="${entry#* }"
+    echo "::error file=${rel_label}::runtime dep '${lib}' is a git coordinate (${keys}) — 'clein pom' SKIPS it silently, so a published jar would omit a runtime dependency and Clojars has no yank. Publish it to Clojars under a coordinate this artefact can pin, vendor it into the artefact, or move the edge to late-bind."
+    errors=$((errors + 1))
+  done <<< "${derived}"
+}
+
+# `--self-test` — the mutation pin, and the reason the rewrite above is
+# checkable rather than merely asserted. Each case is a deps.edn the checker
+# has to judge; the same-line and multiline forms are the pair the reopen
+# named, and the negative cases pin the scoping the grep also got wrong. Run
+# by .github/workflows/test.yml alongside the gate itself.
+git_coord_self_test() {
+  local tmp failures=0 cases=0
+
+  tmp="$(mktemp -d)"
+
+  # $1 label, $2 expectation (FLAGGED | CLEAN | REFUSED), $3 deps.edn text.
+  # The checker runs inside a command substitution so its fail-closed `exit 2`
+  # bounds itself to that subshell and its `errors` increment cannot leak into
+  # the real tally.
+  _git_coord_case() {
+    local label="$1" expect="$2" body="$3" out rc verdict mark
+    cases=$((cases + 1))
+    printf '%s\n' "${body}" > "${tmp}/deps.edn"
+    if out="$(check_no_git_coords_in_runtime_deps "${tmp}/deps.edn" "self-test" 2>&1)"; then
+      rc=0
+    else
+      rc=$?
+    fi
+    if [[ "${rc}" -eq 2 ]]; then
+      verdict=REFUSED
+    elif grep -q '::error' <<< "${out}"; then
+      verdict=FLAGGED
+    else
+      verdict=CLEAN
+    fi
+    if [[ "${verdict}" == "${expect}" ]]; then
+      mark="  ok"
+    else
+      mark="FAIL"
+      failures=$((failures + 1))
+    fi
+    printf '  %s  %-48s expected %-8s got %s\n' "${mark}" "${label}" "${expect}" "${verdict}"
+  }
+
+  echo "self-test: check_no_git_coords_in_runtime_deps"
+
+  # --- a runtime git coordinate must be found however it is laid out -------
+  _git_coord_case 'same-line symbol and coordinate map' FLAGGED \
+'{:deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        day8/de-dupe {:git/url "https://github.com/day8/de-dupe.git" :git/sha "abc1234"}}}'
+
+  # The shape the grep could not see: symbol on one line, map on the next.
+  _git_coord_case 'symbol on one line, coordinate map on the next' FLAGGED \
+'{:deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        day8/de-dupe
+        {:git/url "https://github.com/day8/de-dupe.git"
+         :git/sha "abc1234"}}}'
+
+  _git_coord_case 'coordinate keys split across lines' FLAGGED \
+'{:deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        day8/de-dupe {
+          :git/url "https://github.com/day8/de-dupe.git"
+          :git/sha "abc1234"}}}'
+
+  # tools.deps infers the URL for io.github.… libs, so this is a complete git
+  # coordinate with no :git/url anywhere in it.
+  _git_coord_case 'git coordinate with no :git/url (:git/tag + :git/sha)' FLAGGED \
+'{:deps {io.github.day8/de-dupe {:git/tag "v0.3.0" :git/sha "abc1234"}}}'
+
+  _git_coord_case 'nested inside an otherwise expressible :deps map' FLAGGED \
+'{:paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        day8/re-frame2 {:local/root "../core"}
+        day8/de-dupe {:git/tag "v0.3.0"
+                      :git/sha "abc1234"}}
+ :aliases {}}'
+
+  # --- and must NOT be found where it does not bind at runtime -------------
+  _git_coord_case 'build-time git coordinate in an alias :extra-deps' CLEAN \
+'{:deps {org.clojure/clojure {:mvn/version "1.12.0"}}
+ :aliases {:test {:extra-deps {io.github.cognitect-labs/test-runner
+                               {:git/tag "v0.5.1" :git/sha "dfb30dd"}}}}}'
+
+  # …including when :aliases is declared FIRST, which the sed line range that
+  # used to delimit the main :deps map swallowed wholesale.
+  _git_coord_case 'alias :extra-deps with :aliases declared before :deps' CLEAN \
+'{:aliases {:test {:extra-deps {io.github.cognitect-labs/test-runner
+                                {:git/tag "v0.5.1" :git/sha "dfb30dd"}}}}
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}}}'
+
+  _git_coord_case 'coordinate commented out with a single ;' CLEAN \
+'{:deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        ; day8/de-dupe {:git/url "https://github.com/day8/de-dupe.git"}
+        }}'
+
+  _git_coord_case 'coordinate removed with a #_ discard' CLEAN \
+'{:deps {#_day8/de-dupe #_{:git/url "https://github.com/day8/de-dupe.git"}
+        org.clojure/clojure {:mvn/version "1.12.0"}}}'
+
+  _git_coord_case ':git/url appearing inside a string literal' CLEAN \
+'{:deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        day8/re-frame2 {:local/root "../core ; x {:git/url y"}}}'
+
+  # --- unreadable input is refused, never reported clean -------------------
+  _git_coord_case 'malformed EDN' REFUSED \
+'{:deps {org.clojure/clojure {:mvn/version "1.12.0"}'
+
+  rm -rf "${tmp}"
+
+  if [[ "${failures}" -gt 0 ]]; then
+    echo "::error::self-test FAILED — ${failures} of ${cases} case(s) misjudged by check_no_git_coords_in_runtime_deps"
+    return 1
+  fi
+  echo "self-test PASSED — all ${cases} cases judged correctly"
+  return 0
+}
+
+if [[ "${1:-}" == "--self-test" ]]; then
+  if git_coord_self_test; then exit 0; else exit 1; fi
+fi
 
 # Populated by the :local/root presence checks below, then consumed by the
 # completeness pass. Keyed by artefact name; value is a newline-separated
@@ -485,7 +715,9 @@ TOOLS=(xray story story-mcp machines-viz mcp-base)
 # It read `:version` and the `:local/root` coordinates, and nothing else. So
 # it reported "all 17 artefacts pinned" while `day8/re-frame2-machines-viz`
 # could not be BUILT at all, and while two artefacts carried a runtime
-# coordinate `clein pom` silently DROPS. Both are cheap to assert.
+# coordinate `clein pom` silently DROPS. Both are cheap to assert. The second
+# — check_no_git_coords_in_runtime_deps — is defined above, next to the EDN
+# reader it shares with the coordinate-inventory pass; the first is here.
 
 # (1) clein's own spec requires `:main` in `:clein/build`. Without it every
 # clein invocation in the directory aborts before doing any work:
@@ -503,46 +735,6 @@ check_clein_main() {
     echo "::error file=${rel_label}:::clein/build is missing :main — clein's build-opts spec requires it, so every clein invocation in this directory aborts before doing any work (artefact is un-BUILDABLE)"
     errors=$((errors + 1))
   fi
-}
-
-# (2) `clein pom` can only express an :mvn/version coordinate. Handed a
-# :git/url it prints "Skipping coordinate: …" and generates a pom WITHOUT
-# it — the same silent-skip it has for :local/root, which the
-# :local/root → :mvn/version rewrite exists to repair. There is no
-# equivalent repair for a git coord: if the library is not on Clojars there
-# is no version to rewrite to. Publishing anyway ships a jar whose pom omits
-# a runtime dependency, and Clojars has no yank.
-#
-# Scope is the MAIN :deps map only — alias :extra-deps (clein itself,
-# test-runner, …) are build-time and never reach the pom.
-#
-# There is deliberately NO allowlist. One used to sit here — a single
-# `GIT_COORD_KNOWN_UNRESOLVED=(day8/de-dupe)` entry holding open the
-# operator decision on the last such coordinate, with the instruction
-# "DELETE THIS LINE when the ruling lands". Mike ruled route (b) on
-# rf2-2ii52 (vendor the codec into mcp-base) and the line went with it. An
-# allowlist is the wrong shape for this check anyway: an unpublishable
-# runtime coordinate is not a policy exception, it is an artefact that
-# cannot ship a correct pom. If one appears again the answer is to publish
-# it, vendor it, or move the edge to late-bind — not to record it here.
-check_no_git_coords_in_runtime_deps() {
-  local deps_file="$1"
-  local rel_label="$2"
-  local main_deps
-  local lib
-
-  # The main :deps map is everything between the top-level `:deps` key and
-  # the `:aliases` key that follows it in every artefact deps.edn here.
-  main_deps="$(sed -n '/^[[:space:]]*:deps[[:space:]]/,/^[[:space:]]*:aliases/p' "${deps_file}" \
-               | sed 's/;;.*$//')"
-
-  while read -r lib; do
-    [[ -z "${lib}" ]] && continue
-    echo "::error file=${rel_label}::runtime dep '${lib}' uses a :git/url coordinate — 'clein pom' SKIPS it silently, so a published jar would omit a runtime dependency and Clojars has no yank. Publish it to Clojars under a coordinate this artefact can pin, vendor it into the artefact, or move the edge to late-bind."
-    errors=$((errors + 1))
-  done < <(grep -B 0 -E '\{:git/url' <<< "${main_deps}" \
-           | grep -oE '[^[:space:]{]+[[:space:]]+\{:git/url' \
-           | sed -E 's/[[:space:]]+\{:git\/url$//')
 }
 
 for tool in "${TOOLS[@]}"; do
