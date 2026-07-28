@@ -245,10 +245,26 @@
       {:doc \"Project internal error trace events to public response shapes.\"}
       (fn [trace-event]
         (case (:operation trace-event)
-          :rf.error/no-such-handler           {:status 404 :code :not-found
-                                               :message \"Not found\" :retryable? false}
-          :rf.error/schema-validation-failure {:status 400 :code :bad-request
-                                               :message \"Invalid input\" :retryable? false}
+          ;; GATE the 404 on `:kind :route`: only a URL that matched no
+          ;; route is a missing PAGE. `:kind :event` (an unregistered event
+          ;; id) and `:kind :frame` are SERVER defects and take the 500,
+          ;; exactly as `default-error-projector-fn` does.
+          :rf.error/no-such-handler
+          (if (= :route (get-in trace-event [:tags :kind]))
+            {:status 404 :code :not-found
+             :message \"Not found\" :retryable? false}
+            {:status 500 :code :internal-error
+             :message \"Something went wrong\" :retryable? false})
+
+          ;; GATE the 400 on `:where :event` — a client-supplied event
+          ;; payload. `:where :fx-args` is a SERVER defect, not bad input.
+          :rf.error/schema-validation-failure
+          (if (= :event (get-in trace-event [:tags :where]))
+            {:status 400 :code :bad-request
+             :message \"Invalid input\" :retryable? false}
+            {:status 500 :code :internal-error
+             :message \"Something went wrong\" :retryable? false})
+
           ;; ...
           {:status 500 :code :internal-error
            :message \"Something went wrong\" :retryable? false})))
