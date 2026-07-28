@@ -94,10 +94,17 @@
 ;; what must be present, not what must be absent, so extra keys are fine. See
 ;; docs/core/how-to/validate-with-schemas.md.
 
-;; The credentials the form collects — and the payload the submit event carries.
-;; The regex and min-length aren't decoration: they're the promise the machine's
-;; submit handler is allowed to rely on, enforced at the boundary so a bad email
-;; or short password never reaches it.
+;; The credentials the form collects. Note where they go, because the natural
+;; guess is wrong: they are NOT the payload of the submit event. The
+;; `:auth.login/flow` machine's events are credential-free by construction (see
+;; `AuthLoginEvent` below), so this schema never rides one.
+;;
+;; The regex and min-length aren't decoration either, and they are not enforced
+;; by a schema boundary. `:auth.login/submit-form` runs the draft through this
+;; schema in its own handler body and branches on the result — an ordinary
+;; function call, present in every build. That is deliberate: a credential
+;; check has to survive a release build, and it has to be able to *answer* by
+;; putting field errors under the inputs. A registration schema can do neither.
 ;;
 ;; A word on the password, because a secret has to be classified at *every*
 ;; boundary it crosses, and this one crosses three
@@ -119,8 +126,15 @@
    [:password [:string {:min 8}]]])
 
 ;; The shape of every event vector dispatched at the :auth.login/flow machine.
-;; Get it wrong and the event is rejected at the boundary — the handler simply
-;; never runs. Every sub-event here is credential-free: the machine tracks the
+;; Get it wrong in a DEVELOPMENT build and the event is rejected at the
+;; `:where :event` boundary — the handler simply never runs. Note the
+;; qualification: this is a schema *this app* declares over its own
+;; registration, so a release build eliminates it and runs no such check
+;; ([Spec 010 §Production builds]). Read it as a tripwire that catches a wiring
+;; mistake while you work, not as a gate standing between bad input and your
+;; machine.
+;;
+;; Every sub-event here is credential-free: the machine tracks the
 ;; login lifecycle but never touches the password. The form validates the draft
 ;; against `Credentials` and issues the request itself (see submit-form below),
 ;; then nudges the machine with a bare `:submit` signal. So all four sub-events —
@@ -406,14 +420,24 @@
 ;; gets on screen. That's the form recipe in docs/core/how-to/build-a-form.md.
 
 ;; The empty draft we start from. Its shape is `Credentials` (email regex, 8-char
-;; password) — the very schema the machine's `:submit` boundary will later hold
-;; it to.
+;; password) — the schema `:auth.login/submit-form` holds the finished draft to
+;; before it will issue the request. That handler is the only party that ever
+;; checks it: the machine's events are credential-free by construction, so a
+;; draft never reaches the machine at all.
 (def login-form-defaults {:email "" :password ""})
 
-;; The pre-submit validator. It checks the draft against the very same
-;; `Credentials` schema the machine's `:submit` boundary enforces, so the form
-;; and the machine agree on "valid" down to the last character. `m/explain` +
-;; `me/humanize` turn a schema miss into the form pattern's
+;; The pre-submit validator — and the *only* thing that ever holds a draft to
+;; `Credentials`. There is no second layer behind it to catch what it lets
+;; through; the machine never sees a password, so there is nobody downstream to
+;; agree or disagree with.
+;;
+;; Notice what KIND of check it is, because that is the whole point: an
+;; ordinary function call in a handler body, so it runs in every build. The
+;; schemas this app attaches to its own registrations (`AuthLoginEvent` above,
+;; and app-db schemas generally) are development-build assertions, compile-time
+;; eliminated from a release — a credential check cannot be one of those.
+;;
+;; `m/explain` + `me/humanize` turn a schema miss into the form pattern's
 ;; `{<field> ["msg" ...]}` shape — exactly what `:auth.login/field-error`
 ;; renders — and a clean draft yields `{}`. It's an ordinary pure function you
 ;; can call from a REPL; the slice doesn't care that it wraps Malli. See
@@ -500,8 +524,9 @@
              (assoc-in  [:auth :login-form :draft :password] value)
              (update-in [:auth :login-form :touched] (fnil conj #{}) :password))}))
 
-;; Submit. First it *validates* the draft against `Credentials` — the same schema
-;; the machine's `:submit` boundary enforces — and latches `:submit-attempted?`
+;; Submit. First it *validates* the draft against `Credentials` — this handler
+;; body is where that check happens, and the only place it happens — and latches
+;; `:submit-attempted?`
 ;; either way, which is the whole trick behind the visibility rule: the moment
 ;; the user first presses submit, every invalid field is allowed to speak
 ;; (docs/core/how-to/build-a-form.md, step 3).
@@ -513,12 +538,14 @@
 ;; the slice keeps no parallel `:status` of its own to fall out of step.
 ;;
 ;; If the draft is *invalid*, we stop right here: the field errors land in
-;; `:errors` (rendered under each input) and nothing is dispatched. Handing a bad
-;; draft to the machine would only bounce off its `:submit` schema boundary — and
-;; since the view renders machine errors, that rejection would be *silent*, the
-;; password cleared and the form quietly doing nothing. So the form catches it
-;; first, keeps the password for the fixup, and shows the user exactly what's
-;; wrong.
+;; `:errors` (rendered under each input) and nothing is dispatched. The
+;; alternative — wave the bad draft through and let some schema refuse it
+;; downstream — fails for a reason worth understanding, and it is not that a
+;; schema would miss it. A schema rejection's entire recovery is "skip the
+;; handler", so it is *silent*: nothing lands in `:errors`, nothing renders
+;; under the inputs, and the user is left with a form that quietly does
+;; nothing. So the form catches it first, keeps the password for the fixup, and
+;; shows the user exactly what's wrong.
 ;;
 ;; And the secret-field hygiene. The draft password is already classified
 ;; `:sensitive` (owner 1), so it reads redacted at every egress even while it
