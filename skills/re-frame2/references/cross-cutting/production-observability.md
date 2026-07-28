@@ -56,7 +56,7 @@ Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per 
  :event-id   :cart/checkout                        ;; (first event)
  :frame      :rf/default                           ;; resolved frame-id
  :time       1715600000000                         ;; emit timestamp (host clock, ms since epoch)
- :outcome    :ok                                   ;; :ok | :error | :rolled-back | :flow-error
+ :outcome    :ok                                   ;; :ok | :error | :rolled-back | :flow-error | :rejected
  :elapsed-ms 12}                                   ;; queue → settle, integer
 ```
 
@@ -66,6 +66,9 @@ Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per 
 - `:error` — the interceptor chain (handler or interceptor) threw.
 - `:rolled-back` — `:db` schema validation rejected the candidate state before it installed, so the container kept its pre-handler value (Spec 010 §Per-step recovery row 4); flows and `:fx` were skipped.
 - `:flow-error` — a flow's `:output` threw (Spec 013 §Failure semantics rule 3); the cascade halted before `:fx`.
+- `:rejected` — the `:rf.schema/at-boundary` interceptor refused the event's payload against the handler's `:schema`. The handler never ran; entered interceptors still unwound in full. It is the lowest-priority discriminator: a chain throw, a flow throw or a candidate rollback during the unwind still wins.
+
+**`:rejected` and `:rolled-back` are exact complements on the production question, and a shipper should treat them that way.** `:rolled-back` reports the `reg-app-schema` candidate check, which a release build elides — so its *absence* in production is not evidence that no schema was violated. `:rejected` reports the boundary interceptor, the one schema surface Spec 010 keeps ungated — so it does have a producer in a release build, and it is the outcome to alert on for malformed or hostile input at an untrusted ingress. Each rejection is paired with one always-on `:rf.error/schema-validation-failure` record (`:source :boundary`) on the `:errors` stream carrying the identifiers; the offending value rides the dev-only trace and never egresses.
 
 No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-handler`, source coords) — those ride the dev-only trace surface. Verified: `re-frame.event-emit/dispatch-on-event!`; record shape per the ns docstring §Record shape.
 
