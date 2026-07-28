@@ -276,6 +276,16 @@ verify_roster() {
 
   # 1. The `(ns ...)` scrape must still see every test file.  If the regex ever
   #    stops matching, the lane quietly narrows and stays green.
+  #
+  #    THE COUNT IS ABOUT THIS SCRIPT'S SCRAPE, NOT ABOUT DISCOVERY.  It reads
+  #    the `(ns ` line as TEXT, so it goes on counting a file whose FORM the
+  #    Clojure reader cannot read — measured green over exactly such a file
+  #    while the lane ran eight tests fewer (rf2-vruo9).  Whether a file is
+  #    really discoverable is decided by a reader, in
+  #    `re-frame.test-quiet.runner/discovery-defects`, which the run below
+  #    passes through before any test executes.  Do not reach for a cleverer
+  #    regex here: a scrape that imitated a reader would be a second way to be
+  #    wrong about the same thing.
   files="$(find "$test_root" -type f \( -name '*_test.clj' -o -name '*_test.cljc' \) | wc -l)"
   ns_count="$(printf '%s\n' "$nses" | grep -c . || true)"
   if [ "$files" -ne "$ns_count" ]; then
@@ -351,9 +361,18 @@ fi
 # a test file whose `(ns ...)` FORM is malformed is invisible to
 # `cognitect.test-runner`'s namespace DISCOVERY, so a `-n` selector naming it
 # matches nothing and the lane simply runs one namespace fewer, exit 0.  The
-# `verify_roster` file-count guard below does not see it either — it scrapes
-# the `(ns ` line as TEXT and never reads the form.  The floor catches the
-# collapse only once enough tests have gone missing.  Filed as rf2-vruo9.
+# floor catches that collapse only once enough tests have gone missing —
+# measured at eight, out of 2190, which is well inside the ~3% of headroom a
+# growing lane has to leave itself.
+#
+# CLOSED (rf2-vruo9), and NOT here.  The check that catches it reads the form
+# instead of scraping the line, so it belongs in a process that already has a
+# reader and the lane's classpath: `re-frame.test-quiet.runner` now refuses to
+# start when any file in a discovery directory will not reach the runner as
+# its own namespace.  That is the wrapper EVERY JVM artefact's `:test` alias
+# invokes, so the rule covers every lane in the repo rather than this one, and
+# it fires before a single test runs.  `verify_roster` below is unchanged and
+# still cannot see this class on its own — see its guard #1.
 export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1690}"
 
 args=()
