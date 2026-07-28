@@ -43,8 +43,8 @@
   Everything here is PURE. Internal namespace; the public facade is
   `re-frame.routing`."
   (:require [re-frame.identity :as identity]
+            [re-frame.privacy.url :as url-egress]
             [re-frame.registrar :as registrar]
-            [re-frame.routing.egress :as egress]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.registry :as registry]))
@@ -384,7 +384,7 @@
   That is local emit-site hygiene, not a boundary the route classification
   enforces on the trace bus. It is lossy in exactly two ways, and only those two:
 
-    - the URL rides the EXISTING `egress/redact-url-tag` path — the ONE
+    - the URL rides the EXISTING `url-egress/redact-url-tag` path — the ONE
       URL-carrier redactor routing already sends its route-miss and
       blocked-navigation URL slots through. It keeps the structured PATH (what a
       consumer branches on) and redacts the query-string and `#fragment` carrier
@@ -428,4 +428,4 @@
        :leaf-plan-ids (mapv #(if (sequential? %) (first %) %) leaf-plan)}
       (cond-> branch-error
         (assoc :branch-error (select-keys branch-error [:kind :route-id*])))
-      egress/redact-url-tag))
+      (url-egress/redact-url-tag :url)))

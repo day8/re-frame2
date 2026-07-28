@@ -37,8 +37,8 @@
   re-wires them on a fresh registrar (the `clear-all!` test-fixture path)."
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
+            [re-frame.privacy.url :as url-egress]
             [re-frame.registrar :as registrar]
-            [re-frame.routing.egress :as egress]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.resolve :as resolver]
@@ -299,7 +299,7 @@
         ;; VALUES of `:requested-url` before egress. The `:phase` tag is the
         ;; route-phase taxonomy Xray's routing panel reads (021 §7).
         (trace/emit! :rf.event :rf.route/navigation-blocked
-                     (egress/redact-url-tag
+                     (url-egress/redact-url-tag
                        (cond-> {:requested-url   requested-url
                                 :rejecting-route (:route-id current)
                                 :rejecting-guard rejecting-guard
@@ -324,7 +324,7 @@
                     :requested-url requested-url
                     :guard         (guard-id target-meta :can-enter)}]
         (trace/emit! :rf.event :rf.route/entry-denied
-                     (egress/redact-url-tag
+                     (url-egress/redact-url-tag
                        (cond-> {:requested-url   requested-url
                                 :rejecting-route (:route-id target)
                                 :rejecting-guard (guard-id target-meta :can-enter)

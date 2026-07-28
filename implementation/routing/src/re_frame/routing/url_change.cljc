@@ -17,9 +17,9 @@
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.privacy.url :as url-egress]
             [re-frame.registrar :as registrar]
             [re-frame.routing.decisions :as decisions]
-            [re-frame.routing.egress :as egress]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.resolve :as resolver]
@@ -45,7 +45,7 @@
   production-survivable / off-box-observable category EP-0015 requires to
   FAIL CLOSED. A route-miss URL has no matched route → no schema to
   consult, and is the class most likely to carry secret carriers
-  (`?token=…`, `#access_token=…`). `egress/redact-url-tag` scrubs the
+  (`?token=…`, `#access_token=…`). `url-egress/redact-url-tag` scrubs the
   query / fragment carrier VALUES (keeping the structured path + `:reason`)
   HERE, before the tags reach either axis — so the redaction covers the
   always-on production record exactly as it covers the dev trace."
@@ -56,7 +56,7 @@
         frame        (assoc :frame frame)
         throw-reason (assoc :reason throw-reason)
         malformed?   (assoc :reason :malformed-url))
-      egress/redact-url-tag))
+      (url-egress/redact-url-tag :url)))
 
 (defn- emit-route-miss-error!
   "Fan the URL-driven route miss out on the ALWAYS-ON error axis (rf2-ov56u,

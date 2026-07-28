@@ -283,7 +283,7 @@
   a carrier) AND break that behavioural surface. The carrier-bearing URL
   classes EP-0015 actually targets — the route-MISS / malformed / blocked
   URLs — are scrubbed at their diagnostic emit sites via
-  `re-frame.routing.egress/redact-url-carriers` (rf2-n1f4rh / rf2-jfaucw).
+  `re-frame.privacy.url/redact-url-carriers` (rf2-n1f4rh / rf2-jfaucw).
 
   rf2-sqams: carries the `:rf.fx.nav/push-url-args` `:schema` per
   [Spec-Schemas §Standard fx args schemas] ('the standard fx ship with
@@ -325,7 +325,7 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   reason (the `:effects-routed` contract asserts the real routed URL, the
   open-redirect gate already cleared it, and a blanket redaction over-reaches
   bare paths). Carrier-bearing route-miss / blocked URLs are scrubbed at
-  their diagnostic emit sites (`egress/redact-url-carriers`).
+  their diagnostic emit sites (`url-egress/redact-url-carriers`).
 
   rf2-sqams: carries the `:rf.fx.nav/replace-url-args` `:schema`, the
   same `:string` gate its `:rf.nav/push-url` sibling now carries — the

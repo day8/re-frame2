@@ -303,7 +303,7 @@
      ;; slice.
      ;;
      ;; The one non-enum slot, `:url`, is the navigation LOCATOR, scrubbed by
-     ;; `routing.egress/redact-url-tag` inside `route-miss-tags` — BEFORE either
+     ;; `privacy.url/redact-url-tag` inside `route-miss-tags` — BEFORE either
      ;; axis sees it — so query VALUES and the whole opaque `#fragment` are
      ;; already the `rf/redacted` sentinel on the record that fans out. It sits
      ;; on THIS list rather than the routing arm because `project-egress` is the
@@ -338,7 +338,7 @@
      ;; The one non-enum slot, `:location`, is BY CONSTRUCTION caller-untrusted
      ;; — that is the entire reason `:rf.server/safe-redirect` exists as the
      ;; sibling of the caller-trusted `:rf.server/redirect` — and it is
-     ;; scrubbed by `ssr.egress/redact-url-tag` inside `safe-redirect-tags`,
+     ;; scrubbed by `privacy.url/redact-url-tag` inside `safe-redirect-tags`,
      ;; BEFORE either axis sees it, so query VALUES and the whole opaque
      ;; `#fragment` are already the `rf/redacted` sentinel on the record that
      ;; fans out. It sits on THIS list rather than the routing arm for the same
