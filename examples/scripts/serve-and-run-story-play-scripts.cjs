@@ -56,6 +56,7 @@ const {
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 const { resolveStoryFeatureLoadPort } = require('./story-feature-load-port.cjs');
 const { cleanStageDirs } = require('./examples-staging.cjs');
+const { navigate, reloadPage } = require('./spec-helpers.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
@@ -95,6 +96,19 @@ const READY_TIMEOUT_MS = 30000;
 const TERMINAL_TIMEOUT_MS = Number(
   process.env.STORY_PLAY_SCRIPT_TERMINAL_TIMEOUT_MS || 30000,
 );
+// rf2-taj9b — the runner's three navigations carried no timeout and so took
+// Playwright's 30s default. That made THREE budgets in this file print the
+// same number — server readiness, per-play terminal wait, and an invisible
+// navigation ceiling — so `Timeout 30000ms exceeded` in a CI log named none
+// of them. Same number, now this file's own and distinct from its siblings;
+// the helper's failure says which one fired.
+//
+// `waitUntil: 'load'` is KEPT (the helper's default) and is load-bearing
+// here, not incidental: `bootShell` primes localStorage AFTER the document
+// has loaded and then RELOADS so the shell re-mounts having read the prime,
+// and `navigateToVariant` documents that each variant needs a full load so
+// the auto-run fires deterministically. `'commit'` would race both.
+const NAV_TIMEOUT_MS = 30000;
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 
 // Resolve the browser toolchain lazily (inside main()) rather than at
@@ -220,7 +234,7 @@ async function navigateToVariant(page, baseUrl, variantId) {
   // Always full-load (not reload) — each variant gets a fresh shell
   // mount so the auto-run fires deterministically without inheriting
   // previous run-state.
-  await page.goto(target, { waitUntil: 'load' });
+  await navigate(page, target, { timeoutMs: NAV_TIMEOUT_MS });
   await page.evaluate(() => {
     try {
       localStorage.setItem('re-frame.story/seen-help-v1', '1');
@@ -343,7 +357,9 @@ async function discoverVariants(page) {
 }
 
 async function bootShell(page, baseUrl) {
-  await page.goto(`${baseUrl}${TESTBED_BASE}${STORY_FRAGMENT}`, { waitUntil: 'load' });
+  await navigate(page, `${baseUrl}${TESTBED_BASE}${STORY_FRAGMENT}`, {
+    timeoutMs: NAV_TIMEOUT_MS,
+  });
   await page.evaluate(() => {
     try {
       localStorage.setItem('re-frame.story/seen-help-v1', '1');
@@ -353,7 +369,7 @@ async function bootShell(page, baseUrl) {
   });
   // Reload so the localStorage prime takes effect before help dialog
   // logic decides whether to render the overlay.
-  await page.reload({ waitUntil: 'load' });
+  await reloadPage(page, { timeoutMs: NAV_TIMEOUT_MS });
   // Wait for the CI hook to install. The hook fires at `core/run`
   // time, which is before the first `on-hash-change!` mounts the
   // shell — so the global is reliably present by the time the page

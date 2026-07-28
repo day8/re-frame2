@@ -60,6 +60,11 @@ const FIXTURE_DIR =
   process.env.RE_FRAME2_PAIR_FIXTURE_DIR ||
   path.join(REPO_ROOT, 'skills', 're-frame2-pair', 'tests', 'fixture');
 const FIXTURE_URL = process.env.RE_FRAME2_PAIR_FIXTURE_URL || 'http://localhost:8030';
+// How long the browser gets to install `__re_frame2_pair_runtime`. Named
+// (rf2-taj9b) rather than left an inline literal, so the navigation ceiling
+// below can say it is NOT this budget. Same name and value as the hermetic
+// orchestrator's `RUNTIME_PRELOAD_TIMEOUT_MS`.
+const RUNTIME_PRELOAD_TIMEOUT_MS = 60000;
 
 // nREPL port-file candidates — kept aligned with pair-mcp's own
 // `port-file-candidates` and the hermetic orchestrator's list.
@@ -343,13 +348,33 @@ async function main() {
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', (err) => process.stderr.write(`[browser:pageerror] ${err.message}\n`));
-    await page.goto(FIXTURE_URL, { waitUntil: 'load' });
+    // rf2-taj9b — the navigation carried no timeout and so took Playwright's
+    // 30s default, a ceiling below the 60s preload wait immediately below it
+    // and reported in a form that reads like that wait. `'load'` cannot fire
+    // until the shadow-cljs `:app` bundle has arrived and run its synchronous
+    // portion — which is where the preload installs
+    // `__re_frame2_pair_runtime`, i.e. exactly what the poll below waits for.
+    // Commit instead, and let the one budget that names the sentinel own the
+    // wait. (The fixture's reachability is already checked before this point,
+    // so a dead fixture fails earlier, by name.)
+    try {
+      await page.goto(FIXTURE_URL, {
+        waitUntil: 'commit', timeout: RUNTIME_PRELOAD_TIMEOUT_MS,
+      });
+    } catch (err) {
+      throw new Error(
+        'NAVIGATION FAILED — this is the page.goto ceiling (waitUntil: ' +
+          `'commit', timeout: ${RUNTIME_PRELOAD_TIMEOUT_MS}ms), NOT the ` +
+          'runtime-preload wait that carries the same number and had not yet ' +
+          `started (rf2-taj9b). Underlying: ${err.message}`,
+      );
+    }
     // The preload mirrors itself onto js/globalThis at load time; wait for
     // it so shadow-cljs cljs-eval has a runtime to answer.
     await page.waitForFunction(
       () => typeof window.__re_frame2_pair_runtime !== 'undefined',
       undefined,
-      { timeout: 60000 },
+      { timeout: RUNTIME_PRELOAD_TIMEOUT_MS },
     );
     await page.waitForSelector('#value');
     const initial = (await page.textContent('#value')) || '';

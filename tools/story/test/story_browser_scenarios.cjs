@@ -10,9 +10,26 @@ const {
   expectTextEquals,
   expectTextContains,
   expectVisible,
+  navigate,
+  reloadPage,
   waitForValue,
 } = require('../../../examples/scripts/spec-helpers.cjs');
 const assert = require('assert/strict');
+
+// rf2-taj9b — every navigation in this spec carried no timeout and so took
+// Playwright's undocumented 30s default. Named here instead, at the same
+// number, so nothing green changes and a failure says which ceiling fired.
+//
+// Deliberately NOT the driver's budget: `run-story-feature-load-tests.cjs`
+// caps the WHOLE spec at STORY_FEATURE_LOAD_TIMEOUT_MS (default 300000ms),
+// which bounds dozens of steps. Handing one navigation five minutes would
+// trade a mislabelled failure for a silent one. This is the navigation's own
+// budget, and 30s is generous for a staged Story shell on loopback.
+//
+// `waitUntil: 'load'` is KEPT throughout (the helper's default). Every
+// navigation here is followed by 10s locator budgets that assume a booted
+// shell, and by a `primeHelpDismissed` write that the shell reads on mount.
+const NAV_TIMEOUT_MS = 30000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -83,7 +100,7 @@ async function dismissHelpIfOpen(page) {
 }
 
 async function gotoStory(page, path) {
-  await page.goto(urlFor(page, path), { waitUntil: 'load' });
+  await navigate(page, urlFor(page, path), { timeoutMs: NAV_TIMEOUT_MS });
   await primeHelpDismissed(page);
   await expectVisible(page.getByRole('navigation'), 10000);
   await expectVisible(page.getByRole('main'), 10000);
@@ -296,7 +313,7 @@ module.exports = {
       );
       assertBrowserVisibleUnsignedHex(firstHash, 'initial snapshot hash');
 
-      await page.reload({ waitUntil: 'load' });
+      await reloadPage(page, { timeoutMs: NAV_TIMEOUT_MS });
       await primeHelpDismissed(page);
       await waitForCanvas(page, ':story.counter/loaded');
       const secondHash = await waitForValue(

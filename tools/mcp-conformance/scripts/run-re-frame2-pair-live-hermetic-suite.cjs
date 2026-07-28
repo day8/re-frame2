@@ -1153,8 +1153,31 @@ async function main() {
         recordLine(`[browser:navigation] ${frame.url()}`);
       }
     });
-    await page.goto(FIXTURE_URL, { waitUntil: 'load' });
-    log('page loaded');
+    // rf2-taj9b — this navigation carried no timeout, so it took Playwright's
+    // 30s default: a ceiling nothing in this file could see or move, sitting
+    // BELOW the 60s RUNTIME_PRELOAD_TIMEOUT_MS that owns the very wait it was
+    // duplicating. `'load'` cannot fire until the shadow-cljs `:app` bundle
+    // has arrived AND run its synchronous portion — which is where the
+    // preload installs `__re_frame2_pair_runtime`, i.e. precisely what the
+    // `waitForFunction` below already polls for, with a budget twice as
+    // large. So the navigation commits, and the sentinel wait does its job.
+    // The bundle is already proven served by the probeBundleReady poll above,
+    // so a genuine server fault still fails here, naming itself.
+    try {
+      await page.goto(FIXTURE_URL, {
+        waitUntil: 'commit', timeout: RUNTIME_PRELOAD_TIMEOUT_MS,
+      });
+    } catch (err) {
+      recordLine(
+        `NAVIGATION FAILED — this is the page.goto ceiling (waitUntil: ` +
+          `'commit', timeout: ${RUNTIME_PRELOAD_TIMEOUT_MS}ms), NOT the ` +
+          'runtime-preload wait that carries the same number and had not yet ' +
+          `started. The fixture at ${FIXTURE_URL} never responded, so no ` +
+          'browser runtime exists for the suite to address (rf2-taj9b).',
+        'stderr');
+      throw err;
+    }
+    log('page navigation committed');
 
     // ---- Wait for the runtime sentinel ----------------------------------
     // The preload mirrors itself onto js/globalThis.__re_frame2_pair_runtime
