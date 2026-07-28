@@ -34,10 +34,28 @@
   Dual-runtime (`-cljs-test` rides `npm run test:cljs`; cognitect-test-runner
   discovers the `.cljc` on the JVM). The four core kind namespaces are required
   so their `:image/lower-inline-<kind>` publishers are installed (they
-  `set-fn!` at ns load); no adapter/runtime state, so no reset fixture."
+  `set-fn!` at ns load); no adapter/runtime state, so no reset fixture.
+
+  ## Posture split (rf2-d2841)
+
+  The grammar itself — which sections lower, which are rejected, which slots the
+  runtime owns — is entirely posture-independent and runs unchanged under
+  `scripts/test-core-prod-gate.sh`. The exception is `:doc`: it is PURE
+  DOCUMENTATION, and `registrar/strip-pure-documentation` removes it under
+  `-Dre-frame.debug=false`, so any row that reads `:doc` back (or compares the
+  authored metadata map WHOLE, `:doc` included) is a dev-posture row and sits
+  inside a `(when interop/debug-enabled? …)` arm.
+
+  Two of those rows were the ONLY witness their claim had, and a doc-only
+  witness is a bad one — it makes the claim unprovable in the posture that
+  ships. Each is now paired with an always-on partner that reads a LOAD-BEARING
+  key instead: `(dissoc meta :doc)` still nested for the hostile-metadata row,
+  and a `:rf.cofx/requires` middle slot for \"a 3-tuple is how metadata is
+  attached\"."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.image          :as image]
             [re-frame.image-assembly :as asm]
+            [re-frame.interop        :as interop]
             ;; Required so the late-bind lowering publishers are installed:
             ;; each ns calls (late-bind/set-fn! :image/lower-inline-<kind> …) at
             ;; load. image-assembly cannot static-require them (a cycle), so the
@@ -123,11 +141,22 @@
       (is (= :sub (:kind d)))
       (is (= :counter/value (:id d)))
       (is (= body (:impl d)))
-      (is (= meta (:metadata d))
-          "the authored metadata remains nested for provenance/introspection")
+      ;; rf2-d2841 — `:doc` is stripped under -Dre-frame.debug=false, so the
+      ;; WHOLE-map comparison and the `:doc` read-back are dev-posture rows.
+      ;; Kept verbatim inside the arm.
+      (when interop/debug-enabled?
+        (is (= meta (:metadata d))
+            "the authored metadata remains nested for provenance/introspection")
+        (is (= "Image-owned counter value." (:doc d))))
+      ;; The always-on half of the same claim: every NON-documentation authored
+      ;; key — including the hostile `:handler-fn` / `:input-kind` /
+      ;; `:input-signals` this deftest is really about — remains nested in both
+      ;; postures, so the "runtime slots win" rows below are contrasted against
+      ;; metadata that is genuinely still there.
+      (is (= (dissoc meta :doc) (dissoc (:metadata d) :doc))
+          "the non-documentation authored metadata remains nested in every posture")
       (is (= :counter/int (:schema d))
           "runtime metadata is also flat, matching reg-sub's runnable shape")
-      (is (= "Image-owned counter value." (:doc d)))
       (is (= body (:handler-fn d))
           "the runtime handler wins over a hostile metadata slot")
       (is (= :db (:input-kind d))
@@ -219,8 +248,22 @@
   (testing "a 3-tuple [id metadata body] is the way to attach metadata"
     (let [body (fn [_ _] {})
           d    (runnable {:reg-event [[:x {:doc "ok"} body]]})]
-      (is (= {:doc "ok"} (:metadata d)))
-      (is (= body (:impl d))))))
+      ;; rf2-d2841 — a doc-ONLY metadata map is the weakest possible witness
+      ;; for this claim: `:doc` is stripped under -Dre-frame.debug=false, so
+      ;; the map reduces to nothing and the row cannot distinguish "the middle
+      ;; slot was read as metadata" from "the middle slot was ignored".
+      ;; Kept verbatim in the arm...
+      (when interop/debug-enabled?
+        (is (= {:doc "ok"} (:metadata d))))
+      (is (= body (:impl d))))
+    ;; ...and given an always-on partner that reads a LOAD-BEARING middle slot,
+    ;; so the grammar claim holds in the posture that ships.
+    (let [body (fn [_ _] {})
+          d    (runnable {:reg-event [[:x {:rf.cofx/requires [:rf.cofx/now]} body]]})]
+      (is (= {:rf.cofx/requires [:rf.cofx/now]} (:metadata d))
+          "the 3-tuple's middle slot is read as metadata in every posture")
+      (is (= body (:impl d))
+          "and the third slot is the handler body, not the metadata"))))
 
 ;; ===========================================================================
 ;; 4. The two grammars compose: a single image carrying all four supported kinds

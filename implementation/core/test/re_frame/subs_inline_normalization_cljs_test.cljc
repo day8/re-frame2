@@ -26,7 +26,23 @@
   metadata merge returns or the authored id is dropped.
 
   `.cljc` — the normalizer is host-agnostic, so this runs under both
-  `clojure -M:test` (JVM) and `npm run test:cljs` (node CLJS)."
+  `clojure -M:test` (JVM) and `npm run test:cljs` (node CLJS).
+
+  ## Posture split (rf2-d2841)
+
+  The parity this suite pins is overwhelmingly posture-independent: the retired
+  `:spec` key, the malformed-classification rejection, the runtime-owned slots
+  winning over hostile metadata, the namespaced-extension carve-out and the
+  authored id reaching the diagnostic are all the same under
+  `-Dre-frame.debug=false`. Only the `:doc`-RETAINED-IN-DEV rows are not — they
+  are the dev half of the strip contract, so they sit verbatim inside a
+  `(when interop/debug-enabled? …)` arm beside the production row that gives
+  them their meaning.
+
+  The `with-redefs [interop/debug-enabled? false]` production blocks stay
+  OUTSIDE any arm and are load-bearing in both postures: under the real gate
+  the rebind is a no-op because the var is already false, so those rows are the
+  production claim executed for real rather than simulated."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.subs :as subs]
             [re-frame.image :as image]
@@ -91,9 +107,16 @@
 ;; ---- production `:doc` strip parity ---------------------------------------
 
 (deftest doc-stripped-in-production-retained-in-dev-on-inline-path
-  (testing "dev (default gate on) retains `:doc` for tooling / agent inspection"
-    (let [desc (subs/lower-inline-sub :norm/inline-doc {:doc "kept in dev"} body)]
-      (is (= "kept in dev" (:doc desc)))))
+  ;; rf2-d2841 — the retention half is dev-only by construction; kept verbatim.
+  (when interop/debug-enabled?
+    (testing "dev (default gate on) retains `:doc` for tooling / agent inspection"
+      (let [desc (subs/lower-inline-sub :norm/inline-doc {:doc "kept in dev"} body)]
+        (is (= "kept in dev" (:doc desc))))))
+  (testing "a doc-ONLY inline descriptor still lowers to something runnable —
+            the strip removes documentation, never the registration"
+    (let [desc (subs/lower-inline-sub :norm/inline-doc-runnable {:doc "kept in dev"} body)]
+      (is (= body (:handler-fn desc)) "the runnable slot is installed in both postures")
+      (is (= :db (:input-kind desc)) "and the layer-1 shape is intact")))
   (testing "production (gate off) strips `:doc` from the inline runnable
             descriptor, exactly as the public registrar does"
     (with-redefs [interop/debug-enabled? false]
@@ -138,13 +161,17 @@
       asm/lower-inline-descriptor))
 
 (deftest production-assembly-strips-doc-from-top-level-and-nested-metadata
-  (testing "dev — the authored `:doc` survives at BOTH the top level and under the
-            nested `:metadata` of the assembled image descriptor"
+  (testing "the authored id survives assembly in every posture"
     (let [d (assemble-sub :counter/value {:doc "author note" :schema :int} body)]
-      (is (= "author note" (:doc d)) "top-level :doc retained in dev")
-      (is (= "author note" (get-in d [:metadata :doc]))
-          "nested [:metadata :doc] retained in dev")
-      (is (= :counter/value (:id d)) "authored id survives assembly")))
+      (is (= :counter/value (:id d)) "authored id survives assembly")
+      ;; rf2-d2841 — the two `:doc` rows are the dev half of the strip
+      ;; contract; under -Dre-frame.debug=false the key is gone at source.
+      ;; Kept verbatim inside the arm, beside the production block below that
+      ;; asserts the same two slots are EMPTY.
+      (when interop/debug-enabled?
+        (is (= "author note" (:doc d)) "top-level :doc retained in dev")
+        (is (= "author note" (get-in d [:metadata :doc]))
+            "nested [:metadata :doc] retained in dev"))))
   (testing "production (gate off) — the assembled image carries NO `:doc` at the
             top level OR under nested `:metadata`; load-bearing keys are retained"
     (with-redefs [interop/debug-enabled? false]
@@ -164,6 +191,13 @@
       (let [d (assemble-sub :counter/note {:doc "only a note"} body)]
         (is (not (contains? d :doc)))
         (is (not (contains? (:metadata d) :doc)))
+        ;; rf2-d2841 — the row above is a negative over a map that has been
+        ;; dropped WHOLESALE, so on its own it cannot tell "metadata present
+        ;; without :doc" from "metadata gone". Pin the drop itself, which is
+        ;; what the deftest name actually claims (mirrors the cross-kind
+        ;; assertion in `image-inline-metadata-normalization-cljs-test`).
+        (is (nil? (:metadata d))
+            "the nested :metadata map is dropped once it reduces to empty")
         (is (= body (:handler-fn d)) "the runnable slot is still installed")))))
 
 (deftest retired-key-diagnostic-names-the-authored-inline-id

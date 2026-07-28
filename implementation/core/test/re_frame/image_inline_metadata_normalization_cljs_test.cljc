@@ -32,7 +32,27 @@
   namespaces are required so their `:image/lower-inline-<kind>` publishers are
   installed (they `set-fn!` at ns load); image-assembly cannot static-require
   them (a cycle), so the test requires them directly to exercise the LIVE
-  lowering."
+  lowering.
+
+  ## Posture split (rf2-d2841)
+
+  Section 1's SUBJECT is the dev half of the contract — authored `:doc`
+  surviving for tooling — and it is unreachable under
+  `scripts/test-core-prod-gate.sh`, where `interop/debug-enabled?` is already
+  false at load and `registrar/strip-pure-documentation` has removed `:doc`
+  before the descriptor is built. The two `:doc` rows are therefore kept
+  verbatim inside a `(when interop/debug-enabled? …)` arm.
+
+  Everything else in section 1 is posture-independent and STAYS OUTSIDE it —
+  the `:kind` echo, the load-bearing `[:audit]` witness key nested and (for the
+  spreading kinds) hoisted, and the runnable `:handler-fn` slot. Those are what
+  make sections 2 and 3 mean something: without them \"no `:doc` anywhere\"
+  would also be satisfied by a lowering that produced nothing at all.
+
+  Sections 2 and 3 run in BOTH postures unchanged. Their
+  `with-redefs [interop/debug-enabled? false]` is a no-op under the real gate
+  (the var is already false) and the assertions are the production claim
+  itself, so they are load-bearing on both sides."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.image          :as image]
             [re-frame.image-assembly :as asm]
@@ -85,14 +105,18 @@
       (let [d (assemble section (keyword "counter" (str label "-doc"))
                         {:doc "author note" :tags [:audit]} body)]
         (is (= kind (:kind d)) "kind is preserved")
-        (is (= "author note" (get-in d [:metadata :doc]))
-            "nested [:metadata :doc] retained in dev")
+        ;; rf2-d2841 — `:doc` retention is the DEV half of the contract, elided
+        ;; at source under -Dre-frame.debug=false. Kept verbatim.
+        (when interop/debug-enabled?
+          (is (= "author note" (get-in d [:metadata :doc]))
+              "nested [:metadata :doc] retained in dev"))
         (is (= [:audit] (get-in d [:metadata :tags]))
             "the load-bearing witness key is nested")
         (is (fn? (:handler-fn d)) "the runnable :handler-fn slot is installed")
         (when spreads-meta?
-          (is (= "author note" (:doc d))
-              "kinds that spread metadata carry :doc at the top level too in dev")
+          (when interop/debug-enabled?
+            (is (= "author note" (:doc d))
+                "kinds that spread metadata carry :doc at the top level too in dev"))
           (is (= [:audit] (:tags d))
               "and the load-bearing witness key at the top level"))))))
 
