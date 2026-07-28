@@ -44,13 +44,14 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 99 namespaces, 1186 tests, 5468
+# What is left IS green, and it is not a rump: 114 namespaces, 1294 tests, 5786
 # assertions, exit 0 — versus the zero suites that had ever executed under this
 # posture before.  (It was 88 / 934 / 4340 before rf2-d2841 split the spine's
-# dev-instrumentation assertions away from the semantics beside them, and
+# dev-instrumentation assertions away from the semantics beside them,
 # 94 / 1106 / 5135 before that bead's second pass took `fx-test` — the largest
 # single entry, 107 failures and 25 errors across ~20 deftests — plus
-# `sub-topology`, `init-platform`, `pattern-smoke` and `db-noop-commit`.)
+# `sub-topology`, `init-platform`, `pattern-smoke` and `db-noop-commit`, and
+# 103 / 1213 / 5590 before its third pass took the eleven listed below.)
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -158,6 +159,27 @@ known_red=(
   #    — the false-green this lane exists to close. Those want a var-level
   #    tag the lane excludes (the `-e :requires-debug` idea above), not a
   #    posture guard.
+  #
+  #    THE THIRD PASS'S LESSON: THE FILES THAT ALREADY LOOK GREEN ARE WHERE
+  #    THE ROT IS. Of the eleven namespaces taken off in that pass, seven were
+  #    on this list for a handful of red assertions each — but every one of
+  #    them ALSO carried assertions that were passing under the gate for no
+  #    reason whatsoever. `configure-test` had four `(<= (count
+  #    (rf/trace-buffer …)) N)` retention caps, all true over the `[]` that
+  #    `trace-buffer` returns in production; `unknown-dispatch-opts-warn-test`
+  #    had four `(empty? (unknown-opt-warnings …))` negatives certifying keys
+  #    as recognised over a stream that is empty for every key. Fixing only
+  #    the red assertions and deleting the roster line would have promoted
+  #    those into the lane as permanent false green. Read the WHOLE namespace,
+  #    not the failure list.
+  #
+  #    AND `configure-test` IS THE CAUTIONARY TALE FOR THE OTHER DIRECTION.
+  #    The pass-2 note guessed that "the retention it configures IS production
+  #    state even though the warning is not". It is not:
+  #    `trace.tooling/configure-trace-buffer!` opens BOTH arms with
+  #    `(when (and interop/debug-enabled? …))`, so the knob and its warning
+  #    are equally dev-only. Check the implementation, not the plausible
+  #    story about it.
   re-frame.capture-frame-reincarnation-sink-route-cljs-test
   re-frame.capture-frame-test
   re-frame.cascade-dispatch-id-test
@@ -165,12 +187,10 @@ known_red=(
   re-frame.classification-effects-cljs-test
   re-frame.cofx-cljs-test
   re-frame.cofx-envelope-test
-  re-frame.configure-test
   re-frame.core-epoch-egress-profile-test
   re-frame.cross-frame-dispatch-sync-warn-test
   re-frame.db-pending-trace-test
   re-frame.dispatched-trace-cofx-test
-  re-frame.doc-metadata-prod-elision-test
   re-frame.elision-test
   re-frame.ep0026-inline-grammar-cljs-test
   re-frame.event-context-partition-test
@@ -181,26 +201,19 @@ known_red=(
   re-frame.fx-aggregate-classification-cljs-test
   re-frame.fx-args-trace-egress-cljs-test
   re-frame.fx-redirect-classification-cljs-test
-  re-frame.handler-source-test
   re-frame.image-inline-metadata-normalization-cljs-test
-  re-frame.image-no-emit-trace-gate-cljs-test
   re-frame.interceptor-override-summary-trace-test
   re-frame.live-frame-reload-cljs-test
   re-frame.machine-action-outcome-classification-cljs-test
   re-frame.machine-routed-event-classification-cljs-test
-  re-frame.non-serialisable-event-payload-warn-test
   re-frame.observation-port-cljs-test
   re-frame.override-capture-trace-test
-  re-frame.reg-event-cljs-test
   re-frame.reg-meta-noswallow-cljs-test
   re-frame.reg-view-injection-test
   re-frame.registrar-warnings-test
-  re-frame.router-carried-frame-test
   re-frame.router-front-of-queue-cljs-test
   re-frame.source-coord-jvm-test
-  re-frame.source-coord-prod-elision-test
   re-frame.source-coords-test
-  re-frame.sub-algebra-view-test
   re-frame.sub-arg-fragmentation-warn-test
   re-frame.sub-cycle-cljs-test
   re-frame.sub-dispose-trace-test
@@ -225,8 +238,6 @@ known_red=(
   re-frame.trace-test
   re-frame.trace.structural-retention-cljs-test
   re-frame.trigger-handler-coord-test
-  re-frame.unknown-dispatch-opts-warn-test
-  re-frame.write-after-destroy-always-on-cljs-test
 )
 
 # ---------------------------------------------------------------------------
@@ -312,7 +323,16 @@ fi
 # renamed directory, an `-n` list that matched nothing — cannot report itself
 # green with `Ran 0 tests`.  Calibrated below the observed count with room for
 # ordinary churn; raise it when the roster grows materially.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-800}"
+#
+# RAISED 800 -> 1250 (rf2-d2841, third pass).  800 was calibrated against the
+# 915-test lane of rf2-f8x2i's original run and had stopped doing its job: the
+# lane now runs 1294 tests, so a regression that silently dropped a THIRD of
+# them still cleared the floor.  Concretely, the eleven namespaces this pass
+# added are 81 tests — losing the whole batch lands at 1213, which 800 would
+# wave through.  1250 notices that while leaving ~3% for ordinary churn.  The
+# floor is a collapse detector, not a target: it must sit close enough under
+# the observed count that the smallest batch anyone lands is still visible.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1250}"
 
 args=()
 for ns in $runnable; do

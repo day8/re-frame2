@@ -21,9 +21,30 @@
   lives in the bundle-isolated `re-frame.subs.tooling` sibling, reached on
   JVM through the `re-frame.subs/sub-algebra-view` convenience alias, and
   consumed by Xray + the conformance fixtures. There is no
-  `re-frame.core/sub-algebra-view` public facade export."
+  `re-frame.core/sub-algebra-view` public facade export.
+
+  ## Posture split (rf2-d2841)
+
+  The ALGEBRA is posture-independent and asserted without a guard: the fixed
+  classifications, the per-kind declared-input lowering, the output fact id,
+  the `:derive` token, `:schema`, and the registry semantics all run under
+  `scripts/test-core-prod-gate.sh` as well as `clojure -M:test`. This is the
+  same shape `sub-topology-test` took in the second rf2-d2841 pass — the
+  topology around the metadata is production-real; only the REFLECTION
+  METADATA on it is not.
+
+  Two slots are reflection metadata and elided in production: the auto-
+  captured `:source` coords (`:ns` / `:line` / `:file`, suppressed by
+  `source-coords/merge-coords` under the gate) and `:doc` (stripped at the
+  `registrar/register!` chokepoint). Their assertions are kept verbatim
+  inside `(when interop/debug-enabled? …)` arms marked `rf2-d2841` —
+  including the negative in `no-schema-or-doc-when-absent`, which under the
+  gate would pass because `:doc` is elided WHOLESALE rather than because this
+  registration omitted it. `:schema` is load-bearing and stays outside the
+  arm in both deftests, which is what keeps that pair honest."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.subs :as subs]
             [re-frame.subs.tooling :as subs-tooling]
             [re-frame.frame :as frame]
@@ -196,10 +217,17 @@
     (rf/reg-sub :n (fn [db _] (:n db)))
     (let [node ((subs-tooling/sub-algebra-view) :n)
           source (:source node)]
-      (is (some? source) ":source map is present when the registration carried coords")
-      (is (some? (:ns source))     ":ns captured at the call site")
-      (is (number? (:line source)) ":line captured at the call site")
-      (is (some? (:file source))   ":file captured at the call site"))))
+      ;; Always-on witness (rf2-d2841): the sub is lowered into the algebra
+      ;; regardless of posture — the precondition for reading any coord off it.
+      (is (some? node)
+          "the registration is projected into the algebra view in BOTH postures")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Source coords are reflection metadata, elided in production.
+      (when interop/debug-enabled?
+        (is (some? source) ":source map is present when the registration carried coords")
+        (is (some? (:ns source))     ":ns captured at the call site")
+        (is (number? (:line source)) ":line captured at the call site")
+        (is (some? (:file source))   ":file captured at the call site")))))
 
 (deftest schema-and-doc-pass-through
   (testing ":schema and :doc supplied on the registration meta surface in the node"
@@ -208,16 +236,26 @@
                  :schema :app.money/amount}
                 (fn [db _] (:price db)))
     (let [node ((subs-tooling/sub-algebra-view) :priced)]
+      ;; `:schema` is LOAD-BEARING (precomputed marks / introspection) and is
+      ;; retained in production — no guard.
       (is (= :app.money/amount (:schema node))
           "the declared output :schema surfaces as a node fact")
-      (is (= "a priced item" (:doc node))))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      (when interop/debug-enabled?
+        (is (= "a priced item" (:doc node)))))))
 
 (deftest no-schema-or-doc-when-absent
   (testing ":schema / :doc are absent when the registration didn't supply them"
     (rf/reg-sub :n (fn [db _] (:n db)))
     (let [node ((subs-tooling/sub-algebra-view) :n)]
+      ;; `:schema` is retained in production, so its absence here really is
+      ;; "the registration did not supply one" — posture-independent.
       (is (not (contains? node :schema)))
-      (is (not (contains? node :doc))))))
+      ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE about a key the gate
+      ;; elides WHOLESALE: outside the arm it passes because `:doc` never
+      ;; exists in production, not because this registration omitted it.
+      (when interop/debug-enabled?
+        (is (not (contains? node :doc)))))))
 
 ;; ---- registry semantics --------------------------------------------------
 
