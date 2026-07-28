@@ -29,12 +29,28 @@
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build AND the JVM `clojure -M:test` runner both pick it up. The choke
-  point is plain CLJC; no DOM dependency."
+  point is plain CLJC; no DOM dependency.
+
+  ## Posture split (rf2-d2841)
+
+  Legs (a) and (c) are the promotion's whole point and are ALREADY posture-
+  independent — they read the corpus-wide `:errors` registry and an adapter
+  tripwire, neither of which is gated. They run under
+  `scripts/test-core-prod-gate.sh` unchanged.
+
+  Leg (b) is the DEV COMPANION by construction: the ns docstring above calls
+  it \"DCE'd in prod\". Its assertions are kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, with an always-on
+  witness for the same call kept outside — this file's thesis is precisely
+  that the dev trace and the always-on record fire TOGETHER off one choke
+  point, so a deftest that had nothing to say in production posture would be
+  the wrong shape for it."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.error-emit :as error-emit]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
@@ -94,24 +110,36 @@
             (in-process tooling surface, DCE'd in prod) carrying the promoted
             category, `:recovery :ignored`, and a structured-only `:reason`
             (no raw values)."
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! traces conj ev)))
+    (let [traces (atom [])
+          always (atom [])]
+      (rf/register-listener! :trace  ::rec        (fn [ev]  (swap! traces conj ev)))
+      (rf/register-listener! :errors ::rec-errors (fn [rec] (swap! always conj rec)))
       (try
         (adapter/replace-container! nil {:dropped :write})
-        (finally (rf/unregister-listener! :trace ::rec)))
-      (let [errs (filter #(= :rf.error/write-after-destroy (:operation %)) @traces)]
-        ;; The trace surface is live in dev (this runner); under :advanced +
-        ;; goog.DEBUG=false it DCEs — the contract is the always-on record
-        ;; above, this is the dev companion.
-        (is (= 1 (count errs))
-            "one dev error trace for the dropped write")
-        (let [ev (first errs)]
-          ;; `:recovery` is HOISTED to the envelope top-level by
-          ;; `build-event`; the structured `:reason` stays under `:tags`.
-          (is (= :ignored (:recovery ev))
-              ":recovery :ignored — write dropped, frame gone (mirrors frame-destroyed)")
-          (is (string? (get-in ev [:tags :reason]))
-              ":reason is a structured human-readable sentence (no raw values)"))))))
+        (finally
+          (rf/unregister-listener! :trace  ::rec)
+          (rf/unregister-listener! :errors ::rec-errors)))
+      ;; ALWAYS-ON WITNESS (rf2-d2841). This deftest's thesis is that the dev
+      ;; trace is the COMPANION of the always-on record off ONE choke point,
+      ;; so the companion claim needs the always-on half present in the same
+      ;; body. Under the production gate this is all that remains, and it is
+      ;; the half that matters: one record, one call.
+      (is (= 1 (count (filter #(= :rf.error/write-after-destroy (:error %)) @always)))
+          "the same choke-point call fans exactly one always-on record")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; The trace surface is live in dev (this runner); under :advanced +
+      ;; goog.DEBUG=false — and under -Dre-frame.debug=false — it DCEs.
+      (when interop/debug-enabled?
+        (let [errs (filter #(= :rf.error/write-after-destroy (:operation %)) @traces)]
+          (is (= 1 (count errs))
+              "one dev error trace for the dropped write")
+          (let [ev (first errs)]
+            ;; `:recovery` is HOISTED to the envelope top-level by
+            ;; `build-event`; the structured `:reason` stays under `:tags`.
+            (is (= :ignored (:recovery ev))
+                ":recovery :ignored — write dropped, frame gone (mirrors frame-destroyed)")
+            (is (string? (get-in ev [:tags :reason]))
+                ":reason is a structured human-readable sentence (no raw values)")))))))
 
 ;; ===========================================================================
 ;; (c) The underlying adapter replace-container! is NOT invoked — the write
