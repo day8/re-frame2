@@ -229,10 +229,7 @@ known_red=(
   #    profile rows now drive a SYNTHETIC record and run in both postures.
   re-frame.capture-frame-test
   re-frame.cofx-cljs-test
-  re-frame.cofx-envelope-test
   re-frame.db-pending-trace-test
-  re-frame.event-context-partition-test
-  re-frame.frame-destroy-composed-test
   re-frame.frame-destroy-incarnation-jvm-test
   re-frame.observation-port-cljs-test
   re-frame.sub-dispose-trace-test

@@ -31,7 +31,32 @@
   `re-frame.event-model-conformance-cljs-test`.
 
   JVM-only — the stamping path is platform-agnostic (`interop/now-ms`
-  realises on both hosts); no CLJS host dependency under test."
+  realises on both hosts); no CLJS host dependency under test.
+
+  ## Posture split (rf2-d2841)
+
+  Only two of this file's twenty-two cases needed anything, and both for the
+  same reason: they read a DEV-ONLY channel to observe a DURABLE fact.
+
+  `dispatched-at-supplied-is-a-generic-unknown-opt-with-did-you-mean` asserts
+  the retired draft key trips `:rf.warning/unknown-dispatch-opt`, a dev-gated
+  trace-bus warn. Guarded — with the always-on residue being the half the
+  warning's `:recovery :no-recovery` promises: the dispatch PROCEEDS and its
+  handler commits, unrecognised opt and all.
+
+  `ambient-diagnostic-time-differs-while-durable-committed-at-holds` is the
+  more interesting one, and it is the same false-green shape rf2-d2841's fourth
+  pass found in `core-epoch-egress-profile-test`: it read the DURABLE side of
+  the causal/diagnostic split off `rf/epoch-history`, and the epoch ring is fed
+  by `epoch.capture/observe-trace-event!` from the DEV TRACE. Empty ring → nil
+  record → `(is (= committed-1 committed-2))` comparing `nil` to `nil`: a class-3
+  vacuous pass certifying that two absent timestamps agree, on the one assertion
+  in the deftest that is about the invariant itself. The durable causal fact
+  does not need the epoch ring to be observed — the handler can read
+  `(:rf/time-ms (:rf.cofx cofx))` and fold it into app-db, which is what a
+  replay log would durably record anyway — so the equal-across-ambient-clocks
+  claim now runs in both postures against app-db, with the epoch-ring
+  projection kept as the guarded dev-side detail."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
@@ -644,28 +669,36 @@
                           :dispatched-at))
           "the unrecognised key is not copied onto the envelope"))
     (testing "the generic unknown-dispatch-opt warning fires with a did-you-mean naming :rf/time-ms / :rf.cofx"
-      (rf/reg-event :wi/retired-noop (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :wi/retired-noop
+        (fn [{:keys [db]} _] {:db (assoc db :wi/handler-ran? true)}))
       (let [seen (atom [])]
         (rf/register-listener! :trace ::dispatched-at
           (fn [ev] (swap! seen conj ev)))
         (binding [frame/*current-frame* :wi/retired-supply]
           (rf/dispatch-sync [:wi/retired-noop] {:dispatched-at 123}))
         (rf/unregister-listener! :trace ::dispatched-at)
-        (let [warns (filterv (fn [ev]
-                               (and (= :warning (:op-type ev))
-                                    (= :rf.warning/unknown-dispatch-opt (:operation ev))))
-                             @seen)]
-          (is (= 1 (count warns))
-              "the retired draft key trips exactly one generic unknown-opt warning")
-          (let [t (:tags (first warns))]
-            (is (contains? (set (:unknown-keys t)) :dispatched-at)
-                "the retired key is named as an unknown opt")
-            (is (re-find #":rf/time-ms" (:reason t))
-                "the warning message references :rf/time-ms as the replacement")
-            (is (re-find #":rf\.cofx" (:reason t))
-                "the warning message references :rf.cofx as the replacement carrier")
-            (is (= :no-recovery (:recovery (first warns)))
-                "observational — the dispatch proceeds unchanged")))))))
+        ;; ALWAYS-ON (rf2-d2841): `:recovery :no-recovery` means the dispatch
+        ;; PROCEEDS — the warning is observational. In production, where no
+        ;; warning exists, proceeding is the entire observable contract, and
+        ;; nothing had asserted it there.
+        (is (true? (:wi/handler-ran? (rf/app-db-value :wi/retired-supply)))
+            "the dispatch proceeded and committed despite the unrecognised opt")
+        (when interop/debug-enabled?
+          (let [warns (filterv (fn [ev]
+                                 (and (= :warning (:op-type ev))
+                                      (= :rf.warning/unknown-dispatch-opt (:operation ev))))
+                               @seen)]
+            (is (= 1 (count warns))
+                "the retired draft key trips exactly one generic unknown-opt warning")
+            (let [t (:tags (first warns))]
+              (is (contains? (set (:unknown-keys t)) :dispatched-at)
+                  "the retired key is named as an unknown opt")
+              (is (re-find #":rf/time-ms" (:reason t))
+                  "the warning message references :rf/time-ms as the replacement")
+              (is (re-find #":rf\.cofx" (:reason t))
+                  "the warning message references :rf.cofx as the replacement carrier")
+              (is (= :no-recovery (:recovery (first warns)))
+                  "observational — the dispatch proceeds unchanged"))))))))
 
 ;; ===========================================================================
 ;; rf2-sppf0m / rf2-alc1lf: a handler READS owner-qualified facts from the
@@ -782,7 +815,14 @@
   (testing "same causal token under two different ambient clocks → durable
             :committed-at EQUAL while the diagnostic trace :time DIFFERS"
     (rf/make-frame {:id :wi/split :doc "ctx"})
-    (rf/reg-event :wi/note (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    ;; rf2-d2841 — the handler folds the SUPPLIED causal token time into app-db.
+    ;; That is what makes the durable half of the split observable without the
+    ;; epoch ring, which is dev-fed and empty under the production gate.
+    (rf/reg-event :wi/note
+      (fn [{:keys [db] cofx :rf.cofx} _]
+        {:db (-> db
+                 (update :n (fnil inc 0))
+                 (assoc :wi/durable-token (:rf/time-ms cofx)))}))
     (let [token-time   1781078400123     ; the supplied causal token :rf/time-ms
           ;; capture the diagnostic trace :time of THIS frame's :wi/note event
           ;; per run — the trace `:time` is stamped from the ambient
@@ -820,21 +860,35 @@
                            (:committed-at (last (rf/epoch-history :wi/split)))))
           committed-1  (run! 1000)
           committed-2  (run! 9999999)]
-      ;; (a) DURABLE side — equal across the two ambient clocks.
-      (is (= token-time committed-1)
-          "run 1: durable :committed-at folds the supplied token :rf/time-ms")
-      (is (= token-time committed-2)
-          "run 2: durable :committed-at folds the SAME supplied token :rf/time-ms")
-      (is (= committed-1 committed-2)
-          "durable :committed-at is EQUAL across runs — wall-clock drift
-           between the two commits did not change durable state")
-      ;; (b) DIAGNOSTIC side — differs across the two ambient clocks.
-      (let [[t1 t2] @trace-times]
-        (is (= 1000 t1)
-            "run 1: the diagnostic trace :time read the ambient clock (1000)")
-        (is (= 9999999 t2)
-            "run 2: the diagnostic trace :time read the DIFFERENT ambient clock")
-        (is (not= t1 t2)
-            "the ambient diagnostic trace :time DIFFERS run-to-run — free to
-             vary, exactly as the EP-0010 causal/diagnostic split permits,
-             while the durable :committed-at above held equal")))))
+      ;; (a) DURABLE side — ALWAYS-ON (rf2-d2841). Two dispatches ran under two
+      ;; different ambient clocks and the durable app-db state folded the
+      ;; SUPPLIED token time both times. This is the invariant itself, off a
+      ;; channel production carries: `rf/epoch-history` is fed by
+      ;; `epoch.capture/observe-trace-event!` from the dev trace, so the
+      ;; `:committed-at` projection below is empty under the gate — which made
+      ;; `(= committed-1 committed-2)` a class-3 vacuous `nil = nil`, on the one
+      ;; assertion in this deftest that is about the invariant.
+      (is (= 2 (:n (rf/app-db-value :wi/split)))
+          "both runs committed")
+      (is (= token-time (:wi/durable-token (rf/app-db-value :wi/split)))
+          "the durable state folded the SUPPLIED token time, not the ambient
+           clock — and it is the same value after a run under each clock")
+      (when interop/debug-enabled?
+        ;; the epoch-ring projection of the same durable fact
+        (is (= token-time committed-1)
+            "run 1: durable :committed-at folds the supplied token :rf/time-ms")
+        (is (= token-time committed-2)
+            "run 2: durable :committed-at folds the SAME supplied token :rf/time-ms")
+        (is (= committed-1 committed-2)
+            "durable :committed-at is EQUAL across runs — wall-clock drift
+             between the two commits did not change durable state")
+        ;; (b) DIAGNOSTIC side — differs across the two ambient clocks.
+        (let [[t1 t2] @trace-times]
+          (is (= 1000 t1)
+              "run 1: the diagnostic trace :time read the ambient clock (1000)")
+          (is (= 9999999 t2)
+              "run 2: the diagnostic trace :time read the DIFFERENT ambient clock")
+          (is (not= t1 t2)
+              "the ambient diagnostic trace :time DIFFERS run-to-run — free to
+               vary, exactly as the EP-0010 causal/diagnostic split permits,
+               while the durable :committed-at above held equal"))))))
