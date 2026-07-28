@@ -167,7 +167,8 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 - **Answer:** <yes-runtime-schema / yes-via-host-types / no>
 - **Library (if runtime-schema):** <e.g. "Malli (CLJS)" / "Zod (TS / Squint)">
-- **Validation timing:** <e.g. "boundary-only, dev-build only, elided by Vite define" / "boundary-only, JIT-compiled to no-op in release">
+- **Validation timing:** <e.g. "bulk validators dev-build only, elided by Vite define" / "bulk validators JIT-compiled to no-op in release" — the `:rf.schema/at-boundary` check is ungated in every build and is not a timing choice>
+- **Boundary rejection reporting:** <how a release-build rejection reports — the always-on structural error record (identifiers only, nothing payload-derived) plus the rejected outcome on the event record; see [`phase-1-decisions.md` §D5](phase-1-decisions.md)>
 - **Open-shape verification:** <how the port enforces open shapes — additive growth, unknown-key tolerance>
 
 ## D5b. Data classification (Sensitive + Large) — v1-required (not D3-gated)
