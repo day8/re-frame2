@@ -1111,21 +1111,30 @@
         ;; order the plan executes.
         ;;
         ;; rf2-dlkou (merged-PR audit) — `:removed-identities` is a MEMBERSHIP
-        ;; answer, not an ordered one, and it is derived from `prev-ids` for
-        ;; exactly that reason. Removal is not an ordered operation: the whole
-        ;; prior owner goes in ONE `release-fx`, so there is no order for the
-        ;; row to report. Nor is one available — the routing handoff records
+        ;; answer, not an ordered one. Removal is not an ordered operation: the
+        ;; whole prior owner goes in ONE `release-fx`, so there is no order for
+        ;; the row to report. Nor is one available — the routing handoff records
         ;; `(:identities plan)` (a SET) under `[:rf.runtime/routing
         ;; :resource-plan <token>]` and hands that set straight back as the next
         ;; activation's `prev-identities`, so filtering the caller's collection
-        ;; in place would only republish set-iteration order (host-dependent)
-        ;; while CLAIMING the prior plan's. Deriving from `prev-ids` instead
-        ;; makes the row a pure function of the removal MEMBERSHIP: no
-        ;; caller-supplied ordering leaks into it, and `:removed` is the size of
-        ;; `:removed-identities` BY CONSTRUCTION rather than by a second,
-        ;; separately-derived count that a duplicate-bearing `prev-identities`
-        ;; could put out of step. This is exactly how `:blocking` already rides
-        ;; on this row. Spec 009 §Where trace emission lives states it.
+        ;; in place would only republish set-iteration order while CLAIMING the
+        ;; prior plan's.
+        ;;
+        ;; Dropping to `prev-ids` is necessary but NOT sufficient, and the CLJS
+        ;; lane proved it: a small CLJS set is backed by an ARRAY map, so it
+        ;; iterates in INSERTION order and the caller's sequence walks straight
+        ;; back out — `[v a b c]` and its exact reverse produced reversed rows —
+        ;; while a JVM hash set happens to iterate in a content-derived order
+        ;; that hid the leak. The vector is therefore SORTED by `key-id`, the
+        ;; CEDN-1 byte identity `:entries` is already keyed on: total over
+        ;; canonical scoped keys and identical on both hosts. That is what
+        ;; actually makes the row a pure function of the removal MEMBERSHIP —
+        ;; the same removal set yields the same vector for every caller shape on
+        ;; every host — and `:removed` is its size BY CONSTRUCTION rather than a
+        ;; second, separately-derived count that a duplicate-bearing
+        ;; `prev-identities` could put out of step. The order is CANONICAL, not
+        ;; meaningful: consumers read membership from it, exactly as they do
+        ;; from `:blocking`. Spec 009 §Where trace emission lives states it.
         ;;
         ;; Nothing else from the EP's §Tooling list is projected — no
         ;; occurrence/dependency groups, no per-contributor requirement mapping,
@@ -1134,7 +1143,7 @@
         ;; `:redundant-children` are the authorities).
         ensured-identities (into [] (comp (remove adopted?) (map :scoped-key)) ordered)
         kept-identities    (into [] (comp (filter adopted?) (map :scoped-key)) ordered)
-        removed-identities (into [] (remove next-ids) prev-ids)
+        removed-identities (vec (sort-by state/key-id (remove next-ids prev-ids)))
         added-count        (count ensured-identities)
         removed-count      (count removed-identities)]
     (trace/emit! :rf.event :rf.resource/route-plan
