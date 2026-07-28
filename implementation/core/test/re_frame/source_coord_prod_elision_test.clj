@@ -22,7 +22,28 @@
   probes (`scripts/check-elision.cjs`, `scripts/check-perf-bundle.cjs`).
   This file pins the SEMANTIC contract on the JVM where we can
   `with-redefs` the gate; the bundle probes pin the CODE-PATH absence
-  in CLJS-prod by negative grep."
+  in CLJS-prod by negative grep.
+
+  ## Posture split (rf2-d2841)
+
+  Policy A's PROD half and the whole of Policy B are posture-independent and
+  run under `scripts/test-core-prod-gate.sh` unchanged. Under the real gate
+  Policy A's `with-redefs` becomes a no-op over an already-false flag, which
+  means the prod-lane run re-asserts the same claim against the LOAD-TIME
+  gate rather than a rebind — the stronger evidence of the two, since
+  `merge-coords` reads `interop/debug-enabled?` at the point the macro-emitted
+  `*pending-coords*` binding is consumed.
+
+  Policy A's DEV half — the public `handler-meta` still carrying `:ns` /
+  `:line` / `:file` for Xray / jump-to-source — is a claim about the gate
+  being ON, and is kept verbatim inside a `(when interop/debug-enabled? …)`
+  arm marked `rf2-d2841`. Its always-on partner sits in the same body: the
+  PARALLEL `error-coords-by-id` registry is populated for that same
+  registration in BOTH postures. That pairing is the actual contract of this
+  file — one registration, coords stripped from the public surface and
+  retained on the observability surface — and stating both halves in one
+  deftest is what stops the dev half from being a namespace-shaped hole under
+  the gate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -70,10 +91,24 @@
     (rf/reg-event :rf2-3un2g/dev-keep-event
                      {:doc "kept"}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [meta (rf/handler-meta :event :rf2-3un2g/dev-keep-event)]
-      (is (some? (:ns   meta)) ":ns present in registry-meta in dev")
-      (is (some? (:line meta)) ":line present in registry-meta in dev")
-      (is (some? (:file meta)) ":file present in registry-meta in dev"))))
+    (let [meta (rf/handler-meta :event :rf2-3un2g/dev-keep-event)
+          parallel (source-coords/error-coords-for :event :rf2-3un2g/dev-keep-event)]
+      ;; ALWAYS-ON PARTNER (rf2-d2841). Policy A strips the PUBLIC surface in
+      ;; production; the parallel observability registry keeps the coords in
+      ;; BOTH postures. Asserting the retained half beside the stripped half
+      ;; is what makes "stripped" mean stripped-from-here rather than
+      ;; never-captured — and it is exactly the pair a regression in
+      ;; `with-coords-form`'s prod arm would break.
+      (is (some? parallel)
+          "the parallel error-coord registry carries the coords in BOTH postures")
+      (is (some? (:ns   parallel)) ":ns survives on the always-on registry")
+      (is (some? (:line parallel)) ":line survives on the always-on registry")
+      (is (some? (:file parallel)) ":file survives on the always-on registry")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      (when interop/debug-enabled?
+        (is (some? (:ns   meta)) ":ns present in registry-meta in dev")
+        (is (some? (:line meta)) ":line present in registry-meta in dev")
+        (is (some? (:file meta)) ":file present in registry-meta in dev")))))
 
 ;; ---- Policy B: error-emit substrate retains source-coord in prod --------
 
