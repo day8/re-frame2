@@ -161,14 +161,36 @@
             body    (subs content (str/index-of content "{"))]
         (:vars (edn/read-string body))))))
 
+(def ^:private seam-verb-names
+  "Names that are a re-theming / tree-transform seam WHEN THEY ARE A VERB.
+  Each reads as an operation on a rendered tree: hand it a tree and a theme,
+  get a differently-themed tree back. That is the substrate verb F5b refuses.
+
+  They are matched against VERB rows only, and the reason is `parts`.
+  `re-frame.freehand.splitter/parts` is a `def` of `#{\"separator\"}` — the
+  control's PART-ID ROSTER, the closed set of `data-part` addresses a
+  caller's stylesheet may reach (Spec 004 §Theming and semantic parts). That
+  is not the seam this acceptance refuses; it is the ADDRESS half of what F5b
+  ADDS, published as an ordinary host value, and it is the same shape this
+  pilot's own `chip-lib/part-ids` models one layer up. A name alone cannot
+  tell a roster from a rewriter, so the row's `:kind` is asked as well:
+  `(v/parts tree theme)` would be a seam and reds here; a `parts` var holding
+  a set of strings is data and does not.
+
+  The substring family in `transform-seam?` is NOT so restricted —
+  `transform`, `rewrite`, `retheme` and `restyle` name an operation whatever
+  the row's kind, so a `def` of a transform table is caught too."
+  #{"theme" "themes" "parts" "with-theme" "reparent" "rehome"})
+
 (defn- transform-seam?
-  [{:keys [var]}]
+  [{:keys [var kind]}]
   (let [n (str/lower-case var)]
     (or (str/includes? n "transform")
         (str/includes? n "rewrite")
         (str/includes? n "retheme")
         (str/includes? n "restyle")
-        (contains? #{"theme" "themes" "parts" "with-theme" "reparent" "rehome"} n))))
+        (and (contains? #{:fn :macro} kind)
+             (contains? seam-verb-names n)))))
 
 (deftest no-transform-seam-is-exported-on-the-freehand-surface
   (testing "The public-API manifest carries no re-theming or tree-transform verb
@@ -183,3 +205,24 @@
       (is (empty? offenders)
           (str "a theme/tree-transform seam leaked onto the public Freehand surface: "
                (mapv (juxt :namespace :var) offenders))))))
+
+(deftest the-transform-seam-detector-still-has-teeth
+  (testing "The kind discrimination above narrows WHICH rows the verb-name
+            roster matches, so the narrowing is proven rather than assumed: a
+            `parts` VERB is still a seam, a `parts` var holding an address
+            roster is not, and the operation-named family is caught at every
+            kind."
+    (is (transform-seam? {:var "parts" :kind :fn})
+        "a (v/parts tree theme) rewriter is a seam")
+    (is (transform-seam? {:var "with-theme" :kind :macro})
+        "a theming macro is a seam")
+    (is (transform-seam? {:var "theme-transform-table" :kind :var})
+        "an operation-named VAR is a seam whatever its kind")
+    (is (not (transform-seam? {:var "parts" :kind :var}))
+        "a published part-id roster is the address surface F5b ADDS, not a seam")
+    (is (some (fn [{:keys [namespace var]}]
+                (and (= "re-frame.freehand.splitter" namespace) (= "parts" var)))
+              (manifest-vars))
+        "and that roster is the row this discrimination exists for — the
+         splitter really does publish `parts`, so the negative case above is
+         about a live surface rather than a hypothetical one")))
