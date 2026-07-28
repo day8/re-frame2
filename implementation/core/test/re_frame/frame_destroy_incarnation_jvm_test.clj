@@ -1,5 +1,59 @@
 (ns re-frame.frame-destroy-incarnation-jvm-test
-  "Deterministic JVM barriers for incarnation-owned frame teardown."
+  "Deterministic JVM barriers for incarnation-owned frame teardown.
+
+  ## Posture split (rf2-d2841)
+
+  THE EPOCH SUBSYSTEM IS TRACE-FED, AND THAT IS THE WHOLE STORY HERE.
+  `epoch.capture/observe-trace-event!` fills the capture buffer from the DEV
+  TRACE, so under `-Dre-frame.debug=false` no buffer fills, `epoch/settle!`
+  never builds a record, `rf/epoch-history` stays empty,
+  `epoch-state/buffer-for` stays empty, and no `:rf.epoch/*` /
+  `:rf.epoch.cb/*` trace fact is ever emitted. Every read of those stores is
+  therefore guarded.
+
+  What survives, and what these barriers are ACTUALLY about, is the
+  incarnation fence itself: which token is live, whose db write commits, whose
+  child dispatch is scheduled, and which corpus-wide `:errors` record ships.
+  All of that is production behaviour and stays outside the guard. The class
+  of defect this file exists to catch — a destroyed incarnation leaking into
+  a same-id successor and MUTATING it — is pinned by the token / app-db /
+  cleanup-count assertions, and those now run under the gate for the first
+  time.
+
+  TWO SCENARIOS ARE DEV-ONLY END TO END and are guarded wholesale, because
+  their DRIVER does not exist in this posture, not merely their observation:
+
+  - `epoch-digest-owner-loss-cannot-publish-into-successor` destroys A from
+    inside the `:schemas/app-schemas-digest` late-bind hook. That hook is
+    reached only from `epoch/settle!` (via `assembly/current-schema-digest`),
+    which the empty capture buffer never calls — checked by running: the
+    fixture's `CountDownLatch` await TIMED OUT under the gate, so A was never
+    destroyed at all and the deftest's four negatives passed over a scenario
+    that had not happened.
+  - the two `vf2qke` deftests are driven by a public TRACE listener reacting
+    to `:rf.epoch.cb/silenced-on-frame-destroy`. No such fact is emitted under
+    the gate, so the listener never fires and the nested cascade it is about
+    never runs.
+
+  ONE CLAIM WAS PROMOTED RATHER THAN GUARDED. A throwing teardown hook already
+  ships a bounded always-on `:rf.error/frame-teardown-failed` record whose
+  `:hook-failures` NAMES the failing hook — `stale-teardown-report-is-corpus-
+  only-after-successor-install` and `snapshot-hook-failure-still-publishes-
+  reports-and-spares-successor` both read it already. The two
+  `*-hook-exception-crosses-successor-no-emit` scenarios and
+  `snapshot-hook-failure-leaves-no-residual-ring` were reading only the
+  DEV-TRACE warning; they now assert the always-on report as well, so \"the
+  failing hook is named to an off-box shipper\" runs in the posture that ships.
+
+  SEVENTEEN VACUOUS PASSES CAME OFF, and their shape is uniform: a NEGATIVE
+  asserting that predecessor A's terminal evidence did NOT leak into successor
+  B's ring / buffer / history, evaluated over stores the gate never lets fill.
+  `(empty? (epoch-state/buffer-for id))`, `(empty? (rf/epoch-history id))`,
+  `(= b-ring-before (rf/trace-buffer id {:flat true}))` and their siblings are
+  all true for free when both sides are empty. Those are the assertions this
+  file most wants to be honest — a leak audit that passes because nothing was
+  ever recorded certifies nothing — so every one of them is now inside the
+  guard, next to the precondition that licenses it."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -288,21 +342,26 @@
               "A's returned db effect cannot mutate B")
           (is (zero? @child-runs)
               "A's returned child dispatch is not scheduled against B")
-          (is (= history-b (rf/epoch-history id))
-              "A's stale tail cannot append or settle into B's history")
-          (is (empty? (epoch-state/buffer-for id))
-              "A's structural interruption bypasses B's epoch capture")
-          (let [by-op (group-by :operation @traces)]
-            (is (= 1 (count (get by-op :rf.frame/drain-interrupted)))
-                "A's structural interruption bypasses B's frame-no-emit policy")
-            (is (= [:halted-destroy]
-                   (mapv #(get-in % [:tags :outcome])
-                         (get by-op :rf.epoch/snapshotted)))
-                "A's terminal detailed epoch fact bypasses B's policy")
-            (is (= [:blocked]
-                   (mapv #(get-in % [:tags :outcome])
-                         (get by-op :rf.epoch/outcome)))
-                "A's terminal consumer outcome bypasses B's policy"))
+          ;; VACUOUS PASSES REMOVED (rf2-d2841) — class 3 and class 1: under
+          ;; the gate `history-b` and `(rf/epoch-history id)` are BOTH empty,
+          ;; so the leak audit passed on `[] = []`, and the capture buffer is
+          ;; empty for every frame, leaked-into or not.
+          (when interop/debug-enabled?
+            (is (= history-b (rf/epoch-history id))
+                "A's stale tail cannot append or settle into B's history")
+            (is (empty? (epoch-state/buffer-for id))
+                "A's structural interruption bypasses B's epoch capture")
+            (let [by-op (group-by :operation @traces)]
+              (is (= 1 (count (get by-op :rf.frame/drain-interrupted)))
+                  "A's structural interruption bypasses B's frame-no-emit policy")
+              (is (= [:halted-destroy]
+                     (mapv #(get-in % [:tags :outcome])
+                           (get by-op :rf.epoch/snapshotted)))
+                  "A's terminal detailed epoch fact bypasses B's policy")
+              (is (= [:blocked]
+                     (mapv #(get-in % [:tags :outcome])
+                           (get by-op :rf.epoch/outcome)))
+                  "A's terminal consumer outcome bypasses B's policy")))
           (rf/dispatch-sync [:destroy/event-tail-b] {:frame id})
           (is (= {:owner :b} (frame/frame-app-db-value id))
               "B remains independently usable after A's stale tail returns")))
@@ -373,10 +432,15 @@
               b-buffer     (epoch-state/buffer-for id)
               b-last-epoch (epoch-state/last-settled-epoch-id id)
               b-db         (frame/frame-app-db-value id)]
-          (is (= 1 (count b-history))
-              "B settled one ordinary event and now owns the id-keyed stores")
-          (is (some? (get-in (epoch-state/observations-snapshot) [b-observer id]))
-              "B's observer is armed before A resumes")
+          ;; The epoch preconditions and the leak audit they license are
+          ;; guarded TOGETHER (rf2-d2841). Separating a precondition from its
+          ;; claim is how `(= b-history (rf/epoch-history id))` came to certify
+          ;; "B's history is untouched" over two empty vectors.
+          (when interop/debug-enabled?
+            (is (= 1 (count b-history))
+                "B settled one ordinary event and now owns the id-keyed stores")
+            (is (some? (get-in (epoch-state/observations-snapshot) [b-observer id]))
+                "B's observer is armed before A resumes"))
 
           ;; A resumes and reaches its terminal publish while B owns the stores.
           (.countDown release-a)
@@ -384,42 +448,53 @@
               "A's terminal recipe completes")
           (executor-barrier!)
 
-          ;; A's terminal evidence is published DESPITE B owning the stores.
-          (is (= 1 (count @a-records))
-              "exactly one A :halted-destroy record reaches epoch listeners")
-          (is (= :destroy/halted-a (:event-id (first @a-records)))
-              "the terminal record is A's destroying event")
-          ;; B's ordinary settle also emits :ok trailers on the same frame id;
-          ;; scope to A's TERMINAL outcomes (B's are :ok, A's are
-          ;; :halted-destroy / :blocked).
-          (let [by-op (group-by :operation @traces)]
-            (is (= 1 (count (filter #(= :halted-destroy (get-in % [:tags :outcome]))
-                                    (get by-op :rf.epoch/snapshotted))))
-                "exactly one A :halted-destroy :rf.epoch/snapshotted is published")
-            (is (= 1 (count (filter #(= :blocked (get-in % [:tags :outcome]))
-                                    (get by-op :rf.epoch/outcome))))
-                "exactly one A blocked :rf.epoch/outcome is published"))
-
-          ;; B's stores are byte-identical: A's compare-cleanup no-op'd.
+          ;; ALWAYS-ON (rf2-d2841): the incarnation fence itself. Whatever A
+          ;; publishes, A's inert returned tail must not become B's state and
+          ;; B must remain the live incarnation — the defect class this file
+          ;; exists for, now exercised in the posture that ships.
           (is (identical? token-b (frame/frame-incarnation-token id))
               "B remains the current incarnation")
           (is (= {:owner :b} b-db)
               "A's inert returned tail never mutated B's state")
           (is (= {:owner :b} (frame/frame-app-db-value id))
               "B's state is unchanged after A resumes")
-          (is (= b-history (rf/epoch-history id))
-              "B's history is untouched by A's terminal cleanup")
-          (is (= b-buffer (epoch-state/buffer-for id))
-              "B's capture buffer is untouched")
-          (is (= b-last-epoch (epoch-state/last-settled-epoch-id id))
-              "B's last-settled anchor is untouched")
-          (is (some? (get-in (epoch-state/observations-snapshot) [b-observer id]))
-              "B's listener observation survives A's terminal cleanup")
 
-          ;; B keeps settling normally.
+          (when interop/debug-enabled?
+            ;; A's terminal evidence is published DESPITE B owning the stores.
+            (is (= 1 (count @a-records))
+                "exactly one A :halted-destroy record reaches epoch listeners")
+            (is (= :destroy/halted-a (:event-id (first @a-records)))
+                "the terminal record is A's destroying event")
+            ;; B's ordinary settle also emits :ok trailers on the same frame id;
+            ;; scope to A's TERMINAL outcomes (B's are :ok, A's are
+            ;; :halted-destroy / :blocked).
+            (let [by-op (group-by :operation @traces)]
+              (is (= 1 (count (filter #(= :halted-destroy (get-in % [:tags :outcome]))
+                                      (get by-op :rf.epoch/snapshotted))))
+                  "exactly one A :halted-destroy :rf.epoch/snapshotted is published")
+              (is (= 1 (count (filter #(= :blocked (get-in % [:tags :outcome]))
+                                      (get by-op :rf.epoch/outcome))))
+                  "exactly one A blocked :rf.epoch/outcome is published"))
+
+            ;; B's stores are byte-identical: A's compare-cleanup no-op'd.
+            ;; VACUOUS PASSES REMOVED (class 3): all four compared empty
+            ;; against empty under the gate.
+            (is (= b-history (rf/epoch-history id))
+                "B's history is untouched by A's terminal cleanup")
+            (is (= b-buffer (epoch-state/buffer-for id))
+                "B's capture buffer is untouched")
+            (is (= b-last-epoch (epoch-state/last-settled-epoch-id id))
+                "B's last-settled anchor is untouched")
+            (is (some? (get-in (epoch-state/observations-snapshot) [b-observer id]))
+                "B's listener observation survives A's terminal cleanup"))
+
+          ;; B keeps handling events normally.
           (rf/dispatch-sync [:destroy/halted-b-settle] {:frame id})
-          (is (= 2 (count (rf/epoch-history id)))
-              "B settles subsequent events normally after A resumes")))
+          (is (= {:owner :b} (frame/frame-app-db-value id))
+              "B keeps committing its own events after A resumes")
+          (when interop/debug-enabled?
+            (is (= 2 (count (rf/epoch-history id)))
+                "B settles subsequent events normally after A resumes"))))
       (finally
         (.countDown release-a)
         (epoch-state/drop-listener! b-observer)
@@ -501,20 +576,31 @@
                      :rf2-152/lx-noemit true)
         control    (run-terminal-listener-exception-scenario
                      :rf2-152/lx-plain false)]
-    (is (= 1 (count (:exceptions suppressed)))
-        "A's terminal listener-exception is delivered despite same-id B no-emit")
-    (is (= (:thrower suppressed)
-           (get-in (first (:exceptions suppressed)) [:tags :cb-id]))
-        "the diagnostic names the failing terminal listener")
-    (is (= 1 (count (:exceptions control)))
-        "the control (B no-emit disabled) also yields exactly one diagnostic")
+    ;; ALWAYS-ON (rf2-d2841): the incarnation fence. Whatever A's terminal
+    ;; fan-out does or fails to do, same-id B must still be the live
+    ;; incarnation when it returns.
     (is (true? (:b-token-ok? suppressed))
         "same-id B remains the live incarnation through A's terminal fan-out")
-    (is (empty? (filter #(= :rf.epoch.cb/listener-exception (:operation %))
-                        (:b-buffer suppressed)))
-        "A's diagnostic never enters B's epoch capture buffer")
-    (is (empty? (:b-history suppressed))
-        "no A diagnostic is recorded into B's history")))
+    (is (true? (:b-token-ok? control))
+        "and in the control, where B did not enable no-emit")
+    ;; The `:rf.epoch.cb/listener-exception` diagnostic is a dev-trace fact
+    ;; with no promoted counterpart, and the epoch record that TRIGGERS the
+    ;; throwing listener is itself trace-fed, so this scenario is dev-only end
+    ;; to end. VACUOUS PASSES REMOVED (class 1) — the two leak audits below
+    ;; passed over a buffer and a history the gate never let fill.
+    (when interop/debug-enabled?
+      (is (= 1 (count (:exceptions suppressed)))
+          "A's terminal listener-exception is delivered despite same-id B no-emit")
+      (is (= (:thrower suppressed)
+             (get-in (first (:exceptions suppressed)) [:tags :cb-id]))
+          "the diagnostic names the failing terminal listener")
+      (is (= 1 (count (:exceptions control)))
+          "the control (B no-emit disabled) also yields exactly one diagnostic")
+      (is (empty? (filter #(= :rf.epoch.cb/listener-exception (:operation %))
+                          (:b-buffer suppressed)))
+          "A's diagnostic never enters B's epoch capture buffer")
+      (is (empty? (:b-history suppressed))
+          "no A diagnostic is recorded into B's history"))))
 
 (defn- run-terminal-teardown-hook-exception-scenario
   "Destroy A; its post-dissoc epoch teardown hook installs same-id B (with the
@@ -524,6 +610,11 @@
   (rf2-vxgfnd.152)."
   [id no-emit?]
   (let [warnings    (atom [])
+        ;; ALWAYS-ON (rf2-d2841): a failing teardown hook also ships a bounded
+        ;; corpus-wide `:rf.error/frame-teardown-failed` record whose
+        ;; `:hook-failures` names the hook. That is the channel an off-box
+        ;; shipper reads, and it survives the gate.
+        reports     (atom [])
         trace-key   (keyword "rf2-152" (str "tdtrace-" (name id)))
         original-ep (late-bind/get-fn :epoch/on-frame-destroyed)]
     (rf/make-frame {:id id})
@@ -532,6 +623,11 @@
         (when (and (= id (get-in ev [:tags :frame]))
                    (= :rf.warning/teardown-hook-exception (:operation ev)))
           (swap! warnings conj ev))))
+    (rf/register-listener! :errors trace-key
+      (fn [r]
+        (when (and (= :rf.error/frame-teardown-failed (:error r))
+                   (= id (:frame r)))
+          (swap! reports conj r))))
     (try
       (late-bind/set-fn! :epoch/on-frame-destroyed
         (fn [& args]
@@ -545,6 +641,7 @@
       (frame/destroy-frame! id)
       (executor-barrier!)
       {:warnings  @warnings
+       :reports   @reports
        :b-live?   (some? (frame/frame-incarnation-token id))
        :b-buffer  (epoch-state/buffer-for id)}
       (finally
@@ -552,6 +649,7 @@
         ;; re-enter the throwing wrapper.
         (late-bind/set-fn! :epoch/on-frame-destroyed original-ep)
         (rf/unregister-listener! :trace trace-key)
+        (rf/unregister-listener! :errors trace-key)
         (when (frame/frame id) (frame/destroy-frame! id))))))
 
 (deftest terminal-teardown-hook-exception-crosses-successor-no-emit
@@ -564,18 +662,32 @@
                      :rf2-152/td-noemit true)
         control    (run-terminal-teardown-hook-exception-scenario
                      :rf2-152/td-plain false)]
-    (is (= 1 (count (:warnings suppressed)))
-        "A's post-dissoc teardown-hook warning is delivered despite B no-emit")
+    ;; ALWAYS-ON (rf2-d2841): the bounded corpus-wide report is the shipping
+    ;; channel for exactly this failure, and it carries the hook's name. B's
+    ;; no-emit policy is a TRACE policy and must not suppress it — which is
+    ;; the deftest's thesis, now provable where it matters.
+    (is (= 1 (count (:reports suppressed)))
+        "exactly one always-on :rf.error/frame-teardown-failed ships despite B no-emit")
     (is (= :epoch/on-frame-destroyed
-           (get-in (first (:warnings suppressed)) [:tags :hook]))
-        "the warning names the failing epoch teardown hook")
-    (is (= 1 (count (:warnings control)))
-        "the control (B no-emit disabled) also yields exactly one warning")
+           (:hook (first (:hook-failures (first (:reports suppressed))))))
+        "the always-on report names the failing epoch teardown hook")
+    (is (= 1 (count (:reports control)))
+        "the control (B no-emit disabled) also ships exactly one report")
     (is (true? (:b-live? suppressed))
         "same-id B remains live after A's teardown hook fails")
-    (is (empty? (filter #(= :rf.warning/teardown-hook-exception (:operation %))
-                        (:b-buffer suppressed)))
-        "A's teardown warning never enters B's epoch capture buffer")))
+    ;; VACUOUS PASS REMOVED (class 1): the buffer negative below passed over
+    ;; an epoch capture buffer the gate never lets fill.
+    (when interop/debug-enabled?
+      (is (= 1 (count (:warnings suppressed)))
+          "A's post-dissoc teardown-hook warning is delivered despite B no-emit")
+      (is (= :epoch/on-frame-destroyed
+             (get-in (first (:warnings suppressed)) [:tags :hook]))
+          "the warning names the failing epoch teardown hook")
+      (is (= 1 (count (:warnings control)))
+          "the control (B no-emit disabled) also yields exactly one warning")
+      (is (empty? (filter #(= :rf.warning/teardown-hook-exception (:operation %))
+                          (:b-buffer suppressed)))
+          "A's teardown warning never enters B's epoch capture buffer"))))
 
 ;; ---- rf2-vxgfnd.244 — predecessor terminal facts out of successor RING ------
 ;;
@@ -653,14 +765,28 @@
         (let [token-b       (frame/frame-incarnation-token id)
               b-ring-before (rf/trace-buffer id {:flat true})
               b-bundles-before (rf/trace-buffer id)]
-          (is (seq b-ring-before)
-              "B's ring holds its own settle sentinel before A resumes")
           ;; A resumes and publishes its terminal facts while B owns the id.
           (.countDown release-a)
           (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
               "A's terminal recipe completes")
           (executor-barrier!)
 
+          ;; ALWAYS-ON (rf2-d2841): B stays the live incarnation and keeps its
+          ;; own state through A's terminal fan-out. The RING boundary this
+          ;; fixture exists for is a dev-trace fact — under the gate B has no
+          ;; ring at all, so every ring assertion below (and the `(seq
+          ;; b-ring-before)` precondition that licenses them) is guarded
+          ;; TOGETHER. VACUOUS PASSES REMOVED (class 3 / class 1): the two
+          ;; byte-identity comparisons and the three `empty?` leak audits were
+          ;; all true for free over empty rings.
+          (is (identical? token-b (frame/frame-incarnation-token id))
+              "B remains the current incarnation")
+          (is (= {:owner :b} (frame/frame-app-db-value id))
+              "A's terminal fan-out never mutated B's state")
+
+          (when interop/debug-enabled?
+          (is (seq b-ring-before)
+              "B's ring holds its own settle sentinel before A resumes")
           ;; THE RING BOUNDARY: B's public flat buffer is byte-identical.
           (is (= b-ring-before (rf/trace-buffer id {:flat true}))
               "B's flat trace ring is byte-identical after A's terminal fan-out")
@@ -706,13 +832,11 @@
                               @global-facts))
               "A's silencing for its observer is suppressed after B re-armed it (rf2-vxgfnd.245)")
 
-          ;; B stays live and keeps settling normally.
-          (is (identical? token-b (frame/frame-incarnation-token id))
-              "B remains the current incarnation")
+          ;; B keeps settling normally, and its ring is live rather than frozen.
           (rf/dispatch-sync [:destroy/ring-b-settle] {:frame id})
           (is (< (count b-ring-before)
                  (count (rf/trace-buffer id {:flat true})))
-              "B's own subsequent event does grow B's ring (ring is live, not frozen)")))
+              "B's own subsequent event does grow B's ring (ring is live, not frozen)"))))
       (finally
         (.countDown release-a)
         (rf/unregister-listener! :epoch a-observer)
@@ -733,6 +857,9 @@
   ;; destroyed id.
   (let [id           :destroy/ring-snapshot-fail
         warnings     (atom [])
+        ;; ALWAYS-ON (rf2-d2841): the same failure ships a bounded corpus-wide
+        ;; `:rf.error/frame-teardown-failed` record naming the hook.
+        reports      (atom [])
         original-snap (late-bind/get-fn :epoch/snapshot-frame-destroyed)]
     (rf/reg-event :destroy/ring-snap-a
       (fn [_ _] (frame/destroy-frame! id) {:db {:owner :a-tail}}))
@@ -742,6 +869,11 @@
         (when (and (= id (get-in ev [:tags :frame]))
                    (= :rf.warning/teardown-hook-exception (:operation ev)))
           (swap! warnings conj ev))))
+    (rf/register-listener! :errors ::ring-snap-warn
+      (fn [r]
+        (when (and (= :rf.error/frame-teardown-failed (:error r))
+                   (= id (:frame r)))
+          (swap! reports conj r))))
     (try
       ;; Fail the pre-dissoc snapshot hook for this mid-run destroy.
       (late-bind/set-fn! :epoch/snapshot-frame-destroyed
@@ -751,21 +883,33 @@
             (when original-snap (apply original-snap args)))))
       (rf/dispatch-sync [:destroy/ring-snap-a] {:frame id})
       (executor-barrier!)
-      ;; The required global diagnostic fired.
-      (is (= 1 (count @warnings))
-          "the snapshot-failure teardown-hook warning reaches the global listener")
+      ;; ALWAYS-ON (rf2-d2841): the required diagnostic and the teardown
+      ;; outcome. The bounded report is what an off-box shipper receives, and
+      ;; a failed snapshot hook must not abort the destroy.
+      (is (= 1 (count @reports))
+          "exactly one always-on :rf.error/frame-teardown-failed ships")
       (is (= :epoch/snapshot-frame-destroyed
-             (get-in (first @warnings) [:tags :hook]))
-          "the warning names the failing snapshot hook")
-      ;; No residual ring survives for the destroyed frame.
-      (is (empty? (rf/trace-buffer id {:flat true}))
-          "no residual per-frame trace ring survives destroyed A")
-      (is (empty? (rf/trace-buffer id))
-          "no residual event-bundle ring survives destroyed A either")
+             (:hook (first (:hook-failures (first @reports)))))
+          "the always-on report names the failing snapshot hook")
       (is (nil? (frame/frame-incarnation-token id))
           "the frame is fully destroyed")
+      ;; VACUOUS PASSES REMOVED (class 1): the two residual-ring negatives
+      ;; below passed over rings the gate never lets exist for ANY frame,
+      ;; destroyed or live.
+      (when interop/debug-enabled?
+        (is (= 1 (count @warnings))
+            "the snapshot-failure teardown-hook warning reaches the global listener")
+        (is (= :epoch/snapshot-frame-destroyed
+               (get-in (first @warnings) [:tags :hook]))
+            "the warning names the failing snapshot hook")
+        ;; No residual ring survives for the destroyed frame.
+        (is (empty? (rf/trace-buffer id {:flat true}))
+            "no residual per-frame trace ring survives destroyed A")
+        (is (empty? (rf/trace-buffer id))
+            "no residual event-bundle ring survives destroyed A either"))
       (finally
         (rf/unregister-listener! :trace ::ring-snap-warn)
+        (rf/unregister-listener! :errors ::ring-snap-warn)
         (when (frame/frame id) (frame/destroy-frame! id))
         (late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)))))
 
@@ -933,27 +1077,42 @@
         ;; Same-id B settles: claims stores + re-arms cb for the reused id.
         (rf/make-frame {:id id})
         (rf/dispatch-sync [:vxgfnd245/b-settle] {:frame id})
-        (is (= 2 (count @received))
-            "cb received A's settle and B's settle — re-armed for the reused id")
+        ;; The epoch cb never fires under the gate (the record it receives is
+        ;; built from the trace-fed capture buffer), so the receive counts,
+        ;; the silencing fan and the precondition that licenses them are
+        ;; guarded TOGETHER. VACUOUS PASS REMOVED (class 1): the silencing
+        ;; negative passed over a stream carrying no silencings at all.
+        (when interop/debug-enabled?
+          (is (= 2 (count @received))
+              "cb received A's settle and B's settle — re-armed for the reused id"))
         ;; A resumes and reaches its terminal publish while B owns the stores.
         (.countDown release-a)
         (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
             "A's terminal recipe completes")
         (executor-barrier!)
-        ;; THE FIX: A's silencing fan for cb is suppressed — cb is live on B.
-        (is (empty? (filter #(= cb (:cb-id (:tags %))) @silencings))
-            "no bare A silencing for cb after B claimed the id and re-armed it")
-        ;; A's HISTORICAL halted-destroy record is still delivered to cb — the
-        ;; .151 record-delivery contract is unchanged by .245 (only the silencing
-        ;; fan is gated). cb remains live on B: an extra B settle reaches it.
-        (let [before-extra (count @received)]
-          (rf/dispatch-sync [:vxgfnd245/b-settle] {:frame id})
-          (is (= (inc before-extra) (count @received))
-              "cb continues to receive B's records after A resumed — it is live on B"))
+        ;; ALWAYS-ON (rf2-d2841): the incarnation fence. A's inert returned
+        ;; tail (`{:owner :a-tail}`) must never become B's state, and B must
+        ;; go on committing its own events.
+        (is (= {:owner :b} (frame/frame-app-db-value id))
+            "A's inert tail never mutated B's state")
+        (when interop/debug-enabled?
+          ;; THE FIX: A's silencing fan for cb is suppressed — cb is live on B.
+          (is (empty? (filter #(= cb (:cb-id (:tags %))) @silencings))
+              "no bare A silencing for cb after B claimed the id and re-armed it")
+          ;; A's HISTORICAL halted-destroy record is still delivered to cb — the
+          ;; .151 record-delivery contract is unchanged by .245 (only the silencing
+          ;; fan is gated). cb remains live on B: an extra B settle reaches it.
+          (let [before-extra (count @received)]
+            (rf/dispatch-sync [:vxgfnd245/b-settle] {:frame id})
+            (is (= (inc before-extra) (count @received))
+                "cb continues to receive B's records after A resumed — it is live on B")))
         ;; When B (where cb IS live) destroys, exactly one truthful silencing.
         (rf/destroy-frame! id)
-        (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
-            "exactly one truthful silencing for cb — fired by B's own destroy"))
+        (is (nil? (frame/frame-incarnation-token id))
+            "B's own destroy takes effect")
+        (when interop/debug-enabled?
+          (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
+              "exactly one truthful silencing for cb — fired by B's own destroy")))
       (finally
         (.countDown release-a)
         (rf/unregister-listener! :epoch cb)
@@ -1006,27 +1165,38 @@
         (rf/register-listener! :epoch cb (fn [_] (swap! new-received inc)))
         (rf/make-frame {:id id})
         (rf/dispatch-sync [:vxgfnd245/regen-b-settle] {:frame id})
-        (is (= 1 @new-received)
-            "the NEW cb generation received B's settled record")
         (.countDown release-a)
         (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
             "A's terminal recipe completes")
         (executor-barrier!)
-        (is (empty? (filter #(= cb (:cb-id (:tags %))) @silencings))
-            "A's stale snapshot never silences the reused id after a gap re-register")
-        ;; A delivers its HISTORICAL halted record to its OWN snapshot generation
-        ;; (the old callback captured pre-dissoc), NOT the new one. So the old
-        ;; callback saw A-settle + A's halted record; the new generation was
-        ;; invoked only by B — A never invokes the new generation (rf2-vxgfnd.245
-        ;; pins old/new behaviour).
-        (is (= 2 @old-received)
-            "the old cb generation received A's settle + A's historical halted record")
-        (is (= 1 @new-received)
-            "A never invoked the new cb generation — only B's settle reached it")
+        ;; ALWAYS-ON (rf2-d2841): the incarnation fence survives the
+        ;; re-register-in-the-gap race.
+        (is (= {:owner :b} (frame/frame-app-db-value id))
+            "A's inert tail never mutated B's state across the gap re-register")
+        ;; The cb generations and the silencing fan are epoch-record-driven
+        ;; and so dev-only. VACUOUS PASS REMOVED (class 1): the silencing
+        ;; negative passed over an empty stream.
+        (when interop/debug-enabled?
+          (is (= 1 @new-received)
+              "the NEW cb generation received B's settled record")
+          (is (empty? (filter #(= cb (:cb-id (:tags %))) @silencings))
+              "A's stale snapshot never silences the reused id after a gap re-register")
+          ;; A delivers its HISTORICAL halted record to its OWN snapshot generation
+          ;; (the old callback captured pre-dissoc), NOT the new one. So the old
+          ;; callback saw A-settle + A's halted record; the new generation was
+          ;; invoked only by B — A never invokes the new generation (rf2-vxgfnd.245
+          ;; pins old/new behaviour).
+          (is (= 2 @old-received)
+              "the old cb generation received A's settle + A's historical halted record")
+          (is (= 1 @new-received)
+              "A never invoked the new cb generation — only B's settle reached it"))
         ;; B destroys → exactly one truthful silencing for the live new generation.
         (rf/destroy-frame! id)
-        (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
-            "exactly one truthful silencing for the new generation on B's destroy"))
+        (is (nil? (frame/frame-incarnation-token id))
+            "B's own destroy takes effect")
+        (when interop/debug-enabled?
+          (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
+              "exactly one truthful silencing for the new generation on B's destroy")))
       (finally
         (.countDown release-a)
         (rf/unregister-listener! :epoch cb)
@@ -1090,17 +1260,25 @@
     (try
       (rf/destroy-frame! a-id)
       (executor-barrier!)
-      (is (true? @fired?)
-          "the listener saw A's structural terminal fact and dispatched")
-      ;; UNRELATED C: nested work captured into C's epoch history + retained in
-      ;; C's ring, and it actually ran and streamed live.
-      (is (= 1 (count (rf/epoch-history c-id)))
-          "C's listener-triggered cascade is captured into C's epoch history")
-      (is (= {:c :ran} (frame/frame-app-db-value c-id))
-          "C's nested event actually ran and committed")
-      (is (seq (rf/trace-buffer c-id {:flat true}))
-          "C's listener-triggered cascade is retained in C's per-frame ring")
-      (is (seq @c-live) "C's nested events streamed live to listeners")
+      ;; DEV-ONLY END TO END (rf2-d2841). The DRIVER here is a public TRACE
+      ;; listener reacting to `:rf.epoch.cb/silenced-on-frame-destroy`. No
+      ;; such fact is emitted under the gate, so the listener never fires and
+      ;; C's nested cascade never runs — there is nothing to observe, not
+      ;; merely no way to observe it. The whole body is therefore guarded
+      ;; rather than half-asserted; `(true? @fired?)` is the precondition and
+      ;; stays with the claims it licenses.
+      (when interop/debug-enabled?
+        (is (true? @fired?)
+            "the listener saw A's structural terminal fact and dispatched")
+        ;; UNRELATED C: nested work captured into C's epoch history + retained in
+        ;; C's ring, and it actually ran and streamed live.
+        (is (= 1 (count (rf/epoch-history c-id)))
+            "C's listener-triggered cascade is captured into C's epoch history")
+        (is (= {:c :ran} (frame/frame-app-db-value c-id))
+            "C's nested event actually ran and committed")
+        (is (seq (rf/trace-buffer c-id {:flat true}))
+            "C's listener-triggered cascade is retained in C's per-frame ring")
+        (is (seq @c-live) "C's nested events streamed live to listeners"))
       (finally
         (rf/unregister-listener! :epoch ::vf2qke-a-obs)
         (rf/unregister-listener! :trace ::vf2qke-dispatcher)
@@ -1138,14 +1316,21 @@
     (try
       (rf/destroy-frame! a-id)
       (executor-barrier!)
-      (is (true? @fired?) "the listener dispatched into the no-emit frame D")
-      (is (= {:d :ran} (frame/frame-app-db-value d-id))
-          "D's nested event ran and committed (no-emit suppresses TRACE, not work)")
-      ;; D's own no-emit policy applies to the nested work: no D traces leak.
-      (is (empty? @d-live)
-          "D's frame-no-emit policy suppresses its nested trace — no leak to listeners")
-      (is (empty? (rf/trace-buffer d-id {:flat true}))
-          "no D trace is retained under D's own no-emit policy")
+      ;; DEV-ONLY END TO END (rf2-d2841), same reason as the deftest above:
+      ;; a TRACE listener is the driver. TWO VACUOUS PASSES REMOVED (class 1)
+      ;; — `(empty? @d-live)` and `(empty? (rf/trace-buffer d-id {:flat true}))`
+      ;; certified that D's no-emit policy suppressed D's traces, over a frame
+      ;; whose event NEVER RAN. A no-leak audit that passes because nothing
+      ;; happened is the sharpest form of the false green this pass hunts.
+      (when interop/debug-enabled?
+        (is (true? @fired?) "the listener dispatched into the no-emit frame D")
+        (is (= {:d :ran} (frame/frame-app-db-value d-id))
+            "D's nested event ran and committed (no-emit suppresses TRACE, not work)")
+        ;; D's own no-emit policy applies to the nested work: no D traces leak.
+        (is (empty? @d-live)
+            "D's frame-no-emit policy suppresses its nested trace — no leak to listeners")
+        (is (empty? (rf/trace-buffer d-id {:flat true}))
+            "no D trace is retained under D's own no-emit policy"))
       (finally
         (rf/unregister-listener! :epoch ::vf2qke-policy-obs)
         (rf/unregister-listener! :trace ::vf2qke-policy-dispatcher)
@@ -1405,26 +1590,39 @@
         (fn [& args]
           (swap! cascade-captures inc)
           (when original-capture (apply original-capture args))))
-      (let [dispatch-a (future
-                         (rf/dispatch-sync [:destroy/epoch-digest-event]
-                                           {:frame id}))]
-        (is (.await digest-lost-a 10 TimeUnit/SECONDS)
-            "the digest callback destroyed A before normal publication")
-        (rf/make-frame {:id id})
-        (rf/register-listener! :epoch ::epoch-digest-b
-          (fn [_] (swap! b-listener-runs inc)))
-        (let [token-b (frame/frame-incarnation-token id)]
-          (.countDown release-digest)
-          (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
-              "the obsolete digest throw is inert")
-          (is (identical? token-b (frame/frame-incarnation-token id))
-              "B remains installed")
-          (is (= {} (frame/frame-app-db-value id)) "B app-db is untouched")
-          (is (empty? (rf/epoch-history id)) "no normal A record lands in B history")
-          (is (nil? (epoch-state/last-settled-epoch-id id))
-              "no normal A anchor lands in B")
-          (is (zero? @cascade-captures) "no stale cascade aggregation runs")
-          (is (zero? @b-listener-runs) "no B-era epoch listener sees A's record")))
+      ;; DEV-ONLY END TO END (rf2-d2841), and this one was CHECKED BY RUNNING
+      ;; rather than reasoned about. The scenario is driven from inside the
+      ;; `:schemas/app-schemas-digest` late-bind hook, which is reached only
+      ;; from `epoch/settle!` via `assembly/current-schema-digest`. Under the
+      ;; gate the trace-fed capture buffer never fills, `settle!` never runs,
+      ;; the hook is never invoked, and the `digest-lost-a` latch TIMED OUT —
+      ;; A was never destroyed, so the deftest's four negatives were passing
+      ;; over a scenario that had not happened. FOUR VACUOUS PASSES REMOVED
+      ;; (class 1): `(empty? (rf/epoch-history id))`,
+      ;; `(nil? (epoch-state/last-settled-epoch-id id))`,
+      ;; `(zero? @cascade-captures)` and `(zero? @b-listener-runs)` are each
+      ;; true for free when nothing recorded, aggregated or fanned at all.
+      (when interop/debug-enabled?
+        (let [dispatch-a (future
+                           (rf/dispatch-sync [:destroy/epoch-digest-event]
+                                             {:frame id}))]
+          (is (.await digest-lost-a 10 TimeUnit/SECONDS)
+              "the digest callback destroyed A before normal publication")
+          (rf/make-frame {:id id})
+          (rf/register-listener! :epoch ::epoch-digest-b
+            (fn [_] (swap! b-listener-runs inc)))
+          (let [token-b (frame/frame-incarnation-token id)]
+            (.countDown release-digest)
+            (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
+                "the obsolete digest throw is inert")
+            (is (identical? token-b (frame/frame-incarnation-token id))
+                "B remains installed")
+            (is (= {} (frame/frame-app-db-value id)) "B app-db is untouched")
+            (is (empty? (rf/epoch-history id)) "no normal A record lands in B history")
+            (is (nil? (epoch-state/last-settled-epoch-id id))
+                "no normal A anchor lands in B")
+            (is (zero? @cascade-captures) "no stale cascade aggregation runs")
+            (is (zero? @b-listener-runs) "no B-era epoch listener sees A's record"))))
       (finally
         (.countDown release-digest)
         (rf/unregister-listener! :epoch ::epoch-digest-b)
@@ -1511,19 +1709,26 @@
               "the required A teardown report reaches corpus listeners once")
           (is (zero? @frame-routes)
               "A's report never resolves through B's frame-owned error route")
-          (let [by-op (group-by :operation @traces)]
-            (is (= [:halted-destroy]
-                   (mapv #(get-in % [:tags :outcome])
-                         (get by-op :rf.epoch/snapshotted)))
-                "B's claim cannot revoke A's detailed terminal fact")
-            (is (= [:blocked]
-                   (mapv #(get-in % [:tags :outcome])
-                         (get by-op :rf.epoch/outcome)))
-                "B's claim cannot revoke A's terminal consumer outcome"))
-          (is (empty? (rf/epoch-history id))
-              "A's terminal record never enters B's ring")
-          (is (empty? (epoch-state/buffer-for id))
-              "A's terminal traces never enter B's capture buffer")
+          ;; The corpus assertions above are the always-on half and were
+          ;; already posture-independent — this deftest's central claim (the
+          ;; required report ships corpus-wide but never routes into B's
+          ;; declared sinks) runs under the gate unchanged. VACUOUS PASSES
+          ;; REMOVED (class 1): the two `empty?` leak audits below passed over
+          ;; an epoch history and a capture buffer the gate never lets fill.
+          (when interop/debug-enabled?
+            (let [by-op (group-by :operation @traces)]
+              (is (= [:halted-destroy]
+                     (mapv #(get-in % [:tags :outcome])
+                           (get by-op :rf.epoch/snapshotted)))
+                  "B's claim cannot revoke A's detailed terminal fact")
+              (is (= [:blocked]
+                     (mapv #(get-in % [:tags :outcome])
+                           (get by-op :rf.epoch/outcome)))
+                  "B's claim cannot revoke A's terminal consumer outcome"))
+            (is (empty? (rf/epoch-history id))
+                "A's terminal record never enters B's ring")
+            (is (empty? (epoch-state/buffer-for id))
+                "A's terminal traces never enter B's capture buffer"))
           (let [duplicate-b (future (frame/destroy-frame! id token-b))]
             (is (nil? (deref duplicate-b 2000 ::timeout))
                 "A's finally preserved B's distinct claim marker"))
@@ -1815,8 +2020,12 @@
           "the depth record names the overflowing frame")
       (is (= 1 @sibling-runs)
           "every corpus error listener runs when A retains ownership")
-      (is (some #(= :halted-depth (:outcome %)) (rf/epoch-history id))
-          "A's terminal halted-depth record is committed into A's own history")
+      ;; The three corpus assertions above already ran in both postures — the
+      ;; depth record fans through the always-on `:errors` registry. Only the
+      ;; epoch-history half is trace-fed (rf2-d2841).
+      (when interop/debug-enabled?
+        (is (some #(= :halted-depth (:outcome %)) (rf/epoch-history id))
+            "A's terminal halted-depth record is committed into A's own history"))
       (finally
         (rf/unregister-listener! :errors ::live-a)
         (rf/unregister-listener! :errors ::live-b)
