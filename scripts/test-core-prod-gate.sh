@@ -44,7 +44,7 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 154 namespaces, 1740 tests, 7342
+# What is left IS green, and it is not a rump: 158 namespaces, 1931 tests, 8324
 # assertions, exit 0 — versus the zero suites that had ever executed under this
 # posture before.  (It was
 # 88 / 934 / 4340 tests/assertions before rf2-d2841 split the spine's
@@ -53,9 +53,24 @@
 # single entry, 107 failures and 25 errors across ~20 deftests — plus
 # `sub-topology`, `init-platform`, `pattern-smoke` and `db-noop-commit`,
 # 103 / 1213 / 5590 before its third pass took twenty more, 123 / 1401 / 6054
-# before its FOURTH pass took seventeen more, and 141 / 1560 / 6707 before its
-# FIFTH pass took thirteen more.  Each pass's namespaces are named in its
-# commits — `git log --grep=rf2-d2841`.)
+# before its FOURTH pass took seventeen more, 141 / 1560 / 6707 before its
+# FIFTH pass took thirteen more, and 154 / 1740 / 7342 before its SIXTH pass
+# took the last four ACTIONABLE lines under that bead's heading.  Each pass's
+# namespaces are named in its commits — `git log --grep=rf2-d2841`.)
+#
+# WHAT REMAINS EXCLUDED, and why it is not more of the same work.  Of the 27,
+# twelve sit under other headings (eleven under rf2-r9bra plus
+# `features-cljs-test`).  The fifteen still under rf2-d2841 — the ten
+# `trace-listener-*` suites plus `trace`, `db-pending-trace`,
+# `sub-dispose-trace`, `trace-buffer` and `trace.structural-retention-cljs` —
+# have NO semantic residue to separate: they are about the trace machinery
+# itself, end to end, so guarding them would leave nothing behind and make each
+# one class 2.  Those want a var-level `-e :requires-debug` exclusion tag
+# declared in `implementation/deps.edn`, not a posture split, and that file is
+# outside this bead's fence.  Several also HANG rather than fail under the gate
+# (a `CountDownLatch` waiting on trace events that never arrive), so keep them
+# out of any exploratory `-n` sweep.  With those fifteen blocked on a change
+# elsewhere, this bead's ACTIONABLE work is complete at the sixth pass.
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -339,14 +354,20 @@ fi
 # green with `Ran 0 tests`.  Calibrated below the observed count with room for
 # ordinary churn; raise it when the roster grows materially.
 #
-# RAISED 800 -> 1360 (rf2-d2841, third pass), 1360 -> 1510 (fourth pass), then
-# 1510 -> 1690 (fifth pass).  800 was calibrated against the 915-test lane of
-# rf2-f8x2i's original run and had stopped doing its job.  1360 was calibrated
-# against 1401 and stopped doing its job the same way, and 1510 has now done
-# the same in its turn: the lane runs 1740 tests, and the thirteen namespaces
-# the fifth pass added are 180 of them — losing the whole batch lands at 1560,
-# which 1510 waves through.  1690 notices that while leaving ~3% for ordinary
-# churn.
+# RAISED 800 -> 1360 (rf2-d2841, third pass), 1360 -> 1510 (fourth pass),
+# 1510 -> 1690 (fifth pass), then 1690 -> 1880 (sixth pass).  800 was
+# calibrated against the 915-test lane of rf2-f8x2i's original run and had
+# stopped doing its job.  1360 was calibrated against 1401 and stopped doing
+# its job the same way; 1510 did the same in its turn; and 1690 has now done
+# the same again: the lane runs 1931 tests, and the FOUR namespaces the sixth
+# pass added are 191 of them — losing the whole batch lands at 1740, which
+# 1690 waves through.  1880 notices that while leaving ~3% for ordinary churn.
+#
+# Note how much a small batch can be worth: the sixth pass added only four
+# namespaces but 191 tests, because the two largest — `observation-port-cljs`
+# (94 tests) and `frame-destroy-incarnation-jvm` (29) — were rostered for a
+# minority of their deftests.  The floor tracks TESTS, not roster lines, which
+# is the right variable for exactly this reason.
 #
 # The floor is a COLLAPSE DETECTOR, not a target, and the rule that follows
 # from that is why it has moved every pass: it must sit close enough under the
@@ -369,7 +390,7 @@ fi
 # invokes, so the rule covers every lane in the repo rather than this one, and
 # it fires before a single test runs.  `verify_roster` below is unchanged and
 # still cannot see this class on its own — see its guard #1.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1690}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1880}"
 
 args=()
 for ns in $runnable; do
