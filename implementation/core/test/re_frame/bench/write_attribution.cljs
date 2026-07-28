@@ -408,7 +408,23 @@
 
 (defn- next-gen! [] (vswap! gen inc))
 
-(def ^:private fid :wa/frame)
+(def ^:private fid
+  "A frame-id-SHAPED keyword, and nothing more: the key `arm-c-bump` bumps in
+  this file's stand-in epoch map, and the frame-id the memo wrappers carry into
+  their trace tags. Neither of those looks it up in the registry — `subs.memo`
+  passes `frame-id` straight through to `emit-sub-skip!` / `validate-and-trace`
+  as a tag value — so it does not need to be registered, and is not.
+
+  rf2-c0awb: `C-FRAME` used to look this up, and THAT did need it registered.
+  `build-rig!` builds `:wa/frame0` … `:wa/frame3` and never `:wa/frame`, so
+  the arm published as `commit-frame-transition!`'s registry lookup was
+  pricing a registry MISS. See `arm-c-frame`."
+  :wa/frame)
+
+(def ^:private absent-fid
+  "Deliberately never registered — `arm-c-frame-miss` is the miss half of
+  `C-FRAME`'s pair, and it has to be a miss on purpose rather than by accident."
+  :wa/no-such-frame)
 
 (defn- db-of [cells-n v] {:cells (vec (repeat cells-n v))})
 
@@ -464,7 +480,19 @@
 ;; so an attribution that does not add up says so.
 ;;
 ;;   C-FRAME    `(frame/frame id)` — the registry lookup `commit-frame-
-;;              transition!` does before anything else
+;;              transition!` does before anything else, on a frame the rig
+;;              REGISTERED, so the visibility walk behind the registry `get`
+;;              actually runs (rf2-c0awb)
+;;   C-FRAMEX   the same call on an id that was never registered. PAIRED
+;;              CONTROL: `frame/frame` short-circuits on the `get`, so the
+;;              miss is strictly less work than the hit and only `C-FRAME`
+;;              belongs in the attribution. This arm is what `C-FRAME` was
+;;              measuring by accident until rf2-c0awb.
+;;   C-FRAMEG   the registry `get` ALONE on the same hit, which is what says
+;;              WHICH HALF of `frame/frame` a hit-vs-miss difference is in.
+;;              It reads 0.0, so the `get` is free and the difference is the
+;;              visibility walk. That difference is DISPUTED between the two
+;;              entry points and is not quotable — see rf2-tmzie.
 ;;   C-PARTS    `commit-frame-record-transition!`'s partition bookkeeping:
 ;;              the two `contains?`, the four `get`, the `next-fs` map, the
 ;;              `changed` cond-> set, the two `not=` partition comparisons and
@@ -495,9 +523,56 @@
   one per write."
   (fnil inc 0))
 
-(defn- arm-c-frame []
-  (keep! (frame/frame fid))
-  nil)
+;; rf2-c0awb — `commit-frame-transition!`'s first act is `(frame/frame id)`, and
+;; this arm is what that costs. It has to be a HIT to be that.
+;;
+;; `frame/frame` is `(when-let [f (get @frames id)] (when (visible? id f) f))`,
+;; so a miss short-circuits on the registry `get` and never reaches the
+;; visibility predicate — the two-level `:lifecycle`/`:construction` walk that
+;; a real commit's lookup always runs. The arm used to be handed `:wa/frame`,
+;; which `build-rig!` never registers, so it priced the short-circuit.
+;;
+;; A factory rather than a bare arm, so the id is resolved ONCE at plan-build
+;; time: `(nth (:frames @rig) 0)` inside the measured body would charge this
+;; arm a rig lookup it is not measuring. Frame 0 is the one `RFWRITE-0` writes
+;; through, which is the rung this figure is subtracted from.
+;;
+;; The miss is kept beside it as `C-FRAMEX` rather than discarded. Both halves
+;; live in one process on one registry — the `P-VALS`/`P-RKV` discipline — so
+;; the pair MEASURES what the hit costs over the miss instead of assuming it,
+;; and an arm that silently reverts to a miss shows up as the pair collapsing.
+
+(defn- arm-c-frame
+  "The HIT: the registry lookup a commit performs, on a frame that exists."
+  []
+  (let [id (nth (:frames @rig) 0)]
+    (fn []
+      (keep! (frame/frame id))
+      nil)))
+
+(defn- arm-c-frame-miss
+  "The MISS: the same call on an id that was never registered, which is what
+  this arm measured before rf2-c0awb."
+  []
+  (let [id absent-fid]
+    (fn []
+      (keep! (frame/frame id))
+      nil)))
+
+(defn- arm-c-frame-get
+  "`frame/frame`'s registry `get` ALONE, on the same hit — the first half of
+  the lookup with the visibility predicate removed. `frames` is public, so
+  this is the `Q-SCHED` discipline: the expression re-spelled in the harness
+  so what is measured is pinned here and cannot drift under the attribution.
+
+  It exists because the HIT/MISS pair alone cannot say WHICH half of
+  `frame/frame` a non-zero difference is in — the miss short-circuits on the
+  `get`, so it skips both halves at once."
+  []
+  (let [id (nth (:frames @rig) 0)]
+    (fn []
+      (keep! (get @frame/frames id))
+      nil)))
 
 (defn- arm-c-parts []
   (let [{:keys [fs-a fs-b db-a db-b]} @rig
@@ -948,7 +1023,11 @@
                         ;; rf2-78ejq — the rungs under RFWRITE-0
                         ["SPINE0B"   arm-spine0b          1]
                         ["SPINE0P"   arm-spine0p          1]
-                        ["C-FRAME"   arm-c-frame          1]
+                        ;; rf2-c0awb — the registry lookup, HIT / MISS / the
+                        ;; `get` on its own, all three in one process
+                        ["C-FRAME"   (arm-c-frame)        1]
+                        ["C-FRAMEX"  (arm-c-frame-miss)   1]
+                        ["C-FRAMEG"  (arm-c-frame-get)    1]
                         ["C-PARTS"   arm-c-parts          1]
                         ["C-TAGPAIR" arm-c-tagpair        1]
                         ["C-BUMP"    arm-c-bump           1]
@@ -1127,7 +1206,7 @@
             sp0    (b "SPINE0")
             delta  (- rf0 sp0)
             proj   (- (b "SPINE0P") (b "SPINE0B"))
-            comps  [["C-FRAME    (frame id) registry lookup" (b "C-FRAME")]
+            comps  [["C-FRAME    (frame id) registry lookup, HIT" (b "C-FRAME")]
                     ["C-PARTS    partition bookkeeping"      (b "C-PARTS")]
                     ["C-TAGPAIR  two [::ok v] pairs"         (b "C-TAGPAIR")]
                     ["C-PROJ     the two projections"        proj]
@@ -1145,7 +1224,23 @@
                          (fmt (b "SPINE0B")) (fmt (b "SPINE0P"))))
         (println (gstring/format ";;   C-BUMP %s B vs C-BUMPH %s B  -> hoisting (fnil inc 0) predicts %s B/write"
                          (fmt (b "C-BUMP")) (fmt (b "C-BUMPH"))
-                         (fmt (- (b "C-BUMP") (b "C-BUMPH"))))))
+                         (fmt (- (b "C-BUMP") (b "C-BUMPH")))))
+        ;; rf2-c0awb — the lookup, paired. Only C-FRAME (the HIT) is a component
+        ;; of the delta above; C-FRAMEX is here to say what the hit costs OVER
+        ;; the miss rather than leaving it assumed, and to make it visible if
+        ;; this arm ever reverts to pricing the short-circuit again.
+        (println (gstring/format ";;   C-FRAME (registry HIT) %s B vs C-FRAMEX (MISS) %s B  -> a HIT costs %s B/lookup more than a miss"
+                         (fmt (b "C-FRAME")) (fmt (b "C-FRAMEX"))
+                         (fmt (- (b "C-FRAME") (b "C-FRAMEX")))))
+        (println (gstring/format ";;   C-FRAMEG (the registry `get` alone, same hit) %s B  -> the visibility walk is the remaining %s B"
+                         (fmt (b "C-FRAMEG"))
+                         (fmt (- (b "C-FRAME") (b "C-FRAMEG")))))
+        (println ";;   ^ that non-zero is DISPUTED and may NOT be quoted (rf2-tmzie): `-diagnose`")
+        (println ";;     PROBE 4 sweeps the SAME closure and reads a CONSTANT 32 B per WINDOW from")
+        (println ";;     reps=64 to reps=4000 — i.e. ~0 B/call — where the plan reads 32 B/CALL at")
+        (println ";;     reps=4000. One of the two is wrong and it is not yet known which. What IS")
+        (println ";;     settled is that the arm takes the HIT path now, and that the registry")
+        (println ";;     `get` is free in both."))
       ;; --- arm order, LAST, and it governs everything above ----------------
       ;; The figures are printed and the refusal is about what may be QUOTED,
       ;; not about throwing the measurement away — so the exit code carries
@@ -1347,5 +1442,34 @@
           (println (gstring/format ";;     -> step %10s B/call  (%s B per inner iteration)"
                            (fmt (- (/ (:p50 dbl) reps) (/ (:p50 smi) reps)))
                            (fmt (/ (- (/ (:p50 dbl) reps) (/ (:p50 smi) reps)) iters))))))
+      ;; ---- PROBE 4 — is C-FRAME's step real, or the instrument's floor? ----
+      ;; rf2-c0awb pointed `C-FRAME` at a frame the rig actually registers and
+      ;; the arm went from 0.0 to 32.0 B/call. 32.0 B/call at reps=4000 is
+      ;; exactly what `P-SCOPEH` — an arm that allocates essentially nothing —
+      ;; also reads, so the figure has to be separated from the floor before it
+      ;; is quoted. A REAL per-call allocation is rep-INDEPENDENT; a floor is a
+      ;; roughly fixed number of bytes per WINDOW and therefore falls as 1/reps.
+      ;; Both halves of the pair are swept, because the miss is the matched
+      ;; control: identical arm shape, identical windows, one branch different.
+      (println ";;")
+      (println ";; PROBE 4 — C-FRAME hit vs miss, swept across window sizes")
+      (println ";;   rep-INDEPENDENT B/call = real allocation; ~constant B/window = the floor")
+      (doseq [[label f* seed verify]
+              [["C-FRAME  HIT s=1"     (arm-c-frame)      1         (advanced-by 1)]
+               ;; `-main` never resets the counter — it stands near 1.2e8 by the
+               ;; time C-FRAME is measured there. That is still an Smi with
+               ;; pointer compression off, but rf2-xu0ma WAS a counter-state
+               ;; effect, so the magnitude is swept rather than assumed away.
+               ["C-FRAME  HIT s=1.2e8" (arm-c-frame)      120000000 (advanced-by 1)]
+               ["C-FRAMEG get-only"    (arm-c-frame-get)  1         (advanced-by 1)]
+               ["C-FRAMEX MISS"        (arm-c-frame-miss) 1
+                ;; the miss feeds `keep!` a nil, so the counter must NOT move —
+                ;; a window where it did was not measuring the miss
+                (fn [before after _] (== after before))]]]
+        (dotimes [_ 3] (f*))
+        (dotimes [_ 6] (measure f* 256 1))
+        (doseq [reps sweep]
+          (let [r (probe f* reps windows seed verify)]
+            (probe-line label reps r reps))))
       (println ";;")
       (println (gstring/format ";; sink %s %s" @sink (some? @sink2))))))
