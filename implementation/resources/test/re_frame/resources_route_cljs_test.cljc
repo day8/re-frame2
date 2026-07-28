@@ -938,10 +938,15 @@
   ;; handoff records `(:identities plan)` as a SET under
   ;; `[:rf.runtime/routing :resource-plan <token>]` and hands that same set back
   ;; as the next activation's `:prev-identities`. Filtering the caller's
-  ;; collection in place would republish set-iteration order (host-dependent)
-  ;; while CLAIMING the prior plan's; deriving from the set makes the row a pure
-  ;; function of the removal membership. Per Spec 009 §Where trace emission
-  ;; lives.
+  ;; collection in place would republish set-iteration order while CLAIMING the
+  ;; prior plan's.
+  ;;
+  ;; Dropping to that set is necessary but not sufficient, which is exactly what
+  ;; this test caught: a small CLJS set is backed by an ARRAY map and iterates in
+  ;; INSERTION order, so the caller's sequence walked straight back out under
+  ;; CLJS while the JVM's hash-set iteration order hid the leak. The row is
+  ;; sorted by the CEDN-1 `key-id`, which is what makes it a pure function of the
+  ;; removal membership on BOTH hosts. Per Spec 009 §Where trace emission lives.
   (rf/reg-resource :rm/v (article-spec {}) article-spec-request)
   (rf/reg-resource :rm/a (article-spec {}) article-spec-request)
   (rf/reg-resource :rm/b (article-spec {}) article-spec-request)
