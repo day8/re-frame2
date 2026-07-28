@@ -439,7 +439,8 @@ The keys you'll reach for:
 2. **`:schema`** — a [Malli](https://github.com/metosin/malli)
    [schema](glossary.md#schema) for the sub's **output**. When present, the dev
    build validates the computed value at the `:sub-return` boundary — a fail-loud
-   guard, [elided](glossary.md#elide) from production like every schema check.
+   guard, and one you declared over your own sub, so it is
+   [elided](glossary.md#elide) from production.
    The full story: [Validate with schemas](how-to/validate-with-schemas.md).
 3. **`:tags`** — a set of keywords for your own grouping and tooling.
 
@@ -558,9 +559,13 @@ body runs, at the `:sub-return` boundary. On a mismatch it emits
 `:rf.error/schema-validation-failure` with `:where :sub-return` and surfaces `nil`
 to the consumer — the same recover-to-`nil` posture as a throw — so a derivation
 producing the wrong shape is caught at the sub that produced it, not three layers
-downstream where some view chokes on it. A strict mode re-raises, for CI. Like
-every schema check, the whole boundary is [elided](glossary.md#elide) from
-production.
+downstream where some view chokes on it. A strict mode re-raises, for CI. The
+whole `:sub-return` boundary is [elided](glossary.md#elide) from production — a
+sub's `:schema` is a claim you make about a derivation you wrote, and a release
+build takes you at your word. (That is a fact about *this* boundary, not about
+schema checking at large: the checks the framework makes on its own boundaries
+hold in every build. [What goes and what
+stays](how-to/validate-with-schemas.md#in-production-what-goes-what-stays).)
 
 **Subscribing during teardown.** A stray async callback fires after its
 `frame-provider` unmounted; a hot-reload race. The subscribe returns `nil` —

@@ -201,7 +201,7 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     a frame-id that isn't registered). Filter on the operation keyword alone for a
     single "registrar miss" view; route on `:kind` when you want per-mode handling.
 
-!!! warning "Gotcha — schema checks fire only in dev"
+!!! warning "Gotcha — the schema checks you declare fire only in dev"
 
     If you guard an [app-db](glossary.md#app-db) path or an event with a
     [schema](glossary.md#schema), a value that fails it emits
@@ -215,18 +215,21 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     `:machine-output` are **observational** — the value still commits. Read the
     recovery straight off the `:where` tag on the record; `:explain` carries the
     Malli explanation. The surprise is the asymmetry: a production build
-    [*elides*](glossary.md#elide) these validators, so the category fires **only in
+    [*elides*](glossary.md#elide) the validators you declared over your *own* code —
+    which is most of that list — so for those boundaries the category fires **only in
     dev**. Treat a `reg-app-schema` guard as a development assertion that hardens your
     data at its source, not a runtime gate you can lean on in production — a candidate
     that violates one installs, silently, in a release build. (A structurally broken
     Malli form is the separate `:rf.error/malformed-schema`, which fails closed and
     rolls the commit back.)
 
-    **One schema check does survive a production build, and it is the one you would
-    reach for.** An event handler registered with `{:interceptors
+    **One arm of this category does survive a production build, and it is the one you
+    would reach for.** An event handler registered with `{:interceptors
     [:rf.schema/at-boundary]}` is the framework's answer for untrusted structured
-    ingress — an HTTP request body, a websocket frame, a query string — and its check
-    is *ungated*: it runs in every build. The rejection is real in production, with the
+    ingress — an HTTP request body, a websocket frame, a query string. That is no
+    longer a claim you are making about your own code; it is the framework promising
+    something about its own doorway, and a promise kept only in dev is not a promise.
+    So the check is *ungated*: it runs in every build. The rejection is real in production, with the
     same recovery as any other `:where :event` failure — the handler is **skipped** and
     the bad payload never reaches app-db. The **report** survives with it, on both
     always-on axes: one `:rf.error/schema-validation-failure` record tagged
