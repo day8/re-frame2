@@ -44,15 +44,16 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 123 namespaces, 1401 tests, 6054
-# assertions, exit 0 — versus the zero suites that had ever executed under this
-# posture before.  (It was 88 / 934 / 4340 before rf2-d2841 split the spine's
+# What is left IS green, and it is not a rump: 140 namespaces, exit 0 — versus
+# the zero suites that had ever executed under this posture before.  (It was
+# 88 / 934 / 4340 tests/assertions before rf2-d2841 split the spine's
 # dev-instrumentation assertions away from the semantics beside them,
 # 94 / 1106 / 5135 before that bead's second pass took `fx-test` — the largest
 # single entry, 107 failures and 25 errors across ~20 deftests — plus
-# `sub-topology`, `init-platform`, `pattern-smoke` and `db-noop-commit`, and
-# 103 / 1213 / 5590 before its third pass took twenty more — the twenty are
-# named in that pass's commits — `git log --grep=rf2-d2841`.)
+# `sub-topology`, `init-platform`, `pattern-smoke` and `db-noop-commit`,
+# 103 / 1213 / 5590 before its third pass took twenty more, and 123 / 1401 /
+# 6054 before its FOURTH pass took seventeen more.  Each pass's namespaces are
+# named in its commits — `git log --grep=rf2-d2841`.)
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -181,6 +182,50 @@ known_red=(
   #    `(when (and interop/debug-enabled? …))`, so the knob and its warning
   #    are equally dev-only. Check the implementation, not the plausible
   #    story about it.
+  #
+  #    THE FOURTH PASS'S LESSON: ASK WHERE THE SUBJECT LIVES, NOT WHERE THE
+  #    TEST HAPPENS TO READ IT.  Over half of that pass's seventeen namespaces
+  #    needed no guard at all for their main claim, because the thing under
+  #    test was production state that the test had merely been OBSERVING
+  #    through the trace.  `:source :fx-dispatch`, `:rf.cofx`, `:fx-overrides`
+  #    and `:interceptor-overrides` are slots on the DISPATCH ENVELOPE, and a
+  #    user fx-handler is handed that envelope verbatim as `(:envelope m)` —
+  #    the surface `cascade-envelope-propagation-test/fx-handler-ctx-carries-
+  #    envelope-slot` pins.  An `:ovc/probe`-style fx inside each level of a
+  #    cascade reads every one of them with no trace involvement, in BOTH
+  #    postures.  `substrate-source-test` went from contributing nothing under
+  #    this lane to contributing sixteen assertions that way.
+  #
+  #    THE SAME QUESTION, ASKED OF THE ERROR AXIS, IS "IS THE CATEGORY
+  #    PROMOTED?"  `:rf.error/classification-effect-shape`,
+  #    `:rf.error/sub-input-fn-exception`, `:rf.error/sub-input-fn-bad-return`
+  #    and `:rf.error/no-such-sub` all fan through
+  #    `error-emit/emit-error-both!`, so "it fails loud" is provable on the
+  #    `:errors` stream in production posture.  What does NOT survive is the
+  #    DETAIL: `emit-error-both!` lifts only `:failing-id` / `:reason`, and
+  #    only when `:failing-id` differs from `:event-id`.  So a category with
+  #    no `:failing-id` — classification-effect-shape — reaches production
+  #    saying THAT an effect was malformed but not WHICH KEY.
+  #
+  #    AND A CORRECTION.  `fx-args-trace-egress-cljs-test`'s docstring claimed
+  #    the `:rf.fx/args` slot on the fx error traces "is production-survivable
+  #    — it fans out through the always-on error-emit listener".  The CATEGORY
+  #    is promoted; the SLOT is not.  `fx.cljc`'s `:rf.error/no-such-fx` site
+  #    says so outright: "the tight-record discipline is intact: `:rf.fx/args`
+  #    stays on the dev trace and does NOT reach the production record".  That
+  #    is the third triage reason across four passes that turned out to be
+  #    wrong when checked against the source.  Check the source.
+  #
+  #    ONE MORE FALSE-GREEN SHAPE, worth recognising because it is not a trace
+  #    ring: `core-epoch-egress-profile-test` read its claims off the EPOCH
+  #    RING, which `epoch.capture/observe-trace-event!` feeds from the dev
+  #    trace.  Empty ring → nil record → nil marker, and SIX assertions on an
+  #    egress-PRIVACY surface passed on the nil: two `(= x y)` where both were
+  #    nil, `(not (contains? nil :digest))`, a `count` over an empty string, a
+  #    `not-any?` over an empty history, and a human-sentence check on a nil
+  #    message.  The fix was not a guard — `projected-record` is a pure
+  #    function of a record plus the frame's durable elision registry, so the
+  #    profile rows now drive a SYNTHETIC record and run in both postures.
   re-frame.capture-frame-test
   re-frame.cascade-dispatch-id-test
   re-frame.cofx-cljs-test
