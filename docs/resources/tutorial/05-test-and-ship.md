@@ -287,15 +287,16 @@ npx shadow-cljs release app
 
 `release` compiles with `:advanced` optimizations and sets `goog.DEBUG` to `false`. `goog.DEBUG` is a compile-time boolean from the Google Closure compiler (the optimizer under shadow-cljs); in a release build it's a known-false *constant*, not a runtime variable. That single constant is the hinge of re-frame2's production story. Everything diagnostic sits behind an `if goog.DEBUG` gate, so when the constant is false the compiler folds the gate to "always skip" and then deletes the now-unreachable code entirely. That removal — the compiler eliminating dead code, *dead-code elimination (DCE)* — is what the guide means by [elide](../../core/glossary.md#elide). **What's gone from the file you just built:**
 
-- **Every schema check.** The validations that screamed at you in dev compile out completely. Zero hot-path cost — which is precisely *why* you could afford to write them everywhere. You don't ration safety to pay for speed; you get both.
+- **The schema checks that were advice.** A `:schema` you declare over code you wrote — the `reg-app-schema` paths from Part 3, a plain event check — asserts something about *your* code, and a release build takes you at your word: those validations compile out completely. Zero hot-path cost — which is precisely *why* you could afford to write them everywhere. You don't ration safety to pay for speed; you get both. (Note the wording. Not *every* schema check goes — see the survivors below.)
 - **The entire trace channel.** The epoch ledger you scrolled in [Xray](../../core/glossary.md#xray), the per-frame trace ring, every emit site. Not switched off — *absent*. Open Xray against the release build and there's nothing for it to attach to. That silence is your proof the elision is real.
 
 **What survives — because it isn't diagnostics:**
 
 - **The causal channel.** Events, effect maps, and the `:rf.cofx` facts stamped on every dispatch. Recordable coeffects are durable causal data — part of how the app computes its state — so they ship unconditionally. Deleting them would delete the app.
+- **The schema checks that were promises.** The line the compiler cuts along is *ownership*, not subject matter. A check the framework makes on one of its own boundaries is a promise about how the framework behaves, and a promise kept only in dev is not a promise — so it holds in the release build too. `:rf.schema/at-boundary` is the one you'll meet: put it on a handler that receives an HTTP response or a websocket frame and a malformed payload is refused before your handler runs, in production as in dev. A recordable coeffect's `:schema` is another — it throws rather than let a bad value into a record your app would later replay from. So are a declared route's shape and a managed-HTTP `:decode`. ([Dev and production builds](../../core/how-to/configure-dev-and-prod.md) sorts every surface into its pile.)
 - **The always-on error axis.** One tight, structured [error record](../../core/glossary.md#error-record) per production-reachable failure. A handler exception reaches your error service with its frame and event-id attached, instead of surfacing as a bare `window.onerror`. It survives elision. It is the production observability surface.
 
-That second survivor wants one piece of wiring before you deploy. Declare a sink on your frame's config (the `make-frame` from Part 1) and register its function:
+That last survivor wants one piece of wiring before you deploy. Declare a sink on your frame's config (the `make-frame` from Part 1) and register its function:
 
 ```clojure
 ;; add to the frame's metadata:
