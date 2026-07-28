@@ -52,6 +52,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.privacy.url :as url-egress]
             [re-frame.ssr.egress :as egress]
             [re-frame.ssr.http-validation :as http-validation]
             [re-frame.trace :as trace])
@@ -933,11 +934,12 @@
   that is the entire reason `:rf.server/safe-redirect` exists as the sibling
   of the caller-trusted `:rf.server/redirect` — and a rejected target
   routinely looks like `?next=https://evil.example.com/cb?token=…`.
-  `egress/redact-url-tag` scrubs the query / fragment carrier VALUES (keeping
-  the structured path, and keeping the scheme and host, which on THIS path
-  are the security signal) HERE, before the tags reach either axis. So the
-  scrub covers the always-on production record exactly as it covers the dev
-  trace.
+  `url-egress/redact-url-tag` — core's ONE URL-carrier policy, reachable from
+  here because it lives in the only artefact SSR depends on (rf2-6l2nc) —
+  scrubs the query / fragment carrier VALUES (keeping the structured path, and
+  keeping the scheme and host, which on THIS path are the security signal)
+  HERE, before the tags reach either axis. So the scrub covers the always-on
+  production record exactly as it covers the dev trace.
 
   Nothing else in the map is caller data: `:frame` is a frame id, `:scheme`
   and `:host` are parsed URL components, `:reason` is a framework enum (one
@@ -945,7 +947,7 @@
   input, and `:recovery` is fixed."
   [tags]
   (-> (merge {:recovery :no-recovery} tags)
-      (egress/redact-url-tag :location)))
+      (url-egress/redact-url-tag :location)))
 
 (defn- dispatch-safe-redirect-record!
   "Fan the rejected redirect out on the ALWAYS-ON error axis (rf2-6jqa8) —

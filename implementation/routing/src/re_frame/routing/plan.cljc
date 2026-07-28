@@ -26,7 +26,7 @@
   and then `commit-navigation`.
 
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.routing.egress :as egress]
+  (:require [re-frame.privacy.url :as url-egress]
             [re-frame.routing.scroll :as scroll]
             [re-frame.trace :as trace]))
 
@@ -220,7 +220,7 @@
         ;; `navigate/redact-route-error-tags`.
         tag (fn [base] (-> base
                            (cond-> frame (assoc :frame frame))
-                           egress/redact-url-tag))]
+                           (url-egress/redact-url-tag :url)))]
     (cond-> []
       throw-reason
       (conj [:emit :warning :rf.warning/malformed-url

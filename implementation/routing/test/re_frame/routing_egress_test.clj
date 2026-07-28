@@ -14,7 +14,7 @@
     - rf2-n1f4rh — the route-miss diagnostics (`:rf.warning/malformed-url`,
       `:rf.error/no-such-handler`) emit the raw requested URL under a custom
       `:url` slot the marks chokepoint does not walk. Fixed by a default-on
-      URL-carrier scrub (`re-frame.routing.egress/redact-url-carriers`) at the
+      URL-carrier scrub (`re-frame.privacy.url/redact-url-carriers`) at the
       emit site — no schema to consult on a route miss, so query/fragment
       values are redacted by default.
     - rf2-jfaucw — the blocked-navigation record keeps raw route carriers:
@@ -37,9 +37,12 @@
   ordinary `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh`,
   the `-Dre-frame.debug=false` lane):
 
-    * the pure carrier scrub `egress/redact-url-carriers` /
-      `egress/redact-url-tag` — plain functions the emit sites call
-      unconditionally, no `interop/debug-enabled?` anywhere near them;
+    * the pure carrier scrub `url-egress/redact-url-carriers` /
+      `url-egress/redact-url-tag` — plain functions the emit sites call
+      unconditionally, no `interop/debug-enabled?` anywhere near them (they
+      live in core since rf2-6l2nc; their own unit battery moved with them to
+      `re-frame.privacy-url-test`, and what is asserted here is that routing's
+      emit sites reach them);
     * the `:sensitive` RETENTION itself (`rf/handler-meta`, both the
       positional and the frame-targeted public arities) — registrar state,
       posture-independent, and the mechanism every projection rides on. This
@@ -73,10 +76,10 @@
             [re-frame.fx :as fx]
             [re-frame.elision :as elision]
             [re-frame.privacy :as privacy]
+            [re-frame.privacy.url :as url-egress]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.routing.egress :as egress]
             [re-frame.routing.nav-fx :as nav-fx]
             [re-frame.routing.scroll :as scroll]
             [re-frame.routing.sub-egress :as sub-egress]
@@ -107,98 +110,14 @@
   (fx/reg-fx fx-id (assoc prod-meta :platforms #{:server :client}) handler))
 
 ;; ===========================================================================
-;; The pure URL-carrier scrub (rf2-n1f4rh) — fast, host-symmetric.
+;; The pure URL-carrier scrub itself is CORE's (rf2-6l2nc). Its unit cases —
+;; the happy path plus the rf2-vh4lbf adversarial-input battery — moved to
+;; `re-frame.privacy-url-test` when `redact-url-carriers` moved to
+;; `re-frame.privacy.url`, so the policy is pinned where it is defined rather
+;; than in one of the two artefacts that call it. What stays here is what is
+;; about ROUTING: which emit sites reach the scrub, and what the egress copy
+;; of each looks like.
 ;; ===========================================================================
-
-(deftest redact-url-carriers-keeps-path-redacts-query-values
-  (testing "rf2-n1f4rh: query KEYS are preserved (shape), VALUES redacted"
-    (is (= (str "/oauth/callback?code=" sentinel-str "&state=" sentinel-str)
-           (egress/redact-url-carriers "/oauth/callback?code=secret123&state=xyz"))
-        "each query value → rf/redacted; keys + path intact")))
-
-(deftest redact-url-carriers-redacts-fragment-whole
-  (testing "rf2-n1f4rh: the whole #fragment is opaque → redacted wholesale"
-    (is (= (str "/login#" sentinel-str)
-           (egress/redact-url-carriers "/login#access_token=abc.def.ghi"))
-        "the fragment carrier is redacted entirely")
-    (is (= (str "/search?q=" sentinel-str "#" sentinel-str)
-           (egress/redact-url-carriers "/search?q=ssn-123#tok"))
-        "both query values and fragment redacted")))
-
-(deftest redact-url-carriers-bare-path-rides-verbatim
-  (testing "rf2-n1f4rh: a path with no query/fragment is not a carrier target"
-    (is (= "/admin/users/42" (egress/redact-url-carriers "/admin/users/42"))
-        "bare path verbatim")
-    (is (= "/" (egress/redact-url-carriers "/")) "root verbatim")))
-
-(deftest redact-url-carriers-value-less-flag-key-kept
-  (testing "rf2-n1f4rh: a value-less flag query key is kept (no = → no secret)"
-    (is (= (str "/x?debug&token=" sentinel-str)
-           (egress/redact-url-carriers "/x?debug&token=abc"))
-        "the bare `debug` flag rides; `token=abc` value is redacted")))
-
-(deftest redact-url-carriers-nil-safe
-  (testing "a non-string input rides back unchanged"
-    (is (nil? (egress/redact-url-carriers nil)))))
-
-;; ===========================================================================
-;; rf2-vh4lbf — ADVERSARIAL-INPUT battery for redact-url-carriers (review F5).
-;;
-;; The core cases above cover the happy path; these pin the wrong-SHAPED edge
-;; inputs. Every one is redaction-SAFE today (no secret leaks), but each
-;; produces a cosmetically odd output a future refactor could turn LEAKY — so
-;; they are refactor-fragility guards. The two load-bearing ones (a
-;; parsing-order regression COULD expose a value):
-;;   - trailing `&`: the empty trailing pair must not resurrect a raw value;
-;;   - fragment-before-query ordering (`#a=1?b=2`): the `?` lives INSIDE the
-;;     fragment, so the whole fragment must redact wholesale — the query-split
-;;     must NOT reach across the `#` boundary and treat `b=2` as a live query.
-;; ===========================================================================
-
-(deftest redact-url-carriers-empty-query-rides-bare-question-mark
-  (testing "rf2-vh4lbf: `/x?` (empty query) keeps the bare `?` — no pair to
-            redact, nothing leaks (shape is cosmetic, not a carrier)"
-    (is (= "/x?" (egress/redact-url-carriers "/x?"))
-        "an empty query string rides as a bare `?` (no `key=value` to scrub)")))
-
-(deftest redact-url-carriers-trailing-ampersand-drops-empty-pair
-  (testing "rf2-vh4lbf: `/x?a=1&` (trailing &) redacts the real pair and drops
-            the empty trailing pair — no raw value survives the split/rejoin"
-    (let [out (egress/redact-url-carriers "/x?a=1&")]
-      (is (= (str "/x?a=" sentinel-str) out)
-          "the real value redacts; the empty trailing pair is dropped (no `&` tail)")
-      (is (not (re-find #"=1" out))
-          "GUARD: the raw value `1` never survives the trailing-& split")
-      ;; Two trailing ampersands collapse the same way — still no raw value.
-      (is (not (re-find #"=1" (egress/redact-url-carriers "/x?a=1&&")))
-          "GUARD: doubled trailing `&` still drops the raw value"))))
-
-(deftest redact-url-carriers-empty-fragment-synthesizes-sentinel
-  (testing "rf2-vh4lbf: `/x#` (empty fragment) synthesizes `/x#rf/redacted` —
-            cosmetic noise on an empty fragment, but never a leak"
-    (is (= (str "/x#" sentinel-str) (egress/redact-url-carriers "/x#"))
-        "an empty fragment still redacts to the sentinel (the whole fragment is opaque)")))
-
-(deftest redact-url-carriers-question-mark-inside-fragment-redacts-whole
-  (testing "rf2-vh4lbf: `/p#a=1?b=2` — the `?` lives INSIDE the fragment, so the
-            WHOLE fragment redacts and the query-split never crosses the `#`"
-    (let [out (egress/redact-url-carriers "/p#a=1?b=2")]
-      (is (= (str "/p#" sentinel-str) out)
-          "the fragment (incl. its embedded `?b=2`) redacts wholesale; no live query")
-      ;; The crucial ordering guard: a parsing-order regression that split on
-      ;; `?` BEFORE `#` would treat `b=2` as a live query and could expose a
-      ;; fragment value as a raw query value.
-      (is (not (re-find #"=2" out))
-          "GUARD: the fragment-internal `?b=2` value never escapes as a raw query")
-      (is (not (re-find #"a=1" out))
-          "GUARD: the fragment-internal `a=1` never escapes raw")))
-  (testing "rf2-vh4lbf: a REAL query BEFORE a `?`-bearing fragment scrubs both
-            sides correctly (the `#` split precedes the `?` split)"
-    (let [out (egress/redact-url-carriers "/p?q=secret#frag?x=y")]
-      (is (= (str "/p?q=" sentinel-str "#" sentinel-str) out)
-          "the real query value redacts; the whole fragment (with its `?x=y`) redacts")
-      (is (not (re-find #"secret" out)) "GUARD: the real query secret never rides raw")
-      (is (not (re-find #"x=y" out)) "GUARD: the fragment-internal query never escapes"))))
 
 ;; ===========================================================================
 ;; rf2-1wmni6 / rf2-pbbo68 — scroll/history fx :sensitive marks project the
@@ -317,12 +236,12 @@
     (let [raw "/oauth/callback?code=topsecret&state=xyz#access_token=leak"
           traces (atom [])]
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the scrub the emit site
-      ;; applies is `egress/redact-url-tag`, an ALWAYS-ON pure function — no
+      ;; applies is `url-egress/redact-url-tag`, an ALWAYS-ON pure function — no
       ;; `interop/debug-enabled?` between it and the caller. Assert it on the
       ;; exact tag map the route-miss telemetry builds, so the scrub itself is
       ;; proven under the production gate even though the trace is not emitted
       ;; there.
-      (let [scrubbed (:url (egress/redact-url-tag {:url raw :kind :route} :url))]
+      (let [scrubbed (:url (url-egress/redact-url-tag {:url raw :kind :route} :url))]
         (is (re-find #"^/oauth/callback" scrubbed) "the PATH is preserved")
         (is (not (re-find #"topsecret" scrubbed)) "the query secret is NOT raw")
         (is (not (re-find #"leak" scrubbed)) "the fragment secret is NOT raw")
@@ -380,10 +299,10 @@
       (rf/unregister-listener! :trace ::blocked)
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the `:requested-url` scrub
       ;; the emit site applies (decisions.cljc §301-309) is the ALWAYS-ON
-      ;; `egress/redact-url-tag` on the `:requested-url` slot. Assert it there,
-      ;; so the scrub itself is proven under the production gate.
+      ;; `url-egress/redact-url-tag` on the `:requested-url` slot. Assert it
+      ;; there, so the scrub itself is proven under the production gate.
       (let [scrubbed (:requested-url
-                       (egress/redact-url-tag
+                       (url-egress/redact-url-tag
                          {:requested-url "/cart?coupon=SECRET100&ref=x"
                           :rejecting-guard :editor/can-leave?}
                          :requested-url))]

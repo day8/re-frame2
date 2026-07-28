@@ -60,10 +60,13 @@
       cluster (the trace-bus half; held off this lane under rf2-dtpfv).
     - `re-frame.ssr-route-miss-404-production-test` (rf2-ov56u) — the
       always-on witness this one is modelled on."
-  (:require [clojure.string :as str]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.privacy.url :as url-egress]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.egress :as egress]
             [re-frame.ssr.test-fixture :as tf]))
@@ -248,7 +251,7 @@
 ;; ===========================================================================
 ;;
 ;; The AUDIT-REOPEN half of rf2-6jqa8.  The first shipped shape scrubbed the
-;; `:location` with `egress/redact-url-carriers` and put the scrubbed string on
+;; `:location` with `url-egress/redact-url-carriers ` and put the scrubbed string on
 ;; the record.  That is the right blanket policy for ordinary route diagnostics
 ;; over the app's OWN URL space (rf2-ov56u's route-miss `:url`), and it is NOT
 ;; a fail-closed projection of an ARBITRARY ATTACKER-SUPPLIED FOREIGN URL: the
@@ -373,7 +376,7 @@
       (is (= "evil.example.com" (:host host))))))
 
 (deftest the-scrub-is-total-over-the-shapes-a-location-can-take
-  (testing "rf2-6jqa8: `redact-url-carriers` no longer stands between the
+  (testing "rf2-6jqa8: `url-egress/redact-url-carriers ` no longer stands between the
             attacker's URL and PRODUCTION — the structural projection above
             does — but it still scrubs the `:location` on the DEV diagnostics
             (and rf2-ov56u's route-miss `:url`), so its totality is still a
@@ -385,16 +388,16 @@
             Read the two together and the EP-0015 relationship is the point:
             the dev operator sees their own process in full detail, and the
             production record is a strict projection of it."
-    (is (nil? (egress/redact-url-carriers nil)))
-    (is (= 42 (egress/redact-url-carriers 42)))
-    (is (= "" (egress/redact-url-carriers "")))
-    (is (= "/plain/path" (egress/redact-url-carriers "/plain/path"))
+    (is (nil? (url-egress/redact-url-carriers nil)))
+    (is (= 42 (url-egress/redact-url-carriers 42)))
+    (is (= "" (url-egress/redact-url-carriers "")))
+    (is (= "/plain/path" (url-egress/redact-url-carriers "/plain/path"))
         "a bare path is not a carrier this policy targets")
-    (is (= "javascript:alert(1)" (egress/redact-url-carriers "javascript:alert(1)"))
+    (is (= "javascript:alert(1)" (url-egress/redact-url-carriers "javascript:alert(1)"))
         "the attack string itself survives intact when it carries no
          query / fragment — the common case, and the one a responder needs")
     (is (= "/x?a=rf/redacted&flag#rf/redacted"
-           (egress/redact-url-carriers "/x?a=1&flag#frag"))
+           (url-egress/redact-url-carriers "/x?a=1&flag#frag"))
         "values redacted, keys kept, value-less flag key kept, fragment whole")))
 
 ;; ===========================================================================
@@ -423,3 +426,116 @@
                  "a server error"))
         (is (nil? (:redirect response))
             (str label " — and still no redirect"))))))
+
+;; ===========================================================================
+;; (6) THE SCRUB REACHES A ROUTING-FREE SSR HOST (rf2-6l2nc)
+;; ===========================================================================
+;;
+;; The `:location` scrub used to be a byte-identical COPY of routing's, kept
+;; here on purpose: SSR depends on core alone, so the only ways to share
+;; routing's copy were a production `:require` on routing (the whole route
+;; grammar on the classpath of every SSR app that registers no routes) or a
+;; late-bind hook to it — and a late-bind FAILS OPEN in exactly the common
+;; case, a routing-free SSR host. No routing artefact, no scrub, secrets on
+;; the wire. A fail-open scrub on a fail-closed egress boundary is the wrong
+;; failure mode by construction, which is why the duplication was correct at
+;; the time.
+;;
+;; rf2-6l2nc removed the duplication the only way that keeps the property:
+;; the policy moved into CORE (`re-frame.privacy.url`), the one artefact BOTH
+;; callers already depend on. This section is the regression net for that
+;; property, because the property is invisible in an ordinary test run — the
+;; `:test` alias puts routing on the classpath, so a reintroduced routing
+;; dependency would go GREEN here and only fail on a real routing-free
+;; deployment. So it is asserted STRUCTURALLY, off the artefact's own
+;; production dependency declaration and source tree, which is where the
+;; regression would actually live.
+
+(defn- ssr-artefact-file
+  "Resolve a path inside `implementation/ssr/` from the JVM test CWD (this
+  artefact's own directory), falling back to a run from the repo root."
+  [rel]
+  (first (filter #(.exists ^java.io.File %)
+                 [(io/file rel) (io/file "implementation/ssr" rel)])))
+
+(defn- ssr-production-sources []
+  (->> (file-seq (ssr-artefact-file "src"))
+       (filter #(.isFile ^java.io.File %))
+       (filter #(re-find #"\.clj[cs]?$" (.getName ^java.io.File %)))))
+
+(def ^:private routing-load-form
+  "A routing namespace reached in a LOAD position — an `(:require [re-frame…])`
+  vector, a bare `(:require re-frame.routing…)`, or a quoted symbol handed to
+  `require` / `resolve` at runtime. Deliberately not a bare-name grep: two
+  comments in `payload_policy.cljc` discuss routing's classification registry
+  in prose, and prose is not a classpath dependency."
+  #"(\[|'|\(:require\s+)re-frame\.routing")
+
+(deftest the-location-scrub-is-on-ssrs-production-classpath-without-routing
+  (testing "rf2-6l2nc: SSR's production `:deps` name core and nothing else, so
+            the artefact a deployed SSR host loads is core + ssr. Routing
+            appears only under the `:test` / `:prod-gate` aliases."
+    (let [deps (-> (ssr-artefact-file "deps.edn") slurp edn/read-string :deps keys set)]
+      (is (contains? deps 'day8/re-frame2)
+          "non-vacuity: the production deps map really was read")
+      (is (= #{'day8/re-frame2} deps)
+          "core ALONE. A routing coordinate here would make every SSR app pay
+           for the route grammar, which is the cost the duplication was
+           avoiding — it is not the way to remove the duplication.")))
+
+  (testing "rf2-6l2nc: no production source file under implementation/ssr/src
+            LOADS a routing namespace — not in an `(ns … :require)`, not via a
+            runtime `require` / `resolve`. There is therefore nothing for a
+            routing-free host to fail to resolve."
+    (let [sources (ssr-production-sources)
+          guilty  (filter #(re-find routing-load-form (slurp %)) sources)]
+      (is (< 10 (count sources))
+          "non-vacuity: the source scan really reached the ssr src tree")
+      (is (empty? (map #(.getPath ^java.io.File %) guilty))
+          "a routing reference in ssr production source is the fail-open shape
+           this consolidation exists to prevent")))
+
+  (testing "rf2-6l2nc: and the scrub itself is a plain core fn — resolvable,
+            with no hook to be unbound and no artefact to be absent. This is
+            the assertion the late-bind design could not have made: under it,
+            a routing-free host would take the unbound branch and ship the raw
+            URL."
+    (is (= "/cb?code=rf/redacted#rf/redacted"
+           (url-egress/redact-url-carriers "/cb?code=secret#access_token=leak"))
+        "the scrub runs here, on ssr's classpath, with nothing routing-shaped
+         loaded on its behalf")
+    (is (= "/cb?code=rf/redacted#rf/redacted"
+           (:location (url-egress/redact-url-tag
+                        {:location "/cb?code=secret#access_token=leak"}
+                        :location)))
+        "and the `:location` slot the rejection arms build reaches it")))
+
+(deftest exactly-one-url-carrier-policy-survives-the-consolidation
+  (testing "rf2-6l2nc: `re-frame.ssr.egress` no longer defines a scrub of its
+            own. Two copies of one policy is how the two drift, and the drift
+            would be silent — each artefact's own suite would stay green while
+            the same URL scrubbed two different ways."
+    (is (nil? (resolve 're-frame.ssr.egress/redact-url-carriers))
+        "the SSR copy is gone, not shadowed")
+    (is (nil? (resolve 're-frame.ssr.egress/redact-url-tag))
+        "and so is its tag wrapper")
+    (is (some? (resolve 're-frame.privacy.url/redact-url-carriers))
+        "core owns the one implementation"))
+
+  (testing "rf2-6l2nc: what `re-frame.ssr.egress` still owns is the ALLOW-list
+            for the always-on record — a different instrument for a different
+            job, and one the carrier scrub must never be mistaken for. It is
+            built FROM its slot set rather than filtered down to it, so an
+            unrecognised tag has no path into the record even in principle."
+    (is (= #{:frame :recovery :reason :scheme :host}
+           egress/safe-redirect-record-slots)
+        "the closed set, unchanged by the consolidation")
+    (is (= {:scheme "https"}
+           (egress/safe-redirect-record-tags
+             {:scheme    "https"
+              :location  "https://alice:pw@evil.example.com/reset/tok-abc"
+              :allowlist ["app.example.com"]}))
+        "a scrubbed-or-not `:location` and the app's own allowlist are BUILT
+         OUT of the record, not filtered out of it — the userinfo password and
+         the path-borne token the carrier scrub deliberately keeps never had a
+         route here")))
