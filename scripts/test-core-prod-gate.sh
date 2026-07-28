@@ -191,9 +191,7 @@ known_red=(
   re-frame.event-context-partition-test
   re-frame.frame-destroy-composed-test
   re-frame.frame-destroy-incarnation-jvm-test
-  re-frame.frame-teardown-report-cljs-test
   re-frame.interceptor-override-summary-trace-test
-  re-frame.live-frame-reload-cljs-test
   re-frame.observation-port-cljs-test
   re-frame.override-capture-trace-test
   re-frame.reg-meta-noswallow-cljs-test
@@ -201,10 +199,8 @@ known_red=(
   re-frame.registrar-warnings-test
   re-frame.source-coord-jvm-test
   re-frame.source-coords-test
-  re-frame.sub-cycle-cljs-test
   re-frame.sub-dispose-trace-test
   re-frame.sub-parametric-inputs-test
-  re-frame.substrate-source-test
   re-frame.success-path-call-site-test
   re-frame.success-path-trigger-handler-test
   re-frame.trace-buffer-test
