@@ -26,9 +26,20 @@
   is lexical constants naming an anchor, so the tree can be asserted to
   carry no computed geometry at all. That is the half of the anchoring
   contract a headless render can prove, and it is the half that would rot
-  silently the first time a later change reached for a rectangle."
+  silently the first time a later change reached for a rectangle.
+
+  ## And one row that is JVM-only
+
+  The last row asks the compiled grammar whether it will take this control,
+  by running `v/check` — a door verb that reads SOURCE, and therefore one
+  the JVM alone can answer. It lives here rather than in a namespace of its
+  own because it makes the same kind of claim as every row above it: a fact
+  about the declaration, asserted against the fixture. Node simply does not
+  see it."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            #?(:clj [clojure.java.io :as io])
+            #?(:clj [re-frame.freehand :as v])
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.freehand.cell :as cell]
@@ -463,3 +474,58 @@
 
         (send! [:desk/closed k])
         (is (nil? (record)) "releasing twice is releasing once")))))
+
+;; ===========================================================================
+;; FH-CTRL-020 — the compiled tier, refused out loud
+;; ===========================================================================
+;;
+;; JVM only, and not because ClojureScript is the lesser host here: `v/check`
+;; READS SOURCE, which is a thing only the JVM can do, and the door publishes
+;; it under `#?(:clj …)` for exactly that reason. So this row asks the
+;; question in the one place it can be asked, and node runs the rest of the
+;; file unchanged.
+
+#?(:clj
+   (deftest fh-ctrl-020-the-compiled-tier-refuses-this-control-and-says-why
+     (testing "Per FH-CTRL-020, the mode half: this row's applicability is
+               `interpreted jvm browser`, and a reader deciding whether to
+               depend on that needs to know whether compiled is UNCLAIMED or
+               REFUSED. It is refused, and the refusal is not this suite's
+               opinion — `v/check` runs the same analyzer the build runs,
+               over the declaration as it stands, and its report is compared
+               against the fixture's `:compiled` value.
+
+               Which makes the limitation FALSIFIABLE, and that is the whole
+               reason it is a test rather than a sentence. A sentence saying
+               `this cannot compile` stays green forever, including on the
+               day it stops being true. This row goes red then, and the
+               witness gets its compiled twin."
+       (let [{:keys [view eligible? finding caller]} (:compiled ctrl-020)
+             reports (v/check (-> (io/resource "re_frame/freehand/typeahead_witness.cljc")
+                                  io/file
+                                  .getPath))
+             by-view (into {} (map (juxt :view-id identity)) reports)
+             report  (get by-view view)]
+
+         (is (some? report)
+             "non-vacuous: the checker really did read this declaration")
+         (is (= eligible? (:compile-eligible? report))
+             "the control is outside the compiled grammar")
+
+         (let [[found & others] (:findings report)]
+           (is (empty? others)
+               "and for ONE reason — a second finding would mean the recovery
+                below is not the whole answer")
+           (is (= finding (select-keys found (keys finding)))
+               "which is the reason the fixture names, in the shape the
+                checker answers it: a per-iteration event site is not a
+                lexical one, and the ladder's single rung is the grammar
+                declining rather than the author"))
+
+         (testing "the CONTROL for that refusal — the caller in the same file,
+                   under the same analyzer, in the same report"
+           (let [callers-report (get by-view (:view caller))]
+             (is (some? callers-report))
+             (is (= (:eligible? caller) (:compile-eligible? callers-report))
+                 "so the verdict is a fact about the control's BODY, not
+                  about the file it lives in")))))))

@@ -147,6 +147,37 @@ Debounce begins as **library or app policy**. It graduates into reserved re-fram
 vocabulary only after independent UI and non-UI uses share identity, cancellation,
 frame, SSR, and trace semantics (D017). Do not invent `v/debounce`.
 
+### The whole control, proven
+
+The sketch above is the app pattern. The *packaged* version of it — a typeahead
+with an anchored suggestion popover, an IME-safe keyboard, correlation and
+supersession, and an owner’s clear — is proven end to end as **`FH-CTRL-020`**
+in the Freehand conformance index (`spec/conformance/freehand/conformance-index.md`,
+§FH-CTRL). Three things in it are worth borrowing before you write your own:
+
+- **The popover is anchored by the platform, not by you.** The input declares
+  `anchor-name`; the list declares `position-anchor` and takes its insets from
+  `anchor(bottom)` / `anchor(left)`, with `position-try-fallbacks` for collision.
+  So there is no measured rectangle, no `ResizeObserver`, and nothing to release
+  — and nothing to go stale inside a scroll container. The cost is stated rather
+  than hidden: CSS anchor positioning is Chromium-first, so this is the one part
+  of the control bound to a real browser.
+- **A composing Enter commits nothing.** The rule is `controls/key-intent`, a
+  pure function of the key and the composition flag, so it is provable without a
+  browser — and the arrows are withheld during a composition for the same reason
+  Enter is, because a candidate window is what `ArrowDown` is moving through.
+- **Nothing needs cancelling.** Every keystroke mints a token, and the debounce
+  *is* that comparison: a scheduled search firing for a superseded token does
+  nothing, so there is no timer handle to hold and no cleanup to forget.
+
+**One limit, and it is the grammar’s rather than the control’s.** A typeahead
+like this stays **interpreted**. Its options render in a loop and each option’s
+commit closes over that loop’s index, which is not a lexical event site — ask
+`v/check` and it answers `:rf.ui.compile/loop-capturing-handler` with a single
+recovery rung, `:keep-interpreted`. The *call site* around it compiles fine, so
+this is the ordinary composition and not a cliff: promotion is per declaration,
+and a listbox is simply not the shape the compiled tier is for.
+
 ## Where the data lives
 
 Controller state is **ordinary frame-scoped re-frame data** (usually that frame’s

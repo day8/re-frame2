@@ -71,6 +71,37 @@
  :popover-mode "auto"
 
  ;; ---------------------------------------------------------------------------
+ ;; The compiled tier, as a VERDICT rather than a silence
+ ;; ---------------------------------------------------------------------------
+ ;;
+ ;; This row's applicability is `interpreted jvm browser`. The index grammar
+ ;; permits a row to claim no compiled mode and say nothing further, but a
+ ;; silence and a limit read identically to someone who has to decide whether
+ ;; to depend on this, so the limit is a VALUE here and an assertion in the
+ ;; structural suite: `v/check` — the grammar's own read-only checker, the
+ ;; same analyzer the build runs — is executed against this witness's source
+ ;; on the JVM and its report is compared to what is written below.
+ ;;
+ ;; The finding is not incidental. The option's commit is an event site inside
+ ;; the `for` over the results and closes over the loop's `i`; a compiled site
+ ;; is lexical, so a handler whose arguments vary per iteration is not one
+ ;; site. The recovery ladder has a single rung — the grammar declining, not
+ ;; the author. `:caller` is the contrast that makes the verdict a fact about
+ ;; that BODY rather than about the file.
+ ;;
+ ;; Written as the checker answers it, so a report that drifted in shape would
+ ;; be as visible as one that drifted in verdict.
+ :compiled
+ {:view      :re-frame.freehand.typeahead-witness/typeahead
+  :eligible? false
+  :finding   {:id       :rf.ui.compile/loop-capturing-handler
+              :form     [:kit.ui.typeahead/chosen k g i on-select]
+              :reason   :form-outside-the-grammar
+              :recovery [:keep-interpreted]}
+  :caller    {:view      :re-frame.freehand.typeahead-witness/reviewer-form
+              :eligible? true}}
+
+ ;; ---------------------------------------------------------------------------
  ;; The data a run drives
  ;; ---------------------------------------------------------------------------
  :query         "an"
@@ -191,11 +222,11 @@
 
   :structural
   [{:ns  re-frame.freehand.typeahead-witness-cljs-test
-    :law "Everything the control declares rather than does: one instance identity across input, status and listbox with the ARIA wiring that lets focus stay put, a popover whose openness is the reserved desired-state fact and whose position is LEXICAL CONSTANTS naming an anchor — so no measured geometry can hide in the tree — a pure keyboard grammar that delegates Enter and Escape to the kit's own rule, and all three fences as comparisons over ordinary frame data."}]
+    :law "Everything the control declares rather than does: one instance identity across input, status and listbox with the ARIA wiring that lets focus stay put, a popover whose openness is the reserved desired-state fact and whose position is LEXICAL CONSTANTS naming an anchor — so no measured geometry can hide in the tree — a pure keyboard grammar that delegates Enter and Escape to the kit's own rule, all three fences as comparisons over ordinary frame data, and — on the JVM, where a door verb can read source — the compiled grammar's own verdict on this declaration, so the absent compiled mode is a REFUSAL this suite re-derives rather than a silence it inherits."}]
 
   :mounted
   [{:ns  re-frame.freehand.typeahead-witness-dom-cljs-test
-    :law "Against a real Chromium commit: the list is promoted to the top layer and its top-left corner lands on the input's bottom-left corner — measured against a CONTROL popover carrying no anchor, which is not there — arrow keys move the active descendant while `document.activeElement` never stops being the input, a plain Enter and a pointer click each commit and each return focus, an Enter carrying either composition signal commits nothing and discards nothing, Escape and a light dismiss both close without committing, a superseded reply arriving late is inert, and after the owner's release and unmount nothing survives."}]
+    :law "Against a real Chromium commit: the list is promoted to the top layer and its top-left corner lands on the input's bottom-left corner — measured against a CONTROL popover carrying no anchor, which is not there — arrow keys move the active descendant while `document.activeElement` never stops being the input, a plain Enter and a pointer click each commit and each return focus, an Enter carrying either composition signal commits nothing and discards nothing, Escape and a light dismiss both close without committing, a superseded reply arriving late is inert, a failure puts a real `retry` button on the page which a real pointer CLICK — never a hand-dispatched event — turns into a fresh request whose answer is the one shown while the failed request's late answer opens nothing, and after the owner's release and unmount nothing survives."}]
 
   ;; What a run leaves for a reader. The DOM's own value and active
   ;; descendant, read off `document` rather than off the test's bookkeeping;
