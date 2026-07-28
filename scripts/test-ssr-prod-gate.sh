@@ -25,7 +25,7 @@
 # run: no lane reached this artefact.  This script is that lane.
 #
 #     bash scripts/test-ssr-prod-gate.sh          run the lane
-#     bash scripts/test-ssr-prod-gate.sh --plan   print the roster, run nothing
+#     bash scripts/test-ssr-prod-gate.sh --plan   print the posture, run nothing
 #
 # CI arm: the `jvm-ssr-prod-gate` job in `.github/workflows/test.yml`, which is
 # in `all-required-passed`'s `needs:`.
@@ -47,314 +47,56 @@
 # between the two lanes.  `re-frame.ssr-prod-gate-lane-pin-test` then runs
 # INSIDE the lane and asserts, unconditionally, that the property reached this
 # JVM and that the framework honoured it.  Without that pin a lost flag would
-# not go red: this roster is by construction a subset of what already passes in
-# dev posture, so the lane would go GREEN on the wrong posture — the exact
-# class of false green this whole file exists to close.
+# not go red: this suite passes in dev posture, so the lane would go GREEN on
+# the wrong posture — the exact class of false green this whole file exists to
+# close.  That pin matters MORE now, not less: with the roster gone there is no
+# second signal left that the posture is the one intended.
 #
-# WHY A ROSTER AND NOT THE WHOLE SUITE.  Nobody had ever run the ssr suite
-# under the real gate.  Run on 2026-07-27 it is emphatically RED: 217 failures
-# and 1 error across 21 of its 48 test namespaces.  Three shapes account for
-# all of it — dev-instrumentation assertions written inline with semantics,
-# `data-rf2-source-coord` / `data-rf-view` annotations that are prod-elided at
-# the core `reg-view` boundary, and the error-projection cluster whose status
-# codes depend on the development trace listener.  The first two are legitimate
-# dev-posture tests rather than defects.  The third is a documented design
-# choice with a real production consequence and is under a RULING (rf2-rqje9)
-# before anyone writes it off.  Either way "make the whole suite green under
-# the gate" is not a fix; the triage bead is named per group below.
+# THERE USED TO BE A ROSTER.  IT IS EMPTY, SO IT IS GONE (rf2-lwtlk).
 #
-# The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
-# the point: a namespace added to `implementation/ssr/test/` joins this lane BY
-# DEFAULT and has to be excluded deliberately, so a new suite that breaks under
-# the production gate reddens this job the day it lands.  An allowlist would
-# have the opposite failure mode — silently not covering the new thing.  The
-# list shrinks as rf2-lwtlk lands; when it reaches zero, this script is one
-# line and the `-n` machinery goes away.
+# Nobody had ever run the ssr suite under the real gate.  Run on 2026-07-27 it
+# was emphatically RED: 217 failures and 1 error across 21 of its 48 test
+# namespaces, and this script carried those 21 as a known-red EXCLUSION list,
+# grouped by cause, each group naming the bead that would clear it.
+#
+# rf2-lwtlk was that triage stream and it has finished.  Four shapes accounted
+# for all 21.  Dev-instrumentation assertions written inline with semantics,
+# and `data-rf2-source-coord` / `data-rf-view` annotations prod-elided at the
+# core `reg-view` boundary: both legitimate dev-posture tests, posture-split so
+# the semantics they were entangled with run here.  The error-projection
+# cluster, which looked like a design choice and was not — rf2-ov56u promoted
+# the URL-driven route miss onto the always-on axis, so a production server no
+# longer answers an unroutable URL with HTTP 200, and
+# `re-frame.ssr-route-miss-404-production-test` is the proof, in this lane.
+# And `ssr-end-to-end-test`, the last line, whose
+# `ssr-server-fx-args-schema-boundary` was failing for a REAL reason: the Spec
+# 010 step-5 fx-args gate does not run in a release build, so a malformed
+# `:rf.server/*` fx RAN and its args landed on the response accumulator.
+# rf2-dtpfv fixed that — the reserved family guards its own args in every build
+# — and the deftest was rewritten as a two-posture contract rather than split.
+#
+# Note how little of the 21 was dev-posture SPELLING once each was actually
+# read: the recurring finding was that a production-visible witness existed and
+# the test was reading the dev copy of it.  Guarding is the last resort in this
+# artefact, not the first move.
+#
+# WHAT REPLACES THE ROSTER.  Nothing — and that is the strongest possible
+# polarity.  The exclusion list's whole virtue was that a namespace added to
+# `implementation/ssr/test/` joined the lane BY DEFAULT and had to be excluded
+# deliberately.  With the list empty, the runner discovers every `.*-test$`
+# namespace under `test/` and runs it, so a new suite that breaks under the
+# production gate reddens this job the day it lands, with nothing to edit and
+# no `-n` selector that could silently fail to match.  The two roster guards
+# (`verify_roster`) existed to keep that selector honest and went with it.
+#
+# If a namespace ever has to be excluded again, do not reintroduce a list
+# without reading the history above first: on this artefact, four of the five
+# "obviously dev-only" clusters turned out to have an always-on witness.
 
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 artefact="$repo_root/implementation/ssr"
-test_root="$artefact/test"
-
-# ---------------------------------------------------------------------------
-# The known-red roster.
-#
-# Every entry is a namespace that FAILS under `-Dre-frame.debug=false` today,
-# grouped by why, with its red-assertion count as measured on 2026-07-27.  The
-# group names the bead that clears it.  An entry that no longer names a real
-# namespace is a hard error (see `verify_roster` below), so a rename cannot
-# leave a stale exclusion quietly suppressing coverage.
-# ---------------------------------------------------------------------------
-known_red=(
-  # ── rf2-rqje9 — RULING LANDED (2026-07-27); THE DEFECT IS FIXED, THE
-  #    RESIDUE IS SPELLING.  These five used to fail on assertions of the
-  #    form "the buffered `:rf.error/no-such-handler` projects 404 onto
-  #    `:status`", and the consequence the gate made visible was that a
-  #    production server answered an unroutable URL with HTTP 200.  The
-  #    ruling was NOT "intended": rf2-ov56u promoted the URL-driven route
-  #    miss onto the always-on error axis and `:kind`-gated the default
-  #    projector's 404 arm, so a production route miss now answers 404 for
-  #    real.  `re-frame.ssr-route-miss-404-production-test` is that proof and
-  #    runs IN this lane.
-  #
-  #    WHAT IS LEFT IS NOT THE DEFECT.  Every remaining red in these five
-  #    synthesises its error straight onto the DEV trace bus
-  #    (`trace/emit-error!` from a test helper, `@traces` reads) rather than
-  #    driving a real emit site, so the gate empties the bus and the
-  #    assertion observes nothing — dev-instrumentation spelling of exactly
-  #    the shape the rest of this roster carries.  They are rf2-lwtlk group
-  #    (c)'s ordinary posture split, which was sequenced to WAIT for
-  #    rf2-ov56u's merge; that wait is over.  Re-run and split; do not read
-  #    a red here as the 200-for-404 defect returning, and check
-  #    `ssr-route-miss-404-production-test` first if you suspect it has.
-  #
-  #    FOUR OF THE FIVE ARE NOW CLEARED, and only ONE of them cleared by
-  #    guarding.  `ssr-flush-response-result-test`'s helper was re-pointed
-  #    at the ALWAYS-ON axis instead — both categories it uses
-  #    (`handler-exception`, `no-such-handler {:kind :route}`) reach
-  #    production, so the drain-classification contract a host adapter
-  #    depends on now executes in the posture that ships, with no guard and
-  #    no assertion moved.  Its fixture also stopped calling
-  #    `clear-error-listeners!` AFTER `reset-runtime`, which had been
-  #    wiping the `re-frame.ssr` façade's own always-on `::error-projection`
-  #    listener and leaving the production path unarmed for every test in
-  #    the file.  `ssr-head-resolution-no-project-test`,
-  #    `ssr-error-view-failed-no-project-test` and
-  #    `ssr-error-two-frame-attribution-test` DID need dev arms for their
-  #    `trace/emit-error!` halves — including two NEGATIVES that were
-  #    passing vacuously over an empty ring — and each gained a
-  #    production-posture counterpart so the guard did not cost coverage:
-  #    an always-on positive control for the two skip-set suites, and a
-  #    throwing-handler two-frame attribution pin for the third (whose only
-  #    trigger, the navigate-reject, is production-elided per Spec 010).
-  #
-  #    THE FIFTH IS HELD ON A NEW FINDING — rf2-dtpfv (P1).  Re-measured
-  #    2026-07-28, `ssr-end-to-end-test` is 116 reds across 40 deftests.  39
-  #    of those deftests are mechanical trace-sourcing.  ONE is not:
-  #    `ssr-server-fx-args-schema-boundary` fails SEVEN SEMANTIC assertions
-  #    because the behaviour genuinely differs.  `validate-fx!` is
-  #    `(if interop/debug-enabled? (run-validation …) true)`, so the Spec 010
-  #    §Validation-order step-5 fx-args boundary does not run in a release
-  #    build and its documented `:skipped` recovery never happens: a
-  #    malformed `:rf.server/*` fx RUNS and its args land on the response
-  #    accumulator.  Measured at `ssr/get-response`:
-  #    `[:rf.server/set-status "not-an-int"]` leaves `:status "not-an-int"`;
-  #    a `:value`-less `set-header` leaves `["X-Foo" nil]`; a `:value`-less
-  #    `set-cookie` leaves `{:name "session"}`; a non-int safe-redirect
-  #    `:status` lands whole.  ssr-ring's `fail-closed-status` saves the WIRE
-  #    on a Ring host — but that net is host-specific and its only signal is
-  #    a dev-bus warning.  Do NOT split those seven to green the namespace;
-  #    rf2-dtpfv carries the ruling.
-  #
-  #    THE OTHER 39 ARE READY the moment it lands, and the method per
-  #    cluster is known — measured, not guessed:
-  #      * fx-handler-exception (~60 reds: header / cookie / redirect-spelling
-  #        / CRLF-NUL gates).  NO GUARD.  `emit-fx-error!` fans BOTH axes
-  #        (fx.cljc `emit-error-both!`), so re-point `capture-fx-traces!` at
-  #        the `:errors` stream alongside `:trace`, normalising the union
-  #        record to `{:operation :op-type :tags}`.  Every consumer reads
-  #        only `(-> ev :tags :exception)`, and the exception object is the
-  #        same on both axes, so nothing else moves.  Note the gates
-  #        THEMSELVES are production-live — only their observation was
-  #        dev-sourced.
-  #      * the two `ssr-default-error-projector-*` tests, the
-  #        `:rf.error/sanitised-on-projection` diagnostics, and
-  #        `direct-ssr-layer-projects-view-time-exception`.  Same treatment:
-  #        all three categories ride the always-on axis today
-  #        (`dispatch-on-error!`, `emit-always-on-error!`).  Watch the
-  #        `(not-any? … :sanitised-on-projection …)` NEGATIVE at ~line 951 —
-  #        it is vacuous under the gate and becomes real with dual capture.
-  #      * the `:rf.warning/*` cluster (`multiple-status-set`,
-  #        `multiple-redirects`), `:rf.ssr/hydration-mismatch` and the
-  #        head-mismatch trace.  Genuinely dev-only warnings — dev arms; the
-  #        last-write-wins SEMANTICS they sit beside are already
-  #        posture-independent and green here.
-  #      * the `safe-redirect` cluster (~17 reds).  Dev arms, and file
-  #        nothing new: rf2-6jqa8 already records WHY.  The rejection
-  #        assertions — `(nil? (:redirect (get-response f)))`, the
-  #        security-load-bearing half — are posture-independent and green
-  #        under the gate TODAY.  Only the diagnostic is dev-only.
-  re-frame.ssr-end-to-end-test                    # 116 (rf2-dtpfv)
-
-  # ── rf2-lwtlk — SOURCE-COORD ANNOTATION.  CLEARED.  All three namespaces
-  #    (`source-coord-parity-test`, `ssr-keyword-head-contract-test`,
-  #    `ssr-source-coord-test`) now split their posture: the
-  #    `data-rf2-source-coord` / `data-rf-view` assertions are kept verbatim
-  #    inside `(when interop/debug-enabled? …)` arms, the RENDER they were
-  #    entangled with is asserted posture-independently, and each gained a
-  #    `when-not` arm that pins the bare bytes the REAL gate emits.  The
-  #    negative annotation assertions moved into the dev arm WITH the
-  #    positives: "the outer view did not stamp itself" is vacuously true
-  #    where nothing stamps anything.
-
-  # ── rf2-lwtlk — dev-instrumentation assertions written inline with the
-  #    semantics they sit next to.  CLEARED for eleven namespaces: the
-  #    `:rf.ssr/schema-digest-mismatch` / `-version-mismatch` traces, `:doc`
-  #    on the reg-head and reg-cofx registry slots, the
-  #    `:rf.ssr.head/cleanup-failed` warning, `:rf.cofx/skipped-on-platform`,
-  #    the `:rf.ssr/suspense-boundary-failed` / `-duplicate-id` streaming
-  #    traces, the hydration-mismatch trace's `:server-hash` /
-  #    `:client-hash` tags, the EP-0001 ownership diagnostics, and the
-  #    `:rf.error/malformed-hydration-payload` /
-  #    `-hydration-frame-id-mismatch` rejection diagnostics.  Each is kept
-  #    VERBATIM inside a `(when interop/debug-enabled? …)` arm marked
-  #    `rf2-lwtlk`, with a `## Posture split` section in the ns docstring;
-  #    the semantics they were entangled with now run in this lane.
-  #
-  #    THE LARGER HALF WAS THE ASSERTIONS THAT WERE NOT FAILING.  A NEGATIVE
-  #    over the trace ring — `(is (empty? @diags))`, `(is (not-any? …
-  #    (ops)))`, "no malformed diagnostic on a well-formed payload" — passes
-  #    AUTOMATICALLY under this gate, where the ring is empty for every
-  #    input.  Roughly two dozen such assertions moved into the dev arms
-  #    alongside their positive counterparts.  Left outside they would have
-  #    been the quiet half of the same false green.
-  #
-  #    NOTE for whoever finishes this list: a namespace whose EVERY deftest is
-  #    about the dev trace has no semantic residue to run under the gate.
-  #    Guarding it wholesale and deleting its roster line would report GREEN
-  #    for a namespace that executed nothing — the false-green this lane
-  #    exists to close.  `ssr-compatibility-checks-test` was exactly that
-  #    (both fxs are best-effort: no state change, no return value, the trace
-  #    IS the output), and rather than roster it off it gained two
-  #    production-real deftests — the fx registrations with their
-  #    `:platforms #{:client}` gate, and a proof that a DOUBLE mismatch
-  #    neither throws nor stops the effect queued behind it.
-
-  # ── rf2-bkvu5 — RULING LANDED (2026-07-27); CLEARED.  One deftest,
-  #    `flow-output-schema-failure-rejects-candidate-before-install`, used to
-  #    fail here for a REAL reason rather than trace spelling: under
-  #    `-Dre-frame.debug=false` a flow output that violates the registered
-  #    app-db schema is NOT rejected — the invalid candidate INSTALLS, and
-  #    the handler's own `:db` installs with it.  `router.cljc`'s
-  #    `validate-event!` and `schemas/validate.cljc` both document why: every
-  #    `validate-*!` body sits inside its own `(if interop/debug-enabled? …
-  #    true)` gate and "Production builds return `true` unconditionally".
-  #
-  #    Mike RULED (a): that is BY DESIGN.  `reg-app-schema` candidate
-  #    validation is a DEVELOPMENT-ONLY assertion; production trusts the
-  #    programmer; EP-0025's atomic-candidate-rejection contract is a
-  #    dev-posture contract.  Shapes (b) (always-on validation) and (c) (a
-  #    middle knob) were both rejected.
-  #
-  #    SO THE DEFTEST DID NOT CLEAR — IT SPLIT, and this is the one arm in
-  #    the artefact that could not be re-pointed at a production-visible
-  #    witness instead of a guard.  The distinction matters for whoever
-  #    reads it next: the always-on error axis carries no
-  #    `:rf.error/schema-validation-failure` here NOT because that emit is
-  #    dev-only, but because the VALIDATION never runs to emit anything —
-  #    the subject is absent, not merely unobservable.  The rejection
-  #    assertions are kept VERBATIM in a `(when interop/debug-enabled? …)`
-  #    arm, and a `when-not` arm EXECUTES the ruled production behaviour
-  #    (the schema-violating candidate installs whole, `:derived :doubled`
-  #    = -6 through the ordinary app-db surface).  That arm is also the
-  #    standing regression guard on the ruling itself: it reddens if
-  #    `reg-app-schema` ever quietly becomes always-on.
-  #
-  #    Every OTHER assertion in the namespace had already been posture-split
-  #    by rf2-lwtlk (the `by-op` / `ops` trace signatures are in dev arms, and
-  #    two flow-eval witnesses were added off the trace bus so "the flow
-  #    computed its bad output" and "the flow threw" survive the gate), so
-  #    the namespace now runs in this lane: 9 tests, 39 assertions under the
-  #    gate (was 39 with TWO of them red) against 55 in dev posture (was 55 —
-  #    the rejection pair moved into the arm, it did not leave).
-
-  # ── rf2-lwtlk / rf2-76gom — the conformance corpus.  CLEARED, and it did
-  #    NOT clear by guarding.  Nine `ssr-*.edn` fixtures used to fail here,
-  #    all nine on `:trace-emissions` claims read off the DEV bus, and two
-  #    of them ALSO reported `public-error actual: nil`.
-  #
-  #    The public-error half was never a framework fault: the runner's
-  #    `pe-check` sourced its error event from `@traces` before feeding
-  #    `ssr/project-error`, so under the gate it reported nil whatever the
-  #    framework did — `:ssr/error-known-mapping` did NOT clear with
-  #    rf2-ov56u for that reason, contrary to the rf2-rqje9 ruling's
-  #    expectation.  rf2-76gom re-sourced it from the ALWAYS-ON `:errors`
-  #    axis, synthesised into the projector's envelope by the same generic
-  #    lift `error-emit-projection-listener` performs, so both fixtures now
-  #    adjudicate the wire under the gate.  Mutation-proved: remove the
-  #    fallback and exactly those two go red here.
-  #
-  #    The `:trace-emissions` half kept its dev-bus assertions VERBATIM in a
-  #    dev arm AND gained a production counterpart rather than a hole: a
-  #    `{:operation :rf.event/run-start :tags {:rf.trace/event-id X}}` claim
-  #    says event X RAN, which the always-on `:events` substrate records in
-  #    production, so all 17 such claims are adjudicated under BOTH postures
-  #    (mutation-proved: stub the capture and nine fixtures go red).
-  #    `:trace-not-emitted` moved into the dev arm with them — a negative
-  #    over an empty ring passes with the runtime removed.
-
-  # ── rf2-lwtlk — the PAYLOAD-POLICY suite.  CLEARED, and the roster note
-  #    that asked for verification rather than assumption was answered:
-  #    the single red assertion was the `:rf.ssr/invalid-version` WARNING
-  #    trace, the dev half of a rejection whose PRODUCTION half — a semver
-  #    string never reaching `:rf/version`, which falls back to the integer
-  #    v1 — was green under the gate throughout.  Nothing that decides what
-  #    egresses was involved.  The always-on privacy witness for the egress
-  #    proper, `re-frame.ssr-routing-egress-production-test` (rf2-u2x6w),
-  #    has been in this lane and green since it was built.
-)
-
-# ---------------------------------------------------------------------------
-# Roster derivation
-# ---------------------------------------------------------------------------
-
-# Every namespace DECLARED under implementation/ssr/test/, read from the `(ns
-# ...)` form rather than derived from the path — a lane selector is applied by
-# the runner to the declared name, so that is the name that has to match.
-declared_nses() {
-  find "$test_root" -type f \( -name '*.clj' -o -name '*.cljc' \) -exec \
-    sed -n 's/^(ns[[:space:]]\{1,\}\(\^{[^}]*}[[:space:]]*\)\{0,1\}\([^[:space:])]\{1,\}\).*/\2/p' {} + \
-    | sort -u
-}
-
-# `cognitect.test-runner` discovers namespaces under `test/` and keeps those
-# matching `.*-test$` (the default `-r`); `-n` then filters that SET.  Mirror
-# the same filter here so the two cannot disagree about what the universe is.
-test_nses() {
-  declared_nses | grep -E -- '-test$'
-}
-
-# Two guards, because a silently-shrinking roster is the failure mode this lane
-# is supposed to make impossible.
-verify_roster() {
-  local nses="$1" files ns_count missing=()
-
-  # 1. The `(ns ...)` scrape must still see every test file.  If the regex ever
-  #    stops matching, the lane quietly narrows and stays green.
-  files="$(find "$test_root" -type f \( -name '*_test.clj' -o -name '*_test.cljc' \) | wc -l)"
-  ns_count="$(printf '%s\n' "$nses" | grep -c . || true)"
-  if [ "$files" -ne "$ns_count" ]; then
-    printf 'FAIL prod-gate roster: %s test files under %s but %s `-test` namespaces scraped.\n' \
-      "$files" "${test_root#"$repo_root"/}" "$ns_count" >&2
-    printf '     The `(ns ...)` scrape in declared_nses() has drifted from the tree.\n' >&2
-    return 1
-  fi
-
-  # 2. Every exclusion must still name a live namespace.  A stale entry is an
-  #    exclusion nobody can see the effect of.
-  for ns in "${known_red[@]}"; do
-    printf '%s\n' "$nses" | grep -q -x -F -- "$ns" || missing+=("$ns")
-  done
-  if [ ${#missing[@]} -ne 0 ]; then
-    printf 'FAIL prod-gate roster: %s known-red entr(y|ies) name no live namespace:\n' \
-      "${#missing[@]}" >&2
-    printf '  %s\n' "${missing[@]}" >&2
-    printf '     Renamed or deleted? Drop the entry from known_red in %s.\n' \
-      "${BASH_SOURCE[0]#"$repo_root"/}" >&2
-    return 1
-  fi
-}
-
-all_nses="$(test_nses)"
-verify_roster "$all_nses"
-
-excluded="$(printf '%s\n' "${known_red[@]}" | sort -u)"
-runnable="$(printf '%s\n' "$all_nses" | grep -v -x -F -f <(printf '%s\n' "$excluded"))"
-
-runnable_count="$(printf '%s\n' "$runnable" | grep -c . || true)"
-excluded_count="$(printf '%s\n' "$excluded" | grep -c . || true)"
-total_count="$(printf '%s\n' "$all_nses" | grep -c . || true)"
 
 # ---------------------------------------------------------------------------
 # Report the posture BEFORE running, so the log carries the evidence
@@ -362,14 +104,14 @@ total_count="$(printf '%s\n' "$all_nses" | grep -c . || true)"
 printf '==> implementation/ssr under the REAL production gate\n'
 printf '    jvm property : -Dre-frame.debug=false (implementation/ssr/deps.edn, :prod-gate :jvm-opts)\n'
 printf '    posture pin  : re-frame.ssr-prod-gate-lane-pin-test (red if the property did not arrive)\n'
-printf '    namespaces   : %s of %s (%s excluded as known-red — rf2-dtpfv)\n' \
-  "$runnable_count" "$total_count" "$excluded_count"
+printf '    namespaces   : the WHOLE suite — every `.*-test$` namespace under\n'
+printf '                   implementation/ssr/test, discovered by the runner.\n'
+printf '                   rf2-lwtlk: the known-red roster reached zero and the\n'
+printf '                   `-n` selector went with it.\n'
 
 if [ "${1:-}" = "--plan" ]; then
-  printf '    runnable:\n'
-  printf '      %s\n' $runnable
-  printf '    excluded:\n'
-  printf '      %s\n' $excluded
+  printf '    runnable     : all of them — there is no selector and no exclusion list\n'
+  printf '    excluded     : none\n'
   exit 0
 fi
 
@@ -399,21 +141,41 @@ fi
 # ~13% against the observed 490.  Raise it once more when
 # `ssr-end-to-end-test` comes off behind rf2-dtpfv; that is the LAST entry,
 # and the `-n` machinery goes away with it.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-425}"
-
-args=()
-for ns in $runnable; do
-  args+=(-n "$ns")
-done
+#
+# RAISED 425 -> 510 by rf2-lwtlk — the raise the note above asked for, and the
+# last one this file will describe as roster-driven.  `ssr-end-to-end-test`
+# came off behind rf2-dtpfv, the roster reached ZERO, and the lane is now the
+# whole suite: 589 tests / 2698 assertions, measured green under
+# `-Dre-frame.debug=false` on 2026-07-28.  425 against 589 is 27.8% headroom —
+# the floor had become a formality again, exactly as at 215 and at 380.  510
+# restores the ~13% this file has now calibrated to four times.
+#
+# THIS FLOOR IS NOW THE LANE'S ONLY STRUCTURAL GUARD.  While the roster
+# existed, a collapsed `-n` selector was caught twice over — by
+# `verify_roster` and by this number.  The selector is gone, so if namespace
+# discovery ever silently narrows (a renamed `test/` directory, a runner
+# default changing out from under `.*-test$`), `Ran 0 tests` reaching CI green
+# is prevented HERE and nowhere else.  Keep the headroom tight enough to mean
+# something: a floor the lane could lose half its suite and still clear is not
+# a floor.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-510}"
 
 cd "$artefact"
-if ! clojure -M:test:prod-gate "${args[@]}"; then
+if ! clojure -M:test:prod-gate; then
   printf '\nFAIL implementation/ssr under -Dre-frame.debug=false\n' >&2
   printf 'repro: bash scripts/test-ssr-prod-gate.sh\n' >&2
   printf 'A namespace that is green in `clojure -M:test` and red here is asserting\n' >&2
   printf 'DEV INSTRUMENTATION, or it is a genuine production defect (rf2-9c2jf was\n' >&2
-  printf 'the latter). Decide which before touching the known_red roster.\n' >&2
+  printf 'the latter). Decide which BEFORE reaching for a posture guard.\n' >&2
+  printf '\n' >&2
+  printf 'And check for a production-visible witness first. Emptying the roster\n' >&2
+  printf '(rf2-lwtlk) turned up an always-on axis behind four of the five clusters\n' >&2
+  printf 'that looked dev-only: `emit-fx-error!` and `emit-safe-redirect-error!`\n' >&2
+  printf 'fan BOTH axes, and `error-emit-projection-listener` — not the trace-cb\n' >&2
+  printf 'one — is what stamps :status on a production JVM. A `when\n' >&2
+  printf 'interop/debug-enabled?` arm around an assertion that had an always-on\n' >&2
+  printf 'source moves a live contract out of the posture that ships.\n' >&2
   exit 1
 fi
 
-printf 'PASS implementation/ssr under -Dre-frame.debug=false (%s namespaces)\n' "$runnable_count"
+printf 'PASS implementation/ssr under -Dre-frame.debug=false (whole suite, no exclusions)\n'

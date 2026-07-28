@@ -29,11 +29,56 @@
   private side-channel atom keyed by frame-id (rf2-jbcmt — Spec 011
   §Response storage substrate; NOT in app-db, so it never rides the
   hydration payload); tests read the resolved shape via
-  re-frame.ssr/get-response."
+  re-frame.ssr/get-response.
+
+  ## Posture split
+
+  rf2-lwtlk — this namespace was the LAST entry on
+  `scripts/test-ssr-prod-gate.sh`'s known-red roster, and it comes off here.
+  Run under the real `-Dre-frame.debug=false` gate it was 109 red assertions
+  across 41 deftests. Almost none of that was a production defect: the
+  SECURITY GATES below (CR/LF and NUL in header values and cookie
+  attributes, the cookie-attribute grammar, the safe-redirect five-step
+  open-redirect gate) are production-live and were rejecting correctly the
+  whole time. What was dev-only was the OBSERVATION — every one of them was
+  watched through `re-frame.trace`, which the gate empties.
+
+  So the split here is deliberately lopsided towards re-pointing rather
+  than guarding, because a `(when interop/debug-enabled? …)` arm around a
+  security assertion buys the lane nothing: the arm does not run in the
+  posture that ships, and the gate it describes does.
+
+    ALWAYS-ON, re-pointed (the large majority). `capture-fx-traces!` and
+    `capture-safe-redirect-traces!` now read the production-survivable
+    `:errors` axis. `re-frame.fx`'s `emit-fx-error!` and
+    `re-frame.ssr.response`'s `emit-safe-redirect-error!` both fan every
+    rejection along BOTH axes, so the same failure is observable in a
+    release build — these assertions now adjudicate the posture that ships
+    instead of the one that does not.
+
+    DEV ARMS, kept VERBATIM inside `(when interop/debug-enabled? …)`. Three
+    things are genuinely dev-only and are marked `rf2-lwtlk` at each site:
+    the `:rf.warning/*` family (`:rf.ssr/multiple-status-set`,
+    `-multiple-redirects`), the `:rf.ssr/hydration-mismatch` /
+    head-mismatch traces, and the RICH diagnostics that the always-on
+    record deliberately does not carry — the Spec 010 step-5
+    `:rf.error/schema-validation-failure`, and safe-redirect's
+    `:allowlist` tag, which `re-frame.ssr.egress/safe-redirect-record-slots`
+    excludes on purpose (an app's own security configuration must not ride
+    off-box).
+
+  NEGATIVES MOVED WITH THEIR POSITIVES. A `(is (empty? traces))` or
+  `(is (not-any? … ))` over the dev trace ring passes AUTOMATICALLY under
+  this gate, where the ring is empty for every input — the quiet half of the
+  same false green. Each one below either moved into the dev arm beside the
+  positive it belongs to, or became REAL because its capture is now
+  always-on."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.response :as response]
             [re-frame.ssr.test-fixture :as tf]
@@ -218,9 +263,19 @@
               (rf/unregister-listener! :trace ::match)
               (is (= server-hash client-hash-1)
                   "first client render hashes identically to the server hash")
-              (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %))
-                            @match-traces)
-                  "no :rf.ssr/hydration-mismatch trace when hashes agree"))
+              ;; rf2-lwtlk DEV ARM — `:rf.ssr/hydration-mismatch` is a
+              ;; dev-only diagnostic (Spec 011 §Hydration mismatch: the
+              ;; recovery is `:warned-and-replaced`, and the WARNING is the
+              ;; whole of it). This is also a NEGATIVE over the trace ring, so
+              ;; under the production gate it would pass with hydration
+              ;; verification removed entirely — it moves into the arm WITH
+              ;; the positive it discriminates against, not outside it. The
+              ;; hash equality above is the posture-independent half and stays
+              ;; in this lane.
+              (when interop/debug-enabled?
+                (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %))
+                              @match-traces)
+                    "no :rf.ssr/hydration-mismatch trace when hashes agree")))
 
             ;; (7) Mutate the hydrated app-db; re-render; hash differs;
             ;;     verify-hydration! emits the mismatch trace.
@@ -241,15 +296,20 @@
 
               (is (not= server-hash client-hash-2)
                   "mutating the hydrated db changes the render hash")
-              (is (some (fn [ev]
-                          (and (= :rf.ssr/hydration-mismatch (:operation ev))
-                               (= :error (:op-type ev))
-                               (= server-hash    (:server-hash (:tags ev)))
-                               (= client-hash-2  (:client-hash (:tags ev)))
-                               (= :warned-and-replaced (:recovery ev))))
-                        @mismatch-traces)
-                  (str "expected :rf.ssr/hydration-mismatch trace; saw: "
-                       (pr-str (mapv :operation @mismatch-traces)))))))))))
+              ;; rf2-lwtlk DEV ARM — the mismatch WARNING, kept verbatim. Its
+              ;; production-visible half is the hash inequality asserted just
+              ;; above: the framework computes the divergence in every build,
+              ;; and only the telling-you-about-it is dev-gated.
+              (when interop/debug-enabled?
+                (is (some (fn [ev]
+                            (and (= :rf.ssr/hydration-mismatch (:operation ev))
+                                 (= :error (:op-type ev))
+                                 (= server-hash    (:server-hash (:tags ev)))
+                                 (= client-hash-2  (:client-hash (:tags ev)))
+                                 (= :warned-and-replaced (:recovery ev))))
+                          @mismatch-traces)
+                    (str "expected :rf.ssr/hydration-mismatch trace; saw: "
+                         (pr-str (mapv :operation @mismatch-traces))))))))))))
 
 ;; ===========================================================================
 ;; ssr-set-status-precedence — last write wins; warn on multi-set
@@ -281,14 +341,20 @@
         (is (= 403 (:status (get-response f)))
             "last write wins — the response status is 403")
 
-        (is (some (fn [ev]
-                    (and (= :rf.warning/multiple-status-set (:operation ev))
-                         (= [401 403] (:writes (:tags ev)))
-                         (= 403       (:final-status (:tags ev)))
-                         (= :warned-and-replaced (:recovery ev))))
-                  @traces)
-            (str "expected :rf.warning/multiple-status-set trace; saw: "
-                 (pr-str (mapv :operation @traces))))))))
+        ;; rf2-lwtlk DEV ARM — the `:rf.warning/*` family is genuinely
+        ;; dev-only: per Spec 011 §Multiple-status policy the POLICY is
+        ;; last-write-wins and the warning is advice to the programmer, not
+        ;; part of the response. The policy itself is asserted above and runs
+        ;; in this lane; only the advice is gated.
+        (when interop/debug-enabled?
+          (is (some (fn [ev]
+                      (and (= :rf.warning/multiple-status-set (:operation ev))
+                           (= [401 403] (:writes (:tags ev)))
+                           (= 403       (:final-status (:tags ev)))
+                           (= :warned-and-replaced (:recovery ev))))
+                    @traces)
+              (str "expected :rf.warning/multiple-status-set trace; saw: "
+                   (pr-str (mapv :operation @traces)))))))))
 
 ;; ===========================================================================
 ;; ssr-multi-cookie — multiple set-cookie fxs accumulate as STRUCTURED MAPS
@@ -403,21 +469,53 @@
 ;; ===========================================================================
 
 (defn- capture-fx-traces!
-  "Install a trace callback that records every fx-handler-exception trace
-  for the duration of `body-fn`. Returns the recorded traces. Strips
-  the callback in `finally` so a failing body doesn't leak listeners."
+  "Record every `:rf.error/fx-handler-exception` the framework emitted during
+  `body-fn`, reading BOTH error axes and returning ONE sequence normalised to
+  the dev-trace shape `{:operation … :tags …}`. Strips both callbacks in
+  `finally` so a failing body doesn't leak listeners.
+
+  rf2-lwtlk — WHY BOTH AXES, AND WHY THIS IS NOT A DEV ARM. This helper used
+  to listen on `:trace` alone. Under `-Dre-frame.debug=false` that ring is
+  empty, so roughly sixty assertions below — the CR/LF and NUL injection
+  gates on `set-header` / `append-header` / `redirect`, the whole
+  cookie-attribute grammar, the retired redirect spellings — saw nothing and
+  went red. NOT because the gates stopped working: every one of them is a
+  `throw` at the fx boundary in `re-frame.ssr.response`, unconditional in
+  every build, and it was rejecting correctly the whole time. It was the
+  OBSERVATION that was dev-only.
+
+  Guarding them would therefore have been the wrong repair twice over: it
+  would move a live security boundary's proof out of the posture that ships,
+  and it would leave the lane asserting nothing about the artefact's most
+  load-bearing code. `re-frame.fx`'s `emit-fx-error!` already fans every
+  contained fx exception through `error-emit/emit-error-both!` — axis 1 the
+  ALWAYS-ON listener record (`{:error :event-id :frame :exception …}`, the
+  off-box shipper's source), axis 2 the dev-only `trace/emit-error!` — so
+  the production-visible witness was there to be read.
+
+  The union is normalised so `expect-fx-error-keyword!` and `fx-error-extra`
+  are unchanged: both read only `(-> ev :tags :exception)`, and that is the
+  SAME exception object on both axes (axis 1 carries it in `:exception`,
+  axis 2 in `:tags :exception`). In a dev build both fire and the sequence
+  carries two entries per error; no consumer counts them — each asks `seq`
+  or `some` — and the duplication is one failure seen twice, not two."
   [body-fn]
   (let [traces (atom [])
-        tag    (keyword (str "::trace-cap-" (gensym)))]
+        tag    (keyword "rf2-lwtlk" (str "fx-cap-" (name (gensym "c"))))]
     (rf/register-listener! :trace tag
       (fn [ev]
         (when (= :rf.error/fx-handler-exception (:operation ev))
           (swap! traces conj ev))))
+    (rf/register-listener! :errors tag
+      (fn [r]
+        (when (= :rf.error/fx-handler-exception (:error r))
+          (swap! traces conj {:operation (:error r) :tags r}))))
     (try
       (body-fn)
       @traces
       (finally
-        (rf/unregister-listener! :trace tag)))))
+        (rf/unregister-listener! :trace tag)
+        (rf/unregister-listener! :errors tag)))))
 
 (defn- expect-fx-error-keyword!
   "Assert that the `traces` collection (output of `capture-fx-traces!`)
@@ -716,6 +814,57 @@
 ;; PROJECTOR's output reaches the response accumulator — not a user-stub-
 ;; rolled :rf.server/set-status.
 
+(defn- error-record->trace-event
+  "Synthesise the `{:operation :op-type :tags}` envelope the projector
+  pipeline consumes from an EP-0008 union error record `{:error <kw> :frame
+  <id> :time <ms> + flat category keys}`.
+
+  This is the SAME generic lift `error-emit-projection-listener` performs —
+  every non-`:error` slot rides onto `:tags`, `:recovery` defaults to
+  `:no-recovery` — so an event handed to `ssr/project-error` from here is the
+  event the runtime's own always-on projection listener would have handed it.
+  Copied deliberately from `re-frame.ssr-conformance-test` (rf2-76gom), which
+  solved the identical sourcing problem for the conformance corpus."
+  [record]
+  {:op-type   :error
+   :operation (:error record)
+   :tags      (-> (dissoc record :error)
+                  (update :recovery #(or % :no-recovery)))})
+
+(defn- with-error-capture!
+  "Run `body-fn` and return `{:result <its value> :events <seq>}`, where
+  `:events` carries every error the framework emitted during it, read from
+  BOTH axes and normalised to the projector's `{:operation :op-type :tags}`
+  envelope.
+
+  rf2-lwtlk — the projector cluster below used to source its error events
+  from `re-frame.trace` alone. Under `-Dre-frame.debug=false` that ring is
+  empty, so `(some? err)` found nothing and the projections those tests exist
+  to pin were never exercised. The categories involved —
+  `:rf.error/no-such-handler` (promoted by rf2-ov56u),
+  `:rf.error/handler-exception`, and `:rf.error/sanitised-on-projection` —
+  ALL ride the always-on axis in a release build; indeed
+  `error-emit-projection-listener` is precisely what stamps `:status` on a
+  production JVM, so the always-on record is the SOURCE OF TRUTH here and the
+  dev bus was the copy. Reading both means these assertions now adjudicate
+  the production projection path rather than a dev artefact.
+
+  A dev build sees both axes and the sequence carries the same failure twice;
+  every consumer below asks `some`, never a count."
+  [body-fn]
+  (let [events (atom [])
+        tag    (keyword "rf2-lwtlk" (str "err-cap-" (name (gensym "c"))))]
+    (rf/register-listener! :trace tag
+      (fn [ev] (when (= :error (:op-type ev)) (swap! events conj ev))))
+    (rf/register-listener! :errors tag
+      (fn [r] (swap! events conj (error-record->trace-event r))))
+    (try
+      (let [result (body-fn)]
+        {:result result :events @events})
+      (finally
+        (rf/unregister-listener! :trace tag)
+        (rf/unregister-listener! :errors tag)))))
+
 (deftest ssr-default-error-projector-no-such-handler
   (testing "routing's :rf.error/no-such-handler → default projector → 404"
     (rf/reg-route :route/home {} "/")
@@ -724,19 +873,22 @@
                            {:platform :server
                             :ssr {:public-error-id   :rf.ssr/default-error-projector
                                   :dev-error-detail? false}})
-          traces         (atom [])]
-      (rf/register-listener! :trace ::nsh (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (rf/unregister-listener! :trace ::nsh)
-
+          events         (:events (with-error-capture!
+                                    (fn []
+                                      (rf/dispatch-sync
+                                        [:rf.route/handle-url-change "/no-such-page"]
+                                        {:frame f}))))]
       ;; Runtime's error-projection listener stamps :status 404 on :rf/response.
       (is (= 404 (:status (get-response f)))
           "default projector's :status reaches :rf/response — not a user-stub fx")
       (is (nil? (:redirect (get-response f)))
           "no redirect — the 404 is a status-only response, body still renders")
 
-      ;; The trace stream still carries the internal :rf.error/no-such-handler.
-      (let [err (some #(when (= :rf.error/no-such-handler (:operation %)) %) @traces)]
+      ;; The error stream still carries the internal :rf.error/no-such-handler.
+      ;; rf2-ov56u promoted the URL-driven route miss onto the always-on axis,
+      ;; so this reads in a release build too — which is the whole point: the
+      ;; 404 above is produced BY this record on a production JVM.
+      (let [err (some #(when (= :rf.error/no-such-handler (:operation %)) %) events)]
         (is (some? err)
             "internal trace records :rf.error/no-such-handler")
         ;; Projecting the trace yields the locked public-error shape.
@@ -766,17 +918,15 @@
       (fn [_ _] {}))
 
     (let [project-error  ssr/project-error
-          traces         (atom [])
           f              (frame/make-anon-frame-record!
                            {:platform :server
                             :initial-events [[:rf/server-init]]
                             :ssr {:public-error-id   :rf.ssr/default-error-projector
                                   :dev-error-detail? false}})
-          _              (rf/register-listener! :trace ::he (fn [ev] (swap! traces conj ev)))
-          _              (rf/dispatch-sync [:load/article] {:frame f})
-          _              (rf/unregister-listener! :trace ::he)
+          events         (:events (with-error-capture!
+                                    (fn [] (rf/dispatch-sync [:load/article] {:frame f}))))
           err            (some #(when (= :rf.error/handler-exception (:operation %)) %)
-                               @traces)]
+                               events)]
       (is (some? err)
           "handler-exception fired during the drain")
       (is (= 500 (:status (get-response f)))
@@ -862,18 +1012,18 @@
                           {:platform :server
                            :ssr {:public-error-id   :myapp/buggy-projector
                                  :dev-error-detail? false}})
-          traces        (atom [])
-          _             (rf/register-listener! :trace ::sop (fn [ev] (swap! traces conj ev)))
-          public        (project-error f {:operation :rf.error/handler-exception :tags {}})]
-      (rf/unregister-listener! :trace ::sop)
+          {public :result
+           events :events} (with-error-capture!
+                             (fn [] (project-error
+                                      f {:operation :rf.error/handler-exception :tags {}})))]
       (is (= {:status     500
               :code       :internal-error
               :message    "Something went wrong"
               :retryable? false}
              public)
           "fallback to the locked generic-500 shape — the boundary holds even with a buggy projector")
-      (is (some #(= :rf.error/sanitised-on-projection (:operation %)) @traces)
-          ":rf.error/sanitised-on-projection trace fired so the buggy projector is observable"))))
+      (is (some #(= :rf.error/sanitised-on-projection (:operation %)) events)
+          ":rf.error/sanitised-on-projection fired so the buggy projector is observable"))))
 
 (deftest ssr-error-projector-non-conforming-shape-falls-back
   (testing "projector returns nil / wrong shape → :rf.error/sanitised-on-projection + fallback"
@@ -884,14 +1034,14 @@
           f             (frame/make-anon-frame-record!
                           {:platform :server
                            :ssr {:public-error-id   :myapp/bad-shape}})
-          traces        (atom [])
-          _             (rf/register-listener! :trace ::bs (fn [ev] (swap! traces conj ev)))
-          public        (project-error f {:operation :rf.error/handler-exception :tags {}})]
-      (rf/unregister-listener! :trace ::bs)
+          {public :result
+           events :events} (with-error-capture!
+                             (fn [] (project-error
+                                      f {:operation :rf.error/handler-exception :tags {}})))]
       (is (= 500 (:status public))
           "non-conforming projector output → fallback locked-500")
       (is (= :internal-error (:code public)))
-      (is (some #(= :rf.error/sanitised-on-projection (:operation %)) @traces)))))
+      (is (some #(= :rf.error/sanitised-on-projection (:operation %)) events)))))
 
 (deftest ssr-error-projector-configured-but-unregistered-surfaces-diagnostic
   (testing "rf2-mlodrn — a frame that configures :ssr {:public-error-id …}
@@ -907,19 +1057,21 @@
                           {:platform :server
                            :ssr {:public-error-id   :myapp/never-registered
                                  :dev-error-detail? false}})
-          traces        (atom [])
-          _             (rf/register-listener! :trace ::mp (fn [ev] (swap! traces conj ev)))
           ;; :no-such-handler would have projected to a 404 under a real
           ;; projector — the misconfiguration silently made it a 500.
-          public        (project-error f {:operation :rf.error/no-such-handler :tags {}})]
-      (rf/unregister-listener! :trace ::mp)
+          {public :result
+           events :events} (with-error-capture!
+                             (fn [] (project-error
+                                      f {:operation :rf.error/no-such-handler :tags {}})))]
       ;; The boundary still holds — the fallback is the safe wire shape.
       (is (= 500 (:status public))
           "the locked generic-500 fallback still applies (boundary can't be bypassed)")
       (is (= :internal-error (:code public)))
-      ;; …but the misconfiguration is now OBSERVABLE.
+      ;; …but the misconfiguration is now OBSERVABLE — and, since rf2-lwtlk
+      ;; re-sourced this read, observable in the build that ships rather than
+      ;; only in the one the operator is not running.
       (let [diag (some #(when (= :rf.error/sanitised-on-projection (:operation %)) %)
-                       @traces)]
+                       events)]
         (is (some? diag)
             ":rf.error/sanitised-on-projection fired — the missing configured
              projector is surfaced, not swallowed")
@@ -936,19 +1088,26 @@
             path)."
     (let [project-error ssr/project-error
           f             (frame/make-anon-frame-record! {:platform :server})
-          traces        (atom [])
-          _             (rf/register-listener! :trace ::mp2 (fn [ev] (swap! traces conj ev)))
           ;; rf2-ov56u: the 404 arm is gated on `:kind :route` — the
           ;; URL-driven miss. `:tags {}` now projects 500, so the
           ;; honoured-vs-fallen-back distinction this deftest is about
           ;; needs the route discriminator to be visible.
-          public        (project-error f {:operation :rf.error/no-such-handler
-                                          :tags      {:kind :route}})]
-      (rf/unregister-listener! :trace ::mp2)
+          {public :result
+           events :events} (with-error-capture!
+                             (fn [] (project-error
+                                      f {:operation :rf.error/no-such-handler
+                                         :tags      {:kind :route}})))]
       (is (= 404 (:status public))
           "the built-in default projector maps a :kind :route
            :no-such-handler → 404 (honoured, not fallen-back)")
-      (is (not-any? #(= :rf.error/sanitised-on-projection (:operation %)) @traces)
+      ;; rf2-lwtlk — this NEGATIVE is the one the roster called out by name.
+      ;; Sourced from the dev bus alone it passed AUTOMATICALLY under
+      ;; `-Dre-frame.debug=false`, where the ring is empty for every input:
+      ;; it would have reported "the default path is quiet" in a build where
+      ;; NOTHING can be heard. Reading the always-on axis too makes it a real
+      ;; discriminator again — it now fails if the default path ever starts
+      ;; emitting a missing-projector diagnostic in production.
+      (is (not-any? #(= :rf.error/sanitised-on-projection (:operation %)) events)
           "no sanitised-on-projection diagnostic on the default path — the
            default projector is registered, so it is not a missing-projector"))))
 
@@ -1141,14 +1300,19 @@
           (is (= {:status 301 :location "/canonical"} redirect)
               "last write wins — the response :redirect is the second write"))
 
-        (is (some (fn [ev]
-                    (and (= :rf.warning/multiple-redirects (:operation ev))
-                         (= 2 (count (:writes (:tags ev))))
-                         (= {:status 301 :location "/canonical"} (:final-redirect (:tags ev)))
-                         (= :warned-and-replaced (:recovery ev))))
-                  @traces)
-            (str "expected :rf.warning/multiple-redirects trace; saw: "
-                 (pr-str (mapv :operation @traces))))))))
+        ;; rf2-lwtlk DEV ARM — same shape as :rf.warning/multiple-status-set
+        ;; above: the last-write-wins POLICY is the contract and is asserted
+        ;; posture-independently just above; the warning is programmer advice
+        ;; and is dev-only by design.
+        (when interop/debug-enabled?
+          (is (some (fn [ev]
+                      (and (= :rf.warning/multiple-redirects (:operation ev))
+                           (= 2 (count (:writes (:tags ev))))
+                           (= {:status 301 :location "/canonical"} (:final-redirect (:tags ev)))
+                           (= :warned-and-replaced (:recovery ev))))
+                    @traces)
+              (str "expected :rf.warning/multiple-redirects trace; saw: "
+                   (pr-str (mapv :operation @traces)))))))))
 
 ;; ===========================================================================
 ;; host-supplied :failing-id is surfaced on the unified render-hash channel
@@ -1202,27 +1366,38 @@
                   :first-diff-path [:head :title]})
       (rf/unregister-listener! :trace ::head)
 
-      (is (some (fn [ev]
-                  (and (= :rf.ssr/hydration-mismatch (:operation ev))
-                       (= "head-hash-server-A" (:server-hash (:tags ev)))
-                       (= "head-hash-client-B" (:client-hash (:tags ev)))
-                       (= :rf.ssr/head-mismatch (:failing-id (:tags ev)))
-                       (= [:head :title] (:first-diff-path (:tags ev)))
-                       (= :warned-and-replaced (:recovery ev))))
-                @traces)
-          (str "expected head-mismatch trace; saw: "
-               (pr-str (mapv (juxt :operation #(:failing-id (:tags %))) @traces))))
+      ;; rf2-lwtlk DEV ARM — the host-supplied `:failing-id` seam exists to
+      ;; put a host's own attribution ON THE MISMATCH TRACE, and that trace is
+      ;; the dev-only `:rf.ssr/hydration-mismatch` warning (recovery
+      ;; `:warned-and-replaced` — the client re-renders either way). So the
+      ;; seam is dev-posture by construction. What is NOT dev-posture is the
+      ;; payload stash asserted above: `:rf/hydrate` puts the server hash into
+      ;; the runtime-db partition in every build, and that assertion runs in
+      ;; this lane — which is why guarding here does not leave the deftest
+      ;; executing nothing under the gate.
+      (when interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.ssr/hydration-mismatch (:operation ev))
+                         (= "head-hash-server-A" (:server-hash (:tags ev)))
+                         (= "head-hash-client-B" (:client-hash (:tags ev)))
+                         (= :rf.ssr/head-mismatch (:failing-id (:tags ev)))
+                         (= [:head :title] (:first-diff-path (:tags ev)))
+                         (= :warned-and-replaced (:recovery ev))))
+                  @traces)
+            (str "expected head-mismatch trace; saw: "
+                 (pr-str (mapv (juxt :operation #(:failing-id (:tags %))) @traces))))
 
-      ;; And the SAME hash on both sides → no trace.
-      (let [no-mismatch-traces (atom [])]
-        (rf/register-listener! :trace ::head-ok (fn [ev] (swap! no-mismatch-traces conj ev)))
-        (verify-fn f
-                   "head-hash-server-A"
-                   {:failing-id :rf.ssr/head-mismatch})
-        (rf/unregister-listener! :trace ::head-ok)
-        (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %))
-                      @no-mismatch-traces)
-            "no head-mismatch trace when client and server hashes agree")))))
+        ;; And the SAME hash on both sides → no trace. A NEGATIVE over the
+        ;; ring, so it belongs in the arm with the positive above it.
+        (let [no-mismatch-traces (atom [])]
+          (rf/register-listener! :trace ::head-ok (fn [ev] (swap! no-mismatch-traces conj ev)))
+          (verify-fn f
+                     "head-hash-server-A"
+                     {:failing-id :rf.ssr/head-mismatch})
+          (rf/unregister-listener! :trace ::head-ok)
+          (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %))
+                        @no-mismatch-traces)
+              "no head-mismatch trace when client and server hashes agree"))))))
 
 ;; ---- rf2-37pr: install-render-to-string! install contract -----------------
 ;;
@@ -1323,28 +1498,67 @@
 ;; full path runs without involving the Ring adapter.
 
 (deftest direct-ssr-layer-projects-view-time-exception
-  (testing "rf2-dl9yg TC9: a synthetic error trace tagged with a server frame
-            → error-projection-listener buffers → get-response flushes → response
-            :status carries the default projector's 500"
+  ;; rf2-lwtlk — THE ONE DEFTEST IN THIS FILE THAT DRIVES THE DEV BUS AS ITS
+  ;; INPUT, not merely as its observation. `trace/emit!` is a no-op under
+  ;; `-Dre-frame.debug=false`, so under the gate nothing was buffered, nothing
+  ;; projected, and `:status` stayed 200 — the subject was ABSENT, not merely
+  ;; unobservable, and re-pointing the READ could not fix it.
+  ;;
+  ;; Guarding it wholesale was the wrong answer too: it would leave the
+  ;; SUBSTRATE that actually stamps `:status` on a production JVM
+  ;; (`error-emit-projection-listener`, registered always-on in the
+  ;; `re-frame.ssr` façade) with no direct exercise anywhere. So the deftest
+  ;; keeps its dev drive VERBATIM in an arm and gains the symmetric always-on
+  ;; counterpart: the same synthetic error, injected on the other axis.
+  (testing "rf2-dl9yg TC9 / rf2-lwtlk — an always-on error RECORD tagged with a
+            server frame → error-emit-projection-listener buffers →
+            get-response flushes → :status carries the default projector's 500.
+            This is the production path: in a release build this listener, not
+            the trace-cb one, is what produces the status."
     (let [f (frame/make-anon-frame-record!
               {:platform :server
                :ssr      {:public-error-id   :rf.ssr/default-error-projector
                           :dev-error-detail? false}})]
-      ;; Emit a synthetic view-time-style error trace directly. Per
-      ;; the listener contract (`error_listener.cljc:103-115`) it
-      ;; gates on :op-type :error and the frame being a server frame;
-      ;; either condition failing → silent.
-      (trace/emit! :error :rf.error/view-time-exception
-                   {:frame             f
-                    :exception-message "synthetic view-time boom"
-                    :failing-id        :pages/articles
-                    :recovery          :warned-and-projected})
-      ;; Reading the response flushes the projection.
+      ;; The EP-0008 union record shape `{:error <kw> :frame <id> :time <ms>
+      ;; + flat category keys}` — what `dispatch-error-record!` fans to every
+      ;; always-on listener, including SSR's `::error-projection`.
+      (error-emit/dispatch-error-record!
+        {:error             :rf.error/view-time-exception
+         :frame             f
+         :time              (interop/now-ms)
+         :exception-message "synthetic view-time boom"
+         :failing-id        :pages/articles
+         :recovery          :warned-and-projected})
       (let [resp (get-response f)]
         (is (= 500 (:status resp))
-            "synthetic error trace → projector → 500 stamped onto :rf/response")
+            "always-on error record → projector → 500 stamped onto :rf/response")
         (is (nil? (:redirect resp))
-            "no redirect was set; the projector overwrites the status freely")))))
+            "no redirect was set; the projector overwrites the status freely"))))
+
+  (when interop/debug-enabled?
+    (testing "rf2-dl9yg TC9 (dev arm) — the trace-cb buffering path. Kept
+              VERBATIM: `trace/emit!` cannot fire under the production gate,
+              so this half is a genuine dev-posture contract rather than a
+              dev-posture SPELLING of one."
+      (let [f (frame/make-anon-frame-record!
+                {:platform :server
+                 :ssr      {:public-error-id   :rf.ssr/default-error-projector
+                            :dev-error-detail? false}})]
+        ;; Emit a synthetic view-time-style error trace directly. Per
+        ;; the listener contract (`error_listener.cljc:103-115`) it
+        ;; gates on :op-type :error and the frame being a server frame;
+        ;; either condition failing → silent.
+        (trace/emit! :error :rf.error/view-time-exception
+                     {:frame             f
+                      :exception-message "synthetic view-time boom"
+                      :failing-id        :pages/articles
+                      :recovery          :warned-and-projected})
+        ;; Reading the response flushes the projection.
+        (let [resp (get-response f)]
+          (is (= 500 (:status resp))
+              "synthetic error trace → projector → 500 stamped onto :rf/response")
+          (is (nil? (:redirect resp))
+              "no redirect was set; the projector overwrites the status freely"))))))
 
 ;; ===========================================================================
 ;; rf2-ooj41 — direct adapter-contract smoke
@@ -1473,18 +1687,21 @@
     ;; the projector's drain-time domain; were this a construction setup step,
     ;; the now-STRICT :initial-events teardown (EP-0027 §Failure) would tear
     ;; the frame down and raise :rf.error/initial-events-step-failed instead.
-    (let [traces (atom [])
-          f      (frame/make-anon-frame-record!
+    (let [f      (frame/make-anon-frame-record!
                    {:platform  :server
                     :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                 :dev-error-detail? false}})
-          _      (rf/register-listener! :trace ::rpe (fn [ev] (swap! traces conj ev)))
-          _      (rf/dispatch-sync [:redirect-then-error] {:frame f})
-          _      (rf/unregister-listener! :trace ::rpe)
+          events (:events (with-error-capture!
+                            (fn [] (rf/dispatch-sync [:redirect-then-error] {:frame f}))))
           resp   (get-response f)]
-      ;; The handler-exception fired (drain-time trace).
-      (is (some #(= :rf.error/handler-exception (:operation %)) @traces)
-          "the handler-exception was traced during the drain")
+      ;; The handler-exception fired (drain-time). Read off the always-on
+      ;; axis as well as the dev bus (rf2-lwtlk): this assertion is the
+      ;; PREMISE of the two below it — without a real error there is nothing
+      ;; for the projector to overwrite the redirect WITH, so sourcing it
+      ;; dev-only left the redirect-precedence claim resting on nothing under
+      ;; the production gate.
+      (is (some #(= :rf.error/handler-exception (:operation %)) events)
+          "the handler-exception was emitted during the drain")
       ;; The redirect survived: response :status is 302, not 500.
       (is (= 302 (:status resp))
           "redirect wins — projector must not overwrite a redirect's :status (Spec 011 §Redirect precedence)")
@@ -1516,20 +1733,63 @@
 ;;      (:reason :not-in-allowlist)
 ;;   5. pass → set Location header (same shape as redirect-fx).
 
+(defn- safe-redirect-error?
+  "Is `op` one of the `:rf.error/safe-redirect-*` rejection categories?"
+  [op]
+  (and (keyword? op)
+       (= "rf.error" (namespace op))
+       (str/starts-with? (name op) "safe-redirect-")))
+
 (defn- capture-safe-redirect-traces!
-  "Install a trace listener filtering only :rf.error/safe-redirect-* events
-  for the duration of `body-fn`. Returns the captured traces."
+  "Record every `:rf.error/safe-redirect-*` rejection emitted during `body-fn`,
+  reading the ALWAYS-ON `:errors` axis and returning it normalised to the
+  dev-trace shape `{:operation … :tags …}`.
+
+  rf2-lwtlk / rf2-6jqa8 — WHY THE ALWAYS-ON AXIS AND NOT A DEV ARM. This is
+  the open-redirect gate: the one surface in this file where a dev-posture
+  proof would be actively misleading. rf2-6jqa8 PROMOTED these rejections
+  precisely so a production JVM stops swallowing them —
+  `emit-safe-redirect-error!` fans axis 1 (`dispatch-safe-redirect-record!`,
+  the record an off-box shipper sees) beside axis 2 (`trace/emit-error!`).
+  Reading axis 1 means the seventeen assertions below now prove the gate in
+  the build an attacker actually meets.
+
+  ONLY axis 1, deliberately — several of these count (`(= 1 (count hits))`),
+  and a union would report two in a dev build and one in a release build,
+  making the count itself posture-dependent. Axis 1 fires in both, so one
+  reading serves both.
+
+  WHAT AXIS 1 DOES NOT CARRY. The record is a CLOSED STRUCTURAL PROJECTION
+  (`re-frame.ssr.egress/safe-redirect-record-slots` =
+  `#{:frame :recovery :reason :scheme :host}`). `:scheme`, `:host` and
+  `:reason` — everything the assertions below discriminate on — survive it.
+  `:location` and `:allowlist` are excluded ON PURPOSE: the attacker's URL
+  and the application's own security configuration must not ride off-box.
+  The single assertion that reads `:allowlist` is therefore the one genuine
+  dev arm in this cluster, and it is marked as such at its site."
   [body-fn]
   (let [traces (atom [])
-        tag    (keyword (str "::safe-redirect-cap-" (gensym)))
-        prefix "rf.error"
-        match? (fn [op]
-                 (and (keyword? op)
-                      (= prefix (namespace op))
-                      (str/starts-with? (name op) "safe-redirect-")))]
+        tag    (keyword "rf2-lwtlk" (str "sr-cap-" (name (gensym "c"))))]
+    (rf/register-listener! :errors tag
+                           (fn [r]
+                             (when (safe-redirect-error? (:error r))
+                               (swap! traces conj {:operation (:error r)
+                                                   :tags      r}))))
+    (try (body-fn) @traces
+         (finally (rf/unregister-listener! :errors tag)))))
+
+(defn- capture-safe-redirect-dev-traces!
+  "The DEV-ONLY companion to [[capture-safe-redirect-traces!]], reading
+  `trace/emit-error!`'s axis-2 surface — which receives the diagnostics
+  WHOLE rather than projected. rf2-lwtlk: used at exactly one site, for the
+  `:allowlist` tag that `safe-redirect-record-slots` excludes from the
+  always-on record by design."
+  [body-fn]
+  (let [traces (atom [])
+        tag    (keyword "rf2-lwtlk" (str "sr-dev-cap-" (name (gensym "c"))))]
     (rf/register-listener! :trace tag
                            (fn [ev]
-                             (when (match? (:operation ev))
+                             (when (safe-redirect-error? (:operation ev))
                                (swap! traces conj ev))))
     (try (body-fn) @traces
          (finally (rf/unregister-listener! :trace tag)))))
@@ -1688,12 +1948,37 @@
           (is (= :not-in-allowlist (-> ev :tags :reason))
               ":reason discriminates from the relative-only case")
           (is (= "evil.example.com" (-> ev :tags :host))
-              ":host names the rejected host")
+              ":host names the rejected host")))
+      (is (nil? (:redirect (get-response f)))
+          "rejection is a no-op"))
+
+    ;; rf2-lwtlk DEV ARM — the ONE safe-redirect tag that is genuinely
+    ;; dev-only. `:allowlist` is deliberately absent from the always-on
+    ;; record: `re-frame.ssr.egress/safe-redirect-record-slots` excludes it
+    ;; because an application's own security configuration is unbounded
+    ;; policy data whose contents hand a reader the exact boundary being
+    ;; probed. `:reason :not-in-allowlist` already discriminates the arm
+    ;; without disclosing it — which is why the assertions ABOVE stayed
+    ;; always-on and only this one moved. Kept verbatim, read off axis 2,
+    ;; where the diagnostics arrive whole.
+    (when interop/debug-enabled?
+      (testing "rf2-2brsn step 4 (dev diagnostics): the dev trace carries the
+                allowlist vector itself, for the programmer reading a log"
+        (rf/reg-event :sr/not-in-allow-dev
+          (fn [_ _]
+            {:fx [[:rf.server/safe-redirect
+                   {:location "https://evil.example.com/phish"
+                    :allow    ["app.example.com" "alt.example.com"]}]]}))
+        (let [f      (frame/make-anon-frame-record! {:platform :server})
+              traces (capture-safe-redirect-dev-traces!
+                       (fn [] (rf/dispatch-sync [:sr/not-in-allow-dev] {:frame f})))
+              ev     (first (filter #(= :rf.error/safe-redirect-host-disallowed
+                                        (:operation %)) traces))]
+          (is (some? ev)
+              ":rf.error/safe-redirect-host-disallowed reached the dev trace")
           (is (= ["app.example.com" "alt.example.com"]
                  (-> ev :tags :allowlist))
-              ":allowlist tag carries the allowlist vector for diagnostic clarity")))
-      (is (nil? (:redirect (get-response f)))
-          "rejection is a no-op"))))
+              ":allowlist tag carries the allowlist vector for diagnostic clarity"))))))
 
 (deftest safe-redirect-allowlist-accepts-on-allowlist-host
   (testing "rf2-2brsn step 4 happy path: host IN allowlist → redirect succeeds"
@@ -2399,6 +2684,45 @@
 ;; The schemas artefact (transitively Malli) is on the ssr JVM test
 ;; classpath and `re-frame.ssr.test-fixture` requires `re-frame.schemas`,
 ;; so the late-bind validator (`:schemas/validate-fx!`) is LIVE here.
+;;
+;; ---------------------------------------------------------------------------
+;; rf2-lwtlk / rf2-dtpfv — REWRITTEN AS A TWO-POSTURE CONTRACT
+;;
+;; This deftest was the reason `ssr-end-to-end-test` stayed on the prod-gate
+;; roster after every other namespace in the artefact had come off. It was NOT
+;; ordinary trace spelling: under `-Dre-frame.debug=false` it failed for a REAL
+;; reason. `validate-fx!` is `(if interop/debug-enabled? (run-validation …)
+;; true)`, so the Spec 010 §Validation-order step-5 boundary did not run in a
+;; release build at all — and a malformed `:rf.server/*` fx therefore RAN, its
+;; args landing on the response accumulator that `ssr/get-response` publishes
+;; to every host adapter. `[:rf.server/set-status "not-an-int"]` really did
+;; leave a STRING on the HTTP status line.
+;;
+;; rf2-dtpfv ruled and fixed it: the reserved family now guards its OWN args
+;; unconditionally (`re-frame.ssr.response`), while the general step-5 gate for
+;; USER fx stays dev-only — trust-the-programmer covers user declarations, and
+;; validating every fx in every app to protect seven closed framework effects
+;; is posture-hostile.
+;;
+;; So the SEMANTICS below no longer differ by posture, and they are asserted
+;; unguarded in §1. What still differs, by design, is the RECOVERY PATH — and
+;; that is the whole of the split:
+;;
+;;   dev + schemas : Malli step-5 rejects FIRST, the fx is `:skipped`, and the
+;;                   programmer gets the rich `:rf.error/schema-validation-
+;;                   failure` `:where :fx-args` naming the failing path (§2).
+;;   production    : the guard throws, `re-frame.fx` containment catches it,
+;;                   and an ALWAYS-ON `:rf.error/fx-handler-exception` names
+;;                   the offending fx to an off-box shipper (§3).
+;;
+;; Note what that ordering means for §1: it is NOT a claim that one mechanism
+;; fires. It is the claim both mechanisms exist to make, and it holds whichever
+;; of them got there first — which is exactly why it belongs outside both arms.
+;;
+;; `re-frame.ssr-reserved-fx-guards-test` is rf2-dtpfv's own acceptance suite
+;; and reads the PURE accumulator (`ssr/peek-response`). This one is the
+;; END-TO-END view: every read below goes through `get-response`, the public
+;; host-adapter surface, after the error projection has drained.
 ;; ===========================================================================
 
 (defn- capture-schema-failures!
@@ -2437,173 +2761,230 @@
                                                (-> ev :tags :failing-id)])
                                      traces))))))
 
-(deftest ssr-server-fx-args-schema-boundary
-  (testing "rf2-kjf3m.2 — the spec-declared :rf.fx.server/*-args boundary
-            fires on malformed server fx args (Spec 011 §Standard fx /
-            Spec-Schemas §Standard fx args schemas / Spec 010 §step 5)"
+(def ^:private malformed-server-fx
+  "The nine malformed reserved-fx calls this boundary refuses, as
+  `[label fx-id fx-vec]`.
 
-    (testing ":rf.server/set-status with a non-int arg → rejected + skipped + projected 500"
-      ;; The bead's concrete failing scenario: a string status that
-      ;; pre-rf2-kjf3m.2 rode straight onto the wire (Ring then emitted a
-      ;; non-integer status). Now the :schema boundary rejects it before
-      ;; set-status-fx runs, so the malformed "not-an-int" NEVER reaches
-      ;; the accumulator. The fired :rf.error/schema-validation-failure
-      ;; ALSO routes through the always-on SSR error-projection substrate.
+  rf2-dtpfv made the REFUSAL itself posture-independent, so this table drives
+  only the two DIAGNOSTIC arms (§2 / §3), where the recovery path still
+  differs by design. The ACCUMULATOR claims are heterogeneous — each fx family
+  owns a different response slot — so they stay written out, unguarded, in §1."
+  [[":rf.server/set-status with a non-int arg"
+    :rf.server/set-status    [:rf.server/set-status "not-an-int"]]
+   [":rf.server/set-header missing :value"
+    :rf.server/set-header    [:rf.server/set-header {:name "X-Foo"}]]
+   [":rf.server/append-header with a non-string :value"
+    :rf.server/append-header [:rf.server/append-header {:name "X-Bar" :value 42}]]
+   [":rf.server/set-cookie missing :value (via [:ref :rf.server/cookie])"
+    :rf.server/set-cookie    [:rf.server/set-cookie {:name "session"}]]
+   [":rf.server/set-cookie with a bogus :same-site keyword"
+    :rf.server/set-cookie    [:rf.server/set-cookie {:name "s" :value "v"
+                                                     :same-site :bogus}]]
+   [":rf.server/delete-cookie missing :name"
+    :rf.server/delete-cookie [:rf.server/delete-cookie {:path "/"}]]
+   [":rf.server/redirect with a non-int :status"
+    :rf.server/redirect      [:rf.server/redirect {:location "/x" :status "oops"}]]
+   [":rf.server/safe-redirect with a non-int :status"
+    :rf.server/safe-redirect [:rf.server/safe-redirect {:location "/ok"
+                                                        :status   "not-int"}]]
+   [":rf.server/safe-redirect missing :location"
+    :rf.server/safe-redirect [:rf.server/safe-redirect {:status 302}]]])
+
+(defn- drive-server-fx!
+  "Dispatch `fx-vec` on a fresh server frame and return
+  `{:response … :dev-traces … :records …}` — the PUBLIC host-adapter read
+  (`ssr/get-response`, taken after the error projection has drained), every
+  dev `:rf.error/schema-validation-failure` trace, and every record the
+  ALWAYS-ON `:errors` axis saw. One drive, read by all three sections below."
+  [fx-vec]
+  (let [f       (frame/make-anon-frame-record! {:platform :server})
+        ev-id   (keyword "rf2-lwtlk" (str "attempt-" (name (gensym "e"))))
+        tag     (keyword "rf2-lwtlk" (str "sfx-cap-" (name (gensym "c"))))
+        dev     (atom [])
+        records (atom [])]
+    (rf/reg-event ev-id (fn [_ _] {:fx [fx-vec]}))
+    (rf/register-listener! :trace tag
+      (fn [ev] (when (= :rf.error/schema-validation-failure (:operation ev))
+                 (swap! dev conj ev))))
+    (rf/register-listener! :errors tag (fn [r] (swap! records conj r)))
+    (try
+      (rf/dispatch-sync [ev-id] {:frame f})
+      {:response   (get-response f)
+       :dev-traces @dev
+       :records    @records}
+      (finally
+        (rf/unregister-listener! :trace tag)
+        (rf/unregister-listener! :errors tag)))))
+
+(deftest ssr-server-fx-args-schema-boundary
+  ;; -------------------------------------------------------------------------
+  ;; §1 — POSTURE-INDEPENDENT. The malformed args never reach the wire.
+  ;;
+  ;; Not a claim that one MECHANISM fires — it is the claim both mechanisms
+  ;; exist to make, and it holds whichever of them got there first. That is
+  ;; why it sits outside both arms.
+  ;; -------------------------------------------------------------------------
+  (testing "rf2-dtpfv — a malformed :rf.server/* fx never reaches the response
+            accumulator, in EVERY build (Spec 011 §Standard fx / Spec-Schemas
+            §Standard fx args schemas / Spec 010 §Validation order step 5)"
+
+    (testing ":rf.server/set-status with a non-int arg"
+      ;; rf2-kjf3m.2's concrete failing scenario, and rf2-dtpfv's: a string
+      ;; status that rode straight onto the wire, saved only by one host
+      ;; adapter's coercion.
       ;;
       ;; rf2-37o5by — the default projector's 400 arm is GATED on a
-      ;; CLIENT-surface `:where` (`:event` / `:cofx`). This failure is
-      ;; `:where :fx-args` — a SERVER-side defect: a server handler built a
-      ;; malformed fx args map. That is not bad client input, so it must
-      ;; NOT mislabel as a client-facing 400; it falls through to the
-      ;; locked generic-500. End-to-end, the fix still turns a silent wire
-      ;; defect into a clean surfaced failure — now correctly a 500.
-      (rf/reg-event :bad/status
-        (fn [_ _] {:fx [[:rf.server/set-status "not-an-int"]]}))
-      (let [f      (frame/make-anon-frame-record! {:platform :server})
-            traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:bad/status] {:frame f})))
-            status (:status (get-response f))]
-        (expect-fx-args-schema-failure!
-          traces :rf.server/set-status "string :rf.server/set-status")
-        ;; The malformed string never landed on the accumulator …
-        (is (not= "not-an-int" status)
+      ;; CLIENT-surface `:where` (`:event` / `:cofx`). A server-fx arg failure
+      ;; is a SERVER-side defect: a server handler built a malformed fx args
+      ;; map. That is not bad client input, so it must NOT mislabel as a
+      ;; client-facing 400; it falls through to the locked generic-500.
+      (let [{:keys [response]} (drive-server-fx! [:rf.server/set-status "not-an-int"])]
+        (is (not= "not-an-int" (:status response))
             "the malformed status was skipped — never reached the accumulator")
-        (is (integer? status)
-            "the wire status is an integer (the gap this bead closes)")
-        ;; … and the schema failure surfaced as a 500 via the SSR
-        ;; error-projection substrate — a server-fx arg failure is a
-        ;; server-side defect, NOT a client 400 (rf2-37o5by gated arm).
-        (is (= 500 status)
-            "schema-validation-failure :where :fx-args projected to 500
-             :internal-error — the 400 arm is gated to :where :event/:cofx")))
+        (is (integer? (:status response))
+            "the wire status is an integer (the gap rf2-kjf3m.2 opened and
+             rf2-dtpfv closed in every build)")
+        (is (= 500 (:status response))
+            "surfaced as 500 :internal-error — the 400 arm is gated to
+             :where :event/:cofx")))
 
-    (testing ":rf.server/set-header missing :value → rejected + skipped"
-      (rf/reg-event :bad/header
-        (fn [_ _] {:fx [[:rf.server/set-header {:name "X-Foo"}]]}))   ;; :value absent
-      (let [f      (frame/make-anon-frame-record! {:platform :server})
-            traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:bad/header] {:frame f})))]
-        (expect-fx-args-schema-failure!
-          traces :rf.server/set-header ":rf.server/set-header missing :value")
-        (is (not-any? (fn [[k _]] (= "X-Foo" k)) (:headers (get-response f)))
+    (testing ":rf.server/set-header missing :value"
+      (let [{:keys [response]} (drive-server-fx! [:rf.server/set-header {:name "X-Foo"}])]
+        (is (not-any? (fn [[k _]] (= "X-Foo" k)) (:headers response))
+            "the malformed header was skipped; nothing landed")
+        (is (not-any? (fn [[_ v]] (nil? v)) (:headers response))
+            "and no header carries a nil value a host would have to invent a
+             meaning for")))
+
+    (testing ":rf.server/append-header with a non-string :value"
+      (let [{:keys [response]} (drive-server-fx! [:rf.server/append-header
+                                                  {:name "X-Bar" :value 42}])]
+        (is (not-any? (fn [[k _]] (= "X-Bar" k)) (:headers response))
             "the malformed header was skipped; nothing landed")))
 
-    (testing ":rf.server/append-header with non-string :value → rejected"
-      (rf/reg-event :bad/append
-        (fn [_ _] {:fx [[:rf.server/append-header {:name "X-Bar" :value 42}]]}))
-      (let [f      (frame/make-anon-frame-record! {:platform :server})
-            traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:bad/append] {:frame f})))]
-        (expect-fx-args-schema-failure!
-          traces :rf.server/append-header ":rf.server/append-header non-string :value")))
-
-    (testing ":rf.server/set-cookie missing :value → rejected via [:ref :rf.server/cookie]"
-      (rf/reg-event :bad/cookie
-        (fn [_ _] {:fx [[:rf.server/set-cookie {:name "session"}]]})) ;; :value absent
-      (let [f      (frame/make-anon-frame-record! {:platform :server})
-            traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:bad/cookie] {:frame f})))]
-        (expect-fx-args-schema-failure!
-          traces :rf.server/set-cookie ":rf.server/set-cookie missing :value")
-        (is (empty? (:cookies (get-response f)))
+    (testing ":rf.server/set-cookie missing :value"
+      (let [{:keys [response]} (drive-server-fx! [:rf.server/set-cookie {:name "session"}])]
+        (is (empty? (:cookies response))
             "the malformed cookie was skipped; accumulator stays empty")))
 
-    (testing ":rf.server/set-cookie with bogus :same-site keyword → rejected"
-      ;; :same-site accepts the enum #{:strict :lax :none} (or a string,
-      ;; per the documented divergence) — a bogus KEYWORD is neither.
-      (rf/reg-event :bad/cookie-samesite
-        (fn [_ _] {:fx [[:rf.server/set-cookie
-                         {:name "s" :value "v" :same-site :bogus}]]}))
-      (let [f      (frame/make-anon-frame-record! {:platform :server})
-            traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:bad/cookie-samesite] {:frame f})))]
-        (expect-fx-args-schema-failure!
-          traces :rf.server/set-cookie ":rf.server/set-cookie bogus :same-site keyword")))
+    (testing ":rf.server/set-cookie with a bogus :same-site keyword"
+      ;; :same-site accepts the enum #{:strict :lax :none} (or a string, per
+      ;; the documented divergence) — a bogus KEYWORD is neither.
+      (let [{:keys [response]} (drive-server-fx! [:rf.server/set-cookie
+                                                  {:name "s" :value "v"
+                                                   :same-site :bogus}])]
+        (is (empty? (:cookies response))
+            "the malformed cookie was skipped; accumulator stays empty")))
 
-    (testing ":rf.server/delete-cookie missing :name → rejected"
-      (rf/reg-event :bad/delete
-        (fn [_ _] {:fx [[:rf.server/delete-cookie {:path "/"}]]}))    ;; :name absent
-      (let [f      (frame/make-anon-frame-record! {:platform :server})
-            traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:bad/delete] {:frame f})))]
-        (expect-fx-args-schema-failure!
-          traces :rf.server/delete-cookie ":rf.server/delete-cookie missing :name")))
+    (testing ":rf.server/delete-cookie missing :name"
+      (let [{:keys [response]} (drive-server-fx! [:rf.server/delete-cookie {:path "/"}])]
+        (is (empty? (:cookies response))
+            "the nameless delete-cookie was skipped; accumulator stays empty")))
 
-    (testing ":rf.server/redirect with no target key → PASSES the schema (warn path, not 400)"
-      ;; rf2-ee38b.11 + the live half of decision rf2-cwfy2: a redirect
-      ;; with no :location/:url/:to is NOT a structural error — the schema
-      ;; is permissive (all target keys optional, zero allowed) so the
-      ;; no-target case PASSES the Spec 010 §step-5 boundary and falls
-      ;; through to the runtime's graceful no-target path. redirect-fx
-      ;; accepts it (location is caller-trusted/optional), sets :redirect,
-      ;; and the host adapter is the last line — it emits the
-      ;; :rf.ssr/ssr-redirect-no-target WARNING + a 3xx with no Location
-      ;; header so the defect is observable. A schema [:fn] requiring a
-      ;; target would 400 here BEFORE the warn→302 path runs, contradicting
-      ;; ee38b.11; this test pins that the redirect schema stays a pure
-      ;; shape check and does NOT reject the no-target redirect.
-      (rf/reg-event :soft/redirect-no-target
-        (fn [_ _] {:fx [[:rf.server/redirect {:status 302}]]}))
-      (let [f      (frame/make-anon-frame-record! {:platform :server})
-            traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:soft/redirect-no-target] {:frame f})))]
-        (is (empty? (filter (fn [ev] (and (= :fx-args (-> ev :tags :where))
-                                          (= :rf.server/redirect
-                                             (-> ev :tags :failing-id))))
-                            traces))
-            (str "no :fx-args schema failure for a no-target redirect — "
-                 "the schema permits it; saw: "
-                 (pr-str (mapv (comp :failing-id :tags) traces))))
-        (is (= {:status 302} (:redirect (get-response f)))
-            (str "the no-target redirect passed the schema and set :redirect"
-                 " — the adapter's warn+302 no-target path takes over"
-                 " downstream"))))
+    (testing ":rf.server/redirect with a non-int :status"
+      (let [{:keys [response]} (drive-server-fx! [:rf.server/redirect
+                                                  {:location "/x" :status "oops"}])]
+        (is (nil? (:redirect response))
+            "no :redirect landed")
+        (is (integer? (:status response))
+            "and the non-int status did not flow onto :status via Spec 011
+             §Redirect precedence step 1")))
 
-    (testing ":rf.server/redirect with non-int :status → rejected"
-      (rf/reg-event :bad/redirect-status
-        (fn [_ _] {:fx [[:rf.server/redirect {:location "/x" :status "oops"}]]}))
-      (let [f      (frame/make-anon-frame-record! {:platform :server})
-            traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:bad/redirect-status] {:frame f})))]
-        (expect-fx-args-schema-failure!
-          traces :rf.server/redirect ":rf.server/redirect non-int :status")))
-
-    (testing ":rf.server/safe-redirect with non-int :status → rejected + response unmodified"
-      ;; rf2-wtd8z finding 1: pre-fix safe-redirect carried only :platforms
-      ;; — no :schema — so a valid-location-but-non-int-:status arg passed
-      ;; the (absent) boundary and safe-redirect-fx's step-5 pass wrote the
-      ;; string :status straight onto the response accumulator. With the new
-      ;; :rf.fx.server/safe-redirect-args schema attached, the malformed
-      ;; :status surfaces at the Spec 010 §step-5 fx-args boundary, the fx
-      ;; is SKIPPED, and the response is left unmodified — matching the
-      ;; sibling six.
-      (rf/reg-event :bad/safe-redirect-status
-        (fn [_ _] {:fx [[:rf.server/safe-redirect
-                         {:location "/ok" :status "not-int"}]]}))
-      (let [f      (frame/make-anon-frame-record! {:platform :server})
-            traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:bad/safe-redirect-status] {:frame f})))
-            resp   (get-response f)]
-        (expect-fx-args-schema-failure!
-          traces :rf.server/safe-redirect ":rf.server/safe-redirect non-int :status")
-        (is (nil? (:redirect resp))
+    (testing ":rf.server/safe-redirect with a non-int :status"
+      ;; rf2-wtd8z finding 1: pre-fix safe-redirect carried only :platforms —
+      ;; no :schema — so a valid-location-but-non-int-:status arg passed the
+      ;; (absent) boundary and safe-redirect-fx's step-5 pass wrote the string
+      ;; :status straight onto the response accumulator.
+      (let [{:keys [response]} (drive-server-fx! [:rf.server/safe-redirect
+                                                  {:location "/ok" :status "not-int"}])]
+        (is (nil? (:redirect response))
             "the malformed safe-redirect was skipped — no :redirect landed")
-        (is (not= "not-int" (:status resp))
+        (is (not= "not-int" (:status response))
             "the non-int status never reached the response accumulator")))
 
-    (testing ":rf.server/safe-redirect missing :location → rejected"
+    (testing ":rf.server/safe-redirect missing :location"
       ;; safe-redirect REQUIRES a :location (its validation target) — a
       ;; target-less safe-redirect is a programmer error, NOT the documented
       ;; no-target graceful path that the caller-trusted :rf.server/redirect
-      ;; carries. The schema marks :location required, so a no-location call
-      ;; fails the shape gate.
-      (rf/reg-event :bad/safe-redirect-no-location
-        (fn [_ _] {:fx [[:rf.server/safe-redirect {:status 302}]]}))
-      (let [f      (frame/make-anon-frame-record! {:platform :server})
-            traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:bad/safe-redirect-no-location] {:frame f})))]
+      ;; carries.
+      (let [{:keys [response]} (drive-server-fx! [:rf.server/safe-redirect {:status 302}])]
+        (is (nil? (:redirect response))
+            "the target-less safe-redirect was skipped — no :redirect landed")))
+
+    (testing ":rf.server/redirect with no target key PASSES — the warn path,
+              not a rejection"
+      ;; rf2-ee38b.11 + the live half of decision rf2-cwfy2: a redirect with
+      ;; no :location/:url/:to is NOT a structural error — the schema is
+      ;; permissive (all target keys optional, zero allowed) so the no-target
+      ;; case PASSES the Spec 010 §step-5 boundary and falls through to the
+      ;; runtime's graceful no-target path. redirect-fx accepts it (location
+      ;; is caller-trusted/optional), sets :redirect, and the host adapter is
+      ;; the last line — it emits :rf.ssr/ssr-redirect-no-target + a 3xx with
+      ;; no Location header so the defect is observable. A schema [:fn]
+      ;; requiring a target would 400 here BEFORE the warn→302 path runs,
+      ;; contradicting ee38b.11. This is the NON-VACUITY control for the
+      ;; whole table above: without it, every §1 claim would be satisfied by
+      ;; a boundary that refused everything.
+      (let [{:keys [response]} (drive-server-fx! [:rf.server/redirect {:status 302}])]
+        (is (= {:status 302} (:redirect response))
+            "the no-target redirect passed the boundary and set :redirect —
+             the adapter's warn+302 path takes over downstream"))))
+
+  ;; -------------------------------------------------------------------------
+  ;; §2 — DEV ARM. The rich step-5 diagnostic, kept VERBATIM.
+  ;; -------------------------------------------------------------------------
+  (when interop/debug-enabled?
+    (testing "rf2-lwtlk DEV ARM — with schemas live the Spec 010 §step-5
+              boundary rejects FIRST, so the programmer gets the RICH
+              diagnostic: :rf.error/schema-validation-failure :where :fx-args,
+              naming the failing fx and path, with the fx :skipped and the
+              page still rendering. This is the half that genuinely does not
+              exist in a release build — `validate-fx!` is
+              `(if interop/debug-enabled? (run-validation …) true)`, so there
+              it compiles to `true` and never emits."
+      (doseq [[label fx-id fx-vec] malformed-server-fx]
         (expect-fx-args-schema-failure!
-          traces :rf.server/safe-redirect ":rf.server/safe-redirect missing :location")))))
+          (:dev-traces (drive-server-fx! fx-vec)) fx-id label)))
+
+    (testing "rf2-lwtlk DEV ARM (the negative) — the permissive redirect
+              schema does NOT reject the no-target case. This is a NEGATIVE
+              over the dev trace ring, so under the production gate it would
+              pass with the step-5 boundary removed altogether; it belongs in
+              the arm with the positives it discriminates against, not
+              outside it."
+      (let [{:keys [dev-traces]} (drive-server-fx! [:rf.server/redirect {:status 302}])]
+        (is (empty? (filter (fn [ev] (and (= :fx-args (-> ev :tags :where))
+                                          (= :rf.server/redirect
+                                             (-> ev :tags :failing-id))))
+                            dev-traces))
+            (str "no :fx-args schema failure for a no-target redirect — the"
+                 " schema permits it; saw: "
+                 (pr-str (mapv (comp :failing-id :tags) dev-traces)))))))
+
+  ;; -------------------------------------------------------------------------
+  ;; §3 — PRODUCTION ARM. The always-on witness that makes §1 true in a
+  ;;      release build, and the one an off-box shipper actually receives.
+  ;; -------------------------------------------------------------------------
+  (when-not interop/debug-enabled?
+    (testing "rf2-lwtlk PRODUCTION ARM — with step-5 compiled out, the
+              reserved fx's OWN guard (rf2-dtpfv, re-frame.ssr.response)
+              throws, `re-frame.fx` containment catches it, and
+              `emit-fx-error!` fans an ALWAYS-ON
+              :rf.error/fx-handler-exception naming the offending fx. That
+              record is what reaches Sentry / Datadog / the frame-owned
+              :observability :errors sink in the build that ships — unlike
+              the silent accumulator write this replaced, which was visible
+              only as a malformed HTTP response."
+      (doseq [[label fx-id fx-vec] malformed-server-fx]
+        (let [{:keys [records]} (drive-server-fx! fx-vec)
+              hits (filter #(= :rf.error/fx-handler-exception (:error %)) records)]
+          (is (seq hits)
+              (str label " — an always-on :rf.error/fx-handler-exception"
+                   " record reached the :errors axis; saw: "
+                   (pr-str (mapv :error records))))
+          (is (some #(= fx-id (:failing-id %)) hits)
+              (str label " — the record names " fx-id " as the failing fx;"
+                   " saw: " (pr-str (mapv :failing-id hits)))))))))
 
 (deftest ssr-server-fx-args-schema-accepts-well-formed
   (testing "rf2-kjf3m.2 — regression guard: well-formed server fx args pass
@@ -2625,9 +3006,17 @@
           traces (capture-schema-failures!
                    (fn [] (rf/dispatch-sync [:good/all] {:frame f})))
           resp   (get-response f)]
-      (is (empty? (filter (fn [ev] (= :fx-args (-> ev :tags :where))) traces))
-          (str "no :fx-args schema failure for well-formed args; saw: "
-               (pr-str (mapv (comp :failing-id :tags) traces))))
+      ;; rf2-lwtlk — DEV ARM. A negative over the dev trace ring passes
+      ;; AUTOMATICALLY under `-Dre-frame.debug=false`, where the ring is
+      ;; empty for every input, so outside an arm this would report "the
+      ;; boundary admitted the valid" in a build that has no boundary. The
+      ;; POSTURE-INDEPENDENT half of the same claim is the accumulator reads
+      ;; below: they prove admission by showing the effects LANDED, which is
+      ;; the non-vacuous form and needs no arm.
+      (when interop/debug-enabled?
+        (is (empty? (filter (fn [ev] (= :fx-args (-> ev :tags :where))) traces))
+            (str "no :fx-args schema failure for well-formed args; saw: "
+                 (pr-str (mapv (comp :failing-id :tags) traces)))))
       ;; redirect-fx flows its :status through to the response :status
       ;; (Spec 011 §Redirect precedence step 1), so :status is 302 here.
       (is (= 302 (:status resp)) "redirect status flows through")
@@ -2655,12 +3044,16 @@
           traces (capture-schema-failures!
                    (fn [] (rf/dispatch-sync [:good/safe-redirect] {:frame f})))
           resp   (get-response f)]
-      (is (empty? (filter (fn [ev] (and (= :fx-args (-> ev :tags :where))
-                                        (= :rf.server/safe-redirect
-                                           (-> ev :tags :failing-id))))
-                          traces))
-          (str "no :fx-args schema failure for well-formed safe-redirect; saw: "
-               (pr-str (mapv (comp :failing-id :tags) traces))))
+      ;; rf2-lwtlk — DEV ARM, same reasoning as its sibling above: a negative
+      ;; over an empty ring. The landing assertions that follow carry the
+      ;; posture-independent half.
+      (when interop/debug-enabled?
+        (is (empty? (filter (fn [ev] (and (= :fx-args (-> ev :tags :where))
+                                          (= :rf.server/safe-redirect
+                                             (-> ev :tags :failing-id))))
+                            traces))
+            (str "no :fx-args schema failure for well-formed safe-redirect; saw: "
+                 (pr-str (mapv (comp :failing-id :tags) traces)))))
       (is (= "https://app.example.com/dashboard" (-> resp :redirect :location))
           "the well-formed safe-redirect landed on the response :redirect slot")
       (is (= 302 (-> resp :redirect :status))
