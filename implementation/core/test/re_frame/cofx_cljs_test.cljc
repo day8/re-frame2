@@ -33,7 +33,61 @@
   floor). The fixture's snapshot/restore baseline (rf2-7hwnu) preserves the
   framework registrations that landed at ns-load — including the standard
   `:rf/time-ms` provided-recordable cofx — across both runtimes, replacing
-  the JVM-only `(require … :reload)` resurrection the prior `.clj` used."
+  the JVM-only `(require … :reload)` resurrection the prior `.clj` used.
+
+  ## Posture split (rf2-d2841)
+
+  Almost nothing in this file needed a guard, because almost nothing in it is
+  really about the trace. Three production channels carry the claims instead,
+  and finding them is the whole of this pass's work here.
+
+  1. `:rf.cofx` — THE CANONICAL COMPLETE RECORD — is staged flat into the
+     handler's own coeffects map, always-on, read via `:as`. The
+     `reply-envelope-carries-rf-cofx-flat-and-freshly-stamped` deftest read
+     the request's and reply's tokens off `[:tags :rf.cofx]` on the
+     `:rf.event/dispatched` trace; it now reads the SAME maps out of the two
+     handlers. Flat shape, fresh stamping and non-inheritance are all
+     production facts about the envelope, not trace facts, and all three now
+     run under the gate.
+
+  2. THE COFX ERROR CATEGORIES ARE PROMOTED. `emit-unregistered-cofx!`,
+     `emit-missing-required-cofx!` and `emit-cofx-value-invalid!` each fan
+     through `error-emit/emit-error-both!`, so `:rf.error/unregistered-cofx`,
+     `:rf.error/missing-required-cofx` and `:rf.error/cofx-value-invalid`
+     reach the always-on `:errors` stream. \"Exactly one such error fired\" is
+     therefore provable in the posture that ships, and the four adversarial
+     error deftests assert it there. What does NOT survive is `:rf.cofx/id` —
+     these sites pass `failing-id` as BOTH the failing id and the event-id, so
+     `emit-error-both!`'s lift (which fires only when the two DIFFER) stamps
+     nothing extra and the record stays the tight `{:error :event :event-id
+     :frame :time :exception :elapsed-ms}` shape. Production learns THAT a
+     coeffect declaration failed and WHICH EVENT declared it, never WHICH
+     FACT. Those `:rf.cofx/id` tag reads are guarded.
+
+  3. A `:rf.cofx/run` TAG REPORTS A DELIVERY. The produced value stamped
+     under `:rf.cofx/value` is the coeffect that egresses into the handler,
+     so the three run-tag deftests now let their handlers read it.
+
+  THREE VACUOUS PASSES CAME OFF, in two classes.
+  class 1 (a negative over an empty ring) — 2:
+  `reply-envelope-...`'s `(every? (complement map?) (vals reply-cofx))`, where
+  `reply-cofx` is nil, `(vals nil)` is nil and `every?` over nil is TRUE, so a
+  FLAT-SHAPE claim on the retired grouped-cofx regression passed on nothing;
+  and `generator-emits-generated-trace-op`'s `(empty? runs)`, certifying that
+  a generated fact does NOT also emit the ambient `:rf.cofx/run` op over a
+  stream carrying no ops of any kind.
+  class 4 (absence of a key elided wholesale) — 1:
+  `cofx-run-no-arg-omits-arg-tag`'s `(not (contains? (:tags run) :rf.cofx/arg))`,
+  where `run` is nil and `contains?` of nil is false for every key.
+
+  ONE DEFTEST HERE IS NOW PROVED BY THE LANE RATHER THAN BY ITS OWN REBIND.
+  `generated-non-edn-value-is-rejected-in-production` establishes its posture
+  with `(with-redefs [interop/debug-enabled? false] ...)`. A `with-redefs`
+  cannot reach a load-time gate, so that was always the weaker instrument;
+  with this namespace on the prod-gate roster the whole file — this deftest
+  included — runs with the REAL `-Dre-frame.debug=false` gate, and the rebind
+  becomes a no-op over a posture that already holds. Kept as documentation of
+  intent."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -55,6 +109,23 @@
   (let [acc (atom [])]
     (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
+
+(defn- collect-errors!
+  "ALWAYS-ON (rf2-d2841): register an `:errors`-stream listener under `id`,
+  returning the atom that accumulates the tight records the corpus-wide
+  `error-emit/dispatch-on-error!` registry fans. NOT gated on
+  `interop/debug-enabled?` — this is axis 1, the channel that survives CLJS
+  `:advanced` + `goog.DEBUG=false`. Tests must
+  `(rf/unregister-listener! :errors id)` to detach."
+  [id]
+  (let [acc (atom [])]
+    (rf/register-listener! :errors id (fn [rec] (swap! acc conj rec)))
+    acc))
+
+(defn- errors-of
+  "The always-on records fanned for `category`."
+  [recs category]
+  (filterv #(= category (:error %)) recs))
 
 ;; ===========================================================================
 ;; 1. Value-returning reg-cofx + ambient delivery
@@ -285,47 +356,81 @@
             originating event carries :rf.cofx in the canonical FLAT slot, and
             its :rf/time-ms is FRESHLY stamped — distinct from the originating
             request token's scripted value (NOT inherited)."
-    (let [traces (collect-traces! ::reply-cofx)]
+    ;; ALWAYS-ON (rf2-d2841): the canonical complete `:rf.cofx` record is
+    ;; staged FLAT into each handler's own coeffects map (a key the runtime
+    ;; injects, not declarable, read via `:as`) — production state, not a
+    ;; trace tag. `generator-runs-at-processing-start-fills-and-records`
+    ;; already relies on that channel. So every claim below about flat shape,
+    ;; fresh stamping and non-inheritance is asserted on the two handlers'
+    ;; OWN tokens and runs in BOTH postures; the identical trace-tag reads
+    ;; are kept, verbatim, behind the guard.
+    (let [traces         (collect-traces! ::reply-cofx)
+          request-record (atom ::unset)
+          reply-record   (atom ::unset)]
       ;; The originating ("request") event: scripted with a fixed causal
       ;; :rf/time-ms so we can prove the reply does NOT inherit it. Its
       ;; handler dispatches the completion ("reply") event — the reply
       ;; envelope re-enters build-envelope and is stamped fresh.
       (rf/reg-event :cofx-test/request
-        (fn [_ _]
+        (fn [cofx _]
+          (reset! request-record (:rf.cofx cofx))
           {:fx [[:dispatch [:cofx-test/replied {:status :ok :value {:title "Welcome"}}]]]}))
-      (rf/reg-event :cofx-test/replied (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :cofx-test/replied
+        (fn [{:keys [db] :as cofx} _]
+          (reset! reply-record (:rf.cofx cofx))
+          {:db db}))
       (rf/dispatch-sync [:cofx-test/request]
                         {:rf.cofx {:rf/time-ms 1781078400123}})
       (rf/unregister-listener! :trace ::reply-cofx)
-      (let [dispatched   (filter #(= :rf.event/dispatched (:operation %)) @traces)
-            request-env  (first (filter #(= :cofx-test/request
-                                            (first (get-in % [:tags :rf.event/v])))
-                                        dispatched))
-            reply-env    (first (filter #(= :cofx-test/replied
-                                            (first (get-in % [:tags :rf.event/v])))
-                                        dispatched))
-            request-cofx (get-in request-env [:tags :rf.cofx])
-            reply-cofx   (get-in reply-env   [:tags :rf.cofx])]
-        (is (some? request-env) "the originating request event was dispatched")
-        (is (some? reply-env)   "the completion / reply event was dispatched")
-        ;; (a) the reply envelope carries :rf.cofx, present and a FLAT map
-        (is (map? reply-cofx)
-            "the reply envelope carries :rf.cofx in the canonical slot, a flat map")
-        (is (contains? reply-cofx :rf/time-ms)
-            "the reply's :rf.cofx carries :rf/time-ms flat (fact-name → value, no grouping)")
-        ;; (c) FLAT shape: every value is a leaf under an owner-qualified key,
-        ;; not a grouping sub-map (the retired grouped shape would nest here).
-        (is (every? (complement map?) (vals reply-cofx))
-            "the reply's :rf.cofx is FLAT — no value is a grouping sub-map")
-        ;; (b) freshly stamped: the reply's :rf/time-ms is a real epoch-ms
-        ;; integer and is DISTINCT from the request token's scripted value —
-        ;; the child stamps its OWN causal time (`:rf.cofx` is not inherited).
-        (is (integer? (:rf/time-ms reply-cofx))
-            "the reply's :rf/time-ms is a freshly stamped epoch-ms integer")
-        (is (= 1781078400123 (:rf/time-ms request-cofx))
-            "the request token kept its scripted :rf/time-ms verbatim")
-        (is (not= (:rf/time-ms request-cofx) (:rf/time-ms reply-cofx))
-            "the reply STAMPS ITS OWN :rf/time-ms — it does NOT inherit the originating request's causal token")))))
+      ;; -- always-on: the same three claims, off the delivered tokens -------
+      (is (map? @request-record) "the originating request event ran and carries :rf.cofx")
+      (is (map? @reply-record)   "the completion / reply event ran and carries :rf.cofx")
+      ;; (a)+(c) the reply's record is present and FLAT — no value is a
+      ;; grouping sub-map. VACUOUS PASS REMOVED (class 1): the trace-side
+      ;; twin of this claim read `(vals nil)`, and `every?` over nil is TRUE,
+      ;; so the retired-grouped-shape regression pin passed on nothing.
+      (is (contains? @reply-record :rf/time-ms)
+          "the reply's :rf.cofx carries :rf/time-ms flat (fact-name -> value, no grouping)")
+      (is (every? (complement map?) (vals @reply-record))
+          "the reply's :rf.cofx is FLAT — no value is a grouping sub-map")
+      ;; (b) freshly stamped and NOT inherited.
+      (is (integer? (:rf/time-ms @reply-record))
+          "the reply's :rf/time-ms is a freshly stamped epoch-ms integer")
+      (is (= 1781078400123 (:rf/time-ms @request-record))
+          "the request token kept its scripted :rf/time-ms verbatim")
+      (is (not= (:rf/time-ms @request-record) (:rf/time-ms @reply-record))
+          "the reply STAMPS ITS OWN :rf/time-ms — it does NOT inherit the originating request's causal token")
+      ;; -- dev-only: the same tokens as seen on the dispatch trace ---------
+      (when interop/debug-enabled?
+        (let [dispatched   (filter #(= :rf.event/dispatched (:operation %)) @traces)
+              request-env  (first (filter #(= :cofx-test/request
+                                              (first (get-in % [:tags :rf.event/v])))
+                                          dispatched))
+              reply-env    (first (filter #(= :cofx-test/replied
+                                              (first (get-in % [:tags :rf.event/v])))
+                                          dispatched))
+              request-cofx (get-in request-env [:tags :rf.cofx])
+              reply-cofx   (get-in reply-env   [:tags :rf.cofx])]
+          (is (some? request-env) "the originating request event was dispatched")
+          (is (some? reply-env)   "the completion / reply event was dispatched")
+          ;; (a) the reply envelope carries :rf.cofx, present and a FLAT map
+          (is (map? reply-cofx)
+              "the reply envelope carries :rf.cofx in the canonical slot, a flat map")
+          (is (contains? reply-cofx :rf/time-ms)
+              "the reply's :rf.cofx carries :rf/time-ms flat (fact-name → value, no grouping)")
+          ;; (c) FLAT shape: every value is a leaf under an owner-qualified key,
+          ;; not a grouping sub-map (the retired grouped shape would nest here).
+          (is (every? (complement map?) (vals reply-cofx))
+              "the reply's :rf.cofx is FLAT — no value is a grouping sub-map")
+          ;; (b) freshly stamped: the reply's :rf/time-ms is a real epoch-ms
+          ;; integer and is DISTINCT from the request token's scripted value —
+          ;; the child stamps its OWN causal time (`:rf.cofx` is not inherited).
+          (is (integer? (:rf/time-ms reply-cofx))
+              "the reply's :rf/time-ms is a freshly stamped epoch-ms integer")
+          (is (= 1781078400123 (:rf/time-ms request-cofx))
+              "the request token kept its scripted :rf/time-ms verbatim")
+          (is (not= (:rf/time-ms request-cofx) (:rf/time-ms reply-cofx))
+              "the reply STAMPS ITS OWN :rf/time-ms — it does NOT inherit the originating request's causal token"))))))
 
 ;; ===========================================================================
 ;; 4. Strict-replay missing-required fails loudly (ADVERSARIAL)
@@ -337,6 +442,7 @@
             cascade halts before the handler runs (strict-replay loud failure;
             EP-0017 §5)"
     (let [traces (collect-traces! ::missing)
+          recs   (collect-errors! ::missing)
           fired? (atom false)]
       (rf/reg-cofx :cofx-test/required-boundary
         {:recordable? true :provided? true})
@@ -347,17 +453,31 @@
       (let [ex (try (rf/dispatch-sync [:cofx-test/needs-boundary]) nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
         (rf/unregister-listener! :trace ::missing)
+        (rf/unregister-listener! :errors ::missing)
         (is (false? @fired?)
             "the handler never ran — missing-required halts the cascade")
         (is (some? ex)
             "the dispatch threw rather than silently re-reading the host")
         (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
             "the throw carries :rf.error/missing-required-cofx")
-        (let [errs (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces)]
-          (is (= 1 (count errs)) "exactly one missing-required-cofx error trace")
-          (is (= :cofx-test/required-boundary
-                 (get-in (first errs) [:tags :rf.cofx/id]))
-              ":rf.cofx/id names the absent fact"))))))
+        ;; ALWAYS-ON (rf2-d2841): the CATEGORY is promoted —
+        ;; `emit-missing-required-cofx!` fans through
+        ;; `error-emit/emit-error-both!` — so "exactly one fired, and it names
+        ;; the declaring event" is provable on the shipping channel. What does
+        ;; NOT survive is `:rf.cofx/id`: this site passes `failing-id` as both
+        ;; the failing id AND the event-id, so the lift never fires and an
+        ;; off-box shipper learns WHICH EVENT, never WHICH FACT.
+        (let [prod (errors-of @recs :rf.error/missing-required-cofx)]
+          (is (= 1 (count prod))
+              "exactly one always-on missing-required-cofx record")
+          (is (= :cofx-test/needs-boundary (:event-id (first prod)))
+              ":event-id names the declaring event on the tight record"))
+        (when interop/debug-enabled?
+          (let [errs (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces)]
+            (is (= 1 (count errs)) "exactly one missing-required-cofx error trace")
+            (is (= :cofx-test/required-boundary
+                   (get-in (first errs) [:tags :rf.cofx/id]))
+                ":rf.cofx/id names the absent fact")))))))
 
 ;; ===========================================================================
 ;; 5. typo→unregistered vs declared-absent→missing-required SPLIT (ADVERSARIAL)
@@ -368,7 +488,8 @@
             typo case) is `:rf.error/unregistered-cofx` — DISTINCT from
             `:rf.error/missing-required-cofx` (a registered-but-absent provided
             fact). The two-error split is the EP-0017 §7 contract."
-    (let [traces (collect-traces! ::typo)]
+    (let [traces (collect-traces! ::typo)
+          recs   (collect-errors! ::typo)]
       ;; :cofx-test/typpo is NOT registered anywhere — a typo.
       (rf/reg-event :cofx-test/has-typo
         {:rf.cofx/requires [:cofx-test/typpo]}
@@ -376,14 +497,26 @@
       (let [ex (try (rf/dispatch-sync [:cofx-test/has-typo]) nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
         (rf/unregister-listener! :trace ::typo)
+        (rf/unregister-listener! :errors ::typo)
         (is (= :rf.error/unregistered-cofx (:rf.error/id (ex-data ex)))
             "an unregistered (typo'd) id is :rf.error/unregistered-cofx, NOT missing-required")
-        (let [errs (filter #(= :rf.error/unregistered-cofx (:operation %)) @traces)]
-          (is (= 1 (count errs)) "exactly one unregistered-cofx trace")
-          (is (= :cofx-test/typpo (get-in (first errs) [:tags :rf.cofx/id]))
-              ":rf.cofx/id names the unregistered id")
-          (is (= :cofx-test/has-typo (get-in (first errs) [:tags :failing-id]))
-              ":failing-id names the declaring handler"))))))
+        ;; ALWAYS-ON (rf2-d2841): the promoted half of the EP-0017 §7 SPLIT —
+        ;; the two categories are distinguishable on the shipping channel, not
+        ;; only on the dev trace, which is what makes the split useful to an
+        ;; off-box shipper at all.
+        (let [prod (errors-of @recs :rf.error/unregistered-cofx)]
+          (is (= 1 (count prod)) "exactly one always-on unregistered-cofx record")
+          (is (empty? (errors-of @recs :rf.error/missing-required-cofx))
+              "and NOT a missing-required record — the split survives to production")
+          (is (= :cofx-test/has-typo (:event-id (first prod)))
+              ":event-id names the declaring handler on the tight record"))
+        (when interop/debug-enabled?
+          (let [errs (filter #(= :rf.error/unregistered-cofx (:operation %)) @traces)]
+            (is (= 1 (count errs)) "exactly one unregistered-cofx trace")
+            (is (= :cofx-test/typpo (get-in (first errs) [:tags :rf.cofx/id]))
+                ":rf.cofx/id names the unregistered id")
+            (is (= :cofx-test/has-typo (get-in (first errs) [:tags :failing-id]))
+                ":failing-id names the declaring handler")))))))
 
 (deftest registered-absent-vs-unregistered-are-different-errors
   (testing "the split is real: a REGISTERED-but-absent provided fact →
@@ -605,20 +738,29 @@
       ;; storage key; the produced value is what it reads back.
       (rf/reg-cofx :cofx-test/local-pref
         (fn [storage-key] (str "value-for-" storage-key)))
-      (rf/reg-event :cofx-test/read-pref
-        {:rf.cofx/requires [[:cofx-test/local-pref "theme"]]}
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:cofx-test/read-pref])
-      (rf/unregister-listener! :trace ::run-tags)
-      (let [runs (filter #(= :rf.cofx/run (:operation %)) @traces)
-            run  (first (filter #(= :cofx-test/local-pref
-                                    (get-in % [:tags :rf.cofx/id]))
-                                runs))]
-        (is (some? run) "the parameterized supplier emitted a :rf.cofx/run op")
-        (is (= "value-for-theme" (get-in run [:tags :rf.cofx/value]))
-            ":rf.cofx/value is the PRODUCED value, not the requirement-arg")
-        (is (= "theme" (get-in run [:tags :rf.cofx/arg]))
-            "the requirement-arg rides the distinct :rf.cofx/arg tag")))))
+      ;; ALWAYS-ON (rf2-d2841): `:rf.cofx/value` is by definition "the
+      ;; coeffect that egresses", so the handler that RECEIVES it witnesses
+      ;; the tag's subject without the trace. The arg/value distinction the
+      ;; deftest is really about shows up there too: the delivered value is
+      ;; the supplier's OUTPUT ("value-for-theme"), never the declared arg.
+      (let [delivered (atom ::unset)]
+        (rf/reg-event :cofx-test/read-pref
+          {:rf.cofx/requires [[:cofx-test/local-pref "theme"]]}
+          (fn [{:keys [cofx-test/local-pref]} _] (reset! delivered local-pref) {}))
+        (rf/dispatch-sync [:cofx-test/read-pref])
+        (rf/unregister-listener! :trace ::run-tags)
+        (is (= "value-for-theme" @delivered)
+            "the PRODUCED value egressed into the coeffects — not the arg \"theme\"")
+        (when interop/debug-enabled?
+          (let [runs (filter #(= :rf.cofx/run (:operation %)) @traces)
+                run  (first (filter #(= :cofx-test/local-pref
+                                        (get-in % [:tags :rf.cofx/id]))
+                                    runs))]
+            (is (some? run) "the parameterized supplier emitted a :rf.cofx/run op")
+            (is (= "value-for-theme" (get-in run [:tags :rf.cofx/value]))
+                ":rf.cofx/value is the PRODUCED value, not the requirement-arg")
+            (is (= "theme" (get-in run [:tags :rf.cofx/arg]))
+                "the requirement-arg rides the distinct :rf.cofx/arg tag")))))))
 
 (deftest cofx-run-no-arg-omits-arg-tag
   (testing "a bare (no-arg) ambient supplier stamps `:rf.cofx/value` (the
@@ -626,19 +768,28 @@
             the prior arg-omission on the 1-arity path)"
     (let [traces (collect-traces! ::run-noarg)]
       (rf/reg-cofx :cofx-test/locale2 (fn [] "en-AU"))
-      (rf/reg-event :cofx-test/read-locale2
-        {:rf.cofx/requires [:cofx-test/locale2]}
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:cofx-test/read-locale2])
-      (rf/unregister-listener! :trace ::run-noarg)
-      (let [run (first (filter #(and (= :rf.cofx/run (:operation %))
-                                     (= :cofx-test/locale2
-                                        (get-in % [:tags :rf.cofx/id])))
-                               @traces))]
-        (is (some? run))
-        (is (= "en-AU" (get-in run [:tags :rf.cofx/value])))
-        (is (not (contains? (:tags run) :rf.cofx/arg))
-            "no requirement-arg ⇒ :rf.cofx/arg is omitted")))))
+      ;; ALWAYS-ON (rf2-d2841): the produced value egresses into the
+      ;; coeffects on the 0-arity path too. VACUOUS PASS REMOVED (class 4):
+      ;; `(not (contains? (:tags run) :rf.cofx/arg))` was true for free under
+      ;; the gate, where `run` is nil and `contains?` of nil is false for
+      ;; EVERY key — the arg-omission pin certified nothing.
+      (let [delivered (atom ::unset)]
+        (rf/reg-event :cofx-test/read-locale2
+          {:rf.cofx/requires [:cofx-test/locale2]}
+          (fn [{:keys [cofx-test/locale2]} _] (reset! delivered locale2) {}))
+        (rf/dispatch-sync [:cofx-test/read-locale2])
+        (rf/unregister-listener! :trace ::run-noarg)
+        (is (= "en-AU" @delivered)
+            "the bare supplier's produced value egressed into the coeffects")
+        (when interop/debug-enabled?
+          (let [run (first (filter #(and (= :rf.cofx/run (:operation %))
+                                         (= :cofx-test/locale2
+                                            (get-in % [:tags :rf.cofx/id])))
+                                   @traces))]
+            (is (some? run))
+            (is (= "en-AU" (get-in run [:tags :rf.cofx/value])))
+            (is (not (contains? (:tags run) :rf.cofx/arg))
+                "no requirement-arg ⇒ :rf.cofx/arg is omitted")))))))
 
 (deftest cofx-run-sensitive-produced-value-is-redacted-end-to-end
   (testing "a sensitive PRODUCED value from a real ambient supplier is
@@ -653,20 +804,30 @@
       (rf/reg-cofx :cofx-test/session
         {:sensitive [[:token]]}
         (fn [] {:token "super-secret-jwt" :public "ok"}))
-      (rf/reg-event :cofx-test/read-session
-        {:rf.cofx/requires [:cofx-test/session]}
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:cofx-test/read-session])
-      (rf/unregister-listener! :trace ::run-redact)
-      (let [run (first (filter #(and (= :rf.cofx/run (:operation %))
-                                     (= :cofx-test/session
-                                        (get-in % [:tags :rf.cofx/id])))
-                               @traces))]
-        (is (some? run) "the supplier emitted a :rf.cofx/run op")
-        (is (= :rf/redacted (get-in run [:tags :rf.cofx/value :token]))
-            "the sensitive sub-path of the PRODUCED value is redacted on the trace")
-        (is (= "ok" (get-in run [:tags :rf.cofx/value :public]))
-            "non-sensitive sub-paths pass through")))))
+      ;; ALWAYS-ON (rf2-d2841): redaction is an EGRESS transform, so it must
+      ;; leave the DELIVERED coeffect intact — a `:sensitive` declaration
+      ;; that silently corrupted the value the handler works with would be a
+      ;; far worse defect than an unredacted trace. That complement had no
+      ;; coverage anywhere and now runs in both postures.
+      (let [delivered (atom ::unset)]
+        (rf/reg-event :cofx-test/read-session
+          {:rf.cofx/requires [:cofx-test/session]}
+          (fn [{:keys [cofx-test/session]} _] (reset! delivered session) {}))
+        (rf/dispatch-sync [:cofx-test/read-session])
+        (rf/unregister-listener! :trace ::run-redact)
+        (is (= {:token "super-secret-jwt" :public "ok"} @delivered)
+            "the marks chokepoint redacts the EGRESSING trace stamp, never the
+             coeffect the handler is handed")
+        (when interop/debug-enabled?
+          (let [run (first (filter #(and (= :rf.cofx/run (:operation %))
+                                         (= :cofx-test/session
+                                            (get-in % [:tags :rf.cofx/id])))
+                                   @traces))]
+            (is (some? run) "the supplier emitted a :rf.cofx/run op")
+            (is (= :rf/redacted (get-in run [:tags :rf.cofx/value :token]))
+                "the sensitive sub-path of the PRODUCED value is redacted on the trace")
+            (is (= "ok" (get-in run [:tags :rf.cofx/value :public]))
+                "non-sensitive sub-paths pass through")))))))
 
 ;; ===========================================================================
 ;; 7. inject-cofx is REMOVED — hard error :rf.error/inject-cofx-removed
@@ -716,17 +877,27 @@
       ;; opt, not a dedicated hard error.
       (rf/dispatch-sync [:cofx-test/wi-renamed] {:rf.world/inputs {:rf/time-ms 1}})
       (rf/unregister-listener! :trace ::wi)
-      (let [warns (filterv (fn [ev]
-                             (and (= :warning (:op-type ev))
-                                  (= :rf.warning/unknown-dispatch-opt (:operation ev))))
-                           @traces)]
-        (is (= 1 (count warns))
-            "the retired draft key trips the generic unknown-dispatch-opt warning")
-        (let [t (:tags (first warns))]
-          (is (contains? (set (:unknown-keys t)) :rf.world/inputs)
-              "the retired key is named as an unknown opt")
-          (is (re-find #":rf\.cofx" (:reason t))
-              "the warning message appends a did-you-mean naming :rf.cofx"))))))
+      ;; ALWAYS-ON (rf2-d2841): "the dispatch PROCEEDS (no throw)" is half the
+      ;; claim in the docstring and is pure production behaviour — it is the
+      ;; whole difference between the generic unknown-opt surface and a
+      ;; dedicated hard error. It had no assertion at all before this; the
+      ;; handler's write is the witness that the retired draft key was
+      ;; tolerated rather than fatal.
+      (is (true? (:ran (rf/app-db-value :rf/default)))
+          "the retired draft key did NOT halt the dispatch — the handler ran
+           and its write committed")
+      (when interop/debug-enabled?
+        (let [warns (filterv (fn [ev]
+                               (and (= :warning (:op-type ev))
+                                    (= :rf.warning/unknown-dispatch-opt (:operation ev))))
+                             @traces)]
+          (is (= 1 (count warns))
+              "the retired draft key trips the generic unknown-dispatch-opt warning")
+          (let [t (:tags (first warns))]
+            (is (contains? (set (:unknown-keys t)) :rf.world/inputs)
+                "the retired key is named as an unknown opt")
+            (is (re-find #":rf\.cofx" (:reason t))
+                "the warning message appends a did-you-mean naming :rf.cofx")))))))
 
 ;; ===========================================================================
 ;; 9. :platforms gating on ambient suppliers (preserved from the prior model)
@@ -763,9 +934,15 @@
           (is (false? @cofx-fired?) "the client-only supplier did NOT run on :server")
           (is (true? @event-fired?) "the event still ran — only the supplier was skipped")
           (is (false? @seen) "the skipped fact was NOT delivered flat")
-          (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %)) @traces)]
-            (is (= 1 (count skips)) "exactly one skipped-on-platform trace")
-            (is (= :cofx-test/browser-locale (get-in (first skips) [:tags :rf.cofx/id])))))
+          ;; The three assertions above are the always-on half and were
+          ;; already posture-independent: the supplier's own side effect did
+          ;; not fire, the event ran anyway, and the fact was not delivered.
+          ;; `:rf.cofx/skipped-on-platform` is a dev-trace op with no promoted
+          ;; counterpart (it is not an error category), so it is guarded.
+          (when interop/debug-enabled?
+            (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %)) @traces)]
+              (is (= 1 (count skips)) "exactly one skipped-on-platform trace")
+              (is (= :cofx-test/browser-locale (get-in (first skips) [:tags :rf.cofx/id]))))))
         (finally
           (rf/init-platform host-default))))))
 
@@ -902,22 +1079,39 @@
       (rf/reg-cofx :gen-test/traced
         {:recordable? true}
         (fn [] 42))
-      (rf/reg-event :gen-test/traced-evt
-        {:rf.cofx/requires [:gen-test/traced]}
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:gen-test/traced-evt])
-      (rf/unregister-listener! :trace ::generated)
-      (let [gens (filter #(= :rf.cofx/generated (:operation %)) @traces)
-            runs (filter #(= :rf.cofx/run (:operation %)) @traces)]
-        (is (= 1 (count gens)) "exactly one :rf.cofx/generated op")
-        (is (empty? runs)
-            "a generated recordable fact does NOT emit the ambient :rf.cofx/run op")
-        (let [gen (first gens)]
-          (is (= :rf.cofx (:op-type gen)) "the op rides the :rf.cofx family")
-          (is (= :gen-test/traced (get-in gen [:tags :rf.cofx/id]))
-              ":rf.cofx/id names the generated fact + supplier id")
-          (is (= 42 (get-in gen [:tags :rf.cofx/value]))
-              ":rf.cofx/value carries the produced value"))))))
+      ;; ALWAYS-ON (rf2-d2841): the GENERATION the op reports — the value was
+      ;; minted, delivered flat, and written back into the durable causal
+      ;; record. That write-back is the reason the op exists (replay reads it).
+      ;; VACUOUS PASS REMOVED (class 1): `(empty? runs)` certified that a
+      ;; generated fact does NOT also take the ambient `:rf.cofx/run` path,
+      ;; over a stream carrying no ops of any kind. Under the gate that
+      ;; discrimination cannot be made at all, so it is guarded rather than
+      ;; left to pass for free.
+      (let [delivered (atom ::unset)
+            record    (atom ::unset)]
+        (rf/reg-event :gen-test/traced-evt
+          {:rf.cofx/requires [:gen-test/traced]}
+          (fn [{:keys [gen-test/traced] :as cofx} _]
+            (reset! delivered traced)
+            (reset! record (:rf.cofx cofx))
+            {}))
+        (rf/dispatch-sync [:gen-test/traced-evt])
+        (rf/unregister-listener! :trace ::generated)
+        (is (= 42 @delivered) "the generated value was delivered flat")
+        (is (= 42 (:gen-test/traced @record))
+            "and written back into the durable causal record the op reports")
+        (when interop/debug-enabled?
+          (let [gens (filter #(= :rf.cofx/generated (:operation %)) @traces)
+                runs (filter #(= :rf.cofx/run (:operation %)) @traces)]
+            (is (= 1 (count gens)) "exactly one :rf.cofx/generated op")
+            (is (empty? runs)
+                "a generated recordable fact does NOT emit the ambient :rf.cofx/run op")
+            (let [gen (first gens)]
+              (is (= :rf.cofx (:op-type gen)) "the op rides the :rf.cofx family")
+              (is (= :gen-test/traced (get-in gen [:tags :rf.cofx/id]))
+                  ":rf.cofx/id names the generated fact + supplier id")
+              (is (= 42 (get-in gen [:tags :rf.cofx/value]))
+                  ":rf.cofx/value carries the produced value"))))))))
 
 (deftest generated-value-schema-mismatch-is-hard-error
   (testing "ADVERSARIAL: a generated value that fails the registration's
@@ -932,6 +1126,7 @@
       (fn [schema value] {:schema schema :value value :failed true})
       (fn []
         (let [traces (collect-traces! ::bad-gen)
+              recs   (collect-errors! ::bad-gen)
               fired? (atom false)]
           (rf/reg-cofx :gen-test/bad
             {:recordable? true :schema :gen-test/positive}
@@ -943,6 +1138,7 @@
                         (catch #?(:clj clojure.lang.ExceptionInfo
                                   :cljs cljs.core/ExceptionInfo) e e))]
             (rf/unregister-listener! :trace ::bad-gen)
+            (rf/unregister-listener! :errors ::bad-gen)
             (is (false? @fired?)
                 "the handler never ran — a schema-invalid generated value halts the cascade")
             (is (some? ex) "the dispatch threw rather than folding the bad value")
@@ -950,10 +1146,20 @@
                 "the throw carries :rf.error/cofx-value-invalid")
             (is (= :gen-test/bad (:rf.cofx/id (ex-data ex)))
                 ":rf.cofx/id names the offending fact")
-            (let [errs (filter #(= :rf.error/cofx-value-invalid (:operation %)) @traces)]
-              (is (= 1 (count errs)) "exactly one cofx-value-invalid error trace")
-              (is (= :gen-test/bad (get-in (first errs) [:tags :rf.cofx/id]))
-                  "the error trace names the fact"))))))))
+            ;; ALWAYS-ON (rf2-d2841): the category is promoted through
+            ;; `emit-cofx-value-invalid!` -> `emit-error-both!`, so a
+            ;; schema-invalid mint is visible to an off-box shipper. The
+            ;; `:rf.cofx/id` naming survives only on the ex-data (asserted
+            ;; above) and the dev trace (guarded below) — not the record.
+            (let [prod (errors-of @recs :rf.error/cofx-value-invalid)]
+              (is (= 1 (count prod)) "exactly one always-on cofx-value-invalid record")
+              (is (= :gen-test/uses-bad (:event-id (first prod)))
+                  ":event-id names the declaring event on the tight record"))
+            (when interop/debug-enabled?
+              (let [errs (filter #(= :rf.error/cofx-value-invalid (:operation %)) @traces)]
+                (is (= 1 (count errs)) "exactly one cofx-value-invalid error trace")
+                (is (= :gen-test/bad (get-in (first errs) [:tags :rf.cofx/id]))
+                    "the error trace names the fact")))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 12b. STRUCTURAL-EDN check of the GENERATED value (rf2-rmroo4 slice B /
@@ -975,6 +1181,7 @@
             value is written back into the durable `:rf.cofx` record and BEFORE
             the handler runs. EP-0017:386."
     (let [traces    (collect-traces! ::gen-non-edn)
+          recs      (collect-errors! ::gen-non-edn)
           gen-calls (atom 0)
           fired?    (atom false)]
       ;; Generator-backed recordable fact (recordable, NOT provided, with a
@@ -991,6 +1198,7 @@
                     (catch #?(:clj clojure.lang.ExceptionInfo
                               :cljs cljs.core/ExceptionInfo) e e))]
         (rf/unregister-listener! :trace ::gen-non-edn)
+        (rf/unregister-listener! :errors ::gen-non-edn)
         (is (= 1 @gen-calls) "the generator ran (the value is checked AFTER it mints)")
         (is (false? @fired?)
             "the handler never ran — a non-EDN generated value halts the cascade")
@@ -1005,12 +1213,21 @@
             "the reported path is rooted at the fact id (the bad leaf is the value itself)")
         (is (some? (:bad-type (ex-data ex)))
             "the host :bad-type is surfaced (a printable type name, never the raw object)")
-        (let [errs (filter #(= :rf.error/cofx-value-invalid (:operation %)) @traces)]
-          (is (= 1 (count errs)) "exactly one cofx-value-invalid error trace")
-          (is (= :non-edn-recordable-value (get-in (first errs) [:tags :reason]))
-              "the trace carries the structural-EDN reason")
-          (is (= :gen-test/host-handle (get-in (first errs) [:tags :rf.cofx/id]))
-              "the trace names the fact"))))))
+        ;; ALWAYS-ON (rf2-d2841): rf2-q34j26 makes this an ALWAYS-ON hard
+        ;; error, so its record must reach the shipping channel too — a
+        ;; non-EDN value halted before write-back is exactly the failure an
+        ;; off-box shipper needs to see in production.
+        (let [prod (errors-of @recs :rf.error/cofx-value-invalid)]
+          (is (= 1 (count prod)) "exactly one always-on cofx-value-invalid record")
+          (is (= :gen-test/uses-host-handle (:event-id (first prod)))
+              ":event-id names the declaring event on the tight record"))
+        (when interop/debug-enabled?
+          (let [errs (filter #(= :rf.error/cofx-value-invalid (:operation %)) @traces)]
+            (is (= 1 (count errs)) "exactly one cofx-value-invalid error trace")
+            (is (= :non-edn-recordable-value (get-in (first errs) [:tags :reason]))
+                "the trace carries the structural-EDN reason")
+            (is (= :gen-test/host-handle (get-in (first errs) [:tags :rf.cofx/id]))
+                "the trace names the fact")))))))
 
 (deftest generated-non-edn-value-is-rejected-in-production
   (testing "ADVERSARIAL (rf2-q34j26 — EP-0017 Open Issue 9): the structural-EDN
