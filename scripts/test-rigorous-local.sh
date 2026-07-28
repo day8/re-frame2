@@ -33,13 +33,30 @@ done
 
 printf '==> implementation rigorous browser/bundle gates\n'
 # Local mirror of the rigorous browser-bundle-and-story sweep in
-# `.github/workflows/expensive-tests.yml` (plus `test:examples-compile`, the
-# example-build compile gate run in test.yml's cljs-browser job). Keep these
-# commands in lockstep with that workflow's implementation browser/bundle list
-# — `npm run test:script-policy` pins the inventory (see
+# `.github/workflows/expensive-tests.yml`, PLUS two gates that sweep does not
+# carry: the example-build compile gate (`test:examples-compile`, which test.yml
+# runs in its own cljs-examples-compile job) and the Freehand mounted-correctness
+# lane, the `:browser-test-freehand-bench` build (rf2-rmtj0).
+#
+# On that bench lane: it runs here for its mounted-correctness VERDICT — DOM
+# parity between interpreted and compiled views, cell-elision counts, exact
+# event/write/recompute/render counts, controlled-input value/caret/node identity
+# under contention, cross-substrate parity — which are deterministic browser
+# facts even though they are collected inside a benchmark harness. rf2-mf4uy
+# moved those seven `re-frame.freehand.bench.*` namespaces out of `:browser-test`
+# and this sweep lost them with it. What this sweep does NOT reproduce is the
+# evidence-publication semantics of `.github/workflows/freehand-bench.yml`: that
+# scheduled lane, on its pinned hardware class and with a compiled-in revision,
+# remains the sole authority for citable numbers. A local run deliberately
+# labels its records unattributable; this script consumes the verdict and
+# ignores the distributions.
+#
+# Keep these commands in lockstep with that workflow's implementation
+# browser/bundle list — the `test:script-policy` gate pins the inventory (see
 # implementation/scripts/_rigorous-local-inventory.test.cjs).
 (cd "$repo_root/implementation" && \
   npm run test:browser && \
+  npm run bench:freehand-browser && \
   npm run test:browser-schemas-boundary-prod && \
   npm run test:browser-prod-elision && \
   npm run test:elision && \

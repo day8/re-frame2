@@ -22,9 +22,11 @@
  *     `browser-bundle-and-story-gates` job also runs in the local script
  *     (lockstep — the local mirror must not drift BEHIND the nightly sweep
  *     for implementation browser/bundle commands).
- *  2. The two inventory commands — `test:examples-compile` and
- *     `test:story-play-scripts` — are present in the local script (a direct
- *     pin, independent of the parse, so neither can silently drop out again).
+ *  2. The `DIRECT_PINS` commands are present in the local script — a direct
+ *     pin, independent of the parse above, so none can silently drop out again.
+ *     Assertion (1) can only ever see commands that live in that one workflow
+ *     job; a gate whose scheduled home is elsewhere is invisible to it, which is
+ *     precisely how `bench:freehand-browser` went missing (rf2-rmtj0).
  *  3. Every command the local script invokes is a real `package.json` script
  *     (catches a typo'd or renamed-away gate).
  *  4. Each of those nightly commands runs in its OWN named step (rf2-wh5to).
@@ -40,8 +42,10 @@
  * and is pinned here so a later tidy-up cannot silently reintroduce the
  * masking shape.
  *
- * Comment lines are stripped before any parse, so prose mentioning a command
- * can neither satisfy lockstep nor trip the one-command-per-step rule.
+ * Comment lines are stripped from BOTH files before any parse — the workflow's
+ * `#` YAML comments and the shell script's `#` comments alike — so prose
+ * mentioning a command can neither satisfy lockstep nor a direct pin, nor trip
+ * the one-command-per-step rule.
  *
  * Wired into `test:script-policy`.
  */
@@ -76,20 +80,21 @@ function npmRunScripts(text) {
   return out;
 }
 
-const scriptText = fs.readFileSync(RIGOROUS_SCRIPT, 'utf8');
-const workflowText = fs.readFileSync(EXPENSIVE_WORKFLOW, 'utf8');
-const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON, 'utf8'));
-
-const localScripts = npmRunScripts(scriptText);
-
-// Drop full-line YAML comments. Prose in a comment must not be able to satisfy
-// lockstep, nor to look like a second command inside a gate step.
+// Drop full-line `#` comments — YAML in the workflow, shell in the local
+// script. Prose in a comment must not be able to satisfy lockstep or a direct
+// pin, nor to look like a second command inside a gate step.
 function stripComments(text) {
   return text
     .split('\n')
     .filter((line) => !/^\s*#/.test(line))
     .join('\n');
 }
+
+const scriptText = fs.readFileSync(RIGOROUS_SCRIPT, 'utf8');
+const workflowText = fs.readFileSync(EXPENSIVE_WORKFLOW, 'utf8');
+const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON, 'utf8'));
+
+const localScripts = npmRunScripts(stripComments(scriptText));
 
 // Narrow the workflow to the `browser-bundle-and-story-gates` job body: from
 // its 2-space-indented job key to the next job key at the same indent. Scopes
@@ -154,12 +159,31 @@ test('local rigorous script runs every expensive-tests.yml sweep command (lockst
   );
 });
 
-test('local rigorous script pins examples-compile + story-play-scripts (rf2-lm5mu9)', () => {
-  for (const required of ['test:examples-compile', 'test:story-play-scripts']) {
+// Commands pinned DIRECTLY, independent of the lockstep parse above. That parse
+// can only ever see the `browser-bundle-and-story-gates` job, so a gate whose
+// scheduled home is another job — or another workflow entirely — is invisible to
+// it and can drop out of the local script in silence. Each entry below is
+// exactly that case, and each cost a real hole before it was pinned.
+const DIRECT_PINS = {
+  'test:examples-compile':
+    'the example-build compile gate. test.yml runs it in its own '
+    + 'cljs-examples-compile job, never in the nightly sweep (rf2-lm5mu9)',
+  'test:story-play-scripts':
+    'the Story play-script browser gate, a sweep command the local mirror had '
+    + 'silently dropped (rf2-lm5mu9)',
+  'bench:freehand-browser':
+    'the `:browser-test-freehand-bench` build. rf2-mf4uy moved the seven '
+    + '`re-frame.freehand.bench.*` DOM namespaces out of `:browser-test`, and '
+    + 'their only scheduled home is freehand-bench.yml — which this file never '
+    + 'reads. Without this pin the local sweep loses 30 mounted-correctness '
+    + 'tests and nothing goes red (rf2-rmtj0)',
+};
+
+test('local rigorous script pins the gates the workflow parse cannot see (rf2-lm5mu9, rf2-rmtj0)', () => {
+  for (const [required, why] of Object.entries(DIRECT_PINS)) {
     assert.ok(
       localScripts.has(required),
-      `scripts/test-rigorous-local.sh must run \`npm run ${required}\` `
-        + '(the two implementation gates rf2-lm5mu9 fixed the omission of).',
+      `scripts/test-rigorous-local.sh must run \`npm run ${required}\` — ${why}.`,
     );
   }
 });
