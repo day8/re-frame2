@@ -18,7 +18,7 @@ A six-step shape:
 1. **The HTML form** renders with `method="POST" action="/<route>"` and a hidden CSRF token. Standard Pattern-Forms slice drives the field values (server-rendered from `app-db`).
 2. **The host adapter receives the POST**. Per [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract), the host owns the wire layer; it MUST parse the request body (form-urlencoded or multipart), bind it to `*current-request*` under a `:form-params` slot, and create a per-request frame.
 3. **`:rf/server-init` dispatches**, declaring `{:rf.cofx/requires [:rf.server/request]}`. The event reads `:request-method`, `:uri`, and `:form-params` from the supplied request coeffect; on POST it dispatches the domain event (e.g. `[:cart/add-item form-params]`); on GET it dispatches the standard page-load loader (Pattern-SSR-Loaders applies).
-4. **The domain event handler validates the form-params in its own body** and branches on the result — the same shape it already uses for the CSRF check. On failure it writes structured errors into the form slice's `:errors` map (per [Pattern-Forms §Form slice](Pattern-Forms.md#the-form-slice)), emits `[:rf.server/set-status 400]`, and lets the drain settle; the standard SSR render reads the slice and emits the form again with errors. On success it runs the side effect (DB write, external API call), then emits either `:rf.server/redirect` (success path) or writes a structural success flag plus the standard re-render. The handler's `:schema` metadata is a development tripwire that does not run in a production build, so it cannot be the thing that rejects a bad POST — see [§Validation is the handler's job](#validation-is-the-handlers-job).
+4. **The domain event handler validates the form-params in its own body** and branches on the result — the same shape it already uses for the CSRF check. On failure it writes the submitted values back into the form slice's `:draft` and structured errors into its `:errors` map (per [Pattern-Forms §Form slice](Pattern-Forms.md#the-form-slice)), emits `[:rf.server/set-status 400]`, and lets the drain settle; the standard SSR render reads the slice and emits the form again, populated, with the errors beside the fields. On success it runs the side effect (DB write, external API call), then emits either `:rf.server/redirect` (success path) or writes a structural success flag plus the standard re-render. The handler's `:schema` metadata is a development tripwire that does not run in a production build, so it cannot be the thing that rejects a bad POST — see [§Validation is the handler's job](#validation-is-the-handlers-job).
 5. **The drain settles**, the SSR emitter runs (or is short-circuited by `:rf.server/redirect`), and the host adapter materialises the response accumulator (read via `get-response`).
 6. **Once JS hydrates**, the form's `:on-submit` handler intercepts the native submission, calls `(.preventDefault e)`, and dispatches the *same* domain event the server dispatched. The handler tree is identical; only the dispatch site differs.
 
@@ -105,7 +105,11 @@ The `action` attribute is what makes the form work without JS: the browser will 
    :rf.cofx/requires [:rf.server/request                       ;; server request context
                       :app.csrf/active-token]}                 ;; app-owned cofx — see §CSRF
   (fn [{:keys [db rf.server/request app.csrf/active-token]} [_ form-params]]
-    (let [explanation (m/explain AddToCartForm form-params)]   ;; nil when the form is clean
+    (let [explanation (m/explain AddToCartForm form-params)   ;; nil when the form is clean
+          ;; The editable fields, and only those. `:csrf-token` is a secret
+          ;; carrier and never belongs in a slice the page re-renders — the
+          ;; view emits a fresh one from the session on every render.
+          fields      (select-keys form-params [:item-id :quantity])]
       (cond
         ;; CSRF first — fail closed before any state mutation.
         (not= (:csrf-token form-params) active-token)
@@ -116,18 +120,22 @@ The `action` attribute is what makes the form work without JS: the browser will 
         ;; The validation branch. Same shape as the CSRF arm above, and just as
         ;; mandatory: `:schema` is a dev tripwire, so this is the only check
         ;; standing between an untrusted POST body and the cart in production.
+        ;; The submitted values go back into `:draft` before the errors do.
+        ;; With JS off the re-render reads the SLICE, not the POST body, so
+        ;; without this write the user's input is silently dropped.
         (some? explanation)
-        {:db (write-form-errors db [:cart :add-form] (explain->errors explanation))
+        {:db (-> db
+                 (assoc-in [:cart :add-form :draft] fields)
+                 (write-form-errors [:cart :add-form] (explain->errors explanation)))
          :fx [[:rf.server/set-status 400]]}
 
         :else
-        (let [draft (select-keys form-params [:item-id :quantity])]
-          {:db (-> db
-                   (update-in [:cart :items] (fnil conj []) draft)
-                   (assoc-in  [:cart :add-form :status] :submitted)
-                   (assoc-in  [:cart :add-form :submitted] draft))
-           :fx [[:rf.server/redirect {:status 303 :location "/cart"}]   ;; server only
-                [:dispatch [:rf.route/navigate {:to :route/cart}]]]})))))     ;; client only — shipped routing event
+        {:db (-> db
+                 (update-in [:cart :items] (fnil conj []) fields)
+                 (assoc-in  [:cart :add-form :status] :submitted)
+                 (assoc-in  [:cart :add-form :submitted] fields))
+         :fx [[:rf.server/redirect {:status 303 :location "/cart"}]   ;; server only
+              [:dispatch [:rf.route/navigate {:to :route/cart}]]]}))))     ;; client only — shipped routing event
 ```
 
 `write-form-errors` and `explain->errors` are app-level helpers — the first writes the standard `:errors` / `:status` / `:submit-attempted?` triple into a form slice, the second turns a validator explanation into the per-field error map [Pattern-Forms](Pattern-Forms.md) expects. Both are given below.
@@ -136,17 +144,19 @@ The success path emits both a `303 See Other` (the canonical POST-redirect-GET p
 
 ### Validation is the handler's job
 
-A form POST is untrusted input arriving on a production server, and the response it deserves — `400` plus the form re-rendered with inline errors — has to be produced by code that is actually in the production build. The handler's own `cond` arm is that code. Everything the framework offers around it is a development aid:
+A form POST is untrusted input arriving on a production server, and the response it deserves — `400`, plus the form re-rendered with inline errors and the user's values still in the fields — has to be produced by code that is actually in the production build. The handler's own `cond` arm is that code. Three framework surfaces sit close enough to be mistaken for it, and it is worth being precise about how far each one gets:
 
-- **`:schema` on `reg-event` is a tripwire, not a guard.** Per [010 §Production builds](010-Schemas.md#production-builds), every dev-time validation site is compile-time eliminated under `:advanced` + `goog.DEBUG=false` (and on the JVM under `-Dre-frame.debug=false`). On a production server the `:schema` check never runs, `:rf.error/schema-validation-failure` never fires, and a POST body that violates `AddToCartForm` flows straight into the handler body. Keep the `:schema` — it catches the day someone deletes the branch, and it is what tools and agents introspect — but never let it be the check.
-- **`:rf.schema/at-boundary` does not fill the gap here.** The boundary interceptor ([010 §Production builds](010-Schemas.md#production-builds)) does force the `:schema` check to survive elision, which is exactly right for an untrusted HTTP response or websocket frame. But its only recovery is to skip the handler, and a skipped handler writes no `:errors` and emits no status — so in a production build a malformed POST would answer `200` with the page unchanged and the user's submission silently dropped. An ingress that must *answer* cannot delegate its answer to an interceptor that can only decline. Reach for `:rf.schema/at-boundary` on the fire-and-forget ingress events described in 010; on a form action, write the branch.
-- **The error projector's 400 arm is a dev convenience.** [011 §Server error projection](011-SSR.md#server-error-projection) does map `:rf.error/schema-validation-failure` to a 400 public error, but that mapping is fed by the dev-gated trace stream, so it fires in dev and is silent in a release build. The status your users get comes from the handler's `[:rf.server/set-status 400]`.
+- **`:schema` on `reg-event` is a tripwire, not a guard.** Per [010 §Production builds](010-Schemas.md#production-builds), every dev-time validation site is compile-time eliminated under `:advanced` + `goog.DEBUG=false` (and on the JVM under `-Dre-frame.debug=false`). On a production server the `:schema` check never runs, and a POST body that violates `AddToCartForm` flows straight into the handler body. Keep the `:schema` — it catches the day someone deletes the branch, and it is what tools and agents introspect — but never let it be the check. This one gets nowhere in production.
+- **`:rf.schema/at-boundary` gets you a status, not a page.** The boundary interceptor ([010 §Production builds](010-Schemas.md#production-builds)) forces the `:schema` check past elision: its check is ungated and runs in every build, which is exactly right for an untrusted HTTP response or websocket frame. A rejection in a release build is real and it is visible — the handler is skipped so the payload never reaches `app-db`, one always-on structural `:rf.error/schema-validation-failure` record is fanned (`:source :boundary`, identifiers only — no event vector, no offending value, because a boundary payload is attacker-controlled by definition), the event-emit record settles `:outcome :rejected`, and the SSR error projector turns that record into a `400` ([011 §Server error projection](011-SSR.md#server-error-projection)). What the interceptor cannot do is *shape* the answer. A skipped handler writes no `:errors`, keeps no submitted values, and re-renders no form, so the user is handed a generic public-error body instead of their own form back. Reach for `:rf.schema/at-boundary` on the fire-and-forget ingress events described in 010, where a status is the whole answer owed; on a form action, write the branch.
+- **The error projector answers in the public-error shape, which is not a form.** [011 §Server error projection](011-SSR.md#server-error-projection) maps `:rf.error/schema-validation-failure` to a `400`, and that arm does reach a release server — but only via the record a boundary rejection fans, because that is the only schema-validation failure a production build still produces. It never sees a `:schema` step-1 failure, since in production there is no step-1 check left to fail. And what it emits is a status and a generic body. The field errors above the inputs, and the values the user typed, come from the handler's `[:rf.server/set-status 400]` and the slice it wrote.
 
-This is the same division of labour the rest of the corpus draws: the handler *guards* and ships to production, the schema *declares* and vanishes ([010 §Production builds](010-Schemas.md#production-builds)). The CSRF check in the worked example above was always written this way — an explicit arm, failing closed with its own status — and form validation is the same kind of rule, so it gets the same shape.
+So the gap the handler's arm closes is not "nothing else runs" — under [000 §C-000.35](000-Vision.md#contract--pattern-obligations) what the *programmer* declares is a development aid and elides, while what the *framework* promises about its own boundaries holds in every build, and the boundary interceptor is one of the latter. The gap is narrower and more stubborn: a form action owes the user a *page*, and only handler code can compose one. The CSRF check in the worked example above was always written this way — an explicit arm, failing closed with its own status — and form validation is the same kind of rule, so it gets the same shape.
 
 ### Failure path — re-render with errors
 
-When validation fails (e.g. `quantity = 0`), the handler's validation arm runs: it writes the `:errors` map into the form slice, emits `[:rf.server/set-status 400]`, and returns without touching the cart. The drain then proceeds normally — `render-to-string` emits the same page with the error message above the quantity input, and the host adapter materialises the 400. The user sees their bad input plus the validation error; no information is lost. Every step of that runs in a release build, because every step of it is ordinary handler code.
+When validation fails (e.g. `quantity = 0`), the handler's validation arm runs: it writes the submitted fields into the slice's `:draft` and the `:errors` map beside them, emits `[:rf.server/set-status 400]`, and returns without touching the cart. The drain then proceeds normally — `render-to-string` emits the same page with the error message above the quantity input, and the host adapter materialises the 400. Every step of that runs in a release build, because every step of it is ordinary handler code.
+
+**The `:draft` write is what makes the no-JS path honest, and it is easy to leave out.** After hydration the browser still holds the form state, so a re-render appears to preserve the user's input whether or not the handler wrote it. With JS off there is no browser state to fall back on: the server renders the fields from `[:cart :add-form :draft]`, and if the failure arm only wrote `:errors` the page comes back with the pre-submit draft — an empty quantity box above the message "should be at least 1". The arm therefore repopulates the draft before writing the errors. Only the editable fields go back: `:csrf-token` is a secret carrier, it has no business in a slice the page re-renders, and the view emits a fresh one from the session anyway.
 
 The two helpers the arm leans on are plain functions, shared across the app's forms:
 
@@ -249,9 +259,9 @@ Either is acceptable; the worked example above uses the direct-args form for the
 
 ## Composition with the error projector
 
-The default error projector ([011 §Server error projection](011-SSR.md#server-error-projection)) maps `:rf.error/schema-validation-failure` to a 400 response with the public-error shape — in **development builds**. That category rides the dev-gated trace stream and elides with it, so a release server never projects it. Treat the projector as the thing that gives your dev server a sensible status while you are working, and the handler's `[:rf.server/set-status 400]` as the thing that gives your users one.
+The default error projector ([011 §Server error projection](011-SSR.md#server-error-projection)) maps `:rf.error/schema-validation-failure` to a 400 response with the public-error shape, and it does so on a release server as well as in development — but the only such record a release server produces is the one a `:rf.schema/at-boundary` rejection fans, since the dev-time `:schema` arms that feed the category in development have been elided by then. A form action that has not attached the boundary interceptor never reaches this arm in production at all.
 
-The projector still earns its place on the production path for the categories that *do* survive elision — the 500-class failures the always-on error-emit substrate carries ([009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production)). A form action therefore composes with it in one direction only: the handler owns the 4xx, the projector owns the 5xx.
+Which is fine, because the arm is the wrong instrument for a form anyway: it yields a status and a public-error body, and a form action owes a re-rendered page. Treat the projector as the thing that answers when nobody else can, and the handler's `[:rf.server/set-status 400]` as the thing that answers *well*. The projector's clearer claim on the production path is the 500-class — the failures the always-on error-emit substrate carries ([009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production)). A form action therefore composes with it in one direction: the handler owns the 4xx it can shape, the projector owns the 5xx nobody can.
 
 An action without a form slice (a pure-API endpoint sharing the action-event surface) writes the same branch and emits the same status; it just returns the public-error shape instead of re-rendering a page.
 
@@ -259,7 +269,7 @@ An action without a form slice (a pure-API endpoint sharing the action-event sur
 
 - **Skipping the `action` attribute.** A form without `method` and `action` only works with JS — the progressive-enhancement guarantee breaks. Always emit the attributes; the `:on-submit` interceptor is purely additive.
 - **Validating only on the client.** Client validation is for UX; the server is the authority. The action handler MUST re-check the POST body in its own body — never trust what the browser sent.
-- **Letting `:schema` be the server-side validation.** The commonest way to ship an unvalidated form endpoint: declare `:schema` on the action handler, read it as "the framework checks this", and write no branch. It is a dev tripwire and is absent from the production build ([010 §Production builds](010-Schemas.md#production-builds)), so the endpoint that passes every test accepts anything in production. Attaching `:rf.schema/at-boundary` does not rescue it either — the interceptor can skip the handler but cannot answer the request, so the failure becomes a silent 200. See [§Validation is the handler's job](#validation-is-the-handlers-job).
+- **Letting `:schema` be the server-side validation.** The commonest way to ship an unvalidated form endpoint: declare `:schema` on the action handler, read it as "the framework checks this", and write no branch. It is a dev tripwire and is absent from the production build ([010 §Production builds](010-Schemas.md#production-builds)), so the endpoint that passes every test accepts anything in production. Attaching `:rf.schema/at-boundary` gets you further than nothing — the interceptor's check is ungated, so the payload is refused and the projector answers 400 — but it skips the handler, so the user gets a generic error body instead of their form back, with everything they typed gone. See [§Validation is the handler's job](#validation-is-the-handlers-job).
 - **Using a client-navigation event for the server redirect.** The client routing event `[:rf.route/navigate …]` is a no-op on the server ([011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx)); use `:rf.server/redirect` (the server-only fx) for the POST-redirect-GET pattern. (And do not reach for a navigate fx under `:rf.nav/*` — the framework ships none; `:rf.route/navigate` is the shipped programmatic-navigation event.)
 - **Reading the CSRF token from a hardcoded value or a query string.** Sessions rotate tokens; cofx-binding via the app-owned `:app.csrf/active-token` is the single source of truth. Apps that put the token in a URL leak it to referrer logs.
 - **Using `302 Found` for POST success.** Some clients re-POST on `302`; the canonical POST-redirect-GET status is `303 See Other`. The `:rf.server/redirect` fx defaults to 302 for GET-side redirects (per [011 §Standard fx](011-SSR.md#standard-fx)); apps MUST explicitly set `:status 303` for post-action redirects.
@@ -276,7 +286,8 @@ A form-action implementation conforms to this convention when:
 - `:rf/server-init` routes GET → page loader; POST → action event. Apps MAY collapse the two when the route's action and loader share an event.
 - The action handler validates `form-params` **in its own body** and branches on the result. This check is what runs on a production server; it is NEVER skipped, even when client validation matches.
 - The action handler ALSO carries a `:schema` matching the form schema, as the dev tripwire and the introspection surface — but the conformance criterion above is not satisfied by the `:schema` alone ([010 §Production builds](010-Schemas.md#production-builds)).
-- On validation failure, the per-form slice's `:errors` map is populated, the handler emits `[:rf.server/set-status 400]`, and the page re-renders; on success, the handler emits `[:rf.server/redirect {:status 303 :location "..."}]`.
+- On validation failure, the handler repopulates the per-form slice's `:draft` from the submitted fields — editable fields only, never a token or other secret carrier — populates its `:errors` map, emits `[:rf.server/set-status 400]`, and the page re-renders. Without the `:draft` write the no-JS path returns a blank form, since the server renders the fields from the slice and not from the POST body.
+- On success, the handler emits `[:rf.server/redirect {:status 303 :location "..."}]`.
 - When the form's fields carry credentials, PII, or other secrets, the credential-bearing app-db slots MUST be marked `{:sensitive? true}` at the schema so a schema-validation-failure trace redacts the value at that path ([010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)); on the JS-fetch submit path, the re-POST via `:rf.http/managed` additionally carries the per-request / per-call `:sensitive?` flag ([014 §Per-request / per-call `:sensitive?`](014-HTTPRequests.md#3-per-request--per-call-sensitive)). Sensitivity is a property of the data value at a path, not a flag on the action handler.
 - Multipart uploads expose files as `{:filename :content-type :size :tempfile}` maps; file contents NEVER appear in trace events.
 - The same event runs unchanged on both platforms; platform-divergent effects (server-only `:rf.server/redirect` vs the client-only `:rf.route/navigate` routing event) compose via `:platforms` gating.
@@ -286,7 +297,8 @@ A form-action implementation conforms to this convention when:
 - [011-SSR.md §Server-only `reg-cofx` for request context](011-SSR.md#server-only-reg-cofx-for-request-context) — the `:rf.server/request` cofx the host adapter binds.
 - [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract) — the side-channel response accumulator (read via `get-response`) and the seven standard server-only fxs.
 - [011-SSR.md §Standard fx](011-SSR.md#standard-fx) — `:rf.server/redirect` and the multi-status policy.
-- [011-SSR.md §Server error projection](011-SSR.md#server-error-projection) — the default mapping from `:rf.error/schema-validation-failure` to a 400 public-error response.
+- [011-SSR.md §Server error projection](011-SSR.md#server-error-projection) — the default mapping from `:rf.error/schema-validation-failure` to a 400 public-error response, and which build each of its inputs survives into.
+- [000-Vision.md §C-000.35](000-Vision.md#contract--pattern-obligations) — the ownership line this pattern's validation story rests on: a `:schema` the programmer declares elides; a check the framework makes on its own boundaries holds in every build.
 - [011-SSR.md §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx) — the platform-gating that lets one handler emit both server and client effects.
 - [010-Schemas.md §Validation timing](010-Schemas.md#validation-timing) — the `:schema` check that runs on every dispatched event in a development build.
 - [010-Schemas.md §Production builds](010-Schemas.md#production-builds) — why that check is absent from a release build, and what `:rf.schema/at-boundary` does and does not cover. The reason this pattern's validation lives in the handler.
