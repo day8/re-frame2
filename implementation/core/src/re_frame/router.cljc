@@ -1935,20 +1935,60 @@
   (the classification is not installed and neither is the `:db` write).
 
   `defect` is the `re-frame.elision/classification-effect-defect` map
-  (`{:offending-key … :value … :reason …}`)."
+  (`{:offending-key … :value … :reason …}`).
+
+  ## Which key, not merely that one was malformed (rf2-eg61l)
+
+  `:offending-key` is lifted onto the ALWAYS-ON record through
+  `emit-error-both!`'s trailing `record-attrs` map — the seam the flow-eval
+  category already uses for `{:flow-id … :where :flow-eval}`, so no other
+  category's record widens and the shared `:failing-id` lift rule is untouched.
+  Without it a production build heard only that SOME classification payload
+  aborted an event: the four axes are independently malformable and
+  `:offending-key` is the ONLY discriminator between them (rf2-mz582u added it
+  for exactly that), and it rode the DCE'd dev trace alone. An off-box shipper
+  (Sentry / Datadog) had an error with no route to the cause.
+
+  ## Why the KEY egresses and the VALUE does not
+
+  This record is production-surviving and NOT privacy-gated, so every slot on
+  it is an egress decision. `:offending-key` is PROGRAM STRUCTURE with a CLOSED
+  domain: `classification-effect-defect` stamps it by iterating
+  `elision/classification-effect-keys`, so its value is always one of the four
+  framework-owned keywords `:sensitive` / `:large` / `:clear-sensitive` /
+  `:clear-large`. It is not application-authored, not derived from the payload,
+  and cannot be widened by a caller — it carries two bits of \"which axis\",
+  nothing more.
+
+  `:value` is the REJECTED PAYLOAD itself — handler- or `:after`-interceptor-
+  authored, and on a fail-loud path by definition not what the framework
+  expected — so it stays on the dev trace, which DCEs. `:reason` stays with it:
+  it is prose that INTERPOLATES that payload through `pr-str`, so shipping it
+  would ship the value by the back door. Note that the trace tags deliberately
+  carry NO `:failing-id`: adding one would trip `emit-error-both!`'s shared lift
+  and drag the interpolating `:reason` onto the always-on record. The closed key
+  set of the record that egresses is pinned by
+  `re-frame.classification-effect-shape-record-cljs-test`."
   [defect event event-id frame start-ms]
-  (let [end-ms     (interop/now-ms)
-        elapsed-ms (elapsed-ms-from start-ms end-ms)]
+  ;; Build the discriminator ONCE, before either axis sees it — the two axes
+  ;; must never be able to disagree about which key was at fault.
+  (let [end-ms        (interop/now-ms)
+        elapsed-ms    (elapsed-ms-from start-ms end-ms)
+        offending-key (:offending-key defect)]
     (error-emit/emit-error-both!
       :rf.error/classification-effect-shape
       event event-id frame nil elapsed-ms end-ms
+      ;; Axis 2 — the dev trace. Carries the full diagnosis, DCE'd in prod.
       {:frame             frame
        :rf.trace/event-id event-id
        :rf.event/v        event
-       :offending-key     (:offending-key defect)
+       :offending-key     offending-key
        :value             (:value defect)
        :recovery          :fix-effect
-       :reason            (:reason defect)})))
+       :reason            (:reason defect)}
+      ;; Axis 1 — the always-on record. The bounded structural discriminator
+      ;; ONLY; see §Why the KEY egresses and the VALUE does not above.
+      {:offending-key offending-key})))
 
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
