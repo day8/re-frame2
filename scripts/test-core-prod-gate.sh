@@ -234,7 +234,6 @@ known_red=(
   re-frame.observation-port-cljs-test
   re-frame.sub-dispose-trace-test
   re-frame.trace-buffer-test
-  re-frame.trace-cascade-captured-test
   re-frame.trace-listener-concurrent-drain-serialization-test
   re-frame.trace-listener-concurrent-serialization-test
   re-frame.trace-listener-continuation-neutral-cljs-test
