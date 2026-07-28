@@ -12,8 +12,20 @@
  * Minimal by design — real coverage lives in the framework's CLJS /
  * browser tests and the Xray feature gate.
  */
-const { expectTextEquals, expectVisible } =
+const { expectTextEquals, expectVisible, navigate } =
   require('../../../../examples/scripts/spec-helpers.cjs');
+
+// rf2-taj9b — the re-navigation below carried NO timeout, so it took
+// Playwright's 30s default: a second budget this smoke could neither see nor
+// tune, whose failure line reads like the adapter-smoke runner's own cap.
+// Read from the runner's knob (`run-adapter-smokes.cjs` bounds the whole
+// `run(page)` with the same variable and the same default), so ONE number
+// moves both. `waitUntil: 'load'` is KEPT: the assertions below are short
+// locator budgets (10s, then 5s defaults) that assume a booted document, and
+// this is a re-navigation of a page the runner has already loaded once, so
+// `load` is cheap here. Switching to `'commit'` would push bundle boot onto
+// those locator budgets and make the lane flakier, not tighter.
+const NAV_TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
 
 module.exports = {
   name: 'uix adapter smoke',
@@ -28,7 +40,7 @@ module.exports = {
     });
     const pageErrors = [];
     page.on('pageerror', (err) => pageErrors.push(err.message));
-    await page.goto(page.url(), { waitUntil: 'load' });
+    await navigate(page, page.url(), { timeoutMs: NAV_TIMEOUT_MS });
 
     const banner  = page.locator('[data-testid="rf-adapter-testbed-uix"]');
     const counter = page.locator('[data-testid="rf-adapter-counter"]');

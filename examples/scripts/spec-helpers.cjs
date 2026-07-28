@@ -4,10 +4,12 @@
  * `examples/` is test-free, so there are no example specs anymore; the
  * consumers are the per-adapter testbed smokes
  * (`implementation/adapters/{reagent,uix}/testbed/spec.cjs`) plus the
- * Story browser scenarios (`tools/story/test/`) and the Xray feature-matrix
- * scenarios (`tools/xray/testbeds/feature_matrix/scenarios.cjs`). They keep
- * requiring this module across-tree because the helpers are substrate- and
- * surface-agnostic; the file stays here as their single shared home.
+ * Story browser scenarios (`tools/story/test/`), the Xray feature-matrix
+ * scenarios (`tools/xray/testbeds/feature_matrix/scenarios.cjs`), and — for
+ * the navigation helpers only — the sibling play-scripts runner
+ * (`serve-and-run-story-play-scripts.cjs`). They keep requiring this module
+ * across-tree because the helpers are substrate- and surface-agnostic; the
+ * file stays here as their single shared home.
  *
  * Those specs drive raw `playwright` (not `@playwright/test`), so we don't
  * get the `expect()` matcher API for free. These helpers fill the gap with
@@ -152,6 +154,67 @@ async function waitForStableValue(readFn, options = {}) {
   );
 }
 
+/*
+ * Navigation whose ceiling is EXPLICIT and NAMES ITSELF (rf2-taj9b).
+ *
+ * `page.goto(url)` / `page.reload()` apply Playwright's 30s default whenever
+ * no `timeout:` is passed. That default is a SECOND budget: invisible in the
+ * source, unreachable from the runner's own knob, and — this is the part that
+ * costs money — indistinguishable in a CI log from the budget the runner does
+ * own. `page.goto: Timeout 30000ms exceeded` reads like the spec timeout, so
+ * the fix reached for is a bigger spec timeout, which cannot move it.
+ * Demonstrated (rf2-bhjzn, re-run for rf2-taj9b): against a page whose `load`
+ * is held 35s, a bare `page.goto` dies at 30013ms while a 90000ms lane budget
+ * sits unused.
+ *
+ * So `timeoutMs` is REQUIRED here, not defaulted. A default would be one more
+ * anonymous ceiling — the exact defect — merely relocated into this file.
+ * Callers name their own budget, tied to whatever bounds them.
+ *
+ * `waitUntil` defaults to `'load'` because that is what every current caller
+ * wants: each one follows its navigation with short locator budgets that
+ * assume a loaded document. A caller whose page runs work DURING load (a
+ * shadow-cljs suite, a bench fixture) should pass `'commit'` instead and let
+ * its own poll own the wait — see `implementation/scripts/run-ui-g8.cjs`.
+ */
+function assertNavTimeout(timeoutMs, api) {
+  if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(
+      `${api}: timeoutMs is REQUIRED and must be a positive number (got ` +
+        `${JSON.stringify(timeoutMs)}). Omitting it hands the navigation ` +
+        "Playwright's 30s default — a budget no runner can reach and whose " +
+        'failure line reads like the runner\'s own timeout (rf2-taj9b).',
+    );
+  }
+}
+
+function navigationCeilingError(api, waitUntil, timeoutMs, err) {
+  return new Error(
+    `NAVIGATION FAILED — this is the ${api} ceiling (waitUntil: ` +
+      `'${waitUntil}', timeout: ${timeoutMs}ms), NOT any assertion budget ` +
+      'that follows it. No assertion ran, so nothing about the page under ' +
+      `test has been observed (rf2-taj9b). Underlying: ${err.message}`,
+  );
+}
+
+async function navigate(page, url, { timeoutMs, waitUntil = 'load' } = {}) {
+  assertNavTimeout(timeoutMs, 'navigate');
+  try {
+    await page.goto(url, { waitUntil, timeout: timeoutMs });
+  } catch (err) {
+    throw navigationCeilingError('page.goto', waitUntil, timeoutMs, err);
+  }
+}
+
+async function reloadPage(page, { timeoutMs, waitUntil = 'load' } = {}) {
+  assertNavTimeout(timeoutMs, 'reloadPage');
+  try {
+    await page.reload({ waitUntil, timeout: timeoutMs });
+  } catch (err) {
+    throw navigationCeilingError('page.reload', waitUntil, timeoutMs, err);
+  }
+}
+
 module.exports = {
   expectTextEquals,
   expectTextContains,
@@ -159,6 +222,8 @@ module.exports = {
   expectVisible,
   expectAttribute,
   expectCount,
+  navigate,
+  reloadPage,
   waitForStableValue,
   waitForValue,
 };

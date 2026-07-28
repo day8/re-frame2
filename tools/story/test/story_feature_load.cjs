@@ -11,8 +11,18 @@ const {
   expectTextEquals,
   expectTextContains,
   expectVisible,
+  navigate,
+  reloadPage,
   waitForValue,
 } = require('../../../examples/scripts/spec-helpers.cjs');
+
+// rf2-taj9b — see the twin note in story_browser_scenarios.cjs. Both shell
+// navigations here carried no timeout and took Playwright's 30s default; the
+// number is unchanged, but it is now this file's own, and a failure names the
+// navigation rather than reading like the gate's 300000ms whole-spec cap.
+// `waitUntil: 'load'` is KEPT: the 10s locator budgets below assume a booted
+// shell, and the `primeHelpDismissed` write is read by the shell on mount.
+const NAV_TIMEOUT_MS = 30000;
 
 /*
  * Coverage ownership contract for this gate.
@@ -105,9 +115,9 @@ async function dismissHelpIfOpen(page) {
 async function gotoStoryShell(page, path) {
   const target = urlFor(page, path);
   if (page.url() === target) {
-    await page.reload({ waitUntil: 'load' });
+    await reloadPage(page, { timeoutMs: NAV_TIMEOUT_MS });
   } else {
-    await page.goto(target, { waitUntil: 'load' });
+    await navigate(page, target, { timeoutMs: NAV_TIMEOUT_MS });
   }
   await primeHelpDismissed(page);
   await page.evaluate(() => {

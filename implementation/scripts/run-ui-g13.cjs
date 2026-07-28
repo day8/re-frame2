@@ -51,6 +51,48 @@ const PROD = path.join(OUT, 'ui-g13-prod');
 const PROD_MANIFEST = path.join(PROD, 'manifest.edn');
 const REPORT = path.join(OUT, 'ui-g13.json');
 const TIMEOUT = 90000;
+
+// rf2-taj9b — this gate's OTHER two ceilings, now named and disarmed. Same
+// class rf2-dczpv removed from run-browser-tests.cjs and rf2-bhjzn from
+// run-ui-g8.cjs; G-13 has the identical defect twice, once per page.
+//
+// Both `dev.goto(...)` and `prod.goto(...)` were called with no options, so
+// each took BOTH Playwright defaults: `waitUntil: 'load'` AND a 30s timeout.
+// That 30s is a second budget on this gate, entirely separate from TIMEOUT
+// above — and the very next line of each pair already passes TIMEOUT
+// explicitly to `waitForFunction` / `waitForSelector`, so the file already
+// knew the pattern. Nothing named the ceiling, which is what costs money: a
+// `page.goto: Timeout 30000ms exceeded` line reads like this gate's own
+// budget, so the fix reached for is a bigger TIMEOUT, which cannot touch it.
+//
+// `'load'` is the WRONG event here, not merely a tight one. The development
+// page runs the G-13 measurement fixture during load — it is what sets
+// `__RF2_G13_RESULT_SENTINEL__` — and the advanced page renders its 100 rows
+// before flipping `data-g13-ready`. Waiting for `load` is waiting for the
+// fixture, which is exactly what the two explicit waits below already do,
+// against the budget documented for them.
+//
+// Demonstrated for the class (rf2-taj9b): against a page whose `load` is held
+// 35s, a bare `page.goto` dies at 30013ms with TIMEOUT sitting unused at
+// 90000ms; `'commit'` plus an explicit timeout and a poll passes at 35021ms.
+const NAV_WAIT_UNTIL = 'commit';
+const NAV_TIMEOUT = TIMEOUT;
+
+// Navigate, and make a navigation failure say so. `page.goto: Timeout …ms
+// exceeded` and this gate's own fixture waits are different budgets that read
+// alike in a CI log.
+async function navigateOrFail(page, label, url) {
+  try {
+    await page.goto(url, { waitUntil: NAV_WAIT_UNTIL, timeout: NAV_TIMEOUT });
+  } catch (err) {
+    fail(
+      `[${label}] NAVIGATION FAILED — this is the page.goto ceiling ` +
+        `(waitUntil: '${NAV_WAIT_UNTIL}', timeout: ${NAV_TIMEOUT}ms), NOT the ` +
+        `${TIMEOUT}ms wait for the ${label} page's readiness sentinel. The ` +
+        'fixture was never observed, so no G-13 result exists to read. ' +
+        `Raising TIMEOUT will not help (rf2-taj9b). Underlying: ${err.message}`);
+  }
+}
 const SENTINELS = [
   'RF2_G13_COUNTER_SENTINEL',
   'RF2_G13_PROFILER_SENTINEL',
@@ -637,7 +679,7 @@ async function main() {
     const dev = await browser.newPage();
     const pageErrors = [];
     dev.on('pageerror', (e) => pageErrors.push(e.stack || String(e)));
-    await dev.goto(`http://127.0.0.1:${devPort}/index.html`);
+    await navigateOrFail(dev, 'development', `http://127.0.0.1:${devPort}/index.html`);
     await dev.waitForFunction(
       () => globalThis.__RF2_G13_RESULT_SENTINEL__ || globalThis.__RF2_G13_ERROR__,
       null,
@@ -658,7 +700,7 @@ async function main() {
     const prod = await browser.newPage();
     const prodErrors = [];
     prod.on('pageerror', (e) => prodErrors.push(e.stack || String(e)));
-    await prod.goto(`http://127.0.0.1:${prodPort}/index.html`);
+    await navigateOrFail(prod, 'advanced', `http://127.0.0.1:${prodPort}/index.html`);
     await prod.waitForSelector('[data-g13-ready="true"]', { timeout: TIMEOUT });
     const prodState = await prod.evaluate(() => ({
       rows: document.querySelectorAll('[data-g13-kind]').length,

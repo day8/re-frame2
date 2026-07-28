@@ -4,12 +4,24 @@ const {
   expectCount,
   expectTextEquals,
   expectVisible,
+  navigate,
   waitForValue,
 } = require('../../../../examples/scripts/spec-helpers.cjs');
 const {
   clearTraceBus,
   readTraceEventsAsEdn,
 } = require('../../../../testbeds/spec-helpers.cjs');
+
+// rf2-taj9b — the one navigation in this file (the static-mode scenario's
+// baseline reset) carried no timeout and so took Playwright's 30s default:
+// a ceiling BELOW the gate's own 45s scenario budget, firing first and
+// reporting itself in a form that reads like that budget. Read from the
+// gate's own knob (`implementation/scripts/serve-and-run-xray-feature-gate.cjs`
+// uses the same variable and default) so the two move together.
+// `waitUntil: 'load'` is KEPT: this is a re-navigation of a testbed page the
+// gate has already loaded, and everything after it is a short locator budget
+// (10s for the host counter, then 5s waits) that assumes a booted document.
+const NAV_TIMEOUT_MS = Number(process.env.XRAY_FEATURE_GATE_TIMEOUT_MS || 45000);
 
 // The 4-layer chrome's L3 tab bar exposes the 9 LIVE Dynamic tabs:
 // epoch / app-db / views / trace / machines / routing / resources /
@@ -2301,7 +2313,7 @@ async function runConfigurePartialUpdate(page, state) {
 //      not just the chord).
 async function runStaticModeChromeAndChord(page, state) {
   // ---- (0) baseline — clear the persisted mode slot -----------------
-  await page.goto(page.url(), { waitUntil: 'load' });
+  await navigate(page, page.url(), { timeoutMs: NAV_TIMEOUT_MS });
   // Wait for the host counter so we know Xray's preload has installed
   // its browser-API exports.
   await expectHostCounterEquals(page, 5, 10000);
