@@ -1778,6 +1778,56 @@
   ["re-frame.freehand.splitter" "parts"]          {:tier :advanced :owner "004" :status "EP-0036"}
 
   ;; =========================================================================
+  ;; re-frame.freehand.collection — the FIXED-SIZE VIRTUAL COLLECTION
+  ;; (rf2-drpa3.182.11, reshaped by rf2-86i64 into an ENGINE plus a listbox
+  ;; over it; EP-0036, proven by FH-CTRL-021). Conventionally aliased `coll`.
+  ;; Sanctioned as a sibling by the rf2-cfhuv ruling, which considered and
+  ;; REJECTED folding it into `re-frame.freehand.controls`: virtualization is
+  ;; a cohesive capability with an audience of its own — a library author
+  ;; composing their own list needs the window arithmetic without the
+  ;; input-field kit.
+  ;;
+  ;; ADVANCED for the four call-site names, and that OVERTURNS the dossier's
+  ;; `:front-porch` suggestion for `virtual-list` on the ruling's own
+  ;; tier-hygiene argument: `:front-porch` is the tight day-one surface the
+  ;; Guide and the skills load by default, and fixed-size virtualization is
+  ;; opt-in scalability machinery an ordinary list never needs. Require the
+  ;; capability when the problem appears; keep the default programmer/AI
+  ;; context tight. `window` and `reveal-offset` stay `:advanced` alongside
+  ;; the two views because they ARE the compositional seam the sanction
+  ;; reasoning leans on — the arithmetic a caller composing its own widget
+  ;; over the same mechanics calls directly.
+  ;;
+  ;; IMPLEMENTATION for the three the engine owns, and this is the ruling's
+  ;; own stated FALLBACK rather than a fresh decision. It preferred
+  ;; PRIVATIZATION — `^:private virtual-row`, `row-dom-id` as a `defn-` —
+  ;; and scoped that to the witness branch or its rf2-86i64 successor,
+  ;; "cheaper than post-merge churn". Both merged without it, and this
+  ;; enrolment changes no public surface, so the fallback applies: enrol at
+  ;; `:implementation` — public-for-technical-reasons only, off the supported
+  ;; surface, MUST NOT be depended on. `reconcile-scroll` joins them by the
+  ;; same reasoning one step on: it is the engine's own guarded `:layout`
+  ;; write, attached by `virtual-collection` and by nothing else, so producer
+  ;; and consumer share the namespace and no export is needed. `row-dom-id`
+  ;; in particular freezes a positional string scheme that should stay
+  ;; replaceable — the supported contract is the RENDERED relationship (the
+  ;; listbox owns `aria-activedescendant`; each mounted option owns its id,
+  ;; `aria-posinset` and `aria-setsize`), and a cross-namespace test should
+  ;; assert that invariant rather than call the helper. rf2-axlmz tracks the
+  ;; privatization the ruling actually wanted.
+  ;;
+  ;; No `:cljs-only` rows — `.cljc` and host-neutral, `ns-publics` is
+  ;; authoritative on the JVM, and the CLJS probe reconciles the other half.
+  ;; =========================================================================
+  ["re-frame.freehand.collection" "virtual-collection"] {:tier :advanced       :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.collection" "virtual-list"]       {:tier :advanced       :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.collection" "window"]             {:tier :advanced       :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.collection" "reveal-offset"]      {:tier :advanced       :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.collection" "virtual-row"]        {:tier :implementation :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.collection" "row-dom-id"]         {:tier :implementation :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.collection" "reconcile-scroll"]   {:tier :implementation :owner "004" :status "EP-0036"}
+
+  ;; =========================================================================
   ;; re-frame.freehand.tool — the Freehand TOOL-TIER READER DOOR (rf2-hytu5,
   ;; extended by rf2-lvvl2 / rf2-xftdv / rf2-cpfbg; EP-0036). A sanctioned
   ;; `re-frame.freehand.*` sibling — and NOT "the third and last" one, as

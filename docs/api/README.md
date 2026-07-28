@@ -24,10 +24,11 @@ code an app already carries. The four **Freehand** pages —
 reason: `day8/re-frame2-freehand` is **pre-alpha**, ships inside the monorepo, and
 has no date at which it will be published either. Freehand is not donor code — it is
 where new view work starts — and you resolve it with `:local/root` from a checkout
-([Install](../core/freehand/get-running/install.md)). The kit's pointer control,
-[`re-frame.freehand.splitter`](re-frame.freehand.splitter.md), carries the same banner for
-the same reason. Every other page on this list describes an artefact the release workflow
-deploys.
+([Install](../core/freehand/get-running/install.md)). The kit's two further control pages —
+[`re-frame.freehand.splitter`](re-frame.freehand.splitter.md) and
+[`re-frame.freehand.collection`](re-frame.freehand.collection.md) — carry the same banner
+for the same reason. Every other page on this list describes an artefact the release
+workflow deploys.
 
 ## How to read these pages
 
@@ -35,7 +36,7 @@ deploys.
 |---|---|
 | Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
 | Freehand views (`defview`, callbacks, event intent) | [`re-frame.freehand`](re-frame.freehand.md) — **pre-alpha, not published** |
-| Freehand forms and controls | [`re-frame.freehand.form`](re-frame.freehand.form.md), [`re-frame.freehand.controls`](re-frame.freehand.controls.md), [`re-frame.freehand.splitter`](re-frame.freehand.splitter.md) — **pre-alpha, not published** |
+| Freehand forms and controls | [`re-frame.freehand.form`](re-frame.freehand.form.md), [`re-frame.freehand.controls`](re-frame.freehand.controls.md), [`re-frame.freehand.splitter`](re-frame.freehand.splitter.md), [`re-frame.freehand.collection`](re-frame.freehand.collection.md) — **pre-alpha, not published** |
 | Compiled views (`defview`, `mount`, `sub`) | [`re-frame.ui`](re-frame.ui.md) — **donor, not published** |
 | Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
 | Substrate adapters | `re-frame.adapter.{reagent,uix}` — first-class and permanent |
@@ -74,6 +75,7 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 | [re-frame.freehand.form](re-frame.freehand.form.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** Pure form transitions over ordinary data: `init` / `edit` / `visit` / `seed` / `reset` / `rebase` / `set-errors` / `attempt-submit`, and the narrow per-leaf `field` read |
 | [re-frame.freehand.controls](re-frame.freehand.controls.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** The first-party control kit: `field`, `buffered-field`, the causal owner's `release`, and the composing-Enter law |
 | [re-frame.freehand.splitter](re-frame.freehand.splitter.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** The kit's pointer control: a resizable pane divider, the `settle` arithmetic both its clocks end at, the keyboard law, and five transitions over an ordinary value |
+| [re-frame.freehand.collection](re-frame.freehand.collection.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** The fixed-size virtual collection: a semantic-neutral `virtual-collection` engine, the `virtual-list` listbox over it, and the `window` / `reveal-offset` arithmetic |
 | [re-frame.ui](re-frame.ui.md) | **Donor, not published.** Compiled-view substrate: `defview`, `sub`, `mount`, `frame-root`, interop forms |
 
 ### Optional capabilities

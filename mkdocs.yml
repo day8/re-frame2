@@ -260,6 +260,7 @@ nav:
     - "re-frame.freehand.form (pre-alpha)": api/re-frame.freehand.form.md
     - "re-frame.freehand.controls (pre-alpha)": api/re-frame.freehand.controls.md
     - "re-frame.freehand.splitter (pre-alpha)": api/re-frame.freehand.splitter.md
+    - "re-frame.freehand.collection (pre-alpha)": api/re-frame.freehand.collection.md
     # The compiled-view substrate is DONOR code with no published Maven
     # coordinate (docs/release-process.md §Policy). The nav says so, matching
     # the Skills entry "re-frame2-ui (donor compiled views)" — a reader must not
