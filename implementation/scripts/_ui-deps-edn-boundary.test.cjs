@@ -41,6 +41,8 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
 const {
+  readEdn,
+  EdnReadError,
   productionDepsMap,
   mapHasSymbolKey,
 } = require('./lib/edn.cjs');
@@ -331,6 +333,76 @@ test('real ui/deps.edn — core coordinate resolves to the configured local root
   // Non-vacuity: the expected root is the real core artefact next to ui/.
   assert.equal(CORE_LOCAL_ROOT, path.resolve(UI_DIR, '..', 'core'));
   assert.ok(fs.existsSync(path.join(CORE_LOCAL_ROOT, 'deps.edn')), 'core artefact exists');
+});
+
+// ---- rf2-vr11t: a `#_` discard is ignorable content, wherever it sits ------
+//
+// The reader is a SHARED authority — this boundary gate, the release lockstep
+// (.github/scripts/verify-version-lockstep.sh, both its :local/root inventory
+// and its runtime git-coordinate check) and the bundle-isolation gate's
+// publishable-artefact discovery (lib/publishable-runtimes.cjs) all read EDN
+// through it — so a hole in it is a hole in all three at once.
+//
+// It could not read a collection whose LAST element was a `#_` discard.
+// readForm consumed the marker, read the datum it drops, then looped round to
+// read "the real next form" — which, in that position, is the CLOSING
+// DELIMITER, so readDatum threw `unexpected '}'`. A discard anywhere else read
+// fine, which is why the shape above ('reader-discarded first :deps form')
+// passed while this one did not.
+//
+// Every consumer fails CLOSED on a throw, so this was never a false green: the
+// lockstep exits 2 refusing to report a verdict, and publishable-runtimes falls
+// back to a raw `:clein/build` text match. But `#_`-commenting out the last
+// dependency in a map while debugging is an entirely ordinary thing to write,
+// and it made those gates UN-RUNNABLE. Discards are now skipped as ignorable
+// content — like whitespace and `;` comments — BEFORE the closing-delimiter
+// test rather than after it, so position stops mattering.
+const DISCARD_SHAPES = [
+  ['last element of a map', '{:deps {org.clojure/clojure {:mvn/version "1.12.0"}\n'
+    + '        #_day8/de-dupe #_{:git/url "https://example.invalid/x.git"}}}'],
+  ['last element of a vector', '[:a :b #_:c]'],
+  ['last element of a list', '(:a :b #_:c)'],
+  ['last element of a set', '#{:a :b #_:c}'],
+  ['the collection\'s ONLY content', '{:deps {#_a #_1}}'],
+  ['before the close, across a newline', '{:deps {:a 1\n        #_:b #_2\n       }}'],
+  ['a `#_ #_ a b` pair-discard at the end', '{:deps {:a 1 #_ #_ :b 2}}'],
+  ['discard then `;` comment then close', '{:deps {:a 1 #_:b ; trailing\n}}'],
+];
+
+for (const [where, text] of DISCARD_SHAPES) {
+  test(`reader contract — trailing #_ discard: ${where}`, () => {
+    assert.doesNotThrow(() => readEdn(text), `readEdn must accept a discard ${where}`);
+  });
+}
+
+// The discard must actually DROP its datum, not merely be tolerated — a reader
+// that skipped the marker and kept the form would read these as clean too.
+test('reader contract — a discarded entry is absent from the parsed map', () => {
+  const top = readEdn('{:deps {org.clojure/clojure {:mvn/version "1.12.0"}\n'
+    + '        #_day8/de-dupe #_{:git/url "https://example.invalid/x.git"}}}');
+  const deps = top.entries.find(([k]) => k.edn === 'keyword' && k.name === 'deps')[1];
+  assert.equal(deps.entries.length, 1, 'the discarded coordinate must not appear as an entry');
+  assert.ok(mapHasSymbolKey(deps, 'org.clojure/clojure'));
+  assert.ok(!mapHasSymbolKey(deps, 'day8/de-dupe'), 'day8/de-dupe was discarded');
+});
+
+test('reader contract — `#_ #_ a b` drops BOTH forms', () => {
+  const top = readEdn('{:deps {#_ #_ day8/de-dupe {:git/url "x"} org.clojure/clojure {:mvn/version "1.12.0"}}}');
+  const deps = top.entries.find(([k]) => k.edn === 'keyword' && k.name === 'deps')[1];
+  assert.equal(deps.entries.length, 1);
+  assert.ok(mapHasSymbolKey(deps, 'org.clojure/clojure'));
+});
+
+// Fail-closed is not weakened: a discard marker with nothing to discard, and a
+// genuinely unbalanced collection, must still be REFUSED rather than read.
+test('reader contract — a discard with no following form is still refused', () => {
+  assert.throws(() => readEdn('{:deps {:a 1 #_'), EdnReadError);
+  assert.throws(() => readEdn('#_'), EdnReadError);
+});
+
+test('reader contract — an unterminated collection is still refused', () => {
+  assert.throws(() => readEdn('{:deps {:a 1 #_:b'), EdnReadError);
+  assert.throws(() => readEdn('{:deps {:a 1}'), EdnReadError);
 });
 
 let failed = 0;
