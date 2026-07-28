@@ -42,6 +42,45 @@
   standing rule that ranges are quoted and overlapping ranges mean
   INDISTINGUISHABLE.
 
+  ## The arm order is a MEASURED property of this run, not an assumption
+
+  This harness is where `rf2-88pie`'s fault was FOUND: the SMI control read
+  16.1052 B/slot with the plan run forwards and 8.0027 with it run
+  backwards, and it was caught only because somebody happened to run both.
+  Running one order and reporting the answer is exactly the thing that
+  cannot be checked, and until `rf2-om73r` that is what this file did — a
+  single pass over the plan, each arm measured once, in one place, after one
+  predecessor. `WA_ORDER=rev` gave a second reading in a SECOND PROCESS
+  whose numbers nothing here ever joined up.
+
+  So the plan now runs in `WA_ROUNDS` rounds and the arm order ROTATES AND
+  REFLECTS with the round (`order-guard/slot-order`). A bare cyclic rotation
+  would not do: arm `a` sits at slot `(a - r) mod n`, so its predecessor is
+  `(a - 1) mod n` in every round and only the round seam differs. Reflecting
+  on odd rounds replaces every `a -> a+1` adjacency with `a -> a-1`, so
+  every arm is measured after two different predecessors and at spread
+  positions in the run.
+
+  `re-frame.bench.order-guard` then partitions each arm's per-round figures
+  by WHAT RAN BEFORE IT and by WHERE IN THE RUN it sat, applies the house
+  rule — overlapping ranges are indistinguishable — and REFUSES the run
+  (exit code 2) if either factor separates an arm. It is the same rule as
+  `implementation/freehand/test/re_frame/freehand/bench/order_guard.cjs`,
+  expressed twice because a JVM harness and a `core` CLJS harness can reach
+  neither that file nor its runtime; both copies replay the same recorded
+  fixtures in their self-tests, which is what keeps them honest.
+
+  ## Warm-up, because position beats adjacency
+
+  The same study measured one control in plain node over sixteen
+  consecutive windows, nothing else varying: `42.32` then six windows at
+  `10.3` then `8.12` for ever. The FIRST window read 5.3x the settled value
+  and the next six read +27%. So `WA_WARM_WINDOWS` full-size windows per arm
+  are run and thrown away before any round is measured, on top of
+  `WA_WARMUP` bare calls and the calibration probe. Under-warming does not
+  produce a slightly-off number; it produces a number that moves with where
+  in the plan the arm sat, which is precisely what the guard refuses.
+
   ## The control
 
   A control whose size is asserted rather than checked has already been
@@ -167,13 +206,19 @@
   the missing browser figures. Ratios between two arms measured the same way
   are unaffected by any of this.
 
-  Environment: WA_N (subscriptions, default 300), WA_SAMPLES,
-  WA_WARMUP, WA_ORDER=rev (run the arms back-to-front — if the answer
-  survives that, arm order is not a confound), WA_COORDS=0 (register the
-  ladder's subs WITHOUT source coords — the control arm, not the default)."
+  Environment: WA_N (subscriptions, default 300), WA_SAMPLES (samples per
+  arm across ALL rounds, default 40), WA_ROUNDS (default 6 — at least six,
+  so the guard's phase thirds are ranges rather than single samples),
+  WA_WARM_WINDOWS (full-size discarded windows per arm before the first
+  measured round, default 6), WA_WARMUP (bare calls before calibration,
+  default 3), WA_TOLERANCE (the guard's relative-median tolerance, default
+  0.25), WA_ORDER=rev (reverse the base plan before scheduling — a knob
+  now, not the mitigation), WA_COORDS=0 (register the ladder's subs WITHOUT
+  source coords — the control arm, not the default)."
   (:require [goog.object :as gobj]
             [goog.string :as gstring]
             [goog.string.format]
+            [re-frame.bench.order-guard :as guard]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -200,6 +245,8 @@
   (or (gobj/get (.-env js/process) k) d))
 
 (defn- env-int [k d] (js/parseInt (env k (str d)) 10))
+
+(defn- env-num [k d] (js/parseFloat (env k (str d))))
 
 ;; ---------------------------------------------------------------------------
 ;; sinks — Closure is entitled to delete an expression nothing reads, and this
@@ -581,7 +628,9 @@
 
 (defn- measure
   "Run `f` `reps` times inside one collection-free sample, `samples` times.
-  Answers `{:p50 … :lo … :hi … :accepted … :dropped …}` in bytes per CALL."
+  Answers `{:p50 … :lo … :hi … :xs … :accepted … :dropped …}` in bytes per
+  CALL. `:xs` is the accepted samples themselves, because a round's figures
+  have to be poolable across rounds and a p50 of p50s is not one."
   [f reps samples]
   (let [acc (array)
         dropped (volatile! 0)]
@@ -598,8 +647,19 @@
       {:p50      (if (pos? c) (aget acc (js/Math.floor (/ c 2))) -1)
        :lo       (if (pos? c) (aget acc 0) -1)
        :hi       (if (pos? c) (aget acc (dec c)) -1)
+       :xs       (vec acc)
        :accepted c
        :dropped  @dropped})))
+
+(defn- summarise
+  "Pool an arm's accepted samples from every round into one figure."
+  [xs]
+  (let [s (vec (sort xs))
+        c (count s)]
+    {:p50      (if (pos? c) (nth s (js/Math.floor (/ c 2))) -1)
+     :lo       (if (pos? c) (first s) -1)
+     :hi       (if (pos? c) (peek s) -1)
+     :accepted c}))
 
 (defn- calibrate
   "Pick a rep count that puts one sample near `target` bytes, so no sample
@@ -723,9 +783,19 @@
 (defn- fmt [x] (.toFixed x 1))
 
 (defn ^:export -main [& _]
+  ;; Ahead of everything, because a broken guard makes every figure below
+  ;; unpublishable and finding that out after the run is wasteful. The checks
+  ;; are fixtures replayed from `rf2-jr76s`'s recorded readings, so this is
+  ;; deterministic — exactly as `b8_run.cjs` does it.
+  (when-not (guard/print-self-test!)
+    (throw (ex-info "order guard self-test FAILED — nothing may be measured" {})))
   (let [n        (env-int "WA_N" 300)
         samples  (env-int "WA_SAMPLES" 40)
         warmup   (env-int "WA_WARMUP" 3)
+        warm-windows (env-int "WA_WARM_WINDOWS" 6)
+        rounds   (max 2 (env-int "WA_ROUNDS" 6))
+        per-round (max 1 (js/Math.ceil (/ samples rounds)))
+        tolerance (env-num "WA_TOLERANCE" 0.25)
         rev?     (= "rev" (env "WA_ORDER" ""))
         ;; rf2-4k5hs — the coord-carrying registration is the DEFAULT, because
         ;; that is what a consumer's macro-registered subs give the registrar.
@@ -753,9 +823,12 @@
     (println (gstring/format ";; node %s  V8 %s  pointer-compression=%s (Chrome ships it ON: a tagged slot is 4 B there, 8 B here)"
                      (.-node js/process.versions) (.-v8 js/process.versions)
                      (if (= 1 (gobj/getValueByKeys js/process "config" "variables" "v8_enable_pointer_compression")) "ON" "OFF")))
-    (println (gstring/format ";; n=%d samples=%d warmup=%d order=%s frames=%s"
-                     n samples warmup (if rev? "REVERSED" "forward")
+    (println (gstring/format ";; n=%d samples=%d (%d rounds x %d) warmup=%d calls + %d windows  base order=%s frames=%s"
+                     n samples rounds per-round warmup warm-windows
+                     (if rev? "REVERSED" "forward")
                      (pr-str ns-per-frame)))
+    (println (gstring/format ";; arm order ROTATES AND REFLECTS with the round (rf2-88pie); guard tolerance %s"
+                     (.toFixed (* 100.0 tolerance) 0)))
     (println (gstring/format ";; registration = %s"
                      (if coords?
                        "COORD-CARRYING (default — the shape a real application registers)"
@@ -816,18 +889,61 @@
                              ["P-VALS"  arm-p-vals  n]
                              ["P-RKV"   arm-p-rkv   n]]))
           plan (if rev? (vec (reverse plan)) plan)
-          res  (reduce
-                 (fn [acc [label f per]]
-                   (dotimes [_ warmup] (f))
-                   (let [reps (calibrate f 2000000)
-                         r    (measure f reps samples)]
-                     (println (gstring/format ";; %-12s reps=%-6d %12s B/call  [%s – %s]  per-unit %10s B  (%d ok, %d dropped)"
-                                      label reps (fmt (:p50 r)) (fmt (:lo r)) (fmt (:hi r))
-                                      (fmt (/ (:p50 r) per)) (:accepted r) (:dropped r)))
-                     (assoc acc label (assoc r :per per))))
-                 {}
-                 plan)
+          k    (count plan)
+          ;; --- warm-up and calibration, one pass, nothing read ------------
+          ;; rf2-tb345: a site reads 1.26x to 5.3x its settled value until it
+          ;; has run several full-size windows. Charged to round 1 that reads
+          ;; as allocation, and — worse — it reads as an arm whose figure
+          ;; moves with where in the plan it sat, which the guard below
+          ;; refuses. So every arm is walked to its settled value first.
+          reps (mapv (fn [[label f _]]
+                       (dotimes [_ warmup] (f))
+                       (let [r (calibrate f 2000000)]
+                         (dotimes [_ warm-windows] (measure f r 1))
+                         (println (gstring/format ";; warm %-12s reps=%-6d %d discarded windows"
+                                          label r warm-windows))
+                         r))
+                     plan)
+          ;; --- the measured rounds ----------------------------------------
+          ;; Every sample carries the label of the arm that ran immediately
+          ;; before it and its position in the whole run; those two are what
+          ;; the guard stratifies on.
+          run  (reduce
+                 (fn [acc [round j]]
+                   (let [[label f _] (nth plan j)
+                         r (measure f (nth reps j) per-round)]
+                     (-> acc
+                         (update-in [:xs label] (fnil into []) (:xs r))
+                         (update-in [:dropped label] (fnil + 0) (:dropped r))
+                         (update :order conj {:arm         label
+                                              :value       (:p50 r)
+                                              :predecessor (:prev acc)
+                                              :position    (count (:order acc))
+                                              :round       round})
+                         (assoc :prev label))))
+                 {:xs {} :dropped {} :order [] :prev nil}
+                 (vec (for [round (range rounds)
+                            j     (guard/slot-order k round)]
+                        [round j])))
+          res  (into {}
+                     (map-indexed
+                       (fn [i [label _ per]]
+                         (let [pooled (summarise (get-in run [:xs label] []))
+                               rnd    (mapv :value (filter #(= label (:arm %)) (:order run)))]
+                           [label (assoc pooled
+                                         :per     per
+                                         :reps    (nth reps i)
+                                         :rounds  rnd
+                                         :dropped (get-in run [:dropped label] 0))]))
+                       plan))
           b    (fn [l] (:p50 (get res l)))]
+      (doseq [[label _ per] plan]
+        (let [r   (get res label)
+              rnd (:rounds r)]
+          (println (gstring/format ";; %-12s reps=%-6d %12s B/call  [%s – %s]  per-unit %10s B  (%d ok, %d dropped)  rounds p50 [%s – %s]"
+                           label (:reps r) (fmt (:p50 r)) (fmt (:lo r)) (fmt (:hi r))
+                           (fmt (/ (:p50 r) per)) (:accepted r) (:dropped r)
+                           (fmt (apply min rnd)) (fmt (apply max rnd))))))
       (println ";;")
       (println ";; CONTROLS")
       (doseq [d ctl-double-ds]
@@ -912,5 +1028,22 @@
                          (fmt (b "SPINE0B")) (fmt (b "SPINE0P"))))
         (println (gstring/format ";;   C-BUMP %s B vs C-BUMPH %s B  -> hoisting (fnil inc 0) predicts %s B/write"
                          (fmt (b "C-BUMP")) (fmt (b "C-BUMPH"))
-                         (fmt (- (b "C-BUMP") (b "C-BUMPH")))))))
+                         (fmt (- (b "C-BUMP") (b "C-BUMPH"))))))
+      ;; --- arm order, LAST, and it governs everything above ----------------
+      ;; The figures are printed and the refusal is about what may be QUOTED,
+      ;; not about throwing the measurement away — so the exit code carries
+      ;; it rather than an exception.
+      (println ";;")
+      (let [v (guard/verdict (:order run) {:tolerance tolerance})]
+        (doseq [line (guard/report-lines v "the per-arm figure, one p50 per round")]
+          (println line))
+        (when (:refuse? v)
+          (println ";;")
+          (println ";; ==== ARM ORDER: THESE FIGURES ARE NOT REPORTABLE ====")
+          (println (str ";;   at least one arm reads differently for what preceded it, or for where "
+                        "in the run"))
+          (println (str ";;   it was measured (rf2-88pie). The table above stands as raw data; "
+                        "nothing in it"))
+          (println ";;   may be quoted.")
+          (set! (.-exitCode js/process) 2))))
     (println (gstring/format ";; sink %s %s" @sink (some? @sink2)))))
