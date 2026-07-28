@@ -64,6 +64,41 @@ const URL = process.env.BROWSER_TEST_URL || 'http://localhost:8021';
 // and it fails through THIS runner — which dumps the console trail and the
 // namespaces reached — rather than as an opaque runner kill.
 //
+// rf2-15047 CALIBRATION, 2026-07-28 — MEASURED, AND 360s STANDS.
+//
+// rf2-mf4uy moved the benches to their own build, and the arithmetic above
+// changed underneath this constant, so it was re-measured rather than left
+// to drift. Two consecutive local runs of the built `:browser-test` bundle:
+// 841 tests / 5459 assertions / 0 failures, 25.9s and 25.2s wall for
+// serve+launch+navigate+suite+teardown, of which the summary wait proper —
+// the only thing TIMEOUT_MS bounds — is ~22.5s. (The 41.5s shadow-cljs
+// compile is NOT on this clock; it happens before the runner starts.) That
+// confirms rf2-mf4uy's 73s -> 22.5s: one namespace really had been half the
+// lane.
+//
+// So 360s is ~16x the local green run and ~9.5x at the measured ~1.7x CI
+// factor, against the ~3.6x rule that produced it. By that rule alone the
+// number wants to be ~140-180s. It is NOT being lowered, for two reasons.
+//
+// FIRST, the growth this budget exists to absorb is WALL-CLOCK, not compute.
+// Each control witness costs ~35-40s of mounted rows driven through
+// real-time settles with 2-4s poll budgets — `setTimeout`, which neither a
+// faster runner nor another bundle split can shrink. The 22.5s figure is the
+// result of a one-off structural change, not a trend; the witness corpus
+// that motivated this bead is still landing steadily. Three more puts the
+// lane near ~135s, where a 180s budget has ~1.3x headroom and needs raising
+// again within weeks.
+//
+// SECOND, the two failure modes are asymmetric. Over-large costs only a
+// slower failure on a genuine hang — still 6 minutes, still far inside
+// `timeout-minutes: 45`, and still through THIS runner with the console
+// trail and the rf2-76lhy per-namespace duration profile. Under-sized costs
+// a FALSE RED on a loaded runner, which is precisely the failure rf2-15047
+// was filed to stop, and it costs a full lane re-run plus an investigation
+// that starts by suspecting the code.
+//
+// Revisit when the lane's own green run passes ~100s, not before.
+//
 // Per-lane needs differ; $BROWSER_TEST_TIMEOUT_MS remains the override.
 // check-ui-mounted-prod-elision.cjs still pins 120000 for its negative-
 // control mutant run — left alone deliberately: that run is EXPECTED to
