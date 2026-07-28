@@ -31,15 +31,51 @@
 
   Production-elision shape (dev coord with `:column`, prod slim coord
   without) is pinned below + by the CLJS bundle probe
-  (`scripts/check-elision.cjs` `rf.trace/call-site` sentinel)."
+  (`scripts/check-elision.cjs` `rf.trace/call-site` sentinel).
+
+  ## Posture split (rf2-d2841)
+
+  `:rf.trace/call-site` is dev-only BY DESIGN here — the last deftest in this
+  file asserts exactly that, walking the expansion to show the prod branch is
+  `{:source :ui}` with no coord at all. So every row reading a call-site back
+  off a live trace sits inside a `(when interop/debug-enabled? …)` arm, and
+  that arm's contract is pinned by its own always-on neighbour.
+
+  But the injection is not only about coords, and the parts that are not now
+  run under `scripts/test-core-prod-gate.sh` on witnesses that do not involve
+  the trace at all:
+
+    * the injected `dispatch` noun REALLY DISPATCHES — the handler runs and
+      lands a marker in app-db;
+    * the render-time frame capture survives the opts injection — the marker
+      lands in the RENDER-time frame after the `with-frame` scope has unwound,
+      which is the rf2-tqlmq regression itself and was previously only readable
+      off `[:tags :frame]`;
+    * the subscribe miss really emits `:rf.error/no-such-sub`, re-aimed at the
+      `:errors` stream (a PROMOTED category per Spec 009), so the synchronous
+      error path is proven in the posture that ships.
+
+  The macro-expansion deftest was always posture-independent and is untouched."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
+
+(defn- clicked?
+  "The injected `dispatch` noun ENQUEUES (it is not `dispatch-sync`), so the
+  handler's app-db write lands on the drain, not inline. Poll for it — the
+  always-on witness rf2-d2841 uses in place of the synchronous enqueue trace."
+  [frame-id]
+  (try (test-support/poll-until
+         #(true? (:clicked? (rf/app-db-value frame-id)))
+         {:timeout-ms 2000 :label (str "clicked? " frame-id)})
+       (catch Exception _ false)))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -75,7 +111,10 @@
         ;; scope — there is no `:rf/default` floor. Render under an
         ;; explicit `with-frame` scope so the handle captures a real frame.
         (rf/make-frame {:id :rf2-cry25/click-frame :doc "the render-time frame"})
-        (rf/reg-event :rf2-cry25/clicked (fn [{:keys [db]} _] {:db db}))
+        ;; The handler lands a marker so the dispatch is observable WITHOUT the
+        ;; trace (rf2-d2841).
+        (rf/reg-event :rf2-cry25/clicked
+          (fn [{:keys [db]} _] {:db (assoc db :clicked? true)}))
         ;; `dispatch` here is the INJECTED noun (shadowing the macro) per
         ;; Spec 004 §reg-view. The reg-view definition site is the coord
         ;; 'go to code' must resolve to.
@@ -86,22 +125,30 @@
         (let [click (rf/with-frame :rf2-cry25/click-frame
                       (on-click-of (rf/view :re-frame.reg-view-injection-test/click-view)))]
           (click))
-        (let [ev (->> @seen
-                      (filter #(= :rf.event/dispatched (:operation %)))
-                      (filter #(= [:rf2-cry25/clicked] (get-in % [:tags :rf.event/v])))
-                      first)]
-          (is (some? ev) "the view's on-click dispatch produced a :rf.event/dispatched trace")
-          (is (= :ui (:source ev))
-              ":source is :ui (the reg-view injection stamps it explicitly), NOT :unknown")
-          (let [cs (:rf.trace/call-site ev)]
-            (is (some? cs)
-                ":rf.trace/call-site is present — Xray dispatch 'go to code' resolves")
-            (is (= 're-frame.reg-view-injection-test (:ns cs))
-                "the call-site coord is the VIEW's definition-site ns")
-            (is (integer? (:line cs))
-                "the call-site coord carries a :line (the reg-view definition line)")
-            (is (integer? (:column cs))
-                "dev coord carries :column (full coords-form)")))
+        ;; ---- ALWAYS-ON (rf2-d2841): the injected noun really dispatched ---
+        (is (true? (clicked? :rf2-cry25/click-frame))
+            "the view's on-click ran the handler through the captured-frame
+             handle op — the injection is a live dispatch, not just a stamp")
+        ;; ---- rf2-d2841 dev arm: the STAMPS the dispatch carried, which ride
+        ;;      the trace and are elided at source under the production gate
+        ;;      (the expansion deftest below pins that elision).
+        (when interop/debug-enabled?
+          (let [ev (->> @seen
+                        (filter #(= :rf.event/dispatched (:operation %)))
+                        (filter #(= [:rf2-cry25/clicked] (get-in % [:tags :rf.event/v])))
+                        first)]
+            (is (some? ev) "the view's on-click dispatch produced a :rf.event/dispatched trace")
+            (is (= :ui (:source ev))
+                ":source is :ui (the reg-view injection stamps it explicitly), NOT :unknown")
+            (let [cs (:rf.trace/call-site ev)]
+              (is (some? cs)
+                  ":rf.trace/call-site is present — Xray dispatch 'go to code' resolves")
+              (is (= 're-frame.reg-view-injection-test (:ns cs))
+                  "the call-site coord is the VIEW's definition-site ns")
+              (is (integer? (:line cs))
+                  "the call-site coord carries a :line (the reg-view definition line)")
+              (is (integer? (:column cs))
+                  "dev coord carries :column (full coords-form)"))))
         (finally (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- frame-preservation regression (the handle's existing guarantee) ----
@@ -115,7 +162,11 @@
       (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/make-frame {:id :rf2-cry25/render-frame :doc "the render-time frame"})
-        (rf/reg-event :rf2-cry25/clicked (fn [{:keys [db]} _] {:db db}))
+        ;; A SECOND frame, never the render frame, so "landed in the right
+        ;; frame" is a discrimination rather than a coincidence (rf2-d2841).
+        (rf/make-frame {:id :rf2-cry25/other-frame :doc "must stay untouched"})
+        (rf/reg-event :rf2-cry25/clicked
+          (fn [{:keys [db]} _] {:db (assoc db :clicked? true)}))
         (rf/reg-view frame-view [_n]
           [:button {:on-click #(dispatch [:rf2-cry25/clicked])} "go"])
         ;; Render the view UNDER :rf2-cry25/render-frame so the capture-frame
@@ -127,17 +178,27 @@
           (is (nil? frame/*current-frame*)
               "the with-frame scope has unwound before the click fires")
           (click))
-        (let [ev (->> @seen
-                      (filter #(= :rf.event/dispatched (:operation %)))
-                      (filter #(= [:rf2-cry25/clicked] (get-in % [:tags :rf.event/v])))
-                      first)]
-          (is (some? ev))
-          (is (= :rf2-cry25/render-frame (get-in ev [:tags :frame]))
-              "the dispatch routed to the RENDER-time frame, not a click-time
-               :rf/default fall-through — the noun's frame capture survives
-               the opts injection")
-          (is (= :ui (:source ev))
-              ":source :ui rides alongside the preserved frame"))
+        ;; ---- ALWAYS-ON (rf2-d2841): the rf2-tqlmq regression itself, read off
+        ;;      app-db rather than off `[:tags :frame]`. The handler ran in the
+        ;;      RENDER-time frame even though the scope had already unwound.
+        (is (true? (clicked? :rf2-cry25/render-frame))
+            "the dispatch routed to the RENDER-time frame — the noun's frame
+             capture survives the opts injection")
+        (is (nil? (:clicked? (rf/app-db-value :rf2-cry25/other-frame)))
+            "and reached no other frame")
+        ;; ---- rf2-d2841 dev arm ------------------------------------------
+        (when interop/debug-enabled?
+          (let [ev (->> @seen
+                        (filter #(= :rf.event/dispatched (:operation %)))
+                        (filter #(= [:rf2-cry25/clicked] (get-in % [:tags :rf.event/v])))
+                        first)]
+            (is (some? ev))
+            (is (= :rf2-cry25/render-frame (get-in ev [:tags :frame]))
+                "the dispatch routed to the RENDER-time frame, not a click-time
+                 :rf/default fall-through — the noun's frame capture survives
+                 the opts injection")
+            (is (= :ui (:source ev))
+                ":source :ui rides alongside the preserved frame")))
         (finally (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- subscribe: the view's call-site on the synchronous error path -------
@@ -147,8 +208,13 @@
             :rf.error/no-such-sub carrying the view's :rf.trace/call-site
             (subscriptions carry no :source axis; the handle's :subscribe op
             mirrors the subscribe macro's trace/with-call-site wrapper)"
-    (let [seen (atom [])]
+    (let [seen    (atom [])
+          records (atom [])]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
+      ;; ALWAYS-ON axis (rf2-d2841): `:rf.error/no-such-sub` is a PROMOTED
+      ;; category — the miss fans a corpus-wide record that survives
+      ;; -Dre-frame.debug=false.
+      (rf/register-listener! :errors ::err (fn [r] (swap! records conj r)))
       (try
         ;; EP-0002 (rf2-69r7ui): the reg-view handle captures
         ;; `(current-frame-id)` at render, which REQUIRES a scope. Render
@@ -165,19 +231,31 @@
           ;; build-and-cache miss → :rf.error/no-such-sub emit).
           (rf/with-frame :rf2-cry25/sub-frame
             (view-fn 0)))
-        (let [err (->> @seen
-                       (filter #(= :rf.error/no-such-sub
-                                   (get-in % [:tags :category])))
-                       first)]
-          (is (some? err)
-              "subscribing to an unregistered sub emitted :rf.error/no-such-sub")
-          (let [cs (:rf.trace/call-site err)]
-            (is (some? cs)
-                ":rf.trace/call-site is present on the subscribe error —
-                 the handle's :subscribe op carried the view coord")
-            (is (= 're-frame.reg-view-injection-test (:ns cs))
-                "the subscribe call-site coord is the VIEW's definition-site ns")))
-        (finally (rf/unregister-listener! :trace ::rec))))))
+        ;; ---- ALWAYS-ON: the synchronous miss really surfaced ---------------
+        (let [recs (filterv #(= :rf.error/no-such-sub (:error %)) @records)]
+          (is (= 1 (count recs))
+              "subscribing to an unregistered sub through the injected noun
+               fans exactly one always-on :rf.error/no-such-sub record")
+          (is (= :rf2-cry25/sub-frame (:frame (first recs)))
+              "attributed to the render-time frame the handle captured"))
+        ;; ---- rf2-d2841 dev arm: the VIEW COORD on that error, which rides
+        ;;      `:rf.trace/call-site` on the dev trace only.
+        (when interop/debug-enabled?
+          (let [err (->> @seen
+                         (filter #(= :rf.error/no-such-sub
+                                     (get-in % [:tags :category])))
+                         first)]
+            (is (some? err)
+                "subscribing to an unregistered sub emitted :rf.error/no-such-sub")
+            (let [cs (:rf.trace/call-site err)]
+              (is (some? cs)
+                  ":rf.trace/call-site is present on the subscribe error —
+                   the handle's :subscribe op carried the view coord")
+              (is (= 're-frame.reg-view-injection-test (:ns cs))
+                  "the subscribe call-site coord is the VIEW's definition-site ns"))))
+        (finally
+          (rf/unregister-listener! :errors ::err)
+          (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- production-elision shape (dev coord vs slim prod coord) -------------
 ;;
