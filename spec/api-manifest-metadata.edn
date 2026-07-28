@@ -1726,9 +1726,65 @@
   ["re-frame.freehand.controls" "cancel-key"]     {:tier :advanced    :owner "004" :status "EP-0036"}
 
   ;; =========================================================================
+  ;; re-frame.freehand.splitter — the control kit's POINTER witness
+  ;; (rf2-drpa3.182.10; DC-04's other half, proven by FH-CTRL-019).
+  ;; Conventionally aliased `split`. A resizable pane divider: two clocks
+  ;; reduced by arithmetic, a keyboard path that is the SAME control, and the
+  ;; whole gesture living in ordinary application data.
+  ;;
+  ;; ENROLLED LATE, and the lateness is the bead (rf2-h0b0l). It shipped to
+  ;; main in PR #7181 with fourteen public names and reached neither the
+  ;; generator's roster, nor this sidecar, nor spec/API.md, nor docs/api/ —
+  ;; and nothing went red, because an unlisted namespace is UNSCANNED rather
+  ;; than unclassified and `doc_api_check` derives its own roster from these
+  ;; rows. The surface was not misclassified; it was invisible.
+  ;;
+  ;; ADVANCED, all fourteen, and that is the restrictive answer the taxonomy
+  ;; asks for rather than an accident of filing something new high. The
+  ;; controls kit is `:front-porch` because a text field is what an ordinary
+  ;; author mounts in the first form they write; a resizable pane divider is
+  ;; not day one, and the tier is about WHO reaches for it. This is the same
+  ;; call the rf2-cfhuv ruling made against `virtual-list` — opt-in
+  ;; capability machinery, required when the problem appears, kept out of the
+  ;; Guide's and the skills' default context until then.
+  ;;
+  ;; Within that, nothing here is `:implementation`: every name is reached
+  ;; from a call site. The five transitions are what the application's four
+  ;; handlers call; `settle` / `key-intent` / `intent-at` / `fraction-at` are
+  ;; published so the two-clock reduction and the keyboard law are PROVABLE
+  ;; by calling them, with no browser; `bounds` / `default-bounds` complete a
+  ;; caller's partial bounds map in one place; and `component-id` / `parts`
+  ;; are addresses a stylesheet reaches — a part id is API, and renaming one
+  ;; breaks a caller's CSS exactly as renaming a prop breaks a call.
+  ;;
+  ;; No `:cljs-only` rows: `.cljc` and host-neutral, and the JVM enumeration
+  ;; is not a proxy for a browser surface here — the arithmetic IS the
+  ;; surface, and only the pointer plumbing beneath the view is
+  ;; `:cljs`-conditional (and `defn-`).
+  ;; =========================================================================
+  ["re-frame.freehand.splitter" "splitter"]       {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "default-bounds"] {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "bounds"]         {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "settle"]         {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "key-intent"]     {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "intent-at"]      {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "fraction-at"]    {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "init"]           {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "start"]          {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "move"]           {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "commit"]         {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "cancel"]         {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "component-id"]   {:tier :advanced :owner "004" :status "EP-0036"}
+  ["re-frame.freehand.splitter" "parts"]          {:tier :advanced :owner "004" :status "EP-0036"}
+
+  ;; =========================================================================
   ;; re-frame.freehand.tool — the Freehand TOOL-TIER READER DOOR (rf2-hytu5,
-  ;; extended by rf2-lvvl2 / rf2-xftdv / rf2-cpfbg; EP-0036). The third and
-  ;; last sanctioned `re-frame.freehand.*` namespace. SIX names: the
+  ;; extended by rf2-lvvl2 / rf2-xftdv / rf2-cpfbg; EP-0036). A sanctioned
+  ;; `re-frame.freehand.*` sibling — and NOT "the third and last" one, as
+  ;; this comment said until rf2-h0b0l: the roster is qualitative and lives
+  ;; in spec/Conventions.md, because a COUNT goes quietly false the moment a
+  ;; witness lands and nothing checks it (it was false twice over). SIX
+  ;; names: the
   ;; value-taking `view-manifest`; the three ID-taking DECLARATION reads a
   ;; wire-attached inspector needs — `read-view-manifest`,
   ;; `read-view-dependencies`, `read-view-event-sites`; and the two
