@@ -605,9 +605,54 @@
     :applied   reducer applications, counted in the reducer itself
     :mutations DOM records observed across the whole run
     :peak-backlog  max over offers of `offered − applied`
-    :tail-ms   from the last offer to the DOM showing the last generation
+    :tail-ms   from the LAST OFFER'S OWN TIMESTAMP to the page showing the
+               last generation
     :latency   per-generation offer→DOM distribution, read from the
-               `MutationObserver` callback that carried it"
+               `MutationObserver` callback that carried it
+
+  ## `:tail-ms` is anchored at the last offer, and a control says so
+
+  The first edition of this driver read the tail off a clock **started at
+  settle time**. The interval callback that notices `duration-ms` has
+  elapsed is the one *after* the last offer — a whole period later by
+  construction, since it is the next fire of the same `setInterval` — so
+  `(now − that-instant)` silently omitted the interval it was supposed to
+  contain, and where the last generation had already committed it
+  reported approximately the 4 ms polling delay instead. The number was
+  precise, plausible, and not the quantity its own docstring named. It is
+  the fault `rf2-drpa3.182.12`'s merged-PR audit found, and it is the
+  fifteenth on this surface to have produced a believable wrong number
+  before anyone read the code.
+
+  Two changes. The last offer's timestamp is **retained** — `offers`
+  already held one per generation, so `t-offer` keeps the last of them
+  rather than re-reading the clock later. And settlement is read from the
+  `MutationObserver` that is already watching, the same clock the latency
+  distribution comes from, rather than from the poll: the poll's 4 ms
+  resolution would otherwise be quantisation on a quantity that is often
+  smaller than 4 ms in a shipped bundle. **The 2 s polling ceiling is
+  unchanged and still separate** — the poll remains the `settled?`
+  detector and nothing else.
+
+  Four fields make the anchoring checkable rather than asserted:
+
+    :offer-to-poll-start-ms  last offer → the settle decision. One
+                             interval, by construction. This is exactly
+                             the term the old reading dropped, so a clock
+                             restarted at settle time cannot produce it.
+    :predicted-gap-ms        the run's own achieved period,
+                             `duration-ms / offered` — what that gap is
+                             predicted to be, computed from a different
+                             counter.
+    :poll-wait-ms            settle decision → the poll noticing. Under
+                             the old reading THIS was published as the
+                             tail.
+    :tail-anchored?          the deterministic control: the gap exists and
+                             is at least half a requested period. A
+                             `setInterval` cannot fire faster than its
+                             period, so the floor holds however badly the
+                             browser is falling behind; a settle-time
+                             clock fails it outright."
   [mnt rate k duration-ms]
   (let [{:keys [container observer]} mnt
         period    (/ 1000.0 rate)
@@ -617,7 +662,9 @@
         latencies (atom [])
         muts      (atom 0)
         start     (m/now-ms)
-        last-gen  (volatile! nil)]
+        last-gen  (volatile! nil)
+        t-offer   (volatile! nil)         ; the LAST offer's own timestamp
+        last-seen (volatile! nil)]        ; [generation when-the-page-showed-it]
     (.disconnect observer)
     (reset-applied!)
     (let [watcher (js/MutationObserver.
@@ -626,9 +673,18 @@
                       (let [now (m/now-ms)
                             txt (cell-text container 0)
                             g   (js/parseInt txt 10)]
-                        (when-let [t (get @offers g)]
-                          (swap! latencies conj (- now t))
-                          (swap! offers dissoc g)))))]
+                        (when-not (js/isNaN g)
+                          ;; The newest generation the page has shown, and
+                          ;; WHEN it showed it. The tail is read from here
+                          ;; rather than from the settle poll, so it carries
+                          ;; this observer's resolution rather than the
+                          ;; poll's 4 ms — which in a shipped bundle is
+                          ;; larger than the quantity itself.
+                          (when (or (nil? @last-seen) (> g (nth @last-seen 0)))
+                            (vreset! last-seen [g now]))
+                          (when-let [t (get @offers g)]
+                            (swap! latencies conj (- now t))
+                            (swap! offers dissoc g))))))]
       (.observe watcher container #js {:subtree true :childList true :characterData true})
       (js/Promise.
         (fn [resolve]
@@ -640,19 +696,30 @@
                   (if (>= (- (m/now-ms) start) duration-ms)
                     (do
                       (js/clearInterval @tid)
-                      ;; settle: wait until the last generation is on the page
-                      ;; or a generous ceiling passes, then read the tail.
-                      (let [t-last (m/now-ms)
-                            poll   (volatile! nil)]
+                      ;; Settle: poll until the last generation is on the
+                      ;; page or a generous ceiling passes. The poll is the
+                      ;; `settled?`/ceiling detector and ONLY that — this
+                      ;; callback is already one period past the last offer,
+                      ;; so a clock started here measures neither end of the
+                      ;; tail. `t-offer` is that end; the observer is this one.
+                      (let [t-poll-start (m/now-ms)
+                            poll         (volatile! nil)]
                         (vreset!
                           poll
                           (js/setInterval
                             (fn []
                               (let [done? (= (str @last-gen) (cell-text container 0))
-                                    over? (> (- (m/now-ms) t-last) 2000)]
+                                    over? (> (- (m/now-ms) t-poll-start) 2000)]
                                 (when (or done? over?)
                                   (js/clearInterval @poll)
-                                  (let [tail (- (m/now-ms) t-last)]
+                                  (let [now      (m/now-ms)
+                                        seen     @last-seen
+                                        by-obs?  (boolean (and done? seen
+                                                               (= (nth seen 0) @last-gen)))
+                                        t-settle (if by-obs? (nth seen 1) now)
+                                        t0       @t-offer
+                                        n        @offered
+                                        gap      (when t0 (- t-poll-start t0))]
                                     (.disconnect watcher)
                                     (.observe observer container
                                               #js {:subtree true :childList true
@@ -661,13 +728,20 @@
                                       {:rate            rate
                                        :siblings        k
                                        :duration-ms     duration-ms
-                                       :offered         @offered
+                                       :offered         n
                                        :expected        (js/Math.floor
                                                           (/ (* duration-ms rate) 1000.0))
                                        :applied         (applied)
                                        :mutations       @muts
                                        :peak-backlog    @backlog
-                                       :tail-ms         tail
+                                       :tail-ms         (when t0 (- t-settle t0))
+                                       :tail-source     (if by-obs? :observer :poll)
+                                       :offer-to-poll-start-ms gap
+                                       :predicted-gap-ms       (when (pos? n)
+                                                                 (/ duration-ms (double n)))
+                                       :poll-wait-ms    (- now t-poll-start)
+                                       :tail-anchored?  (boolean
+                                                          (and gap (>= gap (* 0.5 period))))
                                        :settled?        done?
                                        :outstanding     (count @offers)
                                        :latency-ms      (when (seq @latencies)
@@ -676,7 +750,13 @@
                     (let [gen (next-gen!)]
                       (vreset! last-gen gen)
                       (swap! offered inc)
-                      (swap! offers assoc gen (m/now-ms))
+                      ;; ONE clock read, kept in two places: the per-generation
+                      ;; latency map and `t-offer`. Re-reading the clock for
+                      ;; the second would make the tail and the last
+                      ;; generation's latency disagree for no reason.
+                      (let [t (m/now-ms)]
+                        (vreset! t-offer t)
+                        (swap! offers assoc gen t))
                       (swap! backlog max (- @offered (applied)))
                       (rf/dispatch [:b10/moved k gen] {:frame frame-id}))))
                 period))))))))
