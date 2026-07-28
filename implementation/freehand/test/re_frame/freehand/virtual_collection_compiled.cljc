@@ -1,17 +1,35 @@
 (ns re-frame.freehand.virtual-collection-compiled
   "FH-CTRL-021's compiled arm — the whole vertical promoted.
 
-  Below are [[re-frame.freehand.collection/virtual-collection]],
-  [[re-frame.freehand.collection/virtual-row]],
+  Below are [[re-frame.freehand.collection/virtual-collection]], the
+  collection's private `virtual-row`,
   [[re-frame.freehand.collection/virtual-list]] and the caller from
   [[re-frame.freehand.virtual-collection-cljs-test]] with `{:compiled
   true}` added and nothing else changed: the same parameter vectors, the
   same `let`, the same `for` with the same `:let` modifier, the same
   props, the same event sites, the same slot, the same literal markup.
-  The pure arithmetic is REFERRED rather than restated — `window` and
-  `row-dom-id` are ordinary functions and there is nothing about them a
+  [[re-frame.freehand.collection/window]] is REFERRED rather than restated
+  — it is an ordinary public function and there is nothing about it a
   lowering could change — so what differs between the two arms is exactly
   the lowering and nothing else.
+
+  ## What the twin cannot refer, and why that costs nothing
+
+  The control's id scheme (`row-dom-id`) and its guarded `:layout` write
+  (`reconcile-scroll`) are PRIVATE to `re-frame.freehand.collection`, and
+  a twin lives in another namespace by necessity — so this file reaches
+  neither var. It does not need to:
+
+  - the id scheme is restated here as a two-line `defn-`, and the twin's
+    copy is not taken on trust. The whole-tree comparison in
+    [[re-frame.freehand.virtual-collection-parity-cljs-test]] reads the
+    `id` of every rendered row in both arms, so a copy that drifted from
+    the original by one character fails there;
+  - the behavior is named by its registered ID, which is what a use site
+    records anyway. `v/defbehavior` binds a var whose VALUE is the
+    keyword, so `:use ::coll/reconcile-scroll` attaches the collection's
+    own registered behavior — one registration, reached as data — rather
+    than a second copy of the host write racing the first.
 
   Separate namespace because a view id is derived from where a declaration
   LIVES, so two declarations of one name cannot share a namespace.
@@ -45,8 +63,16 @@
 
   Dev/test scope ONLY."
   (:require [re-frame.freehand :as v]
-            [re-frame.freehand.collection :refer [reconcile-scroll row-dom-id window]]
+            [re-frame.freehand.collection :as coll :refer [window]]
             [re-frame.freehand.virtual-collection-cljs-test :refer [item-cell]]))
+
+(defn- row-dom-id
+  "The control's private id scheme, restated — see the namespace docstring.
+  The parity suite compares the whole rendered tree, `id` attributes
+  included, so this copy is checked against the original on every run
+  rather than merely believed."
+  [list-id index]
+  (str list-id "-row-" index))
 
 (v/defview virtual-collection
   "`collection/virtual-collection`, PROMOTED — the semantic-neutral engine
@@ -72,7 +98,7 @@
                        :overscan        overscan})
         from  (:first w)
         to    (+ from (:count w))]
-    [v/behavior {:use reconcile-scroll :config {:scroll-offset scroll-offset}}
+    [v/behavior {:use ::coll/reconcile-scroll :config {:scroll-offset scroll-offset}}
      [:div (v/spread-safe
              {:data-part         "viewport"
               :data-window-first from
@@ -99,7 +125,9 @@
 
 (v/defview virtual-row
   "`collection/virtual-row`, PROMOTED — the addressed, selectable `option`,
-  with `{:compiled true}` and no other change."
+  with `{:compiled true}` and no other change. Public HERE because the
+  parity suite reads its manifest; the original is `^:private`, which the
+  promotion does not change and could not carry across namespaces anyway."
   {:compiled true
    :props    [:map {:closed false}
               [:dom-id :string]

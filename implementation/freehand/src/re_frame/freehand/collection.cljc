@@ -17,16 +17,24 @@
   |---|---|
   | [[window]] | the visible window, as pure arithmetic |
   | [[reveal-offset]] | the smallest scroll that puts a row wholly on screen |
-  | [[row-dom-id]] | the browser-facing address of a rendered row |
-  | [[reconcile-scroll]] | the guarded `:layout` write that lands the offset |
   | [[virtual-collection]] | the ENGINE — viewport, canvas, positioned row shells |
   | [[virtual-list]] | a thin LISTBOX over the engine |
-  | [[virtual-row]] | the listbox's own row — not a call-site surface |
 
-  Three of the seven are pure functions of scalars, which is where the
-  correctness lives. Nothing here schedules, measures, throttles, observes
-  a resize, or owns a frame; the one imperative entry is a guarded write of
-  one property on one node.
+  Four names, and half of them are pure functions of scalars, which is
+  where the correctness lives. Three more things exist INSIDE and are
+  private: [[virtual-row]], the listbox's own `option`;
+  [[row-dom-id]], the positional scheme its rows are addressed by; and
+  [[reconcile-scroll]], the guarded `:layout` write that lands the offset.
+  Each has exactly one consumer and that consumer shares this namespace,
+  so publishing any of them would only freeze a shape no caller has a use
+  for — and `row-dom-id` in particular would freeze an id STRING. The
+  supported way to find a row is the rendered relationship: the listbox
+  owns `aria-activedescendant`, and each mounted option owns its id, its
+  `aria-posinset` and its `aria-setsize`.
+
+  Nothing here schedules, measures, throttles, observes a resize, or owns
+  a frame; the one imperative entry is a guarded write of one property on
+  one node.
 
   ## Two layers, because virtualization is not a widget
 
@@ -166,10 +174,10 @@
     application effect — a strictly weaker answer, said so, and now has
     the seam instead.
 
-  The pilot's deletion is sequenced behind this file: its applications are
-  rewritten as callers and its discriminating browser evidence is migrated
-  onto these declarations FIRST, and only then does the second
-  implementation go.
+  That sequencing has run its course: the pilot's applications were
+  rewritten as callers of what is here, its discriminating browser
+  evidence was migrated onto these declarations, and only then was the
+  second implementation deleted. One engine remains.
 
   Normative owner: [`spec/004-Views.md` §Controller state is ordinary
   frame data](../../../../../spec/004-Views.md#controller-state-is-ordinary-frame-data);
@@ -275,7 +283,7 @@
              (> bottom (+ offset viewport)) (long (- bottom viewport))
              :else                          (long offset)))))
 
-(defn row-dom-id
+(defn- row-dom-id
   "The browser-facing address of the row at absolute `index` in the list
   identified by `list-id`.
 
@@ -287,9 +295,13 @@
   either from the other would make a reorder rename a DOM id, or make an
   accessibility relationship depend on a domain key's spelling.
 
-  Exposed because `aria-activedescendant` names an id the caller cannot
-  otherwise compute, and a test that wants to find the active row should
-  ask the same function the control answers with."
+  PRIVATE, because a published id builder is a published id STRING: every
+  caller that computed one would pin `\"<list>-row-<n>\"` into place, and
+  the scheme has to stay replaceable. What a caller may depend on is the
+  RENDERED relationship this produces — the listbox names the active row
+  through `aria-activedescendant`, and each mounted option carries that
+  same id alongside its `aria-posinset` and `aria-setsize`. Reading the
+  document is how a test finds a row; asking this function is not."
   [list-id index]
   (str list-id "-row-" index))
 
@@ -325,9 +337,15 @@
          (set! (.-scrollTop node) offset))))
   nil)
 
-(v/defbehavior reconcile-scroll
+(v/defbehavior ^:private reconcile-scroll
   "Write the collection's `:scroll-offset` back onto the viewport, before
   paint.
+
+  PRIVATE: [[virtual-collection]] attaches it and nothing else does, so
+  producer and consumer share this namespace and there is nothing to
+  export. The var's VALUE is the registered id, and an id is ordinary
+  data — the structural tree records it whether or not the var is
+  reachable, which is what lets a headless render prove the seam exists.
 
   `:config` carries `{:scroll-offset n}` — DATA, the offset alone.
   `:connect` restores it into a freshly mounted viewport; `:update` follows
@@ -486,11 +504,11 @@
 ;; The listbox — one widget over the engine
 ;; ---------------------------------------------------------------------------
 
-(v/defview virtual-row
+(v/defview ^:private virtual-row
   "(v/defview) [[virtual-list]]'s OWN row — the addressed, selectable
-  `option` the caller's row content renders inside. It is the listbox's
-  implementation and not a call-site surface: a caller reaches it only
-  through `:row`.
+  `option` the caller's row content renders inside. PRIVATE, because it is
+  the listbox's implementation and not a call-site surface: a caller
+  reaches its content only through `:row`.
 
   It is a declared child rather than markup inlined into a loop, and that
   is a requirement rather than a style. A row carries a committed event

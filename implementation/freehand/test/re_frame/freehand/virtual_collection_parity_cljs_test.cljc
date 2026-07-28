@@ -3,8 +3,8 @@
 
   The laws in [[re-frame.freehand.virtual-collection-cljs-test]] bind both
   execution modes, and most of the control could not differ between them:
-  `window`, `reveal-offset` and `row-dom-id` are ordinary functions no
-  lowering touches. What promotion COULD move is the tree — the keys, the
+  `window` and `reveal-offset` are ordinary functions no lowering touches.
+  What promotion COULD move is the tree — the keys, the
   positions, the stated sizes, the event sites and the window boundaries —
   so this suite renders the promoted vertical
   ([[re-frame.freehand.virtual-collection-compiled]]) beside the

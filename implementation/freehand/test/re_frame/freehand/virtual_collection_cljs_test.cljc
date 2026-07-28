@@ -507,27 +507,61 @@
 ;; FH-CTRL-021 — identity survives the window moving
 ;; ===========================================================================
 
+(defn- addresses-of
+  "`{absolute-position -> dom-id}` for the rendered window, read entirely
+  off the document: the position is the row's own `aria-posinset` and the
+  address is its own `id`. Nothing here knows how an id is SPELLED, which
+  is the point — the id scheme is the control's private business
+  (`row-dom-id` is a `defn-`), and what a caller may depend on is that one
+  is published for the other."
+  [tree]
+  (into {}
+        (map (fn [n] (let [a (t/attrs n)] [(:aria-posinset a) (:id a)])))
+        (rows tree)))
+
 (deftest fh-ctrl-021-a-row-carries-two-addresses-and-neither-derives-the-other
   (testing "Per FH-CTRL-021: the `:key` is the caller's item identity and
-            the DOM id is the row's position. Both are asserted at one
-            absolute index, and they are different strings on purpose —
-            deriving either from the other would make a reorder rename a
-            DOM id, or make an accessibility relationship depend on a
-            domain key's spelling."
+            the DOM id is the row's POSITION, and they are different
+            strings on purpose — deriving either from the other would make
+            a reorder rename a DOM id, or make an accessibility
+            relationship depend on a domain key's spelling.
+
+            Both halves are read off the RENDER. The id an element carries
+            is compared against the fixture's own string rather than
+            against the control's private builder, and the positional
+            claim is then made without knowing the spelling at all: the
+            window is moved, and every absolute position present in BOTH
+            windows keeps the address it had. An id that tracked the
+            window SLOT — the renumbering bug — would fail that, and so
+            would one derived from the item's key."
     (register!)
     (seed!)
-    (let [{:keys [scroll-offset index key dom-id]} (:first-key-at ctrl-021)]
+    (let [{:keys [scroll-offset key dom-id]} (:first-key-at ctrl-021)
+          {:keys [from to]}                  (:movement ctrl-021)]
       (scroll-to! scroll-offset)
       (let [tree (render-tree)]
         (is (= key (first (row-keys-of tree)))
             "the first rendered row content reads the caller's item id")
         (is (= dom-id (first (dom-ids-of tree)))
             "and the row's element is addressed by its position")
-        (is (= dom-id (coll/row-dom-id (:list-id ctrl-021) index))
-            "which is exactly what `row-dom-id` answers, so a caller can
-             compute the address it must name in `aria-activedescendant`")
         (is (not= key dom-id)
-            "non-vacuous: the two addresses are different values")))))
+            "non-vacuous: the two addresses are different values")
+        (is (= (count (rows tree)) (count (set (dom-ids-of tree))))
+            "no two rendered rows share an address"))
+
+      (scroll-to! from)
+      (let [before (addresses-of (render-tree))]
+        (scroll-to! to)
+        (let [after  (addresses-of (render-tree))
+              shared (filterv (set (keys after)) (keys before))]
+          (is (seq shared)
+              "non-vacuous: the two windows really do overlap")
+          (is (not= before after)
+              "non-vacuous: and they really are different windows")
+          (is (= (mapv before shared) (mapv after shared))
+              "every position in the overlap kept its address, so the id
+               belongs to the POSITION rather than to the window slot or
+               to the item"))))))
 
 (deftest fh-ctrl-021-moving-the-window-re-keys-nothing-in-the-overlap
   (testing "Per FH-CTRL-021: this is the law that separates a virtual list
@@ -730,8 +764,11 @@
           at      #(:props (first (markers (render-tree))))]
       (is (= 1 (count (markers (render-tree))))
           "one collection, one reconciliation")
-      (is (= coll/reconcile-scroll (:use (at)))
-          "and it is the collection's own registered behavior")
+      (is (= :re-frame.freehand.collection/reconcile-scroll (:use (at)))
+          "and it is the collection's own registered behavior, named by
+           the ID the tree records — the behavior VAR is private, and an
+           id in a structural tree is data a tool reads rather than a var
+           a caller resolves")
       (is (= {:scroll-offset 0} (:config (at)))
           "carrying the offset the frame holds, as DATA — a config a tool
            can read and a snapshot can print")
