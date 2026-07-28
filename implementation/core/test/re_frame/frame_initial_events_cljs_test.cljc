@@ -44,10 +44,28 @@
   `{:db new-db}` shape and uses it as the construction db-seed step; the contract
   under test is the `:initial-events` engine, not `:rf/set-db` itself.
 
-  `.cljc` ends `-cljs-test` so it rides `npm run test:cljs` AND `clojure -M:test`."
+  `.cljc` ends `-cljs-test` so it rides `npm run test:cljs` AND `clojure -M:test`.
+
+  ## Posture split (rf2-d2841)
+
+  The `:initial-events` ENGINE is production behaviour and runs under
+  `scripts/test-core-prod-gate.sh` unchanged — the steps run in declaration
+  order, the app-db lands, and the fail-loud preflight throws the right
+  `:rf.error/id` for each bad shape.
+
+  PROVENANCE is not. `:source :frame-init` and `:rf.frame/init-step-index`
+  both ride the `:rf.event/dispatched` trace and are gone under
+  `-Dre-frame.debug=false`, so `initial-events-carry-construction-provenance`
+  keeps its assertions verbatim inside a `(when interop/debug-enabled? …)` arm
+  marked `rf2-d2841` — the two negatives about the ordinary runtime dispatch
+  included, since over an empty stream `(first @dispatched)` is nil and both
+  pass without anything having been classified. The always-on witness kept
+  outside the arm is that the two setup steps ran at all; without it the
+  deftest would be describing dispatches nobody proved happened."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core         :as rf]
+            [re-frame.interop      :as interop]
             [re-frame.frame        :as frame]
             [re-frame.image        :as image]
             [re-frame.late-bind    :as late-bind]
@@ -184,31 +202,45 @@
       (rf/make-frame {:id :prov/main :initial-events [[:test/set-db {:n 0}]
                                        [:test/inc]]})
       (rf/unregister-listener! :trace ::prov)
-      (let [sources (->> @dispatched (map :source) (filter #{:frame-init}))]
-        (is (= 2 (count sources))
-            "both setup dispatches carried :source :frame-init"))
-      ;; rf2-8j4h7i: the :step-index half of the provenance contract reaches the
-      ;; trace — each frame-init dispatch carries its 0-based step index under
-      ;; [:tags :rf.frame/init-step-index], in declaration order (previously the
-      ;; runner set :step-index on the opts but build-envelope dropped it). The
-      ;; index rides under :tags (the raw layer :frame also rides), unlike the
-      ;; hoisted top-level :source.
-      (let [init-steps (->> @dispatched (filter #(= :frame-init (:source %))))]
-        (is (= [0 1] (mapv #(get-in % [:tags :rf.frame/init-step-index]) init-steps))
-            "each frame-init dispatch carries its 0-based :rf.frame/init-step-index"))
-      ;; A subsequent RUNTIME dispatch is NOT frame-init — proving the tag
-      ;; discriminates construction from runtime.
-      (reset! dispatched [])
-      (rf/register-listener! :trace ::prov2
-        (fn [ev]
-          (when (= :rf.event/dispatched (:operation ev))
-            (swap! dispatched conj ev))))
-      (rf/dispatch-sync [:test/inc] {:frame :prov/main :source :test})
-      (rf/unregister-listener! :trace ::prov2)
-      (is (not= :frame-init (:source (first @dispatched)))
-          "an ordinary runtime dispatch is NOT tagged :source :frame-init")
-      (is (nil? (get-in (first @dispatched) [:tags :rf.frame/init-step-index]))
-          "an ordinary runtime dispatch carries no :rf.frame/init-step-index"))))
+      ;; ALWAYS-ON WITNESS (rf2-d2841): both setup steps ran, in declaration
+      ;; order — `:test/set-db {:n 0}` then `:test/inc`. The provenance tags
+      ;; below describe those two dispatches; if they had not happened the
+      ;; whole deftest would be about nothing, and under the production gate
+      ;; this is the only way to know they did.
+      (is (= 1 (:n (rf/app-db-value :prov/main)))
+          "both :initial-events setup steps ran, in declaration order")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; :source and :rf.frame/init-step-index ride the :rf.event/dispatched
+      ;; TRACE, which is elided under -Dre-frame.debug=false.
+      (when interop/debug-enabled?
+        (let [sources (->> @dispatched (map :source) (filter #{:frame-init}))]
+          (is (= 2 (count sources))
+              "both setup dispatches carried :source :frame-init"))
+        ;; rf2-8j4h7i: the :step-index half of the provenance contract reaches the
+        ;; trace — each frame-init dispatch carries its 0-based step index under
+        ;; [:tags :rf.frame/init-step-index], in declaration order (previously the
+        ;; runner set :step-index on the opts but build-envelope dropped it). The
+        ;; index rides under :tags (the raw layer :frame also rides), unlike the
+        ;; hoisted top-level :source.
+        (let [init-steps (->> @dispatched (filter #(= :frame-init (:source %))))]
+          (is (= [0 1] (mapv #(get-in % [:tags :rf.frame/init-step-index]) init-steps))
+              "each frame-init dispatch carries its 0-based :rf.frame/init-step-index"))
+        ;; A subsequent RUNTIME dispatch is NOT frame-init — proving the tag
+        ;; discriminates construction from runtime. The two negatives stay
+        ;; beside their positives: over the gate's empty stream `(first
+        ;; @dispatched)` is nil, so both would pass without a runtime dispatch
+        ;; ever having been classified.
+        (reset! dispatched [])
+        (rf/register-listener! :trace ::prov2
+          (fn [ev]
+            (when (= :rf.event/dispatched (:operation ev))
+              (swap! dispatched conj ev))))
+        (rf/dispatch-sync [:test/inc] {:frame :prov/main :source :test})
+        (rf/unregister-listener! :trace ::prov2)
+        (is (not= :frame-init (:source (first @dispatched)))
+            "an ordinary runtime dispatch is NOT tagged :source :frame-init")
+        (is (nil? (get-in (first @dispatched) [:tags :rf.frame/init-step-index]))
+            "an ordinary runtime dispatch carries no :rf.frame/init-step-index")))))
 
 ;; ===========================================================================
 ;; 3. Strict-shape preflight — each bad shape fails the right id, no frame left
