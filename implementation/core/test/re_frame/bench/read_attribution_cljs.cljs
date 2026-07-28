@@ -186,6 +186,35 @@
                vector per call (rf2-ezwnl, ~98 B/call JVM)
     N-LOOKATOM the same lookup on the registrar-atom branch
 
+  ### The ambient-frame reader's route (rf2-f70iq)
+
+  `S0-SCOPE - S0-VAR` prices the CLJS-only React-context consult and says
+  nothing about WHERE the bytes go. The H arms walk the route:
+
+    H-FVID     `frame-value->id` on the result
+    H-CACHE    `late-bind/get-fn-cached` — the hook lookup alone
+    H-SPEC     `substrate-adapter/current-adapter-spec` — the state read alone
+    H-IMPL     `function-component-current-frame` — the routed impl alone
+    H-SAMEH    `same-adapter?` on two HELD maps — the SHIPPED routing predicate
+    H-SAMEFLAT the CANDIDATE flat re-spelling of the same predicate, in the
+               same process, as the paired control
+    H-ROUTED   `((get-fn-cached :adapter/current-frame))` — the whole shipped
+               hook call
+
+  `H-ROUTED` strictly contains `H-CACHE + H-SPEC + H-SAMEH + H-IMPL`, so the
+  residual is `(apply impl-fn args)` at `route-hook!`'s OWN site — ONE site
+  shared by every routed hook in the bundle, hence callee-POLYMORPHIC. That is
+  why no arm here measures `apply` at a private site: with a single callee V8
+  inlines it and it reads zero, which is a fast path the shipped code never
+  takes. `S0-SCOPE - H-ROUTED - H-FVID` must close to the floor, and does.
+
+  These arms publish NO routed hooks — they only call ones that already exist.
+  That is deliberate: an earlier revision added four re-spellings of
+  `route-hook!` itself, which changed how many shapes had passed through the
+  shared `same-adapter?` and `apply` sites, moved `S0-SCOPE` from 264.0 to
+  280.0 B/read, and split eight arms 4x-7x by PHASE. The guard refused, and was
+  right. Do not add hook-PUBLISHING arms to this plan.
+
   ## Cache HIT, and why the db is held STILL
 
   Every arm here is measured against an UNCHANGING app-db. That is the
