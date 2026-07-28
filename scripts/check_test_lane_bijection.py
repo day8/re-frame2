@@ -105,10 +105,22 @@ THE FIVE RULES
       flag.  Same declaration, same teeth, one tier earlier than the runner's
       own runtime check.
 
-  B5  UNREADABLE NAMESPACE.  A test file must declare exactly one namespace.
+  B5  UNDECLARED NAMESPACE.  A test file must declare exactly one namespace.
       With none, or with two that disagree, there is no name to apply a
       selector to -- and a gate that quietly fell back to a path-derived guess
       would be back to the false green B5 exists to remove.
+        B5 IS ABOUT THE DECLARATION, NOT ABOUT WHETHER IT READS.  `NS_FORM` is
+      a regex over masked source: it sees `(ns some.thing-test`, which is the
+      name a selector is applied to, and that is all this gate needs to decide
+      coverage.  It does NOT decide that the Clojure reader can read the form
+      -- a file with a stray unescaped quote in its ns docstring matches the
+      regex, passes B5, and is invisible to `cognitect.test-runner`'s
+      discovery all the same (measured 2026-07-29: this gate reported PASS
+      while the core lane ran eight tests fewer, rf2-vruo9).  Reading the form
+      needs a reader, so that check lives where one already is: the JVM lanes
+      pass through `re-frame.test-quiet.runner`, which refuses to start when
+      any file in a discovery directory will not reach it as its own
+      namespace.  Do not try to settle it with a better regex here.
 
 Counts belong in a PR body where they carry a date; this file states rules.
 """
@@ -601,7 +613,7 @@ class TestFile:
     #: Every ancestor directory, as strings, so "is this file under one of the
     #: lane's roots?" is a set intersection rather than a walk per (lane, root).
     ancestors: frozenset = frozenset()
-    #: Set when the `(ns ...)` declaration could not be read (B5).
+    #: Set when the `(ns ...)` declaration is missing or self-contradictory (B5).
     ns_problem: str = ""
 
 
@@ -742,11 +754,13 @@ def check(lanes, files, repo: Path):
 
     ordered = sorted(files, key=lambda f: (f.ns or "", str(f.path)))
 
-    # B5 -- no readable namespace, so no selector can be applied at all.
+    # B5 -- no declared namespace, so no selector can be applied at all.
+    # Whether the declaration READS is a different question, settled by a
+    # reader in `re-frame.test-quiet.runner` (rf2-vruo9); see B5 above.
     for test_file in ordered:
         if test_file.ns is None:
             failures.append(
-                f"B5 unreadable namespace: {rel(test_file.path)} defines tests but "
+                f"B5 undeclared namespace: {rel(test_file.path)} defines tests but "
                 f"{test_file.ns_problem}. A lane selector is applied to the DECLARED "
                 f"namespace, so this file's lane membership is undecidable.")
 
@@ -1012,13 +1026,13 @@ def run_self_test() -> int:
     files = dict(GREEN_FILES)
     files["implementation/core/test/app/nameless_cljs_test.cljc"] = "(deftest t (is true))\n"
     case("B5 fires on a test file that declares no namespace",
-         expect="B5 unreadable namespace", files=files)
+         expect="B5 undeclared namespace", files=files)
 
     files = dict(GREEN_FILES)
     files["implementation/core/test/app/two_ns_cljs_test.cljc"] = (
         "(ns app.two-ns-cljs-test)\n(deftest t (is true))\n(ns app.somewhere-else)\n")
     case("B5 fires on two disagreeing namespace declarations",
-         expect="B5 unreadable namespace", files=files)
+         expect="B5 undeclared namespace", files=files)
 
     ok = True
     for name, expect, files, shadow, probe_flag in cases:
