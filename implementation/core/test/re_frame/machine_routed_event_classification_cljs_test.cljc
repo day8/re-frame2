@@ -30,12 +30,30 @@
 
   Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
   (`npm run test:cljs`, `cljs-test$` ns-regexp) AND the JVM `clojure -M:test`
-  runner both run it."
+  runner both run it.
+
+  ## Posture split (rf2-d2841)
+
+  The DETERMINISTIC PROJECTOR TEETH are pure functions over hand-built trace
+  shapes and run under `scripts/test-core-prod-gate.sh` unchanged, as does the
+  live round-trip's EGRESS-ONLY claim — the machine action reads the RAW
+  password locally, untouched by projection.
+
+  The LIVE TRACE assertions are dev-only: the stream they police does not
+  exist under `-Dre-frame.debug=false`. They are kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, and the two
+  assertions that look like opposites go in TOGETHER. `(not (some #(leaks?
+  pw-sentinel %) @seen))` over an empty `@seen` passes because nothing was
+  emitted — a redaction suite must never report green on that basis — and its
+  precision partner `(some #(leaks? email %) @seen)` is what proves the stream
+  is live and the redaction path-precise rather than whole-event. Separated,
+  the pair loses exactly the property that makes it meaningful."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
             [re-frame.classification :as classification]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             ;; Boot the optional machines artefact so `rf/reg-machine`
             ;; resolves through the spec-005 implementation (the late-bind
             ;; hooks install on load — see machine_handler_meta_test.clj).
@@ -209,22 +227,28 @@
       (is (= pw-sentinel @captured)
           "the machine action read the RAW routed password locally")
 
-      ;; 2. A machine transition trace actually fired (teeth — the echo
-      ;;    surface exists to protect).
-      (let [ops (into #{} (map :operation) @seen)]
-        (is (contains? ops :rf.machine/transition)
-            "a :rf.machine/transition trace was emitted for the routed event"))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Points 2, 3 and 4 are ONE claim about a live channel and travel
+      ;; together: the transition fired, the secret is absent from it, and the
+      ;; non-secret survives. Split apart, point 3 passes over an empty
+      ;; `@seen` for the wrong reason.
+      (when interop/debug-enabled?
+        ;; 2. A machine transition trace actually fired (teeth — the echo
+        ;;    surface exists to protect).
+        (let [ops (into #{} (map :operation) @seen)]
+          (is (contains? ops :rf.machine/transition)
+              "a :rf.machine/transition trace was emitted for the routed event"))
 
-      ;; 3. EVERY emitted trace ships the password redacted (the transition
-      ;;    echo slots, the action-ran [:input :event], AND the outer
-      ;;    :rf.event/dispatched vector — all keyed off the same
-      ;;    registration classification).
-      (is (not (some #(leaks? pw-sentinel %) @seen))
-          "no emitted trace event leaks the routed password sentinel")
+        ;; 3. EVERY emitted trace ships the password redacted (the transition
+        ;;    echo slots, the action-ran [:input :event], AND the outer
+        ;;    :rf.event/dispatched vector — all keyed off the same
+        ;;    registration classification).
+        (is (not (some #(leaks? pw-sentinel %) @seen))
+            "no emitted trace event leaks the routed password sentinel")
 
-      ;; 4. Precision — the non-secret :email is still observable somewhere in
-      ;;    the trace stream (redaction is path-precise, not whole-event).
-      (is (some #(leaks? email %) @seen)
-          "the non-secret :email survives in the trace stream")
+        ;; 4. Precision — the non-secret :email is still observable somewhere in
+        ;;    the trace stream (redaction is path-precise, not whole-event).
+        (is (some #(leaks? email %) @seen)
+            "the non-secret :email survives in the trace stream"))
 
       (rf/unregister-listener! :trace ::ghgbqi))))

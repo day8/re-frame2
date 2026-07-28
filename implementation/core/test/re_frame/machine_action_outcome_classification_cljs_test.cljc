@@ -25,12 +25,32 @@
 
   Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
   (`npm run test:cljs`, `cljs-test$` ns-regexp) AND the JVM `clojure -M:test`
-  runner both run it."
+  runner both run it.
+
+  ## Posture split (rf2-d2841)
+
+  The DETERMINISTIC PROJECTOR TEETH — `classification/project-machine-tags`
+  called directly on hand-built trace shapes — are pure functions and run
+  under `scripts/test-core-prod-gate.sh` unchanged. So does the live
+  round-trip's EGRESS-ONLY claim: the action reads the raw value, the durable
+  snapshot holds it, and a second action reads it back. Those are the
+  assertions that prove redaction did not corrupt control flow, and they are
+  the ones worth having in the production lane.
+
+  The LIVE TRACE assertions are dev-only, because the trace stream they police
+  does not exist under `-Dre-frame.debug=false`. They are kept verbatim inside
+  a `(when interop/debug-enabled? …)` arm marked `rf2-d2841` — the no-leak
+  NEGATIVE emphatically included. `(not (some #(leaks? sentinel %) @seen))`
+  over an empty `@seen` is true because nothing was emitted, and a redaction
+  suite reporting green on that basis is the worst false green in this
+  programme. Its teeth are the `(is (seq rans) …)` positive beside it, which
+  is only satisfiable with the channel live."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
             [re-frame.classification :as classification]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             ;; Boot the optional machines artefact so `rf/reg-machine`
             ;; resolves through the spec-005 implementation.
             [re-frame.machines]
@@ -165,16 +185,25 @@
       (is (= data-sentinel @wrote)
           "the action computed with the RAW value (egress-only redaction)")
 
-      ;; 2. an :rf.machine/action-ran trace fired, and its :outcome redacts.
-      (let [rans (filter #(= :rf.machine/action-ran (:operation %)) @seen)]
-        (is (seq rans) "an :rf.machine/action-ran trace was emitted")
-        (doseq [ev rans]
-          (is (not (leaks? data-sentinel (get-in ev [:tags :outcome])))
-              ":outcome ships the classified :data slot redacted")))
+      ;; rf2-d2841 — dev-instrumentation arm. The trace stream IS the surface
+      ;; this projector protects, and it does not exist under
+      ;; `-Dre-frame.debug=false`. Both assertions go inside, the
+      ;; no-leak NEGATIVE especially: over an empty `@seen` "no emitted trace
+      ;; event leaks the sentinel" is true because nothing was emitted, which
+      ;; is exactly the false green a redaction test must never report. Its
+      ;; teeth are the `(is (seq rans) …)` positive beside it, and that
+      ;; positive is only satisfiable with the channel live.
+      (when interop/debug-enabled?
+        ;; 2. an :rf.machine/action-ran trace fired, and its :outcome redacts.
+        (let [rans (filter #(= :rf.machine/action-ran (:operation %)) @seen)]
+          (is (seq rans) "an :rf.machine/action-ran trace was emitted")
+          (doseq [ev rans]
+            (is (not (leaks? data-sentinel (get-in ev [:tags :outcome])))
+                ":outcome ships the classified :data slot redacted")))
 
-      ;; 3. NOTHING in the emitted stream leaks the sentinel.
-      (is (not (some #(leaks? data-sentinel %) @seen))
-          "no emitted trace event leaks the data sentinel")
+        ;; 3. NOTHING in the emitted stream leaks the sentinel.
+        (is (not (some #(leaks? data-sentinel %) @seen))
+            "no emitted trace event leaks the data sentinel"))
 
       ;; 4. the DURABLE snapshot really holds the raw value — prove it by
       ;;    reading it back through a second action.

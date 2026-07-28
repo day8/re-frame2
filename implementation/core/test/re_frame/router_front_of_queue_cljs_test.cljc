@@ -39,9 +39,26 @@
   nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.router :as router]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
+
+;; ---------------------------------------------------------------------------
+;; ## Posture split (rf2-d2841)
+;;
+;; The LEAP-FROG ITSELF is production behaviour and is asserted without a
+;; posture guard: `@run-log` records the order handlers actually ran in,
+;; straight off the handlers, with no channel involved. That is what this file
+;; is about and it runs under `scripts/test-core-prod-gate.sh` unchanged.
+;;
+;; The `:rf.event/run-start` epoch assertions are a claim about the trace
+;; stream — "one per dequeued event, none collapsed by the front-insertion" —
+;; and are kept verbatim inside a `(when interop/debug-enabled? …)` arm marked
+;; `rf2-d2841`. Their always-on partner is the `@run-log` assertion directly
+;; above them in the same body, which pins the same order from the handler
+;; side.
+;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -152,10 +169,13 @@
         (finally (rf/unregister-listener! :trace ::epoch-rec)))
       ;; Run order reflects the leap-frog.
       (is (= [:seed :c1 :c2 :ext] @run-log))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns header §Posture split).
       ;; One :run-start per dequeued event — four distinct events, none
-      ;; collapsed by the front-insertion.
-      (let [starts (run-starts-of @seen)]
-        (is (= 4 (count starts))
-            "one :run-start per dequeued event — no collapse")
-        (is (= [:seed :c1 :c2 :ext] starts)
-            ":run-start order matches the dequeue (leap-frogged) order")))))
+      ;; collapsed by the front-insertion. The always-on partner is the
+      ;; `@run-log` assertion directly above.
+      (when interop/debug-enabled?
+        (let [starts (run-starts-of @seen)]
+          (is (= 4 (count starts))
+              "one :run-start per dequeued event — no collapse")
+          (is (= [:seed :c1 :c2 :ext] starts)
+              ":run-start order matches the dequeue (leap-frogged) order"))))))

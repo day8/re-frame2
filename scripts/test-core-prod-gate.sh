@@ -44,14 +44,15 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 119 namespaces, 1363 tests, 5945
+# What is left IS green, and it is not a rump: 123 namespaces, 1401 tests, 6054
 # assertions, exit 0 — versus the zero suites that had ever executed under this
 # posture before.  (It was 88 / 934 / 4340 before rf2-d2841 split the spine's
 # dev-instrumentation assertions away from the semantics beside them,
 # 94 / 1106 / 5135 before that bead's second pass took `fx-test` — the largest
 # single entry, 107 failures and 25 errors across ~20 deftests — plus
 # `sub-topology`, `init-platform`, `pattern-smoke` and `db-noop-commit`, and
-# 103 / 1213 / 5590 before its third pass took sixteen more.)
+# 103 / 1213 / 5590 before its third pass took twenty more — the twenty are
+# named in that pass's commits — `git log --grep=rf2-d2841`.)
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -193,7 +194,6 @@ known_red=(
   re-frame.event-context-partition-test
   re-frame.frame-destroy-composed-test
   re-frame.frame-destroy-incarnation-jvm-test
-  re-frame.frame-initial-events-cljs-test
   re-frame.frame-teardown-report-cljs-test
   re-frame.fx-aggregate-classification-cljs-test
   re-frame.fx-args-trace-egress-cljs-test
@@ -201,14 +201,11 @@ known_red=(
   re-frame.image-inline-metadata-normalization-cljs-test
   re-frame.interceptor-override-summary-trace-test
   re-frame.live-frame-reload-cljs-test
-  re-frame.machine-action-outcome-classification-cljs-test
-  re-frame.machine-routed-event-classification-cljs-test
   re-frame.observation-port-cljs-test
   re-frame.override-capture-trace-test
   re-frame.reg-meta-noswallow-cljs-test
   re-frame.reg-view-injection-test
   re-frame.registrar-warnings-test
-  re-frame.router-front-of-queue-cljs-test
   re-frame.source-coord-jvm-test
   re-frame.source-coords-test
   re-frame.sub-cycle-cljs-test
@@ -319,15 +316,15 @@ fi
 # green with `Ran 0 tests`.  Calibrated below the observed count with room for
 # ordinary churn; raise it when the roster grows materially.
 #
-# RAISED 800 -> 1320 (rf2-d2841, third pass).  800 was calibrated against the
+# RAISED 800 -> 1360 (rf2-d2841, third pass).  800 was calibrated against the
 # 915-test lane of rf2-f8x2i's original run and had stopped doing its job: the
-# lane now runs 1363 tests, so a regression that silently dropped a THIRD of
-# them still cleared the floor.  Concretely, the sixteen namespaces this pass
-# added are 150 tests — losing the whole batch lands at 1213, which 800 would
-# wave through.  1320 notices that while leaving ~3% for ordinary churn.  The
+# lane now runs 1401 tests, so a regression that silently dropped a THIRD of
+# them still cleared the floor.  Concretely, the twenty namespaces this pass
+# added are 188 tests — losing the whole batch lands at 1213, which 800 would
+# wave through.  1360 notices that while leaving ~3% for ordinary churn.  The
 # floor is a collapse detector, not a target: it must sit close enough under
 # the observed count that the smallest batch anyone lands is still visible.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1320}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1360}"
 
 args=()
 for ns in $runnable; do
