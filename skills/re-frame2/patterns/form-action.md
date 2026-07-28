@@ -13,7 +13,7 @@ The prompt mentions: an SSR app handling a form POST, progressive enhancement, "
 1. **The HTML form** renders `method="POST" action="/<route>"` + a hidden CSRF token. The standard Pattern-Forms slice (server-rendered from `app-db`) drives field values.
 2. **The host adapter receives the POST**, parses the body (form-urlencoded or multipart), binds it under `:form-params`, and creates a per-request frame.
 3. **`:rf/server-init` routes** by declaring `:rf.cofx/requires [:rf.server/request]` — on GET dispatch the page loader (Pattern-SSR-Loaders); on POST dispatch the domain event with `form-params`.
-4. **The domain handler validates** `form-params` against the registered schema. On failure → write structured errors into the form slice's `:errors`, let the drain settle, re-render the page with inline errors. On success → run the side effect, then `:rf.server/redirect` (303) or a success re-render.
+4. **The domain handler validates** `form-params` **in its own body** — not via `:schema`, which is a dev tripwire and elides from the production build. On failure → write the submitted fields back into the form slice's `:draft` and structured errors into its `:errors`, emit `[:rf.server/set-status 400]`, let the drain settle, re-render the page populated and with inline errors. On success → run the side effect, then `:rf.server/redirect` (303) or a success re-render.
 5. **The drain settles**, the SSR emitter runs (or is short-circuited by the redirect), the host materialises the response accumulator (read via `get-response`).
 6. **Once JS hydrates**, the form's `:on-submit` calls `(.preventDefault e)` and dispatches the *same* event. Only the dispatch site differs.
 
@@ -42,7 +42,7 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
      [:button {:type "submit"} "Add to cart"]]))
 ```
 
-`:rf/server-init` routes GET vs POST; the action handler validates via `:schema` and emits per-platform effects:
+`:rf/server-init` routes GET vs POST; the action handler validates **in its own body** and emits per-platform effects:
 
 ```clojure
 (rf/reg-event :rf/server-init
@@ -58,27 +58,45 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
 
 (rf/reg-event :cart/add-item
   {:doc    "Add an item to the cart. Same handler tree both platforms."
-   :schema [:cat [:= :cart/add-item] AddToCartForm]      ;; server-side schema check, never skipped
+   :schema [:cat [:= :cart/add-item] AddToCartForm]      ;; DEV TRIPWIRE ONLY — elided in production
    :rf.cofx/requires [:rf.server/request
                       :app.csrf/active-token]}            ;; app-owned cofx — see §CSRF
   (fn [{:keys [db rf.server/request app.csrf/active-token]} [_ form-params]]
-    (if (not= (:csrf-token form-params) active-token)    ;; CSRF first — fail loud
-      {:db (assoc-in db [:cart :add-form :errors :_form] ["Session expired. Refresh and retry."])
-       :fx [[:rf.server/set-status 403]]}
-      {:db (-> db
-               (update-in [:cart :items] (fnil conj []) (select-keys form-params [:item-id :quantity]))
-               (assoc-in  [:cart :add-form :status] :submitted))
-       ;; ONE destination, CHOSEN by a platform boundary the handler already
-       ;; reads: the :rf.server/request cofx is present on the server and, being
-       ;; :platforms #{:server}, skipped (absent) on the client. Server → the
-       ;; POST-redirect-GET 303; client → in-app navigation. We do NOT emit both:
-       ;; :rf.route/navigate is not a server no-op — dispatched server-side it
-       ;; writes the route slice and can fire the target route's :on-match work,
-       ;; with no browser history to anchor it.
-       :fx (if request
-             [[:rf.server/redirect {:status 303 :location "/cart"}]]      ;; server: POST-redirect-GET
-             [[:dispatch [:rf.route/navigate {:to :route/cart}]]])})))    ;; client: shipped routing event
+    (let [explanation (m/explain AddToCartForm form-params)          ;; nil when the form is clean
+          fields      (select-keys form-params [:item-id :quantity])] ;; editable fields ONLY — never the token
+      (cond
+        (not= (:csrf-token form-params) active-token)    ;; CSRF first — fail closed
+        {:db (assoc-in db [:cart :add-form :errors :_form] ["Session expired. Refresh and retry."])
+         :fx [[:rf.server/set-status 403]]}
+
+        ;; THE validation branch, and it is not optional. `:schema` above elides
+        ;; from the release build, so this is the only check standing between an
+        ;; untrusted POST body and app-db in production. Repopulate `:draft`
+        ;; before writing the errors: with JS off the re-render reads the SLICE,
+        ;; not the POST body, so skipping it hands the user a blank form.
+        (some? explanation)
+        {:db (-> db
+                 (assoc-in [:cart :add-form :draft] fields)
+                 (write-form-errors [:cart :add-form] (explain->errors explanation)))
+         :fx [[:rf.server/set-status 400]]}
+
+        :else
+        {:db (-> db
+                 (update-in [:cart :items] (fnil conj []) fields)
+                 (assoc-in  [:cart :add-form :status] :submitted))
+         ;; ONE destination, CHOSEN by a platform boundary the handler already
+         ;; reads: the :rf.server/request cofx is present on the server and, being
+         ;; :platforms #{:server}, skipped (absent) on the client. Server → the
+         ;; POST-redirect-GET 303; client → in-app navigation. We do NOT emit both:
+         ;; :rf.route/navigate is not a server no-op — dispatched server-side it
+         ;; writes the route slice and can fire the target route's :on-match work,
+         ;; with no browser history to anchor it.
+         :fx (if request
+               [[:rf.server/redirect {:status 303 :location "/cart"}]]      ;; server: POST-redirect-GET
+               [[:dispatch [:rf.route/navigate {:to :route/cart}]]])}))))   ;; client: shipped routing event
 ```
+
+`m` / `me` are `malli.core` / `malli.error`; `write-form-errors` and `explain->errors` are app-level helpers (`spec/Pattern-FormAction.md` gives both in full). The point is that the call sits in the **handler body**, where it survives into the release build. `:rf.schema/at-boundary` does not substitute for it: its check *is* ungated and a rejection does answer `400` via the SSR error projector, but it skips the handler, so the user gets a generic public-error body rather than their own form back with the values they typed.
 
 The success path is the only platform-divergent slot, and the handler **chooses** the destination — it does not emit both. The boundary is one the handler already reads: the `:rf.server/request` cofx is present on the server and, being `:platforms #{:server}`, is skipped (absent) on the client, so `(if request …)` is a clean platform switch. On the server, emit the server-only POST-redirect-GET fx `:rf.server/redirect`; on the client, navigate in-app via the shipped routing event `[:rf.route/navigate {:to :route/cart}]`. Do **not** emit both and label the navigate "client-only": `:rf.route/navigate` is **not** a server no-op — dispatched server-side it writes the route slice and can run the target's `:on-match` loaders even though there is no browser history. (`:rf.route/navigate` is the framework's programmatic-navigation event, registered by `day8/re-frame2-routing`; there is **no** `:rf.nav/navigate` fx.) For a **raw URL** rather than a route id, the shipped request grammar takes one directly — `[:rf.route/navigate {:url "/cart"}]` (the `:url` escape hatch) — so **no app-owned navigation fx is needed**. Reserve an app-owned fx only for a deliberate routing *bypass* that skips the router entirely (a hard `window.location` assignment, an external redirect), on the rare occasion you actually want that.
 
@@ -105,7 +123,9 @@ The scrub is per-named-path, owned by the registration, not a whole-action toggl
 ## Anti-patterns
 
 - **Skipping the `action` attribute.** A JS-only form breaks progressive enhancement. Always emit `method` + `action`; `:on-submit` is additive.
-- **Validating only on the client.** Client validation is UX; the server is the authority. Re-run the schema check via `:schema` on every POST — never trust the body.
+- **Validating only on the client.** Client validation is UX; the server is the authority. Re-check the body in the **handler**, on every POST.
+- **Letting `:schema` be the server-side check.** The commonest way to ship an unvalidated form endpoint: declare `:schema`, read it as "the framework checks this", write no branch. It elides from the production build, so the endpoint that passes every test accepts anything in production. Keep the `:schema` as the dev tripwire and the introspection surface; write the branch as the guard.
+- **Dropping the user's input on the failure path.** `write-form-errors` writes `:status` / `:errors` / `:submit-attempted?` — not `:draft`. With JS on the browser still holds the field values so nothing looks wrong; with JS off the server renders the fields from the slice and the user gets an empty form above "should be at least 1". Repopulate `:draft` from the submitted fields (editable fields only) before writing the errors.
 - **Emitting both the redirect and the navigate unconditionally.** `:rf.route/navigate` is **not** a server no-op — dispatched on the server it writes the route slice and can run the target's `:on-match` work, with no browser history to back it. Choose per platform (the `:rf.server/request` cofx, present only on the server, is the boundary): `:rf.server/redirect` for the server's POST-redirect-GET, `[:rf.route/navigate …]` for the client. (And do not invent `:rf.nav/navigate` — it does not exist; `:rf.route/navigate` is the shipped programmatic-navigation event.)
 - **`302 Found` for POST success.** Some clients re-POST on 302; the canonical status is **303 See Other**. Set `:status 303` explicitly.
 - **CSRF token from a hardcoded value or query string.** Sessions rotate tokens; your app-owned `:app.csrf/active-token` cofx is the single source of truth. URL-borne tokens leak to referrer logs.
