@@ -24,9 +24,28 @@
   JVM test pins the DEV-SIDE PRESENCE contract (`interop/debug-enabled?` is
   true by default on the JVM).
 
-  JVM-only — the trace-listener mechanism is platform-agnostic."
+  JVM-only — the trace-listener mechanism is platform-agnostic.
+
+  ## Posture split (rf2-d2841)
+
+  The STAMP is dev-gated; the CAUSAL TOKEN it stamps is not. `:rf.cofx` is a
+  slot on the DISPATCH ENVELOPE (`router/build-envelope` calls it the EP-0017
+  recordable-coeffect map), the router fills `:rf/time-ms` there at the causal
+  boundary, and a user fx-handler receives that envelope as `(:envelope m)`
+  — the production surface
+  `cascade-envelope-propagation-test/fx-handler-ctx-carries-envelope-slot`
+  pins. Reading the map off the `:rf.event/dispatched` trace was one way to see
+  it, and the one that disappears under `-Dre-frame.debug=false`.
+
+  So the three CONTENT claims — the framework stamps `:rf/time-ms`, a
+  caller-supplied map rides verbatim, a map missing `:rf/time-ms` has it filled
+  — are now read off the envelope and hold in both postures. What stays
+  inside the `(when interop/debug-enabled? ...)` arms is the narrower claim the
+  trace still owns: that the slot is STAMPED on `:rf.event/dispatched`, under
+  `:tags` rather than at top level, which is what the Xray Event lens reads."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -62,33 +81,55 @@
 (defn- dispatched-of [evs]
   (filterv #(= :rf.event/dispatched (:operation %)) evs))
 
+;; rf2-d2841 — the ALWAYS-ON read of the same map. `:rf.cofx` lives on the
+;; dispatch envelope; a user fx-handler is handed that envelope verbatim.
+(def ^:private envelopes (atom {}))
+
+(defn- register-probe! []
+  (reset! envelopes {})
+  (rf/reg-fx :rf2-jt854w/probe
+    (fn [m [k]] (swap! envelopes assoc k (:envelope m)))))
+
 ;; ---- the dispatched trace carries :rf.cofx ------------------------
 
 (deftest dispatched-trace-carries-cofx-with-time-ms
   (testing ":rf.event/dispatched carries the envelope's :rf.cofx map,
    and that map carries the framework-stamped causal :time-ms"
-    (rf/reg-event :rf2-jt854w/noop (fn [{:keys [db]} _] {:db db}))
+    (register-probe!)
+    (rf/reg-event :rf2-jt854w/noop
+      (fn [{:keys [db]} _] {:db db :fx [[:rf2-jt854w/probe [:noop]]]}))
     (let [evs        (record-traces
                        (fn [] (rf/dispatch-sync [:rf2-jt854w/noop])))
           [enqueue]  (dispatched-of evs)
           ;; The op-type-specific payload slots (`:rf.event/v`,
           ;; `:rf.event/origin`, `:rf.cofx`, ...) ride under
           ;; `:tags`; `build-event` hoists only `:source` to top-level.
-          rf-cofx    (get-in enqueue [:tags :rf.cofx])]
-      (is (some? enqueue) ":rf.event/dispatched fired")
-      (is (contains? (:tags enqueue) :rf.cofx)
-          ":rf.cofx is stamped on the dispatched trace (rf2-jt854w)")
-      (is (map? rf-cofx) ":rf.cofx is a map")
-      (is (contains? rf-cofx :rf/time-ms)
+          rf-cofx    (get-in enqueue [:tags :rf.cofx])
+          env-cofx   (:rf.cofx (:noop @envelopes))]
+      ;; ---- ALWAYS-ON: the causal token on the envelope -------------------
+      (is (map? env-cofx) ":rf.cofx is a map on the dispatch envelope")
+      (is (contains? env-cofx :rf/time-ms)
           "the recordable-coeffect map carries the framework-stamped :rf/time-ms")
-      (is (integer? (:rf/time-ms rf-cofx))
-          ":rf/time-ms is an epoch-ms integer"))))
+      (is (integer? (:rf/time-ms env-cofx))
+          ":rf/time-ms is an epoch-ms integer")
+      ;; ---- rf2-d2841 dev arm: the STAMP onto the trace -------------------
+      (when interop/debug-enabled?
+        (is (some? enqueue) ":rf.event/dispatched fired")
+        (is (contains? (:tags enqueue) :rf.cofx)
+            ":rf.cofx is stamped on the dispatched trace (rf2-jt854w)")
+        (is (map? rf-cofx) ":rf.cofx is a map")
+        (is (contains? rf-cofx :rf/time-ms)
+            "the recordable-coeffect map carries the framework-stamped :rf/time-ms")
+        (is (integer? (:rf/time-ms rf-cofx))
+            ":rf/time-ms is an epoch-ms integer")))))
 
 (deftest dispatched-trace-preserves-caller-supplied-cofx
   (testing "a caller-supplied :rf.cofx (test/replay/SSR fixture) rides
    onto the dispatched trace verbatim — additional owner-qualified facts
    are preserved alongside the framework-required :rf/time-ms"
-    (rf/reg-event :rf2-jt854w/scripted (fn [{:keys [db]} _] {:db db}))
+    (register-probe!)
+    (rf/reg-event :rf2-jt854w/scripted
+      (fn [{:keys [db]} _] {:db db :fx [[:rf2-jt854w/probe [:scripted]]]}))
     (let [scripted   {:rf/time-ms 1234567890123
                       :todo/id    #uuid "00000000-0000-0000-0000-000000000001"
                       :todo/score 0.42}
@@ -97,26 +138,45 @@
                          (rf/dispatch-sync [:rf2-jt854w/scripted]
                                            {:rf.cofx scripted})))
           [enqueue]  (dispatched-of evs)]
-      (is (some? enqueue) ":rf.event/dispatched fired")
-      (is (= scripted (get-in enqueue [:tags :rf.cofx]))
-          "the caller-supplied causal :rf.cofx map is stamped verbatim"))))
+      ;; ---- ALWAYS-ON: the caller's map reaches the cascade verbatim ------
+      (is (= scripted (:rf.cofx (:scripted @envelopes)))
+          "the caller-supplied causal :rf.cofx map rides the envelope verbatim")
+      ;; ---- rf2-d2841 dev arm --------------------------------------------
+      (when interop/debug-enabled?
+        (is (some? enqueue) ":rf.event/dispatched fired")
+        (is (= scripted (get-in enqueue [:tags :rf.cofx]))
+            "the caller-supplied causal :rf.cofx map is stamped verbatim")))))
 
 (deftest dispatched-trace-fills-missing-time-ms-from-supplied-map
   (testing "a caller-supplied map WITHOUT :rf/time-ms has it filled by the router;
    the dispatched trace reflects the filled-and-preserved map"
-    (rf/reg-event :rf2-jt854w/fill (fn [{:keys [db]} _] {:db db}))
+    (register-probe!)
+    (rf/reg-event :rf2-jt854w/fill
+      (fn [{:keys [db]} _] {:db db :fx [[:rf2-jt854w/probe [:fill]]]}))
     (let [evs        (record-traces
                        (fn []
                          (rf/dispatch-sync [:rf2-jt854w/fill]
                                            {:rf.cofx {:todo/score 0.99}})))
           [enqueue]  (dispatched-of evs)
-          rf-cofx    (get-in enqueue [:tags :rf.cofx])]
-      (is (some? enqueue) ":rf.event/dispatched fired")
-      (is (= 0.99 (:todo/score rf-cofx)) "caller-supplied fact preserved")
-      (is (integer? (:rf/time-ms rf-cofx))
-          ":rf/time-ms filled by the router at the causal boundary"))))
+          rf-cofx    (get-in enqueue [:tags :rf.cofx])
+          env-cofx   (:rf.cofx (:fill @envelopes))]
+      ;; ---- ALWAYS-ON: the FILL happens at the causal boundary, not at the
+      ;;      trace-stamping site — which is the whole point of the claim.
+      (is (= 0.99 (:todo/score env-cofx)) "caller-supplied fact preserved")
+      (is (integer? (:rf/time-ms env-cofx))
+          ":rf/time-ms filled by the router at the causal boundary")
+      ;; ---- rf2-d2841 dev arm --------------------------------------------
+      (when interop/debug-enabled?
+        (is (some? enqueue) ":rf.event/dispatched fired")
+        (is (= 0.99 (:todo/score rf-cofx)) "caller-supplied fact preserved")
+        (is (integer? (:rf/time-ms rf-cofx))
+            ":rf/time-ms filled by the router at the causal boundary")))))
 
 (deftest cofx-rides-under-tags-alongside-event-payload-slots
+ ;; rf2-d2841 — a claim about the TRACE EVENT's SHAPE (which slot is hoisted,
+ ;; which rides under `:tags`), not about the coeffect map, whose content the
+ ;; three deftests above now pin in both postures. Kept verbatim.
+ (when interop/debug-enabled?
   (testing ":rf.cofx rides under :tags alongside the other op-type-
    specific payload slots (:rf.event/v, :rf.event/origin, :rf.event/sync?) —
    build-event hoists only :source to top-level, so the Event lens reads the
@@ -132,4 +192,4 @@
           ":rf.cofx is NOT a top-level slot (only :source is hoisted)")
       ;; Co-located with the other dispatched payload slots under :tags.
       (is (contains? (:tags enqueue) :rf.event/v)
-          ":rf.event/v also rides under :tags — same placement"))))
+          ":rf.event/v also rides under :tags — same placement")))))
