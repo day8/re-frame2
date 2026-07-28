@@ -926,6 +926,95 @@
                   parent-most first, one entry per collapsed identity"
           (is (= [shared-key b-key] (:identities tags))))))))
 
+(deftest r2-removed-identities-is-membership-not-caller-order
+  ;; rf2-dlkou (merged-PR audit) — the test above removes exactly ONE identity,
+  ;; and a one-element vector is ordered under every implementation, so it
+  ;; cannot tell one apart from another. THREE removals can.
+  ;;
+  ;; `:removed-identities` answers WHICH prior identities the plan dropped. It
+  ;; promises no order and none leaks in from the caller: removal is not an
+  ;; ordered operation (the whole prior owner goes in ONE release effect), and
+  ;; no prior-plan order is available to report anyway — the live routing
+  ;; handoff records `(:identities plan)` as a SET under
+  ;; `[:rf.runtime/routing :resource-plan <token>]` and hands that same set back
+  ;; as the next activation's `:prev-identities`. Filtering the caller's
+  ;; collection in place would republish set-iteration order (host-dependent)
+  ;; while CLAIMING the prior plan's; deriving from the set makes the row a pure
+  ;; function of the removal membership. Per Spec 009 §Where trace emission
+  ;; lives.
+  (rf/reg-resource :rm/v (article-spec {}) article-spec-request)
+  (rf/reg-resource :rm/a (article-spec {}) article-spec-request)
+  (rf/reg-resource :rm/b (article-spec {}) article-spec-request)
+  (rf/reg-resource :rm/c (article-spec {}) article-spec-request)
+  (rf/reg-resource :rm/n (article-spec {}) article-spec-request)
+  (let [key-of      (fn [id slug] (state/scoped-resource-key* :rf.scope/global id {:slug slug}))
+        v-key       (key-of :rm/v "v")
+        a-key       (key-of :rm/a "a")
+        b-key       (key-of :rm/b "b")
+        c-key       (key-of :rm/c "c")
+        n-key       (key-of :rm/n "n")
+        parent-meta {:resources [{:resource :rm/v :params (fn [_] {:slug "v"}) :blocking? true}]}
+        branch      [{:route-id :route/q   :route-meta parent-meta}
+                     {:route-id :route/q.n :route-meta {:resources [{:resource :rm/n :params (fn [_] {:slug "n"})}]}}]
+        ;; the shared ancestor has LOADED, so it is genuinely adoptable (the
+        ;; kept case) — leaving a / b / c as the three this plan drops.
+        rdb         {:rf.runtime/resources
+                     {:entries {(state/key-id v-key)
+                                {:resource/id :rm/v :resource/key v-key
+                                 :status :loaded :data {:n 1} :attempt 1}}}}
+        tags-for    (fn [prev-identities]
+                      (:tags (first (record-op-traces!
+                                      :rf.resource/route-plan
+                                      (fn [] (route/route-resource-plan
+                                               {:id :route/q.n :params {} :query {}} {}
+                                               {:nav-token       2
+                                                :prev-id         :route/q.a
+                                                :prev-nav-token  1
+                                                :prev-identities prev-identities
+                                                :branch          branch
+                                                :runtime-db      rdb}))))))
+        ;; the SAME four prior identities, supplied four ways: a vector, its
+        ;; exact REVERSE, the SET the live routing handoff actually threads, and
+        ;; a duplicate-bearing sequential.
+        forward     (tags-for [v-key a-key b-key c-key])
+        backward    (tags-for [c-key b-key a-key v-key])
+        as-set      (tags-for #{v-key a-key b-key c-key})
+        duplicated  (tags-for [a-key a-key v-key b-key b-key c-key c-key])]
+    ;; rf2-o5dbf — `trace/emit!` sits behind `interop/debug-enabled?`, so the
+    ;; row exists only in the dev posture. Under `-Dre-frame.debug=false` there
+    ;; is no row to read and these assertions are vacuous by design.
+    (when interop/debug-enabled?
+      (testing "three prior identities are dropped, and the row names all three
+                however the caller supplied them"
+        (doseq [[label tags] [["a vector"                        forward]
+                              ["its reverse"                     backward]
+                              ["a SET (the live routing handoff)" as-set]
+                              ["a duplicate-bearing vector"      duplicated]]]
+          (is (some? tags) (str label ": the activation emits one :rf.resource/route-plan row"))
+          (is (= 3 (:removed tags))
+              (str label ": three prior identities are dropped"))
+          (is (= #{a-key b-key c-key} (set (:removed-identities tags)))
+              (str label ": :removed-identities names exactly the dropped three"))
+          (is (= (:removed tags) (count (:removed-identities tags)))
+              (str label ": :removed is the SIZE of :removed-identities"))))
+      (testing ":removed-identities is a pure function of the removal MEMBERSHIP
+                — no caller-supplied ordering leaks into the row"
+        (is (= (:removed-identities forward) (:removed-identities backward))
+            (str "reversing the caller's :prev-identities MUST NOT reorder "
+                 ":removed-identities — the row promises membership, not the "
+                 "prior plan's order (Spec 009 §Where trace emission lives)"))
+        (is (= (:removed-identities forward) (:removed-identities as-set))
+            (str "the live routing handoff threads a SET; a sequential caller "
+                 "must get the byte-identical row"))
+        (is (= (:removed-identities forward) (:removed-identities duplicated))
+            (str "a duplicate in :prev-identities can neither duplicate an "
+                 ":removed-identities entry nor put :removed out of step with it")))
+      (testing "the ORDERED vectors are untouched — they still ride the
+                planner's grouped plan order"
+        (is (= [v-key n-key] (:identities forward)))
+        (is (= [n-key] (:ensured-identities forward)))
+        (is (= [v-key] (:kept-identities forward)))))))
+
 (deftest r2-branch-resolve-fails-loud
   ;; A :parent naming an unregistered route aborts the plan (a committed failed
   ;; activation): empty next ownership, no partial ensure/adopt, prior owner
