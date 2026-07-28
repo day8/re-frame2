@@ -1107,21 +1107,36 @@
         ;; the ordinary ensure path, so a vector named `:added` would disagree
         ;; with the `:ensured` count beside it. `:ensured-identities` /
         ;; `:kept-identities` ride `ordered`'s grouped plan order — the same
-        ;; order `:identities` carries. `:removed-identities` filters
-        ;; `prev-identities` IN PLACE rather than iterating the derived
-        ;; `prev-ids` set, so the prior plan's own order survives for any caller
-        ;; that threads a sequential collection (routing threads the set
-        ;; `commit-navigation` recorded, whose iteration order is at least
-        ;; content-stable). Nothing else from the EP's §Tooling list is
-        ;; projected — no occurrence/dependency groups, no per-contributor
-        ;; requirement mapping, no local `:after` edges (internal planning
-        ;; mechanics; Xray's static route/resource graph, the planning-failure
-        ;; evidence, and `:redundant-children` are the authorities).
+        ;; order `:identities` carries, and it MEANS something there: it is the
+        ;; order the plan executes.
+        ;;
+        ;; rf2-dlkou (merged-PR audit) — `:removed-identities` is a MEMBERSHIP
+        ;; answer, not an ordered one, and it is derived from `prev-ids` for
+        ;; exactly that reason. Removal is not an ordered operation: the whole
+        ;; prior owner goes in ONE `release-fx`, so there is no order for the
+        ;; row to report. Nor is one available — the routing handoff records
+        ;; `(:identities plan)` (a SET) under `[:rf.runtime/routing
+        ;; :resource-plan <token>]` and hands that set straight back as the next
+        ;; activation's `prev-identities`, so filtering the caller's collection
+        ;; in place would only republish set-iteration order (host-dependent)
+        ;; while CLAIMING the prior plan's. Deriving from `prev-ids` instead
+        ;; makes the row a pure function of the removal MEMBERSHIP: no
+        ;; caller-supplied ordering leaks into it, and `:removed` is the size of
+        ;; `:removed-identities` BY CONSTRUCTION rather than by a second,
+        ;; separately-derived count that a duplicate-bearing `prev-identities`
+        ;; could put out of step. This is exactly how `:blocking` already rides
+        ;; on this row. Spec 009 §Where trace emission lives states it.
+        ;;
+        ;; Nothing else from the EP's §Tooling list is projected — no
+        ;; occurrence/dependency groups, no per-contributor requirement mapping,
+        ;; no local `:after` edges (internal planning mechanics; Xray's static
+        ;; route/resource graph, the planning-failure evidence, and
+        ;; `:redundant-children` are the authorities).
         ensured-identities (into [] (comp (remove adopted?) (map :scoped-key)) ordered)
         kept-identities    (into [] (comp (filter adopted?) (map :scoped-key)) ordered)
-        removed-identities (filterv (complement next-ids) prev-identities)
+        removed-identities (into [] (remove next-ids) prev-ids)
         added-count        (count ensured-identities)
-        removed-count      (count (remove next-ids prev-ids))]
+        removed-count      (count removed-identities)]
     (trace/emit! :rf.event :rf.resource/route-plan
                  (cond-> {:route-id           route-id
                           :nav-token          nav-token
