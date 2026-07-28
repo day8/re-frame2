@@ -126,6 +126,26 @@
   floor down by `n` as well. That amplification is the only reason a
   ~0 B/read arm is separable from the floor at all.
 
+  ## A closure is not one number, and neither is an arm made of one
+
+  A floor is not the only thing that makes a p50 unquotable. Five arms here
+  hand a freshly-allocated thunk to a callee, and on this runtime a closure
+  costs 64 B in one mode and 128 B in another — a per-WINDOW choice, with
+  nothing in between. `N-NEWFN` is the control that establishes it: one
+  closure per inner iteration and nothing else at all, and it steps by
+  exactly one closure just as the thunk arms do, in BOTH plan orders.
+
+  So the step is closure CREATION, not any arm's subject, and it is additive
+  rather than proportional — the same absolute size on arms whose totals
+  differ by 75%. No re-shaping of a thunk arm can remove it: the arm would
+  have to stop allocating the thing it exists to price. `-main` prints the
+  bimodality table, and a thunk-dominated arm is quotable as its RANGE and as
+  an upper bound at the high mode, never as a p50 alone (rf2-ktrvw).
+
+  Nothing this file publishes rests on one: the binding figure is
+  `N-BINDONLY`, which carries no closure, and the budget and symmetry checks
+  difference two arms that each carry exactly one, so the mode cancels.
+
   ## The ladder — the same arms as `read_attribution.clj`
 
     GETIN     the application's own work — `(get-in db [:items i])`
@@ -181,6 +201,10 @@
     N-CWFRNOG  `cwfr` on a target that names no image-loaded frame, so the
                binding branch is NOT taken. `S3-CWFR - S2-TGTID - N-CWFRNOG`
                is the binding by subtraction, and must agree with N-BINDONLY.
+    N-NEWFN    ONE closure per inner iteration and nothing else — no callee,
+               no binding, not even a call. It prices the thunk every arm
+               above hands to somebody, and it is what says the bimodal step
+               those arms carry is closure CREATION (rf2-ktrvw, below).
     N-LOOKGEN  `registrar/lookup :sub` with `*generation*` BOUND — the
                generation-routed branch that allocates a `[kind id]` key
                vector per call (rf2-ezwnl, ~98 B/call JVM)
@@ -238,7 +262,9 @@
   (default 6 — at least six, so the guard's phase thirds are ranges rather
   than single samples), RA_WARM_WINDOWS (full-size discarded windows per
   arm, default 12 — 6 was `write_attribution`'s figure and the FORWARD plan
-  refuses on two arms at 6 while the reversed plan passes), RA_WARMUP (bare
+  refuses on two arms at 6 while the reversed plan passes. More warm-up
+  cannot settle the closure bimodality above, and is not meant to: that is a
+  per-window choice, not a settling curve), RA_WARMUP (bare
   calls before calibration, default 3),
   RA_TOLERANCE (the guard's relative-median tolerance, default 0.25),
   RA_ORDER=rev (reverse the base plan before scheduling — a knob, not the
@@ -759,12 +785,44 @@
 ;; reading V8's optimization state as much as its own allocation.
 ;;
 ;; So the thunk is made to ESCAPE for real — stored where nothing can prove it
-;; dead. The arm then prices one closure, stably, which is what it was always
-;; supposed to do. This repairs the ARM; the guard's tolerance is untouched.
+;; dead. The arm then prices one closure, which is what it was always supposed
+;; to do. This repairs the ARM; the guard's tolerance is untouched.
 ;;
 ;; It is also why the binding is isolated by a SYMMETRIC PAIR and not by any
 ;; subtraction between differently-shaped arms: whatever V8 does to a closure it
 ;; does to both halves, and cancels.
+;;
+;; rf2-ktrvw — AND IT PRICES ONE CLOSURE *BIMODALLY*, WHICH NO ARM CAN FIX.
+;;
+;; The escape repair above removed the ELISION. It did not, and could not,
+;; remove the remaining ~64 B/read step, because that step is not the arm's:
+;; `N-NEWFN` creates one closure per inner iteration and does NOTHING else —
+;; no callee, no binding, not even a call — and it carries the step too.
+;;
+;;   N-NEWFN      settled  64.0   high  128.1   step 64.1 B/read = 1.00 closures
+;;   N-CALLTHUNK  settled  64.0   high  128.1   step 64.1        = 1.00
+;;   N-CWFRRAW    settled 112.0   high  176.5   step 64.5        = 1.01
+;;
+;; The step is the SAME ABSOLUTE SIZE on arms whose totals differ by 75%, so it
+;; is ADDITIVE and belongs to closure CREATION. `N-CALLTHUNK - N-NEWFN` is
+;; 0.0 B/read against a prediction of 0, so `call-thunk` itself costs nothing
+;; beyond the closure and there is no arm-shaped defect left to repair.
+;;
+;; It appears in the FORWARD plan and the REVERSED one alike, so it is NOT a
+;; position effect. That is why the guard's PHASE factor adjudicates it by
+;; luck — it fires when a third happens to land wholly in one mode and passes
+;; when a third straddles both, which is the house rule working correctly on a
+;; factor that does not describe the phenomenon. Widening the tolerance would
+;; hide a real bimodality; narrowing it would refuse runs at random. Neither is
+;; the repair, and the guard is left alone.
+;;
+;; WHAT THESE ARMS THEREFORE MEASURE: one closure, in whichever of two modes
+;; V8's closure site is in — 64 B or 128 B. They are quotable as a RANGE and as
+;; an upper bound at the high mode, never as a p50 alone, and `-main` prints
+;; that table. No headline here depends on one: the published binding figure is
+;; `N-BINDONLY`, which allocates no closure at all, and the BUDGET
+;; reconstruction and SYMMETRY CHECK both difference two arms that each carry
+;; exactly one, so the mode cancels.
 
 (defonce ^:private thunk-escape (volatile! nil))
 
@@ -775,6 +833,38 @@
   [thunk]
   (vreset! thunk-escape thunk)
   (thunk))
+
+;; rf2-ktrvw — THE CLOSURE, PRICED ON ITS OWN, because every arm that hands a
+;; thunk to another function is dominated by it and none of them could say what
+;; the thunk cost without assuming it.
+;;
+;; This arm creates ONE closure per inner iteration and does nothing else with
+;; it: no callee, no binding, no generation read, not even a call. The thunk is
+;; stored where nothing can prove it dead — `call-thunk`'s own discipline — so
+;; escape analysis cannot remove it.
+;;
+;; TWO PREDICTIONS, both stated before the measurement:
+;;
+;;   1. `N-NEWFN` reads what one closure costs, and `N-CALLTHUNK - N-NEWFN` is
+;;      then `call-thunk`'s own work — a `vreset!` and a call — which is 0.
+;;   2. If the ~64 B/read STEP that appears on every thunk arm at once is a
+;;      property of CLOSURE CREATION rather than of any arm's subject, this
+;;      arm — which is nothing but closure creation — must show the SAME step.
+;;
+;; The second is the one the bead is about. An arm cannot be re-shaped out of a
+;; cost its own subject carries, so if the step is here it is not a defect in
+;; `N-CALLTHUNK` and no repair of `N-CALLTHUNK` can remove it.
+
+(defonce ^:private fn-escape (volatile! nil))
+
+(defn- arm-n-newfn []
+  (let [{:keys [n]} @rig]
+    (dotimes [_ n]
+      ;; created and made to escape, never called — so the counter advances
+      ;; exactly `n` times per call, as every arm here must.
+      (vreset! fn-escape (fn [] (keep! true)))
+      (keep! true))
+    nil))
 
 (defn- arm-n-cwfr-bind []
   (let [{:keys [n]} @rig]
@@ -1220,6 +1310,7 @@
                          ["N-CWFRBIND" arm-n-cwfr-bind n]
                          ["N-CWFRGEN"  arm-n-cwfr-gen  n]
                          ["N-CALLTHUNK" arm-n-callthunk n]
+                         ["N-NEWFN"    arm-n-newfn     n]
                          ["N-CWFRWRAP" arm-n-cwfr-wrap n]
                          ["N-CWFRRAW"  arm-n-cwfr-raw  n]
                          ["N-LOOKGEN"  arm-n-lookgen   n]
@@ -1355,6 +1446,51 @@
                              r (fmt (:p50 m)) (fmt (:lo m)) (fmt (:hi m))
                              (fmt (* r (:p50 m))) (fmt3 (/ (:p50 m) n))
                              (:unverified m)))))
+        (println ";;")
+        ;; --- rf2-ktrvw: what a thunk-dominated arm actually measures ----------
+        ;;
+        ;; Five arms here hand a freshly-allocated thunk to another function,
+        ;; and every one of them reads TWO values across windows: a settled one
+        ;; and a high one, bit-identical, with nothing between. The bead was
+        ;; opened on the suspicion that this is escape analysis eliding the
+        ;; subject in some windows. `N-NEWFN` decides it, by pricing the closure
+        ;; with nothing else in the arm at all.
+        (println ";; rf2-ktrvw — THE THUNK-DOMINATED ARMS ARE BIMODAL, and the mode is the CLOSURE")
+        (let [closure (net* "N-NEWFN")
+              steps   (volatile! [])]
+          (println (gstring/format ";;   N-NEWFN  one closure per inner iteration, nothing else:  %s B/read net" (fmt closure)))
+          (println (gstring/format ";;   N-CALLTHUNK - N-NEWFN = %s B/read   predicted 0 (a vreset! and a call)"
+                           (fmt (- (net* "N-CALLTHUNK") closure))))
+          (println ";;   arm           settled      high      step  = closures")
+          (doseq [l ["N-NEWFN" "N-CALLTHUNK" "N-CWFRNOG" "N-CWFRBIND" "N-CWFRGEN" "N-CWFRRAW"]]
+            (let [r    (get res l)
+                  lo   (/ (- (:lo r) noop) n)
+                  hi   (/ (- (:hi r) noop) n)
+                  step (- hi lo)]
+              (vswap! steps conj step)
+              (println (gstring/format ";;     %-12s %9s %9s %9s    %s"
+                               l (fmt lo) (fmt hi) (fmt step)
+                               (if (pos? closure)
+                                 (gstring/format "%.2f" (/ step closure))
+                                 "n/a")))))
+          ;; The point the table has to carry: the step is the SAME ABSOLUTE
+          ;; SIZE on arms whose totals differ by 75%, so it is additive and
+          ;; belongs to closure creation rather than to any arm's own subject.
+          (let [ss (filterv pos? @steps)]
+            (when (seq ss)
+              (println (gstring/format ";;   step across those arms: %s – %s B/read  (one closure = %s)"
+                               (fmt (apply min ss)) (fmt (apply max ss)) (fmt closure)))))
+          (println ";;   READ THIS AS: the step is ONE closure, the same absolute size on arms whose")
+          (println ";;   totals differ — additive, so it is closure CREATION and not any arm's")
+          (println ";;   subject. `N-NEWFN` carries it too, and `N-NEWFN` is nothing BUT a closure,")
+          (println ";;   so no re-shaping of a thunk arm can remove it: the arm would have to stop")
+          (println ";;   allocating the thing it exists to price. It appears in the FORWARD plan")
+          (println ";;   and the REVERSED one alike, so it is NOT a position effect — which is why")
+          (println ";;   the guard's phase factor catches it only when a third happens to straddle")
+          (println ";;   both modes, and why tuning that factor would be the wrong repair.")
+          (println ";;   CONSEQUENCE: a thunk-dominated arm is quotable as its RANGE and as an")
+          (println ";;   UPPER BOUND at the high mode, never as a p50 alone. The binding figure")
+          (println ";;   this file publishes is N-BINDONLY, which allocates no closure at all."))
         (println ";;")
         ;; --- the read ladder ------------------------------------------------
         (println ";; THE READ LADDER — bytes per READ (CLJS / node V8; NOT JVM, NOT Chrome)")
