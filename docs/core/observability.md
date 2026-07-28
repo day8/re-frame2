@@ -461,7 +461,7 @@ interceptor's check is ungated and so is its report: a refused payload settles
 (`:source :boundary`) onto the `:errors` stream beside it. That record is structural only
 — the event id, the schema id, the frame, and nothing derived from the payload, because a
 boundary payload is attacker-controlled or user-private by definition. See
-[Validate with schemas](how-to/validate-with-schemas.md#in-production-the-checks-vanish). The
+[Validate with schemas](how-to/validate-with-schemas.md#in-production-what-goes-what-stays). The
 `:event` vector in both records is run through the framework's wire-elider once before
 fan-out — a large value becomes `:rf.size/large-elided`, a sensitive one
 `:rf/redacted` — so the payload is safe to ship as-is. (The `:exception` object on an
