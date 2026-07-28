@@ -1244,21 +1244,46 @@
         (println ";;   try/finally restore. PREDICTION, stated before the run: 0 B/read.")
         (let [exact      (- (net* "N-CWFRBIND") (net* "N-CWFRGEN"))
               jvm-style  (- (net* "S3-CWFR") (net* "S2-TGTID") (net* "N-CWFRNOG"))
-              inline-err (- (net* "N-CWFRRAW") (net* "N-CALLTHUNK") (net* "N-GENREAD"))
+              budget     (- (net* "N-CWFRRAW") (net* "N-CALLTHUNK") (net* "N-GENREAD"))
+              inline-err (- (net* "N-CWFRNOG") (net* "N-BINDONLY"))
               fidelity   (- (net* "N-CWFRBIND") (net* "N-CWFRRAW"))
               standalone (net* "N-BINDONLY")
-              rgsub      (net* "RGSUB")]
+              rgsub      (net* "RGSUB")
+              ;; SYMMETRY CHECK, and it is load-bearing (rf2-x0fe2). The pair is
+              ;; only symmetric while BOTH halves actually allocate their thunk.
+              ;; They do not always: at n=30 V8 elides `cwfr-nobind`'s thunk
+              ;; while the `binding`'s try/finally blocks the same elision on the
+              ;; bind side, and the difference then reads one whole closure —
+              ;; 64.0 B/read — as if it were the binding. So the no-bind half's
+              ;; thunk is CHECKED against `N-CALLTHUNK`, which is one escaping
+              ;; thunk and nothing else.
+              nobind-thunk (- (net* "N-CWFRGEN") (net* "N-GENREAD"))
+              ct           (net* "N-CALLTHUNK")
+              symmetric?   (< (js/Math.abs (- nobind-thunk ct))
+                              (max 1.0 (* 0.25 (js/Math.abs ct))))]
+          (println ";;   THE PRIMARY FIGURE is N-BINDONLY: it contains no thunk, so no escape")
+          (println ";;   analysis can move it, and it needs no subtraction at all.")
           (println (gstring/format ";;   N-BINDONLY standalone                        %10s B/read%s"
                            (fmt standalone)
                            (if (<= standalone floor) "   <= FLOOR (upper bound)" "")))
+          (println (gstring/format ";;   BUDGET (N-CWFRRAW - N-CALLTHUNK - N-GENREAD) %10s B/read%s"
+                           (fmt budget)
+                           (if (<= (js/Math.abs budget) (max 1.0 (* 20.0 floor)))
+                             "   — cwfr's cost is FULLY accounted without a binding" "")))
           (println (gstring/format ";;   SYMMETRIC pair (N-CWFRBIND - N-CWFRGEN)      %10s B/read%s"
                            (fmt exact)
                            (if (<= (js/Math.abs exact) (* 2.0 floor))
                              "   <= FLOOR (upper bound)" "")))
-          (println (gstring/format ";;   the two agree to                             %10s B/read   (instrument floor %s B/read)"
-                           (fmt (js/Math.abs (- standalone exact))) (fmt3 floor)))
+          (println (gstring/format ";;     symmetry check: the no-bind half's thunk reads %s B/read against N-CALLTHUNK's %s -> %s"
+                           (fmt nobind-thunk) (fmt ct)
+                           (if symmetric?
+                             "SYMMETRIC, the pair is quotable"
+                             "*** ASYMMETRIC — V8 elided one half's thunk; THIS PAIR MAY NOT BE QUOTED ***")))
+          (when symmetric?
+            (println (gstring/format ";;   N-BINDONLY and the pair agree to             %10s B/read   (instrument floor %s B/read)"
+                             (fmt (js/Math.abs (- standalone exact))) (fmt3 floor))))
           (println (gstring/format ";;   -> the binding is %.2f%% of subscribe's cache-HIT allocation here"
-                           (* 100.0 (/ (max 0.0 exact) rgsub))))
+                           (* 100.0 (/ (max 0.0 standalone) rgsub))))
           (println ";;")
           (println ";;   FIDELITY OF THE RE-SPELLING — cwfr-bind is call-with-frame-resolution's")
           (println ";;   body verbatim, so the arm that calls it must agree with the arm that")
@@ -1287,11 +1312,15 @@
                            (fmt (net* "N-CALLTHUNK"))))
           (println (gstring/format ";;           N-CWFRNOG   (cwfr, nil target, no gen read)   %s B/read"
                            (fmt (net* "N-CWFRNOG"))))
-          (println ";;         Same error as (a), opposite sign. The symmetric pair above")
-          (println ";;         escapes IDENTICALLY on both sides, which is exactly what makes")
-          (println ";;         its difference the binding and nothing else.")
-          (println (gstring/format ";;         (for the record, that residual reconstructs here as %s B/read)"
-                           (fmt inline-err))))
+          (println (gstring/format ";;         and N-CWFRNOG - N-BINDONLY reconstructs it at %s B/read."
+                           (fmt inline-err)))
+          (println ";;         Same error as (a), opposite sign.")
+          (println ";;     (c) the SYMMETRIC PAIR itself, when V8 elides one half's thunk.")
+          (println ";;         The bind half's try/finally blocks an elision the no-bind half")
+          (println ";;         gets, and the difference then reads one whole closure AS the")
+          (println ";;         binding. Seen at n=30, absent at n=300. That is what the")
+          (println ";;         symmetry check above exists to refuse — and it is why the")
+          (println ";;         PRIMARY figure is N-BINDONLY, which carries no thunk at all."))
         (println ";;")
         ;; --- THE CLJS RANKING, which is the point of the exercise -----------
         (println ";; ==== THE CLJS RANKING of subscribe's cache-HIT allocation ====")
@@ -1311,8 +1340,9 @@
                              lbl (fmt v) (* 100.0 (/ v rgsub)))))
           (println ";;   and call-with-frame-resolution splits:")
           (doseq [[lbl v] [["the generation read (N-GENREAD)" (net* "N-GENREAD")]
-                           ["THE BINDING (N-CWFRBIND - N-CWFRGEN)"
-                            (- (net* "N-CWFRBIND") (net* "N-CWFRGEN"))]
+                           ["the escaping thunk (N-CALLTHUNK)" (net* "N-CALLTHUNK")]
+                           ["THE BINDING (N-BINDONLY, no thunk to elide)"
+                            (net* "N-BINDONLY")]
                            ["the late-bind flush consult (N-FLUSH)" (net* "N-FLUSH")]]]
             (println (gstring/format ";;     %-50s %10s B/read  %6.1f%%%s"
                              lbl (fmt v) (* 100.0 (/ v rgsub))
