@@ -28,6 +28,7 @@
       sub-input-fn-exception / sub-input-fn-bad-return)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.subs :as subs]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -70,6 +71,22 @@
                              (when (= error-kw (:operation ev))
                                (swap! errs conj ev))))
     [errs #(rf/unregister-listener! :trace k)]))
+
+(defn- capture-error-records!
+  "The ALWAYS-ON counterpart of [[capture-errors!]] (rf2-d2841). Both
+  `:rf.error/sub-input-fn-exception` and `:rf.error/sub-input-fn-bad-return`
+  are PROMOTED categories — `subs/emit-sub-input-fn-error!` fans them through
+  `error-emit/emit-error-both!` — so their occurrence, sub-id and query-v are
+  readable in production posture off the corpus-wide registry. (`:where` is
+  not: it rides the dev-trace tags, which `emit-error-both!` does not lift
+  from.) Returns `[records-atom unregister-fn]`."
+  [error-kw]
+  (let [recs (atom [])
+        k    (keyword "rf2-d2841" (str (name error-kw) "-rec-" (gensym)))]
+    (rf/register-listener! :errors k
+                           (fn [r] (when (= error-kw (:error r))
+                                     (swap! recs conj r))))
+    [recs #(rf/unregister-listener! :errors k)]))
 
 (use-fixtures :each reset-runtime)
 
@@ -417,15 +434,21 @@
         ;; A leading :<- with no query-vector.
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"reg-sub-bad-args"
               (rf/reg-sub :bad2 :<- (fn [x _] x))))
-        (is (seq @errs) "a :rf.error/reg-sub-bad-args trace was emitted")
-        (is (some #(= :bad (get-in % [:tags :rf.sub/id])) @errs)
-            "the trace carries the offending sub id")
+        ;; rf2-d2841 — `:rf.error/reg-sub-bad-args` is a bare
+        ;; `trace/emit-error!` in `subs.cljc` (no always-on leg), so the TRACE
+        ;; half is dev-only. The LOUD half — the two `thrown-with-msg?` rows
+        ;; above — is what a production build has, and it is unguarded.
+        (when interop/debug-enabled?
+          (is (seq @errs) "a :rf.error/reg-sub-bad-args trace was emitted")
+          (is (some #(= :bad (get-in % [:tags :rf.sub/id])) @errs)
+              "the trace carries the offending sub id"))
         (finally (unreg))))))
 
 (deftest sub-input-fn-exception-fires-and-recovers
   (testing ":rf.error/sub-input-fn-exception — an input-fn that throws emits
             loudly (compute-sub path) and recovers the sub to nil"
-    (let [[errs unreg] (capture-errors! :rf.error/sub-input-fn-exception)]
+    (let [[errs unreg] (capture-errors! :rf.error/sub-input-fn-exception)
+          [recs unrec] (capture-error-records! :rf.error/sub-input-fn-exception)]
       (try
         (rf/reg-sub :leaf (fn [db _] (:leaf db)))
         (rf/reg-sub :boom
@@ -434,22 +457,34 @@
         ;; compute-sub path.
         (is (nil? (rf/compute-sub [:boom] {:leaf 1}))
             "the sub recovers to nil when its input-fn throws")
-        (is (some #(= :compute-sub (get-in % [:tags :where])) @errs)
-            "the compute-sub path emitted :rf.error/sub-input-fn-exception")
+        ;; rf2-d2841 — `:where` rides the dev-trace tags only.
+        (when interop/debug-enabled?
+          (is (some #(= :compute-sub (get-in % [:tags :where])) @errs)
+              "the compute-sub path emitted :rf.error/sub-input-fn-exception"))
         ;; reactive path.
         (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:leaf 1}}))
         (rf/dispatch-sync [:seed])
         (is (nil? (rf/subscribe-once [:boom]))
             "the reactive path also recovers to nil")
-        (is (some #(= :reactive (get-in % [:tags :where])) @errs)
-            "the reactive path emitted :rf.error/sub-input-fn-exception")
-        (finally (unreg))))))
+        (when interop/debug-enabled?
+          (is (some #(= :reactive (get-in % [:tags :where])) @errs)
+              "the reactive path emitted :rf.error/sub-input-fn-exception"))
+        ;; ---- ALWAYS-ON (rf2-d2841): BOTH paths fanned a corpus-wide record
+        ;;      naming the failing sub. "Emits loudly" is the claim; the
+        ;;      always-on axis is where a production build hears it.
+        (is (= 2 (count @recs))
+            "both the compute-sub and the reactive path fanned an always-on
+             :rf.error/sub-input-fn-exception record")
+        (is (every? #(= :boom (:event-id %)) @recs)
+            "each always-on record names the failing sub")
+        (finally (unrec) (unreg))))))
 
 (deftest sub-input-fn-bad-return-fires-and-recovers
   (testing ":rf.error/sub-input-fn-bad-return — an input-fn returning a bad
             shape emits loudly (reactive + compute-sub) and recovers to nil;
             it is NEVER silently treated as no inputs"
-    (let [[errs unreg] (capture-errors! :rf.error/sub-input-fn-bad-return)]
+    (let [[errs unreg] (capture-errors! :rf.error/sub-input-fn-bad-return)
+          [recs unrec] (capture-error-records! :rf.error/sub-input-fn-bad-return)]
       (try
         (rf/reg-sub :leaf (fn [db _] (:leaf db)))
         ;; Returns a scalar query vector — the classic ambiguous shape.
@@ -462,12 +497,24 @@
         (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:leaf 1}}))
         (rf/dispatch-sync [:seed])
         (is (nil? (rf/subscribe-once [:bad-shape])))
-        (let [wheres (set (map #(get-in % [:tags :where]) @errs))]
-          (is (contains? wheres :compute-sub))
-          (is (contains? wheres :reactive)))
-        ;; The error carries the outer query-v + sub id.
-        (is (some #(= [:bad-shape] (get-in % [:tags :rf.sub/query-v])) @errs))
-        (finally (unreg))))))
+        ;; rf2-d2841 — `:where` / `:rf.sub/query-v` ride the dev-trace tags.
+        (when interop/debug-enabled?
+          (let [wheres (set (map #(get-in % [:tags :where]) @errs))]
+            (is (contains? wheres :compute-sub))
+            (is (contains? wheres :reactive)))
+          ;; The error carries the outer query-v + sub id.
+          (is (some #(= [:bad-shape] (get-in % [:tags :rf.sub/query-v])) @errs)))
+        ;; ---- ALWAYS-ON (rf2-d2841): the record carries the query-vector
+        ;;      VERBATIM as its positional `:event` (raw identity per
+        ;;      #6441 / rf2-zwgqe), so production learns exactly which
+        ;;      subscription was rejected — not merely that one was.
+        (is (= 2 (count @recs))
+            "both paths fanned an always-on :rf.error/sub-input-fn-bad-return record")
+        (is (every? #(= [:bad-shape] (:event %)) @recs)
+            "each always-on record carries the outer query-vector")
+        (is (every? #(= :bad-shape (:event-id %)) @recs)
+            "and names the sub")
+        (finally (unrec) (unreg))))))
 
 (deftest bad-return-not-treated-as-no-inputs
   (testing "a bad input return does NOT silently feed the body an empty input
@@ -505,7 +552,13 @@
       (is (= [] (:input-signals m)))
       (is (not (contains? m :input-fn))
           "a meta-map + single fn is NOT misread as input-fn + computation-fn")
-      (is (= "a layer-1 sub" (:doc m)) "the meta-map survived onto the registration"))
+      ;; rf2-d2841 — `:doc` is PURE DOCUMENTATION, stripped by
+      ;; `registrar/strip-pure-documentation` under -Dre-frame.debug=false. The
+      ;; claim ("the meta-map was consumed as :meta, not as a handler") is
+      ;; carried in both postures by the `:input-kind` / `:input-fn` rows above
+      ;; and by the live subscribe below.
+      (when interop/debug-enabled?
+        (is (= "a layer-1 sub" (:doc m)) "the meta-map survived onto the registration")))
     (rf/reg-event :seed-m1 (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed-m1])
     (is (= 7 (rf/subscribe-once [:m1])))))
@@ -519,7 +572,9 @@
       (is (= :static (:input-kind m)))
       (is (= [[:base]] (:input-signals m)))
       (is (not (contains? m :input-fn)))
-      (is (= "doubled" (:doc m))))
+      ;; rf2-d2841 — pure-documentation strip; see the deftest above.
+      (when interop/debug-enabled?
+        (is (= "doubled" (:doc m)))))
     (rf/reg-event :seed-m2 (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/dispatch-sync [:seed-m2])
     (is (= 10 (rf/subscribe-once [:m2])))))
@@ -548,7 +603,9 @@
     (let [m (sub-meta :p1)]
       (is (= :parametric (:input-kind m)))
       (is (fn? (:input-fn m)))
-      (is (= "parametric with meta" (:doc m))))
+      ;; rf2-d2841 — pure-documentation strip; see above.
+      (when interop/debug-enabled?
+        (is (= "parametric with meta" (:doc m)))))
     (rf/reg-event :seed-p1 (fn [{:keys [db]} _] {:db {:by-id {:a 99}}}))
     (rf/dispatch-sync [:seed-p1])
     (is (= 99 (rf/subscribe-once [:p1 :a])))))

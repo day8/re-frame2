@@ -185,7 +185,6 @@ known_red=(
   re-frame.cascade-dispatch-id-test
   re-frame.cofx-cljs-test
   re-frame.cofx-envelope-test
-  re-frame.core-epoch-egress-profile-test
   re-frame.db-pending-trace-test
   re-frame.dispatched-trace-cofx-test
   re-frame.event-context-partition-test
@@ -195,12 +194,10 @@ known_red=(
   re-frame.observation-port-cljs-test
   re-frame.override-capture-trace-test
   re-frame.reg-meta-noswallow-cljs-test
-  re-frame.reg-view-injection-test
   re-frame.registrar-warnings-test
   re-frame.source-coord-jvm-test
   re-frame.source-coords-test
   re-frame.sub-dispose-trace-test
-  re-frame.sub-parametric-inputs-test
   re-frame.success-path-call-site-test
   re-frame.success-path-trigger-handler-test
   re-frame.trace-buffer-test
