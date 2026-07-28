@@ -48,6 +48,7 @@ const http = require('node:http');
 const path = require('node:path');
 
 const guard = require('./order_guard.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const OUT = path.join(IMPL, 'out', 'b8');
@@ -149,7 +150,20 @@ async function main() {
     if (t.startsWith(';; B8')) console.error(t);
   });
   page.on('pageerror', (e) => console.error('[b8] page error:', e.message));
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
+  // `'commit'`, not `'load'` (rf2-p9fa3). `b8-app/-main` is the bundle's
+  // `:init-fn`: it mounts all four update arms and installs `window.B8`
+  // synchronously inside the `<script>`, and only the seed that follows is
+  // async. `load` cannot fire before any of that, so waiting for it duplicates
+  // the `B8_READY` wait below against a budget ten times smaller — and a
+  // driver that died there would have burned the `:advanced` build for
+  // nothing, with a line naming the wrong budget. The arm-order guard has
+  // already self-tested by this point, deliberately ahead of Chromium; this
+  // navigation cannot reach it either way.
+  await navigate(page, `http://127.0.0.1:${PORT}/`, {
+    waitUntil: 'commit',
+    timeoutMs: NAV_TIMEOUT_MS,
+    budget: 'the 5-minute wait for `window.B8_READY`',
+  });
   await page.waitForFunction('window.B8_READY === true || window.B8_ERROR', null, {
     timeout: 5 * 60 * 1000,
   });
