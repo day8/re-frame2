@@ -1798,23 +1798,20 @@
   ;; reasoning leans on — the arithmetic a caller composing its own widget
   ;; over the same mechanics calls directly.
   ;;
-  ;; IMPLEMENTATION for the three the engine owns, and this is the ruling's
-  ;; own stated FALLBACK rather than a fresh decision. It preferred
+  ;; FOUR ROWS, NOT SEVEN — and that is rf2-axlmz landing the ruling's own
+  ;; first preference. The enrolment carried `virtual-row`, `row-dom-id` and
+  ;; `reconcile-scroll` at `:implementation` because its fence forbade
+  ;; touching `implementation/freehand/src`; the ruling had preferred
   ;; PRIVATIZATION — `^:private virtual-row`, `row-dom-id` as a `defn-` —
-  ;; and scoped that to the witness branch or its rf2-86i64 successor,
-  ;; "cheaper than post-merge churn". Both merged without it, and this
-  ;; enrolment changes no public surface, so the fallback applies: enrol at
-  ;; `:implementation` — public-for-technical-reasons only, off the supported
-  ;; surface, MUST NOT be depended on. `reconcile-scroll` joins them by the
-  ;; same reasoning one step on: it is the engine's own guarded `:layout`
-  ;; write, attached by `virtual-collection` and by nothing else, so producer
-  ;; and consumer share the namespace and no export is needed. `row-dom-id`
-  ;; in particular freezes a positional string scheme that should stay
-  ;; replaceable — the supported contract is the RENDERED relationship (the
-  ;; listbox owns `aria-activedescendant`; each mounted option owns its id,
-  ;; `aria-posinset` and `aria-setsize`), and a cross-namespace test should
-  ;; assert that invariant rather than call the helper. rf2-axlmz tracks the
-  ;; privatization the ruling actually wanted.
+  ;; and `:implementation` was the stated fallback, not the answer. All three
+  ;; are now private, so there is nothing left to classify: each has exactly
+  ;; one consumer and that consumer shares the namespace, which is the whole
+  ;; reason a row was never the right shape for them. `row-dom-id` in
+  ;; particular would have frozen an id STRING; the supported contract is the
+  ;; RENDERED relationship (the listbox owns `aria-activedescendant`; each
+  ;; mounted option owns its id, `aria-posinset` and `aria-setsize`), and the
+  ;; suites now assert that invariant off the document rather than calling the
+  ;; helper.
   ;;
   ;; No `:cljs-only` rows — `.cljc` and host-neutral, `ns-publics` is
   ;; authoritative on the JVM, and the CLJS probe reconciles the other half.
@@ -1823,9 +1820,6 @@
   ["re-frame.freehand.collection" "virtual-list"]       {:tier :advanced       :owner "004" :status "EP-0036"}
   ["re-frame.freehand.collection" "window"]             {:tier :advanced       :owner "004" :status "EP-0036"}
   ["re-frame.freehand.collection" "reveal-offset"]      {:tier :advanced       :owner "004" :status "EP-0036"}
-  ["re-frame.freehand.collection" "virtual-row"]        {:tier :implementation :owner "004" :status "EP-0036"}
-  ["re-frame.freehand.collection" "row-dom-id"]         {:tier :implementation :owner "004" :status "EP-0036"}
-  ["re-frame.freehand.collection" "reconcile-scroll"]   {:tier :implementation :owner "004" :status "EP-0036"}
 
   ;; =========================================================================
   ;; re-frame.freehand.tool — the Freehand TOOL-TIER READER DOOR (rf2-hytu5,

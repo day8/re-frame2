@@ -293,26 +293,23 @@ offset in the same event as the new active index, so the two settle as one epoch
                      :inbox/scroll  (coll/reveal-offset geom next))})))
 ```
 
-## Not a supported surface
+## What is deliberately not here
 
-Three further vars are published for technical reasons only and are **not** part
-of the supported surface. An application or tool must not depend on them; they
-may change or vanish without notice.
+Four names are the whole namespace. Three more things exist inside it and are
+**private**, because each has exactly one consumer and that consumer shares the
+namespace:
 
-- **`virtual-row`** — [`virtual-list`](#virtual-list)'s own `option` row. It is a
-  declared child rather than markup inlined into a loop because the compiled
-  grammar refuses a handler capturing a loop binding, and a per-row committed
-  event site needs a per-row instance. You reach it only through `:row`.
-- **`row-dom-id`** — the positional DOM address of a rendered row. The id scheme
-  should stay replaceable; the supported contract is the *rendered relationship*
-  — the listbox owns `aria-activedescendant`, and each mounted option owns its
-  id, `aria-posinset` and `aria-setsize`. A test wanting the active row should
-  assert that relationship, not call this.
-- **`reconcile-scroll`** — the engine's guarded `:layout` behavior, which writes
-  `:scroll-offset` onto the viewport before paint and only when the node
-  disagrees, so an ordinary user scroll (where app-db is merely trailing the DOM)
-  moves no host state at all. [`virtual-collection`](#virtual-collection)
-  attaches it; nothing else does.
+- the listbox's own `option` row, which
+  [`virtual-list`](#virtual-list) mounts through `:row` and nothing else reaches;
+- the positional DOM address of a rendered row. A published builder would be a
+  published id *string*; the supported contract is the **rendered
+  relationship** — the listbox owns `aria-activedescendant`, and each mounted
+  option owns its `id`, `aria-posinset` and `aria-setsize`. That is how a test
+  or a stylesheet finds a row;
+- the guarded `:layout` behavior that writes `:scroll-offset` onto the viewport
+  before paint, and only when the node disagrees, so an ordinary user scroll
+  (where app-db is merely trailing the DOM) moves no host state at all.
+  [`virtual-collection`](#virtual-collection) attaches it; nothing else does.
 
 ## Related
 

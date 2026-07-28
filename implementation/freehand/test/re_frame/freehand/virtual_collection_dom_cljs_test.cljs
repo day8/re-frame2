@@ -225,11 +225,11 @@
 
   The item is read off the CALLER's rendered content, because neither layer
   publishes the key as an attribute and that is deliberate: `:key` is
-  React's reconciliation input, and the row's `id` is its POSITION
-  ([[coll/row-dom-id]]). Reading the content is therefore the only honest
-  address for `which item is this node showing`, and it is what makes the
-  reorder row below discriminating — under a reorder the positional id
-  moves and the item does not."
+  React's reconciliation input, and the row's `id` is its POSITION.
+  Reading the content is therefore the only honest address for `which item
+  is this node showing`, and it is what makes the reorder row below
+  discriminating — under a reorder the positional id stays where it is and
+  the item does not."
   [nodes]
   (into {} (map (juxt #(.-textContent %) identity)) nodes))
 
@@ -450,10 +450,15 @@
             And the two addresses separate, visibly. The moved row's
             POSITIONAL id changes, because the DOM id is the row's place
             and its place changed; a row that did not move keeps its id.
-            Neither address is derived from the other, which is the law
-            [[coll/row-dom-id]] states and this is where it has teeth — a
-            control that keyed by position would have renumbered and
-            remounted the whole window."
+            Neither address is derived from the other, and this is where
+            that law has teeth — a control that keyed by position would
+            have renumbered and remounted the whole window.
+
+            Every id here is read off the DOCUMENT and compared with
+            another id read off the document. The control's id scheme is
+            private, and the claim does not need it: what is asserted is
+            that an address stayed with a PLACE while an element travelled
+            with an ITEM."
     (if-not (ms/browser?)
       (ms/skip! "the browser job runs the reorder assertions")
       (async done
@@ -477,6 +482,7 @@
                     (swap! state assoc
                            :rows      rows
                            :shells    (by-item (shells-in container))
+                           :front-id  (.getAttribute (first (rows-in container)) "id")
                            :moved-id  (.getAttribute (get rows moved) "id")
                            :still-id  (.getAttribute (get rows still) "id")))
                   (rf/dispatch-sync [:inbox/moved-to-front moved-from] {:frame fid})
@@ -499,11 +505,14 @@
                         "and not one of the rows around it was remounted")
                     (is (same-elements? (:shells @state) (by-item (shells-in container)))
                         "on the engine's shells too")
-                    (is (= (coll/row-dom-id list-id moved-from) (:moved-id @state))
-                        "non-vacuous: the moved row's id WAS its old position")
-                    (is (= (coll/row-dom-id list-id 0)
+                    (is (not= (:front-id @state) (:moved-id @state))
+                        "non-vacuous: the row that moved was NOT already at
+                         the front, so its address really does have to
+                         change")
+                    (is (= (:front-id @state)
                            (.getAttribute (get after moved) "id"))
-                        "and is now its new one — the same element, a new
+                        "and it now carries the address the FRONT place held
+                         before the reorder — the same element, a new
                          positional address, because the id is the place and
                          the key is the item")
                     (is (= (:still-id @state) (.getAttribute (get after still) "id"))
@@ -619,9 +628,12 @@
                   (is (= key-from-offset (offset-in-db)) "the list starts where it starts")
                   (is (nil? (.getElementById js/document key-to-dom-id))
                       "non-vacuous: the row the key will move to is NOT rendered")
-                  (is (some? (.getElementById js/document
-                                              (coll/row-dom-id list-id key-from-index)))
-                      "while the row it moves FROM is")
+                  (is (some? (.getElementById
+                               js/document
+                               (.getAttribute (viewport-el) "aria-activedescendant")))
+                      "while the row it moves FROM is — named by the
+                       listbox's own `aria-activedescendant`, which is the
+                       supported way to find the active row")
 
                   (press! key-down)
                   (-> (settled #(= key-to-index (active-in-db))
