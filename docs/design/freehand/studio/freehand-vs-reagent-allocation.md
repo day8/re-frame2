@@ -437,6 +437,93 @@ than green.
 
 Raw: `ai/findings/2026-07-28.88pie-b8-order-guard-raw.txt` (local-only).
 
+### The warm-up, widened — and the run goes green (rf2-tb345)
+
+Four writes size a window; they do not warm one. Each `(arm, D)` now gets
+a floor of six FULL-SIZE windows that are thrown away, and keeps warming
+while the guard's own phase rule still separates the trajectory's first
+third from its last, to a ceiling of ten. Asking the settling question
+the way the guard will ask it is the only way the loop can promise
+anything about the guard — and a first draft that instead asked whether
+the last three windows agreed within 10% could not tell a site that is
+still warming from one that is merely noisy, so `reagent/D=0` (which
+spreads 23,977–28,515 B/write when fully warm) would have warmed to the
+ceiling for ever.
+
+**The `instrument` arm is the one that justifies the ceiling**, and it does
+not decay smoothly — it is bimodal. Three consecutive `--kind narrow` runs
+in this repository's Chromium harness, its D=0 warm-up trajectory each
+time:
+
+```
+5,969   466  10,968  440   9,512  440  440  440
+11,824  6,041 16,372 440   5,846  440  440  440  440  14,109
+7,047   466  29,156  440   8,862  440
+```
+
+Its value in all 84 MEASURED windows of each run was **440 [440–440]**.
+So the first full-size window read 13.6×, 26.9× and 16.0× the figure the
+arm actually has, and the spiking runs several windows deep. The 9.9×
+this page recorded above understated it, and a single four-write
+calibration window charged all of it to round 1.
+
+`ROUNDS` also moves from five to six, because the guard splits an arm's
+samples into thirds: at five a third is ONE sample, which carries no
+range, and the phase question has to be adjudicated on a bare ratio.
+
+**With both changes the run exits 0 and the guard reports `reportable` —
+no arm reads differently for its position in the plan** — where the same
+driver exited 2 before. Three consecutive runs agree. Per run: 84 of 84
+windows verified at the DOM, **0 unverified writes of 2,400**, bookkeeping
+identity exact (worst residual 0 B), in-page rising-step sum against the
+CDP bracket worst 3.3–4.7%, every site settled inside the ceiling.
+
+The positive control still misses, and the miss is the documented one: the
+control object is priced at **16.002 B/double by the retention pass** and
+the allocation instrument's slope reads **11.907** on `instrument`
+(−25.6%), 10.770 on `freehand-interpreted` (−32.7%) and 6.934 on
+`reagent` (−56.7%). A collection inside a window nets the reclaimed bytes
+away inside whichever rising step contained it, so the slope UNDER-states
+— which is why the ladder rungs are 100 KB-per-write windows and why the
+per-arm figures are taken at D=0. Warming the sites did not change that
+and was never going to.
+
+### What the same guard did on the CORE harnesses (rf2-om73r)
+
+`order_guard.cjs` is a CommonJS module for a Node driver holding a
+Chromium page. Neither of core's allocation harnesses can consume it —
+`read-attribution` is JVM Clojure with no JavaScript runtime in the
+process, and `write-attribution` is ClojureScript inside
+`implementation/core`, which may not require out of
+`implementation/freehand`. So the rule is expressed twice, as
+`re-frame.bench.order-guard` (CLJC), with both self-tests replaying the
+same recorded fixtures so neither can drift quietly. Eight checks each.
+
+- **B7 carried the same false rotation** — `HEAP_ARMS[(j + round) % n]`,
+  published as "order rotating with the round" — and now rotates and
+  reflects. Guarded, it **passes**: `reportable` on both factors for all
+  seven arms, 0 unverified of 49 mounts, and its own positive control at
+  **4,700,288 B measured against 4,700,000 predicted (+0.006%)** on
+  reader A. It is a retention harness, so this says nothing about
+  allocation; it says the arm order was not moving its figures.
+- **`write-attribution` refuses**, and on the three arms whose own
+  allocation is nearest zero — all of them the SHIPPED half of a paired
+  control. `P-SCOPEH` reads 32.00 B/call in one stratum and 637.96 in the
+  other; `P-INHERH` 48.00 against 653.96; `P-RKV` 80.94 against 686.93.
+  Zero variance inside each stratum, and the same ~606 B/call step on all
+  three. Tracked as `rf2-xu0ma`. **Node, uncompressed pointers** — a
+  tagged slot is 8 B there and 4 in Chrome, so shares transfer and
+  absolutes do not.
+- **`read-attribution` passes**, both factors, every arm, with its
+  controls landing at **+0.000%** predicted against measured on both
+  rungs (JVM, exact TLAB accounting).
+
+One limitation is recorded rather than papered over: under a
+rotate-and-reflect schedule an arm's predecessor is a function of the
+round's PARITY, so a `predecessor` stratum establishes that *the figure
+moves with the plan* — reason enough to refuse — but not that adjacency
+is the mechanism. Separating them needs a third distinct order per arm.
+
 ---
 
 ## 6. What this does not cover
@@ -482,7 +569,11 @@ Raw: `ai/findings/2026-07-28.88pie-b8-order-guard-raw.txt` (local-only).
   predecessor effectively fixed. The driver now rotates and reflects, and
   refuses a figure that either the predecessor or the position in the run
   separates — a re-take under the guard would be needed to say the
-  figures below were unaffected, and none is claimed.
+  figures below were unaffected, and none is claimed. **The single
+  calibration window was also not the warm-up it reads as**: §5 shows the
+  `instrument` arm reading 13.6× to 26.9× its measured value in its first
+  full-size window. Each `(arm, D)` now warms for at least six discarded
+  full-size windows, and the same re-take caveat applies.
 - Gates green before any figure was read: bookkeeping identity exact in
   120/120 windows; kept÷dropped 1.0001; DOM read-back 0 unverified of
   2,400 per row; harness integrity probe passing inside the `:advanced`
