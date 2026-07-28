@@ -57,6 +57,37 @@ const DEV = path.join(OUT, 'ui-g8');
 const REPORT = path.join(OUT, 'ui-g8.json');
 const TIMEOUT = 90000;
 
+// rf2-bhjzn — the gate's OTHER ceiling, now named and disarmed. Same class
+// rf2-dczpv removed from run-browser-tests.cjs, one file over.
+//
+// `page.goto(url)` was called with no options at all, so it took BOTH of
+// Playwright's defaults: `waitUntil: 'load'` AND a 30s timeout. That 30s is a
+// second budget on this gate, entirely separate from TIMEOUT above — and the
+// very next line already passes TIMEOUT explicitly to `waitForFunction`, so the
+// file already knew the pattern. Nothing named the ceiling, which is the part
+// that costs money: a `page.goto: Timeout 30000ms exceeded` line in a CI log
+// reads like this gate's own budget, so the fix reached for is a bigger
+// TIMEOUT, which cannot touch it.
+//
+// `'load'` is the WRONG event to wait on here, not merely a tight one. It
+// cannot fire until `main.js` — an un-optimized `:ui-g8` dev bundle — has both
+// arrived and run its synchronous portion, and the fixture's warm-up and
+// RECORDED_SAMPLES collection happen inside that window. Waiting for `load` is
+// waiting for the fixture, which is the `waitForFunction` poll's job, against
+// the budget documented for it.
+//
+// Demonstrated both ways with `load` held 35s against this exact page shape
+// (rf2-bhjzn): a bare `page.goto(url)` dies at 30082ms — with TIMEOUT sitting
+// unused at 90000ms — whether the delay is a slow subresource or a synchronous
+// burn during load; `'commit'` with an explicit timeout passes at ~35s in both.
+//
+// `'commit'` resolves as soon as the response is received, which no page script
+// can delay, and everything this runner does afterwards (`waitForFunction`,
+// `page.evaluate`) auto-waits on the execution context by itself. A genuine
+// server-not-listening failure still fails — at the navigation, naming itself.
+const NAV_WAIT_UNTIL = 'commit';
+const NAV_TIMEOUT = TIMEOUT;
+
 // The two real engines. Chromium AND WebKit are both mandatory (EP-0035): the
 // IME composition, caret-on-restore, and paint scheduling under test differ by
 // engine, and jsdom fakes none of them.
@@ -297,7 +328,19 @@ async function driveEngine(name, url) {
     const page = await browser.newPage();
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.stack || String(e)));
-    await page.goto(url);
+    try {
+      await page.goto(url, { waitUntil: NAV_WAIT_UNTIL, timeout: NAV_TIMEOUT });
+    } catch (err) {
+      // rf2-bhjzn: name the ceiling that actually fired. `page.goto: Timeout
+      // …ms exceeded` and this gate's own fixture-result timeout are two
+      // different budgets that read alike in a CI log.
+      fail(
+        `[${name}] NAVIGATION FAILED — this is the page.goto ceiling ` +
+          `(waitUntil: '${NAV_WAIT_UNTIL}', timeout: ${NAV_TIMEOUT}ms), NOT the ` +
+          `${TIMEOUT}ms wait for __RF2_G8_RESULT__. The fixture was never ` +
+          `observed, so no result and no matrix verdict exist to read. Raising ` +
+          `TIMEOUT will not help (rf2-bhjzn). Underlying: ${err.message}`);
+    }
     await page.waitForFunction(
       () => globalThis.__RF2_G8_RESULT__ || globalThis.__RF2_G8_ERROR__,
       null, { timeout: TIMEOUT });

@@ -18,7 +18,11 @@
  *      can never reach the failure tally (rf2-u0cy4);
  *   4. a navigation that inherited Playwright's default 30s `load` ceiling —
  *      a SECOND budget BROWSER_TEST_TIMEOUT_MS cannot reach, whose CI log
- *      line reads like the summary timeout it is not (rf2-dczpv).
+ *      line reads like the summary timeout it is not (rf2-dczpv), and which
+ *      turned out to be a CLASS rather than one site: run-ui-g8.cjs had the
+ *      same defect one file over (rf2-bhjzn). Pinned as a SWEEP over every
+ *      runner in this directory, so the next `page.goto` cannot reintroduce
+ *      it.
  *
  * Both are pinned statically for the same reason: these runners drive a
  * headless Chromium end-to-end, so their verdict paths are not cleanly
@@ -304,6 +308,106 @@ test('tenant-switcher-testbed: a captured pageerror fails the spec even when ass
   assert.ok(
     throwIdx < passedIdx,
     'the pageerror fatal check must precede `passed = true`',
+  );
+});
+
+// ---- the navigation-ceiling sweep (rf2-dczpv → rf2-bhjzn) ----
+//
+// rf2-dczpv fixed one `page.goto` that inherited Playwright's 30s default;
+// rf2-bhjzn found the identical defect in run-ui-g8.cjs, which passed no
+// options at all. Two instances is a class, so this is pinned by SWEEP rather
+// than by naming files: every `page.goto` in this directory must carry its own
+// explicit `timeout:`, tied to the lane's own budget.
+//
+// Why it needs a static pin: the ceiling is DORMANT in a healthy tree —
+// navigation normally completes in milliseconds — so ordinary CI would never
+// notice a new bare `goto` until a loaded runner turned it into a flake whose
+// log line names the wrong budget.
+
+test('every runner navigation carries an EXPLICIT timeout, never Playwright\'s 30s default (rf2-dczpv, rf2-bhjzn)', () => {
+  const runners = fs
+    .readdirSync(SCRIPTS_DIR)
+    .filter((f) => f.endsWith('.cjs') && !f.startsWith('_'));
+  assert.ok(runners.length > 0, 'the sweep must actually find runners to check');
+
+  // Whole-line comments only. A `//` mid-line would truncate the very
+  // `http://…` URLs these calls navigate to, taking the `timeout:` with it.
+  const codeOnly = (src) => src
+    .split('\n')
+    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+
+  const offenders = [];
+  let navigations = 0;
+  for (const file of runners) {
+    const src = codeOnly(read(file));
+    for (let i = src.indexOf('.goto('); i !== -1; i = src.indexOf('.goto(', i + 1)) {
+      navigations += 1;
+      // The call's arguments, bounded — long enough to span a multi-line
+      // options object, short enough not to reach an unrelated `timeout:`.
+      const call = src.slice(i, i + 300);
+      if (!/\btimeout:/.test(call)) {
+        offenders.push(`${file}: ${call.split('\n')[0].trim()}`);
+      }
+    }
+  }
+
+  assert.ok(navigations > 0, 'the sweep must actually find navigations to check');
+  assert.deepEqual(
+    offenders,
+    [],
+    'page.goto must pass an EXPLICIT timeout tied to the lane\'s own budget. ' +
+      'Without one Playwright applies a 30s default that no lane budget can ' +
+      'reach, and whose CI failure line reads like the lane timeout it is not',
+  );
+});
+
+// ---- run-ui-g8.cjs (rf2-bhjzn) ----
+
+test('run-ui-g8: navigation has its own named ceiling, and does not wait on `load` (rf2-bhjzn)', () => {
+  const src = read('run-ui-g8.cjs');
+  // `load` cannot fire until the un-optimized :ui-g8 bundle has arrived AND
+  // run its synchronous portion — which is where the fixture's warm-up and
+  // sample collection live. Waiting for it is waiting for the fixture, which
+  // is the waitForFunction poll's job against TIMEOUT.
+  assert.match(
+    src,
+    /NAV_WAIT_UNTIL\s*=\s*'commit'/,
+    "the G-8 navigation must commit, not wait on `load` — `load` waits for the fixture",
+  );
+  assert.match(
+    src,
+    /NAV_TIMEOUT\s*=\s*TIMEOUT\b/,
+    'the navigation budget must be the gate\'s own TIMEOUT, so the lane has ONE number',
+  );
+  assert.match(
+    src,
+    /page\.goto\([\s\S]{0,400}?catch[\s\S]{0,600}?NAVIGATION FAILED/,
+    'a failed navigation must name itself as the navigation ceiling, not the fixture-result budget',
+  );
+});
+
+// ---- check-story-static.cjs navigation ceiling (rf2-bhjzn) ----
+
+test('check-story-static: the navigation budget is named, not a bare literal (rf2-bhjzn)', () => {
+  const src = read('check-story-static.cjs');
+  // This smoke always passed an explicit timeout, so it never INHERITED the
+  // default — but the literal 30000 sat beside a READY_TIMEOUT_MS of 30000,
+  // two different budgets printing one number.
+  assert.match(
+    src,
+    /const\s+NAV_TIMEOUT_MS\s*=/,
+    'the navigation budget must be a named constant, distinct from READY_TIMEOUT_MS',
+  );
+  assert.doesNotMatch(
+    src,
+    /page\.goto\([^)]*timeout:\s*\d/,
+    'the navigation timeout must not be an anonymous numeric literal',
+  );
+  assert.match(
+    src,
+    /page\.goto\([\s\S]{0,300}?catch[\s\S]{0,600}?NAVIGATION FAILED/,
+    'a failed navigation must say which of the two 30000ms budgets fired',
   );
 });
 
