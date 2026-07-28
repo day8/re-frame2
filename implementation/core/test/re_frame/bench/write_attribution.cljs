@@ -915,6 +915,23 @@
 ;; The derived-value fan-out over a two-plus-subscriber watcher map, in BOTH
 ;; spellings. `P-VALS` is the RETIRED `(run! f (vals ws))`; `P-RKV` is the
 ;; `reduce-kv` walk that replaced it.
+;;
+;; rf2-ktrvw — BOTH ARMS HAND A FRESH CLOSURE TO A CALLEE, one per call, and
+;; that is a bimodal cost on this runtime. `read_attribution_cljs`'s `N-NEWFN`
+;; prices a bare closure at 64.0 B settled and 128.1 B in its high mode — a
+;; step of exactly ONE closure, per WINDOW, in both plan orders — and an arm
+;; whose subject IS a closure cannot be re-shaped out of it.
+;;
+;; It is visible here on `P-RKV`, which allocates one closure per call against
+;; a body of ~81 B: it reads 80.9 B/call [80.9 – 83.6] at the default
+;; `WA_REPS_MAX=4000` and 86.9 [86.9 – 145.2] at 512 — a ~58 B step, one
+;; closure — and that step is what makes the guard refuse it by PHASE at the
+;; smaller cap. A long window hammers the closure site enough to settle inside
+;; the window; a short one can sit wholly in either mode.
+;;
+;; So `P-RKV`'s and `P-VALS`'s ranges are load-bearing and their p50s are not
+;; quotable alone. The SHIPPED-vs-RETIRED difference these two exist for is
+;; unaffected: both halves allocate one closure, so it cancels.
 
 (defn- arm-p-vals []
   (let [{:keys [watch-map]} @rig]
