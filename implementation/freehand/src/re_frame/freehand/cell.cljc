@@ -169,20 +169,35 @@
 
   A fresh cell owns nothing: no dependencies, no committed frame, and an
   event owner that has never been committed. It becomes `:connected`
-  only when a render is SELECTED."
+  only when a render is SELECTED.
+
+  THE SELECTED RENDER IS ONE VALUE, held under `:bundle`. Spec 006 §The
+  selected render bundle names what a commit publishes as one bundle with
+  all-or-nothing publication, and [[commit!]]'s docstring says the same
+  thing in as many words; this state map says it too. The frame, the
+  dependency set, the render order and the observations are not four
+  slots that a commit happens to write together — they are one value,
+  written once, and there is no shape in which three of them agree and
+  the fourth is a render behind. It also removes the frame's second
+  home: a cell used to hold `:frame` at top level AND inside the
+  evidence it published.
+
+  What stays TOP-LEVEL is `:generation`, and the distinction is
+  load-bearing: the top-level one is the cell's current BODY AUTHORITY,
+  which [[advance-generation!]] moves on hot reload before any render
+  commits against it, while the bundle's is the generation of the last
+  SELECTED commit. They are allowed to differ, and that difference is
+  exactly what [[current?]] tests."
   [view-id]
   (->ViewCell
     (atom {:view-id    view-id
            :generation 0
            :lifecycle  :new
-           :frame      nil
-           :deps       {}
-           :dep-order  []
            :events     (events/owner view-id)
            :revision   0
            :listeners  {}
            :dirty      nil
-           :evidence   nil})))
+           :bundle     nil})))
 
 (defn cell?
   "True when `x` is a [[cell]]."
@@ -191,18 +206,38 @@
 
 (defn view-id     "The cell's authoring identity."             [^ViewCell c] (:view-id @(st c)))
 (defn lifecycle   "`:new`, `:connected`, or `:disconnected`."   [^ViewCell c] (:lifecycle @(st c)))
-(defn committed-frame "The frame the SELECTED commit bound to." [^ViewCell c] (:frame @(st c)))
 (defn generation  "The body revision the cell is current at."   [^ViewCell c] (:generation @(st c)))
 (defn revision    "The repaint counter the host snapshots."     [^ViewCell c] (:revision @(st c)))
 (defn events-owner "The cell's committed event owner."          [^ViewCell c] (:events @(st c)))
-(defn evidence    "The SELECTED commit's published evidence."   [^ViewCell c] (:evidence @(st c)))
+
+(defn evidence
+  "The bundle the SELECTED commit published — `{:frame :generation :deps
+  :dep-order :observations}` — or `nil` for a cell that has never had a
+  render selected, and `nil` again after [[disconnect!]].
+
+  This is the WHOLE bundle rather than a summary of it, because there is
+  only one thing here to read: Spec 006 §The selected render bundle names
+  what a commit publishes as one value, and the cell holds it as one
+  value. The three projections below are doors onto THIS map, not onto
+  slots of their own, so they cannot disagree with it or with each
+  other."
+  [^ViewCell c]
+  (:bundle @(st c)))
+
+(defn committed-frame
+  "The frame the SELECTED commit bound to."
+  [^ViewCell c]
+  (:frame (evidence c)))
 
 (defn dependencies
   "The committed dependency map — `{site-key {:query :target :handle
   :value :evidence}}`. Empty for a cell that has never had a render
-  selected, and empty again after [[disconnect!]]."
+  selected, and empty again after [[disconnect!]] — the absence of a
+  bundle reads as an empty set rather than as `nil`, because \"this cell
+  owns nothing\" is what both states mean and a caller counting or
+  walking them should not have to tell them apart."
   [^ViewCell cell]
-  (:deps @(st cell)))
+  (:deps (evidence cell) {}))
 
 (defn dependency-queries
   "The queries the SELECTED commit owns, in RENDER order.
@@ -211,9 +246,12 @@
   A site key is whatever the tier that recorded it uses — the
   interpreted walk's document ordinal, the compiled tier's proven lexical
   site id — and only an ordinal happens to sort into render order. Reading
-  the published order keeps this projection true for both."
+  the published order keeps this projection true for both.
+
+  Both halves come off the SAME bundle in one read, so the order can
+  never name a site the map has since stopped holding."
   [^ViewCell cell]
-  (let [{:keys [deps dep-order]} @(st cell)]
+  (let [{:keys [deps dep-order]} (evidence cell)]
     (mapv #(:query (get deps %)) dep-order)))
 
 ;; ---------------------------------------------------------------------------
@@ -374,7 +412,7 @@
   and no disposal obligation."
   [^RenderCandidate cand site-key query]
   (let [^ViewCell owner-cell (.-cell cand)
-        prior     (get (:deps @(st owner-cell)) site-key)
+        prior     (get (dependencies owner-cell) site-key)
         query*    (if (and prior (eq/rf= query (:query prior))) (:query prior) query)
         target    (obs/resolve-target {:query-v query*})
         ev        (obs/probe target)
@@ -660,7 +698,7 @@
         (keep (fn [{:keys [target handle]}]
                 (when (and (some? handle) (= :subscription (:kind target)))
                   (:frame-id target))))
-        (vals (:deps @(st cell)))))
+        (vals (dependencies cell))))
 
 (defn observes-frame?
   "Does `cell`'s committed dependency set include a site resolved in frame
@@ -945,12 +983,30 @@
   Fail-loud: `obs/read` may re-enter application subscription code and
   throw. The whole pass therefore runs inside the caller's rollback
   guard, which releases exactly what this candidate acquired and leaves
-  the prior committed set installed."
+  the prior committed set installed.
+
+  THE ACCUMULATOR IS A PLAIN VECTOR, not a transient, and that is a
+  RETENTION decision rather than a throughput one. A transient is the
+  right tool for a large accumulator thrown away at the end; this one is
+  small and then LIVES, for as long as the boundary is mounted, inside
+  the bundle. `persistent!` hands back a vector still holding the
+  editable root the transient cloned — a `VectorNode` over a 32-slot
+  array — where `conj` onto a tail-only vector shares
+  `PersistentVector.EMPTY`'s root and allocates no node at all. Five heap
+  nodes per mounted boundary, for a vector that is almost always shorter
+  than the tail.
+
+  The trade is honest and runs the other way for a boundary that reads a
+  great many sites, where the transient's in-place growth would win.
+  That shape is the one Freehand's own witnesses call an attribution
+  ablation rather than a shape anybody should write: the reads a view
+  makes are the reads its author wrote, and fine-grained boundaries with
+  a handful of sites each are what the library encourages."
   [order staged]
   (let [n (count order)]
     (loop [i     0
            moved false
-           obs   (transient [])]
+           obs   []]
       (if (< i n)
         (let [site-key (nth order i)
               record   (get staged site-key)
@@ -958,12 +1014,12 @@
               reading  (obs/read handle)]
           (recur (inc i)
                  (or moved (moved? reading (:evidence record)))
-                 (conj! obs {:site-key site-key
-                             :query    (:query record)
-                             :frame-id (:frame-id (:target record))
-                             :value    (:value reading)
-                             :owned?   (obs/owned? handle)})))
-        {:observations (persistent! obs)
+                 (conj obs {:site-key site-key
+                            :query    (:query record)
+                            :frame-id (:frame-id (:target record))
+                            :value    (:value reading)
+                            :owned?   (obs/owned? handle)})))
+        {:observations obs
          :moved?       moved}))))
 
 ;; ---------------------------------------------------------------------------
@@ -1267,7 +1323,7 @@
       :abandoned
       (let [order   @(.-order cand)
             by-site @(.-by-site cand)
-            prior   (:deps s0)
+            prior   (:deps (:bundle s0) {})
             fid     (.-frame cand)
             {:keys [staged acquired]} (stage! owner-cell prior order by-site)
             ;; The commit-side reads are part of the pre-publication
@@ -1303,8 +1359,17 @@
         (if-not (current? cand @(st owner-cell))
           (do (release-all! (rseq acquired))
               :abandoned)
-          (let [bundle   {:frame        fid
+          (let [;; THE BUNDLE IS THE WHOLE PUBLICATION, assembled before any
+                ;; of it is live. `order` is the candidate's own render order
+                ;; and is already a vector — the order volatile opens at `[]`
+                ;; and only ever `conj`es — so it is carried as it stands.
+                ;; Sharing it is safe whatever the candidate does next: a
+                ;; persistent vector's `conj` answers a new vector and cannot
+                ;; reach this one.
+                bundle   {:frame        fid
                           :generation   (.-generation cand)
+                          :deps         staged
+                          :dep-order    order
                           :observations (:observations scan)}
                 ;; Build and VALIDATE the dev evidence BEFORE the publish below —
                 ;; the two-plane split: a malformed FRAMEWORK projection or
@@ -1325,21 +1390,16 @@
                            (catch #?(:clj Throwable :cljs :default) e
                              (release-all! (rseq acquired))
                              (throw e)))]
-            ;; ONE publication. Dependencies, frame and evidence become
-            ;; live in a single write, and the event site table becomes
-            ;; live against this exact frame with no host yield between
-            ;; them — nothing can observe a partial bundle.
-            ;; `order` is the candidate's own render order and is already a
-            ;; vector — the order volatile opens at `[]` and only ever
-            ;; `conj`es — so it is published as it stands. Sharing it is safe
-            ;; whatever the candidate does next: a persistent vector's `conj`
-            ;; answers a new vector and cannot reach this one.
+            ;; ONE publication, and now literally one value. Dependencies,
+            ;; frame and evidence become live in a single write, and the
+            ;; event site table becomes live against this exact frame with
+            ;; no host yield between them — nothing can observe a partial
+            ;; bundle. The atomicity was always in the single `swap!`; what
+            ;; the one `:bundle` slot adds is that there is no longer a
+            ;; SHAPE in which a partial bundle could be written at all.
             (swap! (st owner-cell) assoc
                    :lifecycle :connected
-                   :frame     fid
-                   :deps      staged
-                   :dep-order order
-                   :evidence  bundle)
+                   :bundle    bundle)
             (events/commit! (.-events cand)
                             (frame-dispatcher fid)
                             (frame-door-dispatcher fid))
@@ -1397,15 +1457,17 @@
   (let [s @(st cell)]
     (when-not (= :disconnected (:lifecycle s))
       (events/retire! (:events s))
+      ;; Dropping the bundle is the whole disownership, for the same reason
+      ;; installing it was the whole publication: there is one slot, so a
+      ;; disconnect cannot half-happen either.
       (swap! (st cell) assoc
              :lifecycle :disconnected
-             :frame     nil
-             :deps      {}
-             :dep-order []
-             :evidence  nil
+             :bundle    nil
              :dirty     nil)
       (swap! pending-cells disj cell)
       (when interop/debug-enabled?
         (occurrences/forget! (occurrence-of cell)))
-      (release-all! (map :handle (vals (:deps s))))))
+      ;; `s` is the pre-swap snapshot, so this still reaches the handles the
+      ;; cell owned a moment ago.
+      (release-all! (map :handle (vals (:deps (:bundle s) {}))))))
   nil)

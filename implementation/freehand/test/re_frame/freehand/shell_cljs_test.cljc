@@ -134,6 +134,53 @@
             (is (every? :owned? (:observations (cell/evidence c)))
                 "and reports ownership honestly")))))))
 
+(deftest fh-sub-001-the-selected-render-is-one-bundle
+  (testing "Per FH-SUB-001 and Spec 006 §The selected render bundle: what a
+            commit publishes is ONE value, and each projection is a door onto
+            that value rather than a slot of its own.
+
+            The previous row proves the bundle becomes live TOGETHER. This
+            one proves there is only one thing to become live: held as four
+            independent slots, a cell could be left with three of them
+            agreeing and the fourth a render behind, and the frame in
+            particular had two homes — once at top level and once inside the
+            evidence it published. So the assertions here are about IDENTITY
+            and about the bundle's key set, not about equality: an equal copy
+            in a second slot is exactly the shape being ruled out."
+    (let [{:keys [a b]} (:queries sub-001)]
+      (rf/reg-sub (first a) (fn [db _] (:a db)))
+      (rf/reg-sub (first b) (fn [db _] (:b db)))
+      (seed! fid (:db sub-001))
+      (let [c (cell/cell :shell/panel)]
+        (testing "before any render is selected there is no bundle at all"
+          (is (nil? (cell/evidence c)))
+          (is (nil? (cell/committed-frame c)))
+          (is (= {} (cell/dependencies c))
+              "and an absent bundle reads as an empty set rather than nil")
+          (is (= [] (cell/dependency-queries c))))
+        (is (= :published (render+commit! c fid [a b])))
+        (let [bundle (cell/evidence c)]
+          (testing "the selected commit published exactly one bundle"
+            (is (= #{:frame :generation :deps :dep-order :observations}
+                   (set (keys bundle)))
+                "the frame, the dependency set, the render order and the
+                 observations are ONE value"))
+          (testing "and every door reads through THAT value"
+            (is (identical? (:deps bundle) (cell/dependencies c))
+                "the dependency map is the bundle's own, not a copy of it")
+            (is (= fid (:frame bundle) (cell/committed-frame c)))
+            (is (= [a b] (cell/dependency-queries c)))
+            (is (= (mapv :query (:observations bundle))
+                   (cell/dependency-queries c))
+                "so the render order, the dependency map and the observations
+                 cannot disagree about what this render read")))
+        (testing "and dropping the one slot is the whole disownership"
+          (cell/disconnect! c)
+          (is (nil? (cell/evidence c)))
+          (is (nil? (cell/committed-frame c)))
+          (is (= {} (cell/dependencies c)))
+          (is (= [] (cell/dependency-queries c))))))))
+
 (deftest fh-sub-001-an-unchanged-site-is-retained-untouched
   (testing "Per FH-SUB-001: the commit kept-check retains an unchanged
             live handle UNTOUCHED — the same handle object, no
