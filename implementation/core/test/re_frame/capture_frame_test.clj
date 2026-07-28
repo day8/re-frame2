@@ -16,7 +16,34 @@
 
   These JVM tests use `with-frame :A` to set the dynamic var, capture the
   handle, then EXIT the with-frame scope before invoking its ops —
-  proving the captured frame survives the unwind."
+  proving the captured frame survives the unwind.
+
+  ## Posture split (rf2-d2841)
+
+  NO GUARD WAS NEEDED HERE, and the reason is the question rf2-d2841's fourth
+  pass learned to ask on the error axis: IS THE CATEGORY PROMOTED?
+  `:rf.error/frame-destroyed` is one of the categories `error-emit` fans onto
+  the always-on corpus-wide listener registry (`error-emit` ns docstring,
+  §promoted set covers frame-destroyed dispatch / subscribe), so every incarnation
+  -fence assertion in this file survives the production gate verbatim once it
+  reads the `:errors` STREAM instead of the `:trace` stream. That is the whole
+  change: `register-listener! :errors`, and `(:error rec)` where the trace
+  spelled `(:operation ev)`.
+
+  It matters more here than the mechanical size of the diff suggests. These are
+  incarnation-fence tests — the class of defect where a capture pinned to a
+  destroyed incarnation leaks into a same-id successor and mutates it — and
+  every one of them was previously unexecuted under the posture that ships.
+
+  TWO VACUOUS PASSES CAME OFF (rf2-d2841 class 1 — a negative over an empty
+  trace ring), and both were in deftests already GREEN under the gate:
+  `live-target-not-reported-destroyed-when-only-owner-dies-async` / `-sync`
+  each certify `(zero? (count (filter #(= :rf.error/frame-destroyed …))))` —
+  the LIVE target was not wrongly reported destroyed — over a stream that
+  carried nothing at all. A false-negative check on a fence is exactly the
+  assertion you least want passing for free; re-aimed at the always-on stream
+  it now discriminates, with its sibling deftests supplying the control that
+  the same stream DOES carry the category when the fence genuinely fires."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -141,15 +168,15 @@
       (rf/make-frame {:id :fh/sub-stale :doc "incarnation B (successor)"})
       (rf/dispatch-sync [:fh/seed :B-value] {:frame :fh/sub-stale})
       (let [errs (atom [])]
-        (rf/register-listener! :trace ::sub-stale (fn [ev] (swap! errs conj ev)))
+        (rf/register-listener! :errors ::sub-stale (fn [rec] (swap! errs conj rec)))
         ;; Before the fix this returned a reaction reading B's :B-value; the
         ;; fence makes it recover-but-emit and return nil.
         (let [result (subscribe [:fh/value])]
-          (rf/unregister-listener! :trace ::sub-stale)
+          (rf/unregister-listener! :errors ::sub-stale)
           (is (nil? result)
               "the superseded capture's subscribe returns nil — it did NOT
                resolve a reaction into successor B")
-          (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+          (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
               "the superseded subscribe recover-but-emits :rf.error/frame-destroyed"))))))
 
 (deftest capture-frame-over-value-pins-exact-incarnation
@@ -174,14 +201,14 @@
         (rf/destroy-frame! frame-a)
         (rf/make-frame {:id :fh/vpin :doc "incarnation B (successor)"})
         (let [errs (atom [])]
-          (rf/register-listener! :trace ::vpin (fn [ev] (swap! errs conj ev)))
+          (rf/register-listener! :errors ::vpin (fn [rec] (swap! errs conj rec)))
           ;; Before the fix the unpinned value-capture retargeted B and set
           ;; :mark; the carried-token pin makes it recover-but-emit.
           (dispatch-sync [:fh/mark :leaked])
-          (rf/unregister-listener! :trace ::vpin)
+          (rf/unregister-listener! :errors ::vpin)
           (is (nil? (:mark (rf/app-db-value :fh/vpin)))
               "the stale value-capture did NOT mutate the same-id successor B")
-          (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+          (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
               "the superseded value-capture dispatch recover-but-emits :rf.error/frame-destroyed"))))))
 
 ;; ---- rf2-dlld6: carry the captured incarnation THROUGH target consumption ---
@@ -240,13 +267,13 @@
     (let [a-token (frame/frame-incarnation-token :fh/race)
           {:keys [dispatch-sync]} (rf/capture-frame :fh/race) ;; pins A
           errs    (atom [])]
-      (rf/register-listener! :trace ::race (fn [ev] (swap! errs conj ev)))
+      (rf/register-listener! :errors ::race (fn [rec] (swap! errs conj rec)))
       (run-supersede-during-precheck
         :fh/race a-token #(dispatch-sync [:fh/mark]))
-      (rf/unregister-listener! :trace ::race)
+      (rf/unregister-listener! :errors ::race)
       (is (nil? (:marked-by (rf/app-db-value :fh/race)))
           "the stale capture did NOT mutate same-id successor B")
-      (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+      (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
           "the superseded dispatch-sync recover-but-emits :rf.error/frame-destroyed"))))
 
 (deftest stale-capture-async-dispatch-does-not-enqueue-into-same-id-successor
@@ -258,18 +285,18 @@
     (let [a-token (frame/frame-incarnation-token :fh/race)
           {:keys [dispatch]} (rf/capture-frame :fh/race) ;; pins A
           errs    (atom [])]
-      (rf/register-listener! :trace ::race (fn [ev] (swap! errs conj ev)))
+      (rf/register-listener! :errors ::race (fn [rec] (swap! errs conj rec)))
       (run-supersede-during-precheck
         :fh/race a-token #(dispatch [:fh/mark]))
       ;; The fence short-circuits BEFORE enqueue/schedule, so nothing can drain
       ;; into B; poll to confirm the emit lands rather than asserting a single
       ;; instant.
-      (test-support/poll-until (fn [] (some (fn [ev] (= :rf.error/frame-destroyed (:operation ev))) @errs))
+      (test-support/poll-until (fn [] (some (fn [ev] (= :rf.error/frame-destroyed (:error ev))) @errs))
                                {:label "async fence emits frame-destroyed"})
-      (rf/unregister-listener! :trace ::race)
+      (rf/unregister-listener! :errors ::race)
       (is (nil? (:marked-by (rf/app-db-value :fh/race)))
           "the stale async dispatch enqueued nothing into successor B")
-      (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+      (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
           "the superseded async dispatch recover-but-emits :rf.error/frame-destroyed"))))
 
 (deftest stale-capture-subscribe-race-does-not-read-or-cache-in-same-id-successor
@@ -282,15 +309,15 @@
     (let [a-token (frame/frame-incarnation-token :fh/race)
           {:keys [subscribe]} (rf/capture-frame :fh/race) ;; pins A
           errs    (atom [])
-          result  (do (rf/register-listener! :trace ::race (fn [ev] (swap! errs conj ev)))
+          result  (do (rf/register-listener! :errors ::race (fn [rec] (swap! errs conj rec)))
                       (run-supersede-during-precheck
                         :fh/race a-token #(subscribe [:fh/value])))]
-      (rf/unregister-listener! :trace ::race)
+      (rf/unregister-listener! :errors ::race)
       (is (nil? result)
           "the superseded subscribe returns nil — it did NOT resolve a reaction into B")
       (is (empty? @(:sub-cache (frame/frame :fh/race)))
           "no reaction/cache entry was installed in same-id successor B's sub-cache")
-      (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+      (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
           "the superseded subscribe recover-but-emits :rf.error/frame-destroyed"))))
 
 ;; ---- rf2-7w1im: the POST-comparison boundary (not only the pre-check) -------
@@ -353,17 +380,17 @@
     (rf/dispatch-sync [:fh/seed :A-value] {:frame :fh/race})
     (let [{:keys [subscribe]} (rf/capture-frame :fh/race)   ;; pins A
           errs   (atom [])
-          _      (rf/register-listener! :trace ::pcb-miss (fn [ev] (swap! errs conj ev)))
+          _      (rf/register-listener! :errors ::pcb-miss (fn [rec] (swap! errs conj rec)))
           result (run-supersede-at-build :fh/race [:fh/value]
                    #(subscribe [:fh/value]))]
-      (rf/unregister-listener! :trace ::pcb-miss)
+      (rf/unregister-listener! :errors ::pcb-miss)
       (is (nil? result)
           "the post-comparison-superseded subscribe returns nil — it did NOT resolve into B")
       (is (= :B-value (:value (rf/app-db-value :fh/race)))
           "successor B's app-db is intact (untouched by the stale build)")
       (is (empty? @(:sub-cache (frame/frame :fh/race)))
           "no reaction/cache entry was installed in successor B's sub-cache")
-      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
+      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))
           "exactly one :rf.error/frame-destroyed emit"))))
 
 (deftest live-capture-subscribe-miss-still-reads-its-own-incarnation
@@ -397,17 +424,17 @@
     (rf/dispatch-sync [:fh/seed :A-value] {:frame :fh/race})
     (let [{:keys [subscribe]} (rf/capture-frame :fh/race)   ;; pins A
           errs   (atom [])
-          _      (rf/register-listener! :trace ::pcb-rec (fn [ev] (swap! errs conj ev)))
+          _      (rf/register-listener! :errors ::pcb-rec (fn [rec] (swap! errs conj rec)))
           ;; Fire at the INPUT build ([:fh/value]) — AFTER the entry [:fh/derived]
           ;; build validated A and began resolving its inputs.
           _      (run-supersede-at-build :fh/race [:fh/value]
                    #(subscribe [:fh/derived]))]
-      (rf/unregister-listener! :trace ::pcb-rec)
+      (rf/unregister-listener! :errors ::pcb-rec)
       (is (= :B-value (:value (rf/app-db-value :fh/race)))
           "successor B's app-db is intact")
       (is (empty? @(:sub-cache (frame/frame :fh/race)))
           "neither :fh/derived nor its input :fh/value is installed in successor B's sub-cache")
-      (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+      (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
           "the recursive input's build fence emits :rf.error/frame-destroyed"))))
 
 ;; ---- rf2-a2x2w: exactly-once when A is lost AFTER the token match ----------
@@ -475,12 +502,12 @@
     (rf/make-frame {:id :fh/race :doc "incarnation A"})
     (let [{:keys [dispatch]} (rf/capture-frame :fh/race)   ;; pins A
           errs (atom [])]
-      (rf/register-listener! :trace ::a2x2w-async (fn [ev] (swap! errs conj ev)))
+      (rf/register-listener! :errors ::a2x2w-async (fn [rec] (swap! errs conj rec)))
       (run-supersede-at-enqueue :fh/race #(dispatch [:fh/mark]))
-      (rf/unregister-listener! :trace ::a2x2w-async)
+      (rf/unregister-listener! :errors ::a2x2w-async)
       (is (nil? (:marked-by (rf/app-db-value :fh/race)))
           "the post-token-match loss enqueued nothing into successor B")
-      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
+      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))
           "EXACTLY ONE :rf.error/frame-destroyed for the post-token-match async loss"))))
 
 (deftest stale-capture-dispatch-sync-post-token-match-emits-exactly-once
@@ -493,12 +520,12 @@
     (rf/make-frame {:id :fh/race :doc "incarnation A"})
     (let [{:keys [dispatch-sync]} (rf/capture-frame :fh/race)   ;; pins A
           errs (atom [])]
-      (rf/register-listener! :trace ::a2x2w-sync (fn [ev] (swap! errs conj ev)))
+      (rf/register-listener! :errors ::a2x2w-sync (fn [rec] (swap! errs conj rec)))
       (run-supersede-at-drain-block :fh/race #(dispatch-sync [:fh/mark]))
-      (rf/unregister-listener! :trace ::a2x2w-sync)
+      (rf/unregister-listener! :errors ::a2x2w-sync)
       (is (nil? (:marked-by (rf/app-db-value :fh/race)))
           "the post-token-match loss processed nothing into successor B")
-      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
+      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))
           "EXACTLY ONE :rf.error/frame-destroyed for the post-token-match sync loss"))))
 
 ;; ---- rf2-iqfbg: a live target is NOT reported destroyed when only the ------
@@ -561,17 +588,17 @@
           target-token (frame/frame-incarnation-token :audit/target)
           {:keys [dispatch]} (rf/capture-frame :audit/target)   ;; pins target A
           errs (atom [])]
-      (rf/register-listener! :trace ::iqfbg-async (fn [ev] (swap! errs conj ev)))
+      (rf/register-listener! :errors ::iqfbg-async (fn [rec] (swap! errs conj rec)))
       (frame/call-with-event-owner-token :audit/owner owner-token
         (fn [] (run-owner-death-at-dispatch :audit/owner #(dispatch [:audit/touch]))))
-      (rf/unregister-listener! :trace ::iqfbg-async)
+      (rf/unregister-listener! :errors ::iqfbg-async)
       (is (nil? (frame/frame :audit/owner))
           "precondition: the interpose actually destroyed the originating owner")
       (is (frame/frame-incarnation-live? :audit/target target-token)
           "the captured TARGET incarnation is STILL LIVE — only the owner died")
       (is (nil? (:marked-by (rf/app-db-value :audit/target)))
           "owner-continuation cutoff drops the op — the live target is untouched")
-      (is (zero? (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
+      (is (zero? (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))
           "NO frame-destroyed: a live target is never reported destroyed for an owner cutoff"))))
 
 (deftest live-target-not-reported-destroyed-when-only-owner-dies-sync
@@ -589,17 +616,17 @@
           target-token (frame/frame-incarnation-token :audit/target)
           {:keys [dispatch-sync]} (rf/capture-frame :audit/target)   ;; pins target A
           errs (atom [])]
-      (rf/register-listener! :trace ::iqfbg-sync (fn [ev] (swap! errs conj ev)))
+      (rf/register-listener! :errors ::iqfbg-sync (fn [rec] (swap! errs conj rec)))
       (frame/call-with-event-owner-token :audit/owner owner-token
         (fn [] (run-owner-death-at-dispatch :audit/owner #(dispatch-sync [:audit/touch]))))
-      (rf/unregister-listener! :trace ::iqfbg-sync)
+      (rf/unregister-listener! :errors ::iqfbg-sync)
       (is (nil? (frame/frame :audit/owner))
           "precondition: the interpose actually destroyed the originating owner")
       (is (frame/frame-incarnation-live? :audit/target target-token)
           "the captured TARGET incarnation is STILL LIVE — only the owner died")
       (is (nil? (:marked-by (rf/app-db-value :audit/target)))
           "owner-continuation cutoff drops the op — the live target is untouched")
-      (is (zero? (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
+      (is (zero? (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))
           "NO frame-destroyed: a live target is never reported destroyed for an owner cutoff"))))
 
 ;; ---- contract: (capture-frame) outside any scope RAISES (EP-0002) ---------
