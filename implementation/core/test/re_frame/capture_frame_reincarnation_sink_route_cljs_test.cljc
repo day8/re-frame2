@@ -47,12 +47,31 @@
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both run it. Plain
   CLJC; no DOM dependency. The interposition redefines the PUBLIC
   `frame/frame-incarnation-live?` (a plain `defn`), so `with-redefs` intercepts
-  the cross-namespace pre-check call on both hosts."
+  the cross-namespace pre-check call on both hosts.
+
+  ## Posture split (rf2-d2841)
+
+  This file is almost entirely ALWAYS-ON already, because the bead it pins is
+  itself an always-on concern: the EP-0015 §9 frame-owned `:errors` sink route
+  and the corpus-wide error record (axis 1) both survive
+  `-Dre-frame.debug=false`. The regression — B's sink staying clean — the
+  recovery, the attribution on the surviving record, and the vacuity probe that
+  proves B's sink is armed therefore ALL run under
+  `scripts/test-core-prod-gate.sh` unchanged.
+
+  Exactly ONE assertion is posture-dependent: `(= 1 (count traces))`, the axis-2
+  DEV TRACE counterpart in `assert-preserved-record!`. It sits inside a
+  `(when interop/debug-enabled? …)` arm. Note what does NOT need one — the
+  `(zero? (count @b-sink))` negative, which would be the textbook vacuous pass
+  if the sink were dev-gated. It is not, and `probe-vacuity!` proves it by
+  landing a real record in the same sink immediately afterwards. That probe is
+  the shape worth copying."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core          :as rf]
             [re-frame.error-emit    :as error-emit]
             [re-frame.frame         :as frame]
+            [re-frame.interop       :as interop]
             [re-frame.observability :as observability]
             [re-frame.privacy       :as privacy]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -135,7 +154,12 @@
   carrying A's bare captured frame id, the `:op` realm, and the structural head."
   [{:keys [records traces]} op fid head raw-event]
   (is (= 1 (count records)) "EXACTLY ONE corpus-wide :rf.error/frame-destroyed record still fans")
-  (is (= 1 (count traces))  "EXACTLY ONE dev trace on axis 2 still fires")
+  ;; rf2-d2841 — axis 2 is the DEV trace and emits nothing under
+  ;; -Dre-frame.debug=false. Axis 1, asserted above and picked apart below, is
+  ;; the production-survivable channel and the one this bead's regression
+  ;; actually lives on, so the rest of this fn stays outside the arm.
+  (when interop/debug-enabled?
+    (is (= 1 (count traces))  "EXACTLY ONE dev trace on axis 2 still fires"))
   (let [r (first records)]
     (is (= :rf.error/frame-destroyed (:error r))    "corpus category retained")
     (is (= fid (:frame r))                          "corpus record carries A's captured bare frame id")
