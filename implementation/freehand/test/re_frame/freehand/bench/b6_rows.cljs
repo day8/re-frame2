@@ -313,6 +313,11 @@
   the clock — then VERIFY at the DOM that the cell holds what was written.
   Answers a promise of `{:ms … :write-ms … :force-ms … :ok? …}`.
 
+  **The yield is not optional and it is not historical.** See the comment
+  above [[timed-write-no-yield!]] and `rf2-vxfjt`: with the microtask
+  deleted, both Freehand arms fail this function's own read-back on every
+  write.
+
   The window is SPLIT because the split answers the comparison's biggest
   fairness question. This row pits Freehand reading re-frame `app-db`
   against Reagent reading a bare `reagent.core/atom`, which is each
@@ -346,6 +351,74 @@
                         :ok?      (= (str val) (cell-text container probe))
                         :ok2?     (or (not= i :all)
                                       (= (str val) (cell-text container (dec cells-n))))}))))))))
+
+(defn timed-write-no-yield!
+  "[[timed-write!]] with the microtask boundary removed and NOTHING else
+  changed: write, force the arm's own synchronous drain, stop the clock,
+  read the written cell back out of the DOM.
+
+  This is not the published window and it is not offered as one. It is the
+  ablation `rf2-vxfjt` asks for — `rf2-w2m25` gave Freehand a synchronous
+  commit, so the yield the published window carries is no longer REQUIRED
+  by any arm, and the question is whether removing it tightens every
+  figure by a microtask boundary or simply moves the same work into the
+  `flushSync` (or, worse, lands the commit after the clock has stopped).
+
+  `:gap-ms` is reported as 0.0 rather than omitted, so a reader diffing
+  the two windows' leg tables is not left wondering which key went
+  missing. The per-write DOM read-back is the whole gate: a window whose
+  commit lands outside it reads the OLD value, which is precisely the
+  fault `b6-rows` records from this row's first attempt — 80 of 320 floor
+  samples ending on a stale cell."
+  [{:keys [arm container]} i val]
+  (let [t0 (m/now-ms)]
+    ((:write! arm) i val)
+    (let [t1 (m/now-ms)]
+      ((:force! arm))
+      (let [t2    (m/now-ms)
+            probe (if (= i :all) 0 i)]
+        (js/Promise.resolve
+          {:ms       (- t2 t0)
+           :write-ms (- t1 t0)
+           :gap-ms   0.0
+           :force-ms (- t2 t1)
+           :ok?      (= (str val) (cell-text container probe))
+           :ok2?     (or (not= i :all)
+                         (= (str val) (cell-text container (dec cells-n))))})))))
+
+(defn timed-write-in-flush!
+  "The OTHER yield-free window: put the write inside a
+  `react-dom/flushSync`, then force the arm's own drain, then stop the
+  clock. Still no microtask.
+
+  This is the shape
+  [[re-frame.freehand.bench.b6-update-dom-cljs-test/a-freehand-write-commits-inside-flushsync]]
+  pins — `rf2-w2m25` gave Freehand's ViewCell pending window a second
+  closer that React can see, so a write made inside a flush commits
+  before the flush returns. [[timed-write-no-yield!]] does NOT have that
+  property, because there the write happens outside any flush and the
+  arm's drain is an EMPTY one.
+
+  The write is inside the flush and the drain is outside it, rather than
+  both inside, because `force!` opens a `flushSync` of its own on every
+  arm and React does not welcome a nested one. That ordering also keeps
+  the floor arm honest: its render lives in `force!` by construction, so
+  a window that flushed only the write would measure nothing for it."
+  [{:keys [arm container]} i val]
+  (let [t0 (m/now-ms)]
+    (react-dom/flushSync (fn [] ((:write! arm) i val)))
+    (let [t1 (m/now-ms)]
+      ((:force! arm))
+      (let [t2    (m/now-ms)
+            probe (if (= i :all) 0 i)]
+        (js/Promise.resolve
+          {:ms       (- t2 t0)
+           :write-ms (- t1 t0)
+           :gap-ms   0.0
+           :force-ms (- t2 t1)
+           :ok?      (= (str val) (cell-text container probe))
+           :ok2?     (or (not= i :all)
+                         (= (str val) (cell-text container (dec cells-n))))})))))
 
 (defn chain
   "Fold `xs` into a serial promise chain, threading an accumulator."
@@ -418,19 +491,35 @@
                       :force-ms (:p50 (m/summarise (map :force xs)))})]))
         legs))
 
-;; THE MICROTASK YIELD IS PRICED IN SITU, BY THE ARMS THAT DO NOT NEED IT.
+;; THE MICROTASK YIELD IS PRICED IN SITU, BY THE ARMS THAT DO NOT NEED IT,
+;; AND IT IS STILL LOAD-BEARING. `rf2-vxfjt` MEASURED THAT.
 ;;
 ;; Every measured write pays one microtask yield, because the slowest arm
-;; required one when this window was designed (rf2-w2m25 has since removed
-;; that requirement; the row has not been re-taken), so a reader is owed
-;; the size of that constant. The
-;; measurement is `:gap-ms` in the `:legs` decomposition, and the control
-;; is that the floor and Reagent arms — which commit without it — report
-;; `:gap-ms 0.0` in every round of both rows. The yield costs nothing;
-;; what shows up in the Freehand arms' gap is Freehand's own notification
-;; callback running there, and it scales with the write exactly as it
-;; should (≈0.35 ms when a broad write moves 300 subscriptions, ≈0.01 ms
-;; when a narrow one moves one).
+;; required one when this window was designed, so a reader is owed the
+;; size of that constant. The measurement is `:gap-ms` in the `:legs`
+;; decomposition, and the control is that the floor and Reagent arms —
+;; which commit without it — report `:gap-ms 0.0` in every round of both
+;; rows. The yield costs nothing; what shows up in the Freehand arms' gap
+;; is Freehand's own notification callback running there.
+;;
+;; THE YIELD IS NOT REMOVABLE, and this comment used to say it was.
+;; `rf2-w2m25` gave a write made INSIDE a `flushSync` a synchronous
+;; commit, and both this file and `b6_update_dom_cljs_test` concluded that
+;; the row could therefore be re-taken without the microtask. It cannot.
+;; `b6_yield_app` ran the ablation against the DOM read-back on every arm,
+;; six rounds, both rows: with the microtask deleted and nothing else
+;; changed, **every single one of the two Freehand arms' writes fails the
+;; read-back** — 66 of 66 per arm broad, 1,320 of 1,320 per arm narrow,
+;; and 0 of 66 / 0 of 1,320 on every other arm. The write is outside any
+;; flush, so `rf2-w2m25`'s closer never fires and the empty `flushSync`
+;; that follows has nothing to commit; the clock stops on the OLD value.
+;;
+;; The one yield-free window that DOES verify is `flushSync(write)` then
+;; the arm's drain, and it is not a tightening: broad, Freehand
+;; interpreted reads 3.5 ms [3.4–4.7] against the published window's
+;; 3.5 [3.2–4.3], ranges overlapping. The same work moves out of the gap
+;; leg and into the write leg (0.6–0.8 + gap 2.5–3.2 becomes 3.4–4.7 + gap
+;; 0.0) and the total does not move. There is nothing to win here.
 ;;
 ;; A first attempt priced it instead by chaining 2,000 bare
 ;; `js/Promise.resolve`s and dividing, which reported ≈1 ms a hop — larger
@@ -494,14 +583,15 @@
                                             "Reagent); t1 — then the written cell is read back "
                                             "out of the DOM and the sample is rejected if it "
                                             "does not hold the written value. The microtask is "
-                                            "HISTORICAL: a mounted Freehand v/sub did not repaint "
-                                            "inside flushSync when this window was designed — its "
-                                            "notification rode a microtask, and a first pass that "
-                                            "timed inside flushSync measured Freehand writes that "
-                                            "never reached the DOM at all. rf2-w2m25 fixed that, so "
-                                            "the yield is no longer required by any arm and the row "
-                                            "is re-takeable without it; these figures were NOT "
-                                            "re-taken, so they still carry it. Arms interleaved at the "
+                                            "LOAD-BEARING and rf2-vxfjt measured that: delete it and "
+                                            "every one of the two Freehand arms' writes fails the DOM "
+                                            "read-back (66 of 66 per arm broad, 1320 of 1320 narrow, "
+                                            "0 on every other arm), because the write is then outside "
+                                            "any flush and rf2-w2m25's synchronous-commit closer never "
+                                            "fires. The one yield-free window that DOES verify — "
+                                            "flushSync(write) then the drain — costs the same to "
+                                            "within overlapping ranges, so there is no tightening "
+                                            "available. Arms interleaved at the "
                                             "sample level, order rotating AND REFLECTING on the sample "
                                             "index so no arm always follows the same neighbour "
                                             "(rf2-88pie: a bare rotation does not vary that); "

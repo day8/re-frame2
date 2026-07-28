@@ -402,6 +402,133 @@ window and does not belong in a re-take.
 
 ---
 
+## 7. The yield-free re-take, 2026-07-28 — the yield stays (`rf2-vxfjt`)
+
+Measured on `worker/bench-method-88pie` off `origin/main` with
+`b6_yield_app`, riding `b6_prod_run.cjs`'s `B6_INIT_FN` seam so the
+driver, the arms and the fixture are the published ones.
+**Chromium 147 headless via Playwright, `:advanced`, `goog.DEBUG false`.
+Six rounds of 3 warm-up + 8 samples; three windows and five arms
+interleaved at the sample level, the window rotating and the arm order
+rotating *and reflecting* (`rf2-88pie`).** Ranges are across rounds.
+
+Three windows, differing only in how the write reaches React:
+
+| | shape |
+|---|---|
+| `yield` | the published one — `write`, one microtask, the arm's drain |
+| `no-yield` | the literal ablation — `write`, the arm's drain |
+| `in-flush` | `flushSync(write)`, then the arm's drain |
+
+### The non-vacuity gate, before any figure
+
+Every arm, every shape, a value no other write installs, read back out of
+the DOM.
+
+| arm | `flushSync(write)` alone | `no-yield` | `in-flush` | `yield` |
+|---|---|---|---|---|
+| floor | no *(by construction)* | **yes** | **yes** | **yes** |
+| freehand-interpreted | yes | **NO** | **yes** | **yes** |
+| freehand-compiled | yes | **NO** | **yes** | **yes** |
+| reagent | no *(by construction)* | **yes** | **yes** | **yes** |
+| `floor+spin` (control) | no *(by construction)* | **yes** | **yes** | **yes** |
+
+The floor and Reagent answer `no` to the first column because their
+`write!` only moves a plain atom — their render lives in `force!` — and
+that is the shape of the arm, not a failure.
+
+### The answer
+
+**Deleting the microtask and changing nothing else is not available.**
+Across both rows, **2,772 writes of 20,790 failed their read-back, and
+every one of them is a Freehand arm in the `no-yield` window**: 66 of 66
+per arm on the broad row, 1,320 of 1,320 per arm on the narrow one, and
+**0 of 66 / 0 of 1,320 in every other one of the fifteen (arm, window)
+cells**. The write sits outside any flush, so #7133's closer never fires,
+the empty `flushSync` after it has nothing to commit, and the clock stops
+on the old value.
+
+| broad, p50 ms/write | `yield` | `no-yield` | `in-flush` |
+|---|---:|---:|---:|
+| floor | 0.1 [0.1–0.2] | 0.1 [0.1–0.2] | 0.2 [0.1–0.2] |
+| **freehand-interpreted** | **3.5** [3.2–4.3] | *0.7* [0.6–0.8] ✗ | **3.5** [3.4–4.7] |
+| **freehand-compiled** | **3.1** [3.0–3.8] | *0.6* [0.6–0.8] ✗ | **3.2** [3.0–3.8] |
+| reagent | 0.4 [0.3–0.5] | 0.4 [0.3–0.5] | 0.3 [0.3–0.5] |
+| `floor+spin` control | 2.1 [2.1–2.1] | 2.1 [2.1–2.1] | 2.1 [2.0–2.1] |
+
+✗ = every write in that cell failed the DOM read-back. **A 5× "speed-up"
+that is the commit landing outside the measured window** — §6 predicted
+exactly this, and it is the fault `b6-rows` records from this row's first
+attempt.
+
+**And the yield-free window that DOES verify buys nothing.** `in-flush`
+reads 3.5 [3.4–4.7] against the published 3.5 [3.2–4.3] on interpreted
+Freehand and 3.2 [3.0–3.8] against 3.1 [3.0–3.8] on compiled —
+**overlapping ranges on every arm, so indistinguishable**. The legs say
+where it went: interpreted Freehand's published window is write 0.6–0.8
+plus gap 2.5–3.2, and `in-flush` is write 3.4–4.7 plus gap 0.0. Same
+work, third re-attribution. `rf2-huhno`'s hoped-for tightening does not
+exist, and #7133's extra commit pass is inside that window and not
+separable from it here.
+
+**So the yield stays**, and `b6-rows`' docstring, its published
+`:measurement-method` string and `b6_update_dom_cljs_test`'s namespace
+docstring have all stopped calling it removable.
+
+### The narrow row is the caution
+
+| narrow, p50 ms per 20-write sample | `yield` | `no-yield` | `in-flush` |
+|---|---:|---:|---:|
+| floor | 1.7 [1.6–2.2] | 1.6 [1.5–2.0] | 1.7 [1.5–1.9] |
+| **freehand-interpreted** | **9.7** [8.9–11.5] | *7.9* [7.5–9.9] ✗ | **10.8** [9.5–11.8] |
+| **freehand-compiled** | **10.8** [9.0–11.8] | *7.2* [6.0–7.8] ✗ | **11.5** [10.6–13.1] |
+| reagent | 1.0 [1.0–1.1] | 1.0 [0.9–1.3] | 1.1 [1.0–1.2] |
+| `floor+spin` control | 41.1 [40.8–41.8] | 41.2 [40.7–41.7] | 41.1 [40.8–41.9] |
+
+On interpreted Freehand the invalid window's range **overlaps** the
+published one — 7.5–9.9 against 8.9–11.5. By this page's own rule that is
+indistinguishable, so **the clock would have accepted a window in which
+1,320 of 1,320 writes never reached the page. Only the DOM read-back
+caught it.**
+
+### The positive control
+
+`floor+spin` is the floor arm with a 2.0 ms CPU spin wrapped around its
+own drain, so its sample must read the floor's plus 2.0 ms *per write of
+the sample*.
+
+| | predicted | measured | error |
+|---|---:|---:|---:|
+| broad, `yield` | 2.1 ms | 2.1 | **0.0** |
+| broad, `no-yield` | 2.1 | 2.1 | **0.0** |
+| broad, `in-flush` | 2.2 | 2.1 | −0.1 (one clock quantum) |
+| narrow, `yield` | 41.7 | 41.1 | −0.6 (**−1.4%**) |
+| narrow, `no-yield` | 41.6 | 41.2 | −0.4 (−1.0%) |
+| narrow, `in-flush` | 41.7 | 41.1 | −0.6 (−1.4%) |
+
+The per-write factor is not decoration: the first run of this ablation
+predicted a flat +2.0 ms and read +39.1 on the narrow row, because a
+narrow sample is twenty writes. **The control caught the harness's own
+arithmetic**, which is what a control is for.
+
+### What this does not settle
+
+- **No re-take of the published figures.** Nothing above changes B6's
+  numbers; it establishes that the window they are taken through is the
+  only sound one.
+- **Chromium only, and per-write absolutes are this machine's.** Ratios
+  transfer, absolutes do not.
+- **UIx has no update arm**, so the ablation is four arms plus a control.
+- **The gate's own bug is on the record.** The first version of the
+  non-vacuity probe ran its shapes back to back with nothing between
+  them, and read `in-flush` as failing on both Freehand arms while the
+  measured `in-flush` window verified 660 of 660 writes. The probe now
+  settles — one microtask plus a drain — before each shape. A probe that
+  contradicts the measurement it gates is the probe's bug, and it is only
+  visible because both were run.
+
+---
+
 ## Appendix: the W1 interpreted-mount discrepancy, resolved
 
 Two numbers for "interpreted Freehand's W1 mount" were 57% apart and both

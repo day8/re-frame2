@@ -34,17 +34,37 @@
   [[a-freehand-write-commits-inside-flushsync]] pins below, and it is
   where a regression in EITHER direction shows up.
 
-  The window this row is measured through has NOT been re-taken, so it is
-  still the shape the defect forced: **write, yield one microtask, force
-  the substrate's own synchronous drain, stop the clock.** Floor and
-  Reagent do not need the microtask and pay it anyway. Every arm is timed
-  through that ONE shape, so the comparison remains sound — what changed
-  is that it is no longer REQUIRED, and the row is now re-takeable as
-  `flushSync(write)` on all four arms, which would drop a microtask
-  boundary every arm currently pays. Whoever re-takes it should know that
-  the fix arms one extra React commit per render batch — a two-fiber
-  detached root rendering nil — which lands OUTSIDE the current window
-  but would move inside a re-taken one.
+  The window this row is measured through is still the shape the defect
+  forced: **write, yield one microtask, force the substrate's own
+  synchronous drain, stop the clock.** Floor and Reagent do not need the
+  microtask and pay it anyway. Every arm is timed through that ONE shape,
+  so the comparison remains sound.
+
+  **The yield stays, and that is measured rather than assumed.** This
+  docstring used to say the row was re-takeable as `flushSync(write)` on
+  all four arms, dropping a microtask boundary every arm pays.
+  `rf2-vxfjt` ran the ablation — `b6_yield_app`, six rounds, both rows,
+  every window gated on the per-write DOM read-back — and it says two
+  things.
+
+  - **Deleting the microtask and changing nothing else is not available.**
+    Both Freehand arms then fail the read-back on *every* write: 66 of 66
+    per arm on the broad row, 1,320 of 1,320 per arm on the narrow one,
+    against 0 on the floor, Reagent and the positive-control arms. The
+    write sits outside any flush, so `rf2-w2m25`'s closer never fires and
+    the empty `flushSync` after it has nothing to commit.
+  - **The window that DOES verify buys nothing.** `flushSync(write)` then
+    the arm's drain verifies on all four arms, and reads 3.5 ms
+    [3.4–4.7] for interpreted Freehand against the published window's 3.5
+    [3.2–4.3] — overlapping ranges, indistinguishable. The same work
+    moves out of the gap leg and into the write leg. The extra React
+    commit per render batch that `rf2-w2m25` arms is inside that window
+    and is not separable from it at this instrument's resolution.
+
+  A caution worth carrying: on the NARROW row the invalid yield-free
+  window is *faster* and its range still overlaps the published one, so
+  the clock alone would have accepted it. **Only the DOM read-back caught
+  it.**
 
   Nothing is measured inside an `act` environment — `act` diverts work to
   its own queue and, measured, cost 600 ms a call.
@@ -210,9 +230,10 @@
                  returns — no yield of any kind between the two")
             ;; The second leg: the window this row is actually measured
             ;; through — write, yield one microtask, force the drain — still
-            ;; carries a write to the DOM. Re-taking the row without the
-            ;; microtask is now legitimate; until it is, this is the shape
-            ;; whose non-vacuity matters.
+            ;; carries a write to the DOM. This is the shape whose
+            ;; non-vacuity matters, and rf2-vxfjt established that it is
+            ;; the only one available: the same window with the microtask
+            ;; deleted fails its read-back on every Freehand write.
             ((:write! arm) 0 8484)
             (-> (js/Promise.resolve nil)
                 (.then (fn [_]
