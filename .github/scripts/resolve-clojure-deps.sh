@@ -45,6 +45,35 @@
 # useless one. If resolution succeeds and the suite then fails, that failure
 # stands, first time, unretried.
 #
+# And, since the merged-PR audit of #7132, not every resolution failure either.
+# The first cut retried EVERY nonzero exit and then annotated it categorically
+# as "INFRASTRUCTURE, not this diff" — which is a lie for the failures a diff
+# owns. Driven locally against the real resolver, a nonexistent coordinate and
+# a malformed `deps.edn` each earned three attempts, 45s of sleeping, and an
+# annotation telling the author to re-run a deterministic failure and to look
+# away from their own change. That is worse than no annotation: it is a
+# confident wrong answer, and this script exists precisely because a confident
+# wrong answer about a dependency failure costs diagnosis time.
+#
+# So the output is CLASSIFIED, and the classification is deliberately narrow —
+# a short, explicit list of transport signatures, matched or not matched:
+#
+#   MATCHED    the failure is a fault of the network path to the repository.
+#              Retry (a throttle window may clear), and if it survives all
+#              attempts, name it as infrastructure AND quote the signature that
+#              earned that verdict, so the reader can check the reasoning
+#              instead of trusting the label.
+#
+#   UNMATCHED  say so, and say only that. No retry — a bad coordinate resolves
+#              exactly as badly the third time, so the 45s is pure waste — and
+#              no claim about whose fault it is beyond the honest one: nothing
+#              here looks like a transport fault, so read the resolver output.
+#
+# The bias is that an unrecognised transient fault degrades to "we do not know"
+# rather than to "not your diff". Widening the list when a new signature is
+# actually observed is the intended maintenance; guessing at signatures that
+# have never been seen is not.
+#
 # This mirrors `install-clojure-cli.sh`, the repo's existing single owner of
 # "transient network failure in CI setup reds a job before any test runs"
 # (rf2-9sgj8 / rf2-e7ja9) — same class of fault, one layer further down the
@@ -65,16 +94,43 @@ set -euo pipefail
 
 attempts=3
 
+log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+
+# The transport signatures that earn a retry and the INFRASTRUCTURE verdict.
+# Every entry is a fault of the network path to the repository, never of a
+# coordinate: rate-limiting and throttling (the observed rf2-vm036 fault),
+# server-side errors, and connection-level breakage.
+#
+# `Error building classpath` and `Failed to read artifact descriptor` are
+# NOT here, deliberately. tools.deps prints them for every resolution failure
+# whatever the cause, so they discriminate nothing — matching on them is how
+# the first cut came to call a bad coordinate infrastructure.
+#
+# Nor is `Could not find artifact`: that is Maven's 404, which means the
+# coordinate is wrong, which means it belongs to the diff.
+TRANSIENT_SIGNATURES='status code: (403|408|429|5[0-9][0-9])|Too Many Requests|Service Unavailable|Bad Gateway|Gateway Time-?out|ArtifactTransportException|MetadataTransportException|Connect(ion)? (reset|refused|timed out)|Read timed out|SocketTimeoutException|ConnectTimeoutException|UnknownHostException|NoRouteToHostException|Premature end of Content-Length|Remote host terminated the handshake|Broken pipe'
+
 for attempt in 1 2 3; do
-  if clojure -P "$@"; then
+  # `tee` so the resolver's own output still streams into the CI log live —
+  # the classification reads a copy, it does not replace what a human sees.
+  if clojure -P "$@" 2>&1 | tee "$log"; then
     exit 0
   fi
+
+  signature="$(grep -m1 -E -o "$TRANSIENT_SIGNATURES" "$log" || true)"
+
+  if [ -z "$signature" ]; then
+    echo "::error title=Dependency resolution failed — no transient transport signature::\`clojure -P${*:+ $*}\` failed in $(pwd), and nothing in its output matches a known transient transport fault (rate-limiting, a 5xx, a dropped connection). A re-run is therefore unlikely to help, and this step is NOT claiming the cause is infrastructure. Read the resolver output above: a resolution failure that is not a transport fault is usually a dependency this change owns — a coordinate that does not exist, a malformed deps.edn, or an alias that is not defined (rf2-vm036)."
+    exit 1
+  fi
+
   if [ "$attempt" -lt "$attempts" ]; then
     delay=$((attempt * 15))
-    echo "Clojure dependency resolution attempt ${attempt}/${attempts} failed in $(pwd); retrying in ${delay}s"
+    echo "Clojure dependency resolution attempt ${attempt}/${attempts} failed in $(pwd) with a transient transport signature ('${signature}'); retrying in ${delay}s"
     sleep "$delay"
   fi
 done
 
-echo "::error title=Dependency resolution failed — INFRASTRUCTURE, not this diff::\`clojure -P${*:+ $*}\` failed ${attempts} times in $(pwd). This step only downloads dependencies; it runs no test and no server, so the cause is the dependency infrastructure, not the code under review. Maven Central returns 403 Forbidden to CI runners under concurrent load (rf2-vm036) and tools.deps reports it as 'Error building classpath'. Re-run the job."
+echo "::error title=Dependency resolution failed — INFRASTRUCTURE, not this diff::\`clojure -P${*:+ $*}\` failed ${attempts} times in $(pwd), every time with a transient transport signature ('${signature}') — a fault of the network path to the repository, not of any coordinate. This step only downloads dependencies; it runs no test and no server, so no code under review has executed. Maven Central returns 403 Forbidden to CI runners under concurrent load (rf2-vm036) and tools.deps reports it as 'Error building classpath'. Re-run the job."
 exit 1

@@ -4615,9 +4615,11 @@ jobs:
       # reads like a code fault and cost real diagnosis time twice. With this
       # step the resolve is warm before the harness starts, and a genuine
       # resolution failure fails here, named, with an ::error:: annotation
-      # saying it is infrastructure. See the script for why caching (already
-      # configured above) was not the missing piece.
-      - name: Pre-resolve story-mcp classpath (a failure here is dependency infrastructure, not the diff)
+      # that says WHICH kind of failure it was — the script classifies the
+      # resolver output, and only a recognised transport signature earns the
+      # "infrastructure, re-run" verdict. See the script for why caching
+      # (already configured above) was not the missing piece.
+      - name: Pre-resolve story-mcp classpath (a failure here is dependency resolution, before any code runs)
         working-directory: tools/story-mcp
         run: "$GITHUB_WORKSPACE/.github/scripts/resolve-clojure-deps.sh"
 
@@ -4699,7 +4701,7 @@ jobs:
       # window clears inside the run instead of costing a re-run. Splitting the
       # resolve out also keeps the retry off the SUITE — the step below runs
       # exactly once, so a real test failure is never re-rolled.
-      - name: Pre-resolve wire-vocab classpath (a failure here is dependency infrastructure, not the diff)
+      - name: Pre-resolve wire-vocab classpath (a failure here is dependency resolution, before any code runs)
         run: "$GITHUB_WORKSPACE/.github/scripts/resolve-clojure-deps.sh -M:test"
 
       - name: Run JVM wire-vocab conformance gates
