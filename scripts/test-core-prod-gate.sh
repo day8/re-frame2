@@ -44,7 +44,7 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 140 namespaces, 1560 tests, 6707
+# What is left IS green, and it is not a rump: 154 namespaces, 1740 tests, 7342
 # assertions, exit 0 — versus the zero suites that had ever executed under this
 # posture before.  (It was
 # 88 / 934 / 4340 tests/assertions before rf2-d2841 split the spine's
@@ -52,9 +52,10 @@
 # 94 / 1106 / 5135 before that bead's second pass took `fx-test` — the largest
 # single entry, 107 failures and 25 errors across ~20 deftests — plus
 # `sub-topology`, `init-platform`, `pattern-smoke` and `db-noop-commit`,
-# 103 / 1213 / 5590 before its third pass took twenty more, and 123 / 1401 /
-# 6054 before its FOURTH pass took seventeen more.  Each pass's namespaces are
-# named in its commits — `git log --grep=rf2-d2841`.)
+# 103 / 1213 / 5590 before its third pass took twenty more, 123 / 1401 / 6054
+# before its FOURTH pass took seventeen more, and 141 / 1560 / 6707 before its
+# FIFTH pass took thirteen more.  Each pass's namespaces are named in its
+# commits — `git log --grep=rf2-d2841`.)
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -332,19 +333,28 @@ fi
 # green with `Ran 0 tests`.  Calibrated below the observed count with room for
 # ordinary churn; raise it when the roster grows materially.
 #
-# RAISED 800 -> 1360 (rf2-d2841, third pass), then 1360 -> 1510 (fourth pass).
-# 800 was calibrated against the 915-test lane of rf2-f8x2i's original run and
-# had stopped doing its job.  1360 was calibrated against 1401 and stopped
-# doing its job the same way: the lane now runs 1560 tests, and the seventeen
-# namespaces the fourth pass added are 159 of them — losing the whole batch
-# lands at 1401, which 1360 waves through.  1510 notices that while leaving
-# ~3% for ordinary churn.
+# RAISED 800 -> 1360 (rf2-d2841, third pass), 1360 -> 1510 (fourth pass), then
+# 1510 -> 1690 (fifth pass).  800 was calibrated against the 915-test lane of
+# rf2-f8x2i's original run and had stopped doing its job.  1360 was calibrated
+# against 1401 and stopped doing its job the same way, and 1510 has now done
+# the same in its turn: the lane runs 1740 tests, and the thirteen namespaces
+# the fifth pass added are 180 of them — losing the whole batch lands at 1560,
+# which 1510 waves through.  1690 notices that while leaving ~3% for ordinary
+# churn.
 #
 # The floor is a COLLAPSE DETECTOR, not a target, and the rule that follows
 # from that is why it has moved every pass: it must sit close enough under the
 # observed count that THE SMALLEST BATCH ANYONE LANDS IS STILL VISIBLE.  A
 # floor left behind by a growing lane is not conservative, it is inert.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1510}"
+#
+# WHAT THE FLOOR DOES NOT CATCH, and what caught it out during the fifth pass:
+# a test file whose `(ns ...)` FORM is malformed is invisible to
+# `cognitect.test-runner`'s namespace DISCOVERY, so a `-n` selector naming it
+# matches nothing and the lane simply runs one namespace fewer, exit 0.  The
+# `verify_roster` file-count guard below does not see it either — it scrapes
+# the `(ns ` line as TEXT and never reads the form.  The floor catches the
+# collapse only once enough tests have gone missing.  Filed as rf2-vruo9.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1690}"
 
 args=()
 for ns in $runnable; do
