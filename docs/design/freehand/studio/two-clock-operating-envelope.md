@@ -1,7 +1,8 @@
 # The two-clock operating envelope — DC-09, measured
 
-Beads: `rf2-drpa3.182.12` (the development reading), `rf2-drpa3.182.15` (the
-production reading). Owner of the claim: **DC-09** in
+Beads: `rf2-drpa3.182.12` (the development reading, and the settlement-tail
+correction and guidance that make this the third edition),
+`rf2-drpa3.182.15` (the production reading). Owner of the claim: **DC-09** in
 [`../product-completion-setpoint.md`](../product-completion-setpoint.md).
 Owner of the method:
 [`../decisions/D021-performance-budgets-and-release-evidence.md`](../decisions/D021-performance-budgets-and-release-evidence.md).
@@ -28,6 +29,18 @@ shape.
 **And the headline the production reading changed: 120 Hz clears its latency
 budget at every rung of the ladder, including 200 dirty siblings.** In a
 development build it cleared none of them. Section 6 restates the envelope.
+
+**If you are here to decide what to do rather than to check what was measured,
+[section 9](#9-guidance-for-a-high-rate-host) is the section — drive it
+directly, spend your attention on how much you dirty rather than on how often
+you dispatch, and do not build a throttle.**
+
+**One figure in the first two editions was wrong and is corrected here.** The
+settlement tail was read off a clock started at settle time rather than at the
+last offer; what it published was largely the polling delay that stood in for
+it. Section 6 states the correction, section 2's C3 is the control that now
+guards the anchor, and the corrected number turns out to strengthen the
+recommendation rather than soften it.
 
 ---
 
@@ -82,7 +95,7 @@ the instrumentation seam costs, and it is worth publishing once.
 
 ---
 
-## 2. The instrument, and the two controls that make it readable
+## 2. The instrument, and the three controls that make it readable
 
 A crossing is timed across `react-dom/flushSync` with the dispatch inside it,
 and split at the instant the dispatch returns:
@@ -161,6 +174,44 @@ counts**. A different window, a different clock and a different call site
 agreeing to three significant figures with the fixture's arithmetic is the
 strongest statement this report can make that the thing being timed is the
 thing being described.
+
+### C3 — a control of the tail's anchor
+
+C1 and C2 check that the window measures what it brackets and that the fixture
+dirties what it claims. Neither of them could catch a clock started in the
+wrong place, and one was: the driven arm's settlement tail, in the first two
+editions, was read off a clock **started at settle time**. Section 6 states the
+correction and what the old field was actually reporting.
+
+The control that now stands where that fault was is a prediction. The last
+offer and the settle decision are consecutive fires of one `setInterval`, so
+the gap between them is **one interval** — and the run can predict that
+interval from a different counter, `duration ÷ offered`, which is arithmetic
+over what the driver did rather than a second reading of the same clock.
+
+| k | rate | predicted gap (`duration ÷ offered`) | **measured gap (last offer → settle decision)** |
+|---:|---:|---:|---|
+| 0 | 30 | 33.3–35.0 | **33.4–37.1** |
+| 0 | 60 | 16.3 | **15.4–17.5** |
+| 0 | 120 | 8.0 | **7.0–8.1** |
+| 0 | 240 | 4.0 | **4.2–5.0** |
+| 200 | 30 | 33.3–35.0 | **32.7–41.0** |
+| 200 | 60 | 16.3 | **15.3–16.2** |
+| 200 | 120 | 8.0 | **7.1–7.9** |
+| 200 | 240 | 4.0–4.1 | **3.5–4.6** |
+
+Milliseconds, production, ranges over three runs. Predicted and measured agree
+at every one of the eight cells; the largest single-run disagreement is 6.0 ms
+at the 30 Hz rung, where one interval is 33 ms, so the worst cell is within
+18% and every other is within 15%.
+
+The control is also a **gate**, not only a table. `:tail-anchored?` fails a run
+whose gap is under half a requested period — a floor `setInterval` cannot
+violate, since it cannot fire faster than its period however far behind the
+browser has fallen. A tail read off a settle-time clock has no last-offer
+timestamp and cannot produce the gap at all, so it fails rather than
+publishing. It is asserted in the browser row and in the production entry's
+coherence filter, beside "applied cannot exceed offered".
 
 ---
 
@@ -389,6 +440,71 @@ load-bearing observation for section 8's throttle argument, and production
 tested it under genuinely higher throughput (244 offers/s at k = 200 rather
 than 49) and found the same answer.
 
+### The settlement tail — corrected, and it is one crossing
+
+**The first two editions measured this wrong, and the wrong number was
+published.** `:tail-ms` claimed to run "from the last offer to the DOM showing
+the last generation". It was read off a clock started at *settle* time: the
+interval callback that notices the drive duration has elapsed is the one
+**after** the last offer — a whole period later, by construction, since it is
+the next fire of the same `setInterval` — and the tail clock started there. Its
+own docstring named a quantity it did not measure. Where the last generation
+had already committed, which at low rates is most of the time, what it
+published was approximately the 4 ms polling delay.
+
+So `≤ 5.4 ms even at 240 Hz against a 20 ms crossing` was not a tail. It was
+the poll. The correction reads the tail from the last offer's retained
+timestamp to the `MutationObserver`'s sighting of the last generation — the
+same clock the latency distribution comes from, so the poll's 4 ms resolution
+no longer quantises a quantity that is often smaller than 4 ms. The poll and
+its 2 s ceiling remain, as the `settled?` detector they always were. C3 in
+section 2 is the control that now stands where the fault was.
+
+| k | rate | **tail, production** | tail, dev | *what the old field published (the poll delay)* |
+|---:|---:|---|---|---|
+| 0 | 30 | **0.8–1.1** | 5.1 | *4.1–5.3* |
+| 0 | 60 | **0.5–0.8** | 3.9 | *4.1–4.5* |
+| 0 | 120 | **0.3–0.5** | 3.8 | *4.2–6.0* |
+| 0 | 240 | **0.4–0.5** | 3.0 | *4.1–5.8* |
+| 200 | 30 | **4.6–5.4** | 15.8 | *4.3–5.1* |
+| 200 | 60 | **2.2–2.5** | 24.3 | *4.3–4.8* |
+| 200 | 120 | **2.4–3.7** | 14.0 | *4.7–5.4* |
+| 200 | 240 | **3.2–3.5** | 21.1 | *4.5–6.0* |
+
+Milliseconds, Chrome. Production ranges are across three runs at revision
+`65abc3b99e`; the dev column is a single run at the same revision through the
+`bench:freehand-browser` gate. `:tail-source` was `:observer` in all sixteen —
+the poll never had to answer. **This is a different run from the offered/latency
+table above**, which is why the offer counts are not restated here; the dev
+build's offer ceiling at k = 200 varies run to run and the published counts
+belong to their own run.
+
+**The tail is one crossing.** Compare it against section 3's synchronous
+window: at k = 200 the production tail of 2.2–5.4 ms straddles that window's
+p50 of 2.6–3.6 and p95 of 3.3–5.1; at k = 0 the tail of 0.3–1.1 straddles a p50
+of 0.3–0.5. In the development build, where a crossing at k = 200 costs
+18.3–22.2 ms, the tail is 14.0–24.3. At every rung and in both bundles, **the
+time between the host's last offer and the page being current is one
+crossing — and nothing after it.**
+
+That identity is not a coincidence, and it is worth being precise about what it
+does and does not prove. The tail *is* the last generation's own offer→DOM
+latency: same two timestamps, so it is one sample of the distribution beside it
+rather than an independent measurement of it. What makes it a result is what
+sits next to it — **`outstanding` was 0 and `settled?` true in all sixteen
+runs.** A settlement tail of one crossing means there was never a second one
+waiting. Had the queue been growing, the tail would have been the backlog
+draining, and it would have scaled with the requested rate. It does not: at
+k = 200 the production tail at 240 Hz (3.2–3.5) is *smaller* than at 30 Hz
+(4.6–5.4), which is noise around one crossing and not a queue.
+
+**The corrected number strengthens section 8 rather than weakening it**, and it
+strengthens it in both directions. At k = 200 in a development build the real
+tail is three to four times what was published — the old figure was flattering
+— and it is still exactly one crossing, which is the claim that matters. At
+k = 0 in production the real tail is *under a millisecond*, six to ten times
+smaller than the poll delay that stood in for it.
+
 ### Derived and driven agree — in production too
 
 Two independent windows — a synchronous `flushSync`-bracketed crossing and an
@@ -532,6 +648,15 @@ away the low-load responsiveness that costs nothing. Production tested this at
 **five times the development throughput** at k = 200 (244 offers/s against 49)
 and the backlog was still 1.
 
+The settlement tail says the same thing from the other end, and it says it
+*better* now that it is measured correctly. When the host stops offering, the
+page is current **one crossing later** — 0.3–1.1 ms at k = 0, 2.2–5.4 at
+k = 200 — with `outstanding` 0 in all sixteen runs. A throttle exists to stop a
+queue forming. There is no queue: the thing a throttle would drain is one event
+that has already been dispatched. Note that this argument survived the
+correction *against* its own interest at k = 200, where the true tail is three
+to four times the figure previously published.
+
 **No host-local state model.** The `:host-only` arm is under Chrome's clock
 resolution at every rung. The existing behavior boundary is already the answer;
 nothing needs adding to make host-rate motion cheap, because it already is.
@@ -570,7 +695,114 @@ guide), not new Freehand surface.
 
 ---
 
-## 9. What this report could not determine
+## 9. Guidance for a high-rate host
+
+Section 8 answers a framework question: should Freehand grow vocabulary? This
+section answers the one an application author actually has — *I have a pointer
+drag, a camera, an animation loop or a scroll handler producing updates faster
+than a human can perceive them. What do I do?*
+
+**In one line: drive it directly, and spend your attention on how much you
+dirty rather than on how often you dispatch.**
+
+### The default, named
+
+**A behavior may own high-rate host motion outright, while only semantic
+`started`, optional `preview` and `committed` events cross into `app-db`.**
+That is not a compromise made for performance; it is what the behavior boundary
+is for. It happens also to be free: the `:host-only` arm — a behavior writing
+its own node's transform with nothing crossing — sits at or under Chrome's
+0.1 ms clock clamp at every rung of the ladder, in every bundle, and its
+spread across the ladder measured 0.0 ms. Host-rate motion already costs
+nothing measurable. Nothing has to be added to make it cheap, and nothing you
+add can make it cheaper.
+
+So keep host-local style, geometry and motion out of `app-db` **unless the
+application genuinely needs the live value** — because another view renders
+from it, because it is persisted, because a machine transitions on it. "The
+number happens to be in my hand" is not a reason.
+
+### When it does have to cross, it crosses cheaply
+
+If the live value *is* semantically required, the measured envelope is wide.
+In a shipped bundle, at 120 Hz, with two hundred siblings dirtied by every
+single update, 95% of crossings finish in 5.1 ms against an 8.33 ms budget.
+60 Hz is comfortable across the entire ladder. The framework refused nothing,
+dropped nothing and coalesced nothing away in any of the sixteen driven runs;
+`applied` equalled `offered` equalled committed every time.
+
+**So: dispatch on every move.** Not on every third move, not on a
+`requestAnimationFrame` you installed yourself, not behind a 16 ms trailing
+edge you wrote by hand.
+
+### What not to bother building
+
+Each of these is a thing hosts commonly build, and each is answered by a
+measurement rather than by taste.
+
+- **A throttle, a debounce, or a rAF coalescer in front of `dispatch`.** Peak
+  backlog was **1** — one event in flight — at every rate, both loads and both
+  bundles, and the settlement tail is one crossing with nothing behind it. The
+  browser's timer is already the back-pressure: under load you get *fewer
+  offers*, never a growing queue. A throttle would suppress offers the browser
+  has already stopped making, and would cost you responsiveness at the low
+  load where you were paying nothing.
+- **Memoising or ref-caching a config to dodge an equality walk.** A
+  fresh-but-`rf=`-equal config sits on the 0.1 ms clock clamp at 96 leaves and
+  at 900, indistinguishable from re-installing the identical reference, and
+  Freehand already elides an `:update` whose config is equal — counted, 52 of
+  52, in every bundle. Building the config fresh each frame is fine. A full
+  structural walk of a 900-leaf map costs at most a couple of tenths of a
+  millisecond.
+- **A "settling" or "in flight" UI state.** After the last offer the page is
+  current within about a millisecond at k = 0 and within one crossing at
+  k = 200. There is no interval a user could observe, and nothing to show them
+  during it.
+- **A preview lane distinct from an ordinary crossing.** Nothing measured here
+  tells the two apart. `started` / `preview` / `committed` is worth having
+  because those are different *facts*, not because they cost different amounts.
+
+### What to do instead, in priority order
+
+1. **Read the subscription at the boundary that uses it.** This is the one
+   attributed bottleneck in the report and the whole remedy is a call site.
+   Reading a high-rate value in a view that also builds a collection costs a
+   constant **3.1–3.3 ms** more than reading it one boundary down — while
+   moving *more* DOM nodes, not fewer. Move the `v/sub` down. It is free and it
+   is the largest single number in this report that you control.
+2. **Count how many cells one update dirties.** The event half of a crossing is
+   flat — 0.2–0.7 ms whether one cell moved or two hundred and one. The commit
+   half is what scales, at roughly **0.012 ms per dirtied cell** in a shipped
+   bundle. Your lever is the size of the dirty set, and it is React's cost, not
+   re-frame's. If a crossing is expensive, it is expensive in React.
+3. **Measure dispatch-per-move before adding any policy.** A single move that
+   dispatches once is a 0.3–0.5 ms crossing. A handler that dispatches four
+   times per move is a 2 ms one, and no throttle fixes that — it is four events
+   where the application meant one. Count the dispatches first; it is nearly
+   always the answer when a high-rate host feels slow, and it is the only
+   diagnosis in this list that does not need a profiler.
+4. **Type into it.** Controlled input is the case where correctness, not
+   smoothness, is at stake, and correctness held unconditionally: no dropped
+   characters and an intact caret at every rung, including 200 siblings dirtied
+   by every keystroke. Only the smoothness of the accompanying repaint
+   degrades, and only past 50 siblings.
+
+### The one caveat that would change this advice
+
+**Real pointer streams were not measured.** The driver is a `setInterval`, and
+a `setInterval` hands the main thread one event per task. A browser delivering
+coalesced `pointermove`, or `pointerrawupdate` bursts, can hand *several* events
+to one task — the single shape that could produce a backlog greater than 1, and
+therefore the single shape that could change the throttle answer. If you are
+driving from raw pointer events at a rate the display cannot show, read
+`getCoalescedEvents` and dispatch what you mean rather than what arrived. That
+is not a framework verb; it is the pointer API's own answer to its own
+question. The backlog-of-1 result should not be quoted for a raw-pointer burst
+without re-measuring, and section 10 records this as undetermined.
+
+---
+
+## 10. What this report could not determine
 
 **~~The production envelope.~~** *Resolved by `rf2-drpa3.182.15`; this is what
 the second edition adds.* The first edition recorded that every figure came
@@ -591,11 +823,24 @@ existing `:freehand-release` id, which already carries `:optimizations
 about. `b10_prod_run.cjs` does the same and touches no shared configuration at
 all. The hot-zone contention was real; the dependency on it was not.
 
+**~~The settlement tail.~~** *Corrected by the third edition.* The first two
+editions published a tail read off a clock started at settle time — a precise,
+plausible number that was not the quantity its own docstring named, and at low
+rates was approximately the 4 ms polling delay. It is now anchored at the last
+offer's retained timestamp and read from the `MutationObserver`, with C3
+(section 2) gating the anchor and section 6 stating both the correction and
+what the old field had been publishing. The corrected tail is one crossing at
+every rung of both bundles. **What this cost is worth recording**: the wrong
+number was quoted in a durable recommendation for four days, and only reading
+the code found it. No clock caught it, because a clock cannot tell you where it
+was started.
+
 **Real pointer streams.** The driver is a `setInterval`. A browser delivering
 coalesced `pointermove`, or `pointerrawupdate` bursts, can hand several events
 to one task, which is the one shape that could produce a backlog greater than 1.
 The backlog-of-1 result is measured against a timer and should not be quoted
-for a raw-pointer burst without re-measuring.
+for a raw-pointer burst without re-measuring. Section 9 carries this as the one
+caveat that would change its advice.
 
 **Sub-0.1 ms costs, and there are now many more of them.** Chrome clamps
 `performance.now()` to 100 µs. In the development build only the `:host-only`
@@ -631,7 +876,7 @@ of bundle. The absolutes are not.
 
 ---
 
-## 10. Reproducing
+## 11. Reproducing
 
 **Arm C — the production reading (sections 3–6's headline figures).** No shared
 build configuration is involved; the driver builds, serves, drives and prints
