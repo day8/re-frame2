@@ -8,6 +8,14 @@
   - **the scroll itself.** `scrollTop` is a host property, and the whole
     design claim is that it reaches app-db through an ordinary event and
     lives nowhere else. A structural tree has no scroll host to read.
+  - **a surviving row being the same ELEMENT.** A key comparison proves
+    what the tree INTENDED; only element identity proves what React did.
+    Both readings matter and they fail apart: a control that re-keyed the
+    overlap would still render the right keys in the right order while
+    remounting every row in it. Two rows read it — the rows that stay put
+    while the window slides, and the row that MOVES when the collection is
+    reordered underneath it (rf2-pa57v, migrated from the retired
+    virtual-table pilot).
   - **focus surviving an unmount.** The active row is unmounted the moment
     it scrolls out of the window. Whether focus survives that is a fact
     about `document.activeElement`, and it is the exact fact that breaks a
@@ -139,7 +147,19 @@
         {:db db})))
 
   (rf/reg-event :inbox/opened
-    (fn [{:keys [db]} [_ k]] {:db (assoc-in db [:inbox :opened] k)})))
+    (fn [{:keys [db]} [_ k]] {:db (assoc-in db [:inbox :opened] k)}))
+
+  ;; A REORDER. The application moves one item to the front of its own
+  ;; identity vector — the ordinary shape of a sort, a drag or an arriving
+  ;; record. The window does not move and the offset does not change; what
+  ;; changes is which item each POSITION holds, which is exactly what a
+  ;; keyed reconciler exists to survive.
+  (rf/reg-event :inbox/moved-to-front
+    (fn [{:keys [db]} [_ i]]
+      (let [ids (get-in db [:inbox :ids])]
+        {:db (assoc-in db [:inbox :ids]
+                       (into [(nth ids i)]
+                             (concat (subvec ids 0 i) (subvec ids (inc i)))))}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Views. Module-level: a declared view cannot close over a test's locals.
@@ -195,6 +215,29 @@
 
 (defn- rows-in [container]
   (array-seq (.querySelectorAll container "[data-part='row']")))
+
+(defn- shells-in [container]
+  (array-seq (.querySelectorAll container "[data-part='row-shell']")))
+
+(defn- by-item
+  "`the item a node is showing` -> the live element, so element IDENTITY
+  can be compared across a re-render rather than merely re-counted.
+
+  The item is read off the CALLER's rendered content, because neither layer
+  publishes the key as an attribute and that is deliberate: `:key` is
+  React's reconciliation input, and the row's `id` is its POSITION
+  ([[coll/row-dom-id]]). Reading the content is therefore the only honest
+  address for `which item is this node showing`, and it is what makes the
+  reorder row below discriminating — under a reorder the positional id
+  moves and the item does not."
+  [nodes]
+  (into {} (map (juxt #(.-textContent %) identity)) nodes))
+
+(defn- same-elements?
+  "Did every item present in BOTH readings keep the element it had?"
+  [before after]
+  (every? #(identical? (get before %) (get after %))
+          (filter #(contains? before %) (keys after))))
 
 (defn- window-first [] (js/parseInt (.getAttribute (viewport-el) "data-window-first") 10))
 (defn- window-count [] (js/parseInt (.getAttribute (viewport-el) "data-window-count") 10))
@@ -317,6 +360,157 @@
                                   "non-vacuous: out of ten thousand")
                               (finish! container root done "after one scroll"))))
                         (.catch (fail-and-finish! container root done))))))
+              (.catch (fail-and-finish! container root done))))))))
+
+;; ===========================================================================
+;; FH-CTRL-021 — a row that stays in the window is the SAME element
+;; ===========================================================================
+;;
+;; These two are the part a key comparison cannot reach. The structural
+;; suite proves the tree carries the right keys at the right absolute
+;; indices; what it cannot prove is that React ACTED on them. The two
+;; readings fail apart — a control that renumbered the overlap would still
+;; produce the right keys in the right order while remounting every row in
+;; it — so element identity is read off `document` here, on both layers the
+;; split renders: the engine's positioned shell and the listbox's `option`
+;; inside it. A reuse in one and a remount in the other is a real failure
+;; shape, so neither read stands in for the other.
+
+(deftest fh-ctrl-021-the-rows-that-stay-in-the-window-are-the-same-elements
+  (testing "Per FH-CTRL-021: the window slides by ONE row and the rows that
+            were in both windows are the same DOM elements afterwards. That
+            is the only honest reading of `scrolling remounts nothing`:
+            React reused them, so a one-row scroll of a ten-thousand-row
+            collection costs the two rows at the edges and nothing else.
+
+            The advance is asserted to be exactly one row and the survivors
+            to be exactly the window less one, so the claim is an exact
+            arithmetic rather than `most of them stayed`."
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the element-identity assertions")
+      (async done
+        (reg!)
+        (seed! {})
+        (let [[container root] (ms/create-root!)
+              {:keys [scroll-offset] w-first :first w-count :count}
+              (nth (:scroll-stops ctrl-021) 3)
+              state (atom {})]
+          (-> (render! root)
+              (.then
+                (fn [_]
+                  (ms/live!)
+                  (scroll-host! scroll-offset)
+                  (at-window w-first)))
+              (.then
+                (fn [_]
+                  (is (= w-count (count (rows-in container)))
+                      "non-vacuous: there is a full window to survive a scroll")
+                  (swap! state assoc
+                         :rows   (by-item (rows-in container))
+                         :shells (by-item (shells-in container)))
+                  ;; ONE row further down, which is the movement a keyed
+                  ;; reconciler either survives or fails at most visibly.
+                  (scroll-host! (+ scroll-offset row-extent))
+                  (at-window (inc w-first))))
+              (.then
+                (fn [_]
+                  (let [before  (:rows @state)
+                        after   (by-item (rows-in container))
+                        stayed  (filterv #(contains? before %) (keys after))
+                        left    (remove (set (keys after)) (keys before))
+                        arrived (remove (set (keys before)) (keys after))]
+                    (is (= (inc w-first) (window-first))
+                        "the window advanced by exactly one row")
+                    (is (= w-count (window-count))
+                        "and it is the same size it was")
+                    (is (= (dec w-count) (count stayed))
+                        "so all but one of the rows were in both windows")
+                    (is (= 1 (count left))
+                        "exactly one item left the top")
+                    (is (= 1 (count arrived))
+                        "and exactly one arrived at the bottom")
+                    (is (same-elements? before after)
+                        "and every row in the overlap is the SAME element —
+                         React reused it rather than remounting it")
+                    (is (same-elements? (:shells @state) (by-item (shells-in container)))
+                        "on the engine's positioned shell as well as on the
+                         listbox's option inside it, so neither layer is
+                         quietly rebuilding the window")
+                    (finish! container root done "after a one-row scroll"))))
+              (.catch (fail-and-finish! container root done))))))))
+
+(deftest fh-ctrl-021-a-reorder-carries-a-row-element-with-its-item
+  (testing "Per FH-CTRL-021: keyed identity where it costs the most. The
+            COLLECTION is reordered underneath a still viewport — one item
+            moves to the front — and its element moves with it, while every
+            other row in the window keeps the element it had. Nothing
+            scrolled: the offset, the window and the row count are the same
+            before and after, so what is read is reconciliation alone.
+
+            And the two addresses separate, visibly. The moved row's
+            POSITIONAL id changes, because the DOM id is the row's place
+            and its place changed; a row that did not move keeps its id.
+            Neither address is derived from the other, which is the law
+            [[coll/row-dom-id]] states and this is where it has teeth — a
+            control that keyed by position would have renumbered and
+            remounted the whole window."
+    (if-not (ms/browser?)
+      (ms/skip! "the browser job runs the reorder assertions")
+      (async done
+        (reg!)
+        (seed! {})
+        (let [[container root] (ms/create-root!)
+              {w-count :count} (first (:scroll-stops ctrl-021))
+              moved-from 7
+              moved      (str "row " (item-key moved-from))
+              still      (str "row " (item-key (dec w-count)))
+              state      (atom {})]
+          (-> (render! root)
+              (.then
+                (fn [_]
+                  (ms/live!)
+                  (let [rows (by-item (rows-in container))]
+                    (is (= w-count (count rows))
+                        "non-vacuous: the first window is rendered")
+                    (is (contains? rows moved)
+                        "and the item about to move is in it")
+                    (swap! state assoc
+                           :rows      rows
+                           :shells    (by-item (shells-in container))
+                           :moved-id  (.getAttribute (get rows moved) "id")
+                           :still-id  (.getAttribute (get rows still) "id")))
+                  (rf/dispatch-sync [:inbox/moved-to-front moved-from] {:frame fid})
+                  (settled #(= moved (.-textContent (first (rows-in container))))
+                           "the reordered item reaches the front of the window")))
+              (.then
+                (fn [_]
+                  (let [before (:rows @state)
+                        after  (by-item (rows-in container))]
+                    (is (= w-count (count after))
+                        "the window is the same size — nothing scrolled")
+                    (is (= 0 (window-first) (offset-in-db))
+                        "and neither the window nor the offset moved at all")
+                    (is (= (set (keys before)) (set (keys after)))
+                        "the same items are on screen, in a new order")
+                    (is (identical? (get before moved) (get after moved))
+                        "the moved item is showing the SAME element it was —
+                         the row travelled rather than being rebuilt")
+                    (is (same-elements? before after)
+                        "and not one of the rows around it was remounted")
+                    (is (same-elements? (:shells @state) (by-item (shells-in container)))
+                        "on the engine's shells too")
+                    (is (= (coll/row-dom-id list-id moved-from) (:moved-id @state))
+                        "non-vacuous: the moved row's id WAS its old position")
+                    (is (= (coll/row-dom-id list-id 0)
+                           (.getAttribute (get after moved) "id"))
+                        "and is now its new one — the same element, a new
+                         positional address, because the id is the place and
+                         the key is the item")
+                    (is (= (:still-id @state) (.getAttribute (get after still) "id"))
+                        "while a row whose place did not change kept its id,
+                         so the rename above is the reorder and not a
+                         wholesale re-addressing")
+                    (finish! container root done "after a reorder"))))
               (.catch (fail-and-finish! container root done))))))))
 
 ;; ===========================================================================
