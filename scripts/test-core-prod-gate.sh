@@ -229,7 +229,6 @@ known_red=(
   #    function of a record plus the frame's durable elision registry, so the
   #    profile rows now drive a SYNTHETIC record and run in both postures.
   re-frame.db-pending-trace-test
-  re-frame.observation-port-cljs-test
   re-frame.sub-dispose-trace-test
   re-frame.trace-buffer-test
   re-frame.trace-listener-concurrent-drain-serialization-test

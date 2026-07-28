@@ -13,7 +13,54 @@
   hosts. Host honesty: plain-atom derived values are not watchable, so the
   value-movement `on-change` channel is a reactive-host surface — these
   fixtures pin movement detection at the port's READ points (version +
-  epoch evidence), which is the headless contract."
+  epoch evidence), which is the headless contract.
+
+  ## Posture split (rf2-d2841)
+
+  Only ten of the ninety-four deftests here needed anything, and the whole
+  port — acquire / read / release, ref-counting, disposal, movement
+  evidence, retention, provenance — runs identically in both postures. What
+  splits is narrow and falls into exactly two shapes.
+
+  1. THE DEV REENTRANCY ASSERT IS THE DRIVER, NOT THE OBSERVATION.
+     `observation/assert-not-in-fan-out!` is wrapped in
+     `(when interop/debug-enabled? …)` at its source — checked, not assumed —
+     so under the gate a forbidden reentrant `release!` from inside the
+     fan-out simply SUCCEEDS. Five fixtures use that assert to manufacture a
+     DIAGNOSTIC-ONLY typed escape; with no escape there is no callback
+     failure, no wrapper record, and nothing to classify. Those scenarios are
+     dev-only end to end, so the escape half is guarded together with the
+     precondition that creates it. Where such a fixture ALSO carries a
+     production claim — the well-behaved sibling owner is still notified,
+     the macro registrations captured discriminable `[:sub id]` / `[:event
+     id]` coordinates — that claim stays outside the guard.
+
+  2. THE ALWAYS-ON HALF OF A TWO-CHANNEL FAN-OUT ALREADY PASSED.
+     `:rf.error/observation-on-change-failed` is a PROMOTED category:
+     the drain emits it through `emit-error-both!`, so the record reaches the
+     always-on axis under the gate and every assertion about the record —
+     count, `:event-id`, exact `:exception` identity, and the resolved
+     `[:sub id]` `:source-coord` — runs unchanged. Only the DEV-TRACE twin
+     (`:op-type :error` events and their `:tags`) is elided, and only those
+     reads are guarded. That is the point of the rf2-q3fmqm suites: the two
+     channels are independent, and this pass demonstrates the independence by
+     running one of them alone.
+
+  SEVENTEEN VACUOUS PASSES CAME OFF, and the schema gate held twelve of them.
+  `schema-gate-rejects-required-key-and-value-drift` reads the dev-trace
+  `:tags` into `tags`, which is nil under the gate — and NOTHING it then
+  asserts can tell the difference. `(not (valid-… (dissoc tags k)))` is a
+  DOSEQ over the eight required keys, and `(dissoc nil k)` is nil, so all
+  eight drift-detection assertions passed on nil; so did the `:cause`
+  and `:category` spoof rejections (`(assoc nil …)` yields a one-key map that
+  is invalid for the wrong reason) and the two exact-identity negatives
+  (`(not (identical? boom nil))`). A gate whose entire purpose is to redden on
+  schema drift was certifying drift-detection over an absent record. The
+  remaining five are ordinary class-1 negatives — \"the diagnostic category is
+  NOT promoted onto the always-on axis\" over record streams that carried no
+  records at all, in four of the five reentrant-driven fixtures, plus
+  `drain-two-channel-fanout-composes-with-first-emission-provenance`'s
+  \"no wrapper trace event\" over an empty trace stream."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             #?(:clj [clojure.java.io :as io])
@@ -1506,23 +1553,33 @@
     ;; replacement hook, so the drain's rethrow is swallowed there and it is the
     ;; ALWAYS-ON fan that carries visibility.
     (let [[[outcome _] records] (with-error-records #(reg-items!))]
+      ;; ALWAYS-ON (rf2-d2841): containment. Whether or not owner A's callback
+      ;; throws, it must not starve its sibling — that is the drain's real
+      ;; contract and it holds in both postures.
       (testing "the throwing owner did NOT starve its sibling — B notified once"
         (is (= 1 (count @notes-b)))
         (is (= :hmr (:cause (first @notes-b)))))
-      (testing "the escape is SEEN on the always-on axis despite the registrar's
-                per-hook swallow — the diagnostic-only reentrant-graph-op is
-                wrapped in the stable :rf.error/observation-on-change-failed
-                (never promoted onto the always-on axis under its own diagnostic
-                id — rf2-w55bh0), carrying the reentrant assert as its cause"
-        (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
-                               records)]
-          (is (= 1 (count wrapped))
-              "the swallowed callback failure reached the always-on error surface")
-          (is (= :rf.error/reentrant-graph-op
-                 (error-id (:exception (first wrapped))))
-              "the diagnostic reentrant-graph-op rides as the wrapper's cause"))
-        (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))
-            "the diagnostic category is NOT promoted onto the always-on axis"))
+      ;; The ESCAPE ITSELF is manufactured by the dev reentrancy assert
+      ;; (`assert-not-in-fan-out!` is `(when interop/debug-enabled? …)`), so
+      ;; under the gate owner A's reentrant release! simply succeeds and there
+      ;; is no callback failure to wrap. VACUOUS PASS REMOVED (class 1): the
+      ;; "not promoted onto the always-on axis" negative passed over a record
+      ;; stream that carried no records at all.
+      (when interop/debug-enabled?
+        (testing "the escape is SEEN on the always-on axis despite the registrar's
+                  per-hook swallow — the diagnostic-only reentrant-graph-op is
+                  wrapped in the stable :rf.error/observation-on-change-failed
+                  (never promoted onto the always-on axis under its own diagnostic
+                  id — rf2-w55bh0), carrying the reentrant assert as its cause"
+          (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                 records)]
+            (is (= 1 (count wrapped))
+                "the swallowed callback failure reached the always-on error surface")
+            (is (= :rf.error/reentrant-graph-op
+                   (error-id (:exception (first wrapped))))
+                "the diagnostic reentrant-graph-op rides as the wrapper's cause"))
+          (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))
+              "the diagnostic category is NOT promoted onto the always-on axis")))
       (testing "reg-items! returned normally — the registrar isolates the hook"
         (is (= :ok outcome))))
     ;; Owner A's release! never completed (it threw); both are cleanly releasable
@@ -1974,7 +2031,13 @@
     (reset! handle-ref handle)
     ;; drive a fan-out via the HMR path
     (reg-items!)
-    (is (= :rf.error/reentrant-graph-op @caught))
+    ;; DEV-ASSERTED BY NAME AND BY SOURCE (rf2-d2841):
+    ;; `observation/assert-not-in-fan-out!` is wrapped in
+    ;; `(when interop/debug-enabled? …)`, so under the gate the reentrant
+    ;; release! succeeds and nothing is caught. The deftest's own name states
+    ;; the posture.
+    (when interop/debug-enabled?
+      (is (= :rf.error/reentrant-graph-op @caught)))
     (testing "the reentrant release was rejected — the handle is still live
               and releasable outside the fan-out"
       (obs/release! handle))))
@@ -2582,23 +2645,30 @@
       (force-dispose-node! [:obs/items])
       (let [[[outcome thrown] records]
             (with-error-records #(obs/drain-pending-disposals! :disposed))]
-        (testing "the callback failure surfaces EXACTLY once, wrapped in the
-                  stable always-on :rf.error/observation-on-change-failed"
-          (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
-                                 records)]
-            (is (= 1 (count wrapped)))
-            (testing "attributed to the notifying former owner's entry sub, with
-                      the diagnostic reentrant assert riding as the record's cause"
-              (is (= :obs/items (:event-id (first wrapped))))
-              (is (identical? thrown (:exception (first wrapped))))
-              (is (= :rf.error/reentrant-graph-op
-                     (error-id (:exception (first wrapped))))))))
-        (testing "the diagnostic-only category is NEVER promoted onto the
-                  always-on axis under its own id (rf2-w55bh0)"
-          (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %))
-                               records))))
-        (is (= :threw outcome))
-        (is (= :rf.error/reentrant-graph-op (error-id thrown)))))))
+        ;; DEV-ONLY DRIVER (rf2-d2841): the diagnostic escape this fixture
+        ;; classifies is manufactured by the reentrancy assert, which is
+        ;; `(when interop/debug-enabled? …)` at its source. Under the gate the
+        ;; reentrant release! succeeds, the drain sees no failure, and there is
+        ;; no wrapper to check. VACUOUS PASS REMOVED (class 1): the
+        ;; never-promoted negative passed over an empty record stream.
+        (when interop/debug-enabled?
+          (testing "the callback failure surfaces EXACTLY once, wrapped in the
+                    stable always-on :rf.error/observation-on-change-failed"
+            (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                   records)]
+              (is (= 1 (count wrapped)))
+              (testing "attributed to the notifying former owner's entry sub, with
+                        the diagnostic reentrant assert riding as the record's cause"
+                (is (= :obs/items (:event-id (first wrapped))))
+                (is (identical? thrown (:exception (first wrapped))))
+                (is (= :rf.error/reentrant-graph-op
+                       (error-id (:exception (first wrapped))))))))
+          (testing "the diagnostic-only category is NEVER promoted onto the
+                    always-on axis under its own id (rf2-w55bh0)"
+            (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %))
+                                 records))))
+          (is (= :threw outcome))
+          (is (= :rf.error/reentrant-graph-op (error-id thrown))))))))
 
 (deftest hmr-drain-wraps-spoofed-and-malformed-ids-instead-of-fanning-them
   (reg-items!)
@@ -2709,20 +2779,28 @@
             (let [coord (source-coords/error-coords-for :sub :obs/items)]
               (is (some? coord) "the macro registration captured coords")
               (is (= coord (:source-coord (first wrapped))))))))
-      (testing "exactly ONE dev diagnostic-trace event for the same logical
-                failure — Xray's trace collector sees it without registering
-                an always-on listener (pre-fix: zero trace events)"
-        (let [tev (filterv #(= :rf.error/observation-on-change-failed (:operation %))
-                           traces)]
-          (is (= 1 (count tev)))
-          (let [tags (:tags (first tev))]
-            (is (identical? boom (:exception tags))
-                "the trace tags carry the original throwable")
-            (is (= :hmr (:cause tags))
-                "the category-specific tags carry the disposal cause")
-            (is (= :obs/items (:rf.sub/id tags)))
-            (is (= [:obs/items] (:rf.sub/query-v tags)))
-            (is (= fid (:frame tags)))))))
+      ;; The always-on half above needs no guard and never did: the drain emits
+      ;; the wrapper through `emit-error-both!`, so the record, its exact
+      ;; throwable and its resolved `[:sub id]` coordinate all reach the
+      ;; production axis under the gate. Only the DEV-TRACE twin is elided, and
+      ;; the independence of the two channels is exactly this suite's thesis
+      ;; (rf2-q3fmqm / rf2-d2841) — so running one alone is a demonstration of
+      ;; it, not a hole in it.
+      (when interop/debug-enabled?
+        (testing "exactly ONE dev diagnostic-trace event for the same logical
+                  failure — Xray's trace collector sees it without registering
+                  an always-on listener (pre-fix: zero trace events)"
+          (let [tev (filterv #(= :rf.error/observation-on-change-failed (:operation %))
+                             traces)]
+            (is (= 1 (count tev)))
+            (let [tags (:tags (first tev))]
+              (is (identical? boom (:exception tags))
+                  "the trace tags carry the original throwable")
+              (is (= :hmr (:cause tags))
+                  "the category-specific tags carry the disposal cause")
+              (is (= :obs/items (:rf.sub/id tags)))
+              (is (= [:obs/items] (:rf.sub/query-v tags)))
+              (is (= fid (:frame tags))))))))
     (obs/release! la)))
 
 (deftest disposed-drain-fans-the-wrapper-on-both-channels
@@ -2739,10 +2817,13 @@
         (is (= 1 (count (filterv #(= :rf.error/observation-on-change-failed (:error %))
                                  records)))
             "exactly one always-on record at the :disposed boundary")
-        (let [tev (filterv #(= :rf.error/observation-on-change-failed (:operation %))
-                           traces)]
-          (is (= 1 (count tev)) "exactly one trace event at the :disposed boundary")
-          (is (= :disposed (:cause (:tags (first tev)))))))
+        ;; The always-on half runs unguarded (rf2-d2841); only the dev-trace
+        ;; twin is elided.
+        (when interop/debug-enabled?
+          (let [tev (filterv #(= :rf.error/observation-on-change-failed (:operation %))
+                             traces)]
+            (is (= 1 (count tev)) "exactly one trace event at the :disposed boundary")
+            (is (= :disposed (:cause (:tags (first tev))))))))
       (obs/release! la))))
 
 (deftest drain-two-channel-fanout-composes-with-first-emission-provenance
@@ -2757,13 +2838,22 @@
     (let [live (obs/acquire! (items-target) (fn [_n] (obs/read released)))]
       (let [[[outcome _] records traces] (with-both-channels #(reg-items!))]
         (is (= :ok outcome))
+        ;; ALWAYS-ON (rf2-d2841): the provenance rule's production half — an
+        ;; already-fanned typed escape gains no SECOND always-on record from
+        ;; the drain. That is the arm an off-box shipper would see duplicated.
         (is (= 1 (count (filterv #(= :rf.error/read-after-release (:error %)) records)))
             "one always-on record — the source's")
-        (is (= 1 (count (filterv #(= :rf.error/read-after-release (:operation %)) traces)))
-            "one trace event — the source's; the drain adds none")
-        (is (empty? (filterv #(= :rf.error/observation-on-change-failed (:operation %))
-                             traces))
-            "no wrapper trace event for a typed escape"))
+        (is (empty? (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                             records))
+            "and no wrapper RECORD for a typed escape either")
+        ;; VACUOUS PASS REMOVED (class 1): the trace-side no-wrapper negative
+        ;; below passed over a trace stream that carried nothing at all.
+        (when interop/debug-enabled?
+          (is (= 1 (count (filterv #(= :rf.error/read-after-release (:operation %)) traces)))
+              "one trace event — the source's; the drain adds none")
+          (is (empty? (filterv #(= :rf.error/observation-on-change-failed (:operation %))
+                               traces))
+              "no wrapper trace event for a typed escape")))
       (obs/release! live))))
 
 (deftest disposed-drain-wraps-a-diagnostic-only-typed-escape-on-both-channels
@@ -2781,17 +2871,21 @@
       (force-dispose-node! [:obs/items])
       (let [[[outcome _] records traces]
             (with-both-channels #(obs/drain-pending-disposals! :disposed))]
-        (is (= :threw outcome))
-        (is (= 1 (count (filterv #(= :rf.error/observation-on-change-failed (:error %))
-                                 records)))
-            "exactly one always-on wrapper record")
-        (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))
-            "the diagnostic category is NOT promoted onto the always-on axis")
-        (let [tev (filterv #(= :rf.error/observation-on-change-failed (:operation %))
-                           traces)]
-          (is (= 1 (count tev))
-              "the drain-owned wrapper reaches the trace channel too")
-          (is (= :disposed (:cause (:tags (first tev))))))))))
+        ;; DEV-ONLY DRIVER (rf2-d2841), same as the fixture above: the
+        ;; diagnostic escape comes from the dev reentrancy assert. VACUOUS PASS
+        ;; REMOVED (class 1): the never-promoted negative over an empty stream.
+        (when interop/debug-enabled?
+          (is (= :threw outcome))
+          (is (= 1 (count (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                   records)))
+              "exactly one always-on wrapper record")
+          (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))
+              "the diagnostic category is NOT promoted onto the always-on axis")
+          (let [tev (filterv #(= :rf.error/observation-on-change-failed (:operation %))
+                             traces)]
+            (is (= 1 (count tev))
+                "the drain-owned wrapper reaches the trace channel too")
+            (is (= :disposed (:cause (:tags (first tev)))))))))))
 
 (deftest collision-event-registration-cannot-steal-sub-attribution
   ;; PROGRAMMATIC sub registration (no [:sub id] coords) + MACRO event
@@ -2868,19 +2962,30 @@
         (force-dispose-node! [:obs/collide-typed])
         (let [[[outcome _] records]
               (with-error-records #(obs/drain-pending-disposals! :disposed))]
-          (is (= :threw outcome)
-              "the drain re-throws the first escape after draining every sibling")
-          (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
-                                 records)]
-            (is (= 1 (count wrapped)) "exactly one drain-owned wrapper record")
-            (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))
-                "the diagnostic TYPED category is NEVER promoted onto the always-on axis")
-            (is (= :obs/collide-typed (:event-id (first wrapped)))
-                "the wrapper is attributed to the former owner's ENTRY sub id")
-            (is (= sub-coord (:source-coord (first wrapped)))
-                "the drain-owned TYPED escape resolves the [:sub id] coordinate")
-            (is (not= event-coord (:source-coord (first wrapped)))
-                "the unrelated same-id EVENT coordinate is never selected")))
+          ;; The three coordinate assertions above are always-on and stay
+          ;; there: `source-coords/remember-error-coords!` runs unconditionally
+          ;; at registration (pass 5's finding), so "the macro sub and the
+          ;; colliding macro event captured DISCRIMINABLE coordinates" — the
+          ;; premise the whole counterexample rests on — is proved under the
+          ;; gate. What is dev-only is the ESCAPE: the diagnostic typed throw
+          ;; comes from the reentrancy assert (rf2-d2841). VACUOUS PASSES
+          ;; REMOVED (class 1 + class 4): the never-promoted negative over an
+          ;; empty record stream, and `(not= event-coord (:source-coord …))`
+          ;; over a nil record, where any coordinate differs from nil.
+          (when interop/debug-enabled?
+            (is (= :threw outcome)
+                "the drain re-throws the first escape after draining every sibling")
+            (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                   records)]
+              (is (= 1 (count wrapped)) "exactly one drain-owned wrapper record")
+              (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))
+                  "the diagnostic TYPED category is NEVER promoted onto the always-on axis")
+              (is (= :obs/collide-typed (:event-id (first wrapped)))
+                  "the wrapper is attributed to the former owner's ENTRY sub id")
+              (is (= sub-coord (:source-coord (first wrapped)))
+                  "the drain-owned TYPED escape resolves the [:sub id] coordinate")
+              (is (not= event-coord (:source-coord (first wrapped)))
+                  "the unrelated same-id EVENT coordinate is never selected"))))
         (obs/release! la)))))
 
 ;; ===========================================================================
@@ -3758,25 +3863,29 @@
                                 traces))
             rec (first (filterv #(= :rf.error/observation-on-change-failed (:error %))
                                 records))]
-        (is (some? tev) "exactly the one dev-trace event to validate")
-        (is (valid-observation-on-change-failed-tags? (:tags tev))
-            "the :hmr dev-trace tags satisfy the canonical schema")
-        (is (= :hmr (:cause (:tags tev))))
-        (testing "the dev-trace :tags carry the EXACT original throwable and frame
-                  keyword — not only the always-on record (rf2-5iud0a false-greens
-                  #1 + #3: :exception is schema-typed :any and :frame is an OPEN
-                  optional key, so the schema alone accepts nil / a wrong throwable /
-                  a dropped frame in the trace tags; the fixtures assert real values)"
-          (is (identical? boom (:exception (:tags tev)))
-              "trace :exception is the exact original throwable, not nil / a copy")
-          (is (= fid (:frame (:tags tev)))
-              "trace :frame carries the exact emitting frame keyword"))
+        ;; The record half needs no guard (rf2-d2841) — the wrapper category is
+        ;; PROMOTED, so the 009 wire fields are checked in the posture that
+        ;; ships. Only the dev-trace `:tags` the schema validates are elided.
         (testing "the always-on record carries the wire fields the 009 row lists"
           (is (some? rec))
           (is (= [:obs/items] (:event rec)))
           (is (= :obs/items (:event-id rec)))
           (is (= fid (:frame rec)))
-          (is (identical? boom (:exception rec)))))
+          (is (identical? boom (:exception rec))))
+        (when interop/debug-enabled?
+          (is (some? tev) "exactly the one dev-trace event to validate")
+          (is (valid-observation-on-change-failed-tags? (:tags tev))
+              "the :hmr dev-trace tags satisfy the canonical schema")
+          (is (= :hmr (:cause (:tags tev))))
+          (testing "the dev-trace :tags carry the EXACT original throwable and frame
+                    keyword — not only the always-on record (rf2-5iud0a false-greens
+                    #1 + #3: :exception is schema-typed :any and :frame is an OPEN
+                    optional key, so the schema alone accepts nil / a wrong throwable /
+                    a dropped frame in the trace tags; the fixtures assert real values)"
+            (is (identical? boom (:exception (:tags tev)))
+                "trace :exception is the exact original throwable, not nil / a copy")
+            (is (= fid (:frame (:tags tev)))
+                "trace :frame carries the exact emitting frame keyword"))))
       (obs/release! la)))
   (testing ":disposed boundary — the same schema binds the fallback boundary"
     (reg-items!)
@@ -3791,18 +3900,20 @@
                                   traces))
               rec (first (filterv #(= :rf.error/observation-on-change-failed (:error %))
                                   records))]
-          (is (valid-observation-on-change-failed-tags? (:tags tev))
-              "the :disposed dev-trace tags satisfy the canonical schema")
-          (is (= :disposed (:cause (:tags tev))))
-          (testing "the :disposed dev-trace :tags likewise carry the EXACT throwable
-                    and frame keyword, independently of the always-on record
-                    (rf2-5iud0a false-greens #1 + #3)"
-            (is (identical? boom (:exception (:tags tev)))
-                "trace :exception is the exact original throwable, not nil / a copy")
-            (is (= fid (:frame (:tags tev)))
-                "trace :frame carries the exact emitting frame keyword"))
+          ;; Record half always-on; trace half guarded (rf2-d2841).
           (is (some? rec))
-          (is (identical? boom (:exception rec))))
+          (is (identical? boom (:exception rec)))
+          (when interop/debug-enabled?
+            (is (valid-observation-on-change-failed-tags? (:tags tev))
+                "the :disposed dev-trace tags satisfy the canonical schema")
+            (is (= :disposed (:cause (:tags tev))))
+            (testing "the :disposed dev-trace :tags likewise carry the EXACT throwable
+                      and frame keyword, independently of the always-on record
+                      (rf2-5iud0a false-greens #1 + #3)"
+              (is (identical? boom (:exception (:tags tev)))
+                  "trace :exception is the exact original throwable, not nil / a copy")
+              (is (= fid (:frame (:tags tev)))
+                  "trace :frame carries the exact emitting frame keyword"))))
         (obs/release! la)))))
 
 (deftest schema-gate-rejects-required-key-and-value-drift
@@ -3817,38 +3928,75 @@
             tags (:tags (first (filterv #(= :rf.error/observation-on-change-failed
                                             (:operation %))
                                         traces)))]
-        (is (valid-observation-on-change-failed-tags? tags)
-            "baseline: the real record validates")
-        (testing "removing any required attribution key fails the gate"
-          (doseq [k observation-tags-required-keys]
-            (is (not (valid-observation-on-change-failed-tags? (dissoc tags k)))
-                (str "removing required key " k " must fail"))))
-        (testing "a :cause off the :hmr/:disposed channel-discriminator fails"
-          (is (not (valid-observation-on-change-failed-tags?
-                     (assoc tags :cause :bogus)))))
-        (testing "a spoofed :category fails"
-          (is (not (valid-observation-on-change-failed-tags?
-                     (assoc tags :category :rf.error/handler-exception)))))
-        (testing "false-green #1 — :exception is schema-typed :any, so the SCHEMA
-                  alone accepts a mutated trace :exception; the real fixtures instead
-                  assert exact throwable identity, which catches nil / a substituted
-                  throwable (rf2-5iud0a)"
+        ;; THE DRIFT MATRIX RUNS OVER A SYNTHETIC BASELINE (rf2-d2841), not
+        ;; over the emitted record, and that is a strengthening rather than a
+        ;; concession. `valid-observation-on-change-failed-tags?` is a PURE
+        ;; function of a tag map and the extracted schema; the drift claims
+        ;; below are claims about THE SCHEMA, so they need A conforming map,
+        ;; not THE emitted one. Driving them off the dev trace made every one
+        ;; of them VACUOUS under the gate: `tags` is nil there, `(dissoc nil k)`
+        ;; is nil, and "removing a required key must fail" was TRUE for all
+        ;; eight keys for the wrong reason — a gate whose whole purpose is to
+        ;; redden on schema drift was certifying drift-detection over an absent
+        ;; record. Twelve vacuous passes came off this way (eight from the
+        ;; doseq, the :cause and :category spoof rejections, and the two
+        ;; exact-identity negatives).
+        ;;
+        ;; The synthetic baseline cannot itself drift silently: if the markdown
+        ;; schema gains a required key or tightens a leaf type, this literal
+        ;; stops validating and the FIRST assertion reddens. The complementary
+        ;; direction — that the schema has not been WEAKENED — is pinned
+        ;; structurally and posture-independently by
+        ;; `canonical-schema-form-pins-the-strict-observation-shape`.
+        (let [synthetic-boom {:synthetic true}
+              synthetic {:category          :rf.error/observation-on-change-failed
+                         :rf.sub/id         :obs/items
+                         :rf.sub/query-v    [:obs/items]
+                         :where             'rf/drain-pending-disposals!
+                         :cause             :disposed
+                         :exception         synthetic-boom
+                         :exception-message "synthetic on-change boom"
+                         :reason            "a synthetic conforming tag map"
+                         :frame             fid}]
+          (is (valid-observation-on-change-failed-tags? synthetic)
+              "baseline: a conforming tag map validates (a required-key or leaf-type
+               TIGHTENING in the markdown reddens here)")
+          (testing "removing any required attribution key fails the gate"
+            (doseq [k observation-tags-required-keys]
+              (is (not (valid-observation-on-change-failed-tags? (dissoc synthetic k)))
+                  (str "removing required key " k " must fail"))))
+          (testing "a :cause off the :hmr/:disposed channel-discriminator fails"
+            (is (not (valid-observation-on-change-failed-tags?
+                       (assoc synthetic :cause :bogus)))))
+          (testing "a spoofed :category fails"
+            (is (not (valid-observation-on-change-failed-tags?
+                       (assoc synthetic :category :rf.error/handler-exception)))))
+          (testing "false-green #1 — :exception is schema-typed :any, so the SCHEMA
+                    alone accepts a mutated :exception; the real fixtures instead
+                    assert exact throwable identity, which catches nil / a substituted
+                    throwable (rf2-5iud0a)"
+            (is (valid-observation-on-change-failed-tags? (assoc synthetic :exception nil))
+                "the schema (:any) still validates a nil'd :exception — schema alone is a false green")
+            (is (valid-observation-on-change-failed-tags?
+                  (assoc synthetic :exception (ex-info "different" {})))
+                "the schema (:any) still validates a DIFFERENT throwable")
+            (is (not (identical? synthetic-boom (:exception (assoc synthetic :exception nil))))
+                "the exact-identity assertion the fixtures use catches the nil mutation")
+            (is (not (identical? synthetic-boom
+                                 (:exception (assoc synthetic :exception (ex-info "different" {})))))
+                "…and catches a substituted throwable"))
+          (testing "false-green #3 — a legitimately-absent OPTIONAL :frame stays valid
+                    (the optional row must not silently become required) (rf2-5iud0a)"
+            (is (valid-observation-on-change-failed-tags? (dissoc synthetic :frame))
+                "an absent optional :frame remains valid (frame is optional in the schema)")))
+        ;; The REAL emitted record is still bound to the same schema — that
+        ;; half is a runtime claim about the dev trace and is guarded.
+        (when interop/debug-enabled?
+          (is (valid-observation-on-change-failed-tags? tags)
+              "baseline: the real record validates")
           (is (identical? boom (:exception tags))
               "baseline: the real trace tags carry the exact throwable")
-          (is (valid-observation-on-change-failed-tags? (assoc tags :exception nil))
-              "the schema (:any) still validates a nil'd :exception — schema alone is a false green")
-          (is (valid-observation-on-change-failed-tags?
-                (assoc tags :exception (ex-info "different" {})))
-              "the schema (:any) still validates a DIFFERENT throwable")
-          (is (not (identical? boom (:exception (assoc tags :exception nil))))
-              "the exact-identity assertion the fixtures use catches the nil mutation")
-          (is (not (identical? boom (:exception (assoc tags :exception (ex-info "different" {})))))
-              "…and catches a substituted throwable"))
-        (testing "false-green #3 — a legitimately-absent OPTIONAL :frame stays valid
-                  (the optional row must not silently become required) (rf2-5iud0a)"
-          (is (= fid (:frame tags)) "baseline: the real record emits the frame tag")
-          (is (valid-observation-on-change-failed-tags? (dissoc tags :frame))
-              "an absent optional :frame remains valid (frame is optional in the schema)")))
+          (is (= fid (:frame tags)) "baseline: the real record emits the frame tag")))
       (obs/release! la))))
 
 (defn- schema-entry-of
