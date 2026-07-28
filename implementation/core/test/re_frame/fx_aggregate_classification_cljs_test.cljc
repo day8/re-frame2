@@ -30,12 +30,34 @@
 
   Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
   (`npm run test:cljs`, `cljs-test$` ns-regexp) AND the JVM `clojure -M:test`
-  runner both run it (http + machines ride core's test-only classpath)."
+  runner both run it (http + machines ride core's test-only classpath).
+
+  ## Posture split (rf2-d2841)
+
+  Section A is the chokepoint under a microscope — `project-trace-event` driven
+  on hand-built shapes — and needs no trace stream at all, so ALL of it runs
+  under `scripts/test-core-prod-gate.sh` unchanged. That is where the teeth are.
+
+  Section B's live round-trips read the DEV TRACE stream, which emits nothing
+  under `-Dre-frame.debug=false`. Their trace-reading steps are kept verbatim
+  inside `(when interop/debug-enabled? …)` arms — INCLUDING the two closing
+  whole-stream sweeps. Those sweeps are the reason the arm wraps the trace half
+  as a block: `(is (not (some #(leaks? pw-sentinel %) @traces)))` over an EMPTY
+  `@traces` is a redaction suite reporting green for having emitted nothing,
+  the exact false-green shape rf2-d2841's third pass found in the two
+  `machine-*-classification` suites.
+
+  What stays OUTSIDE the arm is each round-trip's step 1 — the handler / fx
+  body receiving the RAW value. Redaction here is EGRESS-ONLY, so that step is
+  posture-independent, it is the half of the contract a production build
+  actually executes, and without it \"the sentinel appears nowhere\" would be
+  satisfied by a cascade that never carried the sentinel in the first place."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
             [re-frame.classification :as classification]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             ;; Boot the optional http artefact so the
             ;; `:http/project-managed-fx-args` hook is bound (published at
             ;; `re-frame.http.managed` load — the artefact's load-time anchor).
@@ -195,9 +217,14 @@
         (rf/unregister-listener! :trace ::probe)
 
         ;; 1. control flow untouched — the target handler read the raw secret.
+        ;;    ALWAYS-ON (rf2-d2841): egress-only redaction, and the proof that
+        ;;    the secret was ever in flight.
         (is (= pw-sentinel @captured)
             "the target handler received the RAW secret (egress-only redaction)")
 
+       ;; rf2-d2841 — steps 2-5 read the dev trace stream; step 5's sweep would
+       ;; certify "no leak" over an empty `@traces`. Kept verbatim in the arm.
+       (when interop/debug-enabled?
         ;; 2. the parent's :rf.event/fx aggregate redacts the nested payload.
         (let [entries (for [ev    @traces
                             :let  [fx-vec (get-in ev [:tags :rf.event/fx])]
@@ -232,7 +259,7 @@
 
         ;; 5. the whole-stream sweep — the secret appears NOWHERE.
         (is (not (some #(leaks? pw-sentinel %) @traces))
-            "no emitted trace event leaks the secret sentinel")))))
+            "no emitted trace event leaks the secret sentinel"))))))
 
 (deftest live-managed-http-dynamic-flag-redacts-in-aggregate
   (testing "GAP (b) acceptance: a handler combining [:dispatch [bare]] with a
@@ -263,9 +290,13 @@
         (rf/unregister-listener! :trace ::probe)
 
         ;; 1. the fx body received the RAW body (egress-only redaction).
+        ;;    ALWAYS-ON (rf2-d2841) — see step 1 of the deftest above.
         (is (= pw-sentinel (get-in (first @http) [:request :body :password]))
             "the managed fx received the RAW password")
 
+       ;; rf2-d2841 — steps 2-4 read the dev trace stream; step 4's sweep would
+       ;; certify "no leak" over an empty `@traces`. Kept verbatim in the arm.
+       (when interop/debug-enabled?
         ;; 2. the :rf.event/fx aggregate redacts the managed entry's body.
         (let [entries (for [ev    @traces
                             :let  [fx-vec (get-in ev [:tags :rf.event/fx])]
@@ -291,4 +322,4 @@
 
         ;; 4. whole-stream sweep.
         (is (not (some #(leaks? pw-sentinel %) @traces))
-            "no emitted trace event leaks the password sentinel")))))
+            "no emitted trace event leaks the password sentinel"))))))

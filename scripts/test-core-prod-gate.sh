@@ -181,10 +181,8 @@ known_red=(
   #    `(when (and interop/debug-enabled? …))`, so the knob and its warning
   #    are equally dev-only. Check the implementation, not the plausible
   #    story about it.
-  re-frame.capture-frame-reincarnation-sink-route-cljs-test
   re-frame.capture-frame-test
   re-frame.cascade-dispatch-id-test
-  re-frame.classification-effects-cljs-test
   re-frame.cofx-cljs-test
   re-frame.cofx-envelope-test
   re-frame.core-epoch-egress-profile-test
@@ -194,9 +192,6 @@ known_red=(
   re-frame.frame-destroy-composed-test
   re-frame.frame-destroy-incarnation-jvm-test
   re-frame.frame-teardown-report-cljs-test
-  re-frame.fx-aggregate-classification-cljs-test
-  re-frame.fx-args-trace-egress-cljs-test
-  re-frame.fx-redirect-classification-cljs-test
   re-frame.interceptor-override-summary-trace-test
   re-frame.live-frame-reload-cljs-test
   re-frame.observation-port-cljs-test

@@ -29,12 +29,37 @@
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both run
-  it. Plain CLJC; no DOM dependency."
+  it. Plain CLJC; no DOM dependency.
+
+  ## Posture split (rf2-d2841)
+
+  Legs 1, 2, 3 and 5 read the per-frame elision registry and app-db — durable
+  production state — and run under `scripts/test-core-prod-gate.sh` unchanged.
+
+  Leg 4 (fail-loud) was the only thing rostering this file, and it did NOT need
+  a guard. `:rf.error/classification-effect-shape` is a PROMOTED category:
+  `router/emit-classification-effect-shape!` goes through
+  `error-emit/emit-error-both!`, so the rejection fans out on the always-on
+  corpus axis as well as the dev trace. Every \"exactly one error was emitted\"
+  row is therefore RE-AIMED at the `:errors` stream, where it stays live in
+  production posture — which is the posture that matters for a fail-loud claim.
+
+  What genuinely is dev-only is the DIAGNOSTIC DETAIL. `emit-error-both!` lifts
+  only `:failing-id` / `:reason` onto the always-on record, and this category
+  passes no `:failing-id`, so `:offending-key` rides the dev-trace tags alone: a
+  production listener learns that a classification effect was malformed but not
+  WHICH key. Those `:offending-key` rows — and the dev-trace counts beside them
+  — sit inside `(when interop/debug-enabled? …)` arms.
+
+  The `no :db commit happened` rows stay outside every arm. They are the
+  fail-CLOSED half of the contract and the reason the error rows are not
+  vacuous: something was rejected, and the rejection had a consequence."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.privacy :as privacy]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
@@ -65,6 +90,18 @@
              (and (= :error (:op-type ev))
                   (= operation (:operation ev))))
            @recorded))
+
+;; rf2-d2841 — the ALWAYS-ON corpus axis. `:rf.error/classification-effect-shape`
+;; is a promoted category (`router/emit-classification-effect-shape!` fans it
+;; through `error-emit/emit-error-both!`), so the fail-loud COUNT is readable in
+;; production posture off `:errors` rather than off the dev trace.
+(defn- record-errors! [listener-id]
+  (let [a (atom [])]
+    (rf/register-listener! :errors listener-id (fn [rec] (swap! a conj rec)))
+    a))
+
+(defn- error-records [recorded category]
+  (filterv #(= category (:error %)) @recorded))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. classify-then-egress in the SAME event redacts
@@ -425,13 +462,27 @@
       (fn [{:keys [db]} _]
         {:db        (assoc db :counter 99)
          :sensitive :not-a-vector}))
-    (let [recorded (record-traces! :bad-classify-probe)]
+    (let [recorded (record-traces! :bad-classify-probe)
+          records  (record-errors! :bad-classify-errors)]
       (rf/dispatch-sync [:bad-classify])
-      (let [errs (error-events recorded :rf.error/classification-effect-shape)]
-        (is (= 1 (count errs))
-            "exactly one :rf.error/classification-effect-shape error was emitted")
-        (is (= :sensitive (:offending-key (:tags (first errs))))
-            "the diagnostic names the offending effect key"))
+      ;; ALWAYS-ON axis (rf2-d2841): the fail-loud COUNT reads the corpus-wide
+      ;; error-emit registry, which survives -Dre-frame.debug=false.
+      (let [recs (error-records records :rf.error/classification-effect-shape)]
+        (is (= 1 (count recs))
+            "exactly one :rf.error/classification-effect-shape record fans on the always-on axis")
+        (is (= :bad-classify (:event-id (first recs)))
+            "the always-on record attributes the rejection to the offending event"))
+      ;; rf2-d2841 — the dev-trace arm. `:offending-key` is NOT lifted onto the
+      ;; always-on record (`emit-error-both!` lifts only `:failing-id` /
+      ;; `:reason`, and this category passes no `:failing-id`), so it is
+      ;; readable on the trace tags alone. Kept verbatim.
+      (when interop/debug-enabled?
+        (let [errs (error-events recorded :rf.error/classification-effect-shape)]
+          (is (= 1 (count errs))
+              "exactly one :rf.error/classification-effect-shape error was emitted")
+          (is (= :sensitive (:offending-key (:tags (first errs))))
+              "the diagnostic names the offending effect key")))
+      (rf/unregister-listener! :errors :bad-classify-errors)
       (rf/unregister-listener! :trace :bad-classify-probe))
     ;; the :db commit did NOT happen — app-db is still at the pre-handler value
     (is (= 1 (:counter (frame/frame-app-db-value :rf/default)))
@@ -445,10 +496,17 @@
     (rf/reg-event :bad-entry
       (fn [{:keys [db]} _]
         {:db (assoc db :n 2) :sensitive [:not-a-path-vector]}))
-    (let [recorded (record-traces! :bad-entry-probe)]
+    (let [recorded (record-traces! :bad-entry-probe)
+          records  (record-errors! :bad-entry-errors)]
       (rf/dispatch-sync [:bad-entry])
-      (is (= 1 (count (error-events recorded :rf.error/classification-effect-shape)))
-          "a non-sequential path entry fails loud (one error emitted)")
+      ;; ALWAYS-ON axis (rf2-d2841).
+      (is (= 1 (count (error-records records :rf.error/classification-effect-shape)))
+          "a non-sequential path entry fails loud on the always-on axis (one record)")
+      ;; rf2-d2841 — dev-trace arm.
+      (when interop/debug-enabled?
+        (is (= 1 (count (error-events recorded :rf.error/classification-effect-shape)))
+            "a non-sequential path entry fails loud (one error emitted)"))
+      (rf/unregister-listener! :errors :bad-entry-errors)
       (rf/unregister-listener! :trace :bad-entry-probe))
     (is (= 1 (:n (frame/frame-app-db-value :rf/default)))
         "no :db commit happened on the malformed-entry abort")))
@@ -478,13 +536,24 @@
   (rf/reg-event ev-id
     (fn [{:keys [db]} _]
       {:db (assoc db :n 2) effect-key payload}))
-  (let [recorded (record-traces! probe-id)]
+  (let [recorded (record-traces! probe-id)
+        records  (record-errors! (keyword (namespace probe-id) (str (name probe-id) "-errors")))]
     (rf/dispatch-sync [ev-id])
-    (let [errs (error-events recorded :rf.error/classification-effect-shape)]
-      (is (= 1 (count errs))
-          (str "exactly one classification-effect-shape error for " effect-key))
-      (is (= effect-key (:offending-key (:tags (first errs))))
-          (str "the diagnostic names " effect-key " as the offending key")))
+    ;; ALWAYS-ON axis (rf2-d2841): every one of the four axes fails loud on the
+    ;; corpus-wide channel, which is the channel a production build has.
+    (let [recs (error-records records :rf.error/classification-effect-shape)]
+      (is (= 1 (count recs))
+          (str "exactly one always-on classification-effect-shape record for " effect-key))
+      (is (= ev-id (:event-id (first recs)))
+          (str "the always-on record attributes the " effect-key " rejection to its event")))
+    ;; rf2-d2841 — `:offending-key` rides the dev-trace tags only. Verbatim.
+    (when interop/debug-enabled?
+      (let [errs (error-events recorded :rf.error/classification-effect-shape)]
+        (is (= 1 (count errs))
+            (str "exactly one classification-effect-shape error for " effect-key))
+        (is (= effect-key (:offending-key (:tags (first errs))))
+            (str "the diagnostic names " effect-key " as the offending key"))))
+    (rf/unregister-listener! :errors (keyword (namespace probe-id) (str (name probe-id) "-errors")))
     (rf/unregister-listener! :trace probe-id))
   (is (= 1 (:n (frame/frame-app-db-value :rf/default)))
       (str "no :db commit happened on the malformed " effect-key " abort")))
@@ -536,13 +605,25 @@
     (rf/reg-event :bad-segment
       (fn [{:keys [db]} _]
         {:db (assoc db :n 2) :sensitive [[(fn [] :nope)]]}))
-    (let [recorded (record-traces! :bad-segment-probe)]
+    (let [recorded (record-traces! :bad-segment-probe)
+          records  (record-errors! :bad-segment-errors)]
       (rf/dispatch-sync [:bad-segment])
-      (let [errs (error-events recorded :rf.error/classification-effect-shape)]
-        (is (= 1 (count errs))
-            "a non-segment path element fails loud as ONE classification-effect-shape error")
-        (is (= :sensitive (:offending-key (:tags (first errs))))
-            "the offending key is named"))
+      ;; ALWAYS-ON axis (rf2-d2841): the whole fail-closed `:rf/path` boundary
+      ;; collapses to ONE record on the corpus channel, not a throw and not a
+      ;; second category.
+      (let [recs (error-records records :rf.error/classification-effect-shape)]
+        (is (= 1 (count recs))
+            "a non-segment path element fails loud as ONE always-on record")
+        (is (empty? (error-records records :rf.error/bad-path))
+            ":rf.error/bad-path is re-reported, not surfaced as its own category"))
+      ;; rf2-d2841 — dev-trace arm.
+      (when interop/debug-enabled?
+        (let [errs (error-events recorded :rf.error/classification-effect-shape)]
+          (is (= 1 (count errs))
+              "a non-segment path element fails loud as ONE classification-effect-shape error")
+          (is (= :sensitive (:offending-key (:tags (first errs))))
+              "the offending key is named")))
+      (rf/unregister-listener! :errors :bad-segment-errors)
       (rf/unregister-listener! :trace :bad-segment-probe))
     (is (= 1 (:n (frame/frame-app-db-value :rf/default)))
         "no :db commit happened on the non-segment-path abort")))
