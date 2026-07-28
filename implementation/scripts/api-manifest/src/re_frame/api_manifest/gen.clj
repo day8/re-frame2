@@ -135,10 +135,42 @@
     ;; than by carve-out.
     re-frame.freehand.form
     re-frame.freehand.controls
+    ;; The control kit's POINTER witness (rf2-drpa3.182.10; DC-04's other
+    ;; half, proven by FH-CTRL-019): a resizable pane divider whose keyboard
+    ;; path is the SAME control rather than a second one bolted to the side
+    ;; of it. It earns its own edge under the Conventions rule — it reads no
+    ;; form and enters no controlled-input door, so its audience is a layout
+    ;; author rather than a form author — and the collision is already
+    ;; concrete rather than forecast: `splitter/key-intent` and
+    ;; `controls/key-intent` are different laws that would have to be
+    ;; prefixed apart inside one flat kit namespace.
+    ;;
+    ;; It landed on main (PR #7181) WITHOUT reaching this list, and nothing
+    ;; went red — which is the point. The generator introspects an EXPLICIT
+    ;; roster, so an unlisted namespace is not unclassified, it is UNSCANNED:
+    ;; `--check` passes, and `doc_api_check` derives ITS namespace roster
+    ;; from the manifest rows, so the surface received no documentation
+    ;; coverage check either. Fourteen public names were invisible to every
+    ;; manifest-derived gate at once (rf2-h0b0l) — the same defect class
+    ;; rf2-ivuun repaired for `re-frame.resources`, and the reason the
+    ;; comment below no longer states a COUNT of sanctioned siblings.
+    ;;
+    ;; `.cljc` and host-neutral, and here the JVM enumeration is not a proxy
+    ;; for a browser surface — the bounds, the settle arithmetic, the
+    ;; keyboard law and the five transitions ARE the surface, and only the
+    ;; pointer plumbing beneath the view is `:cljs`-conditional (and `defn-`).
+    re-frame.freehand.splitter
     ;; The Freehand substrate's TOOL-TIER READER DOOR (rf2-hytu5, extended by
     ;; rf2-lvvl2 / rf2-xftdv / rf2-cpfbg; contract in Spec 004, the
-    ;; instrumentation it serves in Spec 009). The third and last sanctioned
-    ;; `re-frame.freehand.*` namespace, publishing SIX names: `view-manifest`,
+    ;; instrumentation it serves in Spec 009). A sanctioned
+    ;; `re-frame.freehand.*` sibling — and NOT "the third and last" one, as
+    ;; this comment claimed until rf2-h0b0l: a count is the wrong shape for a
+    ;; roster, because it goes quietly false the moment a witness lands and
+    ;; nothing checks it. The rule is qualitative and lives in
+    ;; `spec/Conventions.md` §Freehand — one public namespace, one alias, one
+    ;; reserved root: a sibling is earned only where a separate edge
+    ;; materially clarifies a capability with its own audience. This one
+    ;; publishes SIX names: `view-manifest`,
     ;; a TOTAL projection of the compile-time analysis a value already carries;
     ;; the three ID-taking DECLARATION reads a wire-attached inspector needs —
     ;; `read-view-manifest`, `read-view-dependencies`, `read-view-event-sites`;
