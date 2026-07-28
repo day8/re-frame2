@@ -213,8 +213,35 @@
   the missing browser figures. Ratios between two arms measured the same way
   are unaffected by any of this.
 
+  ## A near-zero arm is bounded, not measured (rf2-tmzie)
+
+  `C-NOOP` is `keep!` and nothing else, so whatever it reads is what an arm
+  that allocates NOTHING reads — the instrument's FLOOR, measured rather
+  than assumed. The floor is a roughly fixed number of bytes per WINDOW, so
+  it falls as `1/reps`, and an arm sitting on it has been BOUNDED, not
+  measured. `-main` prints the floor and lists every arm at or under it.
+
+  `WA_REPS_MAX` is the sweep that tells the two apart without leaving the
+  measured plan: a REAL per-call cost is cap-independent in B/call, a floor
+  is cap-independent in B/WINDOW. That distinction is what settled rf2-tmzie
+  — `C-FRAME` holds 32.0 B/call from `WA_REPS_MAX=64` to `4000`, a 62x range,
+  so it is a real per-call cost here and not the floor.
+
+  What it is NOT is the visibility walk it was published as. The bisection
+  (`C-FRAMEV` / `C-FRAMEL` / `C-FRAMES`) puts all 32 B in TWO
+  `PersistentHashMap` lookups on the frame record, 16 B each and additive,
+  and the `C-PHMGET` / `C-PAMGET` pair reproduces exactly that on maps built
+  for the purpose: a `get` on a 17-entry map costs 16 B, the same `get` on a
+  4-entry map costs 0. The registry itself holds four entries, which is why
+  `C-FRAMEG` is free. And `-diagnose` PROBE 4/5 read ~0 for the SAME closure
+  — a process whose only work is that one arm lets V8 elide the box, and a
+  second live caller does not restore it. So 32.0 B/call is an UPPER BOUND:
+  the cost this plan pays, and one a differently-optimised process does not.
+
   Environment: WA_N (subscriptions, default 300), WA_SAMPLES (samples per
-  arm across ALL rounds, default 40), WA_ROUNDS (default 6 — at least six,
+  arm across ALL rounds, default 40), WA_REPS_MAX (the window-size cap
+  `calibrate` clamps to, default 4000 — the rf2-tmzie sweep),
+  WA_ROUNDS (default 6 — at least six,
   so the guard's phase thirds are ranges rather than single samples),
   WA_WARM_WINDOWS (full-size discarded windows per arm before the first
   measured round, default 6), WA_WARMUP (bare calls before calibration,
@@ -490,9 +517,19 @@
 ;;              measuring by accident until rf2-c0awb.
 ;;   C-FRAMEG   the registry `get` ALONE on the same hit, which is what says
 ;;              WHICH HALF of `frame/frame` a hit-vs-miss difference is in.
-;;              It reads 0.0, so the `get` is free and the difference is the
-;;              visibility walk. That difference is DISPUTED between the two
-;;              entry points and is not quotable — see rf2-tmzie.
+;;              It reads 0.0 — the registry is a FOUR-entry map, so `get` is
+;;              an array scan and no hash is taken.
+;;   C-FRAMEV   the same walk `frame/frame` performs, re-spelled INLINE.
+;;              C-FRAME − C-FRAMEV is what the CALL costs; it is 0 (rf2-tmzie)
+;;   C-FRAMEL   the `:lifecycle` half of the walk alone
+;;   C-FRAMES   the `:construction` half alone. L + S = V, additively, and
+;;              each half is one `PersistentHashMap` lookup on the record.
+;;   C-PHMGET   CONTROL: one `get` on a 17-entry map. Predicted 16 B — a
+;;   C-PAMGET   CONTROL: one `get` on a 4-entry map. Predicted 0 B. The pair
+;;              differs only in the map's SIZE, which is what selects between
+;;              a hashed lookup and an array scan.
+;;   C-NOOP     CONTROL: `keep!` alone — the instrument's measured FLOOR at
+;;              this window size. No arm at or below it has been measured.
 ;;   C-PARTS    `commit-frame-record-transition!`'s partition bookkeeping:
 ;;              the two `contains?`, the four `get`, the `next-fs` map, the
 ;;              `changed` cond-> set, the two `not=` partition comparisons and
@@ -573,6 +610,114 @@
     (fn []
       (keep! (get @frame/frames id))
       nil)))
+
+;; rf2-tmzie — BISECTING the hit, because `C-FRAME − C-FRAMEG` was published as
+;; "the visibility walk" and no expression in that walk allocates.
+;;
+;; `frame-record-visible-to-current-actor?` is, for a FINAL record — which is
+;; every record `build-rig!` installs — two keyword invokes, a `not`, a third
+;; keyword invoke and a `not=`. The `:provisional` branch is unreachable: the
+;; `or`'s first arm is true, so `*frame-transaction-owner*` is never read and
+;; `owner-holds-frame-id?` never runs. Not one of those steps allocates on any
+;; reading of `cljs.core`, so a 32 B/call figure attributed to them is a claim
+;; about V8, not about the predicate — and V8 is exactly what a bisection can
+;; separate.
+;;
+;;   C-FRAMEG  the registry `get` alone                          (already there)
+;;   C-FRAMEV  + the WHOLE reachable predicate, re-spelled INLINE — the
+;;             `Q-SCHED` discipline. Identical WORK to `C-FRAME`, with the
+;;             cross-namespace CALL removed and nothing else changed.
+;;   C-FRAMEL  + the `:lifecycle` half alone
+;;   C-FRAMES  + the `:construction` half alone
+;;
+;; So `C-FRAME − C-FRAMEV` is what the CALL costs over the work, and
+;; `C-FRAMEV − C-FRAMEG` is what the work costs on its own. A figure that lands
+;; entirely in the first is not the visibility walk however stable it reads.
+
+(defn- arm-c-frame-vis
+  "The reachable predicate, INLINE. Verbatim `frame-record-visible-to-current-
+  actor?` minus the provisional branch, which a final record short-circuits
+  before it."
+  []
+  (let [id (nth (:frames @rig) 0)]
+    (fn []
+      (let [f (get @frame/frames id)]
+        (keep! (and (not (-> f :lifecycle :destroyed?))
+                    (not= :provisional (-> f :construction :state)))))
+      nil)))
+
+(defn- arm-c-frame-life
+  "The `:lifecycle` half alone — one two-level keyword walk and a `not`."
+  []
+  (let [id (nth (:frames @rig) 0)]
+    (fn []
+      (keep! (not (-> (get @frame/frames id) :lifecycle :destroyed?)))
+      nil)))
+
+(defn- arm-c-frame-state
+  "The `:construction` half alone — one two-level keyword walk and a `not=`.
+  `:construction` is ABSENT from a `new-frame-record` map, so this is the
+  missing-key path, which is the path the real predicate takes."
+  []
+  (let [id (nth (:frames @rig) 0)]
+    (fn []
+      (keep! (not= :provisional (-> (get @frame/frames id) :construction :state)))
+      nil)))
+
+;; rf2-tmzie — THE MECHANISM, as a PREDICTION stated before it is measured.
+;;
+;; The bisection lands on `16.0 B` per two-level keyword walk, twice, additive.
+;; 16 B is this file's OWN standing figure for a boxed `HeapNumber` with pointer
+;; compression OFF (see the `sink` header), and the two walks differ from the
+;; free registry `get` in exactly one structural way: the map they index.
+;;
+;;   `@frames` holds FOUR entries, so it is a `PersistentArrayMap` and `get` is
+;;   a linear `identical?` scan over an array — no hash is ever taken.
+;;
+;;   A frame record holds a dozen, so it is a `PersistentHashMap` and `get`
+;;   runs `(hash k)` then `inode-lookup`, whose first act is
+;;   `(bit-shift-right-zero-fill hash shift)`. A CLJS hash is a SIGNED int32;
+;;   `>>>` re-reads it as UNSIGNED, and any int32 with the sign bit set becomes
+;;   a value above 2^31 — outside Smi range, hence a `HeapNumber`.
+;;
+;; PREDICTION: one `get` on a >8-entry map costs 16 B/call; the same `get` on a
+;; <=8-entry map costs 0. If that is right, `C-FRAME`'s 32 B is two hash-map
+;; lookups on the frame record and has nothing to do with visibility.
+;;
+;; Both maps are built here rather than borrowed, so the sizes are chosen and
+;; not inherited, and both TYPES are printed by `-main` rather than asserted —
+;; the collection type is the whole claim, so it is read off the process.
+
+(def ^:private phm-probe
+  "SEVENTEEN entries. `PersistentArrayMap` promotes to `PersistentHashMap`
+  above eight, so this is comfortably clear of the boundary."
+  (into {} (map (fn [i] [(keyword "wa" (str "probe" i)) (inc i)])) (range 17)))
+
+(def ^:private pam-probe
+  "FOUR entries — the same shape as the rig's `@frames`, and below the
+  promotion boundary, so `get` is an array scan with no hash."
+  (into {} (map (fn [i] [(keyword "wa" (str "probe" i)) (inc i)])) (range 4)))
+
+(defn- arm-c-phm-get
+  "One `get` on a PersistentHashMap. Predicted 16.0 B/call."
+  []
+  (keep! (get phm-probe :wa/probe3))
+  nil)
+
+(defn- arm-c-pam-get
+  "The SAME `get`, same key, same value, on a PersistentArrayMap. Predicted
+  0.0 B/call. The pair differs in the map's SIZE and in nothing else."
+  []
+  (keep! (get pam-probe :wa/probe3))
+  nil)
+
+(defn- arm-c-noop
+  "The FLOOR, measured rather than inferred: `keep!` and nothing else. Whatever
+  this arm reads is what an arm that allocates nothing reads at this window
+  size, and no arm at or below it has been measured — it has been bounded."
+  []
+  (keep! true)
+  nil)
 
 (defn- arm-c-parts []
   (let [{:keys [fs-a fs-b db-a db-b]} @rig
@@ -821,13 +966,22 @@
 
 (defn- calibrate
   "Pick a rep count that puts one sample near `target` bytes, so no sample
-  outgrows the nursery and no sample is lost in the counter's own noise."
-  [f target]
+  outgrows the nursery and no sample is lost in the counter's own noise.
+
+  `cap` bounds the answer. It is a KNOB (`WA_REPS_MAX`) and not a constant
+  because an arm that allocates ~nothing per call always lands on it, and an
+  arm pinned at the cap cannot be told apart from the instrument's own
+  per-window floor by looking at one window size. Re-running the whole plan at
+  several caps IS the sweep: a real per-call cost is cap-INDEPENDENT in B/call,
+  a per-window constant is cap-independent in B/WINDOW and so falls as 1/reps.
+  That is the distinction rf2-tmzie was opened on, and `-main` can now make it
+  without leaving `-main` (see `floor-lines`)."
+  [f target cap]
   (collect!)
   (let [h0 (used-heap)
         _  (dotimes [_ 4] (f))
         per (max 1 (/ (- (used-heap) h0) 4))]
-    (-> (js/Math.round (/ target per)) (max 1) (min 4000))))
+    (-> (js/Math.round (/ target per)) (max 1) (min cap))))
 
 ;; ---------------------------------------------------------------------------
 ;; rig construction
@@ -952,6 +1106,11 @@
         warmup   (env-int "WA_WARMUP" 3)
         warm-windows (env-int "WA_WARM_WINDOWS" 6)
         rounds   (max 2 (env-int "WA_ROUNDS" 6))
+        ;; rf2-tmzie — the window-size cap `calibrate` clamps to. Every arm that
+        ;; allocates ~nothing per call pins here, so this is the ONE knob that
+        ;; separates a per-CALL cost from a per-WINDOW one without leaving the
+        ;; measured plan.
+        reps-max (max 1 (env-int "WA_REPS_MAX" 4000))
         per-round (max 1 (js/Math.ceil (/ samples rounds)))
         tolerance (env-num "WA_TOLERANCE" 0.25)
         rev?     (= "rev" (env "WA_ORDER" ""))
@@ -981,8 +1140,8 @@
     (println (gstring/format ";; node %s  V8 %s  pointer-compression=%s (Chrome ships it ON: a tagged slot is 4 B there, 8 B here)"
                      (.-node js/process.versions) (.-v8 js/process.versions)
                      (if (= 1 (gobj/getValueByKeys js/process "config" "variables" "v8_enable_pointer_compression")) "ON" "OFF")))
-    (println (gstring/format ";; n=%d samples=%d (%d rounds x %d) warmup=%d calls + %d windows  base order=%s frames=%s"
-                     n samples rounds per-round warmup warm-windows
+    (println (gstring/format ";; n=%d samples=%d (%d rounds x %d) warmup=%d calls + %d windows  reps-max=%d  base order=%s frames=%s"
+                     n samples rounds per-round warmup warm-windows reps-max
                      (if rev? "REVERSED" "forward")
                      (pr-str ns-per-frame)))
     (println (gstring/format ";; arm order ROTATES AND REFLECTS with the round (rf2-88pie); guard tolerance %s"
@@ -1004,6 +1163,24 @@
                        (if (trace/trigger-handler-from-meta :sub :probe slot)
                          "BUILT — P-SCOPEM is the predictive arm"
                          "nil — P-SCOPE is the predictive arm"))))
+    ;; rf2-tmzie — the mechanism pair's whole claim is the COLLECTION TYPE, so
+    ;; the type is read off the process rather than asserted from an entry
+    ;; count. `@frames` is printed beside them because `C-FRAMEG`'s 0.0 is only
+    ;; evidence about array maps while the registry actually is one.
+    ;; Type NAMES are minified under `:advanced`, so the claim is put as an
+    ;; identity comparison, which survives minification: the big map's type
+    ;; must DIFFER from the small one's, and the registry's must MATCH it.
+    (println (gstring/format ";; probe maps: %d-entry %s   %d-entry %s   registry @frames %d-entry %s"
+                     (count phm-probe) (pr-str (type phm-probe))
+                     (count pam-probe) (pr-str (type pam-probe))
+                     (count @frame/frames) (pr-str (type @frame/frames))))
+    (println (gstring/format ";;   big differs from small = %s   registry is the SMALL-map type = %s  (%s)"
+                     (not (identical? (type phm-probe) (type pam-probe)))
+                     (identical? (type @frame/frames) (type pam-probe))
+                     (if (and (not (identical? (type phm-probe) (type pam-probe)))
+                              (identical? (type @frame/frames) (type pam-probe)))
+                       "as the C-PHMGET / C-PAMGET pair requires"
+                       "*** the mechanism pair is NOT contrasting what it claims ***")))
     ;; Agreement gate: every held subscription must read what the writer
     ;; wrote, or the graph is not wired and nothing below is evidence.
     (let [f (last (:frames @rig))
@@ -1028,6 +1205,14 @@
                         ["C-FRAME"   (arm-c-frame)        1]
                         ["C-FRAMEX"  (arm-c-frame-miss)   1]
                         ["C-FRAMEG"  (arm-c-frame-get)    1]
+                        ;; rf2-tmzie — the same work with the CALL removed
+                        ["C-FRAMEV"  (arm-c-frame-vis)    1]
+                        ["C-FRAMEL"  (arm-c-frame-life)   1]
+                        ["C-FRAMES"  (arm-c-frame-state)  1]
+                        ;; rf2-tmzie — the mechanism pair, and the measured floor
+                        ["C-PHMGET"  arm-c-phm-get        1]
+                        ["C-PAMGET"  arm-c-pam-get        1]
+                        ["C-NOOP"    arm-c-noop           1]
                         ["C-PARTS"   arm-c-parts          1]
                         ["C-TAGPAIR" arm-c-tagpair        1]
                         ["C-BUMP"    arm-c-bump           1]
@@ -1060,7 +1245,7 @@
           ;; refuses. So every arm is walked to its settled value first.
           reps (mapv (fn [[label f _]]
                        (dotimes [_ warmup] (f))
-                       (let [r (calibrate f 2000000)]
+                       (let [r (calibrate f 2000000 reps-max)]
                          (dotimes [_ warm-windows] (measure f r 1))
                          (println (gstring/format ";; warm %-12s reps=%-6d %d discarded windows"
                                           label r warm-windows))
@@ -1106,6 +1291,26 @@
                            label (:reps r) (fmt (:p50 r)) (fmt (:lo r)) (fmt (:hi r))
                            (fmt (/ (:p50 r) per)) (:accepted r) (:dropped r)
                            (fmt (apply min rnd)) (fmt (apply max rnd))))))
+      ;; rf2-tmzie — THE FLOOR, measured rather than assumed. `C-NOOP` is
+      ;; `keep!` and nothing else, so whatever it reads is what "allocates
+      ;; nothing" reads at THIS window size. The floor is window-size
+      ;; dependent — it is a roughly fixed number of bytes per WINDOW, so it
+      ;; falls as 1/reps — which is why `WA_REPS_MAX` exists and why an arm
+      ;; that sits on it must be reported as an upper bound rather than a
+      ;; measurement. Re-run at a smaller `WA_REPS_MAX` and an arm whose figure
+      ;; RISES was never measuring itself.
+      (println ";;")
+      (println ";; THE FLOOR — what an arm that allocates NOTHING reads in this run")
+      (let [nreps (:reps (get res "C-NOOP"))
+            floor (b "C-NOOP")]
+        (println (gstring/format ";;   C-NOOP  %s B/call at reps=%-6d (%s B per WINDOW)  [reps-max=%d]"
+                         (fmt floor) nreps (fmt (* floor nreps)) reps-max))
+        (let [bounded (filterv (fn [[label _ _]] (<= (b label) floor)) plan)]
+          (if (seq bounded)
+            (do (println ";;   AT OR UNDER IT — bounded, not measured; report these as <=:")
+                (doseq [[label _ _] bounded]
+                  (println (gstring/format ";;     <= %-10s %10s B/call" label (fmt (b label))))))
+            (println ";;   no arm is at the floor in this run"))))
       (println ";;")
       (println ";; CONTROLS")
       ;; rf2-l3jv4 — the ABSOLUTE, checked, at every size. The slopes below
@@ -1206,7 +1411,7 @@
             sp0    (b "SPINE0")
             delta  (- rf0 sp0)
             proj   (- (b "SPINE0P") (b "SPINE0B"))
-            comps  [["C-FRAME    (frame id) registry lookup, HIT" (b "C-FRAME")]
+            comps  [["C-FRAME    (frame id) lookup, HIT  [<= — rf2-tmzie]" (b "C-FRAME")]
                     ["C-PARTS    partition bookkeeping"      (b "C-PARTS")]
                     ["C-TAGPAIR  two [::ok v] pairs"         (b "C-TAGPAIR")]
                     ["C-PROJ     the two projections"        proj]
@@ -1232,15 +1437,46 @@
         (println (gstring/format ";;   C-FRAME (registry HIT) %s B vs C-FRAMEX (MISS) %s B  -> a HIT costs %s B/lookup more than a miss"
                          (fmt (b "C-FRAME")) (fmt (b "C-FRAMEX"))
                          (fmt (- (b "C-FRAME") (b "C-FRAMEX")))))
-        (println (gstring/format ";;   C-FRAMEG (the registry `get` alone, same hit) %s B  -> the visibility walk is the remaining %s B"
+        (println (gstring/format ";;   C-FRAMEG (the registry `get` alone, same hit) %s B  -> the record walk is the remaining %s B"
                          (fmt (b "C-FRAMEG"))
                          (fmt (- (b "C-FRAME") (b "C-FRAMEG")))))
-        (println ";;   ^ that non-zero is DISPUTED and may NOT be quoted (rf2-tmzie): `-diagnose`")
-        (println ";;     PROBE 4 sweeps the SAME closure and reads a CONSTANT 32 B per WINDOW from")
-        (println ";;     reps=64 to reps=4000 — i.e. ~0 B/call — where the plan reads 32 B/CALL at")
-        (println ";;     reps=4000. One of the two is wrong and it is not yet known which. What IS")
-        (println ";;     settled is that the arm takes the HIT path now, and that the registry")
-        (println ";;     `get` is free in both."))
+        ;; rf2-tmzie — WHAT THAT NON-ZERO IS. It was published as "the
+        ;; visibility walk" and disputed against `-diagnose`, which reads a
+        ;; constant 32 B per WINDOW for the same closure. Both readings stand;
+        ;; they are of different things, and these arms say which is which.
+        (println ";;")
+        (println ";;   rf2-tmzie — WHAT THE 32 B IS, bisected")
+        (doseq [[lbl v note]
+                [["C-FRAME   frame/frame, the shipped call" (b "C-FRAME")
+                  "the whole hit"]
+                 ["C-FRAMEV  the same walk, re-spelled INLINE" (b "C-FRAMEV")
+                  "no call: so the cost is the WORK, not the call"]
+                 ["C-FRAMEL  the :lifecycle half alone" (b "C-FRAMEL")
+                  "one PersistentHashMap `get` on the record"]
+                 ["C-FRAMES  the :construction half alone" (b "C-FRAMES")
+                  "one PersistentHashMap `get` on the record"]
+                 ["C-FRAMEG  the registry `get` alone" (b "C-FRAMEG")
+                  "PersistentArrayMap: no hash is taken"]]]
+          (println (gstring/format ";;     %-44s %8s B   %s" lbl (fmt v) note)))
+        (println (gstring/format ";;     -> C-FRAMEL + C-FRAMES = %s B against C-FRAMEV's %s B  (%+.1f%%)"
+                         (fmt (+ (b "C-FRAMEL") (b "C-FRAMES"))) (fmt (b "C-FRAMEV"))
+                         (let [s (+ (b "C-FRAMEL") (b "C-FRAMES"))
+                               v (b "C-FRAMEV")]
+                           (if (zero? v) 0.0 (* 100.0 (/ (- s v) v))))))
+        ;; The mechanism, predicted before it was measured, on maps built for
+        ;; the purpose and differing only in size.
+        (let [phm (b "C-PHMGET") pam (b "C-PAMGET")]
+          (println (gstring/format ";;     CONTROL  `get` on a %d-entry map %8s B   predicted 16.0 (one boxed HeapNumber)  %+.1f%%"
+                           (count phm-probe) (fmt phm) (* 100.0 (/ (- phm 16.0) 16.0))))
+          (println (gstring/format ";;     CONTROL  `get` on a %d-entry map %8s B   predicted  0.0 (array scan, no hash)"
+                           (count pam-probe) (fmt pam)))
+          (println (str ";;     So the 32 B is TWO boxed hash values, one per PersistentHashMap lookup on"))
+          (println (str ";;     the frame record — NOT the visibility test, which is a `not`, a `not=` and"))
+          (println (str ";;     nothing else. `-diagnose` PROBE 4/5 read ~0 B/call for the same closure"))
+          (println (str ";;     because a process whose only work is that one arm lets V8 keep the shift"))
+          (println (str ";;     result in a register; PROBE 5 shows a second live caller does NOT restore"))
+          (println (str ";;     it. So this figure is an UPPER BOUND — the cost this plan pays and a"))
+          (println (str ";;     single-arm process does not. Quote it as <=, with the runtime named."))))
       ;; --- arm order, LAST, and it governs everything above ----------------
       ;; The figures are printed and the refusal is about what may be QUOTED,
       ;; not about throwing the measurement away — so the exit code carries
@@ -1466,6 +1702,49 @@
                 ;; the miss feeds `keep!` a nil, so the counter must NOT move —
                 ;; a window where it did was not measuring the miss
                 (fn [before after _] (== after before))]]]
+        (dotimes [_ 3] (f*))
+        (dotimes [_ 6] (measure f* 256 1))
+        (doseq [reps sweep]
+          (let [r (probe f* reps windows seed verify)]
+            (probe-line label reps r reps))))
+      ;; ---- PROBE 5 — the SAME sweep, once `frame/frame` has a SECOND caller --
+      ;;
+      ;; rf2-tmzie. PROBE 4 above and the measured plan disagree about the same
+      ;; closure by a factor of the rep count, and the sweep says which is which:
+      ;; PROBE 4 is flat in B/WINDOW (so ~0 B/call), the plan is flat in B/CALL
+      ;; across a 62x range of window sizes. Both are stable, so this is not
+      ;; noise; something about the two PROCESSES differs.
+      ;;
+      ;; The candidate is escape analysis, and it is testable. In PROBE 4 the
+      ;; measured loop is the ONLY thing in the process that calls
+      ;; `frame/frame`, so V8 can inline it whole — registry `get`, visibility
+      ;; predicate and all — into one loop body, prove nothing it builds
+      ;; escapes, and delete it. `-main` cannot offer that: its `RFWRITE-*` arms
+      ;; drive `frame/replace-app-db!`, whose `commit-frame-transition!` calls
+      ;; `frame/frame` on every write, so the function is hot from a second site
+      ;; whose result genuinely escapes.
+      ;;
+      ;; So: run the real write path until that second call site is hot, then
+      ;; re-run PROBE 4's exact sweep on a FRESH closure over the same id, in
+      ;; the SAME process. Nothing else changes. If the arm converts from
+      ;; ~constant-per-window to ~32-per-call, the elision is named and `-main`
+      ;; is the reading a real application — which never has a single-caller
+      ;; `frame/frame` — actually gets.
+      (println ";;")
+      (println ";; PROBE 5 — PROBE 4's sweep again, after the SHIPPED write path has made")
+      (println ";;   `frame/frame` hot from a SECOND call site (commit-frame-transition!).")
+      (println ";;   ~constant B/window -> still elided;  flat B/call -> the elision is gone")
+      (let [writer (fn [] (arm-rfwrite 0))]
+        (dotimes [_ 20000] (writer))
+        (println (gstring/format ";;   (20000 frame/replace-app-db! writes through frame 0 first; sink2 %s)"
+                         (some? @sink2))))
+      (doseq [[label f* seed verify]
+              [["C-FRAME  HIT s=1"  (arm-c-frame)     1 (advanced-by 1)]
+               ["C-FRAMEG get-only" (arm-c-frame-get) 1 (advanced-by 1)]
+               ;; the inline re-spelling of the same work — it has no call to
+               ;; leave un-inlined, so if the step is the CALL and not the WALK
+               ;; this arm stays on the floor while `C-FRAME` leaves it.
+               ["C-FRAMEV inline"   (arm-c-frame-vis) 1 (advanced-by 1)]]]
         (dotimes [_ 3] (f*))
         (dotimes [_ 6] (measure f* 256 1))
         (doseq [reps sweep]
