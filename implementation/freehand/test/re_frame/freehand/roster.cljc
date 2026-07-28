@@ -46,11 +46,12 @@
   ## Enrolling — a witness adds no line to any shared file
 
   Membership is a property of the FIXTURE: a law is rostered exactly when
-  its fixture carries `:fh/record`. Nothing here lists the members, so the
-  roster grows without a shared file to edit — which matters because the
-  control witnesses (rf2-drpa3.182.8 through .12) land in parallel, and a
-  hand-maintained membership vector would have made five workers queue
-  behind one line of it.
+  its fixture CARRIES the `:fh/record` key — see [[enrolled?]], which is
+  key presence and not truthiness, because the difference is a false green.
+  Nothing here lists the members, so the roster grows without a shared file
+  to edit — which matters because the control witnesses (rf2-drpa3.182.8
+  through .12) land in parallel, and a hand-maintained membership vector
+  would have made five workers queue behind one line of it.
 
   So a witness writes, in ITS OWN files only:
 
@@ -70,8 +71,10 @@
       the browser lane selects on — and a `:structural` tier does not;
     * a tier the index row's host axis rules out is a defect, so a record
       cannot advertise a browser proof for a JVM-only law;
-    * `:residue :none` is refused unless the mounted proof CALLS the
-      shared residue assertion (see [[residue-statuses]]);
+    * `:residue :none` is refused unless a `deftest` in the mounted proof
+      REACHES the shared residue assertion (see [[residue-statuses]]);
+    * `:prose :executable` is refused unless every proof namespace the
+      record names defines a test (see [[prose-statuses]]);
     * and every message names the id.
 
   ## Failures name the id
@@ -177,8 +180,23 @@
 
   A record must pick one. `:illustrative` is the honest answer for a
   paragraph nothing runs, and saying so is what stops a reader treating a
-  sketch as a contract."
+  sketch as a contract.
+
+  The first two make a claim about a RUN, so they are checked as one:
+  `roster-jvm-test` refuses `:executable` or `:expected-failure` from a
+  record whose proof namespaces define no test. Membership of this set is
+  the shape of the value and nothing more — a vocabulary check on its own
+  is exactly what `:residue :none` was before it was held to a call site
+  (merged-PR audit #7178), and it is what makes `:illustrative` cost
+  something to decline into rather than being the same declaration spelled
+  differently."
   #{:executable :expected-failure :illustrative})
+
+(def executable-prose-statuses
+  "The [[prose-statuses]] that claim a RUN. `:illustrative` is deliberately
+  absent: it is the record saying its prose makes no executable claim, and
+  a status that exempted nothing would not be worth declaring."
+  #{:executable :expected-failure})
 
 (def residue-statuses
   "What a record claims about what a mounted run LEAVES BEHIND — rf2-drpa3.182.7
@@ -186,10 +204,15 @@
 
     `:none`        the mounted suites assert the absence: after teardown the
                    substrate's own books read empty, as an exact zero rather
-                   than a threshold. Every mounted projection of the record
-                   must CALL `re-frame.freehand.mount-support/residue-clean!`
-                   — the one shared assertion, checked as a call site rather
-                   than as text that resembles one (`roster-jvm-test`).
+                   than a threshold. In every mounted projection of the
+                   record, a `deftest` must REACH
+                   `re-frame.freehand.mount-support/residue-clean!` — the one
+                   shared assertion, checked by reading the namespace's forms
+                   and following its calls, rather than by finding text that
+                   resembles one (`roster-jvm-test`). Reachability rather
+                   than presence, because a helper nothing invokes and a form
+                   behind a `#_` are both text the compiled program never
+                   contains.
     `:unasserted`  the suites tear their roots down but assert nothing about
                    residue. An honest gap, and countable.
 
@@ -240,6 +263,28 @@
   (merged-PR audit #7098). Saying `:unasserted` is the honest way to
   decline; saying nothing is not one."
   #{:source :evidence :prose})
+
+;; ---------------------------------------------------------------------------
+;; Enrolment — membership is the KEY, not what is under it
+;; ---------------------------------------------------------------------------
+
+(defn enrolled?
+  "Is `fixture` a member of the roster? Membership is KEY PRESENCE.
+
+  The distinction is the whole rule. Enrolment is discovered rather than
+  listed, so this predicate is the only thing standing between a fixture
+  and [[defects]] — and [[defects]]' first job is to reject a `:fh/record`
+  that is not a map. Spelled as truthiness (`(when (:fh/record fix) …)`,
+  which is how it shipped), a fixture declaring `:fh/record nil` — a
+  half-finished witness, a key whose value a merge dropped — VANISHED from
+  the roster instead of reaching the validator that exists to report it.
+  The gate stayed green by losing the record, which is the failure mode a
+  discovery-driven roster is uniquely exposed to (merged-PR audit #7178).
+
+  So `contains?`: a fixture that mentions `:fh/record` at all has opted in,
+  and whatever it put there is [[defects]]' to judge."
+  [fixture]
+  (and (map? fixture) (contains? fixture :fh/record)))
 
 ;; ---------------------------------------------------------------------------
 ;; Applicability — the index's two-axis cell, as data
@@ -331,9 +376,14 @@
   without a lookup and a failure message reads as a sentence about a law
   rather than about a map.
 
-  Total over garbage: a record that is not a map, or carries no id, answers
-  a defect rather than throwing. A validator that throws on the input it
-  exists to reject reports the first defect and hides the rest."
+  Total over garbage: a record that is not a map, or carries no id, or
+  whose `:fh/record` is not a map, answers a defect rather than throwing. A
+  validator that throws on the input it exists to reject reports the first
+  defect and hides the rest — and the inputs here are exactly what a
+  hand-edited or half-merged fixture produces. The `:fh/record` half of
+  that was latent until [[enrolled?]] started letting such a fixture
+  through: `(keys false)` throws, and while enrolment tested truthiness no
+  record carrying `false` could ever arrive to find out."
   [record]
   (let [id (:fh/id record)]
     (cond
@@ -345,8 +395,9 @@
 
       :else
       (let [{:keys [source prose evidence open] :as rec} (:fh/record record)
-            present (set (keys rec))
-            named   (select-keys rec tiers)]
+            rec?    (map? rec)
+            present (if rec? (set (keys rec)) #{})
+            named   (if rec? (select-keys rec tiers) {})]
         (cond-> []
           (not (map? rec))
           (conj (defect id :fh/record
@@ -541,7 +592,8 @@
 #?(:clj
    (defn- join-row
      "One row joined with the fixture it names, or nil when that fixture
-     carries no `:fh/record` — which is how a law declines enrolment.
+     declares no `:fh/record` key at all — which is how a law declines
+     enrolment, and the only way it can (see [[enrolled?]]).
 
      Throws when the fixture and the row disagree about the id, or when the
      row's applicability cell will not parse. Those are COMPILE failures on
@@ -551,7 +603,7 @@
      [env {:keys [fh/id index/cell index/fixture] :as row}]
      (when-let [path (fixture-path fixture)]
        (let [fix (edn/read-string (spec-resource/slurp-resource env path))]
-         (when (:fh/record fix)
+         (when (enrolled? fix)
            (when-not (= id (:fh/id fix))
              (throw (ex-info (str "Freehand roster: " path " is named by index row " id
                                   " but declares :fh/id " (pr-str (:fh/id fix))

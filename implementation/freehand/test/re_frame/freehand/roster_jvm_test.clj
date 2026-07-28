@@ -26,7 +26,10 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.freehand.roster :as roster]))
+            [clojure.tools.reader :as rdr]
+            [clojure.tools.reader.reader-types :as rt]
+            [re-frame.freehand.roster :as roster])
+  (:import [clojure.lang ReaderConditional]))
 
 ;; ---------------------------------------------------------------------------
 ;; Resolution
@@ -46,6 +49,13 @@
                  (str/replace "-" "_")
                  (str/replace "." "/"))]
     (some (fn [ext] (io/resource (str stem ext))) extensions)))
+
+(defn- source-of
+  "The source text of namespace symbol `ns-sym`, or nil where it resolves to
+  no file. Nil rather than a throw, so a row that also has something to say
+  about a missing file says it."
+  [ns-sym]
+  (some-> (ns->resource ns-sym) slurp))
 
 (defn- declared-namespaces
   "Every namespace `record` names, as `[field ns-sym]` pairs — its sources
@@ -127,69 +137,223 @@
                (:ns entry))))))
 
 ;; ---------------------------------------------------------------------------
+;; Reading a namespace as FORMS — what the compiler receives, rather than
+;; what the file looks like
+;; ---------------------------------------------------------------------------
+;;
+;; Every rule below this line asks a question about a PROGRAM: does a test
+;; that runs reach this call, does this namespace define a test at all. A
+;; scanner over characters cannot answer either, and the merged-PR audit of
+;; #7178 proved it against this file's own predecessor. It blanked line
+;; comments and string literals with a four-state character walk — careful,
+;; driven, and blind to `#_`, so a reader-discarded `#_(ms/residue-clean! …)`
+;; satisfied a rule about calling it while the compiled program contained no
+;; call. An orphan helper whose body called it and which no test invoked
+;; satisfied it too.
+;;
+;; Neither is fixable with another token. `#_` discards the NEXT FORM, so
+;; `#_ #_ a b` discards two and `#_ (a (b))` discards a whole tree; any rule
+;; spelled over characters is wrong on those while looking right on the one
+;; case its author had in mind. And reachability is not a lexical property at
+;; all. So the reader is asked instead — a discarded form simply is not in
+;; what it answers — and the calls are followed.
+
+(defn read-forms
+  "Every top-level form of Clojure source `text`, as the READER produces
+  them. Pure and exported: a checker nobody can drive is the thing the
+  audits keep finding.
+
+  `clojure.tools.reader` rather than `clojure.core/read` for two reasons
+  that both matter here: it is the reader ClojureScript itself reads these
+  files with, and it takes the settings a real proof namespace needs —
+  `#js` and every other tagged literal degrade to their value, and
+  `::alias/kw` resolves — where core's reader throws. `#=` eval is off:
+  reading a file must never run it.
+
+  Reader conditionals are PRESERVED rather than resolved. The roster does
+  not know which host compiles a `.cljc` proof, so both branches belong to
+  some compiled program and [[top-level-forms]] and [[symbols-in]] walk
+  into both.
+
+  A source that will not read THROWS, and deliberately. A checker that
+  swallowed the failure would answer 'no call here' for a file it never
+  managed to look at — a red for the wrong reason at best, and at worst a
+  green from a rule that reads the empty program."
+  [^String text]
+  (binding [rdr/*default-data-reader-fn* (fn [_tag v] v)
+            rdr/*read-eval*              false
+            rdr/*alias-map*              identity]
+    (let [reader (rt/string-push-back-reader text)
+          eof    (Object.)
+          opts   {:eof eof :read-cond :preserve}]
+      (loop [forms []]
+        (let [form (rdr/read opts reader)]
+          (if (identical? form eof)
+            forms
+            (recur (conj forms form))))))))
+
+(defn- branch-forms
+  "The forms of every branch of preserved reader conditional `rc`. A
+  splicing `#?@` branch is a collection of forms; a plain one is a single
+  form."
+  [rc]
+  (let [bs (take-nth 2 (rest (:form rc)))]
+    (if (:splicing? rc) (apply concat bs) bs)))
+
+(defn- top-level-forms
+  "`forms` with every top-level reader conditional replaced by the forms of
+  all its branches. A `.cljc` suite that wraps its `deftest`s in `#?(:cljs
+  …)` — several in this corpus do — would otherwise present the analysis
+  with one opaque object where its tests are."
+  [forms]
+  (mapcat (fn [form]
+            (if (instance? ReaderConditional form)
+              (top-level-forms (branch-forms form))
+              [form]))
+          forms))
+
+(defn- symbols-in
+  "Every symbol occurring anywhere in `form`.
+
+  Reader conditionals are walked into: they are the one shape a plain
+  collection walk does not descend, and a call reached only from a `.cljs`
+  branch is still a call."
+  [form]
+  (let [acc (volatile! (transient #{}))]
+    ((fn walk [x]
+       (cond
+         (symbol? x)                     (vswap! acc conj! x)
+         (instance? ReaderConditional x) (walk (:form x))
+         (coll? x)                       (run! walk x)
+         :else                           nil))
+     form)
+    (persistent! @acc)))
+
+(defn- head-symbol
+  "The symbol in head position of `form`, or nil when `form` is not a list
+  headed by one."
+  [form]
+  (when (and (seq? form) (symbol? (first form)))
+    (first form)))
+
+(defn- definition-form?
+  "Is `form` a top-level DEFINITION — something whose body runs only when
+  something else reaches its name?
+
+  `def`-prefixed head, and a symbol where the name goes. The second half is
+  what keeps `(default-options …)` from reading as a definition of nothing."
+  [form]
+  (when-let [h (head-symbol form)]
+    (and (str/starts-with? (name h) "def")
+         (symbol? (second form)))))
+
+(defn- test-form?
+  "Is `form` a `deftest` — a definition the RUNNER reaches on its own?"
+  [form]
+  (when-let [h (head-symbol form)]
+    (str/starts-with? (name h) "deftest")))
+
+(defn- call-graph
+  "`forms` split into what EXECUTES and what only executes when something
+  reaches it: `{:roots #{sym …} :nodes {name #{sym …}}}`.
+
+  A `deftest` is a root because the runner calls it. So is any top-level
+  form that is not a definition, because loading the namespace runs it —
+  which is what makes a helper registered through `use-fixtures` reachable
+  without special-casing `use-fixtures`. `(ns …)` contributes nothing but
+  aliases, and `(comment …)` is a body that never runs, so both are
+  dropped; the second is a false green the predecessor rule had and this
+  one does not.
+
+  A definition's own name is excluded from its body's symbols (the scan
+  starts past the head and the name), so `(defn residue-clean! …)` is not a
+  call to itself.
+
+  Locals are NOT tracked: a `let` binding or a parameter whose name equals
+  a top-level definition's would count as a reference to it. That is an
+  over-approximation of reachability, accepted because the alternative is a
+  resolving analyzer and the shape it would matter for — one namespace
+  where a helper and a local share a name AND the helper is otherwise dead
+  — does not occur. The false greens this exists to close are not that."
+  [forms]
+  (reduce (fn [graph form]
+            (cond
+              (contains? #{'ns 'comment} (head-symbol form))
+              graph
+
+              (definition-form? form)
+              (let [syms (symbols-in (drop 2 form))]
+                (cond-> (update-in graph [:nodes (second form)] (fnil into #{}) syms)
+                  (test-form? form) (update :roots into syms)))
+
+              :else
+              (update graph :roots into (symbols-in form))))
+          {:roots #{} :nodes {}}
+          (top-level-forms forms)))
+
+(defn reachable-symbols
+  "Every symbol the program in `forms` can reach from something that runs —
+  the roots of [[call-graph]], closed over the definitions they name.
+
+  Exported so the rows below can drive reachability itself rather than only
+  its two consumers."
+  [forms]
+  (let [{:keys [roots nodes]} (call-graph forms)]
+    (loop [reached roots]
+      (let [grown (reduce-kv (fn [acc nm syms]
+                               (if (contains? reached nm) (into acc syms) acc))
+                             reached
+                             nodes)]
+        (if (= grown reached) reached (recur grown))))))
+
+;; ---------------------------------------------------------------------------
 ;; `:residue :none` is a claim a checker can refuse — acceptance 3
 ;; ---------------------------------------------------------------------------
 
-(defn code-only
-  "`text` with every line comment and string literal blanked out, so what
-  remains is the CODE a namespace runs.
+(def ^:private residue-assertion
+  "The shared assertion the rf2-drpa3.182.7 acceptance names, matched by its
+  SIMPLE name so `ms/residue-clean!`, a `:refer`red `residue-clean!` and any
+  other alias all count while `my-residue-clean!` does not.
 
-  Pure and exported, because the rule below is only as good as this is and
-  a scanner nobody can exercise is the thing the merged-PR audit of #7105
-  caught: the previous residue rule slurped a whole file and accepted any
-  of five regex tokens ANYWHERE in it, so a comment naming the assertion,
-  or an unrelated zero, satisfied it. Both false positives were reproduced.
-  A claim backed by a sentence about the code is not backed by the code.
-
-  Each removed character becomes a space rather than vanishing, so nothing
-  is glued to its neighbour and every offset a caller might report survives.
-  Four states are enough for Clojure: code, a string (where `\\` escapes
-  the next character), a line comment (to end of line), and the one
-  character after a `\\` char literal — which is what stops `\\;` and `\\\"`
-  opening a comment or a string."
-  [^String text]
-  (let [n (count text)
-        sb (StringBuilder.)]
-    (loop [i 0, state :code]
-      (if (>= i n)
-        (str sb)
-        (let [c (.charAt text i)]
-          (case state
-            :code    (cond
-                       (= c \;)  (do (.append sb \space) (recur (inc i) :comment))
-                       (= c \")  (do (.append sb \space) (recur (inc i) :string))
-                       (= c \\)  (do (.append sb "  ") (recur (+ i 2) :code))
-                       :else     (do (.append sb c) (recur (inc i) :code)))
-            :comment (do (.append sb (if (= c \newline) \newline \space))
-                         (recur (inc i) (if (= c \newline) :code :comment)))
-            :string  (cond
-                       (= c \\) (do (.append sb "  ") (recur (+ i 2) :string))
-                       (= c \") (do (.append sb \space) (recur (inc i) :code))
-                       :else    (do (.append sb (if (= c \newline) \newline \space))
-                                    (recur (inc i) :string)))))))))
-
-(def ^:private residue-call
-  "An INVOCATION of the shared residue assertion — an open paren, an
-  optional namespace alias, then `residue-clean!` in head position.
-
-  The shared assertion is the one the rf2-drpa3.182.7 acceptance names, and
-  naming exactly one is the point. The predecessor rule listed five
-  look-alike spellings (`(zero? …)`, `(empty? …)`, `nothing-survived`, …)
-  so that a suite reading its own book inline still counted; the cost was
-  that ANY of those anywhere in the file counted, including in prose. One
-  call to one assertion is both narrower and stronger, and it is the
-  assertion that carries its own non-vacuity — `residue-clean!` reds a
-  suite that tore no root down through the facade, so the call cannot be
-  satisfied by a mount that never happened."
-  #"\(\s*(?:[^\s()\\/]+/)?residue-clean![\s)]")
+  Naming exactly one assertion is the point. A predecessor rule listed five
+  look-alike spellings (`(zero? …)`, `(empty? …)`, `nothing-survived`, …) so
+  that a suite reading its own book inline still counted, and the cost was
+  that any of them anywhere in the file counted, prose included. One
+  assertion is both narrower and stronger, and it carries its own
+  non-vacuity: `residue-clean!` reds a suite that tore no root down through
+  the facade, so reaching it cannot be satisfied by a mount that never
+  happened."
+  "residue-clean!")
 
 (defn residue-asserted?
-  "Does `source` CALL the shared residue assertion? Pure, so the rows below
-  can drive it with the exact shapes the audit reproduced."
-  [source]
-  (boolean (re-find residue-call (code-only source))))
+  "Does a test in `source` REACH the shared residue assertion?
 
-(deftest a-residue-none-claim-is-backed-by-the-shared-residue-assertion
+  Reachability rather than presence, and that is the whole difference. A
+  helper whose body calls it and which no test invokes is text in a file
+  that the run never executes — the 'helper never called after teardown'
+  class the merged-PR audit of #7105 named and the audit of #7178 found
+  still open. Following the calls from the things that run is what answers
+  the question the claim actually makes."
+  [source]
+  (boolean (some #(= residue-assertion (name %))
+                 (reachable-symbols (read-forms source)))))
+
+;; ---------------------------------------------------------------------------
+;; `:prose :executable` is a claim a checker can refuse — acceptance 4
+;; ---------------------------------------------------------------------------
+
+(defn defines-a-test?
+  "Does `source` define at least one test the runner will execute?
+
+  The floor under a record's prose status. `:executable` and
+  `:expected-failure` both say the prose describes something a RUN does —
+  the behaviour in the first case, the diagnostic in the second — and a
+  proof namespace that defines no test runs nothing, whatever the record
+  says about it."
+  [source]
+  (boolean (some test-form? (top-level-forms (read-forms source)))))
+
+(deftest a-residue-none-claim-is-reached-by-a-test-that-runs
   (testing "Per rf2-drpa3.182.7 acceptance 3: mounted cleanup is EXACT, and
             `:residue :none` is the record saying so. An unenforced `:none`
             would be the most expensive kind of green — a leaked React root
@@ -197,38 +361,47 @@
             corpus has seen one leak produce failures across dozens of
             unrelated suites — so the claim is checked rather than read.
 
-            Every mounted projection of a `:residue :none` record CALLS
-            `mount-support/residue-clean!`, after teardown, over the
-            facade's own books plus whatever substrate books it names.
-            A record whose suites only unmount and remove says
-            `:unasserted` — honest, countable, and what two of the three
-            initial members said until they took the shared assertion
-            (rf2-n9rzw).
+            In every mounted projection of a `:residue :none` record, a
+            `deftest` REACHES `mount-support/residue-clean!` — directly or
+            through the helpers it calls — so the assertion runs after
+            teardown over the facade's own books plus whatever substrate
+            books the record names. A record whose suites only unmount and
+            remove says `:unasserted`: honest, countable, and what two of
+            the three initial members said until they took the shared
+            assertion (rf2-n9rzw).
 
             What this row proves and what it does not, stated plainly. The
             executed evidence is the browser lane's: `residue-clean!` runs
             in Chromium and its messages name the law. What is checked HERE
-            is that the call SITE exists in every projection the record
-            claims — so a `:none` cannot be made by a suite that never
-            calls it, which is the gap the merged-PR audit of #7105 found
-            when the rule was a five-token text resemblance."
+            is that the run REACHES the call — so a `:none` cannot be made
+            by a suite that never gets there, which is where the two
+            previous versions of this rule both failed. The first accepted
+            any of five look-alike tokens anywhere in the file (merged-PR
+            audit of #7105); the second required a call site but read the
+            file as characters, so a `#_`-discarded call and a helper
+            nothing invoked both satisfied it (merged-PR audit of #7178)."
     (doseq [record roster/records
             :when  (= :none (get-in record [:fh/record :evidence :residue]))
             entry  (roster/tier record :mounted)]
-      (let [res  (ns->resource (:ns entry))
-            text (some-> res slurp)]
+      (let [text (source-of (:ns entry))]
         (is (and text (residue-asserted? text))
-            (str (:fh/id record) " claims :residue :none, but its mounted proof "
-                 (:ns entry) " never calls mount-support/residue-clean! — either "
-                 "it reads the books empty after teardown, or the record says "
-                 ":unasserted"))))))
+            (str (:fh/id record) " claims :residue :none, but no test in its "
+                 "mounted proof " (:ns entry) " reaches "
+                 "mount-support/residue-clean! — either it reads the books "
+                 "empty after teardown, or the record says :unasserted"))))))
 
 (deftest the-residue-rule-refuses-every-shape-that-only-looks-like-a-proof
-  (testing "NON-VACUITY, and specifically for the two false positives the
-            merged-PR audit of #7105 reproduced against the predecessor
-            rule. A gate that has only ever seen input it passes has not
-            been tested, and this one guards a claim whose failure mode is
-            silent contamination of unrelated suites."
+  (testing "NON-VACUITY, and specifically for the false positives two
+            merged-PR audits reproduced against two predecessor rules. A
+            gate that has only ever seen input it passes has not been
+            tested, and this one guards a claim whose failure mode is silent
+            contamination of unrelated suites.
+
+            The first four rows below are the #7105 set, which the character
+            scanner already refused. The next four are the #7178 set, which
+            it did not: every one of them was reproduced answering TRUE
+            against the shipped rule, and each is here because a token-level
+            fix would have closed at most one of them."
     (doseq [[note source]
             [["an unmount-and-remove teardown asserts nothing about what survived"
               "(defn- teardown! [c r] (.unmount r) (.remove c) nil)"]
@@ -249,48 +422,172 @@
               "(is (pos? n) \"call ms/residue-clean! after teardown\")"]
 
              ["nor a var whose name merely ends in it"
-              "(def my-residue-clean! 1)"]]]
+              "(def my-residue-clean! 1)"]
+
+             ;; --- the shapes the character scanner passed -----------------
+             ["a READER-DISCARDED call is not in the program the compiler receives"
+              "(deftest t (mount!) #_(ms/residue-clean! \"FH-PROBE-001 — after teardown\"))"]
+
+             ["and `#_ #_` discards TWO forms, which is why this is the reader's
+               job and not a token's — a scanner that skipped 'the #_ and the
+               next form' would pass this while looking right on the row above"
+              (str "(deftest t (mount!)\n"
+                   "  #_ #_ (ms/residue-clean! \"first\") (ms/residue-clean! \"second\"))")]
+
+             ["an ORPHAN helper is a definition, not an invocation: nothing the
+               runner reaches ever calls it, so the assertion never executes"
+              (str "(defn- released! [where] (ms/residue-clean! where))\n"
+                   "(deftest t (mount!) (ms/destroy-root! container root))")]
+
+             ["and a call inside a `(comment …)` form is a body that never runs"
+              "(comment (ms/residue-clean! \"FH-PROBE-001\"))"]]]
       (is (not (residue-asserted? source)) note))
 
     (doseq [[note source]
             [["a call through the facade's alias is the proof"
-              "(ms/residue-clean! \"FH-CTRL-018 — after teardown\")"]
+              "(deftest t (ms/residue-clean! \"FH-CTRL-018 — after teardown\"))"]
 
              ["so is a referred call"
-              "(residue-clean! where [[\"the connection table\" #(count @table)]])"]
+              "(deftest t (residue-clean! where [[\"the connection table\" #(count @table)]]))"]
 
              ["and a call carrying books, after a shared teardown, in the real shape"
-              (str "(ms/destroy-root! container root)\n"
-                   ";; and now read what survived it\n"
-                   "(ms/residue-clean! where [[\"the registry\" #(root/live-root-ids)]])")]]]
+              (str "(deftest t\n"
+                   "  (ms/destroy-root! container root)\n"
+                   "  ;; and now read what survived it\n"
+                   "  (ms/residue-clean! where [[\"the registry\" #(root/live-root-ids)]]))")]
+
+             ["a helper the suite CALLS is the proof wherever it is written —
+               which is the shape all four real mounted projections use"
+              (str "(defn- released! [where] (ms/residue-clean! where))\n"
+                   "(deftest t (mount!) (released! \"FH-PROBE-001 — after teardown\"))")]
+
+             ["and so is one reached through another helper"
+              (str "(defn- released! [w] (ms/residue-clean! w))\n"
+                   "(defn- finish! [c r w] (ms/destroy-root! c r) (released! w))\n"
+                   "(deftest t (finish! container root \"FH-PROBE-001\"))")]
+
+             ["a helper the runner reaches through `use-fixtures` executes too —
+               a top-level form is run by loading the namespace, so this needs
+               no rule of its own"
+              (str "(defn- clean! [t] (t) (ms/residue-clean! \"FH-PROBE-001\"))\n"
+                   "(use-fixtures :each clean!)")]
+
+             ["and a call in a reader-conditional branch is a call in the
+               program that branch compiles into"
+              "(deftest t #?(:cljs (ms/residue-clean! \"FH-PROBE-001\") :clj nil))"]]]
       (is (residue-asserted? source) note))))
 
-(deftest the-comment-stripper-leaves-the-code-and-only-the-code
-  (testing "The rule above is exactly as good as this function, so it is
-            driven rather than trusted — including the shapes that make a
-            naive stripper wrong: a `;` inside a string, an escaped quote,
-            and a char literal spelling either.
+(deftest the-reader-is-what-decides-what-is-in-the-program
+  (testing "The two rules above are exactly as good as [[read-forms]] and
+            [[reachable-symbols]], so both are driven rather than trusted.
 
-            Offsets are preserved (a removed character becomes a space), so
-            the assertions below are about WHAT SURVIVES rather than about
-            spacing."
-    (let [tokens (fn [s] (remove empty? (str/split (code-only s) #"\s+")))]
-      (is (= ["(f" "1)"] (tokens "(f 1) ; a comment"))
-          "a line comment is gone")
-      (is (= ["(f" ")"] (tokens "(f \"a ; b\") ; c"))
-          "a semicolon inside a string neither opens a comment nor survives")
-      (is (= ["(f" ")"] (tokens "(f \"she said \\\"hi\\\"\")"))
-          "an escaped quote does not close the string early")
-      (is (= ["(f" ")"] (tokens "(f \\; \\\")"))
-          "a char literal semicolon or quote is neither delimiter")
-      (is (= ["(a)" "(b)"] (tokens "(a) ;; gone\n(b)"))
-          "a line comment ends at its newline, and the code after it survives")
-      (is (= ["(re-find" "#" "x)"] (tokens "(re-find #\"\\(zero\\?\" x)"))
-          "a regex literal is a string — its dispatch `#` is code, and the
-           pattern inside it never is, so a rule looking for a call cannot
-           be satisfied by one written in a pattern"))
-    (testing "and the newline structure survives, so a reported line number would"
-      (is (= 3 (count (str/split-lines (code-only "(a) ; x\n;; y\n(b)"))))))))
+            This replaces a driven character scanner, which is the point
+            worth keeping: that scanner was careful, its own row asserted
+            the shapes a naive stripper gets wrong, and it was still blind
+            to `#_` — because a discard is a property of the READER's
+            grammar and nothing spelled over characters has access to it.
+            Asking the reader is not a bigger hammer; it is the only thing
+            that can answer the question."
+    (testing "a discard removes the form, and `#_ #_` removes two"
+      (is (= '[(a) (c)] (read-forms "(a) #_(b) (c)")))
+      (is (= '[(a) (d)] (read-forms "(a) #_ #_ (b) (c) (d)")))
+      (is (= '[(a) (c)] (read-forms "(a) #_(b (nested (deep))) (c)"))
+          "and it removes a whole tree, not a line"))
+
+    (testing "while the shapes that make a text scanner wrong are simply not
+              text any more"
+      (is (= '[(f "a ; b")] (read-forms "(f \"a ; b\") ; c"))
+          "a semicolon inside a string never opened a comment")
+      (is (= '[(f \; \")] (read-forms "(f \\; \\\")"))
+          "and a char literal is a character")
+      (is (= 1 (count (read-forms "(re-find #\"\\(zero\\?\" x)")))
+          "a regex literal is one form, and its pattern is not code"))
+
+    (testing "a real proof namespace reads — every tagged literal degrades,
+              so `#js` in a mounted suite is a value rather than a throw"
+      (is (seq (read-forms "(def o #js {:a 1}) (def xs #js [1 2])")))
+      (is (seq (read-forms (source-of 're-frame.freehand.host-mounted-dom-cljs-test)))
+          "and so does the one that carries nine of them"))
+
+    (testing "reachability is closed over the definitions the roots name, and
+              stops at the ones nothing names"
+      (is (contains? (reachable-symbols (read-forms "(defn- h [] (target)) (deftest t (h))"))
+                     'target))
+      (is (not (contains? (reachable-symbols (read-forms "(defn- h [] (target)) (deftest t (other))"))
+                          'target))
+          "an orphan definition contributes nothing")
+      (is (not (contains? (reachable-symbols (read-forms "(defn target [] 1) (deftest t (other))"))
+                          'target))
+          "and a definition is not a call to itself"))))
+
+(deftest an-executable-prose-claim-names-suites-that-execute
+  (testing "Per rf2-drpa3.182.7 acceptance 4, clause 2: a record's `:prose`
+            status must be a property rather than a spelling.
+
+            `:executable` and `:expected-failure` both say the prose
+            describes what a RUN does. Until this row, the only thing held
+            about either was membership of a closed set — the record could
+            name a views file, a helper namespace or a fixture module as its
+            proof and still declare its prose executable, with the whole
+            gate green. That is precisely the shape `:residue :none` had
+            before it was held to a call (merged-PR audits #7105, #7178),
+            and it is the same fix: read the file and ask.
+
+            `:illustrative` is exempt, and that is what makes it worth
+            saying. A record that declines the executable claim is making no
+            claim to check; a vocabulary where every value cost the same
+            would not be a vocabulary.
+
+            What this row does NOT reach is the guide prose itself — that a
+            paragraph labelled illustrative shows no runnable code. Joining
+            a law to the page that teaches it needs a guide key on
+            `:fh/record`, which lives under `spec/`; rf2-fby7o owns that
+            half."
+    (doseq [record roster/records
+            :when  (contains? roster/executable-prose-statuses
+                              (get-in record [:fh/record :prose]))
+            {:keys [tier ns]} (roster/proofs record)]
+      (let [text (source-of ns)]
+        (is (and text (defines-a-test? text))
+            (str (:fh/id record) " declares :prose "
+                 (get-in record [:fh/record :prose]) ", but its "
+                 (name tier) " proof " ns " defines no test — a namespace "
+                 "that runs nothing cannot be what makes prose executable"))))))
+
+(deftest the-executable-prose-rule-refuses-a-namespace-that-runs-nothing
+  (testing "NON-VACUITY for the row above, driven the same way the residue
+            rule is — including against REAL files, because a rule refuted
+            only by strings has never met the corpus it guards."
+    (doseq [[note source]
+            [["a helper namespace defines no test"
+              "(ns x) (defn- helper [] 1)"]
+
+             ["a discarded test is not a test"
+              "(ns x) #_(deftest t (is true))"]
+
+             ["nor is one inside a `(comment …)` form"
+              "(ns x) (comment (deftest t (is true)))"]
+
+             ["nor one written in a comment"
+              "(ns x) ;; (deftest t (is true))\n(def views [])"]]]
+      (is (not (defines-a-test? source)) note))
+
+    (doseq [[note source]
+            [["a test is a test" "(ns x) (deftest t (is true))"]
+
+             ["including one a `.cljc` suite puts behind a reader conditional,
+               which several in this corpus do"
+              "(ns x) #?(:cljs (deftest t (is true)))"]]]
+      (is (defines-a-test? source) note))
+
+    (testing "and against the corpus: the views namespace a record could name
+              as a proof runs nothing, while the suite it should name does"
+      (is (not (defines-a-test? (source-of 're-frame.freehand.behavior-views)))
+          "behavior-views renders the declarations the FH-BEHAVIOR-* suites use")
+      (is (not (defines-a-test? (source-of 're-frame.freehand.mount-support)))
+          "and the shared mounted-lifecycle facade is a facade")
+      (is (defines-a-test? (source-of 're-frame.freehand.host-door-cljs-test))
+          "while FH-REACT-007's structural proof does define tests"))))
 
 (deftest every-record-declares-a-residue-claim-it-can-be-held-to
   (testing "Per rf2-drpa3.182.7 acceptance 3: the roster's value here is
