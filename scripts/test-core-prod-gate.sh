@@ -190,7 +190,6 @@ known_red=(
   re-frame.core-epoch-egress-profile-test
   re-frame.db-pending-trace-test
   re-frame.dispatched-trace-cofx-test
-  re-frame.ep0026-inline-grammar-cljs-test
   re-frame.event-context-partition-test
   re-frame.frame-destroy-composed-test
   re-frame.frame-destroy-incarnation-jvm-test
@@ -198,7 +197,6 @@ known_red=(
   re-frame.fx-aggregate-classification-cljs-test
   re-frame.fx-args-trace-egress-cljs-test
   re-frame.fx-redirect-classification-cljs-test
-  re-frame.image-inline-metadata-normalization-cljs-test
   re-frame.interceptor-override-summary-trace-test
   re-frame.live-frame-reload-cljs-test
   re-frame.observation-port-cljs-test
@@ -211,7 +209,6 @@ known_red=(
   re-frame.sub-cycle-cljs-test
   re-frame.sub-dispose-trace-test
   re-frame.sub-parametric-inputs-test
-  re-frame.subs-inline-normalization-cljs-test
   re-frame.substrate-source-test
   re-frame.success-path-call-site-test
   re-frame.success-path-trigger-handler-test
