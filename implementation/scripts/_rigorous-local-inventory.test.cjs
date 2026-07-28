@@ -27,11 +27,62 @@
  *     Assertion (1) can only ever see commands that live in that one workflow
  *     job; a gate whose scheduled home is elsewhere is invisible to it, which is
  *     precisely how `bench:freehand-browser` went missing (rf2-rmtj0).
- *  3. Every command the local script invokes is a real `package.json` script
+ *  3. Each pin's declared BASIS still matches the workflow (rf2-0l1nv) — see
+ *     `DIRECT_PINS`. A pin's reason is a claim about where the command is
+ *     scheduled, and that claim rots when the workflow moves.
+ *  4. Every command the local script invokes is a real `package.json` script
  *     (catches a typo'd or renamed-away gate).
- *  4. Each of those nightly commands runs in its OWN named step (rf2-wh5to).
+ *  5. Each of those nightly commands runs in its OWN named step (rf2-wh5to).
  *
- * On (4): the eleven browser/bundle/Story/Xray gates used to be one unnamed
+ * SCOPE, STATED SO THE BLIND SPOT IS INTENTIONAL RATHER THAN ACCIDENTAL
+ * (rf2-0l1nv). This guard mirrors the EXPENSIVE sweep and nothing else. It is
+ * not an inventory of `implementation/package.json`, and deriving one was
+ * considered and rejected.
+ *
+ * A command belongs in `scripts/test-rigorous-local.sh` when BOTH hold:
+ *
+ *   (a) it yields a VERDICT — a non-zero exit means something is broken — as
+ *       opposed to producing a build artefact or publishing a record; and
+ *   (b) no PR run gates it, because its only scheduled home is a nightly or
+ *       workflow_dispatch lane.
+ *
+ * Those two conjuncts DERIVE the script's contents rather than describing them
+ * after the fact, and they are why the implementation gates outside this guard's
+ * window today are correctly outside the script too. The `test.yml`-only ones
+ * fail (b): that workflow is surface-classified, so the change that would break
+ * such a gate is the change that queues it, and a PR cannot land past it in
+ * silence. `build:freehand-matched` fails (a) — it is the matched-pair build
+ * step feeding `freehand-bench.yml`, not a gate. `test:freehand` fails (b) for a
+ * subtler reason worth knowing: `freehand-bench.yml` runs it to CAPTURE the B5
+ * records, but its assertions already gate every PR through the `:node-test`
+ * build, which `test:cljs` runs — test.yml calls it "the cheap NAMED surface for
+ * local + worker iteration, not a second gate". (`test:cljs` and
+ * `test:script-helpers` reach here transitively anyway, via `test-fast-pr.sh`,
+ * which the rigorous script runs first.)
+ *
+ * `bench:freehand-browser` is the one command that satisfies both, which is
+ * exactly why it is pinned and the others are not. The full census sits on
+ * rf2-0l1nv rather than here, because a list of command names in this file would
+ * be a second authority with nothing holding it in step with the workflows.
+ *
+ * A package.json census would ALSO not have caught the failure that raised the
+ * question. rf2-mf4uy (PR #7193) moved the seven `re-frame.freehand.bench.*` DOM
+ * namespaces between two builds that both already existed — `bench:freehand-
+ * browser` had been a script since PR #6891 and already had its job in
+ * `freehand-bench.yml` — and the only line it changed in package.json was the
+ * `test:script-policy` chain. Every script name stayed put, so a name-level
+ * census would not have moved and would have stayed green while the local
+ * sweep's coverage narrowed. That failure was a migration of test CONTENT, and
+ * the gate that sees that class is `_browser-dom-lane-partition.test.cjs`, which
+ * derives both lanes' `:ns-regexp` from `shadow-cljs.edn` and proves they
+ * partition the repo's `*_dom_cljs_test` namespaces. Content-level derivation is
+ * the answer to content-level drift; a name-level census is not.
+ *
+ * A command earns a `DIRECT_PINS` entry on top of that when it must also declare
+ * a `kind` — and that declaration is CHECKED against the workflow rather than
+ * believed. See the map.
+ *
+ * On (5): the eleven browser/bundle/Story/Xray gates used to be one unnamed
  * `run: |` block. A `set -e` chain aborts at the first failing gate, so a red
  * night could only ever reveal ONE broken gate — which is why the
  * 2026-07-08..07-21 nightly outage took two repair rounds and fourteen red
@@ -159,33 +210,102 @@ test('local rigorous script runs every expensive-tests.yml sweep command (lockst
   );
 });
 
-// Commands pinned DIRECTLY, independent of the lockstep parse above. That parse
-// can only ever see the `browser-bundle-and-story-gates` job, so a gate whose
-// scheduled home is another job — or another workflow entirely — is invisible to
-// it and can drop out of the local script in silence. Each entry below is
-// exactly that case, and each cost a real hole before it was pinned.
+// Commands pinned DIRECTLY: the local script must run them whether or not the
+// lockstep parse above can require them. Each cost a real hole before it was
+// pinned.
+//
+// `kind` is the pin's BASIS, and rf2-0l1nv makes it a CHECKED claim rather than
+// prose, because a pin's reason is a statement about where a command is
+// scheduled and workflows move:
+//
+//   'parse-blind'      the command's scheduled home is outside the
+//                      `browser-bundle-and-story-gates` job, so assertion (1)
+//                      can never require it. Delete the pin and the command has
+//                      no guard at all.
+//   'belt-and-braces'  assertion (1) does require it — but only for as long as
+//                      the workflow keeps it there. The pin makes the local
+//                      script's coverage independent of that.
+//
+// The rot this catches is not hypothetical: `test:examples-compile` was pinned
+// on 2026-06-16 as "never in the nightly sweep" (true then), and a606d05763
+// added it to the gates job on 2026-07-15 as an unconditional coverage net. The
+// reason went false that day, nothing said so, and PR #7227 restated it verbatim
+// six weeks later. Assertion (3) would have gone red on 07-15.
 const DIRECT_PINS = {
-  'test:examples-compile':
-    'the example-build compile gate. test.yml runs it in its own '
-    + 'cljs-examples-compile job, never in the nightly sweep (rf2-lm5mu9)',
-  'test:story-play-scripts':
-    'the Story play-script browser gate, a sweep command the local mirror had '
-    + 'silently dropped (rf2-lm5mu9)',
-  'bench:freehand-browser':
-    'the `:browser-test-freehand-bench` build. rf2-mf4uy moved the seven '
-    + '`re-frame.freehand.bench.*` DOM namespaces out of `:browser-test`, and '
-    + 'their only scheduled home is freehand-bench.yml — which this file never '
-    + 'reads. Without this pin the local sweep loses that whole lane of mounted '
-    + 'correctness and nothing goes red (rf2-rmtj0)',
+  'test:examples-compile': {
+    kind: 'belt-and-braces',
+    why:
+      'the example-build compile gate. test.yml queues it only when the surface '
+      + 'classifier says so — a core-only PR skips it (rf2-gzavkm) — which is why '
+      + 'a606d05763 also made it an unconditional step of the nightly sweep. This '
+      + 'pin keeps the local mirror running it even if that step moves again '
+      + '(rf2-lm5mu9)',
+  },
+  'test:story-play-scripts': {
+    kind: 'belt-and-braces',
+    why:
+      'the Story play-script browser gate, a sweep command the local mirror had '
+      + 'silently dropped (rf2-lm5mu9)',
+  },
+  'bench:freehand-browser': {
+    kind: 'parse-blind',
+    why:
+      'the `:browser-test-freehand-bench` build. rf2-mf4uy moved the seven '
+      + '`re-frame.freehand.bench.*` DOM namespaces out of `:browser-test`, and '
+      + 'their only scheduled home is freehand-bench.yml — which this file never '
+      + 'reads. Without this pin the local sweep loses that whole lane of mounted '
+      + 'correctness and nothing goes red (rf2-rmtj0)',
+  },
 };
 
+const PIN_KINDS = new Set(['parse-blind', 'belt-and-braces']);
+
 test('local rigorous script pins the gates the workflow parse cannot see (rf2-lm5mu9, rf2-rmtj0)', () => {
-  for (const [required, why] of Object.entries(DIRECT_PINS)) {
+  for (const [required, { why }] of Object.entries(DIRECT_PINS)) {
     assert.ok(
       localScripts.has(required),
       `scripts/test-rigorous-local.sh must run \`npm run ${required}\` — ${why}.`,
     );
   }
+});
+
+// Kept SEPARATE from the presence assertion above on purpose: a stale basis must
+// never mask a real coverage hole, nor be masked by one.
+test('every DIRECT_PINS basis still matches the workflow (rf2-0l1nv)', () => {
+  const stale = [];
+  for (const [cmd, { kind }] of Object.entries(DIRECT_PINS)) {
+    if (!PIN_KINDS.has(kind)) {
+      stale.push(
+        `${cmd}: unknown kind \`${kind}\` — a pin must declare one of `
+          + `${[...PIN_KINDS].join(' / ')}`,
+      );
+      continue;
+    }
+    const inSweep = sweepScripts.has(cmd);
+    if (kind === 'parse-blind' && inSweep) {
+      stale.push(
+        `${cmd}: pinned \`parse-blind\`, but the ${GATES_JOB} job now runs it, so `
+          + 'lockstep already requires it. Re-declare it `belt-and-braces` and '
+          + 'rewrite its `why` — the current one says the parse cannot see this '
+          + 'command, and that is no longer true',
+      );
+    }
+    if (kind === 'belt-and-braces' && !inSweep) {
+      stale.push(
+        `${cmd}: pinned \`belt-and-braces\`, but the ${GATES_JOB} job no longer runs `
+          + 'it, so this pin is now the ONLY thing keeping it in the local sweep. '
+          + 'Re-declare it `parse-blind` and rewrite its `why`',
+      );
+    }
+  }
+  assert.deepEqual(
+    stale,
+    [],
+    'a DIRECT_PINS entry states WHERE its command is scheduled, and workflows move: '
+      + '`test:examples-compile` was pinned as "never in the nightly sweep" on '
+      + '2026-06-16 and a606d05763 put it there on 2026-07-15, with nothing to say so. '
+      + `Stale basis: ${stale.join('; ')}`,
+  );
 });
 
 test('every command the local rigorous script runs is a real package.json script (rf2-lm5mu9)', () => {

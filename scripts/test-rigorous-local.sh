@@ -33,10 +33,19 @@ done
 
 printf '==> implementation rigorous browser/bundle gates\n'
 # Local mirror of the rigorous browser-bundle-and-story sweep in
-# `.github/workflows/expensive-tests.yml`, PLUS two gates that sweep does not
-# carry: the example-build compile gate (`test:examples-compile`, which test.yml
-# runs in its own cljs-examples-compile job) and the Freehand mounted-correctness
-# lane, the `:browser-test-freehand-bench` build (rf2-rmtj0).
+# `.github/workflows/expensive-tests.yml`, PLUS the Freehand mounted-correctness
+# lane — the `:browser-test-freehand-bench` build, whose only scheduled home is
+# `freehand-bench.yml` (rf2-rmtj0).
+#
+# THIS MIRRORS THE EXPENSIVE SWEEP, NOT THE PR LANE (rf2-0l1nv). A command earns
+# a line below when BOTH hold: (a) it yields a VERDICT, so a non-zero exit means
+# something is broken, rather than producing a build artefact or publishing a
+# record; and (b) no PR run gates it, its only scheduled home being a nightly or
+# workflow_dispatch lane. Gates that live only in `test.yml` fail (b) and are
+# deliberately absent — that workflow is surface-classified, so the change that
+# would break one is the change that queues it, and a PR cannot land past it in
+# silence. A nightly-only verdict has no such protection, and closing exactly
+# that window is the entire reason this script exists.
 #
 # On that bench lane: it runs here for its mounted-correctness VERDICT — DOM
 # parity between interpreted and compiled views, cell-elision counts, exact
