@@ -21,9 +21,28 @@
   `:cljs` `(satisfies? ISwap …)` branch) AND the JVM cognitect runner
   (the `:clj` `(instance? clojure.lang.IAtom …)` branch).
 
-  Per bead rf2-8wrzz.3."
+  Per bead rf2-8wrzz.3.
+
+  ## Posture split (rf2-d2841)
+
+  The choke point does two things on a derived container, and only one of them
+  is instrumentation. The THROW — the canonical ex-info with its
+  `:rf.error/id` / `:where` / `:recovery` / `:reason` slots and the
+  greppability token in the message — is production behaviour and is asserted
+  without a posture guard, as is the fact that the rejected write leaves the
+  derived value untouched and the underlying adapter's `replace-container!` is
+  never invoked. Those run under `scripts/test-core-prod-gate.sh` unchanged.
+
+  The `:rf.error/derived-container-replaced` TRACE is a bare `trace/emit!`
+  site with no always-on twin, so it is elided under
+  `-Dre-frame.debug=false`. Its assertions are kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, with the throw
+  itself kept outside as the always-on witness — the trace and the throw come
+  off the SAME detection, so proving the detection fired is what the
+  production lane can still say."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            [re-frame.interop :as interop]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -103,26 +122,39 @@
   (testing "replace-container! on a derived container emits the :rf.error/derived-container-replaced trace"
     (let [src     (adapter/make-state-container {:n 1})
           derived (adapter/make-derived-value [src] (fn [v] (:n v)))
+          thrown  (atom nil)
           errs    (capture-errors
                     (fn []
                       ;; The choke point emits the trace BEFORE it throws;
                       ;; swallow the throw so we can inspect the captured
                       ;; trace event.
                       (try (adapter/replace-container! derived 99)
-                           (catch #?(:clj Throwable :cljs :default) _ nil))))
+                           (catch #?(:clj Throwable :cljs :default) e
+                             (reset! thrown e)))))
           ev      (first (filter #(= :rf.error/derived-container-replaced (:operation %)) errs))]
-      (is (some? ev)
-          "a :rf.error/derived-container-replaced error trace was emitted")
-      (is (= :error (:op-type ev))
-          "the trace's op-type is :error")
-      (is (= :rf.error/derived-container-replaced (:operation ev))
-          "the trace's :operation is the error category keyword")
-      (is (= :rf.error/derived-container-replaced (get-in ev [:tags :category]))
-          "the :category tag mirrors :operation for consumer convenience")
-      (is (= :no-recovery (:recovery ev))
-          "the :recovery field is hoisted to top level as :no-recovery")
-      (is (string? (get-in ev [:tags :reason]))
-          "the :reason tag is a human-readable sentence"))))
+      ;; ALWAYS-ON WITNESS (rf2-d2841): the trace and the throw come off ONE
+      ;; detection in the choke point. The throw survives the production gate,
+      ;; so it is what proves the detection fired at all — without it this
+      ;; deftest would execute nothing under `-Dre-frame.debug=false`.
+      (is (some? @thrown)
+          "the choke point detected the derived container and threw")
+      (is (= :rf.error/derived-container-replaced
+             (:rf.error/id (ex-data @thrown)))
+          "the same detection that would emit the trace carries the category on the throw")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      (when interop/debug-enabled?
+        (is (some? ev)
+            "a :rf.error/derived-container-replaced error trace was emitted")
+        (is (= :error (:op-type ev))
+            "the trace's op-type is :error")
+        (is (= :rf.error/derived-container-replaced (:operation ev))
+            "the trace's :operation is the error category keyword")
+        (is (= :rf.error/derived-container-replaced (get-in ev [:tags :category]))
+            "the :category tag mirrors :operation for consumer convenience")
+        (is (= :no-recovery (:recovery ev))
+            "the :recovery field is hoisted to top level as :no-recovery")
+        (is (string? (get-in ev [:tags :reason]))
+            "the :reason tag is a human-readable sentence")))))
 
 (deftest derived-container-value-unchanged-after-rejected-write
   (testing "the rejected write does NOT mutate the derived container — the adapter replace-container! is never invoked"

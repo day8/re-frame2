@@ -25,10 +25,29 @@
   equivalent of `(with-frame :rf/default …)`); the CHILD dispatches
   (`:fx [[:dispatch …]]` / `:dispatch-later`) already carry the parent's
   `:frame` explicitly via `child-dispatch-opts`, so the cascade
-  propagation under test is unchanged."
+  propagation under test is unchanged.
+
+  ## Posture split (rf2-d2841)
+
+  Every deftest here except one already reads production surfaces — an
+  fx-handler stub's captured args, the `(:envelope m)` slot on the fx-handler
+  ctx — and runs under `scripts/test-core-prod-gate.sh` unchanged.
+
+  The exception, `trace-id-origin-propagate-source-overridden-through-cascade`,
+  asserted `:origin` inheritance and the `:source :fx-dispatch` re-stamp off
+  the `:rf.event/dispatched` TRACE stream, which is gone under
+  `-Dre-frame.debug=false`. It is not guarded, it is RE-AIMED: the same two
+  claims are read off the child's DISPATCH ENVELOPE via `(:envelope m)` — the
+  production-visible surface `fx-handler-ctx-carries-envelope-slot` already
+  establishes exists — so they now hold in BOTH postures. The trace-shape
+  half (`:origin` under `:tags`, `:source` hoisted to the top level per Spec
+  009 §Core fields) is a claim about the trace EVENT rather than about
+  propagation, and that half alone stays in a `(when interop/debug-enabled? …)`
+  arm marked `rf2-d2841`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -116,33 +135,64 @@
     ;; on the child envelope, regardless of what the parent carried. The
     ;; parent's `:source :test` is recorded against the parent's own
     ;; envelope; the child reports the substrate's actual dispatch site.
-    (let [seen (atom [])]
+    (let [seen       (atom [])
+          ;; ALWAYS-ON PROBE (rf2-d2841): the fx-handler ctx's `:envelope`
+          ;; slot is a production surface (see `fx-handler-ctx-carries-
+          ;; envelope-slot` below), so running one of these inside EACH level
+          ;; of the cascade reads the parent's and the child's envelopes
+          ;; without any trace involvement.
+          envelopes  (atom {})]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
+        (rf/reg-fx :test/probe
+          (fn [m [level]] (swap! envelopes assoc level (:envelope m))))
         (rf/reg-event :test/parent
           (fn [_ _]
-            {:fx [[:dispatch [:test/child]]]}))
-        (rf/reg-event :test/child (fn [{:keys [db]} _] {:db db}))
+            {:fx [[:test/probe [:parent]]
+                  [:dispatch [:test/child]]]}))
+        (rf/reg-event :test/child
+          (fn [{:keys [db]} _]
+            {:db db
+             :fx [[:test/probe [:child]]]}))
 
         (rf/dispatch-sync [:test/parent]
                           {:trace-id ::scoped-trace
                            :origin   :test
                            :source   :test})
 
-        (let [dispatched   (->> @seen
-                                 (filter #(= :rf.event/dispatched (:operation %))))
-              parent-ev    (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
-              child-ev     (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
-          (is (some? parent-ev) "parent's :rf.event/dispatched is captured")
-          (is (some? child-ev)  "child's :rf.event/dispatched is captured")
-          ;; :origin rides :tags (inherited); :source is hoisted to top-
-          ;; level by trace/emit! per Spec 009 §Core fields.
-          (is (= :test      (get-in parent-ev [:tags :rf.event/origin])) "parent carries :origin :test")
-          (is (= :test      (:source parent-ev))                          "parent carries :source :test")
-          (is (= :test      (get-in child-ev  [:tags :rf.event/origin]))
+        ;; ---- ALWAYS-ON: propagation read off the envelopes ---------------
+        (let [parent-env (:parent @envelopes)
+              child-env  (:child  @envelopes)]
+          (is (some? parent-env) "the parent's dispatch envelope was captured")
+          (is (some? child-env)  "the child's dispatch envelope was captured")
+          (is (= :test (:origin parent-env)) "parent carries :origin :test")
+          (is (= :test (:source parent-env)) "parent carries :source :test")
+          (is (= ::scoped-trace (:trace-id parent-env)) "parent carries :trace-id")
+          (is (= :test (:origin child-env))
               ":origin :test propagated through the cascade")
-          (is (= :fx-dispatch (:source child-ev))
+          (is (= ::scoped-trace (:trace-id child-env))
+              ":trace-id propagated through the cascade")
+          (is (= :fx-dispatch (:source child-env))
               "child's :source is :fx-dispatch (stamped by the :dispatch fx; NOT inherited from parent)"))
+
+        ;; ---- rf2-d2841 dev-instrumentation arm ---------------------------
+        ;; What remains here is a claim about the trace EVENT's SHAPE — that
+        ;; `:origin` rides under `:tags` while `:source` is hoisted to the top
+        ;; level per Spec 009 §Core fields — rather than about propagation,
+        ;; which the envelope assertions above now carry in both postures.
+        (when interop/debug-enabled?
+          (let [dispatched   (->> @seen
+                                  (filter #(= :rf.event/dispatched (:operation %))))
+                parent-ev    (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
+                child-ev     (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
+            (is (some? parent-ev) "parent's :rf.event/dispatched is captured")
+            (is (some? child-ev)  "child's :rf.event/dispatched is captured")
+            (is (= :test      (get-in parent-ev [:tags :rf.event/origin])) "parent carries :origin :test")
+            (is (= :test      (:source parent-ev))                          "parent carries :source :test")
+            (is (= :test      (get-in child-ev  [:tags :rf.event/origin]))
+                ":origin :test propagated through the cascade")
+            (is (= :fx-dispatch (:source child-ev))
+                "child's :source is :fx-dispatch (stamped by the :dispatch fx; NOT inherited from parent)")))
         (finally (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- :envelope exposed on fx-handler ctx (rf2-4jci1.4) -------------------
