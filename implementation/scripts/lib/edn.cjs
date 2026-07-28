@@ -68,8 +68,31 @@ class Reader {
     return this.pos < this.len ? this.text[this.pos] : EOF;
   }
 
-  // Skip whitespace, commas, and `;`-to-end-of-line comments.
-  skipSpace() {
+  // Skip everything EDN treats as ignorable between data: whitespace, commas,
+  // `;`-to-end-of-line comments, and `#_` discard forms. Leaves `pos` on the
+  // first significant character, which may be a closing delimiter or EOF.
+  //
+  // A discard is ignorable content, not a datum — that is the whole of its
+  // meaning, and putting it HERE rather than in readForm is what fixes
+  // rf2-vr11t. It used to be readForm's job: readForm consumed `#_`, read the
+  // discarded datum, then looped round to read "the real next form" — but
+  // inside a collection whose LAST element is a discard, the real next form is
+  // the CLOSING DELIMITER, and readDatum rejects that. So an entirely ordinary
+  // `#_`-commented-out final dependency
+  //
+  //   {:deps {org.clojure/clojure {:mvn/version "1.12.0"}
+  //           #_day8/de-dupe #_{:git/url "https://example.invalid/x.git"}}}
+  //
+  // threw `unexpected '}'`, and every consumer of this reader — the release
+  // lockstep gate, the bundle-isolation gate — fails CLOSED on a throw. Never a
+  // false pass, but an un-runnable gate, reachable by normal editing.
+  //
+  // Skipping a discard means READING the datum it drops (that is how far it
+  // reaches), so this recurses into readDatum. A `#_ #_ a b` chain drops two
+  // data and falls out of the loop without a special case: the outer marker's
+  // "next form" is itself preceded by a marker, which the recursive
+  // skipIgnored() below consumes first.
+  skipIgnored() {
     for (;;) {
       const ch = this.peek();
       if (ch === EOF) return;
@@ -81,38 +104,40 @@ class Reader {
         while (this.pos < this.len && this.text[this.pos] !== '\n') this.pos += 1;
         continue;
       }
+      if (ch === '#' && this.text[this.pos + 1] === '_') {
+        this.pos += 2; // consume `#_`
+        this.skipIgnored(); // ignorables between the marker and its datum
+        const next = this.peek();
+        if (next === EOF) throw new EdnReadError('#_ with no following form');
+        this.readDatum(next); // read it, drop it
+        continue;
+      }
       return;
     }
   }
 
-  // Read one datum. Returns EOF at end of input. Transparently consumes any
-  // number of leading `#_` discard forms (each drops the following datum).
+  // Read one datum, skipping any ignorable content ahead of it. Returns EOF at
+  // end of input.
   readForm() {
-    for (;;) {
-      this.skipSpace();
-      const ch = this.peek();
-      if (ch === EOF) return EOF;
-      if (ch === '#') {
-        const after = this.pos + 1 < this.len ? this.text[this.pos + 1] : EOF;
-        if (after === '_') {
-          this.pos += 2; // consume `#_`
-          const discarded = this.readForm();
-          if (discarded === EOF) throw new EdnReadError('#_ with no following form');
-          continue; // now read the real next form
-        }
-        if (after === '{') {
-          this.pos += 2; // consume `#{`
-          return { edn: 'set', items: this.readSeq('}') };
-        }
-        throw new EdnReadError(
-          `unsupported reader dispatch #${after === EOF ? '<eof>' : after}`,
-        );
-      }
-      return this.readDatum(ch);
-    }
+    this.skipIgnored();
+    const ch = this.peek();
+    if (ch === EOF) return EOF;
+    return this.readDatum(ch);
   }
 
   readDatum(ch) {
+    if (ch === '#') {
+      // `#_` never reaches here: skipIgnored() consumes discards ahead of every
+      // readDatum call, including its own.
+      const after = this.pos + 1 < this.len ? this.text[this.pos + 1] : EOF;
+      if (after === '{') {
+        this.pos += 2; // consume `#{`
+        return { edn: 'set', items: this.readSeq('}') };
+      }
+      throw new EdnReadError(
+        `unsupported reader dispatch #${after === EOF ? '<eof>' : after}`,
+      );
+    }
     if (ch === '(') {
       this.pos += 1;
       return { edn: 'list', items: this.readSeq(')') };
@@ -133,10 +158,14 @@ class Reader {
     return this.readAtom();
   }
 
+  // Elements up to `close`. Because skipIgnored() now runs BEFORE the
+  // closing-delimiter test on every pass, a discard sitting last in the
+  // collection is gone by the time we look for `}` — the ordering rf2-vr11t
+  // turned on.
   readSeq(close) {
     const items = [];
     for (;;) {
-      this.skipSpace();
+      this.skipIgnored();
       const ch = this.peek();
       if (ch === EOF) {
         throw new EdnReadError(`unterminated collection, expected '${close}'`);
@@ -145,11 +174,7 @@ class Reader {
         this.pos += 1;
         return items;
       }
-      const form = this.readForm();
-      if (form === EOF) {
-        throw new EdnReadError(`unterminated collection, expected '${close}'`);
-      }
-      items.push(form);
+      items.push(this.readDatum(ch));
     }
   }
 
