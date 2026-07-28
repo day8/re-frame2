@@ -192,8 +192,10 @@
                           :measurement-method
                           (str "wall time across react-dom/flushSync around each arm's own "
                                "mount door, into a fresh container attached before the window; "
-                               "arms interleaved at the SAMPLE level with the order rotating on "
-                               "the sample index; " rounds " rounds of " (:warmup sampling)
+                               "arms interleaved at the SAMPLE level with the order rotating AND "
+                               "REFLECTING on the sample index, so no arm always follows the same "
+                               "neighbour (a bare rotation does not vary that at all — rf2-88pie); "
+                               rounds " rounds of " (:warmup sampling)
                                " warmup + " (:samples sampling) " samples per arm per round; "
                                "every figure a ratio to the FLOOR measured in that same round, "
                                "because this workstation drifts further across rounds than "
@@ -387,9 +389,13 @@
     (chain {:readings (zipmap (map #(:id (:arm %)) mounts) (repeat []))
             :legs     (zipmap (map #(:id (:arm %)) mounts) (repeat []))
             :bad      0}
-           (for [s (range total) j (range k)] [s j])
+           ;; `h/slot-order` rotates AND reflects. A bare rotation — which
+           ;; this was — leaves every arm with the same immediate
+           ;; predecessor at every sample index, which is the fault class
+           ;; `rf2-88pie` records.
+           (for [s (range total) j (h/slot-order k s)] [s j])
            (fn [acc [s j]]
-             (let [mnt (nth mounts (mod (+ j s) k))
+             (let [mnt (nth mounts j)
                    id  (:id (:arm mnt))]
                (-> (n-writes! mnt kind n)
                    (.then (fn [{:keys [ms write-ms gap-ms force-ms bad]}]
@@ -496,7 +502,9 @@
                                             "the yield is no longer required by any arm and the row "
                                             "is re-takeable without it; these figures were NOT "
                                             "re-taken, so they still carry it. Arms interleaved at the "
-                                            "sample level, order rotating on the sample index; "
+                                            "sample level, order rotating AND REFLECTING on the sample "
+                                            "index so no arm always follows the same neighbour "
+                                            "(rf2-88pie: a bare rotation does not vary that); "
                                             rounds " rounds of " (:warmup sampling)
                                             " warmup + " (:samples sampling) " samples; every "
                                             "figure a ratio to the floor measured in that same "

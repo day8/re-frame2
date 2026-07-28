@@ -32,10 +32,22 @@
 // constant including the instrument's own footprint. A retention
 // instrument reads this control as zero.
 
+//
+// THE ARM ORDER IS A MEASURED PROPERTY OF THIS RUN, NOT AN ASSUMPTION.
+// `rf2-88pie`: a figure taken from a plan run in one order has not been
+// checked. `order_guard.cjs` schedules the arms so every one of them is
+// measured after at least two different predecessors, labels every window
+// with what preceded it and where in the run it sat, and REFUSES to let
+// this driver exit 0 on a figure that either factor separates. Its
+// self-test runs before anything is measured, exactly as the key-renaming
+// integrity probe does.
+
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
+
+const guard = require('./order_guard.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const OUT = path.join(IMPL, 'out', 'b8');
@@ -109,6 +121,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ---------------------------------------------------------------------------
 
 async function main() {
+  // --- does the arm-order guard still catch the faults it was built for? --
+  // Ahead of the browser, because a broken guard makes every figure below
+  // unpublishable and finding that out after a fifteen-minute run is
+  // wasteful. The checks are fixtures replayed from `rf2-jr76s`'s recorded
+  // readings, so this is deterministic.
+  const guardSelf = guard.selfTest();
+  for (const c of guardSelf.checks) {
+    console.error(`[b8] order-guard ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}`);
+  }
+  if (!guardSelf.ok) throw new Error('order guard self-test FAILED — nothing may be measured');
+
   const { chromium } = require('playwright');
   const browser = await chromium.launch({
     args: [
@@ -435,18 +458,31 @@ async function main() {
     }
   }
 
+  // Every window carries its POSITION in the run and the LABEL of the
+  // window that ran immediately before it. `guard.schedule` rotates AND
+  // reflects, because the plain `(j + round) % n` rotation this loop used
+  // to do changes which arm goes first without changing which arm follows
+  // which — see `order_guard.cjs`.
   const rows = [];
+  let position = 0;
+  let previous = null;
+  const take = async (round, arm, kind, doubles, published, n) => {
+    const w = await window_(arm, kind, doubles, published, n);
+    const label = `${arm}/D=${doubles}${published ? '/pub' : ''}`;
+    rows.push({ round, position: position++, predecessor: previous, ...w });
+    previous = label;
+  };
   for (const kind of KINDS) {
     for (let round = 0; round < ROUNDS; round++) {
       console.error(`[b8] ${kind}: round ${round + 1}/${ROUNDS}`);
-      for (let j = 0; j < ARMS.length; j++) {
-        const arm = ARMS[(j + round) % ARMS.length];
+      for (const j of guard.schedule(ARMS.length, round)) {
+        const arm = ARMS[j];
         const n0 = nFor[kind][arm][0];
-        rows.push({ round, ...(await window_(arm, kind, 0, false, n0)) });
-        rows.push({ round, ...(await window_(arm, kind, 0, true, n0)) });
+        await take(round, arm, kind, 0, false, n0);
+        await take(round, arm, kind, 0, true, n0);
         if (LADDER_ARMS.includes(arm)) {
-          rows.push({ round, ...(await window_(arm, kind, CTL_1, false, nFor[kind][arm][CTL_1])) });
-          rows.push({ round, ...(await window_(arm, kind, CTL_2, false, nFor[kind][arm][CTL_2])) });
+          await take(round, arm, kind, CTL_1, false, nFor[kind][arm][CTL_1]);
+          await take(round, arm, kind, CTL_2, false, nFor[kind][arm][CTL_2]);
         }
       }
     }
@@ -496,6 +532,7 @@ function report(out) {
   const REF = out.refBytesPerDouble;
   const kinds = [...new Set(rows.map((r) => r.kind))];
   const summary = {};
+  const refusals = [];
 
   for (const kind of kinds) {
     const of = (arm, doubles, published) =>
@@ -556,6 +593,32 @@ function report(out) {
         `${all.filter((r) => r.arm !== 'instrument').length * WRITES} ` +
         `(the instrument arm renders no cell and is excluded)`
     );
+
+    // --- arm order, before any figure is read ------------------------------
+    // The published per-arm figure is `inPage.perWrite` off the D=0 mirror
+    // windows, so those are the samples the guard adjudicates. Tolerance
+    // 25%: an allocation counter reading the same code twice is stable to
+    // a fraction of a percent, but the arms differ by three orders of
+    // magnitude in window sizing and a narrow arm's window is small enough
+    // that a page boundary moves it several percent. The recorded fault
+    // was 101%.
+    const orderSamples = [];
+    for (const arm of ARMS) {
+      for (const r of of(arm, 0, false)) {
+        orderSamples.push({
+          arm,
+          value: r.inPage.perWrite,
+          predecessor: r.predecessor,
+          position: r.position,
+        });
+      }
+    }
+    const orderVerdict = guard.verdict(orderSamples, { tolerance: 0.25 });
+    console.log(';;');
+    for (const line of guard.format(orderVerdict, `${kind} — the published per-arm figure`)) {
+      console.log(line);
+    }
+    if (orderVerdict.refuse) refusals.push(kind);
 
     // --- positive control -------------------------------------------------
     console.log(';;');
@@ -729,6 +792,7 @@ function report(out) {
     );
 
     summary[kind] = { per, above, ratioAboveFloor: rs, ratioAbsolute: rrs, control: ctl,
+                      orderVerdict,
                       viewLeg: { reagent: vRs, freehand: vFs, ratio: vRatio },
                       writeLeg: { reagent: wR, freehand: wF },
                       windows: { accepted: acc.length, total: all.length,
@@ -776,6 +840,15 @@ function report(out) {
       ` of what was allocated; it is a retention instrument.`
   );
 
+  if (refusals.length) {
+    console.log('\n;; ==== ARM ORDER: THESE FIGURES ARE NOT REPORTABLE ====');
+    console.log(
+      `;;   ${refusals.join(', ')} — at least one arm reads differently for what preceded it ` +
+        'or for where in the run it was measured (rf2-88pie). The table above stands only as ' +
+        'raw data; nothing in it may be quoted.'
+    );
+  }
+  summary.orderRefusals = refusals;
   return summary;
 }
 
@@ -803,6 +876,15 @@ function report(out) {
   if (failed) {
     console.error(`[b8] FAILED: ${failed}`);
     process.exit(1);
+  }
+  // A run whose figures the arm-order guard refused is not a green run.
+  // The data is printed and the raw file is written — the refusal is about
+  // what may be QUOTED, not about throwing the measurement away.
+  if (out && out.summary && out.summary.orderRefusals && out.summary.orderRefusals.length) {
+    console.error(
+      `[b8] REFUSED by the arm-order guard (rf2-88pie): ${out.summary.orderRefusals.join(', ')}`
+    );
+    process.exit(2);
   }
   console.error('[b8] ok');
 })();
