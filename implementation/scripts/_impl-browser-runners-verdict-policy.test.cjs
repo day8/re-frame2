@@ -20,9 +20,11 @@
  *      a SECOND budget BROWSER_TEST_TIMEOUT_MS cannot reach, whose CI log
  *      line reads like the summary timeout it is not (rf2-dczpv), and which
  *      turned out to be a CLASS rather than one site: run-ui-g8.cjs had the
- *      same defect one file over (rf2-bhjzn). Pinned as a SWEEP over every
- *      runner in this directory, so the next `page.goto` cannot reintroduce
- *      it.
+ *      same defect one file over (rf2-bhjzn), and thirteen more sites in five
+ *      other trees (rf2-taj9b). The SWEEP that pins the class therefore lives
+ *      in `_navigation-ceiling-policy.test.cjs` and reads the whole
+ *      repository; what stays here is each runner's per-file JUDGEMENT —
+ *      which `waitUntil`, whose budget, what the failure says.
  *
  * Both are pinned statically for the same reason: these runners drive a
  * headless Chromium end-to-end, so their verdict paths are not cleanly
@@ -311,56 +313,31 @@ test('tenant-switcher-testbed: a captured pageerror fails the spec even when ass
   );
 });
 
-// ---- the navigation-ceiling sweep (rf2-dczpv → rf2-bhjzn) ----
+// ---- the navigation-ceiling sweep: MOVED (rf2-dczpv → rf2-bhjzn → rf2-taj9b) ----
 //
 // rf2-dczpv fixed one `page.goto` that inherited Playwright's 30s default;
-// rf2-bhjzn found the identical defect in run-ui-g8.cjs, which passed no
-// options at all. Two instances is a class, so this is pinned by SWEEP rather
-// than by naming files: every `page.goto` in this directory must carry its own
-// explicit `timeout:`, tied to the lane's own budget.
+// rf2-bhjzn found the identical defect in run-ui-g8.cjs and pinned it with a
+// sweep over THIS directory. rf2-taj9b then found thirteen more sites across
+// five other trees, so the sweep now lives at
+// `implementation/scripts/_navigation-ceiling-policy.test.cjs` and reads the
+// whole repository. Both reasons to move it were load-bearing:
 //
-// Why it needs a static pin: the ceiling is DORMANT in a healthy tree —
-// navigation normally completes in milliseconds — so ordinary CI would never
-// notice a new bare `goto` until a loaded runner turned it into a flake whose
-// log line names the wrong budget.
-
-test('every runner navigation carries an EXPLICIT timeout, never Playwright\'s 30s default (rf2-dczpv, rf2-bhjzn)', () => {
-  const runners = fs
-    .readdirSync(SCRIPTS_DIR)
-    .filter((f) => f.endsWith('.cjs') && !f.startsWith('_'));
-  assert.ok(runners.length > 0, 'the sweep must actually find runners to check');
-
-  // Whole-line comments only. A `//` mid-line would truncate the very
-  // `http://…` URLs these calls navigate to, taking the `timeout:` with it.
-  const codeOnly = (src) => src
-    .split('\n')
-    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
-    .join('\n');
-
-  const offenders = [];
-  let navigations = 0;
-  for (const file of runners) {
-    const src = codeOnly(read(file));
-    for (let i = src.indexOf('.goto('); i !== -1; i = src.indexOf('.goto(', i + 1)) {
-      navigations += 1;
-      // The call's arguments, bounded — long enough to span a multi-line
-      // options object, short enough not to reach an unrelated `timeout:`.
-      const call = src.slice(i, i + 300);
-      if (!/\btimeout:/.test(call)) {
-        offenders.push(`${file}: ${call.split('\n')[0].trim()}`);
-      }
-    }
-  }
-
-  assert.ok(navigations > 0, 'the sweep must actually find navigations to check');
-  assert.deepEqual(
-    offenders,
-    [],
-    'page.goto must pass an EXPLICIT timeout tied to the lane\'s own budget. ' +
-      'Without one Playwright applies a 30s default that no lane budget can ' +
-      'reach, and whose CI failure line reads like the lane timeout it is not',
-  );
-});
+//   1. SCOPE. A directory sweep cannot see `tools/`, `examples/`,
+//      `implementation/freehand/` or the adapter testbeds, which is where most
+//      of the class actually lived.
+//
+//   2. SOUNDNESS. This sweep bounded a call by reading a flat 300 characters
+//      after `.goto(`, which reaches PAST the call's own closing paren. Both
+//      bare navigations in run-ui-g13.cjs — in this very directory — were
+//      followed within that window by a `waitForFunction(..., { timeout:
+//      TIMEOUT })`, so the window found a `timeout:` that belonged to a
+//      different call and reported the file green. Measured, both sites, on
+//      the commit this comment replaces. The replacement scans the call's own
+//      balanced parens, so nothing outside the call can vouch for it.
+//
+// The per-file assertions below stay here: they pin the JUDGEMENT each runner
+// made (which `waitUntil`, whose budget, what the failure says), which is not
+// mechanical and does not belong in a sweep.
 
 // ---- run-ui-g8.cjs (rf2-bhjzn) ----
 
