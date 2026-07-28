@@ -506,14 +506,84 @@ same recorded fixtures so neither can drift quietly. Eight checks each.
   **4,700,288 B measured against 4,700,000 predicted (+0.006%)** on
   reader A. It is a retention harness, so this says nothing about
   allocation; it says the arm order was not moving its figures.
-- **`write-attribution` refuses**, and on the three arms whose own
+- **`write-attribution` refused**, and on the three arms whose own
   allocation is nearest zero — all of them the SHIPPED half of a paired
-  control. `P-SCOPEH` reads 32.00 B/call in one stratum and 637.96 in the
+  control. `P-SCOPEH` read 32.00 B/call in one stratum and 637.96 in the
   other; `P-INHERH` 48.00 against 653.96; `P-RKV` 80.94 against 686.93.
   Zero variance inside each stratum, and the same ~606 B/call step on all
-  three. Tracked as `rf2-xu0ma`. **Node, uncompressed pointers** — a
-  tagged slot is 8 B there and 4 in Chrome, so shares transfer and
-  absolutes do not.
+  three. **Node, uncompressed pointers** — a tagged slot is 8 B there and
+  4 in Chrome, so shares transfer and absolutes do not. The cause is now
+  known, and is below.
+
+#### What the step was (rf2-xu0ma)
+
+The three arms were being charged for **a boxed number that belonged to
+another arm**.
+
+Every arm feeds `keep!`, which increments one shared counter. The
+increment is type-PRESERVING: given an Smi it yields an Smi and allocates
+nothing, given a double it yields a double, and storing that double back
+into the volatile's tagged field boxes a fresh `HeapNumber` — 16 B with
+pointer compression off. The four `DBL-*` control arms used to *store*
+their sampled element into that same counter, and `packed-doubles`
+element 0 is `0.5`. So after any `DBL-*` arm the counter was a double,
+and it stayed one until an `SMI-*` arm put an integer back.
+
+`slot-order` runs the plan ascending on even rounds — where `SMI-200`
+resets the counter before the body — and descending on odd ones, where a
+`DBL-*` arm is the last control the body sees. An arm with a
+300-iteration inner loop therefore carried **300 × 16 = 4800 B/call on
+odd rounds and nothing on even ones**, deterministically, which is the
+step and its zero within-stratum variance. `P-RKV`'s contaminated
+stratum is labelled with the predecessor `DBL-100` in the guard's own
+report — the arm that put the double there.
+
+Priced against a prediction stated before the measurement — 16 B × 300
+iterations = 4800 B/call — the probe reads **+0.00% at reps 64, 128, 256,
+512 and 1024**, and `P-EMIT`, the one 4000-rep arm with no `keep!` in it,
+does not move at all (0.0 B/call under both seeds).
+
+The bead's second puzzle — the step reading ~606 B/call in one run and
+~4800 in another, "a fixed block whose size varies run to run" — is the
+same 4800, **truncated**. `calibrate` caps reps at 4000, and at that cap
+these arms' contaminated windows are 19.2 MB, far past the nursery, so
+scavenges run *inside* the measurement window and the counter reads
+survivors rather than allocation. The residue is 2,423,840 B, to the
+byte, in every run that hit the cap. Which figure a run showed was
+decided by nothing more than whether `calibrate`'s four-rep probe landed
+on the cap that time.
+
+With the control arms feeding `keep!` instead of clobbering it, `keep!`
+is the sole writer of the counter, the counter is an Smi for the whole
+run, and the harness returns **`reportable` on all 33 arms** in three
+consecutive runs. The `DBL-100` control falls from 864.9 to **848.2
+B/copy against 848 predicted (+0.02%)** — that is the box leaving, and it
+is the cleanest confirmation available that the 16 B was real and is
+gone.
+
+**What it cost.** Every arm with a 300-iteration inner loop was
+over-read by 16.0 B/sub; the ladder's `RFWRITE-*` rungs and the
+`Q-SCHED*` pair contain no `keep!` and were untouched. Corrected against
+contaminated, per sub, node: `P-SCOPEM` 744.2 (was 760.2), `P-INHER`
+240.2 (was 256.2), `P-SCOPE` 120.1 (was 136.1), `P-BODY` 280.9 (was
+296.2), `P-VALS` 308.6 (was 321.8), `P-MEMO` 641.3 (was 644.9). The
+shipped halves move by more than their own size: `P-INHERH` **0.2 (was
+16.2)**, `P-RKV` **0.3 (was 16.3)**, `P-SCOPEH` **0.1 (was 2.1)** — the
+shipped spellings allocate essentially nothing, and the retired-vs-shipped
+*differences* mostly survive because both halves carried the same 16 B in
+the same stratum. The exception is the hoist, where the shipped half was
+also truncated: **744.1 B/sub saved, not 758.1**.
+
+- **A second discrepancy this exposed, not yet isolated.** The `SMI-*`
+  control reads **almost exactly twice** its own prediction — 1681.7
+  B/copy at D=100 against 848 predicted (+98.3%), 3293.5 against 1648
+  (+99.9%) — so the printed `SMI slope` of 16.11 B/slot is 2× the 8 B a
+  tagged slot occupies with pointer compression off. It is *not* the box
+  above: the `SMI-*` arms store an Smi, and the 2× survives the fix
+  unchanged. The regime conclusion the pair exists to draw is still the
+  right one (16.11 > the 6.0 threshold → compression OFF), and the `DBL`
+  slope it is read beside lands at +0.04%, so no figure here rests on it.
+  Filed rather than guessed at.
 - **`read-attribution` passes**, both factors, every arm, with its
   controls landing at **+0.000%** predicted against measured on both
   rungs (JVM, exact TLAB accounting).
