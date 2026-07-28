@@ -44,8 +44,9 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 140 namespaces, exit 0 — versus
-# the zero suites that had ever executed under this posture before.  (It was
+# What is left IS green, and it is not a rump: 140 namespaces, 1560 tests, 6707
+# assertions, exit 0 — versus the zero suites that had ever executed under this
+# posture before.  (It was
 # 88 / 934 / 4340 tests/assertions before rf2-d2841 split the spine's
 # dev-instrumentation assertions away from the semantics beside them,
 # 94 / 1106 / 5135 before that bead's second pass took `fx-test` — the largest
@@ -344,15 +345,19 @@ fi
 # green with `Ran 0 tests`.  Calibrated below the observed count with room for
 # ordinary churn; raise it when the roster grows materially.
 #
-# RAISED 800 -> 1360 (rf2-d2841, third pass).  800 was calibrated against the
-# 915-test lane of rf2-f8x2i's original run and had stopped doing its job: the
-# lane now runs 1401 tests, so a regression that silently dropped a THIRD of
-# them still cleared the floor.  Concretely, the twenty namespaces this pass
-# added are 188 tests — losing the whole batch lands at 1213, which 800 would
-# wave through.  1360 notices that while leaving ~3% for ordinary churn.  The
-# floor is a collapse detector, not a target: it must sit close enough under
-# the observed count that the smallest batch anyone lands is still visible.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1360}"
+# RAISED 800 -> 1360 (rf2-d2841, third pass), then 1360 -> 1510 (fourth pass).
+# 800 was calibrated against the 915-test lane of rf2-f8x2i's original run and
+# had stopped doing its job.  1360 was calibrated against 1401 and stopped
+# doing its job the same way: the lane now runs 1560 tests, and the seventeen
+# namespaces the fourth pass added are 159 of them — losing the whole batch
+# lands at 1401, which 1360 waves through.  1510 notices that while leaving
+# ~3% for ordinary churn.
+#
+# The floor is a COLLAPSE DETECTOR, not a target, and the rule that follows
+# from that is why it has moved every pass: it must sit close enough under the
+# observed count that THE SMALLEST BATCH ANYONE LANDS IS STILL VISIBLE.  A
+# floor left behind by a growing lane is not conservative, it is inert.
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1510}"
 
 args=()
 for ns in $runnable; do
