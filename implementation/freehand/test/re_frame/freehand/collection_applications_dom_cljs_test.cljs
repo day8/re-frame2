@@ -29,7 +29,7 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as react-substrate]
             [re-frame.frame :as frame]
-            [re-frame.freehand.collection-applications-cljs-test :as app]
+            [re-frame.freehand.collection-applications :as app]
             [re-frame.freehand.mount-support :as ms]
             [re-frame.freehand.react :as fr]
             [re-frame.freehand.shell :as shell]
@@ -46,10 +46,18 @@
 (def ^:private fid :dom/collection-applications)
 (def ^:private grid-id "acme-editing-grid")
 
+;; Five hundred rows in the sheet; ten of them in a viewport ten rows tall,
+;; at ten columns each. The second number is the VIEWPORT's and the first is
+;; the sheet's, and the whole point of the workload is that only the second
+;; reaches the document.
+(def ^:private grid-total 500)
+(def ^:private grid-window-rows 10)
+(def ^:private grid-window-cells (* grid-window-rows (count app/grid-columns)))
+
 (defn- seed! []
   (live-frame/make-frame {:id fid})
   (app/register!)
-  (frame/replace-app-db! fid (app/seed-db {:grid-n app/grid-total}))
+  (frame/replace-app-db! fid (app/seed-db {:grid-n grid-total}))
   fid)
 
 (defn- render! [root]
@@ -83,16 +91,16 @@
                   (let [inputs (inputs-in container)
                         rows   (array-seq (.querySelectorAll container
                                                              "[data-part='row']"))]
-                    (is (= app/grid-total
+                    (is (= grid-total
                            (count (get-in (frame/frame-app-db-value fid)
                                           [:acme.app/grid :ids])))
                         "non-vacuous: five hundred rows are in app-db")
-                    (is (= app/grid-window-rows (count rows))
+                    (is (= grid-window-rows (count rows))
                         "exactly ten windowed rows reached the document")
-                    (is (= app/grid-window-cells (count inputs))
+                    (is (= grid-window-cells (count inputs))
                         "carrying exactly one hundred controlled cells")
-                    (is (< app/grid-window-cells
-                           (* app/grid-total (count app/grid-columns)))
+                    (is (< grid-window-cells
+                           (* grid-total (count app/grid-columns)))
                         "non-vacuous: the sheet is five thousand cells")
                     (is (= "g7/c3" (.getAttribute (nth inputs 73) "data-cell"))
                         "and each one addresses itself")
