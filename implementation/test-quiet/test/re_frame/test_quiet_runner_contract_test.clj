@@ -30,6 +30,10 @@
      discovery banner is still absent.
    - ERROR: exit 1; the `ERROR in` block + the thrown message reach
      stdout.
+   - DISCOVERY: a file whose `(ns ...)` form the reader cannot read
+     refuses the run (exit 1, named on stderr) instead of leaving it
+     silently short a suite — and the same fixture is green the moment
+     before that file arrives.
    - STDERR BUFFER: a green run that emits expected
      stderr warnings stays quiet (the warnings are buffered + dropped);
      a RED run REPLAYS the buffered stderr context so a failing run
@@ -1424,3 +1428,59 @@
           (is (not (str/includes? out "Ran "))
               (str "the run must be rejected BEFORE any test executes; got:\n"
                    out)))))))
+
+;; ----------------------------------------------------------------------
+;; What the lane will DISCOVER (rf2-vruo9).
+;;
+;; The floor above is a COLLAPSE detector and cannot see a lane that lost
+;; ONE file: `cognitect.test-runner` discovers namespaces by READING each
+;; file's `(ns ...)` form, and drops the files it cannot read. Measured on
+;; this repo, a single unescaped quote in an ns docstring took
+;; `implementation/core` from 2190 tests to 2182 — the broken file's eight
+;; deftests — printing `0 failures, 0 errors.` and exiting 0.
+;;
+;; The rule itself is pinned against the discovery library in
+;; `re-frame.test-quiet-discovery-integrity-test`. What is pinned HERE is
+;; the only part that needs a real process: that `-main` applies it, refuses
+;; before a test runs, and says which file — and that the SAME fixture is
+;; green the moment before the broken file arrives, which is what makes the
+;; red attributable to the file rather than to the guard.
+
+(deftest an-undiscoverable-file-refuses-the-run
+  (testing "a file whose `(ns ...)` form the reader cannot read reds the
+            lane instead of vanishing from it"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "discovery_fixture_test" "discovery-fixture-test"
+                        "(deftest a-passing-test (is (= 1 1)))")
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "BEFORE: the fixture alone is green, so the red below"
+                   " belongs to the broken file and not to the guard; got "
+                   exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err)))
+
+        ;; One unescaped `"` inside the ns docstring. The reader consumes
+        ;; the rest of the file as a string and hits EOF, so the form never
+        ;; reads and the namespace never enters the discovered set.
+        (write-raw-fixture!
+          dir "unreadable_test"
+          (str "(ns probe.unreadable-test\n"
+               "  \"A docstring with a stray \" quote in it.\"\n"
+               "  (:require [clojure.test :refer [deftest is]]))\n"
+               "(deftest silently-dropped (is (= 1 1)))"))
+
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (= 1 exit)
+              (str "AFTER: an undiscoverable file must red the run; exit 0"
+                   " here is the bug — the suite would report `0 failures`"
+                   " over a file it never loaded. Got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? err "unreadable_test.clj")
+              (str "the diagnostic must NAME the file, or the operator is"
+                   " left bisecting; got stderr:\n" err))
+          (is (str/includes? err "will not reach the runner")
+              (str "and must say what is wrong with it; got stderr:\n" err))
+          (is (not (str/includes? out "Ran "))
+              (str "the run must be refused BEFORE any test executes,"
+                   " because by the time a tally exists the missing file is"
+                   " already invisible to it; got:\n" out)))))))

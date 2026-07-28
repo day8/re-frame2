@@ -96,11 +96,24 @@
   `--probe` is this wrapper's only own flag and is stripped before args are
   forwarded to cognitect.  Nothing is printed on a green probe: the
   silent-on-success contract stands, and the probe's proof is the assertion,
-  not an announcement."
+  not an announcement.
+
+  ## What the lane will DISCOVER
+
+  Both rules above are about the tests that RAN.  Neither can see a test
+  file that never entered the run at all, because cognitect's discovery
+  reads each file's `(ns ...)` form and silently drops the ones it cannot
+  read.  `discovery-defects` is the third rule and it fires BEFORE any test
+  does; see its own docstring, and rf2-vruo9."
   (:require
     [re-frame.test-quiet]
+    [clojure.java.io :as io]
     [clojure.string :as str]
     [clojure.test]
+    [clojure.tools.cli :as cli]
+    [clojure.tools.namespace.file :as ns-file]
+    [clojure.tools.namespace.find :as ns-find]
+    [clojure.tools.namespace.parse :as ns-parse]
     [cognitect.test-runner]))
 
 (def ^:private discovery-banner-prefix
@@ -590,6 +603,178 @@
           (System/exit 2))
       parsed)))
 
+;; ----------------------------------------------------------------------
+;; What the lane will DISCOVER (rf2-vruo9) — a file the runner cannot see
+;; is not a file that passed.
+;;
+;; `cognitect.test-runner/test` builds its namespace set by READING each
+;; source file's `(ns ...)` form:
+;;
+;;     (mapcat find/find-namespaces-in-dir dirs)
+;;
+;; and `clojure.tools.namespace.find/find-ns-decls-in-dir` is a `keep` over
+;; a helper named `ignore-reader-exception` — which is precisely what it
+;; does.  A file whose `(ns ...)` FORM the reader cannot read contributes NO
+;; namespace, and downstream nothing can tell a file that was dropped from a
+;; file that was never written.  One unescaped `"` inside the ns docstring
+;; is enough.
+;;
+;; MEASURED on this repo, 2026-07-29.  A single stray quote in the ns
+;; docstring of `implementation/core/test/re_frame/late_bind_drift_test.clj`
+;; took `clojure -M:test` in `implementation/core` from 2190 tests / 11245
+;; assertions to 2182 / 10571 — exactly that file's eight deftests — and it
+;; printed `0 failures, 0 errors.` and exited 0.  Exit code zero, honestly
+;; earned, over a suite missing a whole file.
+;;
+;; NOTHING ELSE SEES IT, and that is not for want of guards.  `RF2_MIN_TESTS`
+;; above is a COLLAPSE detector: eight tests out of 2190 sit far inside the
+;; headroom any growing lane must leave itself.  `verify_roster` in
+;; `scripts/test-core-prod-gate.sh` compares the file count against the
+;; namespace count but SCRAPES the `(ns ` line with `sed`, and
+;; `scripts/check_test_lane_bijection.py` matches it with a regex — both
+;; therefore match the APPEARANCE of a declaration rather than the
+;; declaration, and both were measured green over the broken file above.
+;; Reading the form is the whole point, so the check lives HERE, in the one
+;; process that already has the lane's classpath and the discovery library
+;; on it, rather than in a script that would have to imitate a reader.
+;;
+;; THE RULE, and why it is one rule rather than three.  Every source file in
+;; a discovery directory must declare — readably — the namespace its own
+;; path spells.  That single sentence closes every silent door:
+;;
+;;   * an unreadable form declares nothing, so it cannot match its path;
+;;   * a file declaring somebody else's namespace is loaded by nobody:
+;;     `require` resolves the DECLARED name back to a path, so whatever
+;;     lives at THAT path is what runs, and this file never does;
+;;   * and two files cannot both spell one namespace, because their paths
+;;     differ — so the shadowing pair, where one file's tests run twice and
+;;     the other's never run at all, is caught by the same comparison.
+;;
+;; "The discovered count equals the file count" was the other candidate and
+;; it is strictly weaker: a count is satisfiable by coincidence (a file lost
+;; while another gains a second declaration nets zero), it cannot NAME the
+;; file it is missing, and it is implied anyway — a total, injective map
+;; from files to namespaces has exactly as many namespaces as it has files.
+;; It is a consequence of this rule, not a second rule.
+;;
+;; SCOPE.  This is the JVM lane's discovery, so it covers every artefact
+;; whose `:test` alias runs this wrapper — which is every JVM artefact in
+;; the repo bar `migration/from-re-frame-v1/codemod`, which deliberately
+;; calls cognitect directly.  The CLJS lanes discover through shadow-cljs's
+;; own indexer and are not in this rule's reach.
+
+(def ^:private discovery-platform
+  "The platform cognitect discovers under.  `cognitect.test-runner/test`
+  calls the single-arity `find/find-namespaces-in-dir`, which defaults to
+  `find/clj`: `.clj` + `.cljc`, read with `{:read-cond :allow :features
+  #{:clj}}`.  Named rather than inlined so the guard and the runner cannot
+  drift apart about what a source file even is."
+  ns-find/clj)
+
+(defn discovery-dirs
+  "The directories this run will scan, or nil when `args` do not parse.
+
+  Resolved with cognitect's OWN option spec and its OWN default —
+  `(or (:dir options) #{\"test\"})` — so there is no second, hand-rolled
+  reading of `-d` to disagree with the first.  Unparseable args yield nil
+  and the guard stands down: cognitect prints its parse diagnostics and
+  exits 1 before discovery, so at that point there is nothing to guard."
+  [args]
+  (let [{:keys [options errors]} (cli/parse-opts args cognitect.test-runner/cli-options)]
+    (when-not (seq errors)
+      (or (:dir options) #{"test"}))))
+
+(defn- ns->path
+  "The classpath-relative path `require` resolves `ns-sym` to, under `ext`."
+  [ns-sym ext]
+  (str (-> (name ns-sym) (str/replace "-" "_") (str/replace "." "/")) ext))
+
+(defn- relative-path
+  "`file`'s path relative to `dir`, forward-slashed on every platform."
+  [^java.io.File dir ^java.io.File file]
+  (-> (.relativize (.toPath dir) (.toPath file)) str (str/replace "\\" "/")))
+
+(defn- declared-namespace
+  "What `file` declares to discovery: `[ns-sym nil]`, or `[nil complaint]`
+  when it declares nothing discovery can use.
+
+  `read-file-ns-decl` THROWS on a file the reader cannot read — that is why
+  `find-ns-decls-in-dir` wraps this very call in `ignore-reader-exception`,
+  and the exception it discards is the one sentence saying where the file is
+  broken.  Catching it here instead is the whole difference between a red an
+  operator can act on and a red they have to bisect, so the reader's own
+  line and column travel with the complaint."
+  [^java.io.File file]
+  (try
+    (if-let [decl (ns-file/read-file-ns-decl file (:read-opts discovery-platform))]
+      [(ns-parse/name-from-ns-decl decl) nil]
+      [nil "it holds no `(ns ...)` form."])
+    (catch Exception e
+      (let [{:keys [line col]} (ex-data e)
+            msg (or (some-> (ex-message e) str/split-lines first)
+                    (.getName (class e)))]
+        [nil (str "the reader cannot read it"
+                  (when line (str " (line " line ", column " col ")"))
+                  ": " msg)]))))
+
+(defn discovery-defects
+  "Every source file under `dirs` that will NOT reach the runner as its own
+  namespace, as `[path complaint]` pairs sorted by path.
+
+  Empty is the only acceptable answer.  The files come from
+  `find/find-sources-in-dir` — the same walk `find-ns-decls-in-dir` makes,
+  before it drops anything — so the comparison is between what discovery
+  SAW and what discovery KEPT, rather than between discovery and a
+  file-naming convention this guard invented."
+  [dirs]
+  (vec
+    (sort
+      (for [d               (sort dirs)
+            :let            [dir (io/file d)]
+            ^java.io.File f (ns-find/find-sources-in-dir dir discovery-platform)
+            :let  [rel       (relative-path dir f)
+                   ext       (subs rel (str/last-index-of rel "."))
+                   [declared complaint] (declared-namespace f)]
+            :when (not= rel (some-> declared (ns->path ext)))]
+        [(str/replace (.getPath f) "\\" "/")
+         (or complaint
+             (str "it declares `" declared "`, which discovery resolves to `"
+                  (ns->path declared ext) "` - a different file."))]))))
+
+(defn- verify-discovery!
+  "Refuse the run when any file in this lane's discovery directories will
+  not reach the runner as its own namespace (rf2-vruo9).
+
+  Called before `-main` rebinds anything, so the diagnostic goes straight
+  to the real stderr rather than into the red-replay ring, and exits 1
+  before a single test runs.  ASCII only: this text goes through the
+  platform-default stderr encoding, where an em dash renders as a
+  replacement character on a Windows console.  Silent when clean."
+  [args]
+  (when-let [dirs (discovery-dirs args)]
+    (when-let [defects (seq (discovery-defects dirs))]
+      (binding [*out* *err*]
+        (println (str "\n[test-quiet] ERROR: " (count defects) " file(s) under "
+                      (pr-str (vec (sort dirs)))
+                      " will not reach the runner as their own namespace:"))
+        (doseq [[path complaint] defects]
+          (println (str "  " path))
+          (println (str "      " complaint)))
+        (println (str "cognitect.test-runner discovers a namespace by READING each"
+                      " file's `(ns ...)` form and\n"
+                      "silently drops the files it cannot read"
+                      " (clojure.tools.namespace.find/find-ns-decls-in-dir\n"
+                      "is a `keep` over `ignore-reader-exception`). Such a file"
+                      " contributes no namespace: its\n"
+                      "tests do not run, the suite still prints `0 failures, 0"
+                      " errors.`, and the run exits 0.\n"
+                      "Measured: one stray quote in an ns docstring took"
+                      " implementation/core from 2190 tests\n"
+                      "to 2182, green. Fix the file, or move it out of the"
+                      " discovery directory (rf2-vruo9).\n"))
+        (flush))
+      (System/exit 1))))
+
 (defn- install-summary-method!
   "Install `f` as `clojure.test/report`'s `:summary` method, or — when `f`
   is nil — remove any installed method so the multimethod falls back to its
@@ -777,6 +962,12 @@
         ;; what cognitect sees.
         [{:keys [probe?]} forwarded-args] (split-runner-args args)
         claim      {:probe? probe? :min-tests (resolve-min-tests!)}
+        ;; And what this lane will DISCOVER, resolved from the same args
+        ;; cognitect is about to parse (rf2-vruo9). Also before anything is
+        ;; rebound, and before a single test runs: a file the reader cannot
+        ;; read is invisible to discovery, so no later hook — not the floor,
+        ;; not the summary — has anything left to notice.
+        _          (verify-discovery! forwarded-args)
         real-out   *out*
         real-err   *err*
         sys-err    System/err
