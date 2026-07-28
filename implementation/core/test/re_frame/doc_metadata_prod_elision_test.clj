@@ -22,7 +22,28 @@
   sentinel): a runtime strip cannot DCE a user-authored call-site string,
   so the reg-* macros gate any LITERAL doc-bearing metadata-map under
   `interop/debug-enabled?` and the bundle grep pins that the dev `:doc`
-  string DCEs. This file pins the SEMANTIC handler-meta contract."
+  string DCEs. This file pins the SEMANTIC handler-meta contract.
+
+  ## Posture split (rf2-d2841)
+
+  The PROD half of this contract — `:doc` stripped, load-bearing keys
+  retained, the elidable set closed to `#{:doc}` — is posture-independent
+  and runs in BOTH `clojure -M:test` and `scripts/test-core-prod-gate.sh`
+  (the `-Dre-frame.debug=false` lane). Under the real gate those assertions
+  get STRONGER, not weaker: the `with-redefs` models the gate in the dev
+  lane, while the prod lane has the load-time flag genuinely off, so the
+  same assertion is re-run against the real thing. Note this is NOT the
+  vacuous class-4 shape (a negative about a wholesale-elided key): `:doc`
+  is only absent here because `register!` stripped it from a map the caller
+  really did supply, and `doc-retained-in-handler-meta-under-enabled-debug-
+  gate` in the dev lane proves the same call site retains it when the gate
+  is on. The subject exists in both postures; only the strip differs.
+
+  The DEV half — `:doc` RETAINED for tooling / agent inspection, and
+  `strip-pure-documentation`'s dev identity — is a claim about the gate
+  being ON. Under `-Dre-frame.debug=false` there is nothing to retain, by
+  design, so those assertions are kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -62,8 +83,27 @@
                      {:doc "kept in dev"}
                      (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta :event :rf2-9wwkcm/dev-event)]
-      (is (= "kept in dev" (:doc meta))
-          ":doc retained in dev for tooling / agent inspection"))))
+      ;; PRODUCTION WITNESS (rf2-d2841). The dev claim below is about a key
+      ;; the gate elides, so guarded alone it would leave this deftest
+      ;; executing NOTHING under `-Dre-frame.debug=false`. The always-on
+      ;; half is that the doc-bearing metadata-map ARITY still registers a
+      ;; live handler: the reg-* macro rewrites a literal doc-map under the
+      ;; gate (`core_reg_macros/gate-doc-arg`), so a rewrite that dropped
+      ;; the registration — or mis-shaped the residual map — would surface
+      ;; here and nowhere else in this file.
+      (is (some? meta)
+          "the {:doc …} metadata-map arity registers in BOTH postures")
+      (is (ifn? (:handler-fn meta))
+          "the handler-fn survives the doc-map rewrite in BOTH postures")
+      (is (= {:db {:seen true}}
+             ((:handler-fn meta) {:db {:seen true}} [:rf2-9wwkcm/dev-event]))
+          "the registered handler is the one the call site supplied")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
+      ;; split). `:doc` is pure-documentation metadata, stripped at the
+      ;; `register!` chokepoint under the production gate.
+      (when interop/debug-enabled?
+        (is (= "kept in dev" (:doc meta))
+            ":doc retained in dev for tooling / agent inspection")))))
 
 ;; ---- universality: every reg-* surface funnels through register! --------
 
@@ -103,10 +143,13 @@
           "prod: doc-only map strips to empty")
       (is (nil? (registrar/strip-pure-documentation nil))
           "non-map (nil) passes through"))
-    ;; Dev posture: identity.
-    (is (= {:doc "x" :schema :int}
-           (registrar/strip-pure-documentation {:doc "x" :schema :int}))
-        "dev: full map retained (identity)")))
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
+    ;; split). "Identity in dev" is a claim about the gate being ON;
+    ;; under `-Dre-frame.debug=false` the helper is the strip, by design.
+    (when interop/debug-enabled?
+      (is (= {:doc "x" :schema :int}
+             (registrar/strip-pure-documentation {:doc "x" :schema :int}))
+          "dev: full map retained (identity)"))))
 
 ;; Note (rf2-tfiutq): the `reg-machine` LITERAL opts-map `:doc` elision lands
 ;; here too — but the runtime handler-meta strip rides the SAME single
