@@ -705,11 +705,41 @@
     (thunk)
     (thunk)))
 
+;; rf2-x0fe2 — `thunk-escape` exists because the ARM-ORDER GUARD REFUSED the
+;; arm below, and it was right to.
+;;
+;; `call-thunk` was originally `(defn- call-thunk [thunk] (thunk))`. Closure
+;; inlines a private one-liner, so the thunk never escaped, so V8's escape
+;; analysis elided it — and the arm read 16.0 B/call, the instrument floor,
+;; which is to say it measured NOTHING. Except in some windows, where it read
+;; 19,219 B/call: exactly 64 B per inner iteration, one closure each. The guard
+;; refused it by PHASE in three separate configurations (6 warm windows, 12 warm
+;; windows, 8 rounds) with BIT-IDENTICAL values every time, so it is not a
+;; settling curve and more warm-up does not touch it — it is escape analysis
+;; succeeding or failing according to V8's optimization tier at that point in
+;; the plan.
+;;
+;; The same ~19,300 B/call step shows up as the HIGH end of `N-CWFRBIND`,
+;; `N-CWFRGEN` and `N-CWFRRAW`'s ranges, on all three at once. That is the
+;; mechanism named: an arm whose figure is dominated by a thunk closure is
+;; reading V8's optimization state as much as its own allocation.
+;;
+;; So the thunk is made to ESCAPE for real — stored where nothing can prove it
+;; dead. The arm then prices one closure, stably, which is what it was always
+;; supposed to do. This repairs the ARM; the guard's tolerance is untouched.
+;;
+;; It is also why the binding is isolated by a SYMMETRIC PAIR and not by any
+;; subtraction between differently-shaped arms: whatever V8 does to a closure it
+;; does to both halves, and cancels.
+
+(defonce ^:private thunk-escape (volatile! nil))
+
 (defn- call-thunk
-  "Prices what the cwfr arms pay for the CALLING CONVENTION alone: a fresh
-  closure per call, escaping to a same-arity function. `N-CWFRRAW - N-CALLTHUNK`
-  is then cwfr's own work with the harness's thunk overhead removed."
+  "Prices what the cwfr arms pay for the CALLING CONVENTION alone: one fresh
+  closure per call that genuinely escapes. `N-CWFRNOG - N-CALLTHUNK` is then
+  cwfr's own work with the harness's thunk overhead removed."
   [thunk]
+  (vreset! thunk-escape thunk)
   (thunk))
 
 (defn- arm-n-cwfr-bind []
@@ -1250,18 +1280,16 @@
           (println ";;     (b) an INLINE re-spelling of cwfr's body — MEASURED at 64.1 B/read")
           (println ";;         against standalone N-BINDONLY's 0.1 in this harness's own")
           (println ";;         development, which is how it was caught. `cwfr` takes a THUNK and")
-          (println ";;         its caller allocates one per call that ESCAPES into another")
-          (println ";;         namespace's function; an inline re-spelling allocates one that")
-          (println ";;         does not escape, and a non-escaping non-capturing thunk costs")
-          (println ";;         NOTHING — which this run demonstrates directly:")
-          (println (gstring/format ";;           N-CALLTHUNK (thunk to a harness-local fn)  %s B/read%s"
-                           (fmt (net* "N-CALLTHUNK"))
-                           (if (<= (net* "N-CALLTHUNK") floor) "   <= FLOOR" "")))
-          (println (gstring/format ";;           N-CWFRNOG   (thunk into live-frame)        %s B/read"
+          (println ";;         its caller allocates one per call that ESCAPES; an inline")
+          (println ";;         re-spelling allocates one that does not, and V8 elides what it")
+          (println ";;         can prove never escapes. So the subtraction prices the CLOSURE:")
+          (println (gstring/format ";;           N-CALLTHUNK (one escaping thunk, nothing else) %s B/read"
+                           (fmt (net* "N-CALLTHUNK"))))
+          (println (gstring/format ";;           N-CWFRNOG   (cwfr, nil target, no gen read)   %s B/read"
                            (fmt (net* "N-CWFRNOG"))))
-          (println ";;         So the subtraction prices the CLOSURE. Same error as (a),")
-          (println ";;         opposite sign. The symmetric pair above escapes identically on")
-          (println ";;         both sides, which is what makes its difference the binding alone.")
+          (println ";;         Same error as (a), opposite sign. The symmetric pair above")
+          (println ";;         escapes IDENTICALLY on both sides, which is exactly what makes")
+          (println ";;         its difference the binding and nothing else.")
           (println (gstring/format ";;         (for the record, that residual reconstructs here as %s B/read)"
                            (fmt inline-err))))
         (println ";;")
