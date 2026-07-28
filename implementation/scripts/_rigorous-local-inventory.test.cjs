@@ -175,8 +175,8 @@ const DIRECT_PINS = {
     'the `:browser-test-freehand-bench` build. rf2-mf4uy moved the seven '
     + '`re-frame.freehand.bench.*` DOM namespaces out of `:browser-test`, and '
     + 'their only scheduled home is freehand-bench.yml — which this file never '
-    + 'reads. Without this pin the local sweep loses 30 mounted-correctness '
-    + 'tests and nothing goes red (rf2-rmtj0)',
+    + 'reads. Without this pin the local sweep loses that whole lane of mounted '
+    + 'correctness and nothing goes red (rf2-rmtj0)',
 };
 
 test('local rigorous script pins the gates the workflow parse cannot see (rf2-lm5mu9, rf2-rmtj0)', () => {
