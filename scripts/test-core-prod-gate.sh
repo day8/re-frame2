@@ -227,7 +227,6 @@ known_red=(
   #    message.  The fix was not a guard — `projected-record` is a pure
   #    function of a record plus the frame's durable elision registry, so the
   #    profile rows now drive a SYNTHETIC record and run in both postures.
-  re-frame.capture-frame-test
   re-frame.cofx-cljs-test
   re-frame.db-pending-trace-test
   re-frame.frame-destroy-incarnation-jvm-test
