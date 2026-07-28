@@ -69,6 +69,24 @@ const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
 });
 const DEFAULT_PORT = 8040;
 const READY_TIMEOUT_MS = 30000;
+
+// rf2-bhjzn — the navigation's own ceiling, named rather than left a literal.
+//
+// Unlike run-ui-g8.cjs this smoke never INHERITED Playwright's default: it
+// always passed an explicit `timeout: 30000`. But an unnamed 30000 sitting
+// beside a READY_TIMEOUT_MS that is also 30000 is its own trap — the two are
+// different budgets (owned-http-server readiness vs. the navigation) printing
+// the same number, so `page.goto: Timeout 30000ms exceeded` in a CI log points
+// at the wrong one. Named here, and the failure below says which fired.
+//
+// `waitUntil: 'load'` is KEPT deliberately. This page is a static export whose
+// script does not run a suite during load, and the assertions that follow have
+// short budgets of their own (a 15s wait for `story-canvas-empty`, then 5s
+// waits) which assume a loaded document. Switching to `'commit'` the way
+// rf2-dczpv/rf2-bhjzn did for the two suite-running runners would move the
+// bundle download-and-boot wait onto that 15s locator budget and make this
+// lane FLAKIER, not tighter.
+const NAV_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
 const VERBOSE_TESTS = isVerboseTests();
 const diagnostics = createDiagnosticBuffer();
@@ -228,7 +246,19 @@ async function smokeTest(baseUrl, diagnostics) {
   });
 
   try {
-    await page.goto(baseUrl, { waitUntil: 'load', timeout: 30000 });
+    try {
+      await page.goto(baseUrl, { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
+    } catch (err) {
+      // rf2-bhjzn: name the ceiling that fired. This is the navigation's
+      // budget, not the server-readiness wait that carries the same number.
+      diagnostics.add(
+        `NAVIGATION FAILED — this is the page.goto ceiling ` +
+          `(waitUntil: 'load', timeout: ${NAV_TIMEOUT_MS}ms), NOT the ` +
+          `${READY_TIMEOUT_MS}ms owned-http-server readiness wait, which had ` +
+          `already succeeded. No assertion ran (rf2-bhjzn).`,
+        'stderr');
+      throw err;
+    }
 
     // The shell renders its empty-state canvas ("No variant selected" +
     // a pick-from-the-sidebar hint) when no variant / workspace is selected.
