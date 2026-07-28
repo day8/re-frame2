@@ -16,9 +16,47 @@
        handler returns a `:rf.db/runtime` effect, and DOES NOT fire for a
        framework-authority handler (`:rf/machine? true`) — reserved BY
        CONVENTION, not a security boundary (Mike ruling #4). The effect is
-       applied either way (the diagnostic is a warning, not a gate)."
+       applied either way (the diagnostic is a warning, not a gate).
+
+  ## Posture split (rf2-d2841)
+
+  Two of the three surfaces this file reads are dev-only. The
+  `:rf.warning/app-handler-runtime-effect` diagnostic is a trace-bus warning,
+  and `:rf.error/effect-map-shape` is catalogued `diagnostic` in Spec 009 —
+  dev-only by design — as is the `:rf.error/legacy-runtime-root` TRACE. None of
+  them is emitted under `-Dre-frame.debug=false`, so those assertions are
+  guarded.
+
+  THE POLICING ITSELF IS NOT DEV-ONLY, and that is the whole point of the file:
+  a foreign top-level effect key is DROPPED, a non-sequential `:fx` is DROPPED
+  before `do-fx` can throw a raw host exception after the `:db` commit, and a
+  legacy `:rf/runtime` root is REJECTED WHOLE — in every posture. Each case
+  already had, or now has, an always-on assertion on exactly that: what
+  committed, what did not, and that the drain survived. Read the file with the
+  guards on and it still says everything that matters about production
+  behaviour; what it loses is the narration.
+
+  FIVE VACUOUS PASSES CAME OFF (rf2-d2841 class 1 — a negative over an empty
+  trace ring), and every one of them was in a deftest already GREEN under the
+  gate: `runtime-db-effect-is-not-a-shape-error`,
+  `framework-authority-runtime-effect-does-not-warn`,
+  `plain-db-fx-handler-does-not-warn`,
+  `legitimate-runtime-db-effect-is-not-a-legacy-root-error` and
+  `well-shaped-final-effects-emit-no-shape-error` each certify that nothing was
+  emitted, over a stream that emits nothing at all there. Two of the five —
+  `runtime-db-effect` and `well-shaped-final-effects` — had nothing else to
+  say under the gate at all until this pass gave them a commit witness.
+
+  ONE ASYMMETRY IS WORTH RECORDING RATHER THAN PAPERING OVER.
+  `framework-authority-runtime-effect-does-not-warn` has NO production
+  counterpart even in principle: the diagnostic is `:recovery :warned`, so the
+  effect applies identically whether it fires or not (Mike ruling #4 —
+  convention, not enforcement). Its always-on residue can only be that the
+  write landed, which is true of the warned case too. That is the honest state
+  of the contract, not a gap in the test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.interceptor :as interceptor]
@@ -125,8 +163,16 @@
         {:doc "framework-authority runtime write" :rf/machine? true}
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {}} :fx []}))
       (rf/dispatch-sync [:ctx/fw-runtime] {:frame :ctx/runtime-fx})
-      (is (empty? (error-events recorded :rf.error/effect-map-shape))
-          ":rf.db/runtime is inside the widened closed set — no shape error"))))
+      ;; ALWAYS-ON (rf2-d2841): "inside the widened closed set" means the
+      ;; effect was APPLIED rather than dropped, and that is readable in both
+      ;; postures. The negative below was class-1 vacuous under the gate and
+      ;; was this deftest's only assertion.
+      (is (= {:rf.runtime/machines {}}
+             (:rf.db/runtime (rf/frame-state-value :ctx/runtime-fx)))
+          "the :rf.db/runtime effect committed — it was not policed away")
+      (when interop/debug-enabled?
+        (is (empty? (error-events recorded :rf.error/effect-map-shape))
+            ":rf.db/runtime is inside the widened closed set — no shape error")))))
 
 (deftest foreign-top-level-key-still-a-shape-error
   (testing "a foreign top-level key (legacy :http) is still policed after the widening"
@@ -135,14 +181,18 @@
       (rf/reg-event :ctx/foreign
         (fn [_ _] {:db {:ok? true} :http {:url "/api"}}))
       (rf/dispatch-sync [:ctx/foreign] {:frame :ctx/foreign-fx})
-      (let [errs (error-events recorded :rf.error/effect-map-shape)]
-        (is (= 1 (count errs))
-            "exactly one shape error for the foreign :http key")
-        (is (= :http (:offending-key (:tags (first errs))))
-            "the offending key is :http")
-        (is (= :logged-and-skipped (:recovery (first errs))))
-        (is (true? (:ok? (rf/app-db-value :ctx/foreign-fx)))
-            "the legal :db still committed; only :http was dropped")))))
+      ;; ALWAYS-ON (rf2-d2841): the POLICING is production behaviour — the
+      ;; legal `:db` committed and the foreign key was dropped rather than
+      ;; applied. Only the diagnostic that narrates it is dev-only.
+      (is (true? (:ok? (rf/app-db-value :ctx/foreign-fx)))
+          "the legal :db still committed; only :http was dropped")
+      (when interop/debug-enabled?
+        (let [errs (error-events recorded :rf.error/effect-map-shape)]
+          (is (= 1 (count errs))
+              "exactly one shape error for the foreign :http key")
+          (is (= :http (:offending-key (:tags (first errs))))
+              "the offending key is :http")
+          (is (= :logged-and-skipped (:recovery (first errs)))))))))
 
 ;; ===========================================================================
 ;; 4 — :rf.warning/app-handler-runtime-effect diagnostic
@@ -155,18 +205,26 @@
       (rf/reg-event :ctx/app-emits-runtime
         (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {}}}))
       (rf/dispatch-sync [:ctx/app-emits-runtime] {:frame :ctx/app-runtime})
-      (let [warns (warning-events recorded :rf.warning/app-handler-runtime-effect)]
-        (is (= 1 (count warns))
-            "exactly one :rf.warning/app-handler-runtime-effect for the non-framework writer")
-        (let [t (:tags (first warns))]
-          (is (= :ctx/app-emits-runtime (:rf.trace/event-id t)))
-          (is (= [:ctx/app-emits-runtime] (:rf.event/v t)))
-          (is (= :ctx/app-runtime (:frame t))
-              ":frame tag is the running frame (read from the :rf.frame/id coeffect)")
-          (is (string? (:reason t)))
-          (is (re-find #"rf\.db/runtime" (:reason t))))
-        (is (= :warned (:recovery (first warns)))
-            "recovery is :warned — convention, not enforcement")))))
+      ;; ALWAYS-ON (rf2-d2841): `:recovery :warned` means the write is NOT
+      ;; gated — the app handler's runtime effect applies in production, where
+      ;; no diagnostic exists to nudge anyone. That is the load-bearing half of
+      ;; Mike ruling #4 and it had no production-posture assertion before.
+      (is (= {:rf.runtime/routing {}}
+             (:rf.db/runtime (rf/frame-state-value :ctx/app-runtime)))
+          "the effect applied anyway — the diagnostic is a warning, not a gate")
+      (when interop/debug-enabled?
+        (let [warns (warning-events recorded :rf.warning/app-handler-runtime-effect)]
+          (is (= 1 (count warns))
+              "exactly one :rf.warning/app-handler-runtime-effect for the non-framework writer")
+          (let [t (:tags (first warns))]
+            (is (= :ctx/app-emits-runtime (:rf.trace/event-id t)))
+            (is (= [:ctx/app-emits-runtime] (:rf.event/v t)))
+            (is (= :ctx/app-runtime (:frame t))
+                ":frame tag is the running frame (read from the :rf.frame/id coeffect)")
+            (is (string? (:reason t)))
+            (is (re-find #"rf\.db/runtime" (:reason t))))
+          (is (= :warned (:recovery (first warns)))
+              "recovery is :warned — convention, not enforcement"))))))
 
 (deftest framework-authority-runtime-effect-does-not-warn
   (testing "a framework-authority handler (:rf/machine? true) does NOT fire the diagnostic"
@@ -176,8 +234,17 @@
         {:doc "framework-authority" :rf/machine? true}
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {}}}))
       (rf/dispatch-sync [:ctx/fw-emits-runtime] {:frame :ctx/fw-authority})
-      (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
-          "the framework-authority path is in-bounds — no diagnostic"))))
+      ;; ALWAYS-ON (rf2-d2841) — and see the ns docstring: this case has no
+      ;; production counterpart even in principle, because the diagnostic is
+      ;; `:recovery :warned` and the effect applies either way. The residue is
+      ;; that the framework write landed; the ABSENCE of the nudge is a
+      ;; dev-posture fact only, and the negative was class-1 vacuous.
+      (is (= {:rf.runtime/machines {}}
+             (:rf.db/runtime (rf/frame-state-value :ctx/fw-authority)))
+          "the framework-authority runtime write committed")
+      (when interop/debug-enabled?
+        (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
+            "the framework-authority path is in-bounds — no diagnostic")))))
 
 (deftest plain-db-fx-handler-does-not-warn
   (testing "an ordinary handler that does NOT return :rf.db/runtime stays silent"
@@ -186,10 +253,13 @@
       (rf/reg-event :ctx/plain-db
         (fn [{:keys [db]} _] {:db (assoc db :touched? true) :fx []}))
       (rf/dispatch-sync [:ctx/plain-db] {:frame :ctx/plain})
-      (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
-          "no :rf.db/runtime effect ⇒ no diagnostic")
+      ;; ALWAYS-ON: the ordinary path commits.
       (is (true? (:touched? (rf/app-db-value :ctx/plain)))
-          "the :db effect committed normally"))))
+          "the :db effect committed normally")
+      ;; rf2-d2841 — class-1 vacuous under the gate.
+      (when interop/debug-enabled?
+        (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
+            "no :rf.db/runtime effect ⇒ no diagnostic")))))
 
 ;; ===========================================================================
 ;; EP-0001 (rf2-tfepxu, decision #8) — legacy :rf/runtime root is a HARD ERROR
@@ -237,12 +307,16 @@
       ;; :rf.error/handler-exception carrying the original ex-info.
       (let [errs (error-events recorded :rf.error/handler-exception)
             ex   (some-> errs first :tags :exception)]
-        (is (= 1 (count errs))
-            "exactly one handler-exception trace for the legacy-root write")
-        (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data ex)))
-            "the captured exception is :rf.error/legacy-runtime-root")
+        ;; ALWAYS-ON (rf2-d2841): the REJECTION is production behaviour —
+        ;; `events/reject-legacy-runtime-root!` is an ungated `throw`. Only the
+        ;; trace that reports it is dev-only.
         (is (not (contains? (rf/app-db-value :ctx/legacy-db) :rf/runtime))
-            "the legacy :rf/runtime root never lands in app-db (hard-error rejects the write)")))))
+            "the legacy :rf/runtime root never lands in app-db (hard-error rejects the write)")
+        (when interop/debug-enabled?
+          (is (= 1 (count errs))
+              "exactly one handler-exception trace for the legacy-root write")
+          (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data ex)))
+              "the captured exception is :rf.error/legacy-runtime-root"))))))
 
 (deftest fx-handler-returning-legacy-runtime-root-surfaces-hard-error
   (testing "a reg-event handler whose {:db :fx} return carries :rf/runtime in its :db effect surfaces the hard error"
@@ -253,10 +327,12 @@
       (rf/dispatch-sync [:ctx/fx-writes-legacy-root] {:frame :ctx/legacy-fx})
       (let [errs (error-events recorded :rf.error/handler-exception)
             ex   (some-> errs first :tags :exception)]
-        (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data ex)))
-            "the :fx-path :db effect with a legacy root is rejected too")
+        ;; ALWAYS-ON (rf2-d2841): the rejection holds on the `:fx` path too.
         (is (not (contains? (rf/app-db-value :ctx/legacy-fx) :rf/runtime))
-            "the legacy root never commits")))))
+            "the legacy root never commits")
+        (when interop/debug-enabled?
+          (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data ex)))
+              "the :fx-path :db effect with a legacy root is rejected too"))))))
 
 (deftest legitimate-runtime-db-effect-is-not-a-legacy-root-error
   (testing "a framework :rf.db/runtime effect (the NEW partition) is NOT the legacy-root hard error"
@@ -266,10 +342,14 @@
         {:doc "framework-authority" :rf/machine? true}
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
       (rf/dispatch-sync [:ctx/fw-runtime] {:frame :ctx/new-runtime})
-      (is (empty? (error-events recorded :rf.error/handler-exception))
-          "writing the :rf.db/runtime partition is legitimate — no legacy-root throw")
+      ;; ALWAYS-ON (rf2-d2841): the commit IS the discriminator — a
+      ;; legacy-root throw would have aborted it. The trace negative below was
+      ;; class-1 vacuous under the gate.
       (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :ctx/new-runtime)))
-          "the runtime-db partition committed normally"))))
+          "the runtime-db partition committed normally")
+      (when interop/debug-enabled?
+        (is (empty? (error-events recorded :rf.error/handler-exception))
+            "writing the :rf.db/runtime partition is legitimate — no legacy-root throw")))))
 
 ;; ===========================================================================
 ;; rf2-u1kdvg — FINAL-effects boundary shape policing
@@ -318,16 +398,20 @@
       (rf/reg-event :ctx/downstream (fn [{:keys [db]} _] {:db (assoc db :downstream? true)}))
       (rf/dispatch-sync [:ctx/writes-db] {:frame :ctx/after-bad-fx})
       (rf/dispatch-sync [:ctx/downstream] {:frame :ctx/after-bad-fx})
-      (let [errs (error-events recorded :rf.error/effect-map-shape)]
-        (is (= 1 (count errs))
-            "exactly one shape error for the non-sequential :fx value")
-        (is (= :fx (:offending-key (:tags (first errs)))))
-        (is (= :logged-and-skipped (:recovery (first errs)))))
+      ;; ALWAYS-ON (rf2-d2841): "policed, not thrown" is entirely a production
+      ;; claim — the commit landed and the drain survived. That is what this
+      ;; deftest is for; the shape error merely narrates it.
       (let [db (rf/app-db-value :ctx/after-bad-fx)]
         (is (true? (:committed? db))
             "the :db effect still committed — the bad :fx was dropped, no host throw aborted the event")
         (is (true? (:downstream? db))
-            "the downstream event still drained — the malformed :fx did not abandon the queue")))))
+            "the downstream event still drained — the malformed :fx did not abandon the queue"))
+      (when interop/debug-enabled?
+        (let [errs (error-events recorded :rf.error/effect-map-shape)]
+          (is (= 1 (count errs))
+              "exactly one shape error for the non-sequential :fx value")
+          (is (= :fx (:offending-key (:tags (first errs)))))
+          (is (= :logged-and-skipped (:recovery (first errs)))))))))
 
 (deftest after-interceptor-foreign-effect-key-is-policed
   (testing "an :after interceptor inserting a foreign top-level effect key is policed (dropped) — not silently ignored at the partition commit"
@@ -341,13 +425,15 @@
         {:interceptors [::foreign]}
         (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
       (rf/dispatch-sync [:ctx/writes-db2] {:frame :ctx/after-foreign})
-      (let [errs (error-events recorded :rf.error/effect-map-shape)]
-        (is (= 1 (count errs))
-            "exactly one shape error for the foreign :http key")
-        (is (= :http (:offending-key (:tags (first errs)))))
-        (is (= :logged-and-skipped (:recovery (first errs)))))
+      ;; ALWAYS-ON (rf2-d2841): the final-boundary drop happens in production.
       (is (true? (:ok? (rf/app-db-value :ctx/after-foreign)))
-          "the legal :db still committed; only the foreign :http key was dropped"))))
+          "the legal :db still committed; only the foreign :http key was dropped")
+      (when interop/debug-enabled?
+        (let [errs (error-events recorded :rf.error/effect-map-shape)]
+          (is (= 1 (count errs))
+              "exactly one shape error for the foreign :http key")
+          (is (= :http (:offending-key (:tags (first errs)))))
+          (is (= :logged-and-skipped (:recovery (first errs)))))))))
 
 (deftest after-interceptor-legacy-runtime-root-is-rejected
   (testing "an :after interceptor inserting :rf/runtime into [:effects :db] is rejected at the final boundary — never lands in app-db, drain survives"
@@ -367,17 +453,24 @@
       (rf/reg-event :ctx/after-legacy-downstream (fn [{:keys [db]} _] {:db (assoc db :downstream? true)}))
       (rf/dispatch-sync [:ctx/clean-db] {:frame :ctx/after-legacy})
       (rf/dispatch-sync [:ctx/after-legacy-downstream] {:frame :ctx/after-legacy})
-      (let [errs (error-events recorded :rf.error/legacy-runtime-root)]
-        (is (= 1 (count errs))
-            "exactly one legacy-runtime-root error at the final boundary")
-        (is (= :rf/runtime (:offending-key (:tags (first errs))))))
+      ;; ALWAYS-ON (rf2-d2841): whole-effect rejection, no partial commit, and
+      ;; a surviving drain — all production behaviour at the final boundary.
+      ;; The `(not (contains? db :user/id))` negative is NOT vacuous here: the
+      ;; sibling assertion proves the frame's app-db exists and carries
+      ;; `:downstream?`, so an absent `:user/id` is a rejection, not an absence
+      ;; of everything.
       (let [db (rf/app-db-value :ctx/after-legacy)]
         (is (not (contains? db :rf/runtime))
             "the legacy :rf/runtime root never lands in app-db — the whole :db effect is rejected (no commit)")
         (is (not (contains? db :user/id))
             "no partial commit — the rejected :db effect is dropped entirely")
         (is (true? (:downstream? db))
-            "the drain survived the in-band rejection — downstream event still ran")))))
+            "the drain survived the in-band rejection — downstream event still ran"))
+      (when interop/debug-enabled?
+        (let [errs (error-events recorded :rf.error/legacy-runtime-root)]
+          (is (= 1 (count errs))
+              "exactly one legacy-runtime-root error at the final boundary")
+          (is (= :rf/runtime (:offending-key (:tags (first errs))))))))))
 
 ;; ---- full-context (interceptor) final-effects policing --------------------
 ;;
@@ -401,12 +494,16 @@
         {:interceptors [:ctx/ctx-writes-probe]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/ctx-writes] {:frame :ctx/ctx-bad-fx})
-      (let [errs (error-events recorded :rf.error/effect-map-shape)]
-        (is (= 1 (count errs))
-            "the full-context interceptor's malformed :fx is policed — the reg-event handler return is not the only path that gets shape policing")
-        (is (= :fx (:offending-key (:tags (first errs))))))
+      ;; ALWAYS-ON (rf2-d2841): the interceptor-written effects are policed at
+      ;; the boundary in production too — the `:db` landed, the bad `:fx` did
+      ;; not throw.
       (is (true? (:committed? (rf/app-db-value :ctx/ctx-bad-fx)))
-          "the :db effect still committed; only the bad :fx was dropped"))))
+          "the :db effect still committed; only the bad :fx was dropped")
+      (when interop/debug-enabled?
+        (let [errs (error-events recorded :rf.error/effect-map-shape)]
+          (is (= 1 (count errs))
+              "the full-context interceptor's malformed :fx is policed — the reg-event handler return is not the only path that gets shape policing")
+          (is (= :fx (:offending-key (:tags (first errs))))))))))
 
 (deftest full-context-interceptor-foreign-key-is-policed
   (testing "a full-context interceptor whose context carries a foreign top-level effect key is policed at the boundary"
@@ -422,12 +519,14 @@
         {:interceptors [:ctx/ctx-foreign-writes-probe]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/ctx-foreign-writes] {:frame :ctx/ctx-foreign})
-      (let [errs (error-events recorded :rf.error/effect-map-shape)]
-        (is (= 1 (count errs))
-            "the full-context interceptor's foreign :dispatch key is policed")
-        (is (= :dispatch (:offending-key (:tags (first errs))))))
+      ;; ALWAYS-ON (rf2-d2841).
       (is (true? (:ok? (rf/app-db-value :ctx/ctx-foreign)))
-          "the legal :db still committed; the foreign top-level key was dropped"))))
+          "the legal :db still committed; the foreign top-level key was dropped")
+      (when interop/debug-enabled?
+        (let [errs (error-events recorded :rf.error/effect-map-shape)]
+          (is (= 1 (count errs))
+              "the full-context interceptor's foreign :dispatch key is policed")
+          (is (= :dispatch (:offending-key (:tags (first errs))))))))))
 
 ;; ---- the well-shaped hot path stays clean ---------------------------------
 
@@ -435,12 +534,21 @@
   (testing "a clean reg-event {:db :fx} return ({:db .. :fx [..]}) emits NO :rf.error/effect-map-shape from the final boundary (no double-policing)"
     (rf/make-frame {:id :ctx/clean-final :doc "ctx"})
     (let [recorded (record-traces! ::clean-final)]
-      (rf/reg-fx :ctx/noop-fx (fn [_ _]))
-      (rf/reg-event :ctx/clean
-        (fn [{:keys [db]} _] {:db (assoc db :n 1)
-                              :fx [[:ctx/noop-fx {}]]}))
-      (rf/dispatch-sync [:ctx/clean] {:frame :ctx/clean-final})
-      (is (empty? (error-events recorded :rf.error/effect-map-shape))
-          "well-shaped effects pass the final boundary untouched — no spurious / double shape error")
-      (is (= 1 (:n (rf/app-db-value :ctx/clean-final)))
-          "the :db effect committed normally"))))
+      (let [fx-ran (atom 0)]
+        (rf/reg-fx :ctx/noop-fx (fn [_ _] (swap! fx-ran inc)))
+        (rf/reg-event :ctx/clean
+          (fn [{:keys [db]} _] {:db (assoc db :n 1)
+                                :fx [[:ctx/noop-fx {}]]}))
+        (rf/dispatch-sync [:ctx/clean] {:frame :ctx/clean-final})
+        ;; ALWAYS-ON (rf2-d2841): "passed the final boundary untouched" means
+        ;; BOTH effects survived it — the `:db` committed and the `:fx` ran.
+        ;; That is the production statement of "no spurious policing"; the
+        ;; empty-error-stream negative below was class-1 vacuous under the gate
+        ;; and was one of this deftest's two assertions.
+        (is (= 1 (:n (rf/app-db-value :ctx/clean-final)))
+            "the :db effect committed normally")
+        (is (= 1 @fx-ran)
+            "the well-shaped :fx ran — nothing was dropped at the boundary")
+        (when interop/debug-enabled?
+          (is (empty? (error-events recorded :rf.error/effect-map-shape))
+              "well-shaped effects pass the final boundary untouched — no spurious / double shape error"))))))
