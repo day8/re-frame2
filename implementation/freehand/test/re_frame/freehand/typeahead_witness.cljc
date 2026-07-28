@@ -434,10 +434,45 @@
 ;; ---------------------------------------------------------------------------
 ;; The view — one instance identity across input, list and status
 ;; ---------------------------------------------------------------------------
+;;
+;; THE COMPILED TIER, AND WHY THIS CONTROL DOES NOT REACH IT. FH-CTRL-020's
+;; applicability is `interpreted jvm browser`, and that is a LIMIT rather
+;; than an omission. `typeahead` is outside the compiled grammar as it
+;; stands, and the grammar's own read-only checker is what says so:
+;;
+;;     (v/check "test/re_frame/freehand/typeahead_witness.cljc")
+;;     ;; => :re-frame.freehand.typeahead-witness/typeahead   ELIGIBLE? false
+;;     ;;      :id       :rf.ui.compile/loop-capturing-handler
+;;     ;;      :form     [:kit.ui.typeahead/chosen k g i on-select]
+;;     ;;      :recovery [:keep-interpreted]
+;;     ;;    :re-frame.freehand.typeahead-witness/reviewer-form ELIGIBLE? true
+;;
+;; The option's commit is an event site inside the `for` over the results,
+;; and it closes over that loop's own `i`. A compiled site is LEXICAL — one
+;; site, one handler, settled at build time — and a handler whose arguments
+;; vary per iteration is not one site. So the recovery ladder has exactly
+;; ONE rung, and it is `:keep-interpreted`: this is the grammar declining,
+;; not the author declining to try.
+;;
+;; The control keeps the ordinary shape anyway, because rendering options in
+;; a loop is what a listbox IS, and contorting a witness to reach a tier it
+;; has no performance reason to want would be the catalogue commitment this
+;; bead's non-goals refuse. That the CALLER is eligible — `reviewer-form`,
+;; `:compile-eligible? true` in the same report — is what makes the verdict
+;; a fact about this body rather than about the file.
+;;
+;; None of the above is taken on trust. `typeahead-witness-cljs-test`'s
+;; `fh-ctrl-020-the-compiled-tier-refuses-this-control-and-says-why` runs the
+;; REAL checker on the JVM and compares it against the fixture's `:compiled`
+;; value, so the day the grammar learns a per-item lexical site, the row goes
+;; red and this paragraph is revisited rather than quietly outliving its
+;; reason.
 
 (def typeahead-props
-  "The declared props, hoisted so the compiled twin declares the same map
-  rather than a copy of it."
+  "The declared props, hoisted so the declaration reads as one thing and the
+  schema can be cited — by the structural suite, and by anything else that
+  wants the control's public shape — without transcribing a second copy of
+  it."
   [:map
    [:name :string]
    [:label :string]

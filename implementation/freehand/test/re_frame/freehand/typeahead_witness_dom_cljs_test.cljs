@@ -249,6 +249,26 @@
                                 "the list opens in the top layer")))
         (.then (fn [_] input)))))
 
+(defn- ask!
+  "Everything [[open-with-results!]] does UP TO the answer, and nothing
+  after it: type `query` into the live input and deliver the delayed search
+  the keystrokes scheduled, leaving the request open.
+
+  The rows that need a FAILURE start here, because a failure is an answer
+  too and the control has to have really asked before one can arrive."
+  [container query]
+  (let [input (ms/q container (str "#" (:input-id ctrl-020)))]
+    (ms/live!)
+    (ms/type-string! input query)
+    (-> (settled #(= query (:query (record))) "the keystrokes reach the record")
+        (.then (fn [_]
+                 (ms/act #(rf/dispatch-sync
+                            [:kit.ui.typeahead/due k (:token (record))
+                             [:desk/search-requested]]
+                            {:frame fid}))))
+        (.then (fn [_] (settled #(seq (requests)) "the caller is asked")))
+        (.then (fn [_] input)))))
+
 (defn- finish!
   "The terminal step of every row: tear the mount down through the shared
   lifecycle, assert that NOTHING it created survived, and end the async
@@ -741,4 +761,98 @@
                                 "and the list is out of the top layer with it")
                             (finish! container root done)))
                         (.catch (fail-and-finish! container root done))))))
+              (.catch (fail-and-finish! container root done))))))))
+
+;; ===========================================================================
+;; FH-CTRL-020 — the retry, as something a user can actually reach
+;; ===========================================================================
+
+(deftest fh-ctrl-020-a-retry-is-a-real-button-and-supersedes-the-failure-it-retries
+  (testing "Per FH-CTRL-020: the structural half proves the retry DECIDES
+            correctly — a new token, the failed request's late answer inert.
+            What a browser adds is the half a value cannot carry: that the
+            decision is REACHABLE. The `retry` part is a real `<button>`
+            that the failure puts on the page and nothing else does, and a
+            real pointer click on it is what asks again. A retry no pointer
+            can reach is not a retry, and a fence proven only by a
+            hand-dispatched event is a fence around a door nobody found.
+
+            So this row never names `:kit.ui.typeahead/retried`. It clicks.
+
+            Then the failed request answers LATE, against a live mounted
+            control — which is the arrangement the fence exists for, and the
+            one where getting it wrong resurrects a stale answer on screen
+            rather than merely in a map. The two answer sets differ in
+            LENGTH as well as content, so the option ids below tell them
+            apart: the retry's single option is present and the failed
+            request's second one is absent."
+    (if-not (browser?)
+      (ms/skip! "the browser job runs the live retry")
+      (async done
+        (let [{:keys [query results retry-results error-message error-part
+                      option-ids listbox-id]} ctrl-020
+              _       (seed!)
+              [container root] (stage!)
+              retry-q (str "[data-part=\"" error-part "\"]")
+              failed  (atom nil)
+              retried (atom nil)]
+          (-> (render! root)
+              (.then (fn [_] (ask! container query)))
+              (.then
+                (fn [_]
+                  (reset! failed (last (requests)))
+                  (is (nil? (ms/q container retry-q))
+                      "non-vacuous: nothing offers a retry while nothing has
+                       failed — the part is minted by the state, not rendered
+                       hidden")
+                  (ms/act #(answer! {:results [] :error error-message}))))
+              (.then
+                (fn [_]
+                  (settled #(some? (ms/q container retry-q))
+                           "the failure puts a real retry button on the page")))
+              (.then
+                (fn [_]
+                  (is (= (str "Search failed: " error-message)
+                         (ms/text-of container "[data-part=\"status\"]"))
+                      "beside a status region that says what went wrong")
+                  ;; THE CLICK. Not the event — the button.
+                  (ms/live!)
+                  (click! (ms/q container retry-q))
+                  (settled #(and (nil? (:error (record)))
+                                 (not= (:reply-to @failed) (:reply-to (last (requests)))))
+                           "the click clears the failure and asks again, under a
+                            NEW correlation")))
+              (.then
+                (fn [_]
+                  (reset! retried (last (requests)))
+                  (is (nil? (ms/q container retry-q))
+                      "and the button goes with the error that minted it")
+                  ;; The failed request answers LATE, against a live control.
+                  (ms/act #(rf/dispatch-sync
+                             (conj (vec (:reply-to @failed)) {:results results})
+                             {:frame fid}))))
+              (.then
+                (fn [_]
+                  (is (not (.matches (ms/q container (str "#" listbox-id))
+                                     ":popover-open"))
+                      "the retried-past request's answer opens nothing — the
+                       resurrection this fence exists to prevent")
+                  (ms/act #(rf/dispatch-sync
+                             (conj (vec (:reply-to @retried)) {:results retry-results})
+                             {:frame fid}))))
+              (.then
+                (fn [_]
+                  (settled #(.matches (ms/q container (str "#" listbox-id))
+                                      ":popover-open")
+                           "while the retry's own answer opens the list")))
+              (.then
+                (fn [_]
+                  (is (= (:label (first retry-results))
+                         (ms/text-of container (str "#" (nth option-ids 0))))
+                      "showing the RETRY's answer")
+                  (is (nil? (ms/q container (str "#" (nth option-ids 1))))
+                      "and only it — the failed request answered with two
+                       options and neither of them is on the page")
+                  (release!)))
+              (.then (fn [_] (finish! container root done)))
               (.catch (fail-and-finish! container root done))))))))
