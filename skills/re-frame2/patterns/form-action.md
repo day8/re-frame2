@@ -61,11 +61,20 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
    :schema [:cat [:= :cart/add-item] AddToCartForm]      ;; DEV TRIPWIRE ONLY — elided in production
    :rf.cofx/requires [:rf.server/request
                       :app.csrf/active-token]}            ;; app-owned cofx — see §CSRF
-  (fn [{:keys [db rf.server/request app.csrf/active-token]} [_ form-params]]
-    (let [explanation (m/explain AddToCartForm form-params)          ;; nil when the form is clean
-          fields      (select-keys form-params [:item-id :quantity])] ;; editable fields ONLY — never the token
+  (fn [{:keys [db] :as cofx} [_ form-params]]
+    (let [;; Both declared cofx are :platforms #{:server}. A platform-skipped
+          ;; supplier delivers NO KEY, so key PRESENCE is the platform test —
+          ;; not truthiness, since a delivered-but-unpopulated slot is a
+          ;; present key carrying nil.
+          server?      (contains? cofx :rf.server/request)
+          active-token (:app.csrf/active-token cofx)
+          explanation  (m/explain AddToCartForm form-params)          ;; nil when the form is clean
+          fields       (select-keys form-params [:item-id :quantity])] ;; editable fields ONLY — never the token
       (cond
-        (not= (:csrf-token form-params) active-token)    ;; CSRF first — fail closed
+        ;; CSRF first — fail closed. Guarded on `server?`: the token check is
+        ;; the POST entry point's, and on the client `active-token` is ABSENT,
+        ;; so an unguarded compare 403s every client submission.
+        (and server? (not= (:csrf-token form-params) active-token))
         {:db (assoc-in db [:cart :add-form :errors :_form] ["Session expired. Refresh and retry."])
          :fx [[:rf.server/set-status 403]]}
 
@@ -84,21 +93,22 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
         {:db (-> db
                  (update-in [:cart :items] (fnil conj []) fields)
                  (assoc-in  [:cart :add-form :status] :submitted))
-         ;; ONE destination, CHOSEN by a platform boundary the handler already
-         ;; reads: the :rf.server/request cofx is present on the server and, being
-         ;; :platforms #{:server}, skipped (absent) on the client. Server → the
-         ;; POST-redirect-GET 303; client → in-app navigation. We do NOT emit both:
-         ;; :rf.route/navigate is not a server no-op — dispatched server-side it
-         ;; writes the route slice and can fire the target route's :on-match work,
-         ;; with no browser history to anchor it.
-         :fx (if request
+         ;; ONE destination, CHOSEN. We do NOT emit both: :rf.route/navigate is
+         ;; an EVENT reached through :dispatch, and :dispatch has no platform
+         ;; gate — dispatched server-side it writes the route slice and can fire
+         ;; the target route's work, with no browser history to anchor it.
+         ;; (:rf.server/redirect, being a :platforms #{:server} fx, WOULD lapse
+         ;; on the client. Only one of the two is self-cancelling.)
+         :fx (if server?
                [[:rf.server/redirect {:status 303 :location "/cart"}]]      ;; server: POST-redirect-GET
                [[:dispatch [:rf.route/navigate {:to :route/cart}]]])}))))   ;; client: shipped routing event
 ```
 
 `m` / `me` are `malli.core` / `malli.error`; `write-form-errors` and `explain->errors` are app-level helpers (`spec/Pattern-FormAction.md` gives both in full). The point is that the call sits in the **handler body**, where it survives into the release build. `:rf.schema/at-boundary` does not substitute for it: its check *is* ungated and a rejection does answer `400` via the SSR error projector, but it skips the handler, so the user gets a generic public-error body rather than their own form back with the values they typed.
 
-The success path is the only platform-divergent slot, and the handler **chooses** the destination — it does not emit both. The boundary is one the handler already reads: the `:rf.server/request` cofx is present on the server and, being `:platforms #{:server}`, is skipped (absent) on the client, so `(if request …)` is a clean platform switch. On the server, emit the server-only POST-redirect-GET fx `:rf.server/redirect`; on the client, navigate in-app via the shipped routing event `[:rf.route/navigate {:to :route/cart}]`. Do **not** emit both and label the navigate "client-only": `:rf.route/navigate` is **not** a server no-op — dispatched server-side it writes the route slice and can run the target's `:on-match` loaders even though there is no browser history. (`:rf.route/navigate` is the framework's programmatic-navigation event, registered by `day8/re-frame2-routing`; there is **no** `:rf.nav/navigate` fx.) For a **raw URL** rather than a route id, the shipped request grammar takes one directly — `[:rf.route/navigate {:url "/cart"}]` (the `:url` escape hatch) — so **no app-owned navigation fx is needed**. Reserve an app-owned fx only for a deliberate routing *bypass* that skips the router entirely (a hard `window.location` assignment, an external redirect), on the rare occasion you actually want that.
+Two slots diverge by platform — the CSRF compare and the success destination — and the handler **chooses** both from one test rather than emitting both arms. The boundary is one it already reads: `:rf.server/request` is `:platforms #{:server}`, and a platform-skipped supplier contributes **no key** to the coeffect map, so `(contains? cofx :rf.server/request)` is a clean platform switch. Use `contains?`, not `(if request …)`: on the server the key can legitimately be present carrying `nil` (a supplier that ran but found its slot unpopulated), and truthiness would read that as "client".
+
+Do **not** emit the redirect and the navigate together and label the navigate "client-only". `:rf.route/navigate` is **not** a server no-op — it is an event, `:dispatch` carries no platform gate, and dispatched server-side it writes the route slice and can run the target's `:on-match` work with no browser history behind it. `:rf.server/redirect` *would* lapse on the client, being a `:platforms #{:server}` fx; only one of the two cancels itself, which is why the handler picks. (`:rf.route/navigate` is the framework's programmatic-navigation event, registered by `day8/re-frame2-routing`; there is **no** `:rf.nav/navigate` fx.) For a **raw URL** rather than a route id, the shipped request grammar takes one directly — `[:rf.route/navigate {:url "/cart"}]`, the `:url` escape, exclusive with `:to` — so **no app-owned navigation fx is needed**. Reserve an app-owned fx only for a deliberate routing *bypass* that skips the router entirely (a hard `window.location` assignment, an external redirect), on the rare occasion you actually want that.
 
 ## CSRF
 
@@ -126,7 +136,9 @@ The scrub is per-named-path, owned by the registration, not a whole-action toggl
 - **Validating only on the client.** Client validation is UX; the server is the authority. Re-check the body in the **handler**, on every POST.
 - **Letting `:schema` be the server-side check.** The commonest way to ship an unvalidated form endpoint: declare `:schema`, read it as "the framework checks this", write no branch. It elides from the production build, so the endpoint that passes every test accepts anything in production. Keep the `:schema` as the dev tripwire and the introspection surface; write the branch as the guard.
 - **Dropping the user's input on the failure path.** `write-form-errors` writes `:status` / `:errors` / `:submit-attempted?` — not `:draft`. With JS on the browser still holds the field values so nothing looks wrong; with JS off the server renders the fields from the slice and the user gets an empty form above "should be at least 1". Repopulate `:draft` from the submitted fields (editable fields only) before writing the errors.
-- **Emitting both the redirect and the navigate unconditionally.** `:rf.route/navigate` is **not** a server no-op — dispatched on the server it writes the route slice and can run the target's `:on-match` work, with no browser history to back it. Choose per platform (the `:rf.server/request` cofx, present only on the server, is the boundary): `:rf.server/redirect` for the server's POST-redirect-GET, `[:rf.route/navigate …]` for the client. (And do not invent `:rf.nav/navigate` — it does not exist; `:rf.route/navigate` is the shipped programmatic-navigation event.)
+- **Emitting both the redirect and the navigate unconditionally.** `:rf.route/navigate` is **not** a server no-op — it is an event, `:dispatch` has no platform gate, and dispatched on the server it writes the route slice and can run the target's `:on-match` work with no browser history to back it. (`:rf.server/redirect` *does* lapse on the client; only one arm is self-cancelling.) Choose per platform: `:rf.server/redirect` for the server's POST-redirect-GET, `[:rf.route/navigate …]` for the client. (And do not invent `:rf.nav/navigate` — it does not exist; `:rf.route/navigate` is the shipped programmatic-navigation event, and `{:url "/cart"}` handles a raw URL without any app-owned fx.)
+- **Testing the platform by truthiness.** `(if request …)` is not `(if (contains? cofx :rf.server/request) …)`. A platform-skipped supplier delivers no key; a server-side supplier that ran and found its slot unpopulated delivers the key carrying `nil`. Truthiness reads the second case as "client" and dispatches a browser navigation on a request thread.
+- **Running the CSRF compare on both platforms.** `:app.csrf/active-token` is server-only, so on the client it is absent and `(not= (:csrf-token form-params) nil)` is true for every submission — the handler 403s the whole client path. Guard the arm on the same platform test the success path uses.
 - **`302 Found` for POST success.** Some clients re-POST on 302; the canonical status is **303 See Other**. Set `:status 303` explicitly.
 - **CSRF token from a hardcoded value or query string.** Sessions rotate tokens; your app-owned `:app.csrf/active-token` cofx is the single source of truth. URL-borne tokens leak to referrer logs.
 - **Writing `app-db` from a multipart handler.** The drain runs to fixed point — a long upload inside the handler blocks the request thread. Hand the opaque `:tempfile` to a storage fx.
