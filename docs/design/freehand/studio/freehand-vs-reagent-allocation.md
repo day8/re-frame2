@@ -401,10 +401,41 @@ fire on medians 20% apart whose ranges overlap, and catches the
 measured warm-up step — **which the bead's own proposed remedy would
 have missed**, because the predecessor never changes across it.
 
+### What it did on its first real run
+
+`B8_ROUNDS=4 node b8_run.cjs --kind narrow`, in this repository's own
+Chromium harness. **Exit 2. Two findings, neither of them adjacency.**
+
+- **The `instrument` arm reads 4,361 B/write in its first window and
+  440 B in its last** — 9.9×, on the pseudo-arm that installs no state
+  and drains nothing, whose entire purpose is to price the harness's own
+  footprint as a constant. Both factors caught it. It is the same warm-up
+  curve the plain-node sweep above shows, in the real harness, on real
+  data.
+- **`reagent` reads 24,050 B/write early and 30,307 late**, 1.26×.
+
+And the factor the bead named came out **clean on every substantive
+arm**:
+
+| arm | after `instrument/D=12500` | after `reagent/D=12500` | verdict |
+|---|---:|---:|---|
+| floor | 142,167 [141,682–142,652] | 146,232 [143,663–148,801] | within 25% |
+| freehand-interpreted | 171,870 [149,547–194,193] | 157,567 [152,056–163,078] | ranges overlap |
+
+Those predecessors are the ladder's **100 KB-per-write** windows — the
+large-object arms the bead says should double their successor. They do
+not move either arm past this instrument's noise. **The contaminant on
+this surface is how long the process has been running, not what ran
+immediately before.**
+
 **Not fixed here: the warm-up itself.** `b8_run.cjs` warms each arm with
-one four-write calibration window, and the sweep above says a site can
-take six. The guard detects an insufficient warm-up rather than
-preventing it; widening it is unmeasured work.
+one four-write calibration window, and both sweeps say a site can take
+six. The guard detects an insufficient warm-up rather than preventing
+it; widening it, and running enough rounds that the phase strata are not
+single samples, is unmeasured work and is why that run exits 2 rather
+than green.
+
+Raw: `ai/findings/2026-07-28.88pie-b8-order-guard-raw.txt` (local-only).
 
 ---
 
