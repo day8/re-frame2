@@ -23,6 +23,8 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
+const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
+
 const IMPL = path.resolve(__dirname, '../../../../..');
 const OUT = path.join(IMPL, 'out', 'b6-profile');
 const PORT = Number(process.env.B6_PORT || 8129);
@@ -92,7 +94,19 @@ async function run() {
     if (t.startsWith(';; B6')) console.error(t);
   });
   page.on('pageerror', (e) => console.error('[b6p] page error:', e.message));
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
+  // `'commit'`, not `'load'` (rf2-p9fa3). `b6-profile-app/-main` is this
+  // bundle's `:init-fn`: it mounts the profiled arm, mounts the reference arm
+  // and canonicalises BOTH pages for the parity gate — all synchronously,
+  // inside the `<script>`, before the seed promise flips `B6_READY`. `load`
+  // is downstream of every one of those, so it cannot fire until the wait
+  // below is already satisfiable. A `:pseudo-names` bundle is also the
+  // largest artefact any driver here serves, which makes this the site most
+  // likely to have quietly spent seconds of the anonymous 30s on parse alone.
+  await navigate(page, `http://127.0.0.1:${PORT}/`, {
+    waitUntil: 'commit',
+    timeoutMs: NAV_TIMEOUT_MS,
+    budget: 'the 5-minute wait for `window.B6_READY`',
+  });
   await page.waitForFunction('window.B6_READY === true || window.B6_ERROR', null, {
     timeout: 5 * 60 * 1000,
   });

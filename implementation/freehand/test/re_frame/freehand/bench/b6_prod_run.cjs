@@ -19,6 +19,8 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
+const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
+
 const IMPL = path.resolve(__dirname, '../../../../..');
 // `B6_INIT_FN` / `B6_OUT_DIR` point this driver at a different entry —
 // the seam an ABLATION LADDER rides so that it reuses this window rather
@@ -86,7 +88,19 @@ async function run() {
     if (t.startsWith(';; B6')) console.log(t);
   });
   page.on('pageerror', (e) => console.error('[b6] page error:', e.message));
-  await page.goto(`http://127.0.0.1:${PORT}/${QUERY}`, { waitUntil: 'load' });
+  // `'commit'`, not `'load'` (rf2-p9fa3). `b6-prod-app/-main` is this
+  // bundle's `:init-fn`, so it runs inside the `<script>` — the parity pass
+  // and every mount row are measured while the document is still loading,
+  // and only then does the promise chain start the update rows. `load`
+  // therefore cannot fire until the published run has yielded, which is
+  // exactly what `B6_DONE` waits for below, against a budget thirty times
+  // larger. Waiting for `load` was waiting for the benchmark against a
+  // ceiling nothing here could see or move.
+  await navigate(page, `http://127.0.0.1:${PORT}/${QUERY}`, {
+    waitUntil: 'commit',
+    timeoutMs: NAV_TIMEOUT_MS,
+    budget: 'the 15-minute wait for `window.B6_DONE`',
+  });
   await page.waitForFunction('window.B6_DONE === true || window.B6_ERROR', null, {
     timeout: 15 * 60 * 1000,
   });

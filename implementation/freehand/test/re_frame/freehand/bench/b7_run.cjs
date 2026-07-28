@@ -56,6 +56,8 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
+const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
+
 const IMPL = path.resolve(__dirname, '../../../../..');
 const OUT = path.join(IMPL, process.env.B7_OUT_DIR || path.join('out', 'b7'));
 const PORT = Number(process.env.B7_PORT || 8131);
@@ -138,7 +140,12 @@ function serve() {
     .listen(PORT);
 }
 
-async function newPage(chromium, query) {
+// `budget` names the sentinel wait each caller is about to make, so a
+// navigation failure cannot be read as that wait. The two modes are bounded
+// very differently — 120s for the heap instrument, fifteen minutes for the
+// mount-frame run — which is the second reason the ceiling has to say which
+// one it is NOT.
+async function newPage(chromium, query, budget) {
   const browser = await chromium.launch({
     args: ['--enable-precise-memory-info', '--js-flags=--expose-gc'],
   });
@@ -148,7 +155,20 @@ async function newPage(chromium, query) {
     if (t.startsWith(';; B7')) console.log(t);
   });
   page.on('pageerror', (e) => console.error('[b7] page error:', e.message));
-  await page.goto(`http://127.0.0.1:${PORT}/${query}`, { waitUntil: 'load' });
+  // `'commit'`, not `'load'` (rf2-p9fa3), and this is the SHARPEST instance of
+  // the class in the repo. `b7-app/-main` is the bundle's `:init-fn`, and in
+  // `?mode=mount-frame` it runs `run-mount-frame!` — the parity pass plus six
+  // rounds over every witness — SYNCHRONOUSLY, inside the `<script>`. The
+  // `load` event is therefore downstream of a run this file gives FIFTEEN
+  // MINUTES, and `page.goto` was silently capping it at thirty seconds.
+  // Demonstrated against exactly this shape: a page that burns 35s during
+  // load dies at 30007ms bare, and resolves at 35020ms on `'commit'` plus the
+  // poll that already owned the wait.
+  await navigate(page, `http://127.0.0.1:${PORT}/${query}`, {
+    waitUntil: 'commit',
+    timeoutMs: NAV_TIMEOUT_MS,
+    budget,
+  });
   return { browser, page };
 }
 
@@ -264,7 +284,9 @@ function snapshotTotal(cdp) {
 // ---------------------------------------------------------------------------
 
 async function heapRow(chromium) {
-  const { browser, page } = await newPage(chromium, '?mode=heap');
+  const { browser, page } = await newPage(
+    chromium, '?mode=heap', 'the 120s wait for `window.B7_READY`'
+  );
   await page.waitForFunction('window.B7_READY === true || window.B7_ERROR', null, { timeout: 120000 });
   const err = await page.evaluate('window.B7_ERROR || null');
   if (err) {
@@ -415,7 +437,9 @@ async function heapRow(chromium) {
 
 async function mountFrameRow(chromium) {
   const q = process.env.B7_MOUNT_QUERY || '';
-  const { browser, page } = await newPage(chromium, `?mode=mount-frame${q}`);
+  const { browser, page } = await newPage(
+    chromium, `?mode=mount-frame${q}`, 'the 15-minute wait for `window.B7_DONE`'
+  );
   await page.waitForFunction('window.B7_DONE === true || window.B7_ERROR', null, {
     timeout: 15 * 60 * 1000,
   });

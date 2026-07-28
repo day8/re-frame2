@@ -28,6 +28,8 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
+const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
+
 const IMPL = path.resolve(__dirname, '../../../../..');
 const OUT_DIR = process.env.B10_OUT_DIR || 'out/b10-prod';
 const INIT_FN = process.env.B10_INIT_FN || 're-frame.freehand.bench.b10-prod-app/-main';
@@ -123,7 +125,19 @@ async function run() {
   // during page load, so the `load` event cannot fire until the whole run
   // yields — waiting for it would be waiting for the benchmark, against a
   // budget separate from the one below.
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'commit', timeout: 60 * 1000 });
+  //
+  // This call was RIGHT and its four siblings were wrong, hand-patched here
+  // and nowhere else — which is how rf2-p9fa3 got filed. It now routes
+  // through the directory's shared navigation, at the same event and the same
+  // 60s (`NAV_TIMEOUT_MS` is this call's number, kept), so there is one
+  // navigation to get right instead of five to keep in step. It gains the one
+  // thing it was still missing: a failure that says it is the navigation
+  // ceiling and not the twenty-minute wait below.
+  await navigate(page, `http://127.0.0.1:${PORT}/`, {
+    waitUntil: 'commit',
+    timeoutMs: NAV_TIMEOUT_MS,
+    budget: 'the 20-minute wait for `window.B10_DONE`',
+  });
   await page.waitForFunction('window.B10_DONE === true || window.B10_ERROR', null, {
     timeout: 20 * 60 * 1000,
   });
