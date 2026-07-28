@@ -19,11 +19,32 @@
   enqueue; a baseline image handler WITHOUT the flag still does (so the
   suppression is the difference, not that image dispatches never emit).
 
-  `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`."
+  `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`.
+
+  ## Posture split (rf2-d2841)
+
+  The always-on half is that the image-inline handler is RESOLVED AND RUN —
+  `:bookkeeping/ran?` / `:normal/ran?` land in the frame's app-db. That is the
+  precondition the whole namespace rests on (the pre-fix bug was a
+  generation-blind lookup returning nil), it is readable straight off
+  `rf/app-db-value`, and it needs no trace surface — so it is asserted WITHOUT
+  a posture guard and runs in `scripts/test-core-prod-gate.sh` too.
+
+  The `:rf.event/dispatched` assertions are DEV-ONLY: `:rf.trace/no-emit?`
+  gates a `trace/emit!` site, and under `-Dre-frame.debug=false` nothing is
+  emitted at all. BOTH of them move inside the
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, the negative
+  included — and the negative is the point rather than tidiness. Left outside,
+  `(not (contains? ops :rf.event/dispatched))` over an EMPTY `ops` would report
+  that the no-emit flag correctly suppressed the enqueue trace when in fact
+  nothing was emitted for any handler, flagged or not. \"The flag is the
+  difference\" is a claim about a dev channel and is only meaningful where that
+  channel is live."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core           :as rf]
             [re-frame.image          :as image]
+            [re-frame.interop        :as interop]
             [re-frame.live-frame     :as lf]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support   :as test-support]))
@@ -75,10 +96,15 @@
         ;; execution) — proves the image handler was genuinely resolved + run.
         (is (true? (:bookkeeping/ran? (rf/app-db-value :img/main)))
             "the inline image handler executed")
-        ;; The bug: :rf.event/dispatched was emitted for a no-emit handler.
-        (is (not (contains? ops :rf.event/dispatched))
-            (str "the :rf.trace/no-emit? image handler must NOT emit "
-                 ":rf.event/dispatched at enqueue; saw ops: " (pr-str ops)))))))
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
+        ;; split). A NEGATIVE over the trace stream: under the production gate
+        ;; `ops` is empty for EVERY handler, so this would pass without the
+        ;; no-emit flag doing anything at all.
+        (when interop/debug-enabled?
+          ;; The bug: :rf.event/dispatched was emitted for a no-emit handler.
+          (is (not (contains? ops :rf.event/dispatched))
+              (str "the :rf.trace/no-emit? image handler must NOT emit "
+                   ":rf.event/dispatched at enqueue; saw ops: " (pr-str ops))))))))
 
 (deftest image-inline-handler-without-flag-still-emits-dispatched
   (testing "baseline sanity: the SAME image-inline dispatch shape WITHOUT
@@ -96,5 +122,8 @@
       (let [ops (dispatched-ops-for :img/main [:normal/event] :normal/event)]
         (is (true? (:normal/ran? (rf/app-db-value :img/main)))
             "the inline image handler executed")
-        (is (contains? ops :rf.event/dispatched)
-            ":rf.event/dispatched fired for the un-flagged image handler")))))
+        ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
+        ;; split).
+        (when interop/debug-enabled?
+          (is (contains? ops :rf.event/dispatched)
+              ":rf.event/dispatched fired for the un-flagged image handler"))))))

@@ -29,10 +29,31 @@
   exercised in `re-frame.router-carried-frame-cljs-test`.
 
   JVM-only — the dynamic-var scope tier and the require-or-raise logic
-  are platform-agnostic."
+  are platform-agnostic.
+
+  ## Posture split (rf2-d2841)
+
+  Both error categories this file asserts on are ALWAYS-ON, so the split here
+  is NOT a guard — it is a change of AXIS. `:rf.error/no-frame-context` fans
+  through `frame/emit-no-frame-context!`, which calls the late-bound
+  `:error-emit/dispatch-on-error` hook BEFORE it reaches the dev-only
+  `trace/emit-error!` leg; `:rf.error/frame-destroyed` is in the promoted
+  always-on set (`re-frame.error-emit` ns docstring §Corpus-wide listener
+  registry). Reading those counts off the `:errors` stream instead of the
+  `:trace` stream keeps the assertions VERBATIM and load-bearing in BOTH
+  postures — `clojure -M:test` and `scripts/test-core-prod-gate.sh` alike.
+
+  The one genuinely dev-only claim is `NO :rf.event/dispatched` — a negative
+  over the trace stream, which under `-Dre-frame.debug=false` is empty for
+  every dispatch, enqueued or not. It is kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`. Its production
+  counterpart is the always-on one immediately above it: an
+  `:rf.error/no-frame-context` record on the `:errors` axis IS the
+  before-enqueue rejection, since the emit site sits at envelope-build time."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
@@ -64,6 +85,21 @@
     (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
     a))
 
+(defn- record-errors!
+  "Attach an ALWAYS-ON `:errors` listener and return its atom (rf2-d2841).
+  The corpus-wide error-emit registry survives production elision — it is
+  the axis Sentry-style shippers read — so counts taken off it are
+  posture-independent. Records are the tight error-record map, keyed by
+  `:error` rather than the trace stream's `:operation`."
+  [listener-id]
+  (let [a (atom [])]
+    (rf/register-listener! :errors listener-id (fn [rec] (swap! a conj rec)))
+    a))
+
+(defn- errors-of
+  [recorded error-id]
+  (filter #(= error-id (:error %)) @recorded))
+
 ;; ---- bare dispatch outside any context FAILS ------------------------------
 
 (deftest bare-dispatch-outside-context-raises-no-frame-context
@@ -71,7 +107,8 @@
             raises :rf.error/no-frame-context (no :rf/default floor) — and
             emits the always-on error, with NO enqueue"
     (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
-    (let [recorded (record-traces! ::bare)]
+    (let [recorded (record-traces! ::bare)
+          errs     (record-errors! ::bare-errors)]
       (binding [frame/*current-frame* nil]
         (let [ex (no-frame-context-ex #(rf/dispatch [:app/noop]))]
           (is (some? ex) "frameless dispatch raised")
@@ -80,11 +117,19 @@
           (is (= :dispatch (:operation (ex-data ex)))
               ":operation tags the dispatch surface")))
       (rf/unregister-listener! :trace ::bare)
-      (is (= 1 (count (filter #(= :rf.error/no-frame-context (:operation %))
-                              @recorded)))
+      (rf/unregister-listener! :errors ::bare-errors)
+      ;; ALWAYS-ON axis (rf2-d2841): the count reads the corpus-wide error-emit
+      ;; registry, which survives production elision, so "exactly one fired"
+      ;; is a claim about the production wire and not about the dev ring.
+      (is (= 1 (count (errors-of errs :rf.error/no-frame-context)))
           "exactly one always-on :rf.error/no-frame-context error fired")
-      (is (empty? (filter #(= :rf.event/dispatched (:operation %)) @recorded))
-          "NO :rf.event/dispatched — the absence is caught before enqueue"))))
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; A NEGATIVE over the trace stream: under `-Dre-frame.debug=false` the
+      ;; stream is empty whether or not the event was enqueued, so outside the
+      ;; arm this would report "caught before enqueue" for free.
+      (when interop/debug-enabled?
+        (is (empty? (filter #(= :rf.event/dispatched (:operation %)) @recorded))
+            "NO :rf.event/dispatched — the absence is caught before enqueue")))))
 
 (deftest bare-dispatch-sync-outside-context-raises-no-frame-context
   (testing "dispatch-sync under no scope raises the same way as dispatch"
@@ -208,18 +253,22 @@
             resolution; the lookup is what failed."
     ;; :rf/default is intentionally NOT registered.
     (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
-    (let [recorded (record-traces! ::bad-explicit)]
+    (let [errs (record-errors! ::bad-explicit-errors)]
       (binding [frame/*current-frame* nil]
         ;; An explicit target that does not resolve to a frame-record is
         ;; recover-but-emit (rf2-2hvga): no throw, but a
         ;; :rf.error/frame-destroyed always-on error.
         (rf/dispatch-sync [:app/noop] {:frame :rf/default}))
-      (rf/unregister-listener! :trace ::bad-explicit)
-      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:operation %))
-                              @recorded)))
+      (rf/unregister-listener! :errors ::bad-explicit-errors)
+      ;; ALWAYS-ON axis (rf2-d2841): `:rf.error/frame-destroyed` is in the
+      ;; promoted set that fans to the corpus-wide error-emit registry, so
+      ;; BOTH assertions — the positive AND the "not the other category"
+      ;; negative — stay load-bearing under the production gate. The negative
+      ;; is meaningful here precisely because its sibling positive proves the
+      ;; stream is live in this posture.
+      (is (= 1 (count (errors-of errs :rf.error/frame-destroyed)))
           "a bad explicit target emits :rf.error/frame-destroyed")
-      (is (empty? (filter #(= :rf.error/no-frame-context (:operation %))
-                          @recorded))
+      (is (empty? (errors-of errs :rf.error/no-frame-context))
           "NOT :rf.error/no-frame-context — the stamp was carried, just bad"))))
 
 ;; ---- override beats scope -------------------------------------------------

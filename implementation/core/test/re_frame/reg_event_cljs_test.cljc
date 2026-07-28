@@ -18,12 +18,27 @@
   `.cljc` so the suite runs under BOTH the bounded core JVM gate and
   `npm run test:cljs`. Harness mirrors `cofx_cljs_test.cljc` — the shared
   `test-support/make-reset-runtime-fixture` wraps every body in
-  `(with-frame :rf/default …)` so the ambient `dispatch-sync` calls resolve."
+  `(with-frame :rf/default …)` so the ambient `dispatch-sync` calls resolve.
+
+  ## Posture split (rf2-d2841)
+
+  Everything this file is about — the registry shape, the interceptor chain,
+  the `:db` / `:fx` effect semantics, `:rf.cofx/requires` — is production-real
+  and asserted WITHOUT a posture guard, so it runs in `clojure -M:test` AND in
+  `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+
+  The single exception is `:doc` on the stored registry entry: `:doc` is the
+  one PURE-documentation registration-metadata key, stripped at the
+  `registrar/register!` chokepoint in production (Spec 001 §Production
+  elision contract; `re-frame.doc-metadata-prod-elision-test` owns that
+  contract). Its assertion is kept verbatim inside a
+  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.events :as events]
             [re-frame.image-assembly :as image-assembly]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -59,8 +74,12 @@
       {:doc "doc" :interceptors [:reg-event-test/noop]}
       (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta :event :reg-event-test/with-icpt)]
-      (is (= "doc" (:doc meta))
-          "the reflection metadata is retained on the registry entry")
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; `:doc` is pure-documentation metadata, stripped at the `register!`
+      ;; chokepoint under `-Dre-frame.debug=false`.
+      (when interop/debug-enabled?
+        (is (= "doc" (:doc meta))
+            "the reflection metadata is retained on the registry entry"))
       ;; The stored chain holds the AUTHORED ref (a keyword) for the user entry;
       ;; only the framework wrapper is a map carrying :id :rf/event-handler.
       (is (= [:reg-event-test/noop :rf/event-handler]

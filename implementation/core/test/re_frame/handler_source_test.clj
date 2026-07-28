@@ -5,16 +5,50 @@
   The `reg-event` macro stamps the whole `(reg-event :id ...)` form
   as a string into the handler's registry metadata under
   `:rf.handler/source` so Xray's Event panel can render the source
-  inline. JVM-side is always-on (bundle-size argument doesn't apply);
-  CLJS-side is `goog.DEBUG`-gated so production bundles DCE the
-  literal source-string bytes. See `re-frame.core_reg_macros/defreg-
+  inline. The capture is DEBUG-gated on BOTH platforms — CLJS so
+  `:advanced` + `goog.DEBUG=false` DCEs the literal source-string bytes,
+  JVM so `-Dre-frame.debug=false` (the documented SSR/production setting)
+  gets the same treatment. See `re-frame.core_reg_macros/defreg-
   event-macro` for the emission and `re-frame.events/merge-form-
   source` for the registrar-side merge. EP-0018 (rf2-xhfxcs.14) collapsed
-  the former `reg-event-{db,fx,ctx}` macros onto the one `reg-event`."
+  the former `reg-event-{db,fx,ctx}` macros onto the one `reg-event`.
+
+  (This docstring used to say \"JVM-side is always-on (bundle-size argument
+  doesn't apply)\". Measured under the real gate that is false, and the source
+  agrees: `with-form-source-form` binds `*pending-form-source*` to
+  `(if interop/debug-enabled? <src> nil)` with no platform reader-conditional,
+  and `merge-form-source` opens with `(if-not interop/debug-enabled? m …)`.
+  Corrected here rather than left to mislead the next reader — rf2-d2841.)
+
+  ## Posture split (rf2-d2841)
+
+  AUTO-capture is therefore dev-only, and every auto-capture assertion is kept
+  verbatim inside a `(when interop/debug-enabled? …)` arm.
+
+  The always-on half is that the form-source-capturing MACRO PATH still
+  registers a live handler. That is not a formality: the macro's production
+  arm is a DIFFERENT expansion from its dev arm, so a broken prod arm would
+  drop or mis-shape the registration outright — and this file is where that
+  would show. Every deftest keeps an unguarded `handler-meta` witness.
+
+  `user-supplied-source-wins` is UNGUARDED and stays load-bearing under the
+  gate: `merge-form-source` returns the metadata map untouched in production,
+  so a `:rf.handler/source` the caller authored explicitly (a code-gen pass
+  stamping the original site) SURVIVES production while the auto-captured one
+  does not. That asymmetry is the contract, and asserting it is only
+  meaningful in the production posture.
+
+  The two ABSENCE deftests — `fn-form-call-skips-form-source` and
+  `reg-sub-does-not-capture-form-source` — are inside the arm rather than
+  outside it. Under the gate `:rf.handler/source` is elided WHOLESALE, so
+  \"absent on the fn-form path\" would pass because the key never exists for
+  ANY path, not because the fn-form skipped it: the same false-green shape as
+  a negative over an empty trace ring."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.interceptor :as interceptor]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -33,13 +67,19 @@
 (defn- assert-source [kind id macro-name]
   (let [m   (rf/handler-meta kind id)
         src (:rf.handler/source m)]
+    ;; Always-on witness (rf2-d2841): the macro path registered, in EITHER
+    ;; posture. The prod arm of the expansion is what would break here.
     (is (some? m) (str "handler-meta for " kind " " id " should be present"))
-    (is (string? src)
-        (str ":rf.handler/source should be a string for " kind " " id))
-    (is (str/includes? src macro-name)
-        (str ":rf.handler/source should include the macro name '" macro-name "'"))
-    (is (str/includes? src (pr-str id))
-        (str ":rf.handler/source should include the id literal '" (pr-str id) "'"))))
+    (is (ifn? (:handler-fn m))
+        (str "the registered handler-fn is live for " kind " " id))
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    (when interop/debug-enabled?
+      (is (string? src)
+          (str ":rf.handler/source should be a string for " kind " " id))
+      (is (str/includes? src macro-name)
+          (str ":rf.handler/source should include the macro name '" macro-name "'"))
+      (is (str/includes? src (pr-str id))
+          (str ":rf.handler/source should include the id literal '" (pr-str id) "'")))))
 
 ;; ---- per-kind captures ----------------------------------------------------
 
@@ -51,14 +91,16 @@
     (rf/reg-event :rf2-xhfxcs/event-sample
                   (fn [{:keys [db]} _ev] {:db db}))
     (assert-source :event :rf2-xhfxcs/event-sample "reg-event")
-    (let [src (:rf.handler/source
-               (rf/handler-meta :event :rf2-xhfxcs/event-sample))]
-      ;; Whole-form capture: the handler-fn body (the fx-shape return) must
-      ;; appear, not just the surface.
-      (is (str/includes? src "(fn [{:keys [db]} _ev] {:db db})")
-          ":rf.handler/source should include the reg-event handler-fn body")
-      (is (str/includes? src ":db")
-          ":rf.handler/source should include the effect-map keyword"))))
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    (when interop/debug-enabled?
+      (let [src (:rf.handler/source
+                 (rf/handler-meta :event :rf2-xhfxcs/event-sample))]
+        ;; Whole-form capture: the handler-fn body (the fx-shape return) must
+        ;; appear, not just the surface.
+        (is (str/includes? src "(fn [{:keys [db]} _ev] {:db db})")
+            ":rf.handler/source should include the reg-event handler-fn body")
+        (is (str/includes? src ":db")
+            ":rf.handler/source should include the effect-map keyword")))))
 
 ;; EP-0018 (rf2-xhfxcs.14): the former `reg-event-db` / `reg-event-fx`
 ;; per-kind capture tests collapsed into `reg-event-captures-form-source`
@@ -86,11 +128,16 @@
     (rf/reg-event :rf2-xgfuy/event-with-meta
                      {:doc "metadata-shape middle slot"}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [src (:rf.handler/source
-               (rf/handler-meta :event :rf2-xgfuy/event-with-meta))]
-      (is (string? src))
-      (is (str/includes? src ":doc"))
-      (is (str/includes? src "metadata-shape middle slot")))))
+    ;; Always-on witness (rf2-d2841): the metadata-map middle slot registered.
+    (is (some? (rf/handler-meta :event :rf2-xgfuy/event-with-meta))
+        "the metadata-map middle slot registers in BOTH postures")
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    (when interop/debug-enabled?
+      (let [src (:rf.handler/source
+                 (rf/handler-meta :event :rf2-xgfuy/event-with-meta))]
+        (is (string? src))
+        (is (str/includes? src ":doc"))
+        (is (str/includes? src "metadata-shape middle slot"))))))
 
 (deftest captures-form-source-with-metadata-interceptors
   (testing "rf2-xgfuy: metadata :interceptors round-trips into :rf.handler/source"
@@ -105,10 +152,19 @@
     (rf/reg-event :rf2-xgfuy/event-with-icpts
                      {:interceptors [:app/unwrap]}
                      (fn [_cofx {:keys [v]}] {:db {:v v}}))
-    (let [src (:rf.handler/source
-               (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))]
-      (is (string? src))
-      (is (str/includes? src "unwrap")))))
+    ;; Always-on witness (rf2-d2841): the metadata `:interceptors` ref
+    ;; threaded into the stored chain — the production-visible half of the
+    ;; round-trip this deftest is about.
+    (is (= [:app/unwrap :rf/event-handler]
+           (mapv (fn [e] (if (keyword? e) e (:id e)))
+                 (:interceptors (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))))
+        "the metadata :interceptors ref sits before the framework wrapper")
+    ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+    (when interop/debug-enabled?
+      (let [src (:rf.handler/source
+                 (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))]
+        (is (string? src))
+        (is (str/includes? src "unwrap"))))))
 
 ;; ---- programmatic call (bypasses macro) ----------------------------------
 
@@ -121,8 +177,13 @@
        (fn [{:keys [db]} _] {:db db}))
     (let [m (rf/handler-meta :event :rf2-xgfuy/programmatic)]
       (is (some? m))
-      (is (not (contains? m :rf.handler/source))
-          ":rf.handler/source absent on direct fn call"))))
+      ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE about a key the gate
+      ;; elides WHOLESALE: outside the arm this passes because
+      ;; `:rf.handler/source` is never present for ANY path in production, not
+      ;; because the fn-form skipped capture.
+      (when interop/debug-enabled?
+        (is (not (contains? m :rf.handler/source))
+            ":rf.handler/source absent on direct fn call")))))
 
 ;; ---- non-event reg-* macros DON'T carry :rf.handler/source ---------------
 
@@ -132,8 +193,11 @@
     (rf/reg-sub :rf2-xgfuy/sub-sample (fn [db _] db))
     (let [m (rf/handler-meta :sub :rf2-xgfuy/sub-sample)]
       (is (some? m))
-      (is (not (contains? m :rf.handler/source))
-          ":rf.handler/source absent on reg-sub"))))
+      ;; rf2-d2841 — dev-instrumentation arm. Same wholesale-elision shape as
+      ;; `fn-form-call-skips-form-source` above.
+      (when interop/debug-enabled?
+        (is (not (contains? m :rf.handler/source))
+            ":rf.handler/source absent on reg-sub")))))
 
 ;; ---- user-supplied :rf.handler/source override ---------------------------
 
