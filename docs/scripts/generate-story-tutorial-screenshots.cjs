@@ -29,6 +29,34 @@ const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] 
 
 const VIEWPORT = { width: 1440, height: 900 };
 
+/*
+ * The two ceilings `captureShot` used to leave anonymous (rf2-rbyyx).
+ *
+ * `page.goto(url, { waitUntil: 'networkidle' })` and `locator.waitFor(...)`
+ * both apply Playwright's 30s default when no `timeout:` is passed. Neither
+ * number appeared in this file, so a stall printed `Timeout 30000ms exceeded`
+ * without saying which of the two it was — or that a NAVIGATION, rather than
+ * a missing element, is what failed. The sibling generator beside this one
+ * (`generate-tutorial-screenshots.cjs`) already passes `{ waitUntil: 'load',
+ * timeout: 30000 }` and an explicit locator timeout; this one never got the
+ * same treatment.
+ *
+ * `networkidle` is KEPT, and deliberately. A screenshot generator wants a
+ * SETTLED page — that is the artefact, and the PNGs it writes are committed.
+ * `'load'` or `'commit'` would shoot a page whose bundle may still be
+ * mounting, quietly changing the images this repo ships. So the event stays
+ * and only the number is named.
+ *
+ * The number is doubled to 60s rather than copied from the sibling's 30s,
+ * because `networkidle` settles strictly LATER than the `load` that sibling
+ * waits for; 30s here would re-enact the default it replaces. Demonstrated
+ * (rf2-rbyyx): against a page whose subresource is held 35s, a bare
+ * `goto{waitUntil:'networkidle'}` dies at 30016ms, and the same call with
+ * `timeout: 60000` resolves at 35519ms.
+ */
+const NAV_TIMEOUT_MS = 60000;
+const SHOT_VISIBLE_TIMEOUT_MS = 30000;
+
 const APPS = {
   '/login': {
     html: path.join(REPO_ROOT, 'tools', 'story', 'testbeds', 'login_form', 'index.html'),
@@ -203,8 +231,22 @@ async function withServer(fn) {
 
 async function captureShot(page, baseUrl, shot) {
   const url = `${baseUrl}${shot.app}/${shot.query || ''}${shot.hash || ''}`;
-  await page.goto(url, { waitUntil: 'networkidle' });
-  await page.locator(shot.waitFor).first().waitFor({ state: 'visible' });
+  try {
+    await page.goto(url, { waitUntil: 'networkidle', timeout: NAV_TIMEOUT_MS });
+  } catch (err) {
+    throw new Error(
+      `NAVIGATION FAILED for ${shot.file} — this is the page.goto ceiling ` +
+        `(waitUntil: 'networkidle', timeout: ${NAV_TIMEOUT_MS}ms), NOT the ` +
+        `${SHOT_VISIBLE_TIMEOUT_MS}ms wait for \`${shot.waitFor}\`, which had ` +
+        `not yet started. The page never settled, so no screenshot was taken ` +
+        `and the committed PNG is unchanged (rf2-rbyyx). Underlying: ` +
+        `${err.message}`
+    );
+  }
+  await page
+    .locator(shot.waitFor)
+    .first()
+    .waitFor({ state: 'visible', timeout: SHOT_VISIBLE_TIMEOUT_MS });
   if (shot.before) {
     await shot.before(page);
   }
