@@ -208,7 +208,9 @@
   RA_SAMPLES (samples per arm across ALL rounds, default 42), RA_ROUNDS
   (default 6 — at least six, so the guard's phase thirds are ranges rather
   than single samples), RA_WARM_WINDOWS (full-size discarded windows per
-  arm, default 6), RA_WARMUP (bare calls before calibration, default 3),
+  arm, default 12 — 6 was `write_attribution`'s figure and the FORWARD plan
+  refuses on two arms at 6 while the reversed plan passes), RA_WARMUP (bare
+  calls before calibration, default 3),
   RA_TOLERANCE (the guard's relative-median tolerance, default 0.25),
   RA_ORDER=rev (reverse the base plan before scheduling — a knob, not the
   mitigation), RA_COORDS=0 (register WITHOUT source coords — a labelled
@@ -904,7 +906,14 @@
   (let [n            (env-int "RA_N" 300)
         samples      (env-int "RA_SAMPLES" 42)
         warmup       (env-int "RA_WARMUP" 3)
-        warm-windows (env-int "RA_WARM_WINDOWS" 6)
+        ;; rf2-x0fe2: 6 was `write_attribution`'s figure and it is NOT enough
+        ;; here. At 6 the FORWARD plan refused on two arms — `N-CALLTHUNK` and
+        ;; `N-CWFRNOG`, both by PHASE, both reading up to 2x their settled value
+        ;; in the FIRST THIRD and dead flat thereafter — while the REVERSED plan
+        ;; passed with the same 6. That is the settling curve aligned with
+        ;; position, exactly the confound the phase factor exists to catch, and
+        ;; the answer to it is more warm-up, never a wider tolerance.
+        warm-windows (env-int "RA_WARM_WINDOWS" 12)
         rounds       (max 2 (env-int "RA_ROUNDS" 6))
         per-round    (max 1 (js/Math.ceil (/ samples rounds)))
         tolerance    (env-num "RA_TOLERANCE" 0.25)
@@ -1238,14 +1247,23 @@
                            (fmt (net* "N-GENREAD"))))
           (println ";;         On the JVM the binding was ~760 B and that conflation was 2-5%,")
           (println ";;         so it did not matter there. Here it would be the whole answer.")
-          (println (gstring/format ";;     (b) an INLINE re-spelling of cwfr's body            %10s B/read"
-                           (fmt inline-err)))
-          (println (gstring/format ";;         cwfr takes a THUNK and its caller allocates one per call")
-                   )
-          (println (gstring/format ";;         (N-CALLTHUNK %s B/read). An inline re-spelling allocates none"
-                           (fmt (net* "N-CALLTHUNK"))))
-          (println ";;         and lets V8 elide what never escapes, so the subtraction prices")
-          (println ";;         the CLOSURE. Same error as (a), opposite sign."))
+          (println ";;     (b) an INLINE re-spelling of cwfr's body — MEASURED at 64.1 B/read")
+          (println ";;         against standalone N-BINDONLY's 0.1 in this harness's own")
+          (println ";;         development, which is how it was caught. `cwfr` takes a THUNK and")
+          (println ";;         its caller allocates one per call that ESCAPES into another")
+          (println ";;         namespace's function; an inline re-spelling allocates one that")
+          (println ";;         does not escape, and a non-escaping non-capturing thunk costs")
+          (println ";;         NOTHING — which this run demonstrates directly:")
+          (println (gstring/format ";;           N-CALLTHUNK (thunk to a harness-local fn)  %s B/read%s"
+                           (fmt (net* "N-CALLTHUNK"))
+                           (if (<= (net* "N-CALLTHUNK") floor) "   <= FLOOR" "")))
+          (println (gstring/format ";;           N-CWFRNOG   (thunk into live-frame)        %s B/read"
+                           (fmt (net* "N-CWFRNOG"))))
+          (println ";;         So the subtraction prices the CLOSURE. Same error as (a),")
+          (println ";;         opposite sign. The symmetric pair above escapes identically on")
+          (println ";;         both sides, which is what makes its difference the binding alone.")
+          (println (gstring/format ";;         (for the record, that residual reconstructs here as %s B/read)"
+                           (fmt inline-err))))
         (println ";;")
         ;; --- THE CLJS RANKING, which is the point of the exercise -----------
         (println ";; ==== THE CLJS RANKING of subscribe's cache-HIT allocation ====")
