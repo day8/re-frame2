@@ -365,11 +365,16 @@ A frame opts into SSR error projection via the `:ssr {:public-error-id ... :dev-
   ```
 - **Description**: Register a projector keyed by id. The projector signature is `(fn [trace-event] :rf/public-error)`. Named per-frame via the frame's `:ssr {:public-error-id ...}` metadata. Returns `id`.
   - **The return shape is closed — get it wrong and your projector is discarded silently.** Conformant output carries **exactly** the four [`public-error-keys`](#public-error-keys): `:status` (an integer in `400`–`599`), `:code` (a keyword), `:message` (a string), `:retryable?` (a boolean). None missing, none extra — including a `:details` of your own, which only the runtime may append, *after* validation, under `:ssr {:dev-error-detail? true}`. A non-conforming return makes [`project-error`](#project-error) emit `:rf.error/sanitised-on-projection` and serve the locked generic-500 [`fallback-public-error`](#fallback-public-error) instead, on **every** error, for the life of the registration.
+  - **A custom projector inherits none of the default's condition-gating.** Two `:rf.error/*` categories carry a discriminator tag that decides the status, and a projector that branches on `:operation` alone gets both wrong: `:rf.error/no-such-handler` is a `404` only under `[:tags :kind]` `:route`, and `:rf.error/schema-validation-failure` a `400` only under `[:tags :where]` `:event`. Gate on the tag the way the example below does, or an unregistered event id answers `404` and a server-side `:where :fx-args` failure blames the client for a server bug — see [`default-error-projector-fn`](#default-error-projector-fn) for the reasoning.
 - **Example**:
   ```clojure
   (rf/reg-error-projector :app/public-error
     (fn [trace-event]
-      (if (= :rf.error/no-such-route (:operation trace-event))
+      ;; Gate the 404 on `:kind :route` — only a URL that matched no route
+      ;; is a missing PAGE. An unregistered event id or frame-id arrives
+      ;; under the same category and is a SERVER defect: 500, not 404.
+      (if (and (= :rf.error/no-such-handler (:operation trace-event))
+               (= :route (get-in trace-event [:tags :kind])))
         {:status     404
          :code       :not-found
          :message    "We couldn't find that page."
@@ -409,7 +414,7 @@ A frame opts into SSR error projection via the `:ssr {:public-error-id ... :dev-
   (default-error-projector-fn trace-event) → :rf/public-error
   ```
 - **Description**: The runtime's built-in default projector, registered under `:rf.ssr/default-error-projector`. Maps trace events to public errors:
-  - `:rf.error/no-such-handler` → `404 :not-found`. This is the arm that answers an unroutable URL, and it survives production hardening. Its sibling `:rf.error/no-such-route` maps to `404` too, but that category is caller misuse of `route-url` and rides the dev-gated trace stream, so a release build never reaches this arm through it.
+  - `:rf.error/no-such-handler` → `404 :not-found`, but **only when the miss's `:kind` tag is `:route`**. Spec 009 catalogues three misses under this one category, discriminated by a mandatory `:kind`: a URL that matched no route (`:kind :route`), a dispatch to an unregistered event id (`:kind :event`), and a Tool-Pair surface addressing an unknown frame-id (`:kind :frame`). Only the first is a missing-*page* condition. The other two are server defects — answering `404` would tell the client its URL was wrong when the server forgot a registration, and a crawler will act on that — so they fall through to the generic `500`, as does a miss carrying no `:kind` at all. The arm is opt-in on the discriminator, fail-safe, exactly like the `:where`-gated arm below. Gated so it stays that way once the URL-driven miss was promoted onto the always-on error axis: before that promotion no `:rf.error/no-such-handler` reached this projector in production at all, and an ungated arm would now answer `404` for an unregistered event id. The `:kind :route` arm is the one that answers an unroutable URL, and it survives production hardening. Its sibling `:rf.error/no-such-route` maps to `404` unconditionally — one failure mode, no `:kind` discriminator — but that category is caller misuse of `route-url` and rides the dev-gated trace stream, so a release build never reaches this arm through it.
   - `:rf.error/cofx-value-invalid` (a client-supplied coeffect rejected at the dispatch boundary) → `400 :bad-request`.
   - `:rf.error/schema-validation-failure` → `400 :bad-request`, but only when the failure's `:where` tag is `:event` (a client-supplied event payload). Server-side surfaces such as `:where :fx-args` fall through, and so does a record carrying no `:where` at all — the arm is opt-in on the discriminator, fail-safe. **This arm fires under production hardening as well as in dev** — see below.
   - Everything else → the locked generic `500 :internal-error` ([`fallback-public-error`](#fallback-public-error)).
