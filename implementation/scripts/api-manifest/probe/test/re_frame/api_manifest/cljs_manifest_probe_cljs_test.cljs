@@ -87,6 +87,27 @@
     either host fails direction-2 completeness rather than accumulating
     quietly.
 
+  - `re-frame.freehand.form` / `re-frame.freehand.controls` (rf2-drpa3.182.4)
+    — the pure form transitions and the first-party control kit, enrolled on
+    the same terms. FULLY-ROWED, both directions.
+
+  - `re-frame.freehand.splitter` / `re-frame.freehand.collection` (rf2-m41gl)
+    — the kit's pointer control and the fixed-size virtual collection,
+    enrolled by rf2-h0b0l / rf2-cfhuv on exactly the terms above and probed
+    here for the same reason. Both are `.cljc` and host-neutral, so JVM
+    `ns-publics` IS the existence check for their rows and nothing was RED
+    without this; what the probe adds is the CROSS-HOST direction — a
+    `#?(:cljs …)` public appearing on one host and not the other would carry
+    no row and nothing would say so. Neither namespace has such a var today
+    (every public in both is unconditional, and only `defn-` helpers sit
+    under reader conditionals), so this closes the door rather than fixing a
+    live hole — which is the same reason the door was worth closing on the
+    five siblings above. FULLY-ROWED, both directions: four names for the
+    collection (`virtual-collection` / `virtual-list` / `window` /
+    `reveal-offset` — its engine-owned row, id scheme and `:layout` behavior
+    are `^:private` per rf2-axlmz and are correctly invisible here) and
+    fourteen for the splitter.
+
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
   artefact's OWN shadow-cljs build (`tools/re-frame2-pair-mcp`,
@@ -154,7 +175,15 @@
             ;; so `emit-ns-publics` reads the live surface.
             [re-frame.freehand.tool]
             [re-frame.freehand.form]
-            [re-frame.freehand.controls]))
+            [re-frame.freehand.controls]
+            ;; rf2-m41gl — the kit's pointer control and the fixed-size virtual
+            ;; collection, enrolled by rf2-h0b0l / rf2-cfhuv. Same terms again:
+            ;; JVM-introspected rows, live CLJS surface reconciled here,
+            ;; fully-rowed. The requires are load-bearing — `emit-ns-publics`
+            ;; reads the analyzer, so an unanalysed namespace enumerates
+            ;; nothing (which `every-covered-namespace-was-analysed` refuses).
+            [re-frame.freehand.splitter]
+            [re-frame.freehand.collection]))
 
 ;; ---------------------------------------------------------------------------
 ;; The live CLJS public surface, captured at compile time.
@@ -208,7 +237,12 @@
    ;; first-party control kit. Same terms: JVM-introspected rows, live CLJS
    ;; surface reconciled here, fully-rowed.
    "re-frame.freehand.form"                          (emit-ns-publics re-frame.freehand.form)
-   "re-frame.freehand.controls"                      (emit-ns-publics re-frame.freehand.controls)})
+   "re-frame.freehand.controls"                      (emit-ns-publics re-frame.freehand.controls)
+   ;; rf2-m41gl — the pointer control and the fixed-size virtual collection.
+   ;; Same terms: JVM-introspected rows, live CLJS surface reconciled here,
+   ;; fully-rowed.
+   "re-frame.freehand.splitter"                      (emit-ns-publics re-frame.freehand.splitter)
+   "re-frame.freehand.collection"                    (emit-ns-publics re-frame.freehand.collection)})
 
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
@@ -249,7 +283,16 @@
     ;; guard that keeps a form RUNTIME from arriving one convenience verb at a
     ;; time, which is the way the non-goal would actually be breached.
     "re-frame.freehand.form"
-    "re-frame.freehand.controls"})
+    "re-frame.freehand.controls"
+    ;; rf2-m41gl — direction-2 completeness for the pointer control and the
+    ;; virtual collection. Both are deliberately SMALL surfaces whose whole
+    ;; point is what they refuse — the splitter ships no clock and no
+    ;; scheduler, the collection no measurement pass and no columns model —
+    ;; and a surface that grows one convenience var at a time is exactly how
+    ;; such a refusal is breached. Direction 2 makes each addition a
+    ;; deliberate manifest row instead.
+    "re-frame.freehand.splitter"
+    "re-frame.freehand.collection"})
 
 (def cljs-only-rows
   "The `:cljs-only` rows from spec/api-manifest-metadata.edn, embedded at
@@ -306,18 +349,37 @@
    deliberate manifest row rather than a var that appeared."
   (emit-classification-rows "re-frame.freehand.controls"))
 
+(def freehand-splitter-rows
+  "The `re-frame.freehand.splitter` `:classification` rows (rf2-h0b0l),
+   projected exactly as `freehand-controls-rows` is. The pointer control is
+   fourteen names over an ordinary value — no clock, no scheduler, no
+   `requestAnimationFrame` — and direction-2 completeness is what keeps a
+   second, host-owning surface from arriving beside it."
+  (emit-classification-rows "re-frame.freehand.splitter"))
+
+(def freehand-collection-rows
+  "The `re-frame.freehand.collection` `:classification` rows (rf2-cfhuv),
+   projected exactly as `freehand-splitter-rows` is. FOUR names: the engine's
+   own row shell, its positional id scheme and its guarded `:layout` write are
+   `^:private` (rf2-axlmz), so the live CLJS surface reconciled here is the
+   whole of what the namespace publishes — which is the point of probing it."
+  (emit-classification-rows "re-frame.freehand.collection"))
+
 (def reconcile-rows
   "Every row the probe reconciles: the `:cljs-only` surfaces plus the
    JVM-owned `re-frame.ui.test`, `re-frame.freehand`, `re-frame.freehand.test`,
-   `re-frame.freehand.tool`, `re-frame.freehand.form` and
-   `re-frame.freehand.controls` rows."
+   `re-frame.freehand.tool`, `re-frame.freehand.form`,
+   `re-frame.freehand.controls`, `re-frame.freehand.splitter` and
+   `re-frame.freehand.collection` rows."
   (-> cljs-only-rows
       (into ui-test-rows)
       (into freehand-rows)
       (into freehand-test-rows)
       (into freehand-tool-rows)
       (into freehand-form-rows)
-      (into freehand-controls-rows)))
+      (into freehand-controls-rows)
+      (into freehand-splitter-rows)
+      (into freehand-collection-rows)))
 
 ;; ---------------------------------------------------------------------------
 ;; The probe.
@@ -346,6 +408,40 @@
       (is (contains? live-publics ns-str)
           (str ns-str " is marked :fully-rowed but is not in live-publics "
                "— add its :require + emit-ns-publics entry.")))))
+
+;; ---------------------------------------------------------------------------
+;; re-frame.freehand.splitter / .collection ENROLMENT — the non-vacuity anchor
+;; (rf2-m41gl).
+;;
+;; The reconciliation above is a set comparison, and a set comparison over two
+;; EMPTY sets is green. `every-covered-namespace-was-analysed` refuses an empty
+;; live surface; this refuses the other half — a sidecar carrying no rows for
+;; either namespace — and states both surfaces as exact literals, so what the
+;; probe SEES is written down rather than inferred from the JVM lane.
+;; ---------------------------------------------------------------------------
+
+(def ^:private freehand-collection-names
+  "The FOUR public names, spelled once: the semantic-neutral engine, the
+   listbox over it, and the two pure arithmetics a caller composing its own
+   widget calls directly. The engine's row shell, its positional id scheme and
+   its guarded `:layout` write are `^:private` (rf2-axlmz), so they are
+   correctly absent from both halves below."
+  #{"virtual-collection" "virtual-list" "window" "reveal-offset"})
+
+(deftest freehand-splitter-and-collection-surfaces-are-exactly-their-rows
+  (testing "the live CLJS surface and the sidecar rows name the SAME vars for
+            both newly probed namespaces — so the reconciliation above is two
+            real sets agreeing rather than two empty ones"
+    (is (= freehand-collection-names
+           (set (map first (get live-publics "re-frame.freehand.collection"))))
+        "the collection publishes exactly four names on the CLJS host")
+    (is (= freehand-collection-names (set (map :var freehand-collection-rows)))
+        "and the sidecar :classification rows are exactly the same four")
+    (is (= 14 (count (get live-publics "re-frame.freehand.splitter")))
+        "the splitter publishes fourteen")
+    (is (= (set (map first (get live-publics "re-frame.freehand.splitter")))
+           (set (map :var freehand-splitter-rows)))
+        "and its rows name exactly those fourteen")))
 
 ;; ---------------------------------------------------------------------------
 ;; re-frame.freehand.test ENROLMENT — the focused negative control (rf2-drpa3.79).
