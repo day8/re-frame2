@@ -29,9 +29,11 @@
   family-private resource elider. The fine-grained per-slot declarations
   are LOWERED per instance into the per-frame elision registry
   (`reconcile-registry`), and the egress boundaries READ THAT REGISTRY: the
-  SSR projector walks the entry's `:data` / scoped-key params through
-  `project-egress` SEEDED AT THE ABSOLUTE OFFSET where the lowered decls
-  live (`project-entry-data` / `project-entry-params`), so a declared slot
+  SSR projector walks the entry's `:data` and BOTH classification-bearing
+  components of its scoped key through `project-egress` SEEDED AT THE ABSOLUTE
+  OFFSET where the lowered decls live (`project-entry-data`,
+  `project-entry-scope` at `:resource/key` index 0, `project-entry-params` at
+  index 2), so a declared slot
   redacts / elides with no second derivation from the spec. This is the
   resources peer of routing's `project-routing-egress` (the
   `[:rf.runtime/routing]`-offset slice walk) and machines'
@@ -130,7 +132,9 @@
 ;; under the entry's absolute `:data` path and the `:params` / `:scope`-rooted
 ;; paths under the scoped-key carrier, writing them into the per-frame elision
 ;; registry (`reconcile-registry`) — the egress boundaries read them back from
-;; there (`project-entry-data` / `project-entry-params`). A bare-rooted path (no
+;; there (`project-entry-data` for `:data`; `project-entry-scope` /
+;; `project-entry-params` for the key's index-0 / index-2 components). A
+;; bare-rooted path (no
 ;; `:data` / `:params` head) defaults to the DATA projection — the common
 ;; `{:sensitive [[:ssn]]}` shorthand for a data field.
 ;; ---------------------------------------------------------------------------

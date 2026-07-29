@@ -124,8 +124,18 @@
 
 ;; ---- helpers --------------------------------------------------------------
 
-(defn- session-scope []
-  [:rf.scope/session {:tenant-id tenant-secret :region "au"}])
+(defn- session-scope
+  "The `[tier {identity}]` tuple a `:scope`-rooted declaration has to reach
+  THROUGH. `:roles` is deliberately a LIST: Clojure `=` collapses
+  `(= [:a :b] '(:a :b))` but CEDN-1 `canonical-bytes` never does (`l(…)` vs
+  `v[…]`), so an UNNECESSARY walk of this component would reconstruct the list
+  as a vector and silently change the entry's `key-id` — the rf2-wgutc2 identity
+  break the `registry-classifies-under?` gate exists to prevent. It is what
+  makes §3's byte-identity control load-bearing rather than decorative."
+  []
+  [:rf.scope/session {:tenant-id tenant-secret
+                      :region    "au"
+                      :roles     '(:admin :ops)}])
 
 (defn- key-for
   "A key under the `[tier {identity}]` session scope — the shape a
@@ -275,11 +285,20 @@
 (deftest an-undeclared-owners-key-rides-byte-identical
   (testing "a resource declaring NOTHING must ride its key back byte-identical
             with an UNCHANGED key-id — the declaration-existence gate is what
-            preserves the CEDN-1 identity a cache-key round-trip depends on"
+            preserves the CEDN-1 identity a cache-key round-trip depends on.
+
+            The LIST-valued `:roles` slot is what gives this teeth: `=` cannot
+            see a list↔vector collapse but `canonical-bytes` can, so an
+            ungated walk would change the key-id here while every `=`
+            assertion still passed (rf2-wgutc2)"
     (let [k (install-entry! :rf/default (key-for :plain/report))
           w (wire-key :rf/default :plain/report)]
+      (is (seq? (get-in k [0 1 :roles]))
+          "premise: the canonical scoped key PRESERVES the list kind")
       (is (= k w) "the whole key is unchanged")
       (is (= (pr-str k) (pr-str w)) "…byte-for-byte, not merely `=`")
+      (is (seq? (get-in w [0 1 :roles]))
+          "…the list is still a LIST — no walker reconstruction happened")
       (is (= (state/key-id k) (state/key-id w)) "…so its key-id is unchanged")
       (is (leaks? tenant-secret w)
           "and its scope rides VERBATIM — nothing here scrubs by shape"))))
