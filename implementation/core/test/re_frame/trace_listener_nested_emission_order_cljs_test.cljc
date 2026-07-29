@@ -56,7 +56,17 @@
   [evs]
   (filterv #{outer inner} (mapv :operation evs)))
 
-(deftest nested-emission-preserves-per-listener-event-order
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug nested-emission-preserves-per-listener-event-order
   ;; L0 (emitter, registered first) reentrantly emits `inner` while handling the
   ;; outer event. L1 (observer, registered second) must still see `outer` before
   ;; `inner`. Under the bug L1 saw `[inner outer]` — the nested emit reached L1
@@ -82,7 +92,7 @@
         (trace/unregister-listener! ::emitter)
         (trace/unregister-listener! ::observer)))))
 
-(deftest nested-emit-completes-synchronously
+(deftest ^:requires-debug nested-emit-completes-synchronously
   ;; rf2-s522m: a nested emit must return only AFTER its event has reached every
   ;; listener (Spec 009 §Emitting trace events: "the emit returns once every
   ;; listener has been invoked"). L0 (emitter, first) handles outer, emits inner,
@@ -126,7 +136,7 @@
         (trace/unregister-listener! ::emitter)
         (trace/unregister-listener! ::observer)))))
 
-(deftest stateful-tool-finishes-in-the-authored-state
+(deftest ^:requires-debug stateful-tool-finishes-in-the-authored-state
   ;; The bead's stateful-tooling evidence: a tool folds the event stream into a
   ;; live/cleared state. `outer` = the flow was CLEARED; the emitter reacts by
   ;; re-registering (emitting `inner` = REGISTERED). Authored order is
@@ -154,7 +164,7 @@
         (trace/unregister-listener! ::reregistrar)
         (trace/unregister-listener! ::stateful-tool)))))
 
-(deftest nested-exception-isolation-preserves-order
+(deftest ^:requires-debug nested-exception-isolation-preserves-order
   ;; A listener that THROWS between the emitter and the observer must neither
   ;; stop delivery nor corrupt ordering: per-listener exception isolation is
   ;; preserved AND the observer still sees outer before the reentrant inner.

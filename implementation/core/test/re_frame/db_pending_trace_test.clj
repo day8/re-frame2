@@ -60,7 +60,17 @@
 
 ;; ---- t1 fires when the handler returns `:db` -----------------------------
 
-(deftest t1-emits-when-handler-returns-db
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug t1-emits-when-handler-returns-db
   (testing ":rf.event/db-pending fires once per dispatch when the handler
    returned a :db slot, carrying the returned value under :tags :rf.event/db"
     (rf/reg-event :t1/seed-db
@@ -81,7 +91,7 @@
         (finally
           (rf/unregister-listener! :trace ::t1-db-only))))))
 
-(deftest t1-suppressed-when-handler-returns-no-db
+(deftest ^:requires-debug t1-suppressed-when-handler-returns-no-db
   (testing "an :fx-only handler return (no :db slot) does NOT emit
    :rf.event/db-pending — mirrors how :rf.event/db-present? rides on
    :rf.fx/do-fx as `false` when no :db was returned"
@@ -97,7 +107,7 @@
         (finally
           (rf/unregister-listener! :trace ::t1-fx-only))))))
 
-(deftest t1-value-is-identical-by-reference-no-copy
+(deftest ^:requires-debug t1-value-is-identical-by-reference-no-copy
   (testing "Mike's ruling: the t1 stamp is the SAME persistent reference
    the handler returned — no `into`, no walk, no copy. Persistent data
    structures + structural sharing make the cost pointer-sized; the
@@ -121,7 +131,7 @@
 
 ;; ---- ordering against the canonical sequence -----------------------------
 
-(deftest t1-precedes-db-changed-and-do-fx
+(deftest ^:requires-debug t1-precedes-db-changed-and-do-fx
   (testing "Spec 009 §Canonical per-event trace sequence — :rf.event/db-pending
    sits AFTER :rf.event/run-start and BEFORE :rf.event/db-changed (and BEFORE
    :rf.fx/do-fx). The atomicity-contract pipeline is reflected in the trace
@@ -153,7 +163,7 @@
 
 ;; ---- t2 contract from the core perspective -------------------------------
 
-(deftest t2-never-fires-without-flows-artefact
+(deftest ^:requires-debug t2-never-fires-without-flows-artefact
   (testing "with no flows artefact loaded, t2 (:rf.event/db-pending-post-flow)
    is by definition impossible — no flow could have transformed the pending
    value. The flows artefact is NOT a dependency of the core test fixture
@@ -171,7 +181,7 @@
 
 ;; ---- payload-shape pin ---------------------------------------------------
 
-(deftest db-pending-payload-rides-under-tags
+(deftest ^:requires-debug db-pending-payload-rides-under-tags
   (testing "payload-shaped slots (:rf.event/db, :frame) ride under :tags
    — top level is reserved for substrate-hoisted slots
    (:rf.trace/call-site, :rf.trace/trigger-handler, :source, etc.).

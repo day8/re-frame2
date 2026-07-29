@@ -72,7 +72,17 @@
 (defn- index-of [xs x]
   (first (keep-indexed (fn [i y] (when (= x y) i)) xs)))
 
-(deftest deferred-batch-outranks-listener-authored-trace-at-top-level
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug deferred-batch-outranks-listener-authored-trace-at-top-level
   ;; OUTERMOST seam: a top-level `dispatch-sync` defers the whole run batch, then
   ;; flushes it with `*fanout-ctx*` unbound (fresh outermost fan-outs). A
   ;; run-start listener authors a later trace; it must not overtake the
@@ -118,7 +128,7 @@
         (trace/unregister-listener! ::emitter)
         (trace/unregister-listener! ::observer)))))
 
-(deftest deferred-batch-outranks-listener-authored-trace-when-integrated
+(deftest ^:requires-debug deferred-batch-outranks-listener-authored-trace-when-integrated
   ;; INTEGRATE seam: a `::trigger` listener reacts to a clean, frameless emit (so
   ;; an OUTER fan-out is in flight and `*fanout-ctx*` is bound) by
   ;; `dispatch-sync`-ing into a frame. That nested drain defers its run batch and,

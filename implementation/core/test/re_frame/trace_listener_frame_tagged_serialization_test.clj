@@ -55,7 +55,17 @@
   (or (some-> (System/getenv "RF2_RAKQK_LATCH_ITERS") Long/parseLong)
       50))
 
-(deftest frame-tagged-public-emits-not-under-a-drain-serialize
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug frame-tagged-public-emits-not-under-a-drain-serialize
   ;; Two frame-TAGGED emits (`{:frame :rf/default}`) issued from two ordinary
   ;; threads, NEITHER of which is draining `:rf/default` — so neither holds its
   ;; `:drain-lock`. A single listener L blocks INSIDE its callback while handling

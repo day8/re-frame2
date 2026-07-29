@@ -70,7 +70,17 @@
 (def ^:private join-timeout-ms 10000)
 (def ^:private latch-timeout-s 10)
 
-(deftest fanout-monitor-drain-lock-ab-ba-does-not-deadlock
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug fanout-monitor-drain-lock-ab-ba-does-not-deadlock
   (testing (str "T1 (fanout-monitor -> listener -> dispatch-sync F) against the "
                 "async drainer (F.:drain-lock -> run-start emit) completes "
                 "bounded and the dispatched event settles exactly once ("
