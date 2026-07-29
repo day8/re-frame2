@@ -42,7 +42,17 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-(deftest run-start-listener-observes-settled-db-uniformly
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug run-start-listener-observes-settled-db-uniformly
   ;; A drain-owned run-start listener must see the event's SETTLED db on every
   ;; host. Pre-fix CLJS delivered inline and the listener saw the un-settled db.
   (let [seen-at-run-start (atom :not-recorded)]

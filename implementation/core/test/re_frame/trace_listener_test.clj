@@ -78,7 +78,17 @@
 
 ;; ---- 1. register-listener! arity + return value ---------------------------
 
-(deftest register-trace-listener-is-2-arity-and-returns-key
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug register-trace-listener-is-2-arity-and-returns-key
   (testing "register-listener! takes (key cb) and returns the key"
     (let [k ::pin-arity
           ret (rf/register-listener! :trace k (fn [_ev]))]
@@ -86,14 +96,14 @@
           "register-listener! returns the key per Spec 009 §The listener API")
       (rf/unregister-listener! :trace k))))
 
-(deftest unregister-trace-listener-returns-nil
+(deftest ^:requires-debug unregister-trace-listener-returns-nil
   (testing "unregister-listener! returns nil per Spec 009 §The listener API"
     (rf/register-listener! :trace ::r (fn [_ev]))
     (is (nil? (rf/unregister-listener! :trace ::r)))))
 
 ;; ---- 2. Synchronous, per-event delivery -----------------------------------
 
-(deftest synchronous-delivery
+(deftest ^:requires-debug synchronous-delivery
   (testing "listener has been called by the time dispatch-sync returns — no async wait"
     (let [seen (atom [])]
       (rf/register-listener! :trace ::sync (fn [ev] (swap! seen conj ev)))
@@ -111,7 +121,7 @@
           "the :rf.event/dispatched trace was delivered synchronously")
       (rf/unregister-listener! :trace ::sync))))
 
-(deftest one-call-per-emitted-event
+(deftest ^:requires-debug one-call-per-emitted-event
   (testing "the listener is invoked once per emitted event — no batching, no debounce"
     (let [calls (atom 0)
           seen  (atom [])]
@@ -134,7 +144,7 @@
             "each event was delivered exactly once — no batching, no dedup-by-listener"))
       (rf/unregister-listener! :trace ::counter))))
 
-(deftest in-cascade-emits-land-in-the-ring
+(deftest ^:requires-debug in-cascade-emits-land-in-the-ring
   (testing "every IN-CASCADE listener event also appears in the frame's ring
             (frameless emits ride the live stream only — per B3 ruling rf2-g1b2m).
             For a pure dispatch-sync where all emits carry the cascade's
@@ -157,7 +167,7 @@
 
 ;; ---- 3. Event-emission order ---------------------------------------------
 
-(deftest events-delivered-in-emission-order
+(deftest ^:requires-debug events-delivered-in-emission-order
   (testing "a listener sees events in the same order the runtime fired them"
     (let [seen (atom [])]
       (rf/register-listener! :trace ::ordered (fn [ev] (swap! seen conj ev)))
@@ -176,7 +186,7 @@
 
 ;; ---- 4. Point-event shape (no span fields) -------------------------------
 
-(deftest events-are-point-shaped-not-span-shaped
+(deftest ^:requires-debug events-are-point-shaped-not-span-shaped
   (testing "every emitted event has the canonical point-event keys and NO span-shape keys"
     (let [seen (atom [])]
       (rf/register-listener! :trace ::shape (fn [ev] (swap! seen conj ev)))
@@ -209,7 +219,7 @@
 
 ;; ---- 5. Frame-aware tagging -----------------------------------------------
 
-(deftest trace-events-carry-frame-tag
+(deftest ^:requires-debug trace-events-carry-frame-tag
   (testing "a trace event for a specific frame carries :frame frame-id under :tags"
     (let [seen (atom [])]
       (rf/make-frame {:id :frame/scoped :doc "scoped"})
@@ -225,7 +235,7 @@
             ":frame frame-id is carried under :tags per Spec 009 §The trace event model"))
       (rf/unregister-listener! :trace ::framed))))
 
-(deftest different-frames-carry-distinct-frame-tags
+(deftest ^:requires-debug different-frames-carry-distinct-frame-tags
   (testing "events emitted on behalf of different frames carry their respective :frame ids"
     (rf/make-frame {:id :frame/a})
     (rf/make-frame {:id :frame/b})
@@ -246,7 +256,7 @@
 
 ;; ---- 6. Production-elision contract (structural) -------------------------
 
-(deftest emit-rides-debug-flag
+(deftest ^:requires-debug emit-rides-debug-flag
   (testing "the listener-emission body is wrapped in interop/debug-enabled?"
     ;; Mirror of trace-buffer-rides-debug-flag in trace_buffer_test: the
     ;; production-elision contract is that no listener invocation, event-map
@@ -283,7 +293,7 @@
 ;; registered listener; a subsequent emission lands on NONE of them;
 ;; re-registration after a clear restores delivery.
 
-(deftest clear-trace-listeners-drops-every-listener
+(deftest ^:requires-debug clear-trace-listeners-drops-every-listener
   (testing "clear-listeners! drops every listener; subsequent emits hit
             zero listeners; re-registration after clear restores delivery"
     ;; Setup: three listeners under distinct keys, each appending to its
@@ -334,7 +344,7 @@
         (is (= a-count-1 (count @seen-a))
             "A stays cleared — clear-listeners! is permanent, not pause")))))
 
-(deftest clear-trace-listeners-returns-nil
+(deftest ^:requires-debug clear-trace-listeners-returns-nil
   (testing "clear-listeners! returns nil per Spec 009 §The listener API"
     (rf/register-listener! :trace ::ret-nil (fn [_ev]))
     (is (nil? (trace/clear-listeners!))
@@ -352,7 +362,7 @@
 ;; keyword-valued slot) + `:recovery` + `:reason`, like every other
 ;; framework throw (Spec 009 §The thrown-error shape).
 
-(deftest unknown-listener-stream-carries-canonical-thrown-error-shape
+(deftest ^:requires-debug unknown-listener-stream-carries-canonical-thrown-error-shape
   (testing "an unknown stream throws the canonical thrown-error shape:
             bare :where holding the 'rf/<surface> SYMBOL (NOT the retired
             :rf/where keyword-valued slot), plus :rf.error/id / :recovery /

@@ -109,7 +109,17 @@
 
 ;; ---- comprehensive flow -----------------------------------------------------
 
-(deftest trace-stream-completeness
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug trace-stream-completeness
   (testing "a representative dispatch flow emits every documented op-type with the canonical envelope shape"
     (let [recorded (atom [])
           listener (fn [ev] (swap! recorded conj ev))]
@@ -573,7 +583,7 @@
 ;; `:rf.sub/run` + `:rf.view/elapsed-ms` coverage). fx / flows / handler-
 ;; body timing DO fire in plain-atom JVM and are pinned here.
 
-(deftest per-op-timing-tags-on-the-trace-stream
+(deftest ^:requires-debug per-op-timing-tags-on-the-trace-stream
   (testing "fx / flows / handler-body carry elapsed-ms on the dev trace"
     (let [recorded (atom [])]
       (rf/register-listener! :trace ::timing (fn [ev] (swap! recorded conj ev)))
@@ -611,7 +621,7 @@
 
 ;; ---- listener API: lifecycle and isolation --------------------------------
 
-(deftest trace-listener-lifecycle
+(deftest ^:requires-debug trace-listener-lifecycle
   (testing "register-listener! is keyed; same-id re-registration replaces; unregister-listener! removes only that id"
     (let [a-events (atom [])
           b-events (atom [])
@@ -650,7 +660,7 @@
       (rf/unregister-listener! :trace ::a)
       (rf/unregister-listener! :trace ::c))))
 
-(deftest trace-listener-exception-isolation
+(deftest ^:requires-debug trace-listener-exception-isolation
   (testing "a listener that throws does not crash the dispatch flow and does not block other listeners"
     (let [survivor-events (atom [])
           throw-count     (atom 0)]
@@ -702,7 +712,7 @@
 ;;   - A handler WITHOUT the flag emits normally — sanity baseline so
 ;;     the no-emit test doesn't trivially pass on a broken framework.
 
-(deftest no-emit-handler-suppresses-every-cascade-trace
+(deftest ^:requires-debug no-emit-handler-suppresses-every-cascade-trace
   (testing "Handler registration meta `:rf.trace/no-emit? true` causes
             the runtime to emit NO trace events for the dispatch — not
             at queue time (`:event/dispatched`), not at run-start /
@@ -744,7 +754,7 @@
 
       (rf/unregister-listener! :trace ::rec))))
 
-(deftest no-emit-flag-absent-emits-normally
+(deftest ^:requires-debug no-emit-flag-absent-emits-normally
   (testing "Baseline sanity: the SAME dispatch shape WITHOUT
             `:rf.trace/no-emit? true` produces the normal cascade
             traces (`:event/dispatched`, run-start, run-end,

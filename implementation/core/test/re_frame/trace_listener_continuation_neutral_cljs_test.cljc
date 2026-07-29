@@ -76,7 +76,17 @@
     (fn []
       (trace/emit! :rf.registry :rf.test/fenced-emit {:frame frame-id}))))
 
-(deftest listener-body-runs-neutral-while-fence-suppresses-a-tail
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug listener-body-runs-neutral-while-fence-suppresses-a-tail
   (reg-test-events!)
   (let [a-id       :trace.neutral/subject   ;; A and same-id successor B
         c-id       :trace.neutral/unrelated
@@ -143,7 +153,7 @@
           (trace/unregister-listener! ::destroyer)
           (trace/unregister-listener! ::later-a))))))
 
-(deftest non-destroying-listener-does-not-over-suppress-subsequent-listener
+(deftest ^:requires-debug non-destroying-listener-does-not-over-suppress-subsequent-listener
   ;; Mutation guard for the loop's before/after check. When the first listener
   ;; leaves A LIVE (and merely does its own unrelated nested work under neutral
   ;; scope), the subsequent listener MUST still receive A's fenced event — the

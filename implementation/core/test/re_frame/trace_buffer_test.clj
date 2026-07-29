@@ -65,7 +65,17 @@
 
 ;; ---- 1. Per-frame ring -----------------------------------------------------
 
-(deftest trace-buffer-appends-events-as-cascades
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug trace-buffer-appends-events-as-cascades
   (testing "every emit lands in its frame's ring, grouped by :dispatch-id"
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db (assoc db :seen? true)}))
     (rf/dispatch-sync [:ping])
@@ -80,7 +90,7 @@
         (is (seq (:trace-events c)) "trace-events is non-empty")
         (is (some? (:dispatched c)) "cascade carries the :rf.event/dispatched event")))))
 
-(deftest trace-buffer-flat-returns-raw-events
+(deftest ^:requires-debug trace-buffer-flat-returns-raw-events
   (testing "{:flat true} returns the raw event stream"
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (rf/dispatch-sync [:ping])
@@ -92,7 +102,7 @@
 
 ;; ---- 1b. Event-keyed eviction --------------------------------------------
 
-(deftest event-keyed-eviction
+(deftest ^:requires-debug event-keyed-eviction
   (testing "ring evicts by EVENT-BUNDLE slot, not by raw event count"
     (rf/configure! {:trace-buffer {:events-retained 3}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
@@ -101,7 +111,7 @@
       (is (= 3 (count bundles))
           (str "ring caps at 3 event-bundle slots; got " (count bundles))))))
 
-(deftest cascade-burst-cannot-evict-prior-cascades
+(deftest ^:requires-debug cascade-burst-cannot-evict-prior-cascades
   (testing "a single cascade's burst of :rf.sub/skip-like noise can't displace OTHER cascades"
     (rf/configure! {:trace-buffer {:events-retained 5}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
@@ -131,7 +141,7 @@
 
 ;; ---- 1c. Per-frame isolation ---------------------------------------------
 
-(deftest frame-isolation-cascade-bursts-dont-cross-rings
+(deftest ^:requires-debug frame-isolation-cascade-bursts-dont-cross-rings
   (testing "a burst of cascades in one frame cannot evict cascades in another"
     (rf/configure! {:trace-buffer {:events-retained 3}})
     (rf/make-frame {:id :app/main :doc "ordinary application frame"})
@@ -152,7 +162,7 @@
 
 ;; ---- 1d. Frameless emits skip the ring (B3) ------------------------------
 
-(deftest frameless-emits-bypass-the-ring
+(deftest ^:requires-debug frameless-emits-bypass-the-ring
   (testing "trace events emitted OUTSIDE any cascade never land in any ring"
     ;; Emit with no handler-scope and no frame.
     (binding [trace/*handler-scope* nil]
@@ -166,7 +176,7 @@
     (is (empty? (rf/trace-buffer :probe/scope))
         ":probe/scope's ring did NOT pick up the frameless emit either")))
 
-(deftest registration-emits-are-frameless
+(deftest ^:requires-debug registration-emits-are-frameless
   (testing "registering a handler at top level is a frameless emit"
     (rf/clear-trace-buffer! :rf/default)
     ;; reg-event is a frameless emit — no in-flight cascade.
@@ -176,7 +186,7 @@
 
 ;; ---- 1e. events-retained knob ------------------------------------------
 
-(deftest per-frame-events-retained-override
+(deftest ^:requires-debug per-frame-events-retained-override
   (testing ":rf.trace/events-retained on make-frame applies per-frame"
     (rf/configure! {:trace-buffer {:events-retained 5}})
     (rf/make-frame {:id :tb/deep :rf.trace/events-retained 200
@@ -190,7 +200,7 @@
     (is (= 5 (count (rf/trace-buffer :tb/shallow)))
         ":tb/shallow capped at 5 (inherited the process-default of 5)")))
 
-(deftest events-retained-zero-disables-retention
+(deftest ^:requires-debug events-retained-zero-disables-retention
   (testing "{:events-retained 0} disables the ring; surface stays live"
     (rf/configure! {:trace-buffer {:events-retained 0}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
@@ -208,7 +218,7 @@
 ;; ---- 1e-bis. Re-configuring the process default retunes inherited rings ---
 ;; (rf2-va65k finding 1)
 
-(deftest configure-lowers-already-used-inherited-frame
+(deftest ^:requires-debug configure-lowers-already-used-inherited-frame
   (testing "lowering the process default trims an ALREADY-USED inherited ring"
     ;; The frame's ring is allocated (it emitted cascades) and inherits
     ;; the process default — no per-frame override. Lowering the default
@@ -227,7 +237,7 @@
     (is (<= (count (rf/trace-buffer :rf/default)) 1)
         "post-reconfigure emits stay within the lowered cap")))
 
-(deftest configure-retunes-inherited-but-preserves-override
+(deftest ^:requires-debug configure-retunes-inherited-but-preserves-override
   (testing "a re-configured default retunes inherited frames; explicit overrides survive"
     (rf/configure! {:trace-buffer {:events-retained 50}})
     ;; :tb/inherit takes the process default; :tb/pinned pins its own cap.
@@ -247,7 +257,7 @@
     (is (= 8 (count (rf/trace-buffer :tb/pinned)))
         "explicit per-frame override is NOT clobbered by the new default")))
 
-(deftest configure-zero-disables-inherited-ring-only
+(deftest ^:requires-debug configure-zero-disables-inherited-ring-only
   (testing "configure! 0 disables inherited rings but leaves overrides alone"
     (rf/make-frame {:id :tb/inherit :doc "inherits"})
     (rf/make-frame {:id :tb/pinned :rf.trace/events-retained 4 :doc "override"})
@@ -263,7 +273,7 @@
 ;; ---- 1e-ter. Per-frame override registered BEFORE first emit -------------
 ;; (rf2-va65k finding 2)
 
-(deftest per-frame-override-before-first-emit-does-not-crash
+(deftest ^:requires-debug per-frame-override-before-first-emit-does-not-crash
   (testing "make-frame with a low cap BEFORE first dispatch survives a cap-exceeding burst"
     ;; Pre-fix: set-frame-events-retained! wrote a partial
     ;; {:events-retained N} map (no :run-order). push-to-ring!
@@ -285,7 +295,7 @@
         (is (apply < ids) "retained cascades are in oldest-first order")
         (is (= ids (vec (sort ids))) "oldest-first preserved after eviction")))))
 
-(deftest per-frame-override-zero-before-first-emit-disables-cleanly
+(deftest ^:requires-debug per-frame-override-zero-before-first-emit-disables-cleanly
   (testing "a 0 per-frame override before first emit disables the ring without crashing"
     (rf/make-frame {:id :tb/silent :rf.trace/events-retained 0 :doc "disabled"})
     (rf/reg-event :tb/ev (fn [{:keys [db]} _] {:db db}))
@@ -296,7 +306,7 @@
 
 ;; ---- 1f. clear-trace-buffer! and frame-destroy --------------------------
 
-(deftest clear-trace-buffer-clears-only-the-named-frame
+(deftest ^:requires-debug clear-trace-buffer-clears-only-the-named-frame
   (testing "clear-trace-buffer! is per-frame"
     (rf/make-frame {:id :app/a :doc "a"})
     (rf/make-frame {:id :app/b :doc "b"})
@@ -309,7 +319,7 @@
     (is (= [] (rf/trace-buffer :app/a)) ":app/a's ring is empty")
     (is (seq (rf/trace-buffer :app/b)) ":app/b's ring is intact")))
 
-(deftest frame-destroy-clears-the-rings
+(deftest ^:requires-debug frame-destroy-clears-the-rings
   (testing "destroy-frame! releases the destroyed frame's ring"
     (rf/make-frame {:id :app/transient :doc "short-lived"})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
@@ -320,28 +330,28 @@
     (is (= [] (rf/trace-buffer :app/transient))
         "ring is empty after frame destroy")))
 
-(deftest read-against-unknown-frame-returns-empty
+(deftest ^:requires-debug read-against-unknown-frame-returns-empty
   (testing "trace-buffer for a never-registered frame returns []"
     (is (= [] (rf/trace-buffer :no-such-frame)))
     (is (= [] (rf/trace-buffer :no-such-frame {:flat true})))))
 
 ;; ---- 1g. Filter vocabulary (event-level, :flat true) ---------------------
 
-(deftest trace-buffer-filter-operation
+(deftest ^:requires-debug trace-buffer-filter-operation
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping])
   (let [dispatched (flat-events :rf/default {:operation :rf.event/dispatched})]
     (is (seq dispatched))
     (is (every? #(= :rf.event/dispatched (:operation %)) dispatched))))
 
-(deftest trace-buffer-filter-op-type
+(deftest ^:requires-debug trace-buffer-filter-op-type
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping])
   (let [event-only (flat-events :rf/default {:op-type :rf.event})]
     (is (seq event-only))
     (is (every? #(= :rf.event (:op-type %)) event-only))))
 
-(deftest trace-buffer-filter-since
+(deftest ^:requires-debug trace-buffer-filter-since
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping])
   (let [pre-id (-> (flat-events :rf/default) last :id)]
@@ -350,14 +360,14 @@
       (is (seq after))
       (is (every? #(> (:id %) pre-id) after)))))
 
-(deftest trace-buffer-filter-severity
+(deftest ^:requires-debug trace-buffer-filter-severity
   (testing ":severity :error narrows to :op-type :error events"
     (rf/dispatch-sync [:no-such-event-handler])
     (let [errs (flat-events :rf/default {:severity :error})]
       (is (seq errs))
       (is (every? #(= :error (:op-type %)) errs)))))
 
-(deftest trace-buffer-filter-event-id
+(deftest ^:requires-debug trace-buffer-filter-event-id
   (rf/reg-event :ev/alpha (fn [{:keys [db]} _] {:db db}))
   (rf/reg-event :ev/beta  (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ev/alpha])
@@ -366,14 +376,14 @@
     (is (seq alpha))
     (is (every? #(= :ev/alpha (get-in % [:tags :rf.trace/event-id])) alpha))))
 
-(deftest trace-buffer-filter-handler-id
+(deftest ^:requires-debug trace-buffer-filter-handler-id
   (rf/reg-event :ev/throws (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
   (try (rf/dispatch-sync [:ev/throws]) (catch Throwable _ nil))
   (let [hits (flat-events :rf/default {:handler-id :ev/throws})]
     (is (seq hits))
     (is (every? #(= :ev/throws (get-in % [:tags :handler-id])) hits))))
 
-(deftest trace-buffer-filter-source
+(deftest ^:requires-debug trace-buffer-filter-source
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping] {:source :repl})
   (rf/dispatch-sync [:ping] {:source :after-timer})
@@ -382,7 +392,7 @@
     (is (every? #(= :repl (or (:source %) (get-in % [:tags :source])))
                 repl-evs))))
 
-(deftest trace-buffer-filter-origin
+(deftest ^:requires-debug trace-buffer-filter-origin
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping] {:origin :pair})
   (rf/dispatch-sync [:ping] {:origin :story})
@@ -390,7 +400,7 @@
     (is (seq pair-evs))
     (is (every? #(= :pair (get-in % [:tags :rf.event/origin])) pair-evs))))
 
-(deftest trace-buffer-filter-dispatch-id-flat
+(deftest ^:requires-debug trace-buffer-filter-dispatch-id-flat
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping])
   (rf/dispatch-sync [:ping])
@@ -403,7 +413,7 @@
     (is (seq slice))
     (is (every? #(= target-id (get-in % [:tags :rf.trace/dispatch-id])) slice))))
 
-(deftest trace-buffer-filter-since-ms
+(deftest ^:requires-debug trace-buffer-filter-since-ms
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping])
   (let [pre-time (-> (flat-events :rf/default) last :time)]
@@ -413,7 +423,7 @@
       (is (seq after))
       (is (every? #(> (:time %) pre-time) after)))))
 
-(deftest trace-buffer-filter-between
+(deftest ^:requires-debug trace-buffer-filter-between
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping])
   (let [t0 (-> (flat-events :rf/default) first :time)
@@ -424,7 +434,7 @@
   (let [win (flat-events :rf/default {:between [0 1]})]
     (is (= [] win))))
 
-(deftest trace-buffer-filter-sensitive
+(deftest ^:requires-debug trace-buffer-filter-sensitive
   (testing ":sensitive? filter matches top-level slot"
     (rf/reg-event :ev/x {:rf/sensitive? true} (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :ev/y (fn [{:keys [db]} _] {:db db}))
@@ -437,7 +447,7 @@
       (is (seq plain) "at least one non-sensitive event")
       (is (every? #(not (true? (:sensitive? %))) plain)))))
 
-(deftest trace-buffer-filter-pred
+(deftest ^:requires-debug trace-buffer-filter-pred
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping])
   (let [evs (flat-events :rf/default
@@ -447,7 +457,7 @@
 
 ;; ---- 1h. Cascade-bundle filters ------------------------------------------
 
-(deftest trace-buffer-cascade-filter-event-id
+(deftest ^:requires-debug trace-buffer-cascade-filter-event-id
   (rf/reg-event :ev/alpha (fn [{:keys [db]} _] {:db db}))
   (rf/reg-event :ev/beta  (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ev/alpha])
@@ -456,7 +466,7 @@
     (is (seq alpha))
     (is (every? #(= :ev/alpha (first (:event %))) alpha))))
 
-(deftest trace-buffer-cascade-filter-dispatch-id
+(deftest ^:requires-debug trace-buffer-cascade-filter-dispatch-id
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping])
   (rf/dispatch-sync [:ping])
@@ -467,7 +477,7 @@
         ":dispatch-id narrows event-bundle reads to one cascade")
     (is (= target-id (:dispatch-id (first narrowed))))))
 
-(deftest trace-buffer-cascade-filter-origin
+(deftest ^:requires-debug trace-buffer-cascade-filter-origin
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping] {:origin :pair})
   (rf/dispatch-sync [:ping] {:origin :story})
@@ -477,7 +487,7 @@
 
 ;; ---- 2. :dispatch-id correlation -----------------------------------------
 
-(deftest dispatch-id-allocated-on-every-dispatch
+(deftest ^:requires-debug dispatch-id-allocated-on-every-dispatch
   (testing "every :rf.event/dispatched trace carries a numeric :rf.trace/dispatch-id"
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (rf/dispatch-sync [:ping])
@@ -489,7 +499,7 @@
       (is (every? number? ids))
       (is (= (count (distinct ids)) (count ids))))))
 
-(deftest top-level-dispatch-has-no-parent
+(deftest ^:requires-debug top-level-dispatch-has-no-parent
   (rf/reg-event :standalone (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:standalone])
   (let [ev (->> (flat-events :rf/default)
@@ -499,7 +509,7 @@
     (is ev)
     (is (nil? (get-in ev [:tags :rf.trace/parent-dispatch-id])))))
 
-(deftest fx-dispatch-inherits-parent-dispatch-id
+(deftest ^:requires-debug fx-dispatch-inherits-parent-dispatch-id
   (rf/reg-event :outer (fn [_ _] {:fx [[:dispatch [:inner]]]}))
   (rf/reg-event :inner (fn [{:keys [db]} _] {:db (assoc db :inner? true)}))
   (rf/dispatch-sync [:outer])
@@ -517,7 +527,7 @@
 
 ;; ---- 3. :origin opt -------------------------------------------------------
 
-(deftest origin-defaults-to-app
+(deftest ^:requires-debug origin-defaults-to-app
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping])
   (let [ev (->> (flat-events :rf/default)
@@ -527,7 +537,7 @@
     (is ev)
     (is (= :app (get-in ev [:tags :rf.event/origin])))))
 
-(deftest origin-opt-overrides-default
+(deftest ^:requires-debug origin-opt-overrides-default
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping] {:origin :pair})
   (let [ev (->> (flat-events :rf/default)
@@ -539,7 +549,7 @@
 
 ;; ---- 4. :source opt (post-rf2-1ve9h — collapsed from :rf/dispatch-origin)
 
-(deftest dispatch-source-defaults-to-unknown
+(deftest ^:requires-debug dispatch-source-defaults-to-unknown
   ;; Per rf2-hxj0d the default `:source` is `:unknown` (the un-stamped
   ;; dispatch site). Per rf2-1ve9h the prior parallel
   ;; `:rf/dispatch-origin :user` default was collapsed — the single
@@ -560,7 +570,7 @@
     (is (nil? (get-in ev [:tags :rf/dispatch-origin]))
         ":rf/dispatch-origin retired per rf2-1ve9h")))
 
-(deftest dispatch-source-opt-overrides-default
+(deftest ^:requires-debug dispatch-source-opt-overrides-default
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:ping] {:source :tool})
   (let [ev (->> (flat-events :rf/default)
@@ -570,7 +580,7 @@
     (is ev)
     (is (= :tool (:source ev)))))
 
-(deftest dispatch-source-fx-cascade-stamps-fx-dispatch
+(deftest ^:requires-debug dispatch-source-fx-cascade-stamps-fx-dispatch
   (testing "child dispatches emitted by :dispatch fx are tagged :fx-dispatch"
     ;; Per rf2-c3990: a `:dispatch` fx from a non-machine parent stamps
     ;; `:source :fx-dispatch` on the child envelope (the actor-message
@@ -594,7 +604,7 @@
 
 ;; ---- 5. Frame-level trace-emission gate (rf2-2qaqh) ----------------------
 
-(deftest tool-frame-emits-no-trace
+(deftest ^:requires-debug tool-frame-emits-no-trace
   (testing "a frame registered :rf.trace/frame-no-emit? true grows the ring by 0"
     (rf/make-frame {:id :tool/inspector :rf.trace/frame-no-emit? true})
     (rf/reg-event :tool/work (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
@@ -603,7 +613,7 @@
     (is (= [] (rf/trace-buffer :tool/inspector))
         "no trace event from a trace-disabled frame's cascade reaches the ring")))
 
-(deftest app-frame-emits-trace-while-tool-frame-silent
+(deftest ^:requires-debug app-frame-emits-trace-while-tool-frame-silent
   (testing "an app frame's cascade DOES grow its ring; the tool frame's does NOT"
     (rf/make-frame {:id :tool/inspector :rf.trace/frame-no-emit? true})
     (rf/make-frame {:id :app/main :doc "ordinary application frame"})
@@ -617,7 +627,7 @@
     (is (= [] (rf/trace-buffer :tool/inspector))
         "tool-frame's ring stays empty")))
 
-(deftest destroy-clears-trace-disabled-flag
+(deftest ^:requires-debug destroy-clears-trace-disabled-flag
   ;; rf2-zcl055: `make-frame` adds a `:rf.trace/frame-no-emit? true` frame to
   ;; the process-global trace-disabled set; `destroy-frame!` must remove it
   ;; (the teardown counterpart to `set-frame-no-emit!`, symmetric with the
@@ -651,7 +661,7 @@
 ;; tests call `trace/emit!` directly with tags that carry NO `:frame` key,
 ;; so only the current-frame-hook resolution path is exercised.
 
-(deftest untagged-emit-suppressed-when-current-frame-is-tool-disabled
+(deftest ^:requires-debug untagged-emit-suppressed-when-current-frame-is-tool-disabled
   (testing "an un-tagged emit (no :frame key in tags), resolved via the
             ambient *current-frame* scope, is suppressed when that frame
             is trace-disabled — not just a tagged emit"
@@ -664,7 +674,7 @@
           "the un-tagged emit never reached the listener — suppressed via the current-frame-hook path")
       (rf/unregister-listener! :trace ::untagged))))
 
-(deftest untagged-emit-not-suppressed-under-a-plain-app-frame
+(deftest ^:requires-debug untagged-emit-not-suppressed-under-a-plain-app-frame
   (testing "control: the SAME un-tagged emit under a non-disabled app
             frame's ambient scope IS delivered — proves the suppression
             above is frame-specific, not some other global gate"
@@ -679,7 +689,7 @@
 
 ;; ---- 6. B4 hot-reload dedup-by-shape ------------------------------------
 
-(deftest hot-reload-unchanged-handler-emits-zero-traces
+(deftest ^:requires-debug hot-reload-unchanged-handler-emits-zero-traces
   (testing "re-registering an identical handler emits ZERO traces (B4 dedup)"
     (let [handler-fn (fn [{:keys [db]} _] {:db db})]
       (rf/reg-event :ev/hot {:doc "hot"} handler-fn)
@@ -692,7 +702,7 @@
                                               :op-type :rf.registry}))
           "no :rf.registry/* traces from idempotent hot-reload"))))
 
-(deftest hot-reload-changed-handler-emits-one-trace
+(deftest ^:requires-debug hot-reload-changed-handler-emits-one-trace
   (testing "re-registering a CHANGED handler emits exactly one :rf.registry/handler-replaced"
     (let [recv (atom [])]
       (rf/register-listener! :trace ::probe
@@ -709,7 +719,7 @@
           "exactly one :rf.registry/handler-replaced emitted on real edit")
       (is (= :ev/hot (-> @recv first :tags :id))))))
 
-(deftest hot-reload-dedup-clears-on-reset
+(deftest ^:requires-debug hot-reload-dedup-clears-on-reset
   (testing "clear-listeners! (and clear-trace-rings!) reset the dedup table"
     (let [handler-fn (fn [{:keys [db]} _] {:db db})
           recv (atom [])]
@@ -729,7 +739,7 @@
       (is (seq @recv)
           "post-clear re-registration emits at least one registry trace"))))
 
-(deftest hot-reload-dedup-per-kind-id
+(deftest ^:requires-debug hot-reload-dedup-per-kind-id
   (testing "dedup is per-(kind, id) — separate ids don't interfere"
     (let [recv (atom [])]
       (rf/register-listener! :trace ::probe

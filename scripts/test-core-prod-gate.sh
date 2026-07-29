@@ -44,7 +44,7 @@
 # a rewrite of how those assertions are spelled.  Triage beads are named per
 # cluster below.
 #
-# What is left IS green, and it is not a rump: 158 namespaces, 1931 tests, 8324
+# What is left IS green, and it is not a rump: 173 namespaces, 1933 tests, 8332
 # assertions, exit 0 — versus the zero suites that had ever executed under this
 # posture before.  (It was
 # 88 / 934 / 4340 tests/assertions before rf2-d2841 split the spine's
@@ -54,23 +54,58 @@
 # `sub-topology`, `init-platform`, `pattern-smoke` and `db-noop-commit`,
 # 103 / 1213 / 5590 before its third pass took twenty more, 123 / 1401 / 6054
 # before its FOURTH pass took seventeen more, 141 / 1560 / 6707 before its
-# FIFTH pass took thirteen more, and 154 / 1740 / 7342 before its SIXTH pass
-# took the last four ACTIONABLE lines under that bead's heading.  Each pass's
-# namespaces are named in its commits — `git log --grep=rf2-d2841`.)
+# FIFTH pass took thirteen more, 154 / 1740 / 7342 before its SIXTH pass
+# took the last four ACTIONABLE lines under that bead's heading, and
+# 158 / 1931 / 8324 before its SEVENTH emptied that heading with the
+# `^:requires-debug` tag below.  Each pass's namespaces are named in its
+# commits — `git log --grep=rf2-d2841`.)
 #
-# WHAT REMAINS EXCLUDED, and why it is not more of the same work.  Of the 27,
-# twelve sit under other headings (eleven under rf2-r9bra plus
-# `features-cljs-test`).  The fifteen still under rf2-d2841 — the ten
-# `trace-listener-*` suites plus `trace`, `db-pending-trace`,
-# `sub-dispose-trace`, `trace-buffer` and `trace.structural-retention-cljs` —
-# have NO semantic residue to separate: they are about the trace machinery
-# itself, end to end, so guarding them would leave nothing behind and make each
-# one class 2.  Those want a var-level `-e :requires-debug` exclusion tag
-# declared in `implementation/deps.edn`, not a posture split, and that file is
-# outside this bead's fence.  Several also HANG rather than fail under the gate
-# (a `CountDownLatch` waiting on trace events that never arrive), so keep them
-# out of any exploratory `-n` sweep.  With those fifteen blocked on a change
-# elsewhere, this bead's ACTIONABLE work is complete at the sixth pass.
+# THE SEVENTH PASS IS THE ONE WHOSE NUMBERS LOOK WRONG, and they are worth
+# reading correctly: +15 namespaces but only +2 tests.  That is not a small
+# change, it is a change of a different KIND.  Fourteen of the fifteen
+# contribute no test here BY DESIGN — they are tagged, and the lane's claim
+# about them is that they LOAD under the production gate, not that they ran.
+# The +2 are the two deftests that turned out to be carrying production
+# semantics after all (see the rf2-d2841 heading below).
+#
+# WHERE THE TRACE SUITES WENT (rf2-d2841, seventh pass).  Fifteen namespaces
+# used to sit on this roster under that bead — the ten `trace-listener-*`
+# suites plus `trace`, `db-pending-trace`, `sub-dispose-trace`, `trace-buffer`
+# and `trace.structural-retention-cljs`.  They had no semantic residue to
+# separate: they are about the trace machinery ITSELF, end to end, so the
+# `(when interop/debug-enabled? …)` split every other pass used would have left
+# EMPTY deftests reporting success — the class-2 false green this lane exists
+# to close.  They are no longer excluded HERE.  Each of their deftests now
+# carries `^:requires-debug`, and the `:prod-gate` alias skips that tag
+# (`implementation/core/deps.edn`, `-e :requires-debug`).
+#
+# THE TAG IS HONEST WHERE A GUARD WOULD LIE.  A guard says "this ran and
+# passed"; the tag says "this namespace requires the debug build", and the
+# tally backs it up — cognitect's `contains-tests?` drops a fully-tagged
+# namespace before `run-tests` sees it, so those deftests contribute no test
+# and no assertion here.  Nothing green is claimed for work that did not
+# happen.
+#
+# IT IS ALSO STRICTLY MORE COVERAGE THAN THE ROSTER LINE WAS.  cognitect
+# `require`s every `-n` namespace BEFORE filtering vars, so all fifteen are now
+# LOADED under `-Dre-frame.debug=false`.  A top-level form that blows up under
+# the production gate reddens this job; while they were rostered they were not
+# on the lane's classpath at all.  (This is also why the hazard those files
+# carried is gone: several HANG rather than fail under the gate — a
+# `CountDownLatch` waiting on trace events that never arrive — and the tag
+# means their bodies never run here.  Anyone probing them by hand with a bare
+# `-n` still needs a timeout.)
+#
+# AND THE GRANULARITY IS VAR-LEVEL BY NECESSITY AS WELL AS BY CHOICE.
+# cognitect's `-e` reads VAR metadata; it never looks at the `(ns …)` form's
+# metadata, so a namespace-level marker would be silently inert.  Var
+# granularity is also what preserves this file's polarity one level down: a new
+# deftest added to a tagged namespace is UNTAGGED, so it joins the lane by
+# default and has to be excluded deliberately, exactly as a new FILE does.
+#
+# WHAT REMAINS EXCLUDED, and why it is not more of the same work.  All twelve
+# sit under other headings: eleven under rf2-r9bra, plus `features-cljs-test`.
+# rf2-d2841's heading is empty.
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -170,14 +205,27 @@ known_red=(
   #    copying: its adversarial discriminators read frame-state OBJECT
   #    IDENTITY off `frame/frame-state-value`, which needs no channel at all.
   #
-  #    NOTE for whoever finishes this list: a namespace whose EVERY deftest
-  #    is about the dev trace (the `trace-listener-*` cohort, `trace-test`,
-  #    `db-pending-trace-test`, `sub-dispose-trace-test`, …) has no semantic
-  #    residue to run under the gate. Guarding it wholesale and deleting its
+  #    THE NOTE THAT USED TO STAND HERE — that a namespace whose EVERY
+  #    deftest is about the dev trace (the `trace-listener-*` cohort,
+  #    `trace-test`, `db-pending-trace-test`, `sub-dispose-trace-test`, …)
+  #    has no semantic residue, so guarding it wholesale and deleting its
   #    roster line would report GREEN for a namespace that executed nothing
-  #    — the false-green this lane exists to close. Those want a var-level
-  #    tag the lane excludes (the `-e :requires-debug` idea above), not a
-  #    posture guard.
+  #    — is now DISCHARGED rather than pending. Those fifteen declare
+  #    `^:requires-debug` per deftest and this lane excludes the tag. See
+  #    "WHERE THE TRACE SUITES WENT" in the header.
+  #
+  #    AND THE PREMISE WAS NOT UNIFORMLY TRUE, which is the seventh pass's
+  #    finding. "100% dev instrumentation" was right for fourteen of the
+  #    fifteen; `sub-dispose-trace-test` was carrying PRODUCTION sub-cache
+  #    claims — that a synchronous dispose leaves a resubscribe rebuilding a
+  #    FRESH reaction (rf2-cmfln), and that one input's throwing release does
+  #    not abort the walk over the others (rf2-is8ov5) — inline with the
+  #    dispose-emit assertions that were reddening the namespace. Both are
+  #    about `interop/dispose!` and the cache map, neither needs the trace,
+  #    and neither had ever run under this posture. They were split out and
+  #    left UNTAGGED, so they are in the lane. Read the whole namespace before
+  #    accepting "it is all instrumentation" — that is the same rule the third
+  #    pass wrote down for the opposite direction.
   #
   #    THE THIRD PASS'S LESSON: THE FILES THAT ALREADY LOOK GREEN ARE WHERE
   #    THE ROT IS. Of the eleven namespaces taken off in that pass, seven were
@@ -243,21 +291,9 @@ known_red=(
   #    message.  The fix was not a guard — `projected-record` is a pure
   #    function of a record plus the frame's durable elision registry, so the
   #    profile rows now drive a SYNTHETIC record and run in both postures.
-  re-frame.db-pending-trace-test
-  re-frame.sub-dispose-trace-test
-  re-frame.trace-buffer-test
-  re-frame.trace-listener-concurrent-drain-serialization-test
-  re-frame.trace-listener-concurrent-serialization-test
-  re-frame.trace-listener-continuation-neutral-cljs-test
-  re-frame.trace-listener-deferred-batch-fifo-cljs-test
-  re-frame.trace-listener-drain-deadlock-test
-  re-frame.trace-listener-frame-tagged-serialization-test
-  re-frame.trace-listener-nested-emission-order-cljs-test
-  re-frame.trace-listener-post-drain-settled-state-cljs-test
-  re-frame.trace-listener-reentrant-dispatch-sync-deferral-test
-  re-frame.trace-listener-test
-  re-frame.trace-test
-  re-frame.trace.structural-retention-cljs-test
+  #
+  #    THIS HEADING IS NOW EMPTY, and the last fifteen came off WITHOUT a
+  #    posture split — see "WHERE THE TRACE SUITES WENT" below.
 )
 
 # ---------------------------------------------------------------------------
@@ -355,13 +391,11 @@ fi
 # ordinary churn; raise it when the roster grows materially.
 #
 # RAISED 800 -> 1360 (rf2-d2841, third pass), 1360 -> 1510 (fourth pass),
-# 1510 -> 1690 (fifth pass), then 1690 -> 1880 (sixth pass).  800 was
-# calibrated against the 915-test lane of rf2-f8x2i's original run and had
-# stopped doing its job.  1360 was calibrated against 1401 and stopped doing
-# its job the same way; 1510 did the same in its turn; and 1690 has now done
-# the same again: the lane runs 1931 tests, and the FOUR namespaces the sixth
-# pass added are 191 of them — losing the whole batch lands at 1740, which
-# 1690 waves through.  1880 notices that while leaving ~3% for ordinary churn.
+# 1510 -> 1690 (fifth pass), 1690 -> 1880 (sixth pass), then 1880 -> 1900
+# (seventh).  800 was calibrated against the 915-test lane of rf2-f8x2i's
+# original run and had stopped doing its job.  1360 was calibrated against 1401
+# and stopped doing its job the same way; 1510 did the same in its turn; and so
+# did 1690, against the 1931 tests the sixth pass left.
 #
 # Note how much a small batch can be worth: the sixth pass added only four
 # namespaces but 191 tests, because the two largest — `observation-port-cljs`
@@ -370,9 +404,31 @@ fi
 # is the right variable for exactly this reason.
 #
 # The floor is a COLLAPSE DETECTOR, not a target, and the rule that follows
-# from that is why it has moved every pass: it must sit close enough under the
+# from that is why it moved every pass: it must sit close enough under the
 # observed count that THE SMALLEST BATCH ANYONE LANDS IS STILL VISIBLE.  A
 # floor left behind by a growing lane is not conservative, it is inert.
+#
+# THE SEVENTH PASS RAISED IT FOR A DIFFERENT REASON, and the difference
+# matters.  That pass added only two tests, so no floor could have made its
+# batch visible — the rule above ran out of road, because `^:requires-debug` is
+# a VAR-level tag and the smallest thing it can remove is one deftest.  What
+# the tag introduces instead is a new way to lose coverage QUIETLY: a roster
+# line sits in this reviewed file, whereas an over-broad tag is one word in a
+# test file, and nothing else counts what it excluded.
+#
+# So the floor is now doing a second job: it is the budget for tagging.  At
+# 1900 against 1933 there are 33 tests of slack, so tagging more than about
+# thirty tests' worth of deftests reddens this lane and the author has to come
+# here and move the number — which is exactly the review prompt a
+# coverage-reducing change should trigger.  That is deliberate.  Do not raise
+# the floor to make room for a tag without saying, in the same diff, what was
+# tagged and why it has no production residue.
+#
+# Note which direction the OTHER failure mode falls.  If `-e :requires-debug`
+# is ever dropped from the `:prod-gate` alias or misspelled, the fifteen tagged
+# namespaces run under `-Dre-frame.debug=false` and this lane goes RED, loudly.
+# A lost exclusion cannot go quietly green here; only an over-applied tag can,
+# and that is what the 33-test budget above is for.
 #
 # WHAT THE FLOOR DOES NOT CATCH, and what caught it out during the fifth pass:
 # a test file whose `(ns ...)` FORM is malformed is invisible to
@@ -390,7 +446,7 @@ fi
 # invokes, so the rule covers every lane in the repo rather than this one, and
 # it fires before a single test runs.  `verify_roster` below is unchanged and
 # still cannot see this class on its own — see its guard #1.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1880}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1900}"
 
 args=()
 for ns in $runnable; do

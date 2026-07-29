@@ -25,7 +25,17 @@
 (defn- flat [frame-id]
   (trace-tooling/trace-buffer frame-id {:flat true}))
 
-(deftest ordinary-emit-is-retained-structural-emit-is-not
+;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; no-op, so there is no semantic residue to run under that posture, and a
+;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
+;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; below is therefore TAGGED, and the production-gate lane skips the tag rather
+;; than the file: the namespace is still LOADED there, so a load-time failure
+;; under the gate still reddens the job, and an untagged new deftest joins that
+;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+
+(deftest ^:requires-debug ordinary-emit-is-retained-structural-emit-is-not
   (testing "ring retention is gated ONLY by structural delivery; live delivery is not"
     (let [fid  :rf2-244/sync-frame
           did  :rf2-244/run-1
@@ -63,7 +73,7 @@
           (trace-tooling/clear-trace-rings!)
           (trace/clear-listeners!))))))
 
-(deftest structural-emit-never-allocates-a-successor-ring
+(deftest ^:requires-debug structural-emit-never-allocates-a-successor-ring
   (testing "a structural emit tagged with a never-emitted frame id creates no ring"
     ;; This is the same-id-successor case in miniature: `fid` stands in for B's
     ;; freshly-installed id, which has emitted nothing of its own yet. A's
@@ -109,7 +119,7 @@
 ;; explicitly nested `call-with-structural-delivery` can still re-request
 ;; structural semantics.
 
-(deftest listener-triggered-nested-emit-runs-under-normal-scope
+(deftest ^:requires-debug listener-triggered-nested-emit-runs-under-normal-scope
   (testing "a public listener reacting to A's structural terminal fact that emits
             legitimate nested work into unrelated frame C: the nested emit gets
             NORMAL ring retention, not A's outer retentionless scope (rf2-vf2qke)"
@@ -160,7 +170,7 @@
           (trace-tooling/clear-trace-rings!)
           (trace/clear-listeners!))))))
 
-(deftest explicitly-nested-structural-delivery-stays-retentionless
+(deftest ^:requires-debug explicitly-nested-structural-delivery-stays-retentionless
   (testing "a listener that itself re-requests structural delivery for its nested
             emit keeps retentionless semantics — restoring ordinary defaults for
             the fan-out does not defeat an explicit nested request (rf2-vf2qke)"
@@ -196,7 +206,7 @@
           (trace-tooling/clear-trace-rings!)
           (trace/clear-listeners!))))))
 
-(deftest error-emit-under-structural-delivery-is-also-retentionless
+(deftest ^:requires-debug error-emit-under-structural-delivery-is-also-retentionless
   (testing "emit-error! honours the retentionless boundary too (terminal diagnostics)"
     ;; A's terminal diagnostics (`:rf.epoch.cb/listener-exception`,
     ;; `:rf.warning/teardown-hook-exception`) travel through `emit-error!`

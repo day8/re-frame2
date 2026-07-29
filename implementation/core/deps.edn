@@ -148,17 +148,51 @@
   ;; arriving.
   ;;
   ;; NOT THE WHOLE SUITE, YET. Under the real gate 91 of this artefact's 174
-  ;; test namespaces are red, almost all of them asserting dev instrumentation
+  ;; test namespaces were red, almost all of them asserting dev instrumentation
   ;; (traces, the `:errors` sink, doc metadata, source coords) inline with
   ;; semantics — legitimate dev-posture tests, not defects. The runnable
   ;; roster therefore lives in `scripts/test-core-prod-gate.sh`, which appends
   ;; `-n` selectors for every namespace MINUS a documented known-red list, so
-  ;; a NEW namespace joins the lane by default. What runs today is 83
-  ;; namespaces / 915 tests / 4257 assertions, green. Do not invoke this alias
+  ;; a NEW namespace joins the lane by default. Do not invoke this alias
   ;; bare; run the script.
+  ;;
+  ;; `-e :requires-debug` — THE DEV-ONLY DECLARATION (rf2-d2841, seventh pass).
+  ;; Most of that bead's namespaces were SPLIT: the instrumentation assertions
+  ;; went inside `(when interop/debug-enabled? …)` and the semantics beside
+  ;; them stayed always-on, so the namespace joined this lane carrying real
+  ;; claims. Fifteen could not be split, because they are about the trace
+  ;; machinery ITSELF, end to end — the ten `trace-listener-*` suites plus
+  ;; `trace`, `db-pending-trace`, `sub-dispose-trace`, `trace-buffer` and
+  ;; `trace.structural-retention-cljs`. Guarding those wholesale would leave
+  ;; EMPTY deftests reporting green, which is the false green this lane exists
+  ;; to close. So they declare the posture they need instead, per deftest, and
+  ;; this lane skips the tag.
+  ;;
+  ;; THE TAG IS VAR-LEVEL, AND THAT IS THE WHOLE POINT. cognitect-test-runner's
+  ;; `-e` reads VAR metadata (`var-filter` calls `(meta v)` on each interned
+  ;; test var); it never consults namespace metadata, so a marker on the `(ns
+  ;; …)` form would be silently INERT — a suppression that suppresses nothing,
+  ;; or, read the other way, an exclusion nobody can see the effect of. Var
+  ;; granularity also keeps this lane's polarity: a new deftest added to a
+  ;; tagged namespace is UNTAGGED, so it joins the gate lane by default and has
+  ;; to be excluded deliberately. A namespace-level marker would swallow it.
+  ;;
+  ;; AND THE NAMESPACE STILL RUNS SOMETHING. cognitect `require`s every `-n`
+  ;; namespace BEFORE it filters vars, so a tagged namespace is still LOADED
+  ;; under `-Dre-frame.debug=false` and a load-time failure there still reddens
+  ;; this job — strictly more than the roster line it replaced, which kept the
+  ;; file off the classpath altogether. What the tag does NOT do is claim the
+  ;; tests ran: `contains-tests?` drops a fully-tagged namespace before
+  ;; `run-tests` sees it, so it contributes no test and no assertion to the
+  ;; tally, and nothing green is reported for work that did not happen.
+  ;;
+  ;; The tag is DEV-LANE-NEUTRAL. It appears in no other `:main-opts` in this
+  ;; file, so `clojure -M:test` runs every tagged deftest exactly as before;
+  ;; the tag narrows this lane only.
   :prod-gate
   {:jvm-opts  ["-Dre-frame.debug=false"]
-   :main-opts ["-m" "re-frame.test-quiet.runner" "-e" ":slow" "-e" ":stress"]}
+   :main-opts ["-m" "re-frame.test-quiet.runner"
+               "-e" ":slow" "-e" ":stress" "-e" ":requires-debug"]}
 
   ;; Nightly/rigorous slow-test gate. INCLUDES ONLY the
   ;; `^:slow` / `^:stress` tests (the union the default `:test` alias
