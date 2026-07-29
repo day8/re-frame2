@@ -736,14 +736,32 @@
   Public so adapter-side driver guards that gate on \"is MY adapter the
   installed one?\" (e.g. the Test-React `mount!` driver) share the one
   stable-token predicate `route-hook!` uses, rather than re-deriving an
-  object-identity check that would reject a copied canonical map."
+  object-identity check that would reject a copied canonical map.
+
+  SPELLING IS LOAD-BEARING, and the flat nest of `if`s below is deliberate
+  (rf2-2ix22). The obvious spelling — `(boolean (and a b (let [ka (:kind a)]
+  …)))` — puts a `let` in EXPRESSION position under `boolean`/`and`, and
+  ClojureScript emits a `let` in expression context as an IIFE (compiler.cljc
+  L1139-1162, r1.12.145). `:advanced` does not remove it, so every call
+  allocated one JS closure plus its context: measured at 144.1 B/call against
+  4.1 for this flat form, CLJS / node 24.13.0 / V8 13.6, `:advanced` +
+  `goog.DEBUG=false`. This predicate is on the ambient-frame reader's hot
+  path — every routed hook call, on every chain link, of every routed hook in
+  the bundle — so that was 53% of the reader's whole per-call cost. The two
+  spellings are semantically identical (every leaf of both is already
+  boolean: canonical kinds compare with `=`, custom/kindless adapters with
+  `identical?`, falsey inputs return `false`), and the read-attribution
+  bench's agreement gate runs them over nine discriminating cases. Do not
+  \"tidy\" this back into `boolean`/`and`."
   [a b]
-  (boolean
-    (and a b
-         (let [ka (:kind a)]
-           (if (canonical-kind? ka)
-             (= ka (:kind b))
-             (identical? a b))))))
+  (if a
+    (if b
+      (let [ka (:kind a)]
+        (if (canonical-kind? ka)
+          (= ka (:kind b))
+          (identical? a b)))
+      false)
+    false))
 
 ;; ---- late-bind hook routing (rf2-0d35) ------------------------------------
 ;;
@@ -794,7 +812,38 @@
   ([adapter-spec hook-key impl-fn fallback-fn]
    (let [previous (late-bind/get-fn hook-key)]
      (late-bind/set-fn! hook-key
-       (fn routed-hook [& args]
-         (if (same-adapter? adapter-spec (current-adapter-spec))
-           (apply impl-fn args)
-           (if previous (apply previous args) (fallback-fn))))))))
+       ;; EXPLICIT ARITIES, and the repetition is the mechanism (rf2-2ix22).
+       ;; The obvious spelling is one variadic body forwarding with
+       ;; `(apply impl-fn args)` — but `route-hook!` publishes ~11 hook keys
+       ;; for every adapter in the bundle and they would all share that ONE
+       ;; `apply` site, so its callee is polymorphic there and
+       ;; `cljs.core/apply` cannot be inlined: it enters generic invocation
+       ;; dispatch and examines the function and the argument seq on every
+       ;; call. Spelling the common arities out calls `impl-fn` (and the
+       ;; chained `previous`) DIRECTLY instead. Repository call sites use 0,
+       ;; 1 or 2 arguments routinely; `:adapter/wrap-view`'s 3 and any
+       ;; future/custom arity take the variadic tail, which keeps the
+       ;; generality and pays the old cost only where it is rare.
+       ;;
+       ;; The generated shape is not a contract. What IS — and what
+       ;; `routing_arity_cljs_test` pins at 0/1/2/3/4 arguments on all three
+       ;; routes — is that every arity forwards the same arguments, answers
+       ;; the same value, chains in the same order, and calls `fallback-fn`
+       ;; as a ZERO-argument thunk.
+       (fn routed-hook
+         ([]
+          (if (same-adapter? adapter-spec (current-adapter-spec))
+            (impl-fn)
+            (if previous (previous) (fallback-fn))))
+         ([a]
+          (if (same-adapter? adapter-spec (current-adapter-spec))
+            (impl-fn a)
+            (if previous (previous a) (fallback-fn))))
+         ([a b]
+          (if (same-adapter? adapter-spec (current-adapter-spec))
+            (impl-fn a b)
+            (if previous (previous a b) (fallback-fn))))
+         ([a b & more]
+          (if (same-adapter? adapter-spec (current-adapter-spec))
+            (apply impl-fn a b more)
+            (if previous (apply previous a b more) (fallback-fn)))))))))
