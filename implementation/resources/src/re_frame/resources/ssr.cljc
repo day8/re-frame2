@@ -130,8 +130,10 @@
 ;;     `:sensitive` / `:large` PATH declarations on the resource spec (EP-0025).
 ;;     They are LOWERED per instance into the per-frame elision registry
 ;;     (`classification/reconcile-registry`, `:source :resource`) at the entry's
-;;     absolute runtime-db path, and the SSR egress READS that registry back
-;;     (`project-entry-data` / `project-entry-params`). The per-slot
+;;     absolute runtime-db path, and the SSR egress READS that registry back —
+;;     `project-entry-data` for `:data`, and `project-entry-scope` /
+;;     `project-entry-params` for the scoped key's two classification-bearing
+;;     components (indices 0 and 2 of `:resource/key`). The per-slot
 ;;     `:sensitive?` / `:large?` props on a co-present `:data-schema` /
 ;;     `:params-schema` do NOT drive durable egress classification — the schema
 ;;     VALIDATES, it does not classify (rf2-fuqcob); a schema mark serves only
@@ -231,11 +233,14 @@
     - `:serialize` — the key rides VERBATIM (scope + params unchanged). A
       per-slot `:params` / `:scope` projection-relative declaration on a
       `:serialize` resource is the REGISTRY-DRIVEN concern of the SSR
-      `project-entry` path (`classification/project-entry-params`, rf2-d3pku1):
-      it has the entry's `key-id` + the live SSR frame, so it walks the params
-      component through `project-egress` seeded at the lowered registry path.
-      The trace / tool egress callers pass `:serialize` through verbatim (they
-      rely on the coarse disposition + the digest below, not per-slot params);
+      `project-entry` path (`classification/project-entry-params` at index 2,
+      rf2-d3pku1; `classification/project-entry-scope` at index 0, rf2-5e2ye):
+      it has the entry's `key-id` + the live SSR frame, so it walks each
+      component through `project-egress` seeded at that component's own lowered
+      registry path. The trace / tool egress callers do NOT get their per-slot
+      answer here either — `trace-egress/redact-key-declarations` (rf2-dl7bz)
+      derives the same two-component substitution from the SPEC, because a
+      frameless trace boundary cannot read the registry;
     - `:redact` / `:omit` — the scope and params are replaced by opaque
       content-addressed `{:rf/redacted <digest>}` tokens so the sensitive /
       large raw identity does NOT ride, while the resource-id (position 1) and
@@ -269,8 +274,9 @@
        `{:rf/redacted <digest>}` tokens; `:serialize` rides VERBATIM — the
        resource-id always survives. A `:serialize` key's per-slot `:params` /
        `:scope` projection-relative declarations are the registry-driven concern
-       of the SSR `project-entry` caller, `classification/project-entry-params`,
-       which has the entry's `key-id` + the live frame).
+       of the SSR `project-entry` caller — `classification/project-entry-scope`
+       at index 0 and `classification/project-entry-params` at index 2 — which
+       has the entry's `key-id` + the live frame).
 
   The single home for the pipeline the SSR durable-egress projection
   (`project-entry`), the TOOL-egress algebra view (`tooling/project-key-for-
@@ -406,18 +412,37 @@
         ;; key computed above (`disposition+project-key`), matching the wire MAP
         ;; key: a `:redact` / `:omit` resource redacts its scope + params to
         ;; opaque content-addressed tokens here too, so the raw identity never
-        ;; rides in EITHER carrier. A `:serialize` key's PARAMS component (index
-        ;; 2) is REGISTRY-PROJECTED (rf2-d3pku1): `classification/project-entry-
-        ;; params` walks it through `project-egress` seeded at the lowered params
-        ;; path so a per-slot `:params` / `:scope` declaration redacts in the wire
-        ;; key without the raw value riding. The client's `recompute-indexes`
-        ;; keys index members on the byte `key-id` of this projected
-        ;; `:resource/key`.
+        ;; rides in EITHER carrier.
+        ;;
+        ;; A `:serialize` key's BOTH classification-bearing components are
+        ;; REGISTRY-PROJECTED — the SCOPE at index 0 (rf2-5e2ye) and the PARAMS
+        ;; at index 2 (rf2-d3pku1). `reconcile-registry` lowers a `:scope`-rooted
+        ;; declaration to `[… :resource/key 0 …]` and a `:params`-rooted one to
+        ;; `[… :resource/key 2 …]`, so each component walks through
+        ;; `project-egress` seeded at its OWN lowered offset and a per-slot
+        ;; declaration redacts in the wire key without the raw value riding. Both
+        ;; arms are declaration-GATED, so an undeclared component rides
+        ;; byte-identical (the resource-id at index 1 is never a classification
+        ;; carrier and always survives).
+        ;;
+        ;; Projecting either component CHANGES the entry's `key-id`, because
+        ;; `state/key-id` is `canonical-bytes` over the WHOLE key vector. That is
+        ;; the established, intended mechanism, not a hazard:
+        ;; `project-resources-runtime-db` re-keys each wire entry on the `key-id`
+        ;; of THIS projected `:resource/key`, so the wire map key and the entry's
+        ;; own copy are one value by construction, and the client's
+        ;; `recompute-indexes` keys index members on the `:entries` map keys it
+        ;; installed. The coarse `:redact` / `:omit` arm has always re-keyed both
+        ;; components this way, and the params arm has since rf2-d3pku1.
         projected-key (if (= :serialize disposition)
                         (let [[scope rid params] projected-key]
-                          [scope rid (classification/project-entry-params
-                                       params key-id frame-id
-                                       :rf.egress/ssr-hydration)])
+                          [(classification/project-entry-scope
+                             scope key-id frame-id
+                             :rf.egress/ssr-hydration)
+                           rid
+                           (classification/project-entry-params
+                             params key-id frame-id
+                             :rf.egress/ssr-hydration)])
                         projected-key)
         wire-entry  (assoc wire-entry :resource/key projected-key)
         meta'       (assoc base
@@ -469,7 +494,34 @@
   `:large?` resource's scope + params are redacted to opaque content-addressed
   tokens in the wire key (`project-scoped-key`), so the raw identity never
   rides any more than its data does (Spec 016 clause 4). A `:serialize`
-  resource's key rides verbatim."
+  resource's key rides verbatim EXCEPT where the owner's own projection-relative
+  `:scope` / `:params` declarations name a slot, which `project-entry` walks out
+  of index 0 / index 2 against the frame's elision registry (rf2-d3pku1,
+  rf2-5e2ye).
+
+  ## The re-key is the mechanism, not a hazard (rf2-5e2ye)
+
+  `state/key-id` is `canonical-bytes` over the WHOLE `[scope resource-id params]`
+  vector, so projecting EITHER component changes it. The wire map is therefore
+  keyed on the key-id of each entry's PROJECTED `:resource/key` — the wire map
+  key and the entry's own copy are ONE value by construction, and the client
+  `recompute-indexes` over the `:entries` it installed. A declared slot's
+  redaction consequently makes the entry unaddressable by a key the client
+  re-derives from live scope + params, and it refetches — which is the SAME
+  designed consequence the coarse `:redact` / `:omit` digests have always had,
+  and which the params arm has had since rf2-d3pku1. Closing the scope
+  asymmetry extends that accepted cost by one index; it does not introduce it.
+
+  ## Build posture: ALWAYS-ON
+
+  Unlike the trace / tool key projection (`trace-egress/redact-key-declarations`,
+  rf2-dl7bz), which is dev-only — every caller sits behind
+  `interop/debug-enabled?` or bundle isolation — this projection is PRODUCTION.
+  It is the body behind `:ssr/extend-runtime-db-projection`, called from
+  `re-frame.ssr.payload-policy/project-runtime-db` on every SSR render, and its
+  output ships in the `:rf/hydration-payload` to every visitor of every page.
+  That is why the scope asymmetry mattered more here than anywhere else it
+  appeared."
   ([runtime-db]
    ;; Convenience: project under the AMBIENT scope frame. Sound only at a call
    ;; site already inside the frame's own `with-frame` (ambient == the target) —
