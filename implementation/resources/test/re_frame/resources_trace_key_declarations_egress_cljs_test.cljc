@@ -296,6 +296,45 @@
                              :resource/key (key-for :plain/summary)})]
       (is (nil? (:sensitive? tags))))))
 
+(defn- read-reply
+  "The continuation reply map `events/read-continuation-reply` builds, trimmed
+  to the slots this suite reads."
+  [scoped-key value]
+  (let [[scope resource-id params] scoped-key]
+    {:status               :ok
+     :value                value
+     :rf.reply/work-id     [:rf.work/resource scoped-key 1]
+     :rf.reply/work-kind   :resource
+     :rf.reply/work-status :completed
+     :resource             resource-id
+     :params               params
+     :scope                scope
+     :resource/key         scoped-key}))
+
+(deftest a-declared-key-must-not-widen-the-reply-to-a-coarse-redaction
+  (testing "rf2-dl7bz — the row's :sensitive? STAMP and the owner's COARSE claim
+            are two readings, and `row-owner-redacts?` must take the coarse one.
+
+            A `:params` declaration substituting inside the key makes the KEY
+            redact, which the stamp must report. It says NOTHING about the free
+            cursor or the reply body, which no declaration names. Conflating the
+            two tokenized a declaration-only owner's whole :value / :params —
+            destroying exactly the undeclared siblings rf2-ko5lm's grain
+            argument exists to keep readable"
+    (let [k     (key-for :account/summary)
+          reply (read-reply k {:ok true})
+          tags  {:rf.frame/id :rf/default :rf.fx/args reply}
+          out   (:rf.fx/args (trace-egress/project-fx-args-egress tags :rf/default))]
+      (is (= :rf/redacted (:account-id (:params out)))
+          "the reply's own :params copy still redacts through its declaration")
+      (is (= 3 (:page (:params out)))
+          "…and its UNDECLARED sibling still rides — not swallowed by a token")
+      (is (= {:ok true} (:value out))
+          "the body is untouched: this owner declares nothing under :data, and
+           its :params declaration must not promote the row to a coarse claim")
+      (is (= :rf/redacted (get-in out [:resource/key 2 :account-id]))
+          "while the sibling KEY carrier redacts the same declared slot"))))
+
 ;; ===========================================================================
 ;; 3. A `:scope`-rooted declaration reaches the key's index-0 component.
 ;; ===========================================================================
