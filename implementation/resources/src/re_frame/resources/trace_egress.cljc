@@ -218,6 +218,41 @@
                  decls)
       scoped-key)))
 
+(defn- coarse-key-projection
+  "The COARSE arm of a trace-row scoped-key projection — the whole of
+  `project-trace-scoped-key` EXCEPT the owner's per-slot declarations. Takes a
+  `scoped-key` already known to be a 3-vector; returns
+  `[projected-key coarse-redacts? disposition spec]`.
+
+  `coarse-redacts?` answers ONE question and it is not the row's stamp: does
+  this owner's WHOLE-ENTRY claim cover its whole payload? True for a
+  `:sensitive?` / `:large?` root prop, for an UNREGISTERED owner (the
+  trace-egress fail-closed default — tooling / SSR egress treat an unregistered
+  owner as `:serialize`, the algebra read, but a TRACE row whose owner we cannot
+  read is not provably safe), and for an ALREADY-PROJECTED key (both components
+  opaque tokens — the coarse arm fired upstream; idempotent, never re-hashed).
+
+  It is a SEPARATE reading from the row's `:sensitive?` stamp, and rf2-dl7bz is
+  why. `row-owner-redacts?` gates the whole-slot tokenization of the free
+  load-more cursor and of a read reply's `:value` / `:params` — payload the
+  owner made no per-slot claim about — so it must ask the COARSE question. The
+  row STAMP asks the different question \"did anything on this row redact\", and
+  a per-slot declaration substituting inside the key answers yes to that while
+  answering no to this. Borrowing one flag for both is what made a
+  declaration-only owner's whole reply body tokenize, destroying the undeclared
+  siblings rf2-ko5lm's grain argument exists to keep readable."
+  [scoped-key frame-id]
+  (cond
+    (and (redacted-token? (nth scoped-key 0)) (redacted-token? (nth scoped-key 2)))
+    [scoped-key true nil nil]
+
+    (nil? (registry/resource-meta (second scoped-key)))
+    [(ssr/project-scoped-key scoped-key :redact nil) true :redact nil]
+
+    :else
+    (let [[projected-key disposition spec] (ssr/disposition+project-key scoped-key frame-id)]
+      [projected-key (not= :serialize disposition) disposition spec])))
+
 (defn- project-trace-scoped-key
   "Fail-closed projection of one trace-row `scoped-key`
   `[scope resource-id params]` for OFF-BOX trace egress. Returns
@@ -236,40 +271,19 @@
   (the trace-egress fail-closed default). An already-projected key (both scope
   and params are opaque tokens) rides as-is + stays marked sensitive
   (idempotent — never re-hashed). A non-scoped-key value rides unchanged +
-  non-sensitive. Pure."
+  non-sensitive. Pure.
+
+  STAMP-PRECISE, on the rf2-ko5lm reading: a declaration that matched nothing in
+  THIS key leaves the row unstamped, so `sensitive?` keeps meaning \"something
+  on this row redacted\". `not=` is the right comparison and not `identical?` —
+  the walk reconstructs collections, and a bare `(1 2 3)` → `[1 2 3]` kind
+  collapse is not a redaction and must not stamp."
   [scoped-key frame-id]
-  (cond
-    (not (and (vector? scoped-key) (= 3 (count scoped-key))))
+  (if-not (and (vector? scoped-key) (= 3 (count scoped-key)))
     [scoped-key false]
-
-    (and (redacted-token? (nth scoped-key 0)) (redacted-token? (nth scoped-key 2)))
-    [scoped-key true]
-
-    ;; fail closed — owner unreadable, redact scope + params, keep the id. This
-    ;; nil-spec fail-closed-to-`:redact` (and the idempotent-token guard above)
-    ;; is the OUTER wrapper the trace-egress family keeps around the shared
-    ;; disposition+project-key pipeline: tooling / SSR egress treat
-    ;; an unregistered owner as `:serialize` (the algebra read), but a TRACE row
-    ;; whose owner we cannot read is not provably safe.
-    (nil? (registry/resource-meta (second scoped-key)))
-    [(ssr/project-scoped-key scoped-key :redact nil) true]
-
-    ;; REGISTERED owner — the shared pipeline computes the disposition + projects
-    ;; the key exactly as the SSR durable-egress + tool-egress paths do. `:redact`
-    ;; / `:omit` redacts the whole scope+params. A `:serialize` key then takes the
-    ;; owner's per-slot DECLARATIONS (rf2-dl7bz), which is the only arm that can
-    ;; speak for a spec making no coarse claim.
-    ;;
-    ;; STAMP-PRECISE, on the rf2-ko5lm reading: a declaration that matched
-    ;; nothing in THIS key leaves the row unstamped, so the flag still means
-    ;; "something on this row redacted". `not=` is the right comparison and not
-    ;; `identical?` — the walk reconstructs collections, and a bare `(1 2 3)` →
-    ;; `[1 2 3]` kind collapse is not a redaction and must not stamp.
-    :else
-    (let [[projected-key disposition spec] (ssr/disposition+project-key scoped-key frame-id)
+    (let [[projected-key coarse? disposition spec] (coarse-key-projection scoped-key frame-id)
           declared-key (redact-key-declarations projected-key disposition spec)]
-      [declared-key (or (not= :serialize disposition)
-                        (not= declared-key projected-key))])))
+      [declared-key (or coarse? (not= declared-key projected-key))])))
 
 (def ^:private scoped-key-slot
   "Tag slots on a resource / mutation trace row that carry a SINGLE scoped-key
@@ -517,16 +531,23 @@
   fx carrier, a read continuation reply's `reply-payload-slot` entries) must
   tokenize.
   Reuses the SAME owner classification the scoped-key projection uses
-  (`disposition+project-key`), with the trace-egress fail-closed default for an
-  unregistered / unreadable owner (`project-trace-scoped-key`'s nil-spec arm).
+  (`coarse-key-projection` — `disposition+project-key` plus the trace-egress
+  fail-closed default for an unregistered / unreadable owner).
   Returns false when the row carries no usable `:resource/key` (no owner to read
   — the cursor then rides verbatim; structural attribution is unaffected).
-  Pure."
+  Pure.
+
+  Reads the COARSE arm DIRECTLY, not `project-trace-scoped-key`'s `sensitive?`
+  (rf2-dl7bz). The two diverged the moment a `:serialize` key started honouring
+  the owner's per-slot declarations: that substitution makes the KEY redact —
+  which the row stamp must report — while saying nothing about the free cursor
+  or the reply body, which no declaration names. Reading the stamp here made a
+  declaration-only owner's whole `:value` / `:params` tokenize, which is exactly
+  the over-redaction the reply arm's grain argument forbids."
   [tags frame-id]
   (let [sk (:resource/key tags)]
     (when (and (vector? sk) (= 3 (count sk)))
-      (let [[_pk sens?] (project-trace-scoped-key sk frame-id)]
-        sens?))))
+      (second (coarse-key-projection sk frame-id)))))
 
 (def ^:private disposition-rows-slot
   "Tag slots that carry a VECTOR of per-key DISPOSITION maps (each embedding a
