@@ -41,6 +41,13 @@
             [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.ssr :as ssr]
             [re-frame.resources.state :as state]
+            ;; rf2-dl7bz — the per-slot arm of the key projection lives in the
+            ;; production-reachable trace-egress ns (beside the reply's), and
+            ;; this TOOL boundary opts into the same helper so the two off-box
+            ;; boundaries cannot answer differently. The edge points from the
+            ;; bundle-isolated sibling INTO a production-reachable ns, which is
+            ;; the safe direction: nothing here is pulled toward a bundle.
+            [re-frame.resources.trace-egress :as trace-egress]
             [re-frame.resources.transport :as transport]
             [re-frame.resources.work-ledger :as work-ledger]))
 
@@ -378,9 +385,18 @@
 ;;     scoped key per that disposition — `:redact` / `:omit` replace scope +
 ;;     params with opaque content-addressed `{:rf/redacted <digest>}` tokens
 ;;     (distinct values stay distinct, so graph connectivity by projected key
-;;     is preserved), while `:serialize` applies the resource's per-slot
-;;     `:params` projection-relative declarations and otherwise rides verbatim
-;;     (non-sensitive identity is preserved).
+;;     is preserved), while `:serialize` rides verbatim (non-sensitive identity
+;;     is preserved);
+;;   - `trace-egress/redact-key-declarations` (rf2-dl7bz) then applies the
+;;     resource's per-slot `:params` / `:scope` PROJECTION-RELATIVE declarations
+;;     to a `:serialize` key — the arm the coarse disposition above is blind to,
+;;     since a spec declaring only paths makes no root-prop claim and classifies
+;;     `:serialize`. It lives in the trace-egress ns rather than inside
+;;     `project-scoped-key` because `project-scoped-key`'s `:serialize` deferral
+;;     is deliberate: the SSR durable path resolves the same declaration from
+;;     the per-frame elision REGISTRY, which this boundary has no `key-id` or
+;;     live frame to read. Both boundaries therefore opt into ONE helper and
+;;     answer identically.
 ;; The resource-id (position 1 of the 3-tuple) always survives, so a tool still
 ;; sees WHICH resource each node names and edges still join nodes by the same
 ;; projected key.
@@ -389,14 +405,23 @@
   "Project a `scoped-key` for TOOL egress against the resource owner spec +
   the `frame-id` classification (rf2-0t0l3w). Returns `[projected-key
   disposition]`. `:redact` / `:omit` replace scope + params with opaque
-  tokens; `:serialize` projects per-slot `:params-schema` marks (a no-op when
-  none) — the resource-id always survives. Pure. Delegates to the shared
+  tokens; `:serialize` substitutes the owner's per-slot `:params` / `:scope`
+  PROJECTION-RELATIVE declarations (a no-op when the spec declares none) — the
+  resource-id always survives. Pure. Delegates to the shared
   `ssr/disposition+project-key` pipeline (rf2-366u0g — the SAME owner
   classification + key projection the SSR durable-egress + off-box trace-egress
-  paths use), dropping the spec it does not need."
+  paths use), then to `trace-egress/redact-key-declarations` for the per-slot
+  arm that pipeline defers (rf2-dl7bz), which is the SAME helper the off-box
+  trace projector applies — one declaration, one answer at both boundaries.
+
+  The earlier spelling of this docstring said `:params-schema` marks, which was
+  doubly wrong: nothing was applied at all, and EP-0025 had already removed the
+  schema route into durable classification (Spec 015 §Schemas describe shape,
+  not durable egress policy). The projection-relative declaration on the spec is
+  the single durable classification surface."
   [scoped-key frame-id]
-  (let [[projected-key disposition _spec] (ssr/disposition+project-key scoped-key frame-id)]
-    [projected-key disposition]))
+  (let [[projected-key disposition spec] (ssr/disposition+project-key scoped-key frame-id)]
+    [(trace-egress/redact-key-declarations projected-key disposition spec) disposition]))
 
 (defn- project-work-id
   "Project the scoped key embedded in a resource work-id
