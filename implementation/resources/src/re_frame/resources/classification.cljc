@@ -446,39 +446,93 @@
          :rf.egress/profile boundary-profile})
       data)))
 
+(defn- project-entry-key-component
+  "Project ONE component of an entry's scoped key for egress against `frame-id`'s
+  per-frame elision registry — the shared body behind `project-entry-scope`
+  (index 0) and `project-entry-params` (index 2).
+
+  The scoped key is the vector `[scope resource-id params]` and it lives at the
+  entry's absolute `:resource/key` carrier, so `instance-declaration-paths`
+  lowers a `:scope`-rooted declaration to `[… :resource/key 0 …]` and a
+  `:params`-rooted one to `[… :resource/key 2 …]` (`reconcile-registry`). Here
+  we walk the bare component value through `re-frame.projection/project-egress`
+  SEEDED at that same offset, so the lowered `:source :resource` decls match and
+  a marked slot redacts (`:sensitive` → `:rf/redacted`) / elides (`:large` →
+  `:rf.size/large-elided`) without the raw value riding in the wire key.
+
+  ONE rule, applied at both indices by parameterising the index alone — the
+  scope and params components of a key carry the same classification (Spec 016
+  clause 4 \"params, scopes, and data carry the same classification\"), so they
+  must not be able to drift into two rules.
+
+  GATED on a registry declaration under the component's offset
+  (`registry-classifies-under?`): when nothing is declared there the component
+  rides VERBATIM (reference / byte-identity preserving — the scoped key is a
+  CEDN-1 byte-keyed identity, so a list↔vector collapse from an unnecessary walk
+  would break the cache-key-identity round-trip). Frame-SCOPED: a nil /
+  unresolvable `frame-id` rides the component VERBATIM. Pure w.r.t. the value."
+  [component index key-id frame-id boundary-profile]
+  (let [prefix (conj (state/entry-path-by-id key-id) :resource/key index)]
+    (if (and frame-id (registry-classifies-under? frame-id prefix))
+      (projection/project-egress
+        component
+        {:frame             frame-id
+         :path              prefix
+         :rf.egress/profile boundary-profile})
+      component)))
+
 (defn project-entry-params
-  "Project a resource entry's scoped-key PARAMS value for egress against
-  `frame-id`'s per-frame elision registry — the CO-EQUAL params counterpart to
-  `project-entry-data` (Spec 016 clause 4 \"params, scopes,
-  and data carry the same classification\"). The resource's projection-relative
-  `:params` (and `:scope`) declarations were lowered into the registry at the
-  scoped key's absolute `:resource/key` carrier (`[… :resource/key 2 …]` for
-  params, `[… :resource/key 0 …]` for scope, `reconcile-registry`). The scoped
-  key is `[scope resource-id params]`, so the params component sits at index 2 of
-  that carrier; here we walk the bare params value through
-  `re-frame.projection/project-egress` SEEDED at the params offset
-  (`[… :resource/key 2]`) so the lowered `:source :resource` decls match — a
-  marked slot redacts / elides without the raw value riding in the wire key.
+  "Project a resource entry's scoped-key PARAMS value (index 2 of
+  `[scope resource-id params]`) for egress against `frame-id`'s per-frame
+  elision registry — the CO-EQUAL params counterpart to `project-entry-data`
+  (Spec 016 clause 4 \"params, scopes, and data carry the same
+  classification\"), and the sibling of `project-entry-scope` below.
 
   Used on a `:serialize` entry (no coarse whole-entry claim) — the COARSE
   `:redact` / `:omit` dispositions still replace the WHOLE params component with
   an opaque content-addressed digest (`re-frame.resources.ssr/project-scoped-key`),
-  irrespective of frame. GATED on a registry declaration under the params offset
-  (`registry-classifies-under?`): when nothing is declared there the params ride
-  VERBATIM (reference / byte-identity preserving — the scoped key is a CEDN-1
-  byte-keyed identity, so a list↔vector collapse from an unnecessary walk would
-  break the cache-key-identity round-trip). Frame-SCOPED: a nil / unresolvable
-  `frame-id` rides `params` VERBATIM. `key-id` is the entry's CEDN-1 byte key-id.
-  Pure w.r.t. the value."
+  irrespective of frame, which subsumes the per-slot surface. Declaration-GATED
+  and frame-SCOPED per `project-entry-key-component`. `key-id` is the entry's
+  CEDN-1 byte key-id. Pure w.r.t. the value."
   [params key-id frame-id boundary-profile]
-  (let [params-prefix (conj (state/entry-path-by-id key-id) :resource/key 2)]
-    (if (and frame-id (registry-classifies-under? frame-id params-prefix))
-      (projection/project-egress
-        params
-        {:frame             frame-id
-         :path              params-prefix
-         :rf.egress/profile boundary-profile})
-      params)))
+  (project-entry-key-component params 2 key-id frame-id boundary-profile))
+
+(defn project-entry-scope
+  "Project a resource entry's scoped-key SCOPE value (index 0 of
+  `[scope resource-id params]`) for egress — the CO-EQUAL scope counterpart to
+  `project-entry-params` (rf2-5e2ye).
+
+  ## The asymmetry this closes
+
+  `instance-declaration-paths` has always lowered a `:scope`-rooted declaration
+  to the entry's absolute `[… :resource/key 0 …]` path exactly as it lowers a
+  `:params`-rooted one to `[… :resource/key 2 …]`, so the epoch / registry walk
+  over the runtime-db honoured BOTH, and (since rf2-dl7bz)
+  `trace-egress/redact-key-declarations` honours both on every trace and tool
+  key. But the SSR wire key projected only index 2, so on a `:serialize` owner
+  declaring `{:sensitive [[:scope :tenant-id]]}` the resolved tenant id rode RAW
+  in the hydration payload — the LAST carrier of that value that disagreed, and
+  the only one that is not dev-gated.
+
+  ## Reaching through the `[tier {identity}]` tuple
+
+  A scope component is `:rf.scope/global` or the tuple `[tier {identity-map}]`,
+  so the declared `:tenant-id` sits at the INDEXED runtime path
+  `[… :resource/key 0 1 :tenant-id]` while the lowered decl is the index-FREE
+  `[… :resource/key 0 :tenant-id]`. `elide-wire-value`'s index-free fork
+  (`fork-index-paths`) matches the two — the same mechanism that lets ONE
+  `[… :data :token]` decl cover every page of an infinite feed's `:data` vector,
+  and the same reading `redact-key-declarations` walks index-free on the trace
+  side. The scope TIER keyword at index 0 of the tuple is not a declared path,
+  so it survives and attribution is preserved.
+
+  Declaration-GATED and frame-SCOPED per `project-entry-key-component`: an
+  UNDECLARED scope rides byte-identical (`:rf.scope/global` is untouched, and so
+  is an undeclared sibling of a declared identity slot), which is what preserves
+  the CEDN-1 key identity. `key-id` is the entry's CEDN-1 byte key-id. Pure
+  w.r.t. the value."
+  [scope key-id frame-id boundary-profile]
+  (project-entry-key-component scope 0 key-id frame-id boundary-profile))
 
 ;; ---------------------------------------------------------------------------
 ;; Invalid-params error-payload projection.
