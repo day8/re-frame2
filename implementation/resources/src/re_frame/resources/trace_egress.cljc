@@ -91,8 +91,13 @@
   as the load-more cursor is through its row's; and, since rf2-ko5lm, that same
   reply's owner-DECLARED projection-relative slots, which the coarse owner read
   is blind to, substituted through the same `redact-continuation-reply` the
-  mutation reply uses at its source."
-  (:require [re-frame.resources.classification :as classification]
+  mutation reply uses at its source; and, since rf2-dl7bz, that SAME
+  declaration's copy inside the scoped KEY beside it — the family's universal
+  carrier — substituted by `redact-key-declarations`, so a `:params` / `:scope`
+  declaration reaches every carrier of the value it names rather than only the
+  ones somebody has looked at."
+  (:require [re-frame.classification :as core-classification]
+            [re-frame.resources.classification :as classification]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.reply :as resources-reply]
             [re-frame.resources.ssr :as ssr]))
@@ -102,13 +107,130 @@
 (defn- redacted-token? [c]
   (and (map? c) (contains? c :rf/redacted)))
 
+(defn- key-slot-declarations
+  "Split a resource `spec`'s scoped-KEY projection-relative declarations into
+  the two components of `[scope resource-id params]`, each path re-rooted at
+  the component it names. Returns
+
+    {0 {:sensitive [paths] :large [paths]}    ; the SCOPE component
+     2 {:sensitive [paths] :large [paths]}}   ; the PARAMS component
+
+  keyed by the component's INDEX in the key vector, with a component that
+  neither axis names dropped — so `nil` means the spec declares nothing the KEY
+  carries and the key must ride VERBATIM.
+
+  Built from the already-public `classification/spec-declaration-marks`, whose
+  `:params` bucket IS the scoped-key bucket: a `:params`-rooted declaration
+  arrives with its head stripped and names the params component, a
+  `:scope`-rooted one arrives WITH its `[:scope …]` head and names the scope
+  component. That is the same reading
+  `classification/instance-declaration-paths` lowers into the per-frame elision
+  registry (`[… :resource/key 2 …]` for params, `[… :resource/key 0 …]` for
+  scope), which is what makes this agree with the durable side by construction
+  rather than by coincidence. Pure / value-independent."
+  [spec]
+  (let [marks (:params (classification/spec-declaration-marks spec))
+        axis  (fn [k]
+                (reduce (fn [acc p]
+                          (let [p (vec p)]
+                            (if (= :scope (first p))
+                              (update acc 0 conj (subvec p 1))
+                              (update acc 2 conj p))))
+                        {0 [] 2 []}
+                        (keys (get marks k))))
+        s     (axis :sensitive)
+        l     (axis :large)]
+    (not-empty
+      (into {}
+            (keep (fn [i]
+                    (when (or (seq (get s i)) (seq (get l i)))
+                      [i {:sensitive (get s i) :large (get l i)}])))
+            [0 2]))))
+
+(defn redact-key-declarations
+  "The SCOPED-KEY analogue of `redact-reply-declarations` below (rf2-dl7bz) —
+  the owner's per-slot `:params` / `:scope` projection-relative declarations,
+  substituted inside the key `[scope resource-id params]` at the trace / tool
+  egress boundary. Takes the key ALREADY projected by
+  `ssr/disposition+project-key`, that call's `disposition`, and the owner
+  `spec` it resolved; returns the key.
+
+  ## Why the coarse projection is not the whole answer
+
+  `ssr/project-scoped-key` projects the key by the COARSE
+  `whole-entry-disposition` — the owner's root `:sensitive?` / `:large?` prop.
+  A spec that declares `{:sensitive [[:params :account-id]]}` and no coarse prop
+  classifies `:serialize`, so that read says nothing and the declared params
+  rode VERBATIM inside `:resource/key` on every family row, inside every
+  scoped-keys vector slot, inside every `[:rf.work/resource <key> <gen>]`
+  work-id, and inside every fx carrier the key reaches — while the SAME bytes
+  in the durable entry redact, because `reconcile-registry` lowered the
+  declaration to `[… :resource/key 2 …]` and the SSR wire key walks it
+  (`classification/project-entry-params`). One value, two carriers, one rule
+  applied: the rf2-irwsq shape the sibling `redact-reply-declarations`
+  (rf2-ko5lm) closed for the reply's copy of those same params, one slot over
+  on the same carrier.
+
+  ## Why HERE and not in `ssr/project-scoped-key`
+
+  `project-scoped-key`'s `:serialize` deferral is DELIBERATE and stays intact:
+  the SSR durable path has a REGISTRY-driven counterpart with the entry's
+  `key-id` and the live frame, so it walks the params component through
+  `project-egress` seeded at the lowered registry offset. The trace / tool
+  boundary has neither, so it derives the same declaration from the SPEC — the
+  frameless derivation the family already uses beside this fn for the reply
+  (`classification/redact-continuation-reply` over `carrier-decl-paths`). The
+  two answers are byte-identical by construction, because both re-root the same
+  `spec-declaration-marks` bucket onto the same two key components and both walk
+  INDEX-FREE. SSR is not a caller that never asked for this — it is not a caller
+  of this at all.
+
+  ## Grain: DECLARATION-conditional, and `:serialize`-only
+
+  A `:redact` / `:omit` key has already had its WHOLE scope + params replaced by
+  opaque content-addressed tokens, which SUBSUMES the per-slot surface, so this
+  fires only under `:serialize`. Within `:serialize` it fires on the paths the
+  owner DECLARED and on nothing else: a spec declaring nothing the key carries
+  rides the key back IDENTICAL (`key-slot-declarations` returns nil), which is
+  what preserves the CEDN-1 byte identity a cache-key round-trip depends on —
+  the walker RECONSTRUCTS collections, so an unnecessary walk would collapse a
+  list-valued param to a vector (rf2-wgutc2). Under a declaration that walk DOES
+  happen and that collapse IS accepted — the SSR durable path already accepts
+  exactly it under the same declaration-existence gate
+  (`registry-classifies-under?`), so this extends an accepted cost rather than
+  introducing one.
+
+  IDEMPOTENT: re-projecting substitutes the same sentinel at the same path. A
+  non-`:serialize` disposition, a nil spec (the unregistered owner the caller
+  has already failed closed on), or a non-3-vector rides UNCHANGED. Pure /
+  value-independent."
+  [scoped-key disposition spec]
+  (if-not (and (= :serialize disposition)
+               (some? spec)
+               (vector? scoped-key)
+               (= 3 (count scoped-key)))
+    scoped-key
+    (if-let [decls (key-slot-declarations spec)]
+      (reduce-kv (fn [k i {:keys [sensitive large]}]
+                   (update k i core-classification/redact-with-paths
+                           sensitive large {:index-free? true}))
+                 scoped-key
+                 decls)
+      scoped-key)))
+
 (defn- project-trace-scoped-key
   "Fail-closed projection of one trace-row `scoped-key`
   `[scope resource-id params]` for OFF-BOX trace egress. Returns
   `[projected-key sensitive?]`. For a REGISTERED owner the scope + params
   tokenize per the owner's `whole-entry-disposition` classification (a
   `:sensitive?` / `:large?` key redacts to opaque content-addressed
-  `{:rf/redacted <digest>}` tokens; a plain key rides verbatim). A key whose
+  `{:rf/redacted <digest>}` tokens; a plain key rides verbatim) and, when that
+  COARSE read says nothing, the owner's per-slot `:params` / `:scope`
+  DECLARATIONS substitute in place (`redact-key-declarations`, rf2-dl7bz) — the
+  two arms composing by grain exactly as the reply's do: coarse claim ⇒ the
+  whole scope + params tokenize; declaration only ⇒ the declared slots
+  substitute and their undeclared siblings ride; neither ⇒ the key is
+  byte-identical. A key whose
   resource-id is UNREGISTERED (nil owner spec — the
   trace names an owner we cannot read) is REDACTED rather than serialized raw
   (the trace-egress fail-closed default). An already-projected key (both scope
@@ -134,11 +256,20 @@
 
     ;; REGISTERED owner — the shared pipeline computes the disposition + projects
     ;; the key exactly as the SSR durable-egress + tool-egress paths do. `:redact`
-    ;; / `:omit` redacts the scope+params; `:serialize` rides verbatim — so the
-    ;; sensitivity flag is `(not= :serialize disposition)`.
+    ;; / `:omit` redacts the whole scope+params. A `:serialize` key then takes the
+    ;; owner's per-slot DECLARATIONS (rf2-dl7bz), which is the only arm that can
+    ;; speak for a spec making no coarse claim.
+    ;;
+    ;; STAMP-PRECISE, on the rf2-ko5lm reading: a declaration that matched
+    ;; nothing in THIS key leaves the row unstamped, so the flag still means
+    ;; "something on this row redacted". `not=` is the right comparison and not
+    ;; `identical?` — the walk reconstructs collections, and a bare `(1 2 3)` →
+    ;; `[1 2 3]` kind collapse is not a redaction and must not stamp.
     :else
-    (let [[projected-key disposition _spec] (ssr/disposition+project-key scoped-key frame-id)]
-      [projected-key (not= :serialize disposition)])))
+    (let [[projected-key disposition spec] (ssr/disposition+project-key scoped-key frame-id)
+          declared-key (redact-key-declarations projected-key disposition spec)]
+      [declared-key (or (not= :serialize disposition)
+                        (not= declared-key projected-key))])))
 
 (def ^:private scoped-key-slot
   "Tag slots on a resource / mutation trace row that carry a SINGLE scoped-key
@@ -718,13 +849,16 @@
   durable side. Opt-IN, so the walker's other callers — which declare concrete
   paths — keep the exact match.
 
-  ## One residue, filed rather than fixed
+  ## The sibling copy, since closed (rf2-dl7bz)
 
-    - rf2-dl7bz — a `:params`-rooted declaration also names bytes that ride
-      the SIBLING `:resource/key`, and a `:serialize` owner's key rides
-      verbatim at trace egress by documented decision
-      (`ssr/project-scoped-key`). This closes the reply's copy; the key's copy
-      is the family's universal carrier and is its own ruling."
+  A `:params`-rooted declaration also names bytes that ride the SIBLING
+  `:resource/key`, one slot over on the same carrier, and a `:serialize`
+  owner's key rode there verbatim. That copy is closed by
+  `redact-key-declarations` above, which is this fn's shape re-rooted onto the
+  key's two components instead of the reply's sibling slots —
+  `ssr/project-scoped-key`'s documented `:serialize` deferral left intact,
+  because the per-slot arm belongs at the boundary that has no registry to read
+  rather than inside the projection the SSR durable path shares."
   [reply]
   (let [rid  (second (:resource/key reply))
         spec (when (keyword? rid) (registry/resource-meta rid))]
@@ -1268,7 +1402,10 @@
 
   A `:sensitive?` / `:large?` owner's scope + params
   tokenize to opaque content-addressed `{:rf/redacted <digest>}` (distinct
-  values stay distinct, so a tool's per-key joins survive); a plain owner's key
+  values stay distinct, so a tool's per-key joins survive); an owner making no
+  coarse claim has its per-slot `:params` / `:scope` DECLARATIONS substituted
+  inside the key (`redact-key-declarations`, rf2-dl7bz) so the declaration the
+  durable entry honours is honoured on the key too; a plain owner's key
   rides verbatim; an UNREGISTERED owner FAILS CLOSED (redacted — the
   trace-egress default). The resource-id (position 1 of every projected key) and
   recognized structural scalar tags (`:rf.frame/id`, `:cause`, `:decision`,
