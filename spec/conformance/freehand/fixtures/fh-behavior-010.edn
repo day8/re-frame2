@@ -103,9 +103,51 @@
   {:reads   [:behaviors/connections :behaviors/targets :root/live-root-ids]
    :counts  [:maps/live :maps/listeners :maps/overlays]
    :residue :none
+
+   ;; The four comparative counts. They are STATIC properties of the route,
+   ;; obtained by READING the declarations in the mounted proof — not a runtime
+   ;; measurement, and nothing asserts them. They are published so the three
+   ;; ownership routes can be compared rather than described; they are not a
+   ;; score and not a threshold, and a route is not better for being smaller.
+   ;;
+   ;; The definitions are written ONCE, for all three witnesses together, in
+   ;; `docs/core/freehand/host/ownership-routing.md` §"What the counts count".
+   ;; One copy, because three definitions in three files is three incomparable
+   ;; numbers. This row's own arithmetic, name by name:
+   ;;
+   ;;   :exports    1 — `maps-canvas`, one `v/defbehavior`. `overlay-legend` is
+   ;;                   NOT counted: it is the view the author chose to mount in
+   ;;                   the pane, application code the route did not add.
+   ;;   :crossings  2 — the behavior's `:config` channel, and the explicit nested
+   ;;                   root `v/mount`ed into the node the library made. The two
+   ;;                   `:commands` positions are NOT counted: they exist so a
+   ;;                   case can enter reclamation from a chosen side, which is
+   ;;                   the measurement rather than the route. The library's own
+   ;;                   removal callback is not a crossing either — it is
+   ;;                   registered with the LIBRARY, and it is glue.
+   ;;   :glue-sites 4 — `reclaim!`, `:connect`, `:update`, `:disconnect`. Each is
+   ;;                   irreducible: the SDK's setter is void so someone must
+   ;;                   call it, the instance must be constructed and released,
+   ;;                   and two initiators over one set of resources is what
+   ;;                   makes the shared path a fourth body rather than a line.
+   ;;   :glue-lines 27 — the non-blank, non-comment, non-docstring lines of those
+   ;;                   four forms: 9 + 14 + 3 + 1. The suite's own `entries` /
+   ;;                   `worked` bookkeeping is excluded for the same reason the
+   ;;                   commands are.
+   ;;
+   ;; This is the most expensive of the three routes by an order of magnitude,
+   ;; and that is the finding rather than a fault: it is what "the library owns
+   ;; the node" costs, and the route is still the cheapest way to pay it.
+   :comparative
+   {:exports 1 :crossings 2 :glue-sites 4 :glue-lines 27
+    :method  :read-from-source}
+
    ;; Stated in the record, not only in prose, so a reader of the roster sees
-   ;; the boundary without opening the suite.
+   ;; the boundary without opening the suite. The first two entries bound the
+   ;; PROOF; the third states what the ROUTE permanently loses, which is the
+   ;; other half of the same honesty and is not recoverable by any recipe.
    :limits  ["Google's `google.maps` code is NOT executed: it loads from the network under an API key against a billed account, which no CI lane can do. The mounted proof drives a surrogate reproducing the API's ownership shape — node takeover, void-returning `setOptions`, a listener handle released by `.remove()`, an `OverlayView` supplying a host-created pane and calling back on removal — so what is proven is Freehand's ownership routing at that boundary, not Google's implementation of it."
-             "No npm dependency was added for this row. A real `@googlemaps/js-api-loader` in the browser lane would make the gate a test of a network."]}
+             "No npm dependency was added for this row. A real `@googlemaps/js-api-loader` in the browser lane would make the gate a test of a network."
+             "WHAT THE ROUTE PERMANENTLY LOSES, stated beside what it proves. CONTEXT: the nested root in the library's own pane is an ISLAND — it does not inherit the outer tree's React context, its Suspense boundaries, or its event bubbling, and nothing here pretends it does; app-db is shared regardless, because a frame is not a tree. EVIDENCE: the SDK's subtree is a LEAF to Freehand — no structural render, nothing in any manifest, and nothing inside it visible to the substrate's own bookkeeping. SSR: none for either tree — a behavior connects only on commit, so a server render emits the empty node and the island does not exist at all until the client mounts. None of the three is recoverable; each is the price of letting the library own the node."]}
 
   :prose :executable}}
