@@ -122,6 +122,72 @@ and the DOM disagree, and nothing errors or warns. **The recovery is not a
 mechanism** — it is to stop authoring the property the library owns and drive it
 through the library's own prop instead.
 
+## What each route costs, counted
+
+The table above says *one door* and *one behavior + one extra root*, and that is
+the part you actually route by. Underneath it there are four numbers, and the
+three witnesses publish them so the routes can be **compared** rather than
+described.
+
+Read them as shape, not as a score. Nothing asserts these numbers, there is no
+threshold anywhere near them, and a route is not better for being smaller — the
+imperative one is larger because the library owns more.
+
+### What the counts count
+
+The definitions live here, once, so that three rows written in three files stay
+comparable. Each is counted by **reading the declarations**: these are static
+properties of a route, not a runtime measurement, and nothing about them changes
+between node and a browser.
+
+| Count | Definition |
+|---|---|
+| **Exports** | Top-level names the route publishes for a call site to name: one per `v/defhost`, `v/defbehavior` or `v/->react`. |
+| **Crossings** | Declared positions at which control or a value passes the boundary: the props/config channel of each export (one each), plus one per declared `:callbacks` entry, plus one per explicit nested root the route opens. |
+| **Glue sites** | Author-written function bodies that exist *only* to join the two planes and that no change to the call site would remove: each `:connect` / `:update` / `:disconnect`, each declaration-level adapter such as `:map-props`, and each shared helper those bodies call. |
+| **Glue lines** | Approximate source lines those glue sites occupy — non-blank, and neither comment nor docstring. |
+
+Three things are deliberately **not** counted, and the exclusions are what make
+the numbers mean anything:
+
+- **The library's own side.** A wrapper that composes a compound library's parts
+  is React code you would write in a pure-React app too. It is the library's
+  idiom, not something the boundary added.
+- **Your application.** The views, events and subscriptions that consume the
+  route are yours; the route did not add them.
+- **The measurement.** Each witness carries probes and commands so a case can
+  drive a path from a chosen side. Those belong to the fixture, not the route.
+
+### The three witnesses
+
+| Route | Exports | Crossings | Glue sites | Glue lines |
+|---|---:|---:|---:|---:|
+| Pure / headless core — *the control* | 0 | 0 | 0 | 0 |
+| **`FH-REACT-009`** — compound React owner | 1 | 2 | 0 | 0 |
+| **`FH-REACT-010`** — clock owner | 2 | 3 | 1 | 1 |
+| **`FH-BEHAVIOR-010`** — imperative SDK plus a host-created pane | 1 | 2 | 4 | 27 |
+
+Each row is the number in that witness's own `:evidence :comparative`, where the
+arithmetic is written out name by name. The first row is the control: a library
+that owns nothing needs no route, so every count is zero — and if a definition
+above ever produced something other than zero there, the definition would be the
+thing that was wrong.
+
+The shape is the finding.
+
+- **A compound React library costs no glue at all.** Its whole protocol is
+  React's own, and one registration of the wrapper carries it across intact.
+  Registering the four parts instead would have cost four exports and four
+  crossings, for a protocol that then no longer works.
+- **The clock owner costs one line** — the adapter that converts a Clojure style
+  map for React's own style writer. Its two exports are two because the library
+  has two ownership shapes in it, not because the route needed two doors.
+- **The imperative SDK costs an order of magnitude more,** because it owns a
+  node, a void-returning setter, and a second initiator of teardown, and someone
+  has to write all three down. That is not a verdict on the route: it is what
+  *the library owns the node* costs, and the route is still the cheapest way to
+  pay it.
+
 ## Permanent limits, and what each one buys
 
 Some of these are recoverable and some are the price of the route. The difference
@@ -161,6 +227,11 @@ the boundary — which is the thing the route depends on — and not any vendor'
 implementation of it. Maps cannot run in CI at all (network, API key, a billed
 account); a real animation is driven against a wall clock, so a gate on it would
 be measuring frame timing rather than ownership.
+
+`:evidence :limits` carries the other half of that honesty as well: alongside
+what the *proof* cannot reach, each fixture states what its *route* permanently
+loses — context, evidence, and SSR — so the entries in the table above are
+machine-readable beside the law they qualify rather than only prose here.
 
 ## Where to go next
 

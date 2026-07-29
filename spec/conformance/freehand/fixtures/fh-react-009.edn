@@ -88,7 +88,48 @@
   {:reads   [:root/live-root-ids :document/active-element]
    :counts  [:radix/body-content-nodes]
    :residue :none
+
+   ;; The four comparative counts. They are STATIC properties of the route,
+   ;; obtained by READING the declarations in the mounted proof — not a runtime
+   ;; measurement, and nothing asserts them. They are published so the three
+   ;; ownership routes can be compared rather than described; they are not a
+   ;; score and not a threshold, and a route is not better for being smaller.
+   ;;
+   ;; The definitions are written ONCE, for all three witnesses together, in
+   ;; `docs/core/freehand/host/ownership-routing.md` §"What the counts count".
+   ;; One copy, because three definitions in three files is three incomparable
+   ;; numbers. This row's own arithmetic, name by name:
+   ;;
+   ;;   :exports    1 — `dialog`, one `v/defhost`, and it is on the WRAPPER.
+   ;;                   `as-child-probe` is NOT counted: it is the A/B instrument
+   ;;                   behind the withheld promise, the measurement rather than
+   ;;                   the route.
+   ;;   :crossings  2 — the host's props channel, and the ONE declared
+   ;;                   `:callbacks` position `:onOpenChange`. The portal is not
+   ;;                   a crossing: React re-parents its own subtree into a
+   ;;                   target Freehand never named and has no vocabulary for.
+   ;;   :glue-sites 0 — the declaration carries no lifecycle body and no adapter,
+   ;;                   so there is no author-written code joining the planes at
+   ;;                   all. `radix-dialog`, which composes Root, Trigger, Portal
+   ;;                   and Content, is NOT counted: composing a compound
+   ;;                   library's parts is React code an author writes in a
+   ;;                   pure-React app too, so it is the library's own idiom
+   ;;                   rather than something the boundary added.
+   ;;   :glue-lines 0 — follows.
+   ;;
+   ;; The zero is the finding, and it is the whole argument for registering the
+   ;; wrapper: a compound React library crosses WHOLE, and the boundary adds no
+   ;; joining code at all. Registering the four parts instead would have cost
+   ;; four exports and four crossings for a protocol that then no longer works.
+   :comparative
+   {:exports 1 :crossings 2 :glue-sites 0 :glue-lines 0
+    :method  :read-from-source}
+
+   ;; The first two entries bound the PROOF; the third states what the ROUTE
+   ;; permanently loses, which is the other half of the same honesty and is not
+   ;; recoverable by any recipe.
    :limits  ["Radix's own packages are NOT installed. Adding `@radix-ui/react-dialog` to `implementation/package.json` is a shared-file change, and the law is about where ownership falls rather than about Radix's implementation of it. The mounted proof drives a surrogate reproducing the compound shape — context between the parts, `asChild` cloning with a ref, a real `react-dom` `createPortal` into `document.body`, and focus moved on open and restored on close."
-             "The `:as-child` row records what React 19 does with a `ref` prop handed to a function component: it arrives as an ordinary unused prop rather than an error. A future React whose ref protocol changed would move that cell, and moving it is the correct outcome — the row states what an author will observe, not what the substrate guarantees."]}
+             "The `:as-child` row records what React 19 does with a `ref` prop handed to a function component: it arrives as an ordinary unused prop rather than an error. A future React whose ref protocol changed would move that cell, and moving it is the correct outcome — the row states what an author will observe, not what the substrate guarantees."
+             "WHAT THE ROUTE PERMANENTLY LOSES, stated beside what it proves. CONTEXT: React context does not survive a Freehand boundary, which is exactly why the WRAPPER is registered and not the parts — four registered parts would be four crossings with the conversation between them broken. In the other direction, the withheld promise this row measures: a Freehand-authored child does not participate in `asChild`, arbitrary `cloneElement`, or ref injection, and does not fail either. EVIDENCE: everything inside the registered component is React's — Freehand's manifest records one host crossing and nothing under it — and the portalled content lands OUTSIDE the Freehand root's container, where a container-scoped inspection does not reach it, which is why `:after-unmount` reads `document.body` instead. SSR: the declaration is `:ssr :client-only`, so the compound renders nothing on the server. None of the three is recoverable; each is the price of keeping the protocol React-primary."]}
 
   :prose :executable}}
