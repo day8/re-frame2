@@ -298,7 +298,19 @@
 
   Answers `{:ms … :bad n :total n}` with every mount in the sample
   verified against `expected` — outside the window, since the window
-  closes when the last `flushSync` returns."
+  closes when the last `flushSync` returns.
+
+  **`expected` nil means UNVERIFIABLE, and an unverifiable window is
+  excluded from the denominator rather than counted as verified.** The one
+  caller that passes nil is the positive control, whose two arms build
+  different pages on purpose; there is nothing to read back. Counted into
+  `:total` with `:bad 0` — which is what this answered before rf2-95s5b —
+  those windows would dilute a real failure in whatever tally a caller
+  summed them into, and `N unverified of M` would be quoting an M that
+  nothing had checked. So they contribute to neither, and the control is
+  adjudicated by its own gate instead (`lane/control-verdict`, reached
+  through `p0-app/adjudicate`). No published figure moves: `control-round!`
+  keeps only `:readings` and has always discarded these counts."
   [arm n expected]
   (let [containers (mapv (fn [_] (container!)) (range n))
         handles    (volatile! [])
@@ -315,7 +327,7 @@
       (doseq [hd @handles] ((:unmount arm) hd))
       (doseq [c containers] (.remove c))
       (collect!)
-      {:ms ms :bad bad :total n})))
+      {:ms ms :bad bad :total (if (nil? expected) 0 n)})))
 
 ;; ---------------------------------------------------------------------------
 ;; The schedule, CHOSEN by its measured property rather than assumed
