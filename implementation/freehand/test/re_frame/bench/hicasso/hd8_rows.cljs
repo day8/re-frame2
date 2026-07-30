@@ -1075,10 +1075,24 @@
   [{:keys [p50]} bearers bound]
   (let [adj   (into {} (map (fn [[id v]] [id (if (contains? bearers id) (- v bound) v)])) p50)
         floor (get adj :floor)]
-    ;; Only the BEARERS are checked for survival, because only they were
-    ;; subtracted from. An exempt arm reading zero is a clamp problem this
-    ;; contract did not create and must not claim to have found.
-    (when (and (pos? floor) (every? pos? (vals (select-keys adj bearers))))
+    ;; SURVIVAL: WHAT REMAINS MUST EXCEED WHAT WAS REMOVED.
+    ;;
+    ;; Only the BEARERS are checked, because only they were subtracted from —
+    ;; an exempt arm reading zero is a clamp problem this contract did not
+    ;; create and must not claim to have found.
+    ;;
+    ;; The test is not `pos?`, and finding that out cost a wrong number rather
+    ;; than an argument. `pos?` passed a bulk row whose floor read one clock
+    ;; quantum against a bound of one clock quantum: the corrected floor came
+    ;; out at ~1e-8 ms, still positive, and the row published a corrected
+    ;; `reagent-slim / floor` of 15,518,934x. A denominator that survives
+    ;; subtraction by a rounding error is not a denominator.
+    ;;
+    ;; So a bearer survives only when the correction is the SMALLER part of its
+    ;; window. That is not a threshold invented here — it is what makes a
+    ;; correction a correction rather than the measurement, and it compares two
+    ;; MEASURED quantities with no constant between them.
+    (when (every? (fn [[_ v]] (> v bound)) (select-keys adj bearers))
       {:p50   adj
        :ratio (into {} (map (fn [[id v]] [id (round4 (/ v floor))])) adj)})))
 
@@ -1133,8 +1147,13 @@
         invented here, which is deliberate: this contract is not entitled
         to a tolerance of its own.
 
-    (b) THE CORRECTION EXCEEDS THE WINDOW. A bearer whose reading does not
-        survive the subtraction was not measuring its arm.
+    (b) THE CORRECTION EXCEEDS THE WINDOW — a bearer for which what REMAINS
+        after the subtraction does not exceed what was REMOVED. That window
+        was measuring the harness's turns, not the arm. `pos?` is not the
+        test and the difference is not academic: it passed a bulk row whose
+        floor read one clock quantum against a bound of one clock quantum,
+        left a corrected floor of ~1e-8 ms, and published a corrected ratio
+        of 15,518,934x. See [[correct-round]].
 
   Refusal is not this function's to soften and not the caller's to widen.
   `hd8-app` fails the run on one, exactly as it does on a positive control
@@ -1207,10 +1226,14 @@
       (let [bound     (:max agg)
             corrected (mapv #(correct-round % bearers bound) (:per-round row))]
         (if (some nil? corrected)
-          (assoc base :verdict :refused :reason :correction-exceeds-window :aggregate agg
-                      :why (str "subtracting the " (:k agg) "-turn aggregate bound of " bound
-                                " ms leaves a bearer arm at or below zero in at least one round: "
-                                "that window was measuring the harness's turns, not the arm"))
+          (assoc base :verdict :refused :reason :correction-exceeds-window
+                      :aggregate agg :bound bound
+                      :why (str "in at least one round a yield-bearing arm has LESS LEFT after "
+                                "subtracting the " (:k agg) "-turn aggregate bound of " bound
+                                " ms than the subtraction removed. That window was measuring "
+                                "the harness's turns rather than the arm, so no ratio taken "
+                                "against it may be published — and a corrected value that "
+                                "survives only by a rounding error is not a denominator"))
           (let [summary'  (lane/across-rounds (mapv :ratio corrected))
                 h2h'      (head-to-head corrected)
                 flipped   (into []
@@ -1247,6 +1270,111 @@
                                     "bearer smaller — so the published unadjusted figure and "
                                     "the corrected one bracket the answer, and no range "
                                     "crossed 1.0 between them")))))))))
+
+(defn- fixture-row
+  "A synthetic write row built from per-round p50 maps, so a fixture is a
+  handful of milliseconds rather than a hand-written summary that could
+  disagree with its own rounds."
+  [witness k arms rounds]
+  (let [per-round (mapv (fn [p50]
+                          (let [floor (get p50 :floor)]
+                            {:p50   p50
+                             :ratio (into {} (map (fn [[id v]] [id (round4 (/ v floor))])) p50)}))
+                        rounds)]
+    {:witness           witness
+     :arms              arms
+     :writes-per-sample k
+     :per-round         per-round
+     :summary           (lane/across-rounds (mapv :ratio per-round))
+     :head-to-head      (head-to-head per-round)}))
+
+(defn yield-correction-self-test
+  "Replay [[yield-correction]] over recorded fixtures, and answer
+  `{:ok? :checks}`.
+
+  **A gate nobody has watched refuse is not a gate**, and this one refuses
+  rarely by design: the harness asymmetry reads `0.0` on most runs of this
+  host and resolves only intermittently, so a live run cannot be relied on
+  to exercise the branch that matters. `parity-can-fail?` makes exactly
+  this argument about the parity gate and `hd8_run.cjs`'s gate 4 makes it
+  about the DOM read-back. This is the same argument for the correction
+  contract, and the technique is `order_guard.cjs`'s: fixtures replayed
+  through the live rule, before anything is measured, deterministic, and
+  fatal when they disagree.
+
+  Fixture 4 is not invented. It is the row that made the survival test
+  `pos?` publish a corrected ratio of 15,518,934x — a bulk floor of one
+  clock quantum against a bound of one clock quantum — and it is here so
+  that repair cannot silently come undone."
+  []
+  (let [zero-yc    {:p50 0 :min 0 :max 0 :n 10
+                    :batched {:k narrow-batch-k :window-p50 0 :window-max 0 :n 10}}
+        live-yc    {:p50 0 :min 0 :max 0.1 :n 10
+                    :batched {:k narrow-batch-k :window-p50 0 :window-max 0.1 :n 10}}
+        no-agg-yc  {:p50 0 :min 0 :max 0.1 :n 10}
+        verdict-of (fn [row adapter yc] (yield-correction row adapter yc))
+        checks
+        [;; 1. Both arms carry the harness turns, so nothing is asymmetric.
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent]
+                                          [{:floor 1.0 :reagent 5.0} {:floor 1.0 :reagent 5.0}])
+                             :reagent zero-yc)]
+           {:name "one window shape in the row is NOT-OWED"
+            :ok   (= :not-owed (:verdict v))
+            :detail (name (:verdict v))})
+
+         ;; 2. Mixed shapes, aggregate flat zero across every window.
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
+                                          [{:floor 1.0 :reagent-slim 5.0} {:floor 1.2 :reagent-slim 6.0}])
+                             :slim zero-yc)]
+           {:name "mixed shapes with a 0.0 aggregate is BELOW-RESOLUTION"
+            :ok   (= :below-resolution (:verdict v))
+            :detail (name (:verdict v))})
+
+         ;; 3. Mixed shapes, aggregate resolves, the bearer survives and no
+         ;;    range crosses 1.0 — so the subtraction is applied and the
+         ;;    corrected ratio is LARGER, which is the fixed direction.
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
+                                          [{:floor 1.0 :reagent-slim 5.0} {:floor 1.2 :reagent-slim 6.0}])
+                             :slim live-yc)
+               was  (get-in (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
+                                         [{:floor 1.0 :reagent-slim 5.0} {:floor 1.2 :reagent-slim 6.0}])
+                            [:summary :reagent-slim :min])
+               now  (get-in v [:summary-corrected :reagent-slim :min])]
+           {:name "a resolving aggregate is CORRECTED, and the corrected ratio is larger"
+            :ok   (and (= :corrected (:verdict v)) (number? now) (> now was))
+            :detail (str (name (:verdict v)) " " was " -> " now)})
+
+         ;; 4. THE 15,518,934x ROW. A bulk floor of one quantum against a
+         ;;    bound of one quantum: `pos?` passed it, this must not.
+         (let [v (verdict-of (fixture-row :U-bulk 1 [:floor :reagent-slim]
+                                          [{:floor 0.1 :reagent-slim 1.5} {:floor 0.1 :reagent-slim 1.6}])
+                             :slim live-yc)]
+           {:name "a bearer with less left than was removed is REFUSED (the 15,518,934x row)"
+            :ok   (and (= :refused (:verdict v))
+                       (= :correction-exceeds-window (:reason v)))
+            :detail (str (name (:verdict v)) "/" (some-> (:reason v) name))})
+
+         ;; 5. The correction moves a range across 1.0, so the row is
+         ;;    reporting the asymmetry rather than the arms.
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
+                                          [{:floor 1.0 :reagent-slim 0.9} {:floor 1.0 :reagent-slim 1.1}])
+                             :slim {:p50 0 :min 0 :max 0.3 :n 10
+                                    :batched {:k narrow-batch-k :window-p50 0 :window-max 0.3 :n 10}})]
+           {:name "a correction that moves a range across 1.0 is REFUSED"
+            :ok   (and (= :refused (:verdict v))
+                       (= :correction-changes-the-verdict (:reason v)))
+            :detail (str (name (:verdict v)) "/" (some-> (:reason v) name))})
+
+         ;; 6. No measured aggregate for this row's k. Refused as
+         ;;    unevaluable, never corrected with the nearest number to hand.
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
+                                          [{:floor 1.0 :reagent-slim 5.0} {:floor 1.2 :reagent-slim 6.0}])
+                             :slim no-agg-yc)]
+           {:name "no aggregate measured for this row's k is REFUSED as unevaluable"
+            :ok   (and (= :refused (:verdict v)) (= :unevaluable (:reason v)))
+            :detail (str (name (:verdict v)) "/" (some-> (:reason v) name))})]]
+    {:ok?    (every? :ok checks)
+     :checks (mapv (fn [c] (update c :ok boolean)) checks)}))
 
 ;; ===========================================================================
 ;; The positive control — predicted against measured, every run
