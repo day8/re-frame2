@@ -559,9 +559,24 @@ figure is a **lower bound** on the slim arm's cost. Both ends are published; a
 reader gets the interval instead of a point sitting quietly at one end of it.
 
 **No figure on this page moves.** The contract reads the rows; it does not take
-them. Applied to this page's own run it returns `:below-resolution` on both slim
-write rows — the reading was `0.0` in every window — so the ratios above stand
-exactly as published, now with the bound checked rather than asserted.
+them. A full three-run sweep on the branch that added it returns `:not-owed` on
+every `uix` and `reagent` write row and `:below-resolution` on both `slim` write
+rows — the aggregate read `0.0` in all ten of its windows, both at `k = 10` and
+at `k = 1` — so the ratios above stand exactly as published, now with the bound
+checked rather than asserted.
+
+**And the contract has been watched doing the other thing, which is the only
+reason to trust it.** A `slim`-only run on the same branch and the same host
+drew the nonzero reading: the ten-turn aggregate read **`0.0999999 ms` at its
+worst window**, the narrow row came back **`:corrected`**, the bound was
+subtracted from the floor — the sole yield-bearing arm in that row — and the
+ratios were re-formed within each round. The corrected band came out **larger**
+than the unadjusted one, which is the direction the fixed sign predicts, and no
+range crossed `1.0`, so the correction was discharged rather than refused. Its
+figures are not quoted here: that run was `HD8_ONLY=slim` with no `HD8_ROWS`, so
+every row it produced is marked non-publishing, and the point being made is
+about the gate rather than about the numbers. This is the case the old page
+promised to act on and the old driver exited `0` through.
 
 **Second-order, worth stating in the same pass.** The same reasoning applies
 wherever a sub-quantum per-item cost is asserted negligible across a batch.
