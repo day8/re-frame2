@@ -124,6 +124,19 @@ Two contract facts, each pinned against the shipped spec:
     "confirm the boot machine via `get-path`/`snapshot {path:}` on
     `[:rf.runtime/machines :snapshots]`" / "`snapshot {path: [:rf.db/runtime]}`".
 
+  * **M-0 publication-route lock (rf2-snjn5) — the migration guide teaches the
+    author-supplied pinned consumption route, never an invented "latest".** The
+    event that flips install prose is OFF-REPO (an operator release decision),
+    so no code change reds it naturally, and the guide has lied in both
+    polarities. Three narrow assertions over MIGRATION_MD only: no `"<latest>"`
+    version placeholder in a dependency coordinate; no leave-the-dep-alone /
+    wait-for-a-release stop instruction (the migration is fully doable — a
+    first release is not a precondition, per the skill's setup.md); and M-0
+    links the canonical deps-versions.md §Choosing the coordinate recipe so one
+    publication-state decision governs the whole guide. Same class as the setup
+    skill's Lock 9. Retire deliberately at a real first publish. See
+    `m0_publication_route_problems`.
+
 All of these rules are written to fire ONLY on the stale ASSERTION / bad-command
 shape, never on the corrected wording that states the negation — and never on the
 unrelated, still-live `:on-error` *surfaces* (a machine `:spawn :on-error`
@@ -1549,6 +1562,113 @@ def form3_capture_once_retarget_problems() -> list[str]:
     return problems
 
 
+# ---------------------------------------------------------------------------
+# Rule 6 — M-0 publication-route lock (rf2-snjn5).
+#
+# The migration guide's M-0 (and the seven artefact rules that inherit it) is
+# install documentation, and the event that flips its truth is OFF-REPO — an
+# operator release decision — so no code change ever reds stale route prose
+# naturally. It has now lied in both polarities: with nothing published, the
+# guide taught `{:mvn/version "<latest>"}` ("look it up — Clojars / Maven
+# Central"), a coordinate that fails resolution, and M-0's pre-publication
+# branch ordered the author to leave the dep alone and apply no other
+# migration rules until a release lands — a stop-ALL-work dead end that
+# directly contradicts the skill this guide fronts for (references/setup.md:
+# the migration is fully doable; a first release is NOT a precondition; never
+# invent a version — the author supplies the pin/route). Three narrow
+# assertions over MIGRATION_MD, the same publication-state drift class as the
+# setup skill's Lock 9 (skills/re-frame2-setup/tests/setup_drift_test.clj):
+#
+#   * M0-LATEST-MAVEN — no `"<latest>"` version placeholder in a dependency
+#     coordinate (the deps.edn `:mvn/version "<latest>"` map form and the Lein
+#     `[... "<latest>"]` vector form both carry the quoted token). The one
+#     labelled if/when-published `:mvn/version` sentence stays legal: it names
+#     no version at all.
+#   * M0-STOP-AND-WAIT — no leave-the-dep-alone / hold-everything-for-a-release
+#     instruction. Narrow by design: an honestly-labelled per-build-tool option
+#     (the Leiningen paragraph pausing ITS OWN dep edit pending publication)
+#     carries neither shape and stays legal.
+#   * M0-RECIPE-DELEGATION — M-0 links the canonical coordinate recipe
+#     (re-frame2-setup references/deps-versions.md §Choosing the coordinate),
+#     so ONE publication-state decision governs the whole guide instead of
+#     eight independently drifting copies.
+#
+# Retire this lock deliberately at a real first publish — it pins the
+# pre-publish polarity.
+# ---------------------------------------------------------------------------
+
+M0_LATEST_PLACEHOLDER_RE = re.compile(r'"<latest>"')
+M0_STOP_AND_WAIT_RE = re.compile(
+    r"leave\s+the\s+dep(?:endency)?\s+alone"
+    r"|do\s+not\s+apply\s+any\s+other\s+migration\s+rules"
+    r"|(?:stop|wait)[^.\n]{0,80}?(?:until|once)\s+a\s+release\s+lands",
+    re.IGNORECASE,
+)
+# A prefix of the canonical anchor, so a future anchor shortening
+# (…#choosing-the-coordinate) still satisfies it while a dropped delegation
+# does not.
+M0_DELEGATION_ANCHOR = "deps-versions.md#choosing-the-coordinate"
+
+M0_LATEST_PROBLEM = (
+    "M0-LATEST-MAVEN: the migration guide carries a `\"<latest>\"` version "
+    "placeholder in a dependency coordinate. Nothing is published, so every "
+    "such coordinate fails resolution — and \"latest\" is never a pin the "
+    "guide may invent (the author supplies the pin). Teach the "
+    "author-supplied route chosen at M-0 and delegate the recipe to "
+    "deps-versions.md §Choosing the coordinate. (rf2-snjn5.)"
+)
+M0_STOP_PROBLEM = (
+    "M0-STOP-AND-WAIT: the migration guide orders the author to leave the dep "
+    "alone / hold the migration for a release. A first release is NOT a "
+    "precondition — the author chooses a consumption route (pinned `:git/sha`; "
+    "`:local/root` for local dev only), records it in the migration report, "
+    "and the migration CONTINUES (skills/re-frame-migration/references/"
+    "setup.md §Discovering the current VERSION). (rf2-snjn5.)"
+)
+M0_DELEGATION_PROBLEM = (
+    "M0-RECIPE-DELEGATION-MISSING: the guide no longer links the canonical "
+    "coordinate recipe (re-frame2-setup references/deps-versions.md "
+    "§Choosing the coordinate). One publication-state decision must govern "
+    "the whole guide — restated per-rule recipes are how eight copies drifted "
+    "independently. (rf2-snjn5.)"
+)
+
+
+def _m0_publication_route_problems(text: str) -> list[tuple[int, str, str]]:
+    """Rule-6 drift in the migration guide's text. `(lineno, label, excerpt)`;
+    the whole-text delegation check reports lineno 0 with an empty excerpt.
+    Text-pure so the self-test can exercise it against fixtures."""
+    problems: list[tuple[int, str, str]] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if M0_LATEST_PLACEHOLDER_RE.search(line):
+            problems.append((lineno, M0_LATEST_PROBLEM, line.strip()))
+        if M0_STOP_AND_WAIT_RE.search(line):
+            problems.append((lineno, M0_STOP_PROBLEM, line.strip()))
+    if M0_DELEGATION_ANCHOR not in text:
+        problems.append((0, M0_DELEGATION_PROBLEM, ""))
+    return problems
+
+
+def m0_publication_route_problems() -> list[str]:
+    """Run the Rule-6 M-0 publication-route lock over MIGRATION_MD only —
+    the corrected setup.md wording legitimately QUOTES the banned instruction
+    in negated form ("Do not leave the dep alone"), so the skill leaves are
+    deliberately out of this rule's scan surface."""
+    if not MIGRATION_MD.is_file():
+        return [
+            f"SETUP: migration corpus missing: {MIGRATION_MD.relative_to(REPO_ROOT)}"
+            " — the M-0 publication-route lock cannot run."
+        ]
+    rel = MIGRATION_MD.relative_to(REPO_ROOT)
+    out: list[str] = []
+    for lineno, label, excerpt in _m0_publication_route_problems(_slurp(MIGRATION_MD)):
+        if lineno:
+            out.append(f"{rel}:{lineno}: {label}\n    {excerpt}")
+        else:
+            out.append(f"{rel}: {label}")
+    return out
+
+
 def find_drift(files: list[Path]) -> tuple[list[str], int]:
     problems: list[str] = []
     lines_checked = 0
@@ -1590,6 +1710,7 @@ def run(*, verbose: bool, ci: bool) -> int:
     problems.extend(m1_classifier_problems())
     problems.extend(m1_anchor_problems())
     problems.extend(form3_capture_once_retarget_problems())
+    problems.extend(m0_publication_route_problems())
 
     if verbose:
         print(
@@ -1607,7 +1728,8 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "partition-mismatch (Rule 4), Form-3 bare-lifecycle targeting "
                 "(Rule 5), Form-3 captured-subscribe acquisition (Rule 5b — "
                 "rf2-v84zn), Form-3 capture-once retarget-invariance drift "
-                "(rf2-aalo4n), or M-1 classifier / kickoff-anchor drift found."
+                "(rf2-aalo4n), M-0 publication-route drift (Rule 6 — "
+                "rf2-snjn5), or M-1 classifier / kickoff-anchor drift found."
             )
         return 0
 
@@ -1622,9 +1744,11 @@ def run(*, verbose: bool, ci: bool) -> int:
         "`get-path`/`snapshot {path:}` CANNOT read runtime-db; use "
         "`read-sub [:rf/machine <id>]`), and the M-1 classifier (public "
         "destinations exempt, private internals flagged) / kickoff anchors, plus "
-        "Form-3 lifecycle explicit-frame targeting and the Form-3 capture-once "
+        "Form-3 lifecycle explicit-frame targeting, the Form-3 capture-once "
         "retarget invariance (FORM-3.md + guided-handlers-state.md §M-11 aligned "
-        "— rf2-aalo4n), to the shipped contract."
+        "— rf2-aalo4n), and the M-0 publication-route lock (author-supplied "
+        "pinned route, no `\"<latest>\"`, no stop-and-wait — rf2-snjn5), to the "
+        "shipped contract."
     )
     return 1
 
@@ -2638,6 +2762,81 @@ def _self_test() -> int:
         K10_ADAPTIVE_REMEDY_OK, K_CANON, dirty=False,
         label="K10 route-1 adaptive-remedy prose is clean",
     )
+
+    # --- Rule 6 fixtures — M-0 publication-route lock (rf2-snjn5) ---------------
+    # The FAIL fixtures are the exact pre-fix shapes (M-0 :69-77 / :81 and the
+    # seven artefact-rule `<latest>` recipes); the PASS fixture is the corrected
+    # author-supplied-route wording, including the two sentences that must stay
+    # legal: the labelled if/when-published `:mvn/version` destination and the
+    # honestly-scoped Leiningen pause option.
+    def expect_m0(text: str, *, dirty: bool, label: str) -> None:
+        nonlocal failures
+        got = bool(_m0_publication_route_problems(text))
+        if got != dirty:
+            print(
+                f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got {got} "
+                f"for M-0 route text: {text!r}"
+            )
+            failures += 1
+
+    M0_CLEAN = (
+        'day8/re-frame2 {:git/url "https://github.com/day8/re-frame2.git" '
+        ':git/sha "<SHA>" :deps/root "implementation/core"}\n'
+        "The recipe is maintained in one place, the setup skill's "
+        "[`deps-versions.md` §Choosing the coordinate](../../skills/"
+        "re-frame2-setup/references/deps-versions.md"
+        "#choosing-the-coordinate-publication-state-decides-the-shape).\n"
+        "Choose and record the route, then continue the migration.\n"
+        "If and when re-frame2 artefacts are published to a Maven registry, "
+        'published coordinates take a `{:mvn/version "…"}` shape instead.\n'
+        "Leiningen may instead pause this build tool's dep edit pending "
+        "publication."
+    )
+    expect_m0(M0_CLEAN, dirty=False, label="M0-1 corrected route text is clean")
+    expect_m0(
+        M0_CLEAN + '\nday8/re-frame2 {:mvn/version "<latest>"}',
+        dirty=True, label="M0-2 mvn <latest> map coord is dirty",
+    )
+    expect_m0(
+        M0_CLEAN + '\n[day8/re-frame2 "<latest>"]',
+        dirty=True, label="M0-3 Lein <latest> vector coord is dirty",
+    )
+    expect_m0(
+        M0_CLEAN + "\nleave the dep alone, do not apply any other migration "
+        "rules, and flag the situation in the migration report",
+        dirty=True, label="M0-4 leave-the-dep-alone stop instruction is dirty",
+    )
+    expect_m0(
+        M0_CLEAN + "\nthe author should wait until a release lands, then "
+        "re-run the migration",
+        dirty=True, label="M0-5 wait-for-a-release instruction is dirty",
+    )
+    expect_m0(
+        M0_CLEAN.replace(
+            "deps-versions.md"
+            "#choosing-the-coordinate-publication-state-decides-the-shape",
+            "deps-versions.md",
+        ),
+        dirty=True, label="M0-6 dropped delegation anchor is dirty",
+    )
+
+    # Live red-proof teeth: the lock must have BITE against the exact pre-fix
+    # M-0 text — the `<latest>` recipe and the stop instruction verbatim from
+    # the guide as it stood before rf2-snjn5.
+    PRE_FIX_M0 = (
+        M0_CLEAN
+        + '\nday8/re-frame2         {:mvn/version "<latest>"}\n'
+        + "**If no released v2 version is available yet** (pre-publication): "
+        "leave the dep alone, do not apply any other migration rules, and flag "
+        "the situation in the migration report — the user must update the "
+        "coord manually once a release lands, then re-run the migration."
+    )
+    if len(_m0_publication_route_problems(PRE_FIX_M0)) < 2:
+        print(
+            "SELF-TEST FAIL (M0-red-proof): the exact pre-fix M-0 text does "
+            "not trip both the <latest> and stop-and-wait assertions."
+        )
+        failures += 1
 
     # Live-corpus teeth: the SHIPPED owners must both carry the invariant, and a
     # mutation that drops the A→B sentence from either owner must be caught — so a
