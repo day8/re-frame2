@@ -1,4 +1,4 @@
-(ns re-frame.freehand.bench.hd8-witnesses
+(ns re-frame.bench.hicasso.hd8-witnesses
   "HD-008's arms — the composed donor arm and everything it is measured
   against, all declaring the SAME two pages (rf2-2rtt6.7).
 
@@ -59,7 +59,7 @@
   author of THAT substrate would write. A shared generator producing five
   dialects would measure the generator. So the arms sit side by side
   here, and the canonical-DOM parity gate in
-  [[re-frame.freehand.bench.hd8-rows]] is what proves they still build one
+  [[re-frame.bench.hicasso.hd8-rows]] is what proves they still build one
   page — attribute names sorted, compared before any clock is read.
 
   ## The two pages

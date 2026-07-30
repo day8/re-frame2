@@ -1,4 +1,4 @@
-(ns re-frame.freehand.bench.hd8-rows
+(ns re-frame.bench.hicasso.hd8-rows
   "HD-008's rows — the arms wired to their mount doors, the parity gate,
   the two clocks, and the per-sample records the arm-order guard
   adjudicates (rf2-2rtt6.7).
@@ -11,7 +11,7 @@
   is optional:
 
     - **Both orders, always.** Arms are interleaved at the SAMPLE index
-      with an order that rotates AND REFLECTS ([[re-frame.freehand.bench.b6-harness/slot-order]]).
+      with an order that rotates AND REFLECTS ([[re-frame.bench.hicasso.lane/slot-order]]).
       A cyclic rotation changes which arm goes first and nothing else —
       every arm keeps one predecessor for ever — which is the trap
       `order_guard.cjs` proves arithmetically.
@@ -58,9 +58,8 @@
             [re-frame.adapter.uix :as uixa]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.freehand.bench.b6-harness :as h]
-            [re-frame.freehand.bench.hd8-witnesses :as w]
-            [re-frame.freehand.bench.measure :as m]
+            [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.bench.hicasso.hd8-witnesses :as w]
             [reagent.core :as reagent]
             [reagent.dom.client :as rdc]
             [reagent.ratom :as reagent-ratom]
@@ -98,7 +97,7 @@
 ;; ===========================================================================
 ;;
 ;; Each arm answers the `{:id :mount :unmount}` shape
-;; [[re-frame.freehand.bench.b6-harness/mount-arm!]] drives, so the timed
+;; [[re-frame.bench.hicasso.lane/mount-arm!]] drives, so the timed
 ;; window is the harness's and not a near-copy per substrate. The window
 ;; is a `flushSync` around the render: it contains element construction
 ;; AND React's render, commit and DOM mutation, with nothing scheduled out
@@ -270,7 +269,7 @@
   that held under `:none` and failed under `:advanced` would be a renaming
   bug silently deciding the comparison."
   [witness arm-ids props]
-  (h/parity (arms-for witness arm-ids) props))
+  (lane/parity (arms-for witness arm-ids) props))
 
 (defn parity-problems
   "Answer a vector of problems — empty when every arm built one page with
@@ -293,7 +292,7 @@
 
                 (not (pos? (count (get canon (first arm-ids) ""))))
                 (conj {:witness id :size what :problem :built-nothing}))
-              (finally (doseq [mnt mounts] (h/release! mnt))))))
+              (finally (doseq [mnt mounts] (lane/release! mnt))))))
         problems
         [[props elements :stress] [small small-elements :small]]))
     []
@@ -310,20 +309,20 @@
     (try
       (and (not= (:reference a) (:reference b)) (:agree? a) (:agree? b))
       (finally
-        (doseq [mnt (:mounts a)] (h/release! mnt))
-        (doseq [mnt (:mounts b)] (h/release! mnt))))))
+        (doseq [mnt (:mounts a)] (lane/release! mnt))
+        (doseq [mnt (:mounts b)] (lane/release! mnt))))))
 
 ;; ===========================================================================
 ;; The mount clock — with the order-guard's per-sample records
 ;; ===========================================================================
 
 (defn- round4 [x] (/ (js/Math.round (* (double x) 10000.0)) 10000.0))
-(defn- p50 [xs] (:p50 (m/summarise xs)))
+(defn- p50 [xs] (:p50 (lane/summarise xs)))
 
 (defn slot-order
   "Slot order for `k` arms at sample index `s`.
 
-  `b6-harness/slot-order` rotates forward by `s` and then REFLECTS on odd
+  `lane/slot-order` rotates forward by `s` and then REFLECTS on odd
   `s`, which gives every arm at least two distinct predecessors — for
   `k >= 3`. AT `k = 2` THE TWO OPERATIONS CANCEL: rotating a pair by one is
   the same permutation as reversing it, so `[0 1]` comes back at every
@@ -335,13 +334,18 @@
   repair belongs to the PLAN, never to the guard — so a pair alternates
   explicitly here, and everything wider defers to the shared harness.
 
-  The shared harness's own degeneracy is left alone deliberately: four
-  sibling P0 arms are measuring on `b6-harness` right now and a shared
-  instrument must not change under them mid-flight. It is filed instead."
+  The shared copies are left alone deliberately. There are THREE of them —
+  `re-frame.bench.order-guard/slot-order` (which `lane/slot-order`
+  re-exports), `b6-harness/slot-order`, and `order_guard.cjs`'s
+  `schedule` — all carrying the same arithmetic and therefore the same
+  degeneracy, and sibling P0 arms are measuring on them right now. A shared
+  instrument must not change under a measurement in flight, so the defect
+  is FILED (rf2-ouwh8) rather than patched here, and this local override is
+  deleted when that lands."
   [k s]
   (if (= k 2)
     (if (even? s) [0 1] [1 0])
-    (h/slot-order k s)))
+    (lane/slot-order k s)))
 
 (defn mount-round!
   "One round over `arms`: `(+ warmup samples)` sample indices, every arm
@@ -361,7 +365,7 @@
     (dotimes [s (+ warmup samples)]
       (doseq [j (slot-order k s)]
         (let [arm (nth arms j)
-              mnt (h/mount-arm! arm props)
+              mnt (lane/mount-arm! arm props)
               p   @pos]
           (when (>= s warmup)
             (swap! acc update (:id arm) conj (:ms mnt))
@@ -371,7 +375,7 @@
                               :position    p}))
           (reset! prev (:id arm))
           (swap! pos inc)
-          (h/release! mnt))))
+          (lane/release! mnt))))
     {:readings @acc :samples @recs :position @pos}))
 
 (defn normalise
@@ -443,7 +447,7 @@
      :doc       (:doc witness)
      :arms      (vec arm-ids)
      :per-round norm
-     :summary   (h/across-rounds (mapv :ratio norm))
+     :summary   (lane/across-rounds (mapv :ratio norm))
      :head-to-head (head-to-head norm)
      :samples   (:samples acc)}))
 
@@ -570,12 +574,12 @@
   as the fastest substrate in the table — which is the exact shape of the
   fault this exists to prevent."
   [{:keys [arm container]} i val]
-  (let [t0 (m/now-ms)]
+  (let [t0 (lane/now-ms)]
     ((:write! arm) i val)
     (-> (js/Promise.resolve nil)
         (.then (fn [_]
                  ((:force! arm))
-                 (let [ms    (- (m/now-ms) t0)
+                 (let [ms    (- (lane/now-ms) t0)
                        probe (if (= i :all) 0 i)]
                    {:ms ms :ok? (= val (cell-text container probe))}))))))
 
@@ -664,7 +668,7 @@
                   ;; `:unpublished` in that arm's place rather than a number a
                   ;; reader could quote, and every head-to-head pair touching
                   ;; it is dropped.
-                  :summary    (publishable (h/across-rounds (mapv :ratio (:rounds-out acc))))
+                  :summary    (publishable (lane/across-rounds (mapv :ratio (:rounds-out acc))))
                   :head-to-head (into {}
                                       (remove (fn [[k _]]
                                                 (some #(re-find (re-pattern (name %)) (name k))
