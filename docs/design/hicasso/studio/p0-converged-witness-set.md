@@ -97,6 +97,47 @@ rows do not.
 | **Canonical-DOM parity** | clean under `:advanced` in both segments **and across the seam**, every row — `{:problems [] :ok? true}` |
 | **Verification** | **0 unverified of 2,460** — 600 M1 mounts + 600 M2 mounts + 630 broad writes + 630 narrow writes, each read back out of the DOM inside its own window |
 
+### The bulk-narrow row was re-taken (rf2-zb3qg)
+
+Three of the four rows above stand as measured. **The narrow row does not — it
+was re-run on a batched window** and both its figures and its provenance below
+supersede the ones in the table above.
+
+**The instrument is identified by content hash, not by commit SHA.** A rebase
+moved this branch's SHAs between the run and the merge; the blobs did not move
+at all, and were verified byte-identical afterwards.
+
+| file (`implementation/freehand/test/re_frame/bench/hicasso/`) | blob |
+|---|---|
+| `p0_converge_app.cljs` | `f4b09dc20712e45f44f9ec9339f8dd00ce51e8f7` |
+| `lane.cljs` | `885592cf9fdd79f701d6353fc5d3dae0868d74f1` |
+| `p0_converge_run.cjs` | `253b468a6b3a96b3ca8e1d8e4f6d2ad6299445a1` |
+| `p0_reagent_views.cljs` | `4032e39779ce55fee1e1cd4f7a8e9561237e2cfd` |
+| `p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` |
+
+| | |
+|---|---|
+| **Producing commit** | `ec30ae12ef` on `worker/bench-tail-cluster`. **If that SHA does not resolve, a rebase moved it and the blobs above are what to trust.** |
+| **Reproduction** | `HICASSO_ONLY=narrow node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — **run twice at this instrument, exit 0 both times** |
+| **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows 11 x64, 24 logical CPUs |
+| **Schedule** | unchanged — 5 rounds × 2 segments × (8 warm-up + 12 samples), three arms interleaved, **10 writes per timed window** |
+| **Arm-order guard** | **no refusal on either run**, tolerance 0.10, `contaminated? false`, `unchecked? false` |
+| **Verification** | **0 unverified of 6,030 writes, on each run** |
+| **Positive control** | predicted `1801 / 901 = 1.9989×` **before** the run; four measured ranges, all inside ±25%, all inside on **every round** |
+
+`HICASSO_ONLY` re-takes one row rather than four, deliberately: the mount rows
+and the broad row are untouched by the batching — the broad row passes a batch
+of one, which is the pre-batch window exactly — so re-taking them would replace
+sound published numbers with different ones for nothing. It is `hd8_run.cjs`'s
+`HD8_ONLY`, for that driver's reasons.
+
+To confirm a candidate commit carries this instrument:
+
+```bash
+P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
+git rev-parse <candidate>:$P   # must print f4b09dc20712e45f44f9ec9339f8dd00ce51e8f7
+```
+
 The reproduction command was run **at this commit, on a clean working tree**,
 and the figures below are that run's. A second, independent five-round run of
 the identical instrument is published beside them; where the two disagree, the
@@ -125,8 +166,18 @@ reflects back to `[0 1]`, at every sample index, for ever, so a two-arm plan
 runs in one order and *both orders* is a claim it cannot support. Keeping
 `:ctl-2x` inside the interleave — which is where rf2-2rtt6.2 puts it — means
 this entry never forms a two-arm plan. The property is **asserted at boot**, in
-both directions (degenerate at 2, varied at 3), and the run refuses to measure
-if either assertion fails.
+both directions, and the run refuses to measure if either assertion fails.
+
+**That defect has since been repaired** (PR #7267): at `k = 2` the reflection is
+dropped and the plain rotation alternates, which is every order two arms have.
+The three-arm plan is kept regardless — it is what every row on this page was
+measured under, and the schedule an arm runs is part of its window. The boot
+assertion now checks the *repaired* property as a canary. **It was not updated
+when the repair landed, and the consequence was not cosmetic: the assertion went
+false, `-main` refused to measure, and this page's reproduction command exited 1
+before taking a single sample — from PR #7267 until rf2-zb3qg found it. The
+figures above were unaffected (they predate the repair) but were not
+reproducible at HEAD for that window.**
 
 **`install-adapter!` is once per process** (Spec 006 §Single adapter per
 process), so each round runs two segments — destroy the adapter, install the
@@ -159,7 +210,8 @@ rather than as a winner.
 | **M1 mount** — 901 el, 300 boundaries | **1.2301×** | 1.1099 – 1.3538 | 1.3065 · 1.1417 · 1.2388 · 1.1099 · 1.3538 | **UIx slower**, disjoint from 1.0 |
 | **M2 mount** — 51 el, 12 fields · *diagnostic* | 1.0539× | 0.8572 – 1.4286 | 1.4286 · 0.8572 · 0.8572 · 1.0550 · 1.0714 | **straddles 1.0 — indistinguishable** |
 | **bulk broad** — one commit all 300 read | **0.6239×** | 0.4701 – 0.7857 | 0.7172 · 0.6046 · 0.5417 · 0.7857 · 0.4701 | **UIx faster**, disjoint from 1.0 |
-| **bulk narrow** — one commit exactly one reads | 1.1556× | 1.0417 – 1.2500 | 1.1111 · 1.2500 · 1.2500 · 1.0417 · 1.1250 | UIx slower — **but see the stability note** |
+| **bulk narrow** — 10 commits, each read by exactly one boundary, one window | **1.1540×** | 1.0570 – 1.2053 | 1.2053 · 1.1515 · 1.1860 · 1.0570 · 1.1700 | **UIx slower**, disjoint from 1.0 — *re-taken on a batched window, see below* |
+| ~~bulk narrow, **unbatched window** (superseded)~~ | ~~1.1556×~~ | ~~1.0417 – 1.2500~~ | ~~1.1111 · 1.2500 · 1.2500 · 1.0417 · 1.1250~~ | ~~UIx slower, but did not stably resolve across runs~~ |
 
 Both arms against the floor, for context:
 
@@ -168,7 +220,8 @@ Both arms against the floor, for context:
 | M1 mount | 4.352× [4.063 – 4.625] | 5.343× [4.947 – 5.944] |
 | M2 mount | 2.102× [1.625 – 2.800] | 2.261× [1.714 – 4.000] |
 | bulk broad | 7.443× [7.000 – 8.000] | 4.607× [3.667 – 5.500] |
-| bulk narrow | 1.820× [1.500 – 2.000] | 2.117× [1.667 – 2.500] |
+| bulk narrow *(batched window)* | 1.880× [1.8167 – 1.9259] | 2.168× [2.0357 – 2.2500] |
+| ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.820× [1.500 – 2.000]~~ | ~~2.117× [1.667 – 2.500]~~ |
 
 ### The denominator reproduces rf2-2rtt6.2
 
@@ -199,13 +252,14 @@ same round, touching neither floor — is therefore reported beside it:
 | M1 mount | 1.2301 [1.1099 – 1.3538] | 1.2028 [1.0405 – 1.3538] | yes — same verdict, 2% apart on the mean |
 | M2 mount | 1.0539 [0.8572 – 1.4286] | 0.9989 [0.8571 – 1.1429] | yes — both straddle |
 | bulk broad | 0.6239 [0.4701 – 0.7857] | 0.5582 [0.4483 – 0.6500] | yes — same verdict, both far from 1.0 |
-| bulk narrow | 1.1556 [1.0417 – 1.2500] | 1.1972 [1.1111 – 1.2500] | yes |
+| bulk narrow *(batched window)* | **1.1540** [1.0570 – 1.2053] | **1.1714** [1.0962 – 1.2316] | yes — same verdict, both disjoint from 1.0 |
+| ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.1556 [1.0417 – 1.2500]~~ | ~~1.1972 [1.1111 – 1.2500]~~ | ~~yes~~ |
 
 The two estimators agree on the verdict of every row, which is the evidence that
 the floor normalisation is doing its job rather than injecting the quantisation
 it is exposed to.
 
-### Stability across runs — and the one row that is not stable
+### Stability across runs
 
 The identical instrument was run twice, five rounds each, minutes apart:
 
@@ -214,20 +268,56 @@ The identical instrument was run twice, five rounds each, minutes apart:
 | M1 mount | **1.2301** [1.110 – 1.354] disjoint | 1.2103 [1.021 – 1.316] disjoint | **yes** |
 | M2 mount | 1.0539 [0.857 – 1.429] straddles | 1.1000 [1.000 – 1.458] straddles | **yes** |
 | bulk broad | **0.6239** [0.470 – 0.786] disjoint | 0.5682 [0.444 – 0.691] disjoint | **yes** |
-| bulk narrow | 1.1556 [1.042 – 1.250] disjoint | 1.0405 [0.750 – 1.333] **straddles** | **NO** |
+| **bulk narrow** *(batched window, rf2-zb3qg)* | **1.1540** [1.0570 – 1.2053] disjoint | **1.1656** [1.1091 – 1.2942] disjoint | **yes** |
+| ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.1556 [1.042 – 1.250] disjoint~~ | ~~1.0405 [0.750 – 1.333] **straddles**~~ | ~~**NO**~~ |
 
-**The narrow row does not settle.** Four estimates of it (two runs × two
-estimators) read 1.0405, 1.1556, 1.1738, 1.1972 — the *direction* is the same
-every time and UIx is the slower arm — but whether the range clears 1.0 depends
-on the run, and one of the four has a minimum of exactly `1.0000`, which is the
-clamp's signature and not a tie. Every leg of that row is three to five quanta.
-**The narrow row is therefore published as clamp-limited and NOT as a resolved
-threshold**: read it as *UIx is somewhere between indistinguishable and ~1.2×
-slower on a narrow write*, and do not judge a candidate red on a margin finer
-than that. Lifting it would need a bigger sample per window — batching k writes
-into one clock window, as rf2-2rtt6.4 did for its own clamped rows — which is a
-change to the instrument, not to the witness, and is left as a stated open item
-rather than made silently.
+#### The narrow row was clamp-limited, and now resolves
+
+**As first published it did not settle.** Four estimates (two runs × two
+estimators) read 1.0405, 1.1556, 1.1738, 1.1972 — the *direction* was the same
+every time and UIx was the slower arm — but whether the range cleared 1.0
+depended on the run, and one of the four had a minimum of exactly `1.0000`,
+which is the clamp's signature and not a tie. Every leg of that row was three to
+five quanta. It was therefore published as **clamp-limited and not as a resolved
+threshold**, with the remedy named as an open item: batch *k* writes into one
+clock window, a change to the *instrument* and not to the witness.
+
+**rf2-zb3qg made that change and re-ran the row.** Ten single-cell commits now
+share one clock, each with its own cell and its own value. Every leg is 21 to 65
+quanta instead of 3 to 5, so the quantum is about 2% of a reading rather than
+25% of it. All four estimates now clear 1.0:
+
+| estimate | before (unbatched) | after (10 commits per window) |
+|---|---|---|
+| run 1, floor-normalised | 1.1556 [1.0417 – 1.2500] | **1.1540 [1.0570 – 1.2053]** |
+| run 1, raw cross-segment | 1.1972 [1.1111 – 1.2500] | **1.1714 [1.0962 – 1.2316]** |
+| run 2, floor-normalised | 1.0405 [0.7500 – 1.3330] ← *straddles* | **1.1656 [1.1091 – 1.2942]** |
+| run 2, raw cross-segment | 1.1738 | **1.1447 [1.1091 – 1.1827]** |
+
+**Lowest bound across all four is 1.0570.** The row is now published as a
+resolved threshold: *UIx-on-subs is roughly 1.15× slower than Reagent-on-subs on
+a narrow write, and the two are distinguishable.* The instruction not to judge a
+candidate red on a finer margin than "indistinguishable to ~1.2×" is withdrawn —
+the margin the row now supports is the range above.
+
+**The centre did not move; the noise did.** The batched mean (1.1540 / 1.1656)
+sits inside the spread of the four unbatched estimates, which is the outcome that
+says the batching changed the *resolution* and not the *quantity*. The per-commit
+cost confirms it independently: dividing each batched sample by ten gives floor
+2.1–3.0 quanta, `reagent-subs` 4.75–5.55, `uix-subs` 5.70–6.45 — the same legs
+the unbatched row measured directly (2–3, 4–4.5, 4.5–5).
+
+**What the batch costs, stated rather than assumed.** A batched window verifies
+all ten writes after the clock stops rather than each in its own turn, so an
+early commit gets up to nine extra microtask turns before it is read back. That
+is a difference of degree on a tolerance the instrument already grants — the
+unbatched window tolerates exactly one such turn by construction, because that
+turn *is* the harness yield. It is not a new blind spot: the fault the read-back
+exists to catch is a commit React has parked at the default lane, which is
+scheduled through a `MessageChannel` — a *macrotask* — and no number of
+microtasks lets it land inside the window. A parked commit is still parked when
+the read-backs run, and all ten would read unverified. **0 of 6,030 did, on each
+run.**
 
 ### Clock resolution, per row
 
@@ -239,7 +329,8 @@ Stated rather than smoothed. One sample, p50 milliseconds, expressed in Chrome's
 | M1 mount | 8 – 10 | 33 – 46 | 39 – 54 | yes |
 | M2 mount | 2 – 4 | 6 – 7 | 6 – 8 | **diagnostic only** |
 | bulk broad | 2.5 – 4 | 20 – 29 | 11 – 13 | yes on the substrate legs; the floor is coarse, which is why the raw estimator is published beside the normalised one |
-| bulk narrow | 2 – 3 | 4 – 4.5 | 4.5 – 5 | **clamp-limited** — see above |
+| **bulk narrow** — 10 commits a sample | 21 – 30 | 47.5 – 55.5 | 57 – 64.5 | **yes** |
+| ~~bulk narrow — 1 commit a sample (superseded)~~ | ~~2 – 3~~ | ~~4 – 4.5~~ | ~~4.5 – 5~~ | ~~**clamp-limited**~~ |
 
 ## What the convergence changed
 
@@ -252,7 +343,7 @@ matter*, and it is not small.
 | large-list mount | W1: **1.057×** [0.907 – 1.156] — indistinguishable | M1: **1.2301×** [1.110 – 1.354] — UIx slower, disjoint | **verdict flips**: an indistinguishable row becomes a resolved one |
 | ordinary-form mount | W3: **0.893×** [0.843 – 0.956] — UIx faster, disjoint, published as a threshold | M2: **1.0539×** [0.857 – 1.429] — indistinguishable, graded diagnostic | **verdict flips**, and so does the grade |
 | broad commit | U-broad: **0.838×** [0.760 – 0.953] — UIx faster | bulk broad: **0.6239×** [0.470 – 0.786] — UIx faster | same direction, **much larger margin** |
-| narrow commit | U-narrow: **1.536×** [1.226 – 1.876] — UIx slower, disjoint | bulk narrow: 1.1556× / 1.0405× — direction the same, magnitude far smaller, **does not stably resolve** | **strength collapses** |
+| narrow commit | U-narrow: **1.536×** [1.226 – 1.876] — UIx slower, disjoint | bulk narrow: **1.1540×** [1.0570 – 1.2053] — UIx slower, disjoint | same direction and both resolve, but **the margin roughly halves** |
 
 None of this makes rf2-2rtt6.4 wrong. Each of its ratios is still a ratio
 between two arms measured in one run, on one page, through one sub graph, in
@@ -305,11 +396,21 @@ can honestly be held to it.)
 | M1 mount | 1.9989× | 1.863× [1.750 – 2.000] ✅ | 1.979× [1.895 – 2.000] ✅ | 1801 / 901 elements |
 | M2 mount | 1.9412× | 1.803× [1.600 – 2.000] ✅ | 1.731× [1.333 – 2.000] ✅ | 99 / 51 elements |
 | bulk broad | 1.9989× | 1.817× [1.667 – 2.000] ✅ | 1.923× [1.667 – 2.250] ✅ | 1801 / 901 elements |
-| bulk narrow | 1.9989× | 2.013× [1.667 – 2.400] ✅ | 1.867× [1.667 – 2.000] ✅ | 1801 / 901 elements |
+| **bulk narrow** *(batched, run 1)* | 1.9989× | 1.976× [1.917 – 2.038] ✅ | 1.949× [1.821 – 2.000] ✅ | 1801 / 901 elements |
+| **bulk narrow** *(batched, run 2)* | 1.9989× | 1.941× [1.905 – 1.977] ✅ | 1.935× [1.814 – 2.000] ✅ | 1801 / 901 elements |
+| ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.9989×~~ | ~~2.013× [1.667 – 2.400] ✅~~ | ~~1.867× [1.667 – 2.000] ✅~~ | ~~1801 / 901 elements~~ |
 
 Eight controls, eight passes, and seven of the eight sit **below** their
 prediction — the direction a fixed per-root term predicts, and the same
 direction rf2-2rtt6.2 and rf2-2rtt6.4 both recorded.
+
+The narrow row's controls were **predicted before the run** at `1801 / 901 =
+1.9989×` and re-measured on the batched window; all four ranges above sit
+entirely inside the ±25% band `[1.4992 – 2.4986]`. They therefore pass under the
+**strict** every-round-inside reading as well as the overlap rule they were
+adjudicated under — which matters because `lane/control-verdict` implements the
+overlap rule and **rf2-egdaq** is the open question of whether to tighten it.
+Nothing here tightens it; the narrow row simply would not be affected either way.
 
 ## The guard refused this arm, twice, and the arm was repaired
 
@@ -375,11 +476,14 @@ first cut produced looked entirely plausible.
 
 ## Open items — stated, not swept up
 
-- **The narrow row is clamp-limited and does not stably resolve.** Lifting it
-  needs k writes to a clock window. That is a change to the instrument and not
-  to the witness, so it can be made without disturbing the convergence — but it
-  is a change, and rf2-2rtt6.2 has a recorded refusal from batching *mounts*, so
-  the guard must be re-run against it rather than assumed.
+- ~~**The narrow row is clamp-limited and does not stably resolve.**~~
+  **CLOSED by rf2-zb3qg.** Ten writes now share one clock; both independent runs
+  resolve, and **the guard did not refuse either of them** (tolerance 0.10,
+  `contaminated? false`, `unchecked? false`). rf2-2rtt6.2's recorded refusal was
+  from batching *mounts* on the 51-element form, and it was checked rather than
+  assumed: the worst phase stratum across all six arms of the batched narrow row
+  reads 1.038×–1.089× last-third over first-third, ranges overlapping. The
+  tolerance was not touched.
 - **The 51-element form row cannot be lifted the same way here.** rf2-2rtt6.2
   tried batching mounts on this exact witness and the guard refused the whole
   run (exit 2, all four arms 3.2×–5.4× last-third over first-third, ranges
