@@ -146,9 +146,10 @@ that the normalisation is doing its job rather than an argument that it should.
 | **U-narrow** | the same grid; one commit exactly ONE cell reads | 301 | `[:p0/cell i]` |
 
 One read per boundary — the first rung of the HD-002 1/3/7/20 ladder. Sub keys are
-`(query-id, long)` under value equality, deliberately not maps, because unstable
-map args are a documented thrashing hazard and a bench that used one would be
-measuring the hazard.
+`(query-id, long)` under value equality. A map would be equally safe — a freshly
+allocated but `=`-equal map is one cache key; only value-unstable args thrash the
+index — but a bare long is value-stable by construction, so key churn cannot enter
+what this arm measures.
 
 ## RED-ZONE — clock
 
