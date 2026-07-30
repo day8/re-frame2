@@ -32,11 +32,21 @@ as HD-nnn are normative in [decisions.md](decisions.md).
 | Budget | Rule |
 |---|---|
 | Runtime/shell hooks per product boundary | ≤ 2 (the subscription/epoch hook + the frame hook, HD-020); a ViewCell-class object graph = failed spike. The scalar *comparator* arm is exempt — it is priced by the 1/3/7/20 heap ladder, not this row |
-| Exclusive retained per boundary | target ~0.4–0.5 KB; > 1 KB fails on paper |
+| Exclusive retained per boundary (**the R=0 boundary shell**) | target ~0.4–0.5 KB; > 1 KB fails on paper. Shell only — a boundary's *reads* are priced on the per-read axis, against the regime-matched red-zone gates (rf2-2rtt6.16) |
 | Per-read | tier-3 survival metric (HD-002): steady-state allocation slope across warm 1/3/7/20 reads, zero retained per-occurrence objects after commit/teardown |
 | Per-keystroke | stated path for a 4-field form and a 100-cell grid; requires sub-recompute localization (which subs recompute, not merely which boundaries re-run) |
 | Template identity | a stated cache key for any cached shape work |
 | Host boundaries | priced separately (foreign components are census-rare) |
+
+The shell budget line is the R=0 boundary shell by ruling (heap red-zone regime
+ruling, delegated by Mike, 2026-07-31; authoritative text on rf2-2rtt6.16,
+transcription on rf2-2rtt6.1): both measured donors comply — Reagent ~418–428 B,
+UIx ~208 B — and a candidate cannot pass the line by amortising subscriptions
+across boundaries, because the distinct-query heap ladder (Q = E) is the
+mandatory worst-case witness and the operative upper-envelope red-zone family.
+Component budget rows (shell / per-edge / per-unique-key) enter this table only
+after rf2-5prok's fan-out sweep verifies the additive heap model and prices the
+terms.
 
 Sub-key identity: `(query-id, args)` under value equality; value-unstable map args
 thrash the index — documented, programmer-trusted. A missed invalidation is a P0
