@@ -47,14 +47,31 @@
                (hn/per-write (gobj/get a "total") (gobj/get a "writes"))))))
 
 (defn- run-round!
+  "One round, and the driver's running POSITION COUNTER carried across it.
+
+  The counter is threaded through the driver rather than kept here because
+  the phase factor's whole question is *where in the RUN* — not where in
+  the round — a sample was taken, and a per-round counter would restart the
+  trajectory four times and ask nothing.
+
+  `rows` is not called `samples`, and that is a repair rather than a style
+  choice. It was: the destructured `{:keys [samples ...]}` shadowed the
+  numeric `samples` PARAMETER, so `(+ warmup samples)` added a vector to a
+  number, `next` came back `NaN`, and every position from round two onward
+  was non-finite. The guard filters non-finite positions, so it went on
+  reporting `24 samples` per arm while adjudicating the phase question on
+  the SIX that survived — an `[ok]` verdict resting on a quarter of the
+  evidence it named. Nothing threw and no figure looked wrong. The driver
+  now prints the finite-position count per arm beside the strata, so the
+  next version of this cannot hide."
   [warmup samples writes position0]
   (-> (hn/seed-arms! @mounts)
       (.then (fn [_] (hn/run-round! @mounts
                                     {:warmup warmup :samples samples :writes writes}
                                     position0)))
-      (.then (fn [{:keys [samples bad]}]
-               (vswap! collected into samples)
-               (js-obj "samples" (samples->js samples)
+      (.then (fn [{rows :samples bad :bad}]
+               (vswap! collected into rows)
+               (js-obj "samples" (samples->js rows)
                        "bad"     bad
                        "next"    (+ position0
                                     (* (count @mounts) (+ warmup samples))))))))
@@ -98,6 +115,10 @@
         (js-obj
           "arms"          (clj->js (mapv #(name (:id %)) arms))
           "cellsN"        hn/cells-n
+          ;; The subscription-count ladder, top rung LAST and equal to
+          ;; `cellsN` — the top rung is `:spine-replace` itself rather than
+          ;; a fourth mounted copy of it.
+          "ladder"        (clj->js hn/ladder-cells)
           ;; Run before any measurement: proves this bundle reads the keys
           ;; it writes, under the renaming it was actually compiled with.
           "integrity"     (fn [] (hn/integrity-probe))

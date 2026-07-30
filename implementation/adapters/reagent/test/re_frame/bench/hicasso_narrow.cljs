@@ -264,6 +264,30 @@
    (for [i (range n)]
      ^{:key i} [spine-cell i])])
 
+(def ladder-cells
+  "The SUBSCRIPTION-COUNT ladder — three rungs, and three rather than two
+  is a repair.
+
+  The headline figure says the flush carries essentially all of a narrow
+  write's cost on this substrate. That is one word doing two jobs: the
+  flush is where Reagent re-runs every dirtied reaction AND where React
+  commits the one cell that changed, and a single number cannot say which
+  of those the money went to.
+
+  Two rungs looked like enough — the React commit is the same one-cell
+  commit at both, so the slope should be the per-subscription cost and the
+  intercept everything else. Measured, 30 and 300 gave a slope of 2.27 us
+  per subscription and an intercept of MINUS 0.048 ms. A negative
+  intercept is not a small error; it is the two points refusing the linear
+  model they were fitted to, because the flush grows FASTER than the
+  subscription count. A third rung makes that visible instead of hiding it
+  inside a number that reads like a per-unit cost.
+
+  30 rather than 1 at the bottom: a one-cell grid changes the shape of
+  both the DOM and the write, and a ladder wants one shape at three
+  sizes."
+  [30 100 300])
+
 ;; ---------------------------------------------------------------------------
 ;; The bare-ratom arm — b6's shape, reproduced character for character
 ;; ---------------------------------------------------------------------------
@@ -308,14 +332,14 @@
   clock reads, one promise, one accumulate. Its read-back is skipped
   because it renders no cell to read back."
   []
-  {:id :instrument :skip-verify? true
+  {:id :instrument :skip-verify? true :cells cells-n
    :mount   (fn [container] container)
    :write!  (fn [_ _] nil)
    :force!  (fn [] nil)
    :unmount (fn [_] nil)})
 
 (defn- bare-ratom-arm []
-  {:id :bare-ratom
+  {:id :bare-ratom :cells cells-n
    :mount   (fn [container]
               (reset! bare-cells (vec (repeat cells-n 0)))
               (let [root (rdc/create-root container)]
@@ -335,35 +359,36 @@
 
   Each arm owns its OWN frame: frames are isolated contexts and two arms
   sharing one would let each other's writes into the other's graph."
-  [id frame-id write-door]
-  {:id id
-   :mount
-   (fn [container]
-     (rf/make-frame {:id frame-id})
-     (rf/with-frame frame-id (rf/dispatch-sync [:hn/seed cells-n]))
-     (let [root (rdc/create-root container)]
-       (react-dom/flushSync
-         (fn [] (rdc/render root [rf/frame-provider {:frame frame-id}
-                                  [spine-grid cells-n]])))
-       root))
-   :write!
-   (fn [i val]
-     (case write-door
-       :replace-app-db
-       (let [db (frame/frame-app-db-value frame-id)]
-         (frame/replace-app-db!
-           frame-id
-           (if (= i :all)
-             (assoc db :cells (vec (repeat cells-n val)))
-             (update db :cells assoc i val))))
+  ([id frame-id write-door] (spine-arm id frame-id write-door cells-n))
+  ([id frame-id write-door n]
+   {:id id :cells n
+    :mount
+    (fn [container]
+      (rf/make-frame {:id frame-id})
+      (rf/with-frame frame-id (rf/dispatch-sync [:hn/seed n]))
+      (let [root (rdc/create-root container)]
+        (react-dom/flushSync
+          (fn [] (rdc/render root [rf/frame-provider {:frame frame-id}
+                                   [spine-grid n]])))
+        root))
+    :write!
+    (fn [i val]
+      (case write-door
+        :replace-app-db
+        (let [db (frame/frame-app-db-value frame-id)]
+          (frame/replace-app-db!
+            frame-id
+            (if (= i :all)
+              (assoc db :cells (vec (repeat n val)))
+              (update db :cells assoc i val))))
 
-       :dispatch-sync
-       (rf/with-frame frame-id
-         (if (= i :all)
-           (rf/dispatch-sync [:hn/set-all cells-n val])
-           (rf/dispatch-sync [:hn/set-cell i val])))))
-   :force!  flush-reagent!
-   :unmount (fn [root] (react-dom/flushSync (fn [] (rdc/unmount root))))})
+        :dispatch-sync
+        (rf/with-frame frame-id
+          (if (= i :all)
+            (rf/dispatch-sync [:hn/set-all n val])
+            (rf/dispatch-sync [:hn/set-cell i val])))))
+    :force!  flush-reagent!
+    :unmount (fn [root] (react-dom/flushSync (fn [] (rdc/unmount root))))}))
 
 (defn negative-control-arm
   "THE READ-BACK GATE'S NON-VACUITY CONTROL, and it is built to FAIL.
@@ -386,10 +411,19 @@
   "The measured arms, in the order they are DECLARED — the run order is
   `guard/slot-order`'s and varies with the sample index."
   []
-  [(instrument-arm)
-   (bare-ratom-arm)
-   (spine-arm :spine-replace  :hn/spine-replace  :replace-app-db)
-   (spine-arm :spine-dispatch :hn/spine-dispatch :dispatch-sync)])
+  (into [(instrument-arm)
+         (bare-ratom-arm)
+         (spine-arm :spine-replace  :hn/spine-replace  :replace-app-db)
+         (spine-arm :spine-dispatch :hn/spine-dispatch :dispatch-sync)]
+        ;; The ladder's rungs BELOW the headline count. The 300-cell rung
+        ;; is `:spine-replace` itself — measuring it twice would price the
+        ;; same arm under two names and invite the two copies to disagree.
+        (map (fn [n]
+               (spine-arm (keyword (str "spine-" n))
+                          (keyword "hn" (str "spine-" n))
+                          :replace-app-db
+                          n)))
+        (butlast ladder-cells)))
 
 ;; ---------------------------------------------------------------------------
 ;; Mounting
@@ -464,17 +498,18 @@
                             "span"    (- t3 t0)
                             "ok"      (or (boolean (:skip-verify? arm))
                                           (= (str val)
-                                             (cell-text container probe))))))))))))))
+                                             (cell-text container probe)))))))))))))
 
 (defn run-sample!
   "One SAMPLE: `n` narrow writes over one arm, legs accumulated, every
   write verified at the DOM in its own window."
   [mnt n]
-  (let [acc (fresh-acc)]
+  (let [acc   (fresh-acc)
+        width (or (:cells (:arm mnt)) cells-n)]
     (chain acc (range n)
       (fn [a _]
         (let [val (next-gen!)
-              i   (mod val cells-n)]
+              i   (mod val width)]
           (-> (timed-write! mnt i val)
               (.then (fn [r]
                        (bump! a "control" (gobj/get r "control"))
