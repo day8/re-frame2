@@ -55,7 +55,7 @@
   | `mount-M1` | 901 el, 300 boundaries, `[:p0/cell i]` | the bar row |
   | `mount-M2` | 51 el, 12 fields, `[:p0/cell i]` | DIAGNOSTIC, per rf2-2rtt6.2 |
   | `bulk-broad` | the M1 page, one commit ALL 300 boundaries read | the bar row |
-  | `bulk-narrow` | the M1 page, one commit exactly ONE boundary reads | the converged counterpart of rf2-2rtt6.4's `U-narrow` — the localisation row, and the one row where that arm found UIx materially behind. It has NO counterpart in rf2-2rtt6.2, so it is a NEW row on rf2-2rtt6.2's witness, labelled as such rather than presented as a re-measurement of something |
+  | `bulk-narrow` | the M1 page, `narrow-batch-k` batched commits, each of which exactly ONE boundary reads, all in one timed window | the converged counterpart of rf2-2rtt6.4's `U-narrow` — the localisation row, and the one row where that arm found UIx materially behind. It has NO counterpart in rf2-2rtt6.2, so it is a NEW row on rf2-2rtt6.2's witness, labelled as such rather than presented as a re-measurement of something |
 
   ## Three arms a segment, and why not two
 
