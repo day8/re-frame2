@@ -85,10 +85,36 @@ rows do not.
 
 ## Provenance
 
+**The hashes this page previously asserted but did not print.** The claim below
+was *"the four bench files are byte-identical (same blob hashes) at the rebased
+commit"* — asserted without the hashes, so a reader could not perform the check
+that was the whole point of making it. Here they are, with the landed commit
+the rebase produced:
+
+| file (`implementation/freehand/test/re_frame/bench/hicasso/`) | blob at `44900cd4fd` **and** `4c3f7189c4` | on main `32cb224d6e` |
+|---|---|---|
+| `p0_converge_app.cljs` | `9b5c0d63db5528d8b9790111f9bc53cda052106f` | `f4b09dc20712…` — **moved** (#7275) |
+| `p0_converge_run.cjs` | `9e620cdeb3a7643c74c321a358cdadaabf186465` | `253b468a6b3a…` — **moved** (#7270) |
+| `lane.cljs` | `d32312d9c562f0b6aa7d7f84538eb81ffc18e61c` | `885592cf9fdd…` — **moved** (#7267, #7270) |
+| `p0_reagent_views.cljs` | `4032e39779ce55fee1e1cd4f7a8e9561237e2cfd` | **unchanged** |
+| `p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` | **unchanged** |
+| `order_guard.cljc` *(`implementation/core/test/re_frame/bench/`)* | `adf59ca03cfe8e2639de97c031c138838f2d34b7` | `e42450ef1c77…` — **moved** (#7267) |
+
+```bash
+P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
+git rev-parse 4c3f7189c4:$P   # 9b5c0d63db5528d8b9790111f9bc53cda052106f
+git merge-base --is-ancestor 4c3f7189c4 origin/main && echo on-main
+```
+
+Four of the six have moved since — which is exactly why the rows above were
+re-run rather than merely re-anchored; see [All four rows
+reproduce](#all-four-rows-reproduce-against-the-revived-driver-rf2-rjfz1),
+where the instrument is the **current** one and every published range is met.
+
 | | |
 |---|---|
-| **Producing commit** | `44900cd4fd35815b3e2462ae7752242efcb296b9` — the branch was later rebased onto PR #7265, which **rewrote that commit's id without touching the instrument**: the four bench files are byte-identical (same blob hashes) at the rebased commit, so the reproduction command is unaffected. Nothing was re-measured. |
-| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` |
+| **Producing commit** | `44900cd4fd35815b3e2462ae7752242efcb296b9` — **off main.** Its landed equivalent is **`4c3f7189c4`**, whose instrument tree is byte-identical (the table above prints the hashes); this page landed as **`a987caca26`**. The rebase onto PR #7265 **rewrote the id without touching the instrument**, so the reproduction command was unaffected. Nothing was re-measured at the time. |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — **verified to run at main `32cb224d6e`, exit 0.** It did not, for the window between PR #7267 and PR #7275; that is recorded below and is now closed |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows 11 x64, sibling agents live on the box |
 | **Build** | `:hicasso-bench` — `:browser`, `:advanced`, `goog.DEBUG false`. **No new build id; `implementation/shadow-cljs.edn` untouched** |
 | **Adapters** | `:rf.adapter/reagent` and `:rf.adapter/uix`, one per segment. Reagent 2.0.1 · UIx 1.4.4 · React 19.2.0 |
