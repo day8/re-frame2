@@ -494,6 +494,90 @@
     ;; scheduler a couple of milliseconds later.
     (react-dom/flushSync (fn [] nil))))
 
+(defn arm-scheduler
+  "Which queue THIS arm's own render work is scheduled on — and therefore
+  how its write window must wait for it (rf2-b69lw).
+
+  This is the fact [[window-of]] needs and the one the instrument
+  previously did not ask for. A window that waits a fixed one microtask
+  serves an arm whose notification is queued somewhere ELSE and silently
+  breaks an arm whose notification is queued on the very queue the
+  harness is yielding to.
+
+    - `:none` — the floor (a local `swap!` and a `flushSync` render, with
+      nothing queued anywhere) and the React spine (`use-subscribe`'s
+      containers notify synchronously; the empty `flushSync` is the whole
+      drain).
+    - `:animation-frame` — stock Reagent. `reagent.impl.batching` schedules
+      its component queue on `requestAnimationFrame`, so the queue is still
+      full a microtask later and the drain finds the work.
+    - `:microtask` — reagent-slim. `reagent2.impl.batching` is *\"a
+      microtask-based scheduler … no requestAnimationFrame fallback is
+      required\"*, so a microtask yield hands the queue to the substrate
+      BEFORE the drain: it issues its `forceUpdate` outside any `flushSync`
+      boundary, React parks the work at the default lane, and the drain
+      that follows finds nothing to commit."
+  [arm-id adapter]
+  (if (= arm-id :floor)
+    :none
+    (case adapter
+      :slim    :microtask
+      :reagent :animation-frame
+      :none)))
+
+(defn- window-of
+  "The measured write window for an arm on `scheduler`.
+
+  Answers `(fn [write! verify!] → promise of {:ms :ok?})`. The clock starts
+  before the write and stops after the arm's own synchronous drain; the DOM
+  read-back runs in the SAME turn as the drain, never in a later one, so a
+  commit that arrived a turn late reads as UNVERIFIED rather than as a pass.
+
+  TWO SHAPES, BECAUSE ONE FIXED WAIT IS NOT NEUTRAL ACROSS SCHEDULER
+  FAMILIES. That is rf2-b69lw, and rf2-z3vlz diagnosed it against a
+  standalone rig: the reagent-slim write row read `78 of 78` unverified —
+  and, unsuppressed, `0.16–0.50x` the floor while the page never changed —
+  purely because the harness put a microtask between the write and the
+  drain. `docs/design/hicasso/studio/slim-non-reactive-arm-diagnosis.md`
+  carries the evidence, including the positive control (a plain component
+  reading a plain `reagent2.core/atom`, no re-frame anywhere on the path)
+  that reproduces it in all four bundle compositions. The general form —
+  the same fixed yield in the shared `lane/verified-write!` — is filed as
+  rf2-pq7d8 and is NOT repaired here: `lane.cljs` is a shared instrument
+  with sibling arms measuring on it.
+
+    `:microtask`  write, then drain, with NOTHING between them. The
+                  substrate's queue is filled synchronously by the write and
+                  is still there when `flush-render!` opens its boundary, so
+                  the commit lands inside the window.
+
+    everything else  today's window, unchanged: write, yield ONE microtask,
+                  drain. b6 records that with the microtask deleted every
+                  arm whose notification is queued elsewhere fails its own
+                  read-back on every write, and the published HD-008 rows
+                  were taken through exactly this shape.
+
+  The two shapes do NOT bill the same wait, and that difference is not left
+  as an assurance: [[yield-cost!]] prices the harness microtask against the
+  same clock, outside every arm's window, and it is published beside the
+  write rows."
+  [scheduler force!]
+  (if (= scheduler :microtask)
+    (fn [write! verify!]
+      (let [t0 (lane/now-ms)]
+        (write!)
+        (force!)
+        (let [ms (- (lane/now-ms) t0)]
+          (js/Promise.resolve {:ms ms :ok? (verify!)}))))
+    (fn [write! verify!]
+      (let [t0 (lane/now-ms)]
+        (write!)
+        (-> (js/Promise.resolve nil)
+            (.then (fn [_]
+                     (force!)
+                     (let [ms (- (lane/now-ms) t0)]
+                       {:ms ms :ok? (verify!)}))))))))
+
 (defn- write-arm
   "The write door for `arm-id` on the U page.
 
@@ -501,12 +585,22 @@
   records: `root.render` outside a React event schedules at the default
   lane, and an EMPTY flushSync flushes only the sync lane — a floor arm
   that rendered in `write!` would have its commit land outside the window
-  entirely. Every other arm drains through [[spine-drain!]]."
+  entirely. Every other arm drains through [[spine-drain!]].
+
+  The arm also carries its own `:window!` ([[window-of]]), because the wait
+  between the write and that drain is a property of the arm's scheduler and
+  not of the harness."
   [arm-id adapter]
   (let [fid   (frame-of arm-id)
         state (atom nil)
         rt    (volatile! nil)
-        arm   (u-arm arm-id)]
+        arm   (u-arm arm-id)
+        sched (arm-scheduler arm-id adapter)
+        force! (fn []
+                 (if (= arm-id :floor)
+                   (react-dom/flushSync
+                     (fn [] (.render ^js @rt (w/floor-u {:cells @state :n w/cells-n}))))
+                   (spine-drain! adapter)))]
     {:id     arm-id
      :mount  (fn [container]
                (if (= arm-id :floor)
@@ -535,11 +629,9 @@
                  (if (= i :all)
                    (rf/dispatch-sync [:hd8/set-all val] {:frame fid})
                    (rf/dispatch-sync [:hd8/set i val] {:frame fid}))))
-     :force! (fn []
-               (if (= arm-id :floor)
-                 (react-dom/flushSync
-                   (fn [] (.render ^js @rt (w/floor-u {:cells @state :n w/cells-n}))))
-                 (spine-drain! adapter)))
+     :force!    force!
+     :scheduler sched
+     :window!   (window-of sched force!)
      :unmount (fn [handle]
                 (react-dom/flushSync
                   (fn [] (if (= arm-id :floor)
@@ -563,25 +655,26 @@
     (.remove container)))
 
 (defn timed-write!
-  "Write, yield ONE microtask, force the arm's own synchronous drain, stop
-  the clock — then VERIFY at the DOM that the probed cell holds what was
-  written. Answers a promise of `{:ms … :ok? …}`.
+  "Write, wait the way THIS ARM'S SCHEDULER requires, force the arm's own
+  synchronous drain, stop the clock — then VERIFY at the DOM that the
+  probed cell holds what was written. Answers a promise of
+  `{:ms … :ok? …}`.
 
-  The yield is not historical and not optional: b6 records that with the
-  microtask deleted every reactive arm fails this function's own read-back
-  on every write. The read-back is inside the window's own iteration, so
-  an arm that silently rendered nothing reports as UNVERIFIED rather than
-  as the fastest substrate in the table — which is the exact shape of the
-  fault this exists to prevent."
+  The wait belongs to the arm ([[window-of]]) and not to this function,
+  which is the whole of rf2-b69lw: a fixed one-microtask yield is
+  load-bearing for an arm whose notification is queued somewhere else and
+  is FATAL for an arm whose notification is queued on the microtask queue
+  itself.
+
+  The read-back is inside the window's own iteration and in the same turn
+  as the drain, so an arm that silently rendered nothing — or rendered a
+  turn late — reports as UNVERIFIED rather than as the fastest substrate in
+  the table, which is the exact shape of the fault this exists to prevent."
   [{:keys [arm container]} i val]
-  (let [t0 (lane/now-ms)]
-    ((:write! arm) i val)
-    (-> (js/Promise.resolve nil)
-        (.then (fn [_]
-                 ((:force! arm))
-                 (let [ms    (- (lane/now-ms) t0)
-                       probe (if (= i :all) 0 i)]
-                   {:ms ms :ok? (= val (cell-text container probe))}))))))
+  (let [probe (if (= i :all) 0 i)]
+    ((:window! arm)
+     (fn [] ((:write! arm) i val))
+     (fn [] (= val (cell-text container probe))))))
 
 (defn- chain
   "Sequence `f` over `xs` through promises, threading `acc`."
@@ -678,6 +771,48 @@
                   :writes     (:total acc)
                   :samples    (:samples acc)})))
         (.catch (fn [e] (release-write-arms! mounts) (throw e))))))
+
+;; ===========================================================================
+;; What the two window shapes cost differently
+;; ===========================================================================
+
+(defn yield-cost!
+  "Price ONE harness microtask against the same clock the write rows use:
+  `now-ms`, a resolved-promise turn, `now-ms`, and nothing else in between.
+
+  [[window-of]] gives a microtask-scheduled arm a window that does NOT
+  contain this turn while every other arm's does, and that asymmetry has to
+  be a NUMBER rather than an assurance — it is the only thing separating
+  the reagent-slim write row from a like-for-like comparison against the
+  floor beside it. Chrome clamps `performance.now()` to 100 µs, so a
+  reading of `0.0` here is the instrument saying the difference is below
+  its own resolution; anything else has to be subtracted before a ratio is
+  quoted, and the report must say which happened.
+
+  Measured OUTSIDE every arm's window, in its own turns, so it perturbs no
+  published figure. Warmed like every other row, because a first promise
+  turn is not a representative one."
+  [{:keys [warmup samples]}]
+  (-> (chain []
+             (range (+ warmup samples))
+             (fn [acc s]
+               (let [t0 (lane/now-ms)]
+                 (-> (js/Promise.resolve nil)
+                     (.then (fn [_]
+                              (let [ms (- (lane/now-ms) t0)]
+                                (cond-> acc (>= s warmup) (conj ms)))))))))
+      (.then (fn [xs]
+               (let [s (lane/summarise xs)]
+                 {:control :harness-microtask-yield
+                  :p50     (:p50 s)
+                  :min     (:min s)
+                  :max     (:max s)
+                  :n       (:n s)
+                  :clamp   "Chrome clamps performance.now() to 100 µs"
+                  :note    (str "the turn every non-microtask-scheduled arm's write "
+                                "window contains and the reagent-slim arm's does not "
+                                "(rf2-b69lw); 0.0 means the asymmetry is below this "
+                                "instrument's resolution")})))))
 
 ;; ===========================================================================
 ;; The positive control — predicted against measured, every run
@@ -807,6 +942,16 @@
    :adapter           adapter
    :mount-arms        (vec arm-ids)
    :write-arms        (vec write-ids)
+   ;; Which window shape each write arm was measured through, stated rather
+   ;; than left to be inferred from the adapter (rf2-b69lw). A row whose
+   ;; reader cannot tell whether its window contained a harness microtask
+   ;; cannot tell whether two arms in it were compared like for like.
+   :write-windows     (into {} (map (fn [id]
+                                      [id (let [s (arm-scheduler id adapter)]
+                                            (if (= s :microtask)
+                                              {:scheduler s :window :write-then-drain}
+                                              {:scheduler s :window :write-yield-drain}))]))
+                            write-ids)
    ;; The runtime is labelled beside every figure, not in a footnote. HD-012
    ;; makes every bar-relevant number a BROWSER number under `:advanced`
    ;; with goog.DEBUG false; a JVM or Node figure is diagnostic only and is

@@ -197,7 +197,16 @@
                           (doseq [wit rows/witnesses]
                             (record-row! (keyword (str "mount-" (name (:id wit))))
                                          (rows/measure-mount! wit arm-ids rounds mount-sampling)))
-                          (-> (rows/measure-write! write-ids which :narrow rounds write-sampling)
+                          ;; The harness microtask, priced before the write rows
+                          ;; and outside every one of their windows. A
+                          ;; microtask-scheduled arm's window does not contain
+                          ;; that turn and its rivals' do (rf2-b69lw), so the
+                          ;; size of the asymmetry is published beside the rows
+                          ;; rather than argued about after them.
+                          (-> (rows/yield-cost! write-sampling)
+                              (.then (fn [yc]
+                                       (record! :yield-cost yc)
+                                       (rows/measure-write! write-ids which :narrow rounds write-sampling)))
                               (.then (fn [r]
                                        (record-row! :write-narrow r)
                                        (rows/measure-write! write-ids which :bulk rounds write-sampling)))
