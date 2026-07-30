@@ -1,0 +1,136 @@
+# Events as data
+
+> **Pre-implementation draft — Hicasso does not exist yet.** This page describes the
+> *designed* surface so it can be read before it is built. Spellings marked
+> **[unfrozen]** are placeholders that will change. The whole tree is disposable: it
+> is rewritten after the P2 fork ruling, against a real implementation. Normative
+> source: [decisions.md](../decisions.md) (HD-001…HD-021).
+
+Handler attributes are where a data-oriented view layer usually gives up. You have
+been writing pure data all the way down the tree, and then `:on-click` needs a
+function, so you write `#(rf/dispatch [:todo/toggle id])` and the node stops being
+inspectable, comparable, or assertable by equality.
+
+Hicasso's answer: **put the event vector in the attribute.** The runtime builds the
+callback.
+
+```clojure
+[:button {:on-click [:todo/toggle id]} "✓"]
+```
+
+That is not sugar for a closure you could have written. The tree still holds data at
+that node, which means a test can assert it with `=` and a tool can read it.
+
+## The value placeholder
+
+Most handlers need something out of the event object. `::h/value` **[unfrozen]** is
+the placeholder that gets substituted at dispatch time:
+
+```clojure
+[:input {:value    draft
+         :on-input [:todo.ui/edit id ::h/value]}]
+```
+
+At dispatch, the placeholder is replaced by the input's value, so the handler
+receives `[:todo.ui/edit 7 "milk"]` — an ordinary event vector, indistinguishable
+from one you dispatched by hand.
+
+The census says this covers about **97% of the corpus's 183 handler sites**. That
+number is why the placeholder exists: one marker turns nearly every handler
+attribute in a real application into data.
+
+## Functions still work
+
+An ordinary function remains legal at any event position:
+
+```clojure
+[:canvas {:on-pointer-move (fn [e] (draw! (.-clientX e) (.-clientY e)))}]
+```
+
+Use one when you genuinely need the event object — geometry, pointer capture, an
+imperative call. The intent vector is the taught default because it covers almost
+everything, not because functions are forbidden.
+
+## Policy defaults the runtime owns
+
+Two things a form does every single time, and every codebase reimplements badly.
+
+### Submit auto-prevents
+
+An intent vector at `:on-submit` prevents the browser's default navigation:
+
+```clojure
+[:form {:on-submit [:signup/submit]}
+ [:input {:value email :on-input [:signup/set-email ::h/value]}]
+ [:button {:type :submit} "Sign up"]]
+```
+
+No `(.preventDefault e)`. It is census-weighted policy — forms in the corpus wanted
+it every time — so the runtime does it and offers an opt-out for the rare case that
+doesn't. The opt-out's spelling is not in the record; see **Not settled yet**.
+
+### The key map
+
+Keyboard handling arrives as data, not as a `case` over `.-key`:
+
+```clojure
+[:input {:value    draft
+         :on-input [:todo.ui/edit id ::h/value]
+         :on-keydown {"Enter"  [:todo.ui/commit id]
+                      "Escape" [:todo.ui/cancel id]}}]
+```
+
+A map from key name to intent. Keys you don't list are ignored.
+
+The reason this belongs in the runtime rather than in your view is the composition
+law: **a composing Enter commits nothing.** Mid-IME, Enter selects a candidate — it
+is not a submit, and treating it as one is how a Japanese or Chinese user loses a
+sentence. The runtime centralises that check, including the legacy keyCode-229
+signal that some browsers still use to say "this keystroke belongs to the IME."
+
+Get this wrong in your own handler and it fails silently for every user who
+composes. Which is a good argument for it not being your handler.
+
+## Callbacks carry their frame
+
+A generated callback closes over its boundary's frame, resolved once per boundary
+from the substrate's single internal context.
+
+That matters because the browser invokes the callback long after the render that
+created it, when the render's dynamic extent is gone. A hand-written
+`#(rf/dispatch …)` from an async context raises `:rf.error/no-frame-context` for
+exactly this reason. Intent vectors don't, because the frame was captured when the
+callback was built.
+
+The rule of thumb: **intents are always safe; hand-written async needs the frame
+explicitly.**
+
+## Troubleshooting
+
+No Hicasso error ids exist yet; this table names mechanisms.
+
+| Symptom | What went wrong | Fix |
+|---|---|---|
+| Page navigates and reloads on form submit | Something bypassed the intent path — a hand-written `:on-submit` function | Use an intent vector, or call `.preventDefault` yourself in the function |
+| Handler receives the placeholder keyword instead of a value | The placeholder was used at an event position with no value to substitute | `::h/value` is for value-bearing events; read the event object with a function elsewhere |
+| Enter commits half-typed Japanese text | Composition handling was written by hand | Use the `:on-keydown` key map — the composition law is centralised there |
+| `:rf.error/no-frame-context` from a timeout | A bare `dispatch` in async code | Capture the frame at the call site, or dispatch an event that owns the async work through `:fx` |
+| An intent fires but no handler runs | Unregistered event id | Registration happens on namespace load; check the boot namespace requires it |
+
+## When not to use an intent
+
+When you need the event object itself. Pointer coordinates, `dataTransfer`,
+`stopPropagation`, anything measuring the DOM — those are functions, and reaching
+for one is not a failure. The census puts these at roughly 3% of handler sites,
+which is the right size for an escape hatch: too small to design the syntax around,
+too real to pretend away.
+
+## Not settled yet
+
+| Question | Status |
+|---|---|
+| The auto-prevent opt-out spelling | **Not addressed.** HD-002-era record says "opt-out available" and stops there |
+| Whether markers other than `::h/value` exist | **Not addressed.** The charter names "the intent-marker roster and its one pure materializer" as a micro-mechanic worth copying from the predecessor, but only `::h/value` is spelled. A checked-state marker for checkboxes is an obvious gap this guide could not fill honestly — the example on [Getting started](01-getting-started.md) sidesteps it by passing the id and letting the handler flip the value |
+| Which attributes get intent lowering | **Not addressed.** `:on-click`, `:on-input`, `:on-submit`, and `:on-keydown` appear in the record; whether lowering is universal across `:on-*` or a named roster is unstated |
+| The key map's key vocabulary | Key names appear as strings (`"Enter"`, `"Escape"`); whether keywords are accepted, and how modifiers are spelled, is unstated |
+| `::h/value` semantics on non-input elements | **Not addressed** |
