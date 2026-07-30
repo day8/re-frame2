@@ -69,11 +69,14 @@ npm-conversion cache: its index is invalidated on shadow's own cache key, never
 on the set of npm modules the build actually needs, so the UIx arm's
 `react/jsx-runtime` was linked against whole-build state established for the
 Reagent arms' fourteen modules. **Every reproduction command on these pages
-therefore runs from a cold or a warm cache, in any order.** The clear sits
-inside the run-to-run noise — the time is JVM start, classpath and the Closure
-`:advanced` pass, not the CLJS compile the cache holds —
-and `freehand/test/re_frame/bench/hicasso/lane_cache.cjs` carries the isolation,
-the measurement and the alternatives that were rejected.
+therefore runs from a cold or a warm cache, in any order** — and emits the same
+bundle either way, which a reproduction command needs and did not previously
+have: two cleared-cache builds of an arm are byte-identical, where before the
+fix the bundle depended on which arm had built last. The clear sits inside the
+run-to-run noise, because the time is JVM start, classpath and the Closure
+`:advanced` pass rather than the CLJS compile the cache holds.
+`freehand/test/re_frame/bench/hicasso/lane_cache.cjs` carries the isolation, the
+measurement and the alternatives that were rejected.
 
 The instrument is
 `implementation/freehand/test/re_frame/bench/hicasso/lane.cljs`; it lives in the
