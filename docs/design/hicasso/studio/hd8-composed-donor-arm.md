@@ -466,14 +466,18 @@ as a replacement. **No figure moved systematically, and nothing published was
 invalidated.** `HD8_ONLY` exists so that a future re-take of one run cannot mint
 a competing set of figures for rows published at another commit.
 
-**Where the general fix belongs, and why it is not here.** The same fixed yield
-lives in the shared `lane/verified-write!`, which every Hicasso arm uses, and
-the general repair — an arm-declared drain slot, additive, today's path
-unchanged when it is absent — is filed as **`rf2-pq7d8`**. It is deliberately
-**not** made here: `lane.cljs` is a shared instrument with sibling arms
-measuring on it, and a shared instrument must not change under a measurement in
-flight. HD-008's own `timed-write!` is a separate copy, which is why this repair
-could land without touching it.
+**Where the general fix belongs, and where it now lives.** The same fixed yield
+lived in the shared `lane/verified-write!`, which every Hicasso arm uses, and
+the general repair — an arm-declared scheduler, additive, today's path unchanged
+when it is absent — is **`rf2-pq7d8`**. It was not made in the same pass as this
+page's, because `lane.cljs` is a shared instrument with sibling arms measuring
+on it and a shared instrument must not change under a measurement in flight;
+HD-008's own `timed-write!` is a separate copy, which is why this repair could
+land first without touching it. **`rf2-pq7d8` has since landed.** The lane now
+takes the same `:scheduler` declaration this page's `window-of` takes and gives
+it the same two shapes — lifted from here rather than invented a second time —
+and an arm that declares no `:scheduler` gets the lane's unchanged window. No
+arm outside HD-008 declares one, so **no published row moved.**
 
 ## Known limitations of this instrument
 
@@ -505,7 +509,8 @@ could land without touching it.
   ten turns at a time** (`rf2-2rtt6.19`), so the whole batched asymmetry is
   beneath this instrument's resolution rather than ten times something beneath it
   — but a future instrument with a finer clock inherits a real asymmetry, not a
-  settled one, and `rf2-pq7d8` is where it gets settled properly.
+  settled one, and `rf2-pq7d8` has since carried both shapes into the shared
+  lane, which inherits that asymmetry rather than settling it.
 - **No retained-heap leg.** The red-zone rule governs clock *and* retained heap;
   this arm measures the clock. The heap ladder is `rf2-2rtt6.5`'s
   ([reads-per-boundary-heap-ladder.md](reads-per-boundary-heap-ladder.md)).
