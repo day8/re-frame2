@@ -69,6 +69,8 @@ const path = require('node:path');
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
 // The directory's ONE sentinel wait, raced against the page dying (rf2-f5roa).
 const { watchPage } = require('../../freehand/bench/sentinel.cjs');
+// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+const { resetLaneBuildCache } = require('./lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 
@@ -119,6 +121,11 @@ const CONFIG_MERGE =
   `:modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
+  // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
+  // carries the measurement and the rejected alternatives.
+  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+    console.error(`[converge] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+  }
   console.error(`[converge] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
   const r = spawnSync(

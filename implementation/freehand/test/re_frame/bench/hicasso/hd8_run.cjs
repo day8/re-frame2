@@ -58,6 +58,10 @@ const path = require('node:path');
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
 const guard = require('../../freehand/bench/order_guard.cjs');
 const { watchPage } = require('../../freehand/bench/sentinel.cjs');
+// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+// This driver is where the fault was found: run the P0 lane, then run HD-008,
+// and the page died before taking a sample.
+const { resetLaneBuildCache } = require('./lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const REPO = path.resolve(IMPL, '..');
@@ -130,6 +134,11 @@ function revision() {
 }
 
 function build() {
+  // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
+  // carries the measurement and the rejected alternatives.
+  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+    console.error(`[hd8] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+  }
   console.error('[hd8] building :advanced bundle (goog.DEBUG false) ...');
   // `node cli/runner.js` rather than the `.cmd` shim: spawning a shim on
   // Windows needs `shell: true`, and a shell concatenates argv, which is the

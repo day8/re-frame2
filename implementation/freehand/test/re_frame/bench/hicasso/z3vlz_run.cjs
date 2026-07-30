@@ -45,6 +45,11 @@ const http = require('node:http');
 const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
+// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+// This driver needs it MOST: it builds four different variants back to back in
+// a single run, so it was poisoning its own later rungs with its earlier ones
+// without any second driver being involved.
+const { resetLaneBuildCache } = require('./lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const BUILD_ID = 'hicasso-bench';
@@ -103,6 +108,12 @@ function selected() {
 }
 
 function build(variant) {
+  // The lane's cache rule, before anything reads the cache — and PER VARIANT,
+  // because each of the four is a different program. `lane_cache.cjs` carries
+  // the measurement and the rejected alternatives.
+  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+    console.error(`[z3vlz] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N variants (rf2-2rtt6.20)`);
+  }
   console.error(`[z3vlz] building :advanced — ${variant.name} -> ${variant.outDir}`);
   // ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
   // whitespace when the EDN contains a newline and then reports `EOF while
