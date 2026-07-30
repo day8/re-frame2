@@ -44,6 +44,15 @@
 //     passed.
 //   * A FAILED UNMOUNT was swallowed by the page and reported as success,
 //     which converts a live subscription into measurement state.
+//   * AND THE FIRST CUT OF THESE GATES was itself fail-open at the edges
+//     (PR #7272 audit): reader B's control error was printed and never
+//     adjudicated; `Number.isFinite(x) && x < FLOOR` waved a NaN control or
+//     fit through the band tests; and a fidelity leg the run failed to
+//     measure was filtered out rather than failed, so with both legs absent
+//     main iterated an empty failure list and exited 0. Now every TAKEN
+//     A/B/C control must be finite and in band, both required fidelity legs
+//     must be present and finite, and every required r2 must be finite and
+//     at or above the floor.
 //
 // EXIT CODES
 //   0  reportable
@@ -541,36 +550,47 @@ async function runSubstrate(chromium, substrate) {
     }
   }
 
-  // The in-situ control, on every reader that took one.
-  for (const r of rounds) {
-    if (Math.abs(r.control.errorCdp) > CONTROL_BAND) {
+  // The in-situ control, on EVERY reader that took one — A and B each round,
+  // C each snapshot round. The first cut adjudicated A and C only, so reader
+  // B's error was printed in the report and never gated exit 0; and a band
+  // test alone is a bypass for a control that came back NaN, because
+  // `Math.abs(NaN) > band` is false. A control that did not produce a finite
+  // number has not controlled anything.
+  const controlGate = (label, err) => {
+    if (!Number.isFinite(err)) {
+      gateFailures.push(`${label} control is not finite (${err})`);
+    } else if (Math.abs(err) > CONTROL_BAND) {
       gateFailures.push(
-        `round ${r.round} reader-A control off by ${(r.control.errorCdp * 100).toFixed(3)}% ` +
+        `${label} control off by ${(err * 100).toFixed(3)}% ` +
           `(band ${(CONTROL_BAND * 100).toFixed(1)}%)`
       );
     }
+  };
+  for (const r of rounds) {
+    controlGate(`round ${r.round} reader-A`, r.control.errorCdp);
+    controlGate(`round ${r.round} reader-B`, r.control.errorPerf);
   }
   for (const r of snapRounds) {
-    if (Math.abs(r.control.error) > CONTROL_BAND) {
-      gateFailures.push(
-        `snapshot round ${r.round} reader-C control off by ${(r.control.error * 100).toFixed(3)}% ` +
-          `(band ${(CONTROL_BAND * 100).toFixed(1)}%)`
-      );
-    }
+    controlGate(`snapshot round ${r.round} reader-C`, r.control.error);
   }
 
   const variants = variantCurves(arms, rounds, snapRounds);
 
-  // A slope is only a per-read cost if the rungs carry a line.
+  // A slope is only a per-read cost if the rungs carry a line — and a fit
+  // that came back NaN is not a line above the floor, it is no line at all.
+  // The first cut tested `Number.isFinite(x) && x < FLOOR`, which waves a
+  // non-finite fit through. Bytes r2 comes from the main rounds and is always
+  // required; objects r2 exists only when reader C was asked for.
+  const r2Gate = (label, r2min) => {
+    if (!Number.isFinite(r2min)) {
+      gateFailures.push(`${label} is not finite (${r2min}) — no line was fitted`);
+    } else if (r2min < R2_FLOOR) {
+      gateFailures.push(`${label} ${r2min.toFixed(5)} below the ${R2_FLOOR} floor`);
+    }
+  };
   for (const [v, c] of Object.entries(variants)) {
-    if (Number.isFinite(c.r2.min) && c.r2.min < R2_FLOOR) {
-      gateFailures.push(`variant ${v}: bytes r2 ${c.r2.min.toFixed(5)} below the ${R2_FLOOR} floor`);
-    }
-    if (Number.isFinite(c.objectsR2.min) && c.objectsR2.min < R2_FLOOR) {
-      gateFailures.push(
-        `variant ${v}: objects r2 ${c.objectsR2.min.toFixed(5)} below the ${R2_FLOOR} floor`
-      );
-    }
+    r2Gate(`variant ${v}: bytes r2`, c.r2.min);
+    if (SNAP_ROUNDS > 0) r2Gate(`variant ${v}: objects r2`, c.objectsR2.min);
   }
 
   for (const f of gateFailures) console.error(`[abl] GATE — ${f}`);
@@ -712,20 +732,37 @@ const dstr = (d, f = b) => (d ? `${f(d.p50)}  [${f(d.min)}-${f(d.max)}]` : 'n/a'
 // decomposition is quoted in OBJECTS, so the object count has to pass the
 // same control, and a failure has to stop the table being treated as
 // attributable rather than merely being labelled.
+// EVERY REQUIRED LEG, PRESENT AND FINITE. The previous cut filtered
+// non-finite legs out and accepted any one survivor, so a leg the run
+// failed to measure EXEMPTED itself from the control it exists to be — and
+// with both legs absent the list was empty, `ok` was false, and main's loop
+// over the legs had no failure to add, so the run still exited 0. Now the
+// bytes leg is always required, the objects leg is required whenever reader
+// C was asked for (it is C's numbers the leg compares), and a required leg
+// that is absent or non-finite FAILS rather than vanishing.
 function fidelityCheck(all) {
   const byName = Object.fromEntries(all.map((s) => [s.substrate, s]));
-  const U = byName.uix && byName.uix.variants;
-  if (!U || !U.uix || !U.xcript) return { present: false, ok: true, legs: [] };
+  if (!byName.uix) return { present: false, ok: true, legs: [] };
+  const U = byName.uix.variants;
+  if (!U.uix || !U.xcript) {
+    // The uix page ran but a whole side of the comparison is missing: there
+    // is nothing to check, which is a failure, not an exemption.
+    return {
+      present: true, ok: false, legs: [],
+      missing: 'the uix page ran without both a uix and an xcript variant — no fidelity legs exist',
+    };
+  }
   const leg = (name, a, b_) => {
+    const finite = Number.isFinite(a.p50) && Number.isFinite(b_.p50);
     const ovl = overlap(a, b_);
     const rel = Math.abs(b_.p50 / a.p50 - 1);
-    return { name, shipped: a, copy: b_, ovl, rel, ok: ovl || rel <= FIDELITY_BAND };
+    return { name, shipped: a, copy: b_, finite, ovl, rel, ok: finite && (ovl || rel <= FIDELITY_BAND) };
   };
-  const legs = [
-    leg('bytes/read', U.uix.bytesPerRead, U.xcript.bytesPerRead),
-    leg('objects/read', U.uix.objectsPerRead, U.xcript.objectsPerRead),
-  ].filter((l) => Number.isFinite(l.shipped.p50) && Number.isFinite(l.copy.p50));
-  return { present: true, legs, ok: legs.length > 0 && legs.every((l) => l.ok) };
+  const legs = [leg('bytes/read', U.uix.bytesPerRead, U.xcript.bytesPerRead)];
+  if (SNAP_ROUNDS > 0) {
+    legs.push(leg('objects/read', U.uix.objectsPerRead, U.xcript.objectsPerRead));
+  }
+  return { present: true, legs, ok: legs.every((l) => l.ok) };
 }
 
 function report(all) {
@@ -901,15 +938,23 @@ function report(all) {
   // non-fidelitous, its control out of band, its curves not lines, reader C
   // absent, or an unmount silently converted into measurement state.
   const gateFailures = all.flatMap((s) => s.gateFailures.map((f) => `${s.substrate}: ${f}`));
+  // `!fid.ok` always names its failure here: a missing side pushes one, and
+  // every not-ok leg pushes one — the previous cut could reach `!fid.ok` with
+  // an EMPTY leg list (both legs filtered as non-finite) and fall through
+  // this loop without adding anything, which is an exit 0 on a run whose
+  // fidelity control never happened.
   const fid = fidelityCheck(all);
   if (fid.present && !fid.ok) {
+    if (fid.missing) gateFailures.push(`fidelity: ${fid.missing}`);
     for (const l of fid.legs) {
-      if (!l.ok) {
-        gateFailures.push(
-          `fidelity ${l.name}: shipped and transcribed ranges do not overlap and medians are ` +
-            `${pct(l.rel)} apart (band ${pct(FIDELITY_BAND)}) — every delta in the decomposition is void`
-        );
-      }
+      if (l.ok) continue;
+      gateFailures.push(
+        !l.finite
+          ? `fidelity ${l.name}: leg is absent or non-finite (shipped p50 ${l.shipped.p50}, ` +
+              `copy p50 ${l.copy.p50}) — the control this table needs never ran`
+          : `fidelity ${l.name}: shipped and transcribed ranges do not overlap and medians are ` +
+              `${pct(l.rel)} apart (band ${pct(FIDELITY_BAND)}) — every delta in the decomposition is void`
+      );
     }
   }
   if (gateFailures.length) {
