@@ -90,6 +90,15 @@ is a cost every render pays whether it helps or not. Narrow updates come from
 **where you put your boundaries**, and `React.memo` is available as an explicit
 opt-out when you have measured a reason.
 
+One corollary is worth stating outright, because the opposite is the thing people
+worry about. Reading a subscription high in the tree and passing the value down as a
+prop does **not** lose an update. The boundary that reads is the boundary that
+invalidates; it re-renders with the new value, passes it down, and — precisely
+because nothing is memoized by default — every descendant re-renders with it. The
+value arrives. What you have bought yourself is invalidation that is **too coarse**,
+never invalidation that is missing. Moving the read down is a granularity fix, not a
+correctness fix, and if you go looking for a lost update you will not find one.
+
 ## The fork: how a view reads a subscription
 
 HD-002 ranks three tiers. One of them is not a product surface at all — **scalar
@@ -157,16 +166,45 @@ The second move is the one to internalise: **a conditional read is a conditional
 boundary.** Which is often the right design anyway, since it is also where you
 wanted the re-render granularity.
 
-There is a sharper consequence for helpers. An inlined helper cannot call `use-subs`
-— it would be a hook in a function called conditionally, which React forbids. So
-under Surface A, helpers take values as arguments and read nothing:
+There is a sharper consequence for helpers. **An inlined helper cannot read under the
+grouped surface.** The first cut of this page inferred that from React's hook rules;
+the [HD-002 adjudication](../hd-002-adjudication.md) §5 has since derived it on
+firmer ground and reached the same verdict. The ground is HD-002's own definition —
+grouped is "one fixed hook receiving *the complete query collection before the
+body*", and a helper's queries are not knowable before the body, because the body has
+to run to reach the helper. HD-020's budget agrees from the other side: it is already
+fully consumed by the subscription hook and the frame hook, so a helper calling
+`use-subs` is a third hook in the boundary.
+
+React, notably, is *not* the reason. A helper called unconditionally and exactly once
+per render, itself calling `use-subs` unconditionally, is a custom hook by React's own
+definition and React would allow it. The grouped tier forbids it anyway. Do not reach
+for the hook-rules argument when someone asks you why.
+
+So there are two shapes for a helper, and the first cut only had one of them.
 
 ```clojure
-(defn- badge [{:keys [count]}]         ;; plain fn, plain args, no reads
+;; 1. The helper takes values and reads nothing.
+(defn- badge [{:keys [count]}]
   [:span.badge count])
+
+;; 2. The helper contributes QUERIES, which compose into the one hook.
+(defn- badge-queries [id]
+  {:badge-count [:cart/count id]})
+
+(defview cart-header [{:keys [id]}]
+  (let [{:keys [title badge-count]}
+        (use-subs (merge {:title [:cart/title id]}
+                         (badge-queries id)))]
+    [:header title (badge id badge-count)]))
 ```
 
-That inference is this guide's, not a ruling; see **Not settled yet**.
+The second shape adds nothing to the surface: `use-subs` takes a map and maps merge.
+Hook count fixed, order fixed, the complete collection still assembled before the
+body. It matters beyond ergonomics — the adjudication's recommendation is that the
+dogfood screen's grouped rendering exercise query-contributing helpers explicitly, so
+that the ergonomic half of the HD-002 verdict is not scored against a grouped
+rendering written with one hand tied.
 
 ### Surface B — the ambient collector (the challenger)
 
@@ -206,7 +244,13 @@ Loops can read. You write the obvious thing.
 
 ### How this gets decided
 
-Four adjudication clauses are pinned before any P1 code is written:
+Four adjudication clauses are pinned before any P1 code is written, and they now have
+a written adjudication of their own — [hd-002-adjudication.md](../hd-002-adjudication.md),
+a delegated advisory the operator may overturn. Read it before you form an opinion
+about the fork. It settles what the collector may do and what kills it; it does
+**not** decide which surface ships, and neither does this page.
+
+The four clauses:
 
 1. a render/commit **ownership state machine** — how a candidate read survives a
    winning render and disappears after an abandoned render, a replay, or a teardown;
@@ -236,9 +280,18 @@ Whichever surface wins:
 - **Framework subscriptions read identically to your own** — machine tags, resource
   and mutation state, route identity. They are 27% of the census's read traffic, so
   the index serves them first-class rather than as a special case.
-- **Sub-key identity is `(query-id, args)` under value equality.** Building a fresh
-  map as a query argument on every render will thrash the index. Documented,
-  programmer-trusted, not policed.
+- **Sub-key identity is `(query-id, args)` under value equality.** Note what that
+  buys you: a *freshly allocated* map or vector is not a problem. Two structurally
+  equal persistent values are one cache key, so rebuilding `{:scope :all}` inside the
+  query on every render hits the same entry every time, and you do not have to hoist
+  it into a `def` or memoize it to be safe. What thrashes the index is an argument
+  whose **value** changes when nothing meaningful did — a re-sorted seq, a timestamp
+  folded into the query, a JS object or a function, which carry reference identity
+  rather than value identity. Documented, programmer-trusted, not policed.
+
+  (Read [validation.md](../validation.md)'s shorthand — "unstable map args thrash the
+  index" — as *value*-unstable. A guide does not own that page's wording; the reading
+  is the one Spec 006's cache identity forces.)
 
 ## Troubleshooting
 
@@ -248,9 +301,9 @@ No Hicasso error ids exist yet; this table names mechanisms.
 |---|---|---|
 | A child re-renders whenever its parent does | Expected — there is no default memoization (HD-006) | Move the boundary, or apply `React.memo` where you measured a reason |
 | One cell changes and 300 boundaries re-render | The read lives too high in the tree | Push the read down into the boundary that displays it |
-| Nothing re-renders when app-db changes | The value was passed down as a prop instead of read where it is used | Read at the point of use |
-| Hook-order error in a helper | Surface A only: a hook in a conditionally-called function | Helpers take values as arguments; keep `use-subs` in view bodies |
-| Index thrash, subscriptions constantly re-created | Unstable query args — a fresh map or vector each render | Pass values with stable identity under `=` |
+| One value changes and a whole subtree re-renders with it | The value is read in an ancestor and passed down as a prop. Nothing is *lost* — the reading ancestor re-renders with the new value and, there being no default memoization, so does everything under it. Coarse invalidation, not missed invalidation | Read at the point of use, so the boundary that displays the value is the boundary that invalidates |
+| A helper wants to read, under Surface A | Grouped takes the complete query collection *before* the body, so a helper's queries are out of reach — HD-002's definition, not React's hook rules | Pass the value in, or have the helper return queries that `merge` into the one `use-subs` call |
+| Index thrash, subscriptions constantly re-created | Query args that are not *value*-stable — a re-sorted seq, a folded-in timestamp, a JS object or a function | Allocation is fine; two equal persistent values are one key. Make the args equal under `=` between renders |
 | A body's side effect fires twice | StrictMode double-invoke | Bodies are pure; move the effect out |
 
 ## When not to use a boundary
@@ -268,6 +321,7 @@ independently, not because the markup got long.
 | Which read surface ships | **Open by design.** HD-002 is decided by P1 measurement; three outcomes, including null |
 | `use-subs` and `sub` spellings | Pre-declared working names; [authoring.md](../authoring.md) holds all declaration spellings unfrozen until the tournament |
 | Does `use-subs` accept anything but a map — a vector of queries, a single query? | **Not addressed.** Only the map form appears in the record |
-| Can an inlined helper read under Surface A? | **This guide's inference is no** (React hook rules), and helpers therefore take values as arguments. The record states the consequence only for the collector case — HD-016 calls helper-donated reads "collector-contingent" — and never spells out the grouped-surface answer |
+| Can an inlined helper read under Surface A? | **Answered: no.** Not by this guide any more — [hd-002-adjudication.md](../hd-002-adjudication.md) §5 derives it from HD-002's "complete query collection before the body", with HD-020's spent budget as a second ground. The first cut inferred the same verdict from React's hook rules; that ground was the weak one and is withdrawn |
+| Whether query-contributing helpers are the taught idiom or merely legal | The adjudication marks the shape **[INFERRED]** and recommends the dogfood screen exercise it. Nothing rules it in as the taught form |
 | `defview`'s own spelling and whether a props-map argument is required | Working name; the single-props-map body signature is ruled by HD-016 |
 | The dev warning for an unkeyed seq — its id and whether it is dev-only | **Not addressed** beyond "dev warning" |
