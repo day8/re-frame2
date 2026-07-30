@@ -32,8 +32,20 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 |---|---|
 | **Producing commit** | `d46ede4fb05a8f4c5af9900f0a010772f0b0883a` — every row except the `reagent-slim` write rows |
 | **Producing commit, re-take** | `b943c7ed20d63d66fade4775059dad9fcf0012a7` — the `reagent-slim` write rows only (`rf2-b69lw`) |
-| **Producing commit, re-take** | `1c7c963e219a6f5cf0f5620b248e69c2ec6a990f` — the **narrow write rows** only, on a batched window (`rf2-9zysg`) |
+| **Producing commit, re-take** | `d3f1c2fff6` on `worker/lane-control-cluster` — the **narrow write rows** only, on a batched window (`rf2-9zysg`) |
+| **Producing instrument** | `hd8_rows.cljs` blob `e6bca24420b7fc4c9de2c6137f5b2f7144ad243d`, `lane.cljs` blob `671756751ecdb25c4c3d81e164c3204b022e93ae` |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — runs at every commit above |
+
+**The narrow rows are anchored by BLOB HASH as well as by commit, and that is
+not belt-and-braces.** The run was executed at `1c7c963e`; rebasing onto a main
+that had moved rewrote it to `d3f1c2fff6`, and merging this branch will rewrite
+it again. `git diff 1c7c963e d3f1c2fff6 -- implementation/` is empty, so the
+instrument did not change — but a reader handed only a rewritten SHA cannot
+check that. The two blob hashes above identify the exact instrument these
+figures came off regardless of how the commit carrying it is rebased, and
+`git rev-parse HEAD:implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs`
+is how a reader confirms the checkout in front of them is the one that produced
+this row.
 | **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
 | **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
 | **Rounds** | 6 · mount `{:warmup 4 :samples 12}` · write `{:warmup 3 :samples 10}` |
@@ -146,8 +158,9 @@ Against the floor: `reagent` 4.800 – 6.700, `reagent-slim` 5.500 – 7.750, `u
 
 ### Write — narrow (one cell in a 300-cell grid)
 
-> **These figures were re-taken at `1c7c963e` on a BATCHED window
-> (`rf2-9zysg`).** Ten single-cell writes, to ten distinct cells, now share one
+> **These figures were re-taken on a BATCHED window (`rf2-9zysg`)** — see
+> [Provenance](#provenance) for the producing commit and the blob hashes that
+> survive a rebase. Ten single-cell writes, to ten distinct cells, now share one
 > clock; the per-write figure is the sample divided by ten. The ranges directly
 > below **supersede** the ones taken on the unbatched window, which are kept at
 > the end of this section so a reader can see the measurement was revisited
