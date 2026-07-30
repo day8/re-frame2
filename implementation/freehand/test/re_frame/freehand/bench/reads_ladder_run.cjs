@@ -68,6 +68,27 @@
 // there to show the figure does not move, not to average. `verdict` refuses
 // on a contaminated OR an unchecked arm and this driver EXITS 2 on refusal.
 // Repair the arm, not the guard.
+//
+// ## What the audit of PR #7260 corrected
+//
+//   1. THE FIT USED THE ANCHOR. `R=0` is a boundary that reads nothing; the
+//      bead, this header and the studio page all called it "an anchor, not
+//      evidence" and promised no reactive figure was derived from it — and
+//      `curves()` then fitted `[0, 1, 3, 7, 20]`. The fit is now over the
+//      mandated 1/3/7/20 alone. R=0 is reported directly beside it and never
+//      enters a regression, and the FITTED MARGINAL SLOPE is distinguished
+//      from the FIRST-READ INCREMENT `y(R=1) − y(R=0)`, which is the figure
+//      a reader means by "what the first read costs".
+//   2. READER C FAILED OPEN. A snapshot failure was caught into
+//      `{error: ...}` and the run still exited 0, so a reproduction could
+//      degrade to the two CORRELATED readers and print a table anyway.
+//
+// EXIT CODES
+//   0  reportable
+//   1  a gate failed, or the run could not complete
+//   2  THE ARM-ORDER GUARD REFUSED. Repair the arm, never the tolerance.
+//   3  a mount did not verify at the DOM
+//   4  reader C was requested and is incomplete — see (2) above
 
 'use strict';
 
@@ -374,6 +395,7 @@ async function runSubstrate(chromium, substrate) {
   // that reaches ~12 MB above baseline at the 20-read rung) and its job is
   // to falsify the HEADLINE curve, which is the one that prices a read.
   let snapshots = null;
+  let snapshotFailure = null;
   if (WANT_SNAPSHOT) {
     snapshots = {};
     const want = arms.filter((a) => a.curve === 'b' || a.boundaries === plan.curveB.boundaries);
@@ -410,6 +432,30 @@ async function runSubstrate(chromium, substrate) {
     } catch (e) {
       snapshots = { error: String(e && e.message ? e.message : e) };
     }
+
+    // FAIL CLOSED WHEN READER C WAS ASKED FOR AND DID NOT ARRIVE.
+    //
+    // A and B are two doors onto one V8 counter. C is the reader that walks
+    // the object graph, and it is the whole reason this table is falsifiable
+    // rather than self-reported — the object-count conclusion (128.5 UIx
+    // objects per read against 36.2 Reagent) exists nowhere else. The first
+    // cut caught any snapshot failure into `{error: ...}` and the run went on
+    // to exit 0, so a reproduction could silently degrade to the two
+    // CORRELATED readers and still print a table.
+    //
+    // The error is recorded rather than thrown, so the A/B evidence and the
+    // control still reach the artefact — and then the run refuses.
+    const missing = [];
+    if (snapshots.error) {
+      missing.push(`snapshot pass failed: ${snapshots.error}`);
+    } else {
+      if (!snapshots.control) missing.push('reader-C positive control absent');
+      for (const a of want) if (!snapshots[a.id]) missing.push(`reader-C rung ${a.id} absent`);
+    }
+    if (missing.length) {
+      snapshotFailure = missing;
+      for (const m of missing) console.error(`[ladder] ${substrate}: READER C — ${m}`);
+    }
   }
 
   await browser.close();
@@ -421,6 +467,7 @@ async function runSubstrate(chromium, substrate) {
     perRound: rounds,
     orderVerdict: guard.verdict(orderSamples, { tolerance: TOLERANCE }),
     snapshots,
+    snapshotFailure,
     curves: curves(arms, rounds),
   };
 }
@@ -448,11 +495,29 @@ function fit(points) {
   return { slope, intercept, r2: tot === 0 ? 1 : 1 - ss / tot, points };
 }
 
+// THE REACTIVE RUNGS, and the one that is not one.
+//
+// `R=0` is a boundary that reads NOTHING. The bead, this instrument's
+// docstring and the studio page all say the same thing about it — "anchor,
+// not evidence", "no reactive figure is derived from it" — and the first cut
+// then fitted `[0, 1, 3, 7, 20]`, which derived every reactive figure from
+// it. The audit of PR #7260 caught it arithmetically: refitting the
+// published medians over 1/3/7/20 alone gives 943 B/read + 397 B on Reagent
+// and 3,552 B/read + 118 B on UIx, against the shipped 942/406 and
+// 3,550/150. The differences are small and that is not the point — the
+// figures were reached by a route the page promised it had not taken.
+//
+// So the fit is over the MANDATED rungs only. R=0 is carried, reported and
+// compared, and never enters a regression.
+const REACTIVE = (p) => p.x > 0;
+
 function curves(arms, rounds) {
   const subst = arms.find((a) => a.kind !== 'floor').kind;
   const curveB = [];
   const curveA = [];
   const perRung = {};   // arm id -> [excess-bytes-per-boundary per round]
+  const anchorPerRound = [];      // R=0, measured directly, never fitted
+  const firstReadPerRound = [];   // y(R=1) - y(R=0), an INCREMENT, not a slope
   const orders = { forward: { b: [], a: [] }, reversed: { b: [], a: [] } };
 
   for (const r of rounds) {
@@ -463,15 +528,27 @@ function curves(arms, rounds) {
     // Curve B — fixed boundaries, growing reads. y is PER BOUNDARY.
     const bArms = arms.filter((a) => a.kind === subst && a.curve === 'b')
       .sort((p, q) => p.reads - q.reads);
-    const bPts = bArms.map((a) => ({ x: a.reads, y: excess(a) / a.boundaries, arm: a.id }));
+    const bPtsAll = bArms.map((a) => ({ x: a.reads, y: excess(a) / a.boundaries, arm: a.id }));
+    const bPts = bPtsAll.filter(REACTIVE);
+    const anchorPt = bPtsAll.find((p) => p.x === 0) || null;
+    const firstPt = bPtsAll.find((p) => p.x === 1) || null;
     // Curve A — fixed reads, growing boundaries. y is TOTAL excess.
     const aArms = arms.filter((a) => a.kind === subst && (a.curve === 'a' || a.reads === 3))
       .sort((p, q) => p.boundaries - q.boundaries);
     const aPts = aArms.map((a) => ({ x: a.boundaries, y: excess(a), arm: a.id }));
 
-    for (const p of bPts) {
+    // Every rung is REPORTED, including the anchor — it is the comparison
+    // with the published sub-free rows that lets a reader decide whether to
+    // believe this instrument at all. Only the fit excludes it.
+    for (const p of bPtsAll) {
       (perRung[p.arm] = perRung[p.arm] || []).push(p.y);
     }
+    if (anchorPt) anchorPerRound.push(anchorPt.y);
+    // THE FIRST-READ INCREMENT is not the fitted marginal slope, and calling
+    // the slope "the first read" was the other half of the same confusion.
+    // The first read buys the subscription AND whatever the shell has to
+    // grow to hold one; the marginal slope prices the second read onward.
+    if (anchorPt && firstPt) firstReadPerRound.push(firstPt.y - anchorPt.y);
     const bFit = fit(bPts);
     const aFit = fit(aPts);
     curveB.push({ round: r.round, order: r.order, ...bFit });
@@ -483,11 +560,18 @@ function curves(arms, rounds) {
   const sum = (fits, key) => rangeOf(fits.map((f) => f[key]));
   return {
     curveB: {
-      what: 'fixed boundaries x growing reads — SLOPE is bytes per READ, INTERCEPT is bytes per BOUNDARY',
+      what: 'fixed boundaries x growing READS over 1/3/7/20 ONLY — SLOPE is bytes per READ, ' +
+            'INTERCEPT is the FITTED per-boundary shell. R=0 is an anchor and is excluded from the fit.',
+      fittedRungs: (curveB[0] ? curveB[0].points.map((p) => p.x) : []),
       perRound: curveB,
       bytesPerRead: sum(curveB, 'slope'),
       bytesPerBoundaryIntercept: sum(curveB, 'intercept'),
       r2: sum(curveB, 'r2'),
+      // Measured directly at R=0. NOT part of any regression above.
+      anchorMeasured: anchorPerRound.length ? rangeOf(anchorPerRound) : null,
+      // y(R=1) - y(R=0). An increment between two measured rungs, and the
+      // figure a reader means by "what does the first read cost".
+      firstReadIncrement: firstReadPerRound.length ? rangeOf(firstReadPerRound) : null,
       forward: { bytesPerRead: sum(orders.forward.b, 'slope'), intercept: sum(orders.forward.b, 'intercept') },
       reversed: { bytesPerRead: sum(orders.reversed.b, 'slope'), intercept: sum(orders.reversed.b, 'intercept') },
       rungs: Object.fromEntries(Object.entries(perRung).map(([k, v]) => [k, rangeOf(v)])),
@@ -532,17 +616,29 @@ function report(all) {
       L.push(`;;   reader C  measured ${b(s.snapshots.control.measured)} B  error ${pct(s.snapshots.control.error)}`);
     }
     L.push('');
-    L.push(';;   CURVE B — fixed boundaries x growing reads');
+    const cb = s.curves.curveB;
+    L.push(`;;   CURVE B — fixed boundaries x growing reads; FITTED OVER R=${cb.fittedRungs.join('/')} ONLY`);
     for (const [arm, r] of Object.entries(s.curves.curveB.rungs)) {
       const reads = parseArm(arm).reads;
-      L.push(`;;     R=${String(reads).padStart(2)}  ${b(r.p50).padStart(7)} B/boundary  [${b(r.min)}-${b(r.max)}]`);
+      const tag = reads === 0 ? '   <- ANCHOR, excluded from the fit' : '';
+      L.push(`;;     R=${String(reads).padStart(2)}  ${b(r.p50).padStart(7)} B/boundary  [${b(r.min)}-${b(r.max)}]${tag}`);
     }
-    const cb = s.curves.curveB;
     L.push(`;;     => BYTES PER READ      ${b(cb.bytesPerRead.p50)}  [${b(cb.bytesPerRead.min)}-${b(cb.bytesPerRead.max)}]`);
+    L.push(`;;        the fitted MARGINAL slope over ${cb.fittedRungs.join('/')} — what one more read costs.`);
     L.push(`;;        fwd ${b(cb.forward.bytesPerRead.p50)} [${b(cb.forward.bytesPerRead.min)}-${b(cb.forward.bytesPerRead.max)}]  ` +
            `rev ${b(cb.reversed.bytesPerRead.p50)} [${b(cb.reversed.bytesPerRead.min)}-${b(cb.reversed.bytesPerRead.max)}]`);
+    if (cb.firstReadIncrement) {
+      L.push(`;;     => FIRST-READ INCREMENT ${b(cb.firstReadIncrement.p50)}  ` +
+             `[${b(cb.firstReadIncrement.min)}-${b(cb.firstReadIncrement.max)}]`);
+      L.push(`;;        y(R=1) - y(R=0), two MEASURED rungs. This is NOT the slope above, and`);
+      L.push(`;;        calling the slope "the first read" conflates them.`);
+    }
     L.push(`;;     => PER-BOUNDARY INTERCEPT ${b(cb.bytesPerBoundaryIntercept.p50)}  ` +
-           `[${b(cb.bytesPerBoundaryIntercept.min)}-${b(cb.bytesPerBoundaryIntercept.max)}]`);
+           `[${b(cb.bytesPerBoundaryIntercept.min)}-${b(cb.bytesPerBoundaryIntercept.max)}]  (FITTED, extrapolated to R=0)`);
+    if (cb.anchorMeasured) {
+      L.push(`;;     => R=0 MEASURED DIRECTLY  ${b(cb.anchorMeasured.p50)}  ` +
+             `[${b(cb.anchorMeasured.min)}-${b(cb.anchorMeasured.max)}]  (the anchor; nothing is derived from it)`);
+    }
     L.push(`;;        r2 ${cb.r2.p50.toFixed(5)} [${cb.r2.min.toFixed(5)}-${cb.r2.max.toFixed(5)}]`);
     L.push('');
     L.push(';;   CURVE A — fixed reads (3) x growing boundaries');
@@ -625,6 +721,22 @@ function report(all) {
   if (unverified > 0) {
     console.error(`[ladder] ${unverified} UNVERIFIED mounts — the DOM read-back did not match`);
     process.exit(3);
+  }
+  // Reader C was requested and did not arrive. A and B are two doors onto one
+  // V8 counter; without C the object-count conclusion has no source and the
+  // table is self-reported. The artefact above is written first, so the
+  // partial evidence survives the refusal.
+  const cFailed = all.filter((s) => s.snapshotFailure);
+  if (cFailed.length) {
+    for (const s of cFailed) {
+      for (const m of s.snapshotFailure) console.error(`[ladder] ${s.substrate}: READER C — ${m}`);
+    }
+    console.error(
+      '[ladder] READER C WAS REQUESTED AND IS INCOMPLETE — this table may not be published on the ' +
+        'two correlated readers alone. Re-run, or set LADDER_SNAPSHOT=0 and publish nothing that ' +
+        'depends on the object counts.'
+    );
+    process.exit(4);
   }
   if (refused.length) {
     for (const s of refused) {
