@@ -821,15 +821,11 @@ mutation evidence is on
   the boundary rather than of the page.
 - **The per-page accumulation is still unexplained.** One row per page makes it
   harmless to these figures; it does not make it fixed.
-- **`p0_converge_app.cljs`'s own row table still describes the pre-batch narrow
-  window, and this page cannot fix it.** Its namespace docstring reads
-  *"`bulk-narrow` | the M1 page, one commit exactly ONE boundary reads"*, which
-  was true before `rf2-zb3qg` and is not true of the landed row: `narrow-batch-k`
-  commits share one timed window, and the `:doc` on the entry itself — ~730 lines
-  further down the same file — already says so. So the file contradicts itself,
-  and a reader who stops at the summary table reads a window that no longer
-  exists. **Marked rather than corrected**: a sibling worker holds 362
-  uncommitted lines in that file at the time of writing, its earliest hunk at
-  line 229, and a one-line docstring fix landed into a live working surface buys
-  a conflict on a hot file for nothing. The correction belongs to whoever
-  finishes there, and it is one line.
+- ~~**`p0_converge_app.cljs`'s own row table still describes the pre-batch
+  narrow window, and this page cannot fix it.**~~ **CLOSED by rf2-95m11
+  (PR #7288).** The sibling worker finished, and the correction was the one
+  line predicted: the namespace docstring's `bulk-narrow` row now reads
+  *"`narrow-batch-k` batched commits, each of which exactly ONE boundary
+  reads, all in one timed window"*, matching the `:doc` on the entry itself.
+  The file agrees with itself, and the summary table a reader stops at is the
+  window that ran.
