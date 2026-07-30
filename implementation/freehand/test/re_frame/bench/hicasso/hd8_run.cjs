@@ -75,11 +75,23 @@ const PORT = Number(process.env.HD8_PORT || 8129);
 // Reagent paths need the ratom spine while the frontier and donor arms
 // ride React hooks — so the arms that can be compared head to head are
 // partitioned this way and every HD-008 comparison lands WITHIN a run.
-const RUNS = [
+const ALL_RUNS = [
   { id: 'uix', query: '?adapter=uix', why: 'donor rungs against the frontier' },
   { id: 'reagent', query: '?adapter=reagent', why: 'donor rungs against stock Reagent' },
   { id: 'slim', query: '?adapter=slim', why: 'donor rungs against reagent-slim' },
 ];
+
+// `HD8_ONLY=slim` drives one run instead of three, over the SAME bundle and
+// the same gates. Not a shortcut: re-taking one run's suppressed row must not
+// mint a competing set of figures for the rows already published at another
+// SHA, and a driver that could only run all three would force exactly that.
+// Unset is the full three, so the published shape is the default.
+const ONLY = (process.env.HD8_ONLY || '').trim();
+const RUNS = ONLY ? ALL_RUNS.filter((r) => ONLY.split(',').includes(r.id)) : ALL_RUNS;
+if (RUNS.length === 0) {
+  console.error(`[hd8] HD8_ONLY=${ONLY} selects no run; known ids: ${ALL_RUNS.map((r) => r.id).join(', ')}`);
+  process.exit(1);
+}
 
 // The guard's tolerance. `order_guard.cjs` defends the choice: 0.10 sits far
 // below the 2.01x the recorded fault produced and far above the 0.4% the same
@@ -268,6 +280,7 @@ function crossRun(runs) {
   console.log(`;;   reproduce   node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs`);
   console.log(`;;   build       shadow-cljs release freehand-release (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);
+  console.log(`;;   runs        ${RUNS.map((r) => r.id).join(', ')}${ONLY ? `  (HD8_ONLY=${ONLY})` : ''}`);
 
   build();
   const server = serve();
