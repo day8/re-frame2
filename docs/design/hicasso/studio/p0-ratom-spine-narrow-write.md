@@ -374,6 +374,13 @@ bench run and a gate run raced one compile cache, and a figure taken
 through the fallback would not have been comparable with one taken through
 the lane.
 
+The template is now `:hicasso-bench` unconditionally and **there is no
+environment override**. `HN_BASE_BUILD` went with the fallback; a reader
+working from notes that mention it should know that setting it today does
+nothing. No figure on this page depended on either knob — every row was
+taken through `:hicasso-bench`, which is what the fallback selected once
+the lane's build id existed.
+
 ---
 
 ## Superseded
