@@ -1,6 +1,8 @@
 # P0 — the ratom-spine narrow write (write + flush, summed)
 
-**Bead** `rf2-2rtt6.3` · **Producing commit** `99eeeafcde7aa11db6c0925a8aa0e1113a57c2a0`
+**Bead** `rf2-2rtt6.3` · **Producing commit**
+`828d4f1ac0cff850b6fcb44a7fa2d0729fc175d8` — the commit carrying the
+instrument that took these readings; this page is its child.
 
 ```bash
 cd implementation && npm ci
@@ -38,40 +40,43 @@ that framing error is a row rather than a claim.
 spine a write is a bare install into the frame's one physical container;
 the reactions do not recompute there, they recompute on Reagent's flush.
 A harness that timed the write leg and stopped would have published
-0.0006–0.0017 ms per write for an operation that costs 0.44. That is a
-factor of about 400, and it is why the summed figure is the published one.
+0.0006–0.0010 ms per write for an operation that costs 0.39–0.52 — an
+understatement by a factor of between 400 and 850. That is why the summed
+figure is the published one.
 
 ---
 
 ## The headline
 
-**A narrow write on the ratom spine costs 0.44–0.45 ms, and 99.6% of it is
+**A narrow write on the ratom spine costs 0.39–0.52 ms, and 99.8% of it is
 the flush.**
 
-Three independent runs at the same commit, 300 cells, 300 layer-1
-subscriptions, one per cell. Per-write milliseconds; a sample is 20 writes
-and the per-write figure is the sample divided by twenty.
+Three independent runs at the one commit; 300 cells, 300 layer-1
+subscriptions, one per cell. Per-write milliseconds — a sample is 20
+writes and the per-write figure is the sample divided by twenty.
 
-| arm | write+flush (mean, 3 runs) | write | flush | write share |
+| arm | write+flush (mean, r1 / r2 / r3) | write | flush | write share |
 |---|---|---|---|---|
-| bare `r/atom` + cursor, no re-frame | 0.0437 / 0.0558 / 0.0485 | 0.0006–0.0015 | 0.0432–0.0543 | 1.3–2.7% |
-| **re-frame ratom spine, `replace-app-db!`** | **0.4506 / 0.4383 / 0.4500** | 0.0006–0.0017 | 0.4367–0.4500 | **0.1–0.4%** |
-| re-frame ratom spine, `dispatch-sync` | 0.4807 / 0.5264 / 0.4979 | 0.0239–0.0315 | 0.4501–0.4946 | 4.8–6.3% |
+| bare `r/atom` + cursor, no re-frame | 0.0621 / 0.0494 / 0.0310 | 0.0007–0.0008 | 0.0300–0.0613 | 1.1–2.2% |
+| **re-frame ratom spine, `replace-app-db!`** | **0.5244 / 0.5146 / 0.3903** | 0.0006–0.0010 | 0.3892–0.5237 | **0.1–0.2%** |
+| re-frame ratom spine, `dispatch-sync` | 0.5910 / 0.6076 / 0.4653 | 0.0213–0.0360 | 0.4437–0.5750 | 4.6–6.1% |
 
-Within-run **ranges** for the headline arm, median [min–max] across 36
-samples per run:
+Within-run **ranges** for the headline arm — median [min–max] over 36
+samples, which is 720 verified writes per run:
 
 | run | write+flush |
 |---|---|
-| 1 | 0.4750 [0.1700–0.7250] |
-| 2 | 0.4100 [0.1500–0.9600] |
-| 3 | 0.4250 [0.1600–0.7200] |
+| 1 | 0.5475 [0.1850–1.1650] |
+| 2 | 0.5075 [0.1950–0.8800] |
+| 3 | 0.4200 [0.1350–0.7300] |
 
-The three runs' ranges overlap throughout, so they are one measurement
-taken three times, not three measurements. The within-run spread is wide —
-a factor of four between best and worst sample — because the box is
-carrying six other agents; the median is stable to 6% across runs and the
-**mean is stable to 3%**, which is what the arms are compared on.
+All three ranges overlap, so these are one measurement taken three times.
+The spread is wide — a factor of six between the best and worst sample of
+run 1 — because the box is carrying six other agents, and run 3 caught it
+quieter than the other two. **The absolute figure is therefore quoted as a
+range and not as a number**, and the two quantities that matter for the
+comparison are much steadier than it: the write share holds at 0.1–0.2%
+across every run, and the ladder exponent at 1.45–1.53.
 
 ### Both orders
 
@@ -79,16 +84,20 @@ Arms are interleaved at the sample level with the slot order rotating
 **and reflecting** on the sample index, so every arm is measured under two
 different adjacencies. A bare rotation would not vary that at all: arm `a`
 sits at slot `(a − s) mod k`, so its predecessor is `(a − 1) mod k` at
-every index.
+every index, and only the round seam ever differs.
+
+Run 1, per-write medians [min–max]:
 
 | arm | forward | reflected | verdict |
 |---|---|---|---|
-| bare-ratom | 0.0450 [0.0100–0.0800] | 0.0450 [0.0150–0.0800] | overlapping — indistinguishable |
-| spine-replace | 0.4725 [0.2450–0.7050] | 0.4750 [0.1700–0.7250] | overlapping — indistinguishable |
-| spine-dispatch | 0.4750 [0.2600–0.6800] | 0.4950 [0.1550–0.7600] | overlapping — indistinguishable |
+| bare-ratom | 0.0500 [0.0150–0.1450] | 0.0450 [0.0200–0.1300] | overlapping — indistinguishable |
+| spine-replace | 0.4925 [0.1950–1.1650] | 0.5700 [0.1850–0.9400] | overlapping — indistinguishable |
+| spine-dispatch | 0.5300 [0.2350–1.1100] | 0.5875 [0.2500–1.7900] | overlapping — indistinguishable |
+| spine-30 | 0.0150 [0.0000–0.0400] | 0.0125 [0.0000–0.0500] | overlapping — indistinguishable |
+| spine-100 | 0.0850 [0.0200–0.2350] | 0.0750 [0.0250–0.2050] | overlapping — indistinguishable |
 
-The arm-order guard returned **reportable** on all three runs: no arm's
-figure is separated by what ran before it or by where in the run it was
+The arm-order guard returned **reportable on all three runs**: no arm's
+figure is separated by what ran before it, or by where in the run it was
 measured, on either factor, at a 10% tolerance.
 
 ---
@@ -96,26 +105,26 @@ measured, on either factor, at a 10% tolerance.
 ## Where the money goes, and why "flush" needed splitting further
 
 "The flush" is one word doing two jobs — Reagent re-running every dirtied
-reaction, and React committing the one cell that changed — and the
-distinction is exactly the one the predecessor got wrong. Three cell
-counts separate them: the React commit is the same one-cell commit at
-every rung and only the subscription count moves.
+reaction, and React committing the one cell that changed — and telling
+them apart is exactly what the predecessor did not do. Three cell counts
+separate them by construction: the React commit is the same one-cell
+commit at every rung, and only the subscription count moves.
 
-| subscriptions | flush ms/write | per subscription | local slope vs the rung below |
+| subscriptions | flush ms/write (r1 / r2 / r3) | per subscription | local slope vs the rung below |
 |---|---|---|---|
-| 30 | 0.0129–0.0150 | 0.43–0.50 µs | — |
-| 100 | 0.0681–0.0815 | 0.68–0.82 µs | 0.79–0.89 µs/sub |
-| 300 | 0.4367–0.4500 | 1.46–1.50 µs | 1.83–1.88 µs/sub |
+| 30 | 0.0154 / 0.0182 / 0.0114 | 0.38–0.61 µs | — |
+| 100 | 0.0932 / 0.0946 / 0.0557 | 0.56–0.95 µs | 0.63–1.11 µs/sub |
+| 300 | 0.5237 / 0.5140 / 0.3892 | 1.30–1.75 µs | 1.67–2.15 µs/sub |
 
 **No per-subscription cost is quoted, and that is a finding rather than a
 caution.** A line fitted through the top and bottom rungs has an intercept
-of **−0.032 to −0.036 ms**, and the work that does *not* scale with the
+of **−0.031 to −0.041 ms**, and the work that does *not* scale with the
 subscription count — React's one-cell commit, Reagent's drain overhead —
 cannot cost less than nothing. The two-rung fit was tried first and
 produced a clean-looking "2.27 µs per subscription"; the negative
-intercept is the data refusing that model. Ten times the subscriptions
-costs **34.8× / 29.1× / 33.8×** the flush across the three runs — an
-exponent of **1.46–1.54**.
+intercept is the data refusing that model, and the third rung exists
+because of it. Ten times the subscriptions costs **34.0× / 28.2× / 34.1×**
+the flush — an exponent of **1.53 / 1.45 / 1.53**.
 
 So a narrow write's cost on this substrate is **super-linear in the number
 of layer-1 subscriptions in the frame**, and essentially all of it lands
@@ -131,24 +140,28 @@ on the ratom spine; it does not discover it.
 
 ## The like-for-like correction
 
-| | mean ms/write | ratio to bare ratom |
+| | mean ms/write (r1 / r2 / r3) | ratio to bare ratom |
 |---|---|---|
-| bare `r/atom` + cursor (no re-frame) | 0.0437 / 0.0558 / 0.0485 | 1.0× |
-| re-frame ratom spine, `replace-app-db!` | 0.4506 / 0.4383 / 0.4500 | **10.3× / 7.9× / 9.3×** |
-| re-frame ratom spine, `dispatch-sync` | 0.4807 / 0.5264 / 0.4979 | 11.0× / 9.4× / 10.3× |
+| bare `r/atom` + cursor (no re-frame) | 0.0621 / 0.0494 / 0.0310 | 1.0× |
+| re-frame ratom spine, `replace-app-db!` | 0.5244 / 0.5146 / 0.3903 | **8.4× / 10.4× / 12.6×** |
+| re-frame ratom spine, `dispatch-sync` | 0.5910 / 0.6076 / 0.4653 | 9.5× / 12.3× / 15.0× |
 
 **Any narrow-update ratio quoted against the bare-ratom column is
 measuring this gap and calling it something else.** A ratio of, say, 15×
 against a bare ratom is not 15× against a re-frame application: on these
-numbers roughly eight to ten of it is already paid by re-frame reading its
-own subscriptions, whatever renders them.
+numbers between eight and thirteen of it is already paid by re-frame
+reading its own subscriptions, whatever renders them.
+
+The ratio's own run-to-run spread — 8.4× to 12.6× — is real and is stated
+rather than averaged away. Both arms move with the box, and they do not
+move together, so the ratio is not the stable quantity here; **the
+write-versus-flush split is**, and that is what this bead was asked for.
 
 The event drain — the difference between the two write doors — is
-**0.030 / 0.088 / 0.048 ms per write** — 6%, 17% and 10% of the total, the
-one figure on this page whose three runs do *not* sit tightly together.
-It is also the only part of the cost that shows up in the *write* leg at
-all: `dispatch-sync` is the only arm whose write leg clears the clock
-grid, and it clears it because the event drain runs there.
+**0.067 / 0.093 / 0.075 ms per write**, 11–16% of the total. It is the
+only part of the cost that shows up in the *write* leg at all:
+`dispatch-sync` is the one arm whose write leg clears the clock grid, and
+it clears it because the drain runs there.
 
 ---
 
@@ -174,13 +187,15 @@ ways.
 
 | | predicted | measured (p50, run 1 / 2 / 3) |
 |---|---|---|
-| rung 1 | 0.3000 ms/write | 0.3300 / 0.3300 / 0.3300 |
-| rung 2 | 0.9000 ms/write | 0.9700 / 0.9600 / 0.9550 |
-| **slope** | 0.6000 ms | 0.6400 / 0.6300 / 0.6250 — **4.2–6.7% high** |
+| rung 1 | 0.3000 ms/write | 0.3300 / 0.3300 / 0.3250 |
+| rung 2 | 0.9000 ms/write | 0.9600 / 0.9650 / 0.9600 |
+| **slope** | 0.6000 ms | 0.6300 / 0.6350 / 0.6350 — **5.0–5.8% high** |
 
-The direct readings run ~0.03 ms above prediction and the slope runs 4–7%
-high; both are the spin loop's own clock-read overhead, which the slope
-reduces but does not remove, since the loop reads the clock at both rungs.
+The direct readings run 0.025–0.065 ms above prediction and the slope runs
+5–6% high; both are the spin loop's own clock-read overhead, which the
+slope reduces but does not remove, since the loop reads the clock at both
+rungs. The control is a *floor* on the instrument's resolution, not a
+correction applied to anything.
 
 The third reading is the one that matters, because it is falsifiable: **an
 arm's write+flush must not move when the control's size changes.** It
@@ -198,17 +213,27 @@ rounded:
   appears anywhere on this page; the split above is taken from the
   **quantisation-unbiased mean**, which recovers a sub-quantum leg because
   `floor(t₁/q)·q − floor(t₀/q)·q` has expectation exactly `t₁ − t₀`.
-- **`bare-ratom` and `spine-30` totals** carry only 2–9× the quantum per
-  sample. They are reported, and they are not absolute figures.
+- **`bare-ratom` and `spine-30` totals** carry only a few multiples of the
+  quantum per sample. They are reported, and they are not absolute
+  figures — which is one more reason the like-for-like *ratio* is quoted
+  as a range and the *split* is quoted as the finding.
 
 ### Warm-up
 
 Each arm is warmed at full window size until the first third of its
 trajectory stops separating from the last third by median, floor 8 windows
-and ceiling 20. `spine-replace` reached the ceiling still trending on one
-run of the three; the guard's phase factor passed on all three regardless,
-which is the direct evidence that warm-up was adequate for the figures
-published.
+and ceiling 20. **On these three runs several arms reached the ceiling
+still trending** — `bare-ratom` and `spine-dispatch` on all three,
+`spine-replace` on one — and that is stated rather than smoothed, because
+it is the honest account of a box carrying six other agents.
+
+What says the figures are nevertheless usable is not the warm-up rule but
+the guard: its **phase** factor partitions each arm's 36 measured samples
+into thirds by position in the run and compares the first third against
+the last, and it came back clean on every arm of every run. A site that
+was still climbing through the measured window would separate there. The
+whole trajectory is printed on every run, so this is checkable rather than
+asserted.
 
 The settle test is the median one **only**. Accepting "medians within
 tolerance *or* ranges overlap" let every arm settle at the floor while
