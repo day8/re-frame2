@@ -82,6 +82,29 @@ const REPO = path.resolve(IMPL, '..');
 const OUT = path.join(IMPL, 'out', 'hicasso-narrow');
 const PORT = Number(process.env.HN_PORT || 8141);
 
+// THE LANE'S ONE CACHE RULE (rf2-2rtt6.20, applied here by rf2-2rtt6.22).
+//
+// This driver is the SIXTH program riding `:hicasso-bench`, and shadow-cljs
+// derives the build cache directory from the build id alone — before any
+// `--config-merge` is applied — so all six share one cache entry. The five
+// drivers in `freehand/test/re_frame/bench/hicasso/` clear it before they
+// build, which is why this one can no longer poison THEM; nothing was
+// clearing it on this driver's behalf, so it could still be handed a cache
+// poisoned by whichever arm ran before it. `lane_cache.cjs` carries the
+// mechanism, the isolation evidence and the measured cost.
+//
+// Reached by path across the test trees, exactly as `navigate.cjs` is below
+// and for the same reason: ONE helper for the repository, never a second copy
+// per lane. Unlike `loadNavigate`, this require has NO FALLBACK — a fallback
+// here would silently re-arm the trap, and a driver that cannot find the
+// cache rule must fail loudly rather than measure without it. (The helper's
+// home is the hicasso lane it was written for; hoisting it beside
+// `navigate.cjs` now that a second tree needs it is rf2-2rtt6.22's recorded
+// recommendation and is left to the owner of those five drivers.)
+const { resetLaneBuildCache } = require(
+  path.join(IMPL, 'freehand/test/re_frame/bench/hicasso/lane_cache.cjs')
+);
+
 // --- the plan ---------------------------------------------------------------
 //
 // Four rounds of six measured samples is 24 samples an arm, which is what
@@ -163,6 +186,10 @@ const CONFIG_MERGE =
   ':modules {:main {:init-fn re-frame.bench.hicasso-narrow-app/-main}}}';
 
 function build() {
+  // Before anything reads the cache — see the note beside the require.
+  if (resetLaneBuildCache(IMPL, BASE_BUILD)) {
+    console.error(`[hn] cleared .shadow-cljs/builds/${BASE_BUILD} — one build id, N arms (rf2-2rtt6.20)`);
+  }
   console.error(`[hn] building :advanced bundle from template :${BASE_BUILD} ...`);
   const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
   const r = spawnSync(
