@@ -79,7 +79,7 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 | `project-egress` | record-level boundary primitive | `(rf/project-egress record opts)` → projected record. The public record-level projection primitive (knows app-db-/event-/exception-/HTTP-/summary-shaped slots); the **required step before any off-box sink**. Delegates per tree-shaped slot to `elide-wire-value`. New façade export (subject to the facade-export classification rule). | [015 §`project-egress`](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive) |
 | `register-observability-sink!` / `unregister-observability-sink!` | façade fns | Register the concrete sink fn against the id a frame's `:observability` policy names; the sink consumes the already-projected record. New façade exports (subject to the facade-export classification rule). | [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy) |
 | `sensitive?` | predicate | `(rf/sensitive? trace-event)` → bool. True iff the event carries `:sensitive? true` at the top level. The framework-published predicate every forwarder composes against. | [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) |
-| `elide-wire-value` | walker | `(rf/elide-wire-value v opts)` → walked `v`. The **low-level value walker** for tree-shaped values; `project-egress` delegates to it per tree-shaped slot. Sinks and tools should rarely call it directly. | [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
+| `elide-wire-value` | walker | `(rf/elide-wire-value v opts)` → walked `v`. The **low-level value walker** for tree-shaped values; `project-egress` delegates to it per tree-shaped slot. Sinks and tools should rarely call it directly. | [API.md §wire-elision walker](API.md#size-elision-wire-boundary-walker), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 | `(configure! {:elision ...})` | runtime config | `{:rf.size/threshold-bytes N}` — wire-elision size cap. Default `16384`. | [API.md §Configure keys](API.md) |
 
 **Removed surfaces** (not live surfaces; listed so a reader following an older cross-reference lands on the removal):
@@ -341,7 +341,7 @@ The analogous obligation already holds for [resource scopes / params](#inventory
 
 ## Display sentinels
 
-Per [015 §Display contract](015-Data-Classification.md#the-display-contract--sentinels) and [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker):
+Per [015 §Display contract](015-Data-Classification.md#the-display-contract--sentinels) and [API.md §wire-elision walker](API.md#size-elision-wire-boundary-walker):
 
 | Sentinel | When | Drillable? |
 |---|---|---|
@@ -564,7 +564,7 @@ Surfaces removed from this matrix. Listed here so readers don't search for them 
 
 ### API.md projection
 
-- [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker) — `elide-wire-value`, `project-egress`.
+- [API.md §wire-elision walker](API.md#size-elision-wire-boundary-walker) — `elide-wire-value`, `project-egress`.
 - [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces) — `sensitive?`, `redact-interceptor`.
 - [API.md §Configure keys](API.md) — the four `(rf/configure! ...)` keys, including `:elision` and `:epoch-history`.
 
