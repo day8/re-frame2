@@ -493,8 +493,10 @@ function summariseHeap(row) {
   );
   console.log(
     `;;   VERDICT (lane/control-verdict, slack ±${(row.control.slack * 100).toFixed(0)}%): ` +
-      `${row.control.verdict.ok ? 'OK' : 'FAILED'} — ${row.control.verdict.why}`
+      `${row.control.verdict.ok ? 'OK' : 'FAILED'}`
   );
+  console.log(`;;     ${row.control.verdict.why}`);
+  console.log(';;     (the shared rule words its figures with an "x"; this control\'s unit is BYTES)');
   console.log(`;; verification: ${row.verification.unverified} unverified of ${row.verification.mounts} mounts`);
   console.log(';;');
   console.log(';; arm                              B/boundary (mean) [min-max]     residue B');
