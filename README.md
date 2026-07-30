@@ -94,7 +94,7 @@ Well, beyond the novel parts, re-frame2 comes with SOTA batteries in various dim
 
 Pre-alpha. I'm still preserving optionality.
 
-We are building apps against the ClojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
+We are building apps against the ClojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM — and no release is scheduled yet.
 
 You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. And use the Skills, Luke: [re-frame-migration](skills/re-frame-migration/) for you-know-what, then [re-frame2-pair](skills/re-frame2-pair/) for coding. Finally, use [re-frame2-pair-retro](skills/re-frame2-pair-retro/) to do a session retrospective and file an issue if you find friction.
 

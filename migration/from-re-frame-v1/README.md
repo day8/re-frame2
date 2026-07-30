@@ -43,9 +43,9 @@ These are the changes that **must** be applied if the codebase trips them.
 
 ### M-0. Bump the dependency coordinate to `day8/re-frame2`
 
-**Type A** (mechanical). The target coord is unambiguous; apply without asking.
+**Type A** (mechanical). The target coord is unambiguous; apply without asking. The *pin* — which commit or version to consume — is the author's to supply; never invent one.
 
-Before applying any other migration rule, inspect the target project's dependency files and replace the re-frame coordinate with the latest released version of `day8/re-frame2`. Every other rule below assumes the project is already pointing at the v2 artefact — without this step the agent has nothing to verify against.
+Before applying any other migration rule, inspect the target project's dependency files and replace the re-frame coordinate with `day8/re-frame2` (plus its substrate adapter), at the consumption route chosen below. Every other rule below assumes the project is already pointing at the v2 artefact — without this step the agent has nothing to verify against.
 
 **Files to inspect** (whichever exist at the project root):
 
@@ -62,25 +62,28 @@ re-frame          {:mvn/version "1.x.x"}     ;; deps.edn / shadow-cljs.edn — o
 [re-frame "1.x.x"]                            ;; project.clj — Lein vector form
 ```
 
-**Replacement.** Swap the entire coord (not just the version) — the artefact name changes — AND add a substrate-adapter artefact alongside the core. v1 was a single `re-frame/re-frame` artefact; v2 ships core and adapter as siblings, so a Reagent app needs both:
+**Replacement.** Swap the entire coord (not just the version) — the artefact name changes — AND add a substrate-adapter artefact alongside the core. v1 was a single `re-frame/re-frame` artefact; v2 ships core and adapter as siblings, so a Reagent app needs both.
+
+The coordinate *shape* is a publication-state decision, and today nothing is published: no `day8/re-frame2*` artefact resolves from Clojars or Maven Central, and no release is scheduled. For a tools.deps project (`deps.edn` / `shadow-cljs.edn` / `bb.edn`) the route is therefore a **pinned `:git/url` + `:git/sha` coordinate per artefact — every artefact at the same commit** — each selecting its own monorepo subdirectory via `:deps/root`:
 
 ```clojure
-;; deps.edn / shadow-cljs.edn / bb.edn
-day8/re-frame2         {:mvn/version "<latest>"}
-day8/re-frame2-reagent {:mvn/version "<latest>"}    ;; ← new in v2
-
-;; project.clj
-[day8/re-frame2         "<latest>"]
-[day8/re-frame2-reagent "<latest>"]
+;; deps.edn / shadow-cljs.edn / bb.edn — every day8/re-frame2* coord pinned to
+;; ONE author-supplied, pushed <SHA>; :deps/root selects the artefact's subdir
+day8/re-frame2         {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "implementation/core"}
+day8/re-frame2-reagent {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "implementation/adapters/reagent"}   ;; ← new in v2
 ```
 
-`<latest>` is the latest released version of `day8/re-frame2` (look it up — Clojars / Maven Central). Adapter artefacts are versioned in lock-step with core. The `re-frame.core` and `re-frame.adapter.reagent` namespaces and `:require` lines are unchanged; only the dep coord moves.
+The author supplies `<SHA>` (a reviewed, pushed commit) — never invent a pin, and never guess "latest". The copy-pasteable recipe — per-artefact `:deps/root` sub-paths, the lockstep same-SHA rule, and the alternatives — is maintained in one place, the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape). A `{:local/root "../re-frame2/implementation/<subdir>"}` coordinate ([`deps-versions.md` §The `:local/root` sibling-checkout dev route](../../skills/re-frame2-setup/references/deps-versions.md#the-localroot-sibling-checkout-dev-route-pre-publish)) is the local-development-only equivalent: it names a path on the author's own disk, so it is not CI-portable, and it must be repinned to a pushed `:git/sha` before the migration is called done. If and when re-frame2 artefacts are published to a Maven registry, published coordinates — under whatever group id they ship with — take a `{:mvn/version "…"}` shape instead; check the registry itself before writing one.
+
+The `re-frame.core` and `re-frame.adapter.reagent` namespaces and `:require` lines are unchanged; only the dep coord moves. Adapter artefacts are versioned in lock-step with core.
 
 **Pick the adapter artefact by current substrate.** v1 codebases use Reagent universally, so the migration adds `day8/re-frame2-reagent`. Codebases that have already switched to UIx (rare; usually post-migration) get `day8/re-frame2-uix` instead. Per [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention).
 
-**If no released v2 version is available yet** (pre-publication): leave the dep alone, do not apply any other migration rules, and flag the situation in the migration report — the user must update the coord manually once a release lands, then re-run the migration.
+**`project.clj` / Leiningen is a separate case — treat it honestly.** Leiningen cannot resolve tools.deps git coordinates — there is no `:git/sha` equivalent for a `:dependencies` vector — and Leiningen *checkouts* supplement an already-resolvable dependency; they never replace one. A Leiningen project picks one of three routes and records the choice in the migration report: migrate dependency management to tools.deps (the shape this guide's examples assume, and the recommended move); build and install the artefacts into the local Maven repository for explicitly-local experimentation (like `:local/root`, not CI-portable); or pause this build tool's dep edit pending publication. Do not write a `[day8/re-frame2 "…"]` vector that no registry can satisfy.
 
-**Report.** Include the before/after coord pair in the migration report's preamble (e.g. `re-frame/re-frame 1.4.5 → day8/re-frame2 2.0.0`).
+**Choose and record the route, then continue the migration.** The route decision is made once, here at M-0, and every later artefact rule (M-27 through M-33) inherits it — one publication-state decision governs the whole guide. Record it in the migration report, then keep going: a first release is not a precondition for any other rule in this file.
+
+**Report.** Include the before/after coord pair in the migration report's preamble (e.g. `re-frame/re-frame 1.4.5 → day8/re-frame2 {:git/sha "abc1234…"}`).
 
 **Why:** v1 (`re-frame/re-frame`) and v2 (`day8/re-frame2`) share the `re-frame.core` namespace and cannot coexist on the same classpath; migration is necessarily atomic per project. Shipping v2 under a new artefact label (rather than as `re-frame/re-frame 2.x`) makes the redesign visible to ops and deps tooling and lets the v1 line continue under its own coord for maintenance releases. The artefact name change is deliberate: the public `re-frame.core` namespace is unchanged, but the Maven coord moves to `day8/re-frame2` so v1 and v2 can ship as siblings without classpath conflict.
 
@@ -1322,14 +1325,7 @@ As the first per-feature artefact split (Strategy B), Spec 010's schema-attachme
 - A direct `(:require [re-frame.schemas])` clause.
 - Use of the `:rf.error/schema-validation-failure` trace op (i.e. the app reads the validation outcome).
 
-**What to do.** Add the schemas artefact alongside the core dep:
-
-```clojure
-;; deps.edn for an app that uses Spec 010 schemas
-{:deps {day8/re-frame2         {:mvn/version "<latest>"}
-        day8/re-frame2-reagent {:mvn/version "<latest>"}
-        day8/re-frame2-schemas {:mvn/version "<latest>"}}}  ;; ← new in v2
-```
+**What to do.** Add `day8/re-frame2-schemas` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
 CLJS apps additionally require `re-frame.schemas.malli` somewhere in their boot path so the default validator delegates to Malli. The adapter namespace publishes `malli.core/validate` and `malli.core/explain` into the framework's late-bind hook table on ns-load; the schemas artefact's default validator consults the hook on every call. Absent the require, the default validator soft-passes per Spec 010 §Recommended soft-pass (CLJS has no runtime `resolve`, so a previous-generation `(resolve 'malli.core/validate)` approach silently no-op'd even when Malli was on the classpath). The schemas artefact carries Malli as a `:deps` entry so the namespace is available without an explicit `:require`; the app's `:require [re-frame.schemas.malli]` is what wires the runtime fns into the framework.
 
@@ -1351,14 +1347,7 @@ As the second per-feature artefact split (Strategy B), Spec 005's state-machine 
 - Any subscription to the framework-shipped `:rf/machine` reg-sub (e.g. `(rf/subscribe [:rf/machine machine-id])`).
 - A direct `(:require [re-frame.machines])` clause.
 
-**What to do.** Add the machines artefact alongside the core dep:
-
-```clojure
-;; deps.edn for an app that uses Spec 005 state machines
-{:deps {day8/re-frame2          {:mvn/version "<latest>"}
-        day8/re-frame2-reagent  {:mvn/version "<latest>"}
-        day8/re-frame2-machines {:mvn/version "<latest>"}}}  ;; ← new in v2
-```
+**What to do.** Add `day8/re-frame2-machines` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
 Every namespace that calls `rf/reg-machine` / `rf/make-machine-handler` / `rf/machine-transition` (or relies on the `:rf/machine` framework sub registration) MUST `(:require [re-frame.machines])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment the call resolves and the wrapper raises `:rf.error/machines-artefact-missing` with a clear "add the machines artefact" message.
 
@@ -1381,14 +1370,7 @@ As the third per-feature artefact split (Strategy B), Spec 012's routing surface
 - Any subscription to `:rf/route` or `:rf.route/{id,params,query,transition,error}`.
 - A direct `(:require [re-frame.routing])` clause.
 
-**What to do.** Add the routing artefact alongside the core dep:
-
-```clojure
-;; deps.edn for an app that uses Spec 012 routing
-{:deps {day8/re-frame2         {:mvn/version "<latest>"}
-        day8/re-frame2-reagent {:mvn/version "<latest>"}
-        day8/re-frame2-routing {:mvn/version "<latest>"}}}  ;; ← new in v2
-```
+**What to do.** Add `day8/re-frame2-routing` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
 Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` events / subscribes to the `:rf/route` family) MUST `(:require [re-frame.routing])` so the namespace's load-time hook registrations and `:rf.route/*` reg-event + reg-sub installations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment `rf/reg-route` resolves and the wrapper raises `:rf.error/routing-artefact-missing` with a clear "add the routing artefact" message; without the framework events the dispatches resolve to `:rf.error/no-such-handler`.
 
@@ -1410,14 +1392,7 @@ As the fourth per-feature artefact split (Strategy B), Spec 013's flows surface 
 - Any `:rf.fx/reg-flow` / `:rf.fx/clear-flow` entry inside an `:fx` vector or effect map.
 - A direct `(:require [re-frame.flows])` clause.
 
-**What to do.** Add the flows artefact alongside the core dep:
-
-```clojure
-;; deps.edn for an app that uses Spec 013 flows
-{:deps {day8/re-frame2         {:mvn/version "<latest>"}
-        day8/re-frame2-reagent {:mvn/version "<latest>"}
-        day8/re-frame2-flows   {:mvn/version "<latest>"}}}  ;; ← new in v2
-```
+**What to do.** Add `day8/re-frame2-flows` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
 Every namespace that calls `rf/reg-flow` (or uses the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs) MUST `(:require [re-frame.flows])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment `rf/reg-flow` resolves and the wrapper raises `:rf.error/flows-artefact-missing` with a clear "add the flows artefact" message; without the load-time hooks the `:rf.fx/reg-flow` runtime fx silently no-ops.
 
@@ -1441,14 +1416,7 @@ As the fifth per-feature artefact split (Strategy B), Spec 014's managed-HTTP su
 - A direct `(:require [re-frame.http.managed])` clause.
 - Any `:rf.http/decode-schemas` registration metadata key.
 
-**What to do.** Add the http artefact alongside the core dep:
-
-```clojure
-;; deps.edn for an app that uses Spec 014 managed HTTP
-{:deps {day8/re-frame2         {:mvn/version "<latest>"}
-        day8/re-frame2-reagent {:mvn/version "<latest>"}
-        day8/re-frame2-http    {:mvn/version "<latest>"}}}  ;; ← new in v2
-```
+**What to do.** Add `day8/re-frame2-http` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
 Every namespace that dispatches `:rf.http/managed` (or uses the canned-stub fxs / `with-managed-request-stubs` helper / `:rf.http/decode-schemas` registration metadata) MUST `(:require [re-frame.http.managed])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs. Without the require, the four `:rf.http/*` fxs are not registered at the moment a `[:rf.http/managed ...]` entry hits the drain and the `:fx` runner raises `:rf.error/no-such-fx`; the test-helper wrappers in `re-frame.core` raise `:rf.error/http-artefact-missing` with a clear "add the http artefact" message.
 
@@ -1542,14 +1510,7 @@ As the sixth per-feature artefact split (Strategy B), Spec 011's server-side ren
 - A direct `(:require [re-frame.ssr])` clause.
 - Any reference to the `:rf/render-hash` / `:rf/app-db` payload keys consumed by SSR hosts, or to the per-request response accumulator (read via `re-frame.ssr/get-response` — a framework-private side-channel atom keyed by frame-id, NOT a payload key on `app-db`).
 
-**What to do.** Add the ssr artefact alongside the core dep:
-
-```clojure
-;; deps.edn for an app that uses Spec 011 SSR
-{:deps {day8/re-frame2         {:mvn/version "<latest>"}
-        day8/re-frame2-reagent {:mvn/version "<latest>"}
-        day8/re-frame2-ssr     {:mvn/version "<latest>"}}}  ;; ← new in v2
-```
+**What to do.** Add `day8/re-frame2-ssr` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
 Every namespace that calls `rf/render-to-string` / `rf/render-tree-hash` / `rf/reg-error-projector` / `rf/project-error`, dispatches `:rf/hydrate`, or registers a `:rf.server/*` fx call site MUST `(:require [re-frame.ssr])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs. Without the require, the four core re-exports raise `:rf.error/ssr-artefact-missing` with a clear "add the ssr artefact" message; the `:rf/hydrate` event resolves to no handler.
 
@@ -1572,14 +1533,7 @@ As the seventh and final per-feature artefact split (Strategy B), the [Tool-Pair
 - A direct `(:require [re-frame.epoch])` clause.
 - Any reference to `:rf.epoch/*` trace ops in custom listeners.
 
-**What to do.** Add the epoch artefact alongside the core dep:
-
-```clojure
-;; deps.edn for an app that uses Tool-Pair time-travel / pair-tool surfaces
-{:deps {day8/re-frame2         {:mvn/version "<latest>"}
-        day8/re-frame2-reagent {:mvn/version "<latest>"}
-        day8/re-frame2-epoch   {:mvn/version "<latest>"}}}  ;; ← new in v2
-```
+**What to do.** Add `day8/re-frame2-epoch` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
 Every namespace that calls `rf/epoch-history` / `rf/restore-epoch!`, the `:epoch` stream of `rf/register-listener!` / `rf/unregister-listener!`, or `(rf/configure! {:epoch-history ...})` SHOULD `(:require [re-frame.epoch])` at boot so the namespace's load-time hook publications fire before the call sites run. Without the artefact on the classpath the four core re-exports degrade silently — `epoch-history` returns `[]`, `restore-epoch!` returns `false`, the listener register / remove return `nil`, the configure call is a no-op — because the surface is dev-tier and a release build that omits the artefact must not raise from a leftover dev-time call site. (Compare M-32: SSR raises `:rf.error/ssr-artefact-missing` because rendering server-side is a production behaviour; epoch is dev-only and degrades silently.)
 
