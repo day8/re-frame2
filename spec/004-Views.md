@@ -13,16 +13,20 @@
 > here and never restated. The public namespace is `re-frame.freehand`,
 > conventionally aliased `v`.
 >
-> **This document is a skeleton.**
+> **This document is incomplete, and stays that way.**
 > [EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md) cut the
-> ownership so that no two Specs claim one surface, and it delivers the substrate in
-> vertical slices rather than as one prose waterfall. Each semantic heading below
-> carries a **Lands in** marker naming the slice that authors it. A marked heading
-> with no body is a **declared vacancy**, not an undocumented contract: until that
-> slice lands, the ratified target is described by the Freehand design record
-> (`docs/design/freehand/`) and the donor-era shipped behaviour continues to be
-> described by the Spec that shipped it. No slice may author its surface anywhere
-> but under its own heading here, and none may leave two owners standing.
+> ownership so that no two Specs claim one surface, and it planned to author the
+> substrate's contract in vertical slices rather than as one prose waterfall. It was
+> **withdrawn on 2026-07-30**: the programme is closed and no further slice is
+> scheduled. What that leaves is a gap in the prose, not a gap in the contract — the
+> code is not removed, `implementation/freehand/` ships, and every clause written
+> below describes behaviour that is live. Several semantic headings below carry no
+> body; each is marked **Not authored here**. For those surfaces the description of
+> record is the Freehand design record (`docs/design/freehand/`), and the donor-era
+> shipped behaviour stays described by the Spec that shipped it — chiefly
+> [004D-Freehand-Compiled-Grammar](004D-Freehand-Compiled-Grammar.md). The
+> single-owner rule still binds: no surface is authored anywhere but under its own
+> heading here, and none may leave two owners standing.
 
 ## Abstract
 
@@ -54,10 +58,9 @@ frame and one props map to a semantic tree. The pattern-level commitments:
 
 These are the seven laws ratified by
 [EP-0036 §Governing laws](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md#governing-laws).
-They bind every section of this Spec, every clause of
-[004D](004D-Freehand-Compiled-Grammar.md), and every Freehand slice. A slice that
-cannot satisfy one of them amends the law explicitly; it does not ship a second
-answer beside it.
+They bind every section of this Spec and every clause of
+[004D](004D-Freehand-Compiled-Grammar.md). Nothing in the substrate ships a second
+answer beside one of them.
 
 1. **One declaration.** Every mounted boundary is a vector-called `v/defview`; plain
    helpers are direct-called functions and never vector heads.
@@ -424,13 +427,13 @@ edits.
 
 ### Identity, hot reload, and remount
 
-**Lands in:** F1 — paved-path spine. Carries mounted occurrence identity, the
+**Not authored here.** This heading covers mounted occurrence identity, the
 internal revision/generation vocabulary, and the compatible-shell versus clean-remount
 hot-reload contract.
 
 ### Selecting the compiled mode
 
-**Lands in:** F3 — compiled absorption. Carries the `{:compiled true}` selection, the
+**Not authored here.** This heading covers the `{:compiled true}` selection, the
 checker-first workflow that precedes it, and the interpreted↔compiled crossing rules;
 the grammar itself is [004D](004D-Freehand-Compiled-Grammar.md).
 
@@ -438,17 +441,17 @@ the grammar itself is [004D](004D-Freehand-Compiled-Grammar.md).
 
 ### Passive render and atomic selection
 
-**Lands in:** F2 — reactive intent. Carries the candidate bundle, the selection and
+**Not authored here.** This heading covers the candidate bundle, the selection and
 publication rule, acquire-before-release, and the fate of an abandoned render.
 
 ### The ambient frame
 
-**Lands in:** F2 — reactive intent. Carries frame observation and rebinding at a view
+**Not authored here.** This heading covers frame observation and rebinding at a view
 boundary, and the loud failure when no live frame is in scope.
 
 ### Reactive reads — `v/sub`
 
-**Lands in:** F2 — reactive intent. Carries the render-only law, same-render-thread
+**Not authored here.** This heading covers the render-only law, same-render-thread
 capture, stabilized return values, invalidation ownership, and the non-reactive
 one-shot alternative.
 
@@ -1570,7 +1573,7 @@ handler and an allow-list it owns.
 
 ### Diagnostics and evidence
 
-**Lands in:** F4 — data and host lifecycle. Carries the occurrence-keyed evidence
+**Not authored here.** This heading covers the occurrence-keyed evidence
 model and the scope/basis/completeness/loss statement; the ids and retention axis are
 [009](009-Instrumentation.md).
 
@@ -1578,8 +1581,8 @@ model and the scope/basis/completeness/loss statement; the ids and retention axi
 
 ### Children, compound children, and parameterized content
 
-**Lands in:** F5 — composition and integration. Carries the default child region and
-compound child views. The parameterized-render pair has landed; it is
+**Not authored here.** This heading covers the default child region and
+compound child views. The parameterized-render pair IS described: it is
 [§Render slots](#render-slots) below.
 
 ### Render slots
@@ -1821,7 +1824,7 @@ in a real browser.
 
 ### Framework-supplied views
 
-**Lands in:** F5 — composition and integration. Carries the rule that framework views
+**Not authored here.** This heading covers the rule that framework views
 are ordinary descriptors, and the route-link view over the [012](012-Routing.md) seam.
 
 ## The host boundary
@@ -2784,15 +2787,14 @@ region's place everywhere else:
 
 ### Structural rendering, roots, and SSR
 
-**Lands in:** F5 — composition and integration. Carries what the structural host
+**Not authored here.** This heading covers what the structural host
 retains at a view boundary; root identity and mount are
 [004C](004C-Roots-and-Mount.md) and server rendering is [011](011-SSR.md).
 
 ## Normative absences
 
-**Lands in:** F1–F6, incrementally; consolidated at F6 — proof and retirement. Each
-slice records the donor forms its surface retires and the Freehand replacement for
-each, so the absence is a stated contract rather than an omission.
+Each absence below names the donor form its surface retires and the Freehand
+replacement for it, so the absence is a stated contract rather than an omission.
 
 ### Absent at the declaration and call surface
 
@@ -2872,9 +2874,9 @@ A Freehand implementation MUST NOT provide:
 - **Contract ownership is a migration, not a new family.** Freehand extends the
   existing canonical Specs; there is no `spec/0XX-Freehand` family, and the compiled
   grammar's home is fixed at [004D](004D-Freehand-Compiled-Grammar.md).
-- **The donor is deleted at a gate, not a date.** `re-frame.ui` is donor-only; its
-  standalone artifact is removed when internal conformance, the pilots, and consumer
-  migration are complete.
+- **The donor was to be deleted at a gate, not a date.** `re-frame.ui` is
+  donor-only and unpublished. With EP-0036 withdrawn that gate never opened: the
+  standalone artifact stays in the tree, and no removal is scheduled.
 
 The full rulings D001–D022 and their rationale are the Freehand decision register
 (`docs/design/freehand/decisions/`); the programme topology, migration map, and
@@ -2900,4 +2902,5 @@ release gates are
 - [012-Routing](012-Routing.md) — href and click semantics behind the route-link view.
 - [Ownership](Ownership.md) — the corpus-wide surface-to-owner map.
 - [EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md) — the
-  ratified programme: topology, governing laws, migration, slices, and gates.
+  programme, **withdrawn 2026-07-30**: topology, governing laws, migration, slices,
+  and gates.
