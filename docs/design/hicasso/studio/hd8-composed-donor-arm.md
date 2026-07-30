@@ -376,11 +376,18 @@ what an unpaid commit looks like from inside a clock.
 **Two windows do not bill the same wait, so the difference was measured.** The
 `reagent-slim` window omits one harness microtask that the floor's contains.
 `hd8-rows/yield-cost!` prices exactly that turn against the same clock, outside
-every arm's window, and read **p50 0.0 ms, min 0.0, max 0.0 over 10 samples in
-all three runs** — the harness microtask is below the 100 µs quantum, so the
-asymmetry is beneath this instrument's resolution and nothing has to be
-subtracted before the ratios above are read. Had it read anything else, this
-page would owe the reader a subtraction.
+every arm's window. **On the run that produced the rows above** it read
+**p50 0.0 ms, min 0.0, max 0.0 over 10 samples in all three runs** — below
+Chrome's 100 µs quantum, so on that run there was nothing to subtract before the
+ratios above are read.
+
+**That is a reading, not a property of the instrument, and this page used to
+blur the two.** It said the asymmetry *"is beneath this instrument's
+resolution"*, full stop. A later run of the same source on the same host read
+`{:p50 0 :min 0 :max 0.1 :n 10}` on the `slim` run — nonzero, and therefore
+exactly the case the next sentence named. So the reading has to be taken and
+adjudicated **every run**, which is what it now is; see
+[The correction contract is enforced, not stated](#the-correction-contract-is-enforced-not-stated).
 
 **And since the narrow window now holds ten of those turns rather than one, ten
 of them are priced under one clock as well** (`rf2-2rtt6.19`). That reading is
@@ -435,15 +442,73 @@ per turn at `< 10 µs`. Against the narrow row's 3.8–7.6 ms samples that is **
 most 2.6% of the smallest sample and 1.3% of the largest**, where the sentence
 this replaces left a reader facing up to 26%.
 
-**Nothing is subtracted, and now that is a finding rather than an assumption.**
-The bound is ten times tighter than the one it replaces, and it is the bound the
-batched window actually needs. Had the ten-turn window read anything above the
-clamp, this page would have owed the reader the subtraction the old sentence
-quietly assumed away.
+**Nothing is subtracted on this run, and that is a finding rather than an
+assumption.** The bound is ten times tighter than the one it replaces, and it is
+the bound the batched window actually needs. Had the ten-turn window read
+anything above the clamp, this page would have owed the reader the subtraction
+the old sentence quietly assumed away.
 
 **No published row moves.** The control is measured outside every arm's window,
 the one-turn reading is unchanged and still reported, and no arm's window was
 touched — so the ratios above are the ratios above.
+
+### The correction contract is enforced, not stated
+
+**The sentence above — *"had it read anything else, this page would owe the
+reader a subtraction"* — was a promise nothing kept.** `yield-cost!` was
+recorded beside the write rows and read by nobody. The audit of `#7269` ran the
+exact landed source and measured `{:p50 0 :min 0 :max 0.1 :n 10}` on the `slim`
+run: nonzero, the case the promise names, and the driver exited `0` and emitted
+unadjusted ratios anyway. A contract nothing evaluates is a sentence.
+
+`hd8-rows/yield-correction` is that contract as code, run against **both write
+rows of every run**, and `hd8-app` fails the run on a refusal — the same
+fail-closed path a positive control that missed its prediction takes. Four
+verdicts, and they are the whole of it:
+
+| verdict | when | what happens to the row |
+|---|---|---|
+| `:not-owed` | every arm in the row shares one window shape | published unchanged — the harness turns are in numerator and denominator alike |
+| `:below-resolution` | the row mixes shapes and the **aggregate** yield window's max is `0.0` across every sample | published unadjusted, with the bound on the record rather than assumed |
+| `:corrected` | mixed shapes, aggregate nonzero | the subtraction is **applied**; the corrected band is published beside the unadjusted one |
+| `:refused` | the correction cannot be discharged | **nothing in the row may be published**, and the run exits non-zero |
+
+**Which rows owe anything: the `slim` run's, and no others.** A row owes only
+when it mixes the two window shapes, and only `reagent-slim` is
+microtask-scheduled. In the `reagent` and `uix` runs every arm carries the
+harness turns, so there is nothing asymmetric to correct.
+
+**Two ways to be refused, and neither has a tolerance of its own.**
+
+* **The correction changes the verdict.** If subtracting the bound moves any
+  published range across `1.0` — indistinguishable becoming a finding, or the
+  reverse — then what the row reports is the asymmetry rather than the arms. The
+  test is the instrument's **own house rule** (`:straddles-1?`), deliberately:
+  a contract that decides whether a row may be published is not entitled to
+  invent a threshold for doing so.
+* **The correction exceeds the window.** A yield-bearing arm whose reading does
+  not survive the subtraction was not measuring its arm.
+
+**Which number is subtracted, and why the max.** The aggregate measured for
+*this row's* `k` — the ten-turn window for narrow, the one-turn reading for bulk
+— never a per-turn figure multiplied up, which is the argument that batched the
+writes in the first place. A row whose `k` has no measured aggregate is refused
+as **unevaluable** rather than corrected with the nearest available number. The
+bound subtracted is the aggregate's **max**: the p50 would be the central
+estimate of a correction, but a gate has to be evaluated at the end that could
+change the answer.
+
+**The direction is fixed and it is why a correction is publishable rather than
+alarming.** The turns sit in the bearers' windows only, so removing them makes
+the bearers *smaller*. On the `slim` run the floor is the bearer, so a corrected
+`reagent-slim / floor` is **larger** than the published one — the unadjusted
+figure is a **lower bound** on the slim arm's cost. Both ends are published; a
+reader gets the interval instead of a point sitting quietly at one end of it.
+
+**No figure on this page moves.** The contract reads the rows; it does not take
+them. Applied to this page's own run it returns `:below-resolution` on both slim
+write rows — the reading was `0.0` in every window — so the ratios above stand
+exactly as published, now with the bound checked rather than asserted.
 
 **Second-order, worth stating in the same pass.** The same reasoning applies
 wherever a sub-quantum per-item cost is asserted negligible across a batch.
@@ -463,8 +528,33 @@ overlaps it (narrow `donor-r1` `4.000 – 8.000` ⊃ `5.000 – 8.000`; narrow
 `8.750 – 17.000`). The re-take's write ranges are **wider** — four sibling
 workers were live on the host — which is why they are cited as a check and not
 as a replacement. **No figure moved systematically, and nothing published was
-invalidated.** `HD8_ONLY` exists so that a future re-take of one run cannot mint
-a competing set of figures for rows published at another commit.
+invalidated.**
+
+**`HD8_ONLY` did not do what this page said it did.** The sentence here read
+*"`HD8_ONLY` exists so that a future re-take of one run cannot mint a competing
+set of figures for rows published at another commit"*. It selects **adapters**.
+Each selected run still executed the bundle's whole row set, so `HD8_ONLY=slim`
+emitted `mount-M`, `mount-U`, `write-narrow` and `write-bulk` — four rows, where
+a re-take needed one or two — and nothing marked the other three as anything but
+figures. The competing set it was supposed to prevent was one copy-and-paste
+away (`rf2-b69lw`, from the `#7269` audit).
+
+**The declaration is explicit now, and the default is the safe one.**
+`HD8_ROWS` names what a partial run publishes; every other row it emits is
+stamped `NON-PUBLISHING` on its heading and on every figure under it, in the
+cross-run table a reader actually copies from, and the run states which rows it
+may publish in its provenance block.
+
+| invocation | publishes |
+|---|---|
+| `HD8_ONLY` unset | every row — the full three-run sweep, which is the published shape |
+| `HD8_ONLY=slim` | **nothing.** The driver cannot know which re-take was intended, so every row is marked |
+| `HD8_ONLY=slim HD8_ROWS=write-narrow,write-bulk` | those two; the mount rows are marked |
+
+Marked rather than suppressed: parity, the positive control, the lowering check,
+the read-back and the arm-order guard all still run over the whole set, and a row
+withheld from the log is a row nobody can diagnose. What a partial run must never
+do is emit a figure that *looks* like the published one.
 
 **Where the general fix belongs, and where it now lives.** The same fixed yield
 lived in the shared `lane/verified-write!`, which every Hicasso arm uses, and
@@ -557,11 +647,15 @@ and the alternatives that were rejected.
   that reading rests on.
 - **Two window shapes now exist**, and only one of them contains the harness
   microtask. Measured at 0.0 ms against a 100 µs quantum **one turn at a time and
-  ten turns at a time** (`rf2-2rtt6.19`), so the whole batched asymmetry is
-  beneath this instrument's resolution rather than ten times something beneath it
-  — but a future instrument with a finer clock inherits a real asymmetry, not a
-  settled one, and `rf2-pq7d8` has since carried both shapes into the shared
-  lane, which inherits that asymmetry rather than settling it.
+  ten turns at a time** (`rf2-2rtt6.19`) **on the run that produced these rows**,
+  so that run's whole batched asymmetry is beneath this instrument's resolution
+  rather than ten times something beneath it. **A later run of the same source on
+  the same host read `max 0.1 ms`, so this is a per-run reading and not a settled
+  property**, which is why `hd8-rows/yield-correction` now adjudicates it every
+  run and refuses a row it cannot discharge ([the contract](#the-correction-contract-is-enforced-not-stated)).
+  A future instrument with a finer clock inherits a real asymmetry, and
+  `rf2-pq7d8` has since carried both shapes into the shared lane, which inherits
+  that asymmetry rather than settling it.
 - **No retained-heap leg.** The red-zone rule governs clock *and* retained heap;
   this arm measures the clock. The heap ladder is `rf2-2rtt6.5`'s
   ([reads-per-boundary-heap-ladder.md](reads-per-boundary-heap-ladder.md)).

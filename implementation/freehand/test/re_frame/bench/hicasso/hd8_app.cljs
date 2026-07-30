@@ -110,6 +110,23 @@
   (summary! k r)
   (record! k (dissoc r :samples)))
 
+(defn- correction!
+  "Park one write row's yield-correction VERDICT where the driver can read
+  it without an EDN reader, so the cross-run table can stamp the row.
+
+  A corrected row that appears in the table looking uncorrected is the
+  exact fault this contract exists to prevent, and the table is what a
+  reader copies a figure out of."
+  [row-name v]
+  (let [acc (or (.-HD8_CORRECTION js/window) #js {})]
+    (aset acc (name row-name)
+          #js {"verdict" (name (:verdict v))
+               "reason"  (some-> (:reason v) name)
+               "bound"   (:bound v)
+               "why"     (:why v)})
+    (set! (.-HD8_CORRECTION js/window) acc)
+    nil))
+
 (defn- done! [] (set! (.-HD8_DONE js/window) true))
 
 ;; ---------------------------------------------------------------------------
@@ -221,19 +238,52 @@
                             ;; microtask-scheduled arm's window does not contain
                             ;; that turn and its rivals' do (rf2-b69lw), so the
                             ;; size of the asymmetry is published beside the rows
-                            ;; rather than argued about after them.
-                            (-> (rows/yield-cost! write-sampling)
-                                (.then (fn [yc]
-                                         (record! :yield-cost yc)
-                                         (rows/measure-write! write-ids which :narrow rounds write-sampling)))
-                                (.then (fn [r]
-                                         (record-row! :write-narrow r)
-                                         (rows/assert-teardown-clean! "write-narrow")
-                                         (rows/measure-write! write-ids which :bulk rounds write-sampling)))
-                                (.then (fn [r]
-                                         (record-row! :write-bulk r)
-                                         (rows/assert-teardown-clean! "write-bulk")
-                                         (done!))))))))
+                            ;; — and, since this bead, ADJUDICATED against them
+                            ;; rather than left beside them as an observation.
+                            (let [yc* (volatile! nil)]
+                              (-> (rows/yield-cost! write-sampling)
+                                  (.then (fn [yc]
+                                           (record! :yield-cost yc)
+                                           (vreset! yc* yc)
+                                           (rows/measure-write! write-ids which :narrow rounds write-sampling)))
+                                  (.then (fn [r]
+                                           (record-row! :write-narrow r)
+                                           (rows/assert-teardown-clean! "write-narrow")
+                                           (-> (rows/measure-write! write-ids which :bulk rounds write-sampling)
+                                               (.then (fn [b] #js [r b])))))
+                                  (.then
+                                    (fn [pair]
+                                      (let [narrow (aget pair 0)
+                                            bulk   (aget pair 1)]
+                                        (record-row! :write-bulk bulk)
+                                        (rows/assert-teardown-clean! "write-bulk")
+                                        ;; ---- THE CORRECTION-OR-REFUSAL CONTRACT ----
+                                        ;; The asymmetry between the two window shapes
+                                        ;; used to be recorded here and nothing else:
+                                        ;; the run exited 0 and emitted unadjusted
+                                        ;; ratios over a slim run whose aggregate had
+                                        ;; read nonzero, while the studio record said
+                                        ;; any nonzero reading owes the reader a
+                                        ;; subtraction (rf2-b69lw, from the PR #7269
+                                        ;; audit). It is adjudicated now, and a row
+                                        ;; whose correction cannot be discharged FAILS
+                                        ;; the run — the same fail-closed path the
+                                        ;; positive control takes, for the same reason:
+                                        ;; a figure the instrument cannot stand behind
+                                        ;; is not a measurement.
+                                        (let [verdicts {:write-narrow (rows/yield-correction narrow which @yc*)
+                                                        :write-bulk   (rows/yield-correction bulk which @yc*)}
+                                              refused  (into {} (filter (fn [[_ v]] (= :refused (:verdict v)))) verdicts)]
+                                          (record! :yield-correction verdicts)
+                                          (doseq [[k v] verdicts] (correction! k v))
+                                          (when (seq refused)
+                                            (fail! (str "the harness-microtask correction could not be discharged on "
+                                                        (pr-str (vec (keys refused))) " — "
+                                                        (pr-str (into {} (map (fn [[k v]] [k (:why v)])) refused))
+                                                        ". Those rows mix window shapes, so one arm is billed for "
+                                                        "turns its rival escapes, and a ratio published over that "
+                                                        "is a comparison of the harness.")))
+                                          (done!)))))))))))
                     (.catch (fn [e]
                               (fail! (str "the run threw: " (.-message e) "\n" (.-stack e)))
                               (done!))))))))))))
