@@ -235,11 +235,19 @@ rather than as a winner.
 
 | witness | **threshold (mean)** | range | per round | verdict |
 |---|---|---|---|---|
-| **M1 mount** — 901 el, 300 boundaries | **1.2301×** | 1.1099 – 1.3538 | 1.3065 · 1.1417 · 1.2388 · 1.1099 · 1.3538 | **UIx slower**, disjoint from 1.0 |
+| **M1 mount** — 901 el, 300 boundaries | ~~**1.2301×**~~ **MAGNITUDE WITHDRAWN** — direction only, ≈1.11 – 1.35 | 1.1099 – 1.3538 | 1.3065 · 1.1417 · 1.2388 · 1.1099 · 1.3538 | **UIx slower** here and in 2 of the 3 other runs; **see [the segment-order warrant](#the-segment-order-warrant--and-why-12301-does-not-have-one)** |
 | **M2 mount** — 51 el, 12 fields · *diagnostic* | 1.0539× | 0.8572 – 1.4286 | 1.4286 · 0.8572 · 0.8572 · 1.0550 · 1.0714 | **straddles 1.0 — indistinguishable** |
 | **bulk broad** — one commit all 300 read | **0.6239×** | 0.4701 – 0.7857 | 0.7172 · 0.6046 · 0.5417 · 0.7857 · 0.4701 | **UIx faster**, disjoint from 1.0 |
-| **bulk narrow** — 10 commits, each read by exactly one boundary, one window | **1.1540×** | 1.0570 – 1.2053 | 1.2053 · 1.1515 · 1.1860 · 1.0570 · 1.1700 | **UIx slower**, disjoint from 1.0 — *re-taken on a batched window, see below* |
+| **bulk narrow** — 10 commits, each read by exactly one boundary, one window | ~~**1.1540×**~~ **MAGNITUDE WITHDRAWN** — direction only; balanced 1.1457 | 1.0570 – 1.2053 | 1.2053 · 1.1515 · 1.1860 · 1.0570 · 1.1700 | **UIx slower**, disjoint from 1.0 in every run — *but its order strata are disjoint too; see [the segment-order warrant](#the-segment-order-warrant--and-why-12301-does-not-have-one)* |
 | ~~bulk narrow, **unbatched window** (superseded)~~ | ~~1.1556×~~ | ~~1.0417 – 1.2500~~ | ~~1.1111 · 1.2500 · 1.2500 · 1.0417 · 1.1250~~ | ~~UIx slower, but did not stably resolve across runs~~ |
+
+> **Two magnitudes are withdrawn and no number is deleted.** Every figure above
+> is exactly as measured; what changed is what may be **quoted** from it, and it
+> is now the instrument that decides ([the segment-order
+> warrant](#the-segment-order-warrant--and-why-12301-does-not-have-one)).
+> The two rows whose order strata OVERLAP keep their magnitudes, with the
+> order-balanced value beside the raw one: **M2 1.0539 → 1.0376** (diagnostic
+> either way), **bulk broad 0.6239 → 0.6357**.
 
 Both arms against the floor, for context:
 
@@ -554,13 +562,217 @@ first cut produced looked entirely plausible.
 - **Ranges, never a mean alone.** Overlapping ranges mean indistinguishable and
   the page says so.
 - **Every measured mount and every measured write is read back out of the DOM
-  inside its own window**, and the count is published as `N unverified of M`.
-  Mounts are checked against a *written* element count (901, 51) as well as
-  their content, so the gate can answer false for an arm that rendered nothing.
+  inside its own window**, and the count is published as `N unverified of M` —
+  and **`unverified > 0` fails the run**, which it did not until rf2-a4x1o.
+  Mounts are checked against a *written* element count at **the arm's own
+  scale** (901/51 for the measured arms, **1,801/99 for the control**, probed at
+  **its own** far end), so the gate answers false both for an arm that rendered
+  nothing and for a 2× control that rendered only its base prefix.
 - **A positive control with predicted vs measured, every run, per segment.**
+- **A segment-order verdict on every cross-segment figure.** The red-zone's
+  rounds are partitioned by which segment ran first; opposite directions refuse
+  the row, and a magnitude may be published only when the two strata overlap.
 - **Canonical-DOM parity before any clock**, inside each segment and across the
   seam — the two substrate arms are compared with each other directly, not
   merely each with its own floor.
+
+## The segment-order warrant — and why `1.2301` does not have one
+
+Bead **rf2-a4x1o**, reopened by the PR #7268 audit: *"the operative 1.2301
+threshold magnitude does not yet have its stated fail-closed warrant."*
+`lane/guard!` adjudicates arms **inside** a segment; the red-zone is a ratio
+**across the seam**, and `:segment-seam-control` above only *records* the floor's
+drift. Nothing asked whether the threshold itself moved with which segment ran
+first — even though `segment-order` alternates, so every round is already
+labelled with the answer.
+
+It now does. `segment-order-verdict` partitions every cross-segment figure by
+segment order and adjudicates two claims separately, because they fail
+separately:
+
+| claim | rule | consequence |
+|---|---|---|
+| **direction** — *UIx slower / faster / indistinguishable* | **FAIL-CLOSED.** Two strata pointing opposite ways across 1.0 sets `HICASSO_ORDER_REFUSED`; `p0_converge_run.cjs` exits **1** | the row has no direction to publish, and the figure is a measurement of the schedule |
+| **magnitude** — the single number a candidate is judged against | reportable **only** when the two strata **overlap**. `:magnitude-resolved?` starts false and the overlap has to earn it | a disjoint split publishes `:claim :direction-only`; silence is not a pass |
+
+### The partition, confirmed
+
+The audit's M1 reading reproduces **exactly** from the published per-round
+vector. Rounds 0, 2, 4 are Reagent-first; rounds 1, 3 are UIx-first.
+
+| row | Reagent-first (3 rounds) | UIx-first (2 rounds) | strata | raw mean | **order-balanced** |
+|---|---|---|---|---|---|
+| **M1 mount** | **1.2997** [1.2388 – 1.3538] | **1.1258** [1.1099 – 1.1417] | **DISJOINT** | 1.2301 | **1.2128** |
+| M2 mount | 1.1191 [0.8572 – 1.4286] | 0.9561 [0.8572 – 1.0550] | overlap | 1.0539 | 1.0376 |
+| bulk broad | 0.5763 [0.4701 – 0.7172] | 0.6951 [0.6046 – 0.7857] | overlap | 0.6239 | 0.6357 |
+| **bulk narrow** *(batched — the published row)* | **1.1871** [1.1700 – 1.2053] | **1.1042** [1.0570 – 1.1515] | **DISJOINT** | 1.1540 | 1.1457 |
+| ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.1620 [1.1111 – 1.2500]~~ | ~~1.1459 [1.0417 – 1.2500]~~ | ~~overlap~~ | ~~1.1556~~ | ~~1.1539~~ |
+
+**One correction to the audit's reading, stated because it changes a row's
+status.** The audit reported M2, broad *and* narrow as overlapping. Two of the
+three reproduce; **the current batched narrow row's strata are disjoint too**
+([1.1700 – 1.2053] against [1.0570 – 1.1515]). Only the **superseded unbatched**
+narrow row overlaps. So the exposure was never bounded to M1: `1.1540` is in the
+same position as `1.2301`. This partition is pinned in
+`p0_converge_order_cljs_test.cljs`, which replays these exact vectors.
+
+### Disjointness is not the evidence — the SIGN is
+
+**A disjoint 3:2 split is weak evidence on its own.** Under the null — no order
+effect, the five rounds exchangeable — the 2-round stratum is one of
+`C(5,2) = 10` equally likely subsets and exactly two of them separate the
+strata. **A disjoint partition therefore arises 20% of the time per row with no
+order effect at all**, and *which* row splits is not stable: M1 and narrow split
+in the published run, **broad** splits in the rf2-rjfz1 sweep, and **no row
+splits in both**. Three disjoint rows out of eight row-runs is what chance looks
+like.
+
+**The sign is a different matter, and it is decisive.** Across **three
+independent five-round runs** — the published run, the rf2-rjfz1 reproduction
+sweep, and the corrected-instrument run below — the cross-segment figure reads
+**higher when the Reagent segment ran first in 11 of 12 row-runs**. One-sided
+binomial, **p = 0.0032**.
+
+| run | M1 | M2 | broad | narrow |
+|---|---|---|---|---|
+| published | R 1.2997 > U 1.1258 | R 1.1191 > U 0.9561 | R 0.5763 **<** U 0.6951 | R 1.1871 > U 1.1042 |
+| rf2-rjfz1 sweep | R 1.3253 > U 1.2338 | R 1.0909 > U 0.9455 | R 0.6426 > U 0.5410 | R 1.1790 > U 1.1549 |
+| corrected instrument | R 1.2183 > U 1.0217 | R 0.9345 > U 0.9025 | R 0.6139 > U 0.5466 | R 1.2236 > U 1.1692 |
+
+**There is a systematic segment-order effect.** It is small — one to nineteen
+percent between strata — and it is real. The per-row disjointness test could not
+see it because it has no power at 3:2; the sign test across rows and runs can.
+
+**Two consequences, and the first is arithmetic.** Five rounds cannot balance
+two orders: the split is 3:2, so the raw mean **over-weights whichever order got
+the extra round**, and with a real effect present that bias has a sign. Every
+published threshold on this page is a 3:2 **Reagent-first-heavy** mean of a
+quantity that reads high Reagent-first, so **every one of them is biased upward
+by roughly one to two percent.** The design-unbiased estimator under an
+alternating schedule is the mean of the two stratum means, and it is now
+published on every row as `:order-balanced-mean`. An **even** round count would
+make the two coincide by construction; it is named as the arm-level repair
+rather than taken here, because it would move four published rows without
+deciding the question.
+
+### The verdict on `1.2301` — the hold stands
+
+**rf2-2rtt6.1's hold — *do not use 1.2301 as a precise red-zone threshold* — is
+NOT lifted.** Three measured reasons, in order of weight:
+
+1. **It is biased by a design the effect exploits.** 3:2 Reagent-first on a
+   quantity that reads high Reagent-first. The order-balanced estimate on the
+   published rounds is **1.2128**, not 1.2301.
+2. **Its two strata do not meet.** [1.2388 – 1.3538] against [1.1099 – 1.1417].
+   A mean over a split whose halves are disjoint is not a threshold, and
+   `:magnitude-resolved?` is false for that row.
+3. **Four independent estimates do not agree to better than ±6%, and the newest
+   does not resolve at all:** 1.2301, 1.2103 (same-instrument stability run),
+   1.2887 (rf2-rjfz1 sweep), and **1.1397 [0.9130 – 1.3201] — straddling 1.0 —**
+   on the corrected instrument below. A figure quoted to four decimal places on
+   that spread was never a threshold.
+
+**What IS warranted, and it is not nothing.** UIx-on-subs is slower than
+Reagent-on-subs on the M1 mount witness in **three of four runs**, and every
+Reagent-first stratum of every run is disjoint above 1.0. The defensible
+statement is a **direction with a range — *UIx slower on M1 mount, roughly
+1.11× to 1.35× across the runs that resolve, with one run of four
+indistinguishable*** — not a point. **A candidate row is red on M1 if it is
+worse than that range; inside it, the answer is `not resolved` and not a pass.**
+
+**`0.6239×` broad is in better shape, and its magnitude carries the same 1–2%
+caveat.** Its **direction survives everywhere**: all six order strata across the
+three runs sit wholly below 1.0, and all four run means (0.6239 / 0.5682 /
+0.6020 / 0.5870) are disjoint from 1.0. Its strata overlap in the published run
+and in the corrected run, and are disjoint in the sweep — so it passes the test
+that broke M1's magnitude twice out of three, and its order-balanced published
+value is **0.6357**. The narrow row is the same shape as M1: direction resolved
+in every run, magnitude disjoint on the published rounds, balanced value
+**1.1457**.
+
+### The corrected instrument's own run
+
+Four rows, five rounds, both segments, at this branch's instrument.
+`node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` —
+**exit 0**.
+
+| row | published | corrected instrument | overlap | verdict |
+|---|---|---|---|---|
+| **M1 mount** | 1.2301 [1.1099 – 1.3538] disjoint | **1.1397 [0.9130 – 1.3201] — straddles 1.0** | 1.1099 – 1.3201 | **does NOT reproduce as resolved** — see above |
+| M2 mount *(diagnostic)* | 1.0539 [0.8572 – 1.4286] straddles | 0.9217 [0.8572 – 1.0000] straddles | 0.8572 – 1.0000 | **reproduces**, indistinguishable both |
+| **bulk broad** | 0.6239 [0.4701 – 0.7857] disjoint | 0.5870 [0.4762 – 0.8372] disjoint | wholly overlapping | **reproduces**, UIx faster both |
+| **bulk narrow** | 1.1540 [1.0570 – 1.2053] disjoint | 1.2018 [1.1344 – 1.3395] disjoint | 1.1344 – 1.2053 | **reproduces**, UIx slower both |
+
+**The M1 non-reproduction is reported, not explained away, and the comparison is
+reflected.** This run's instrument differs from the published one in one way
+that touches the measured page: the `:ctl-2x` control's element count is now
+checked on **every** mount, which is a `querySelectorAll` over an 1,801-element
+container between samples. It is **outside every timed window**, it falls on the
+control arm in **both** segments identically, and the red-zone divides
+`uix-subs` by `reagent-subs` — neither of which is the control — so it cannot
+bias the ratio directionally. The arm-order guard agrees: `refuse? false`,
+`contaminated? false`, `unchecked? false` on all four rows, with no arm reading
+differently for its position. The reading that fits is the one the four
+estimates already showed: **M1's red-zone is a noisy quantity that was published
+as a precise one.**
+
+**No published figure on this page is deleted or rewritten.** The rows above
+stand as measured; what changes is what may be **quoted** from them, and that is
+now decided by the instrument (`:claim :magnitude` vs `:claim :direction-only`)
+rather than by whoever writes the page.
+
+### The corrected run's provenance
+
+| | |
+|---|---|
+| **Branch** | `worker/control-verify` (rf2-2rtt6.2 / rf2-a4x1o) — the landed SHA follows the merge |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — **exit 0** |
+| **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows 11 x64, 24 logical CPUs |
+| **Arm-order guard** | **no refusal on any of the four rows** — `refuse? false`, `contaminated? false`, `unchecked? false`, tolerance 0.10 |
+| **Canonical-DOM parity** | clean in both segments and across the seam, every row — `{:problems [] :ok? true}` |
+| **Verification** | **0 unverified of 7,860** — 600 M1 mounts + 600 M2 mounts + 630 broad writes + 6,030 narrow writes, and `unverified > 0` now **fails the run** |
+| **Segment-order control** | **no refusal on any row**; `magnitude-resolved? true` on all four of this run's rows, and the published M1 and narrow rounds are the ones it marks unresolved |
+| **Positive controls** | eight, eight passes — and, for the first time, **adjudicated against the doubled page they claim**: 1,801 elements with a probe at index 599, 99 with a probe at field 23 |
+
+### What would have been appended to rf2-2rtt6.1, had it not been size-locked
+
+**rf2-2rtt6.1 is size-locked (rf2-0znkn, the operator's) and cannot accept an
+append**, so this is what a worker would have added to the governance record's
+P0 table, verbatim. **Only the operator may amend the standard**; this is a
+statement of what the measurement supports, not an amendment.
+
+> **CLOCK RED-ZONES — amendment under RULING 1.** RULING 1 makes the red-zone
+> threshold *the measured UIx ratio for that witness family*. On two of the four
+> converged rows that ratio is **not resolved to a magnitude**, so the rule needs
+> its consequence stated rather than a number substituted:
+>
+> - **M1 mount — the magnitude `1.2301×` is withdrawn.** Its two segment-order
+>   strata are disjoint, the 3:2 design biases it upward on a quantity now shown
+>   to carry a systematic order effect (11 of 12 row-runs, p = 0.0032), and four
+>   independent estimates read 1.2301 / 1.2103 / 1.2887 / 1.1397 with the last
+>   straddling 1.0. The red-zone this row supports is **a direction and a range:
+>   UIx slower, ≈1.11 – 1.35×**. A candidate worse than 1.35× is RED; inside the
+>   range the answer is **not resolved**, which under the standard is still not a
+>   pass.
+> - **bulk narrow — the magnitude `1.1540×` is withdrawn** on the same test;
+>   direction (UIx slower) resolves in every run. Order-balanced value 1.1457.
+> - **bulk broad — `0.6239×` stands as a threshold**, with the order-balanced
+>   value **0.6357** recorded beside it. Direction survives in all six strata of
+>   all three runs.
+> - **M2 mount — unchanged and still diagnostic.** Balanced value 1.0376.
+> - **The heap red-zones are untouched.** Nothing here measures heap.
+
+### The control on this page was never checked either
+
+The same defect rf2-2rtt6.2 carried. `mount-round!` read
+`expected (if (:parity-exempt? arm) nil elements)`; `verify-m1` probed indices 0
+and 299 and `verify-m2` the shared 12-field prefix, both of which exist in the
+doubled page; and `parity-of-segment!` compared counts over `lane/parity`'s map,
+which excludes parity-exempt arms by construction. **Every red-zone on this page
+rests on a control whose 2× claim nothing tested.** It is now held to its own
+arithmetic — 1,801 / 99 elements, far probe at index 599 / field 23 — and the
+mutation evidence is on
+[the denominator page](p0-reagent-on-subs-baseline.md#mutation-proved-a-base-prefix-control-now-fails-three-ways).
 
 ## Open items — stated, not swept up
 

@@ -94,6 +94,29 @@
   a both-orders result rather than a single-order one however many rounds
   it averages.
 
+  ## And the order is ADJUDICATED, not merely run (rf2-a4x1o)
+
+  Running both orders is not the same as testing whether the answer
+  depends on them. `lane/guard!` adjudicates arms INSIDE a segment; the
+  red-zone is a ratio ACROSS the seam and no guard on this page ever
+  looked at it by segment order, while `:segment-seam-control` recorded
+  the floor's drift and stopped there. [[segment-order-verdict]] asks the
+  question the labels were already carrying, and splits the answer in two
+  because the two halves fail separately: DIRECTION is fail-closed (two
+  strata pointing opposite ways across 1.0 refuse the row), and MAGNITUDE
+  is publishable only when the strata OVERLAP.
+
+  It found something. Across three independent five-round runs the
+  cross-segment figure reads HIGHER when the Reagent segment ran first in
+  11 of 12 row-runs — one-sided binomial p = 0.0032. The per-row
+  disjointness test cannot see that (at 3:2 a disjoint split arises 20% of
+  the time under the null, and which row splits is not stable across
+  runs); the sign across rows and runs can. Five rounds cannot balance two
+  orders, so the raw mean over-weights whichever order got the extra round
+  — which is why `:order-balanced-mean`, the mean of the two stratum
+  means, is published on every row beside it. The studio page carries the
+  table and the consequence for `1.2301`.
+
   ## One row per page
 
   The first cut ran all four rows in one page and THE ARM-ORDER GUARD
@@ -226,14 +249,21 @@
 (defn- zeros [n] (vec (repeat n 0)))
 
 (defn- floor-mount-arm
-  [id element-of cells-of & [exempt?]]
-  {:id             id
-   :parity-exempt? (boolean exempt?)
-   :mount          (fn [container props _n]
-                     (let [root (react-dom-client/createRoot container)]
-                       (.render root (element-of (cells-of props)))
-                       root))
-   :unmount        (fn [root] (.unmount root))})
+  "`scale` is how many times the witness's own page this arm builds, and
+  `:parity-exempt?` is DERIVED from it: an arm that builds a different page
+  is exactly the arm the canonical-DOM gate must exempt. They used to be
+  independent facts and the control carried only the exemption, which is
+  how its doubled page went unchecked."
+  [id element-of cells-of & [scale]]
+  (let [scale (or scale 1)]
+    {:id             id
+     :scale          scale
+     :parity-exempt? (not= 1 scale)
+     :mount          (fn [container props _n]
+                       (let [root (react-dom-client/createRoot container)]
+                         (.render root (element-of (cells-of props)))
+                         root))
+     :unmount        (fn [root] (.unmount root))}))
 
 (defn- reagent-mount-arm
   "Reagent's own mount door — what a Reagent application calls."
@@ -264,30 +294,56 @@
   (some-> (.querySelector container sel) (.-value)))
 
 (defn- verify-m1
-  "Both ends of the list. A page that committed only its head would pass a
-  single-probe check at index 0."
-  [container]
-  (and (= "0" (lane/text-at container 0))
-       (= "0" (lane/text-at container (dec v/cells-n)))))
+  "Both ends of the list AT THE ARM'S OWN SIZE — `n` rows, so the far probe
+  is index `n - 1`.
+
+  A page that committed only its head would pass a single-probe check at
+  index 0; a CONTROL that rendered only its base prefix would pass a check
+  at index 299, which is what this was for every arm. The one arm whose
+  whole purpose is to be twice the page was the one arm nothing checked
+  past its first half."
+  [n]
+  (fn [container]
+    (and (= "0" (lane/text-at container 0))
+         (= "0" (lane/text-at container (dec n))))))
 
 (defn- verify-m2
-  "The first and last field of the SHARED prefix — the control arm has
-  twice the fields, so a probe past `fields-n` would not exist in every
-  arm."
-  [container]
-  (and (= (v/field-value 0 0) (input-value container "#f0"))
-       (= (v/field-value (dec v/fields-n) 0)
-          (input-value container (str "#f" (dec v/fields-n))))))
+  "The first and last field AT THE ARM'S OWN SIZE. Fixed at the witness's
+  `fields-n` it read the SHARED PREFIX and could not tell a doubled form
+  from a base one."
+  [n]
+  (fn [container]
+    (and (= (v/field-value 0 0) (input-value container "#f0"))
+         (= (v/field-value (dec n) 0)
+            (input-value container (str "#f" (dec n)))))))
+
+(defn- expectation
+  "What THIS arm's page must contain: the witness's own arithmetic applied
+  to the arm's `:scale`, as `{:elements n :verify f}`.
+
+  There is no exemption. `mount-round!` used to read
+  `(if (:parity-exempt? arm) nil elements)` and skip the element count for
+  the control, while the probes read indices that exist in the base page —
+  so the `:ctl-2x` arm was the ONE arm in the plan whose page was never
+  checked, and a control that rendered only its base prefix passed. Every
+  red-zone on this page rests on that control having seen the change its
+  own arithmetic predicts."
+  [{:keys [elements-of verify-of props]} arm]
+  (let [n (* (or (:scale arm) 1) (:n props))]
+    {:elements (elements-of n)
+     :verify   (verify-of n)}))
+
+(defn- base-elements [{:keys [elements-of props]}] (elements-of (:n props)))
 
 (def ^:private mount-witnesses
-  [{:id       :M1
-    :grade    :bar
-    :verify   verify-m1
+  [{:id          :M1
+    :grade       :bar
+    :verify-of   verify-m1
+    :elements-of v/m1-elements
     :doc      (str "the 300-boundary sub-reading list — the bulk shape's mount "
                    "counterpart, one subscription read per boundary. "
                    "rf2-2rtt6.2's M1, unchanged")
     :props    {:n v/cells-n}
-    :elements (v/m1-elements v/cells-n)
     :control  {:predicted (/ (double (v/m1-elements (* 2 v/cells-n)))
                              (double (v/m1-elements v/cells-n)))
                :basis     (str "element count: " (v/m1-elements (* 2 v/cells-n)) " / "
@@ -302,11 +358,12 @@
                                    :uix-subs
                                    (fn [{:keys [n]}] (ux/subs-root ux/m1 n))))
                  (floor-mount-arm :ctl-2x v/m1-floor
-                                  (fn [{:keys [n]}] (zeros (* 2 n))) true)])}
+                                  (fn [{:keys [n]}] (zeros (* 2 n))) 2)])}
 
-   {:id         :M2
-    :grade      :diagnostic
-    :verify     verify-m2
+   {:id          :M2
+    :grade       :diagnostic
+    :verify-of   verify-m2
+    :elements-of v/m2-elements
     ;; ONE mount per sample, exactly as rf2-2rtt6.2 publishes it. That arm
     ;; TRIED the batch that would lift this witness clear of Chrome's
     ;; 100 us clamp — eight 51-element roots in one flushSync — and THE
@@ -330,7 +387,6 @@
     :doc      (str "the ordinary 12-field form on subs — the shape most "
                    "applications are made of. rf2-2rtt6.2's M2, unchanged")
     :props    {:n v/fields-n}
-    :elements (v/m2-elements v/fields-n)
     :control  {:predicted (/ (double (v/m2-elements (* 2 v/fields-n)))
                              (double (v/m2-elements v/fields-n)))
                :basis     (str "element count: " (v/m2-elements (* 2 v/fields-n)) " / "
@@ -345,7 +401,7 @@
                                    :uix-subs
                                    (fn [{:keys [n]}] (ux/subs-root ux/m2 n))))
                  (floor-mount-arm :ctl-2x v/m2-floor
-                                  (fn [{:keys [n]}] (zeros (* 2 n))) true)])}])
+                                  (fn [{:keys [n]}] (zeros (* 2 n))) 2)])}])
 
 (defn- witness-named [id] (first (filter #(= id (:id %)) mount-witnesses)))
 
@@ -360,11 +416,12 @@
   lane, so a floor arm that rendered in `write!` would have its commit
   land outside the measured window entirely — the recorded fault is 80 of
   320 floor samples ending on a cell that still held its old value."
-  [id n & [exempt?]]
+  [id n & [scale]]
   (let [state (atom (zeros n))
         rt    (volatile! nil)]
     {:id             id
-     :parity-exempt? (boolean exempt?)
+     :scale          (or scale 1)
+     :parity-exempt? (not= 1 (or scale 1))
      :cells          n
      :mount          (fn [container]
                        (let [root (react-dom-client/createRoot container)]
@@ -444,12 +501,31 @@
    (case segment-id
      :reagent-subs (reagent-bulk-arm)
      :uix-subs     (uix-bulk-arm))
-   (floor-bulk-arm :ctl-2x (* 2 v/cells-n) true)])
+   (floor-bulk-arm :ctl-2x (* 2 v/cells-n) 2)])
 
-(defn- mount-bulk-arms! [arms]
+(defn- mount-bulk-arms!
+  "Mount every bulk arm once and CHECK THE PAGE IT BUILT, before a clock is
+  read.
+
+  Every bulk arm declares `:cells` and `v/m1-elements` turns that into an
+  element count by written arithmetic, so this is what makes the bulk
+  `:ctl-2x` arm's doubled page load-bearing. Its far-end read-back already
+  derives from `:cells` (`lane/bulk-probes` probes index `cells - 1`), so a
+  control shrunk to the base 300 cells would still have probed a cell it
+  owns; the COUNT is the check a smaller page cannot satisfy. Outside every
+  timed window — the arms are mounted once and written to thereafter."
+  [arms]
   (mapv (fn [a]
-          (let [c (lane/fresh-container!)]
-            {:arm a :container c :handle ((:mount a) c)}))
+          (let [c        (lane/fresh-container!)
+                handle   ((:mount a) c)
+                expected (v/m1-elements (:cells a))
+                got      (lane/element-count c)]
+            (when-not (= expected got)
+              (throw (ex-info (str "the bulk arm " (:id a) " built " got
+                                   " elements where its own " (:cells a)
+                                   " cells make " expected)
+                              {:arm (:id a) :expected expected :got got})))
+            {:arm a :container c :handle handle}))
         arms))
 
 (defn- release-bulk-arms! [mounts]
@@ -459,48 +535,38 @@
            (lane/teardown-failure! (str "release-bulk-arms! " (:id arm)) e)))
     (.remove container)))
 
-(defn- assert-teardown-clean!
-  "Throw if any teardown has failed since the last check.
-
-  Checked BETWEEN rows and segments, which is where the damage is done: a
-  React root or a frame that did not tear down is still holding its
-  watches and its caches when the next row is measured, and that row then
-  reports a precise number for a page that is not the page under test.
-  The throw lands in `-main`'s existing `.catch`, which records
-  `HICASSO_ERROR` and exits 1."
-  [after]
-  (let [fs (lane/drain-teardown-failures!)]
-    (when (seq fs)
-      (throw (ex-info (str "teardown FAILED after " after
-                           " — an arm or a frame did not tear down, so its caches and "
-                           "watches are still standing and every row after this one "
-                           "would be measured on a page carrying them: " (pr-str fs))
-                      {:after after :failures fs})))
-    nil))
+(def ^:private assert-teardown-clean!
+  "Lifted into `lane.cljs` (rf2-2rtt6.2), because the Reagent baseline arm
+  needs the same adjudication and a second copy of a fatal rule is a second
+  authority with nothing holding it in step. Aliased rather than inlined at
+  the call sites so this entry's four `assert-teardown-clean!` calls still
+  read as the sentences they are."
+  lane/assert-teardown-clean!)
 
 ;; ---------------------------------------------------------------------------
 ;; One round of one mount witness in one segment
 ;; ---------------------------------------------------------------------------
 
 (defn- mount-round!
-  [coll t {:keys [id verify elements props per-sample arms-for]} segment-id]
-  (let [arms (arms-for segment-id)
-        n    (count arms)
-        k    (or per-sample 1)
-        acc  (atom (zipmap (map :id arms) (repeat [])))]
+  [coll t {:keys [id props per-sample arms-for] :as witness} segment-id]
+  (let [arms   (arms-for segment-id)
+        n      (count arms)
+        k      (or per-sample 1)
+        expect (into {} (map (juxt :id #(expectation witness %))) arms)
+        acc    (atom (zipmap (map :id arms) (repeat [])))]
     (dotimes [s (+ (:warmup mount-sampling) (:samples mount-sampling))]
       (doseq [j (lane/slot-order n s)]
         (let [arm (nth arms j)
               {:keys [ms mounts]} (lane/mount-batch! arm props k)
-              expected (if (:parity-exempt? arm) nil elements)]
-          ;; EVERY mount is read back out of the document — the element
-          ;; count against WRITTEN arithmetic, and the witness's own probe
-          ;; at both ends of the page. An arm that rendered an empty page
-          ;; is the cheapest arm in any table and this is the line that
-          ;; catches it.
+              {exp-elements :elements verify :verify} (get expect (:id arm))]
+          ;; EVERY mount is read back out of the document against THIS
+          ;; ARM'S OWN arithmetic — its exact element count, and both ends
+          ;; of the page it claims to build. An arm that rendered an empty
+          ;; page is the cheapest arm in any table, and a CONTROL that
+          ;; rendered only its base prefix is the cheapest 2x arm; this is
+          ;; the line that catches both.
           (doseq [m mounts]
-            (let [ok? (and (or (nil? expected)
-                               (= expected (lane/element-count (:container m))))
+            (let [ok? (and (= exp-elements (lane/element-count (:container m)))
                            (verify (:container m)))]
               (swap! t (fn [{:keys [of bad]}]
                          {:of (inc of) :bad (if ok? bad (inc bad))}))))
@@ -628,6 +694,115 @@
    :per-round (mapv lane/round4 vs)
    :straddles-1? (and (<= (apply min vs) 1.0) (>= (apply max vs) 1.0))})
 
+;; ---------------------------------------------------------------------------
+;; The segment-order verdict — the gate the cross-segment figure never had
+;; ---------------------------------------------------------------------------
+
+(defn- direction-of
+  "Where a range sits relative to 1.0, as a verdict rather than a number."
+  [{:keys [min max]}]
+  (cond (> min 1.0) :numerator-slower
+        (< max 1.0) :numerator-faster
+        :else       :indistinguishable))
+
+(defn segment-order-verdict
+  "Adjudicate a cross-segment figure BY WHICH SEGMENT RAN FIRST.
+
+  Public, and the only public fn in this entry besides `-main`, because
+  `p0_converge_order_cljs_test` replays the PUBLISHED per-round vectors
+  through it: a verdict that has only ever seen the run it shipped with is
+  a verdict nobody can check.
+
+  ## What the arm-order guard cannot see, and why this exists
+
+  `lane/guard!` adjudicates arms INSIDE a segment: it asks whether an arm
+  reads differently for where in the plan it was measured. The red-zone is
+  not an arm — it is a ratio of one segment's floor-normalised arm to the
+  OTHER segment's, and no guard on this page ever looked at it by segment
+  order. [[segment-order]] alternates, so every round is already labelled
+  with the answer; nothing was asking the question. The seam control
+  records the floor's own drift and stops there (rf2-a4x1o, from the PR
+  #7265 and #7268 audits).
+
+  ## Two claims, adjudicated separately, because they fail separately
+
+  DIRECTION — `UIx slower` / `UIx faster` / `indistinguishable`. This is
+  what the bar and the red-zone rule actually consume. It is FAIL-CLOSED:
+  a row whose two order strata point OPPOSITE WAYS has no direction to
+  publish, `:refuse?` is true, and the driver exits non-zero. A figure
+  that says `slower` when Reagent went first and `faster` when UIx did is
+  a measurement of the schedule.
+
+  MAGNITUDE — the single number a candidate would be judged against. It is
+  reportable only when the two strata OVERLAP. Disjoint strata mean the
+  figure has a component that is the segment order, and a mean over a
+  bimodal split is not a threshold; the row then publishes its direction
+  and its stratum bounds, and NOT a precise magnitude. Silence is not a
+  pass: `:magnitude-resolved?` starts false and the overlap has to earn it.
+
+  ## `:order-balanced-mean`, and the 3:2 design
+
+  With `rounds` odd the alternation is UNBALANCED — three rounds in one
+  order, two in the other — so the arithmetic mean over rounds
+  over-weights whichever order got the extra round. The unbiased estimator
+  under an alternating design is the MEAN OF THE TWO STRATUM MEANS, and
+  that is `:order-balanced-mean`, published beside the raw one whatever
+  the parity of `rounds`. `:balanced-design?` says whether they can
+  differ. An EVEN round count would make them identical by construction
+  and is the arm-level repair available to whoever next re-takes the
+  table; it is not taken here, because it would move four published rows
+  without deciding the question the disjointness raises.
+
+  ## What a disjoint split is and is not EVIDENCE of
+
+  At `rounds` 5 the strata are 3 and 2. Under the null — no order effect,
+  the five rounds exchangeable — the 2-element stratum is one of
+  `C(5,2) = 10` equally likely subsets, and exactly TWO of them (the two
+  smallest, the two largest) separate the strata. So a disjoint split
+  arises **20% of the time with no order effect at all**, per row. That is
+  why disjointness withdraws the magnitude rather than condemning the
+  measurement: it is a statement about what this design can resolve, not a
+  finding that the schedule moved the number."
+  [vs rounds]
+  (let [strata     {:reagent-first (vec (keep-indexed #(when (even? %1) %2) vs))
+                    :uix-first     (vec (keep-indexed #(when (odd? %1) %2) vs))}
+        rf         (range-of (:reagent-first strata))
+        uf         (range-of (:uix-first strata))
+        overlap?   (and (<= (:min rf) (:max uf)) (<= (:min uf) (:max rf)))
+        d-rf       (direction-of rf)
+        d-uf       (direction-of uf)
+        opposed?   (or (and (= d-rf :numerator-slower) (= d-uf :numerator-faster))
+                       (and (= d-rf :numerator-faster) (= d-uf :numerator-slower)))
+        balanced?  (even? rounds)]
+    {:reagent-first       (assoc rf :direction d-rf :n (count (:reagent-first strata)))
+     :uix-first           (assoc uf :direction d-uf :n (count (:uix-first strata)))
+     :order-balanced-mean (lane/round4 (/ (+ (:mean rf) (:mean uf)) 2.0))
+     :balanced-design?    balanced?
+     :strata-overlap?     overlap?
+     :magnitude-resolved? overlap?
+     :direction-agrees?   (not opposed?)
+     :refuse?             opposed?
+     :why
+     (str "the red-zone's rounds partitioned by which segment ran FIRST. "
+          "Reagent-first " (.toFixed (:mean rf) 4) "x [" (.toFixed (:min rf) 4) "–"
+          (.toFixed (:max rf) 4) "] over " (count (:reagent-first strata)) " rounds; "
+          "UIx-first " (.toFixed (:mean uf) 4) "x [" (.toFixed (:min uf) 4) "–"
+          (.toFixed (:max uf) 4) "] over " (count (:uix-first strata)) " rounds. "
+          (if opposed?
+            (str "THE TWO STRATA POINT OPPOSITE WAYS, so this row has no direction to "
+                 "publish and no figure in it is reportable.")
+            (if overlap?
+              (str "The strata OVERLAP, so the magnitude survives the partition and the "
+                   "row may publish one.")
+              (str "The strata are DISJOINT, so part of this figure is WHICH SEGMENT "
+                   "RAN FIRST and the mean over them is not a threshold. The row "
+                   "publishes its DIRECTION and the stratum bounds; it may NOT publish a "
+                   "precise magnitude. At " rounds " rounds the split is "
+                   (count (:reagent-first strata)) ":" (count (:uix-first strata))
+                   " and a disjoint partition arises by chance alone in 2 of "
+                   "C(" rounds "," (count (:uix-first strata)) ") assignments, so this "
+                   "withdraws a claim rather than establishing an effect."))))}))
+
 (defn- row-record
   "Turn one row's per-round, per-segment slices into the published record.
 
@@ -650,7 +825,8 @@
                                                   (select-keys (range-of vs) [:min :max :mean])
                                                   control-slack))
         c-rg       (verdict-of ctl-rg)
-        c-ux       (verdict-of ctl-ux)]
+        c-ux       (verdict-of ctl-ux)
+        order      (segment-order-verdict rz rounds)]
     {:record
      {:benchmark   (keyword "hicasso.P0.converged" (name row))
       :doc         doc
@@ -666,7 +842,18 @@
       :red-zone    (assoc (range-of rz)
                           :numerator :uix-subs
                           :denominator :reagent-subs
-                          :axis :clock)
+                          :axis :clock
+                          ;; What this row is ENTITLED to publish, decided by
+                          ;; the segment-order verdict rather than by whoever
+                          ;; writes the studio page. `:direction-only` means
+                          ;; the mean above is an average over a split the
+                          ;; schedule explains part of, and must not be quoted
+                          ;; as a threshold.
+                          :claim (if (:magnitude-resolved? order)
+                                   :magnitude
+                                   :direction-only)
+                          :direction (direction-of (range-of rz)))
+      :segment-order-control order
       :uix-over-floor     (range-of ux-floor)
       :reagent-over-floor (range-of rg-floor)
       :segment-seam-control
@@ -685,16 +872,33 @@
       :per-round   {:reagent (mapv #(get-in % [:reagent-subs :p50]) norm)
                     :uix     (mapv #(get-in % [:uix-subs :p50]) norm)}
       :status      :evidence}
-     :controls [c-rg c-ux]}))
+     :controls [c-rg c-ux]
+     :order     order}))
 
 ;; ---------------------------------------------------------------------------
 ;; Parity — before any clock is read, in EVERY segment and ACROSS the seam
 ;; ---------------------------------------------------------------------------
 
 (defn- parity-of-segment!
-  [{:keys [id props elements arms-for]} segment-id]
-  (let [{:keys [mounts agree? counts disagree reference]}
-        (lane/parity (arms-for segment-id) props)]
+  "Canonical-DOM equality across the judged arms, and the element count of
+  EVERY arm — the control included — against its own arithmetic.
+
+  The count used to be checked over `lane/parity`'s `counts` map, which
+  excludes the parity-exempt arms by design, so the one arm building a
+  deliberately different page had that page checked nowhere. Exempt from
+  the EQUALITY is not exempt from arithmetic: the control is exempt
+  because its page differs, and the size it differs BY is the claim it
+  exists to make."
+  [{:keys [id props arms-for] :as witness} segment-id]
+  (let [{:keys [mounts agree? disagree reference]}
+        (lane/parity (arms-for segment-id) props)
+        wrong (into {}
+                    (comp (map (fn [{:keys [arm container]}]
+                                 [(:id arm)
+                                  {:expected (:elements (expectation witness arm))
+                                   :got      (lane/element-count container)}]))
+                          (remove (fn [[_ {:keys [expected got]}]] (= expected got))))
+                    mounts)]
     (try
       {:reference reference
        :problems  (cond-> []
@@ -702,9 +906,9 @@
                     (conj {:segment segment-id :witness id
                            :problem :canonical-dom-disagreement :arms disagree})
 
-                    (not (every? #(= elements %) (vals counts)))
+                    (seq wrong)
                     (conj {:segment segment-id :witness id :problem :element-count
-                           :expected elements :got counts}))}
+                           :arms wrong}))}
       (finally (doseq [m mounts] (lane/release! m))))))
 
 (defn- parity!
@@ -852,7 +1056,7 @@
 (defn- publish!
   [{:keys [kind witness row grade doc note control] :as _spec} row-key slices t legs coll]
   (let [w   (witness-named witness)
-        {:keys [record controls]}
+        {:keys [record controls order]}
         (row-record {:row row
                      :grade grade
                      :doc (or doc (:doc w))
@@ -869,7 +1073,18 @@
                    :axis :clock
                    :witness-set "rf2-2rtt6.2"
                    :threshold (select-keys (:red-zone record)
-                                           [:mean :min :max :per-round :straddles-1?])
+                                           [:mean :min :max :per-round :straddles-1?
+                                            :claim :direction])
+                   :segment-order-control order
+                   :publishable (if (:magnitude-resolved? order)
+                                  (str "a MAGNITUDE. The two segment-order strata overlap, "
+                                       "so the mean survives the partition.")
+                                  (str "a DIRECTION ONLY. The two segment-order strata are "
+                                       "DISJOINT, so part of this figure is which segment "
+                                       "ran first and the mean over them is not a "
+                                       "threshold. Quote the direction and the stratum "
+                                       "bounds; the order-balanced mean is "
+                                       (:order-balanced-mean order) "x."))
                    :rule (str "RULING 1 on rf2-2rtt6.1: the red-zone threshold IS the "
                               "measured UIx ratio for that witness family. A candidate row "
                               "worse than it is RED and needs an explicit operator waiver "
@@ -889,6 +1104,17 @@
       (when (:refuse? vd) (set! (.-HICASSO_GUARD_REFUSED js/window) true)))
     (when (some (complement :ok?) controls)
       (set! (.-HICASSO_CONTROL_FAILED js/window) true))
+    ;; The segment-order refusal is DIRECTIONAL disagreement, and it is
+    ;; fatal for the same reason a failed positive control is: the row's
+    ;; only surviving claim would be a measurement of the schedule.
+    (when (:refuse? order)
+      (set! (.-HICASSO_ORDER_REFUSED js/window) true))
+    ;; LAST, so every record above is on the console first. The count was
+    ;; published and never adjudicated: this row could read `N unverified of
+    ;; M` with N > 0 and the driver would still exit 0, which is what left
+    ;; every read-back in this entry — the written cell, the mount's element
+    ;; count, the far end of the page — decorative.
+    (lane/assert-verified! t (str "row " (name row)))
     nil))
 
 (defn ^:export -main
@@ -927,9 +1153,11 @@
                       {:row row-key :problems problems :ok? (empty? problems)
                        :note (str "canonical DOM with attribute names sorted, inside each "
                                   "segment AND across the seam. The element count is checked "
-                                  "against written arithmetic — " (:elements w) " for "
-                                  (name (:id w)) " — so the gate can answer false for an arm "
-                                  "that rendered nothing.")})
+                                  "against written arithmetic — " (base-elements w) " for "
+                                  (name (:id w)) ", and the arm's OWN scale for the "
+                                  "control — so the gate can answer false for an arm that "
+                                  "rendered nothing, and for a 2x control that rendered "
+                                  "only its base prefix.")})
         (if (seq problems)
           (do (lane/fail! (str "the arms do not build the same page under :advanced — "
                                (pr-str problems)))

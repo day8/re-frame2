@@ -49,7 +49,8 @@
 //
 //   0  measured, guard clean, controls passed
 //   1  the run failed (build, page error, a fatal the page recorded, a
-//      positive control that did not see what it predicted)
+//      positive control that did not see what it predicted, a SEGMENT-ORDER
+//      control whose two strata point opposite ways across 1.0)
 //   2  THE ARM-ORDER GUARD REFUSED. A figure whose value depends on where
 //      in the plan it was measured is not a figure. The repair is the ARM
 //      — more warm-up, fewer arms per page, a longer window — never the
@@ -196,10 +197,11 @@ async function runRow(browser, row) {
     const err = await page.evaluate('window.HICASSO_ERROR || null');
     const refused = await page.evaluate('window.HICASSO_GUARD_REFUSED === true');
     const controlFailed = await page.evaluate('window.HICASSO_CONTROL_FAILED === true');
+    const orderRefused = await page.evaluate('window.HICASSO_ORDER_REFUSED === true');
     const results = await page.evaluate('window.HICASSO_RESULTS || {}');
     // Kept as a BACKSTOP for an error arriving in the same tick as the
     // sentinel, which the race cannot order.
-    return { row, err, refused, controlFailed, results, pageErrors: watch.failures.map((f) => `${f.kind}: ${f.detail}`) };
+    return { row, err, refused, controlFailed, orderRefused, results, pageErrors: watch.failures.map((f) => `${f.kind}: ${f.detail}`) };
   } finally {
     watch.dispose();
     await page.close();
@@ -283,6 +285,18 @@ async function runRow(browser, row) {
         `arithmetic predicts on: ${ctlFailed.map((o) => o.row.id).join(', ')}. An ` +
         `instrument that cannot see a predicted change cannot be trusted with an ` +
         `unpredicted one.`
+    );
+    process.exit(1);
+  }
+  const orderRefused = outcomes.filter((o) => o.orderRefused);
+  if (orderRefused.length > 0) {
+    console.error(
+      `[converge] FAILED: the SEGMENT-ORDER control refused on: ${orderRefused
+        .map((o) => o.row.id)
+        .join(', ')}. The row's two order strata — rounds where Reagent's segment ran ` +
+        `first, rounds where UIx's did — point OPPOSITE WAYS across 1.0, so the row has ` +
+        `no direction to publish and the figure is a measurement of the schedule. The ` +
+        `repair is the ARM: more rounds, a balanced (even) round count, a longer window.`
     );
     process.exit(1);
   }
