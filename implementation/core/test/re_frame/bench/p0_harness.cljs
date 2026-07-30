@@ -132,6 +132,78 @@
     (.appendChild js/document.body c)
     c))
 
+(defn collect!
+  "Force a garbage collection BETWEEN samples, never inside a window.
+
+  This is here because the instrument measured what happens without it,
+  and it was not subtle. The FLOOR arm — a hand-written `createElement`
+  walk with no substrate, no subscription and no re-frame state, doing
+  byte-identical work in every round — read
+
+      W1 mount floor:  2.30 ms -> 4.85 ms -> 6.10 ms   across three rounds
+      W3 mount floor:  1.85 ms -> 3.85 ms -> 5.65 ms
+
+  while the BULK floor over the same run sat flat at 0.75-0.80 ms and
+  2.50-2.60 ms. The arm-order guard caught it as a phase contamination
+  (LAST-THIRD reading 2.16x to 3.05x FIRST-THIRD, ranges disjoint) and
+  refused, which is exactly what it is for. The difference between the two
+  phases is allocation: the mount rows build and discard hundreds of React
+  roots and hundreds of thousands of elements, and the collector's cost
+  climbs with the garbage nobody made it take. The bulk rows mount once
+  and then only write.
+
+  Left alone, that drift does NOT cancel in the ratio — the same round's
+  W1 readings gave 2.48x, then 1.69x, then 1.57x for one arm over the
+  floor. A run that published the mean of those would be publishing the
+  collector's schedule.
+
+  So the page is launched with `--js-flags=--expose-gc` and every sample
+  is followed by a collection. It sits outside every `flushSync` window by
+  construction. The clock and the heap are separate claims and this is the
+  seam between them: allocation is priced by the retained-heap row, and
+  the clock row is not allowed to smear it across whichever arm happened
+  to be measured when a major collection fell due.
+
+  **A bare `gc()` is not enough, and the probe is what established that.**
+  Chrome's exposed `gc()` performs a SCAVENGE — a minor collection of the
+  young generation — and the mount rows' garbage is promoted long before
+  it runs. With a bare `gc()` after every sample the page's
+  `usedJSHeapSize` still climbed monotonically 34 MB -> 46 -> 55 -> 63 ->
+  75 -> 87 across six segment entries, while `body-children` sat at 2 the
+  whole time: nothing was leaking into the document, the collector was
+  simply not being asked to do the work. The floor drifted 4.05 -> 7.95 ->
+  8.60 ms on exactly that heap. So the request is explicit — a synchronous
+  MAJOR collection — with the bare call kept as a fallback for a runtime
+  that does not accept the options form.
+
+  When `gc` is absent the harness does not pretend: nothing is collected
+  and the guard's phase factor will catch the consequence."
+  []
+  (when-some [g (.-gc js/window)]
+    (try (g #js {:type "major" :execution "sync"})
+         (catch :default _ (g))))
+  nil)
+
+(defn probe
+  "A cheap, published snapshot of the two things that make a page get
+  slower as a run proceeds: what it is holding, and what it left attached
+  to the document.
+
+  `:body-children` is the leak canary. Every sample attaches its
+  containers to `document.body` and detaches them again, so this number
+  must be constant across the whole run. A number that CLIMBS says the
+  arms are leaking mounted roots, and a leaking harness reads as a
+  progressively slower machine — which is precisely the diagnosis a
+  phase-contaminated figure invites a reader to make, wrongly."
+  []
+  {:used-heap     (if-some [m (.-memory js/performance)] (.-usedJSHeapSize m) -1)
+   :body-children (.-childElementCount js/document.body)})
+
+(def gc-available?
+  "Published beside every record, because a run without the collector is a
+  different instrument and the reader is owed which one produced the row."
+  (delay (some? (.-gc js/window))))
+
 ;; ---------------------------------------------------------------------------
 ;; One timed mount
 ;; ---------------------------------------------------------------------------
@@ -149,12 +221,37 @@
     (react-dom/flushSync (fn [] (vreset! handle ((:mount arm) container))))
     {:ms (- (now-ms) t0) :container container :handle @handle :arm arm}))
 
+;; ---------------------------------------------------------------------------
+;; Releasing — and the nested-`flushSync` fault that hid inside it
+;; ---------------------------------------------------------------------------
+;;
+;; **An unmount must NOT be wrapped in `react-dom/flushSync`.** Every
+;; React root's own `unmount()` opens a `flushSync` internally to tear the
+;; tree down; wrapping the call in one more makes that a NESTED flush,
+;; which React does not perform — it schedules the work instead. The root
+;; handle is nulled either way, so the caller sees a clean return, and in
+;; an `:advanced` bundle the development warning that would have said so
+;; is compiled out. The container is then detached from a document that
+;; never committed the unmount, and the whole fiber tree stays reachable.
+;;
+;; Measured, on this instrument, with the wrapper in place: the page's
+;; `usedJSHeapSize` climbed 34 -> 46 -> 55 -> 63 -> 75 -> 87 MB across six
+;; segment entries — about 12 MB per entry, which is 18 W1 roots at
+;; ~500 KB plus 144 W3 roots at ~25 KB, i.e. EVERY root retained — while
+;; `body-children` sat at 2 throughout, so nothing was leaking into the
+;; document. The floor arm, which cannot change, drifted 3.4 -> 5.8 -> 7.0
+;; ms and the arm-order guard refused on phase. A forced major collection
+;; between samples did not move it, because the roots were not garbage.
+;;
+;; The `try/catch` that used to sit around the unmount is gone with it. It
+;; swallowed exactly the class of failure that produces this fault, and a
+;; release that fails silently is how a benchmark comes to be measuring a
+;; page that is still standing.
+
 (defn release!
-  "Unmount and detach. Never timed."
+  "Unmount and detach. Never timed. NOT wrapped in `flushSync` — see above."
   [{:keys [arm handle container]}]
-  (when handle
-    (try (react-dom/flushSync (fn [] ((:unmount arm) handle)))
-         (catch :default _ nil)))
+  (when handle ((:unmount arm) handle))
   (when container (.remove container))
   nil)
 
@@ -181,21 +278,109 @@
      :agree?    (every? #(= ref %) (vals canon))
      :disagree  (into [] (comp (remove (fn [[_ h]] (= ref h))) (map first)) canon)}))
 
+(defn mount-sample!
+  "`n` mounts of `arm` as ONE sample, each into its own pre-attached
+  container, the clock bracketing only the mounts.
+
+  `n > 1` exists for the same reason the bulk row batches its narrow
+  writes. Chrome clamps `performance.now()` to 100 us, and the 51-element
+  form mounts in three to eight quanta — close enough to the clamp that
+  two arms can read the identical figure because the timer cannot tell
+  them apart, which is a null result wearing the clothes of a tie. This
+  run MEASURED that: at one mount a sample, both segments of the form
+  witness returned exactly 0.75 ms and the ratio came out at precisely
+  1.0000. Batching lifts every arm clear of the clamp; the witness is
+  unchanged, only the sample is bigger.
+
+  The containers are created and attached OUTSIDE the window: a
+  `document.createElement` billed to one arm and not another would be a
+  systematic error the size of some of the effects here.
+
+  Answers `{:ms … :bad n :total n}` with every mount in the sample
+  verified against `expected` — outside the window, since the window
+  closes when the last `flushSync` returns."
+  [arm n expected]
+  (let [containers (mapv (fn [_] (container!)) (range n))
+        handles    (volatile! [])
+        t0         (now-ms)]
+    (doseq [c containers]
+      (react-dom/flushSync (fn [] (vswap! handles conj ((:mount arm) c)))))
+    (let [ms  (- (now-ms) t0)
+          bad (if (nil? expected)
+                0
+                (count (remove #(= expected (element-count %)) containers)))]
+      ;; Bare, and unguarded. See the release! commentary below: wrapping
+      ;; this in `flushSync` nests a flush React will not perform, and
+      ;; retains every root that was ever mounted.
+      (doseq [hd @handles] ((:unmount arm) hd))
+      (doseq [c containers] (.remove c))
+      (collect!)
+      {:ms ms :bad bad :total n})))
+
+;; ---------------------------------------------------------------------------
+;; The schedule, CHOSEN by its measured property rather than assumed
+;; ---------------------------------------------------------------------------
+
+(defn choose-schedule
+  "Pick the run order whose ADJACENCY actually gives every arm at least two
+  distinct immediate predecessors, and answer it with the evidence.
+
+  `slot-order` — rotate then reflect on odd indices — is the shared rule,
+  and for three or more arms it is the right one: a bare cyclic rotation
+  changes which arm goes FIRST and nothing else, so every arm keeps the
+  same predecessor in every round. **But for exactly TWO arms it
+  degenerates**: rotating `[0 1]` gives `[1 0]`, reversing that gives
+  `[0 1]` again, so the reflecting schedule emits the identical order at
+  every index and each arm has exactly one predecessor for ever. This run
+  measured that too — the guard reported `:unchecked`, `only 1 stratum —
+  the question was never asked`, on every substrate arm, and refused.
+  That is the guard doing its job, and the repair belongs HERE, in the
+  arm, not in the guard.
+
+  So rather than hard-coding either rule, both candidates are scored with
+  the guard's own `adjacency` over the run this harness is about to
+  perform, and the one that satisfies the property with the lowest modal
+  predecessor share wins. `:seams?` is true because these sample indices
+  genuinely run back to back in one call: the last arm of index `s` really
+  does precede the first of index `s+1`.
+
+  Answers `{:name :fn :min-distinct :max-modal-share :sufficient?}`. When
+  neither candidate qualifies the harness does NOT silently proceed — the
+  fact is published and the guard's `:unchecked` refusal stands."
+  [k samples]
+  (let [score (fn [nm f]
+                (let [a  (guard/adjacency k samples f {:seams? true})
+                      as (vals (:arms a))]
+                  {:name            nm
+                   :fn              f
+                   :min-distinct    (apply min (map :distinct as))
+                   :max-modal-share (apply max (map :modal-share as))}))
+        cands [(score :reflecting guard/slot-order)
+               (score :rotating   guard/rotation-only)]
+        ok    (filter #(>= (:min-distinct %) 2) cands)]
+    (if (seq ok)
+      (assoc (apply min-key :max-modal-share ok) :sufficient? true)
+      (assoc (first cands) :sufficient? false))))
+
 ;; ---------------------------------------------------------------------------
 ;; Rounds
 ;; ---------------------------------------------------------------------------
 
-(defn warm!
-  "Mount and release every arm `n` times, reading no clock.
-
-  Position dominates adjacency, and a site that has not run enough times
-  yet reads 1.26x to 5.3x its settled value. Warming is therefore not
-  hygiene, it is the largest single correction this instrument makes."
-  [arms n]
-  (dotimes [_ n]
-    (doseq [arm arms]
-      (release! (mount-arm! arm))))
-  nil)
+;; THE WARM-UP IS INSIDE THE ROUND, and that is not a stylistic choice.
+;;
+;; Position dominates adjacency, and a site that has not run enough times
+;; yet reads 1.26x to 5.3x its settled value — so warming matters more
+;; than interleaving does. But a warm-up run as a SEPARATE loop before the
+;; round leaves the first recorded sample of every round with NO
+;; predecessor, and this instrument measured what that costs: the guard
+;; partitioned the `<none>` stratum against the rest and found the first
+;; sample of a round reading 1.35x its siblings, ranges disjoint, and
+;; refused. The first sample after an adapter destroy/install genuinely IS
+;; cold; hiding it in a stratum of its own is not a fix.
+;;
+;; So `mount-round!` and `bulk-round!` run `warmup` sample indices that are
+;; measured and thrown away, threading `:previous` through them, and the
+;; first RECORDED sample therefore has a real predecessor like every other.
 
 (defn mount-round!
   "One round of the mount row: `samples` sample indices, every arm mounted
@@ -211,32 +396,34 @@
   :position} …] :bad n :total n :position n}` — the order samples carry
   BOTH nuisance factors, because a plan reversal moves them together and
   neither may be left unchecked."
-  [arms {:keys [samples]} expected position-start]
-  (let [k    (count arms)
-        acc  (atom {:readings (zipmap (map :id arms) (repeat []))
-                    :order    []
-                    :bad      0
-                    :total    0
-                    :position position-start
-                    :previous nil})]
-    (dotimes [s samples]
-      (doseq [j (guard/slot-order k s)]
+  [arms {:keys [warmup samples]} expected per-sample position-start]
+  (let [k     (count arms)
+        total (+ warmup samples)
+        sched (choose-schedule k total)
+        order (:fn sched)
+        acc   (atom {:readings (zipmap (map :id arms) (repeat []))
+                     :order    []
+                     :bad      0
+                     :total    0
+                     :position position-start
+                     :previous nil})]
+    (dotimes [s total]
+      (doseq [j (order k s)]
         (let [arm (nth arms j)
-              mnt (mount-arm! arm)
-              ok? (= expected (element-count (:container mnt)))]
+              smp (mount-sample! arm per-sample expected)]
           (swap! acc (fn [a]
-                       (cond-> (-> a
-                                   (update-in [:readings (:id arm)] conj (:ms mnt))
-                                   (update :order conj {:arm         (:id arm)
-                                                        :value       (:ms mnt)
-                                                        :predecessor (:previous a)
-                                                        :position    (:position a)})
-                                   (update :total inc)
-                                   (update :position inc)
-                                   (assoc :previous (:id arm)))
-                         (not ok?) (update :bad inc))))
-          (release! mnt))))
-    (select-keys @acc [:readings :order :bad :total :position])))
+                       (cond-> (assoc a :previous (:id arm))
+                         (>= s warmup)
+                         (-> (update-in [:readings (:id arm)] conj (:ms smp))
+                             (update :order conj {:arm         (:id arm)
+                                                  :value       (:ms smp)
+                                                  :predecessor (:previous a)
+                                                  :position    (:position a)})
+                             (update :total + (:total smp))
+                             (update :bad + (:bad smp))
+                             (update :position inc))))))))
+    (assoc (select-keys @acc [:readings :order :bad :total :position])
+           :schedule (dissoc sched :fn))))
 
 (defn normalise
   "One round's raw readings as `{:p50 {id ms} :ratio {id r}}`, every ratio

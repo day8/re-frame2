@@ -67,7 +67,7 @@ const PORT = Number(process.env.P0_PORT || 8149);
 
 const ROUNDS = Number(process.env.P0_ROUNDS || 6);
 const SAMPLES = Number(process.env.P0_SAMPLES || 12);
-const WARMUPS = Number(process.env.P0_WARMUPS || 3);
+const WARMUPS = Number(process.env.P0_WARMUPS || 4);
 const ROOTS = Number(process.env.P0_ROOTS || 4);
 // 587,500 unboxed doubles = 4,700,000 bytes.
 const CONTROL_DOUBLES = Number(process.env.P0_CONTROL_DOUBLES || 587500);
@@ -149,9 +149,17 @@ async function newPage(chromium, query) {
     args: ['--enable-precise-memory-info', '--js-flags=--expose-gc'],
   });
   const page = await browser.newPage();
+  // Every `;; P0` record, and EVERY warning or error the page emits. The
+  // second half is not debug scaffolding: a React warning about a root
+  // that failed to unmount, or a re-frame error recovered on a render
+  // path, is the difference between a slow arm and a broken instrument,
+  // and a driver that filtered them out would publish the number anyway.
   page.on('console', (m) => {
     const t = m.text();
     if (t.startsWith(';; P0')) console.log(t);
+    else if (m.type() === 'error' || m.type() === 'warning') {
+      console.error(`[p0] page ${m.type()}: ${t.slice(0, 400)}`);
+    }
   });
   page.on('pageerror', (e) => console.error('[p0] page error:', e.message));
   await page.goto(`http://127.0.0.1:${PORT}/${query}`, {
@@ -165,18 +173,48 @@ async function newPage(chromium, query) {
 // The clock row
 // ---------------------------------------------------------------------------
 
+// ONE ROUND PER PAGE. Run as a single page, this instrument's own probe
+// measured `usedJSHeapSize` climbing 34 -> 87 MB across six segment
+// entries with `body-children` pinned at 2, and the FLOOR arm — which
+// cannot change — drifting 3.4 -> 7.0 ms on that heap; the arm-order
+// guard refused on phase, correctly. A fresh document cannot inherit the
+// previous round's heap, so a browser restart per round removes the
+// factor by construction rather than by argument. The accumulation is
+// itself a finding and is filed separately, not swept up here.
 async function clockRow(chromium) {
-  const q =
-    `?mode=clock&rounds=${ROUNDS}&samples=${SAMPLES}&warmups=${WARMUPS}`;
-  const { browser, page } = await newPage(chromium, q);
-  await page.waitForFunction('window.P0_DONE === true || window.P0_ERROR', null, {
-    timeout: CLOCK_TIMEOUT_MS,
+  const roundEdns = [];
+  let err = null;
+  for (let r = 0; r < ROUNDS && !err; r++) {
+    console.error(`[p0] clock round ${r + 1}/${ROUNDS} (fresh page) ...`);
+    const q = `?round=${r}&samples=${SAMPLES}&warmup=${WARMUPS}`;
+    const { browser, page } = await newPage(chromium, q);
+    await page.waitForFunction('window.P0_DONE === true || window.P0_ERROR', null, {
+      timeout: CLOCK_TIMEOUT_MS,
+    });
+    err = await page.evaluate('window.P0_ERROR || null');
+    const edn = await page.evaluate('window.P0_ROUND || null');
+    const selfTest = await page.evaluate('window.P0_GUARD_SELF_TEST || null');
+    if (r === 0 && selfTest && !/:ok\? true/.test(selfTest)) {
+      err = 'the arm-order guard self-test failed — nothing may be measured';
+    }
+    await browser.close();
+    if (edn) roundEdns.push(edn);
+  }
+  if (err) return { err, results: null };
+  if (!roundEdns.length) return { err: 'no round produced a record', results: null };
+
+  // The fold runs in a page too, so the ranges, the red-zone ratios and
+  // the arm-order verdict are computed by `re-frame.bench.order-guard`
+  // and `p0-harness` — the same code the rounds ran under — rather than
+  // by a second, drifting expression of the same arithmetic in JavaScript.
+  console.error('[p0] aggregating ...');
+  const { browser, page } = await newPage(chromium, '?mode=aggregate');
+  await page.waitForFunction('window.P0_READY === true || window.P0_ERROR', null, {
+    timeout: 180000,
   });
-  const err = await page.evaluate('window.P0_ERROR || null');
-  const results = await page.evaluate('window.P0_RESULTS || {}');
-  const refused = await page.evaluate('window.P0_REFUSED || []');
+  const edn = await page.evaluate((e) => window.P0A.aggregate(e), roundEdns);
   await browser.close();
-  return { err, results, refused };
+  return { err: null, results: edn };
 }
 
 // ---------------------------------------------------------------------------
@@ -432,16 +470,18 @@ function summariseHeap(row) {
       console.error('[p0] clock row ...');
       const c = await clockRow(chromium);
       out.clock = c.results;
-      for (const [k, v] of Object.entries(c.results)) {
-        console.log(`;; ==== P0 clock / ${k} ====`);
-        console.log(v);
-      }
-      if (c.err) failed = `clock: ${c.err}`;
-      if (c.refused && c.refused.length) {
-        refused = true;
-        console.log(';;');
-        console.log(';; ==== ARM ORDER: THESE CLOCK ROWS ARE NOT REPORTABLE ====');
-        console.log(`;;   ${c.refused.join(', ')}`);
+      if (c.err) {
+        failed = `clock: ${c.err}`;
+      } else {
+        console.log(';; ==== P0 CLOCK ====');
+        console.log(c.results);
+        const m = /:refused \[([^\]]*)\]/.exec(c.results);
+        if (m && m[1].trim()) {
+          refused = true;
+          console.log(';;');
+          console.log(';; ==== ARM ORDER: THESE CLOCK ROWS ARE NOT REPORTABLE ====');
+          console.log(`;;   ${m[1].trim()}`);
+        }
       }
     }
     if (ONLY !== 'clock') {

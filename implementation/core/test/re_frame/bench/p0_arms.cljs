@@ -60,7 +60,6 @@
             [re-frame.bench.p0-fixture :as fx]
             [re-frame.bench.p0-floor :as floor]
             [re-frame.bench.p0-harness :as h]
-            [re-frame.bench.order-guard :as guard]
             [re-frame.bench.p0-reagent :as rg]
             [re-frame.bench.p0-uix :as ux]
             [re-frame.core :as rf]
@@ -144,10 +143,13 @@
   "The mount witness families. `:arms-for` answers the arms for a segment,
   always `[floor <substrate>]` in that declaration order — the harness
   reorders them per sample index, so declaration order decides nothing."
-  [{:id       :W1-list
-    :doc      (str "a large template — " fx/w1-rows " rows, one boundary and ONE "
-                   "re-frame2 subscription read per row")
-    :elements (fx/w1-elements fx/w1-rows)
+  [{:id        :W1-list
+    :doc       (str "a large template — " fx/w1-rows " rows, one boundary and ONE "
+                    "re-frame2 subscription read per row")
+    :elements   (fx/w1-elements fx/w1-rows)
+    ;; 1,203 elements mounts in tens of timer quanta on every arm, so one
+    ;; mount is a sample.
+    :per-sample 1
     :arms-for (fn [segment-id]
                 [(floor-arm :floor #(floor/w1 (mapv fx/row-value (range fx/w1-rows))))
                  (case segment-id
@@ -156,11 +158,17 @@
                    :uix-subs     (uix-arm :uix-subs
                                           #(ux/w1-root frame-id fx/w1-rows)))])}
 
-   {:id       :W3-form
-    :doc      (str "an ordinary " fx/w3-fields "-field form with controlled inputs — "
-                   "the shape most applications are made of; one subscription read "
-                   "per field")
-    :elements (fx/w3-elements fx/w3-fields)
+   {:id        :W3-form
+    :doc       (str "an ordinary " fx/w3-fields "-field form with controlled inputs — "
+                    "the shape most applications are made of; one subscription read "
+                    "per field")
+    :elements   (fx/w3-elements fx/w3-fields)
+    ;; 51 elements sits three to eight quanta above Chrome's 100 us clamp,
+    ;; and at one mount a sample this instrument MEASURED both segments
+    ;; returning exactly 0.75 ms — a ratio of precisely 1.0000 that was the
+    ;; timer's resolution, not a tie. Eight mounts to a sample lifts every
+    ;; arm clear of the clamp; the witness is unchanged.
+    :per-sample 8
     :arms-for (fn [segment-id]
                 [(floor-arm :floor
                             #(floor/w3 (mapv (fn [i] {:value (fx/field-value i)
@@ -222,7 +230,9 @@
                   (swap! state assoc i v)))
      :force!  (fn [] (react-dom/flushSync
                        (fn [] (.render ^js @root (floor/u-grid @state)))))
-     :unmount (fn [rt] (react-dom/flushSync (fn [] (.unmount rt))))}))
+     ;; NOT inside a flushSync — a root's own unmount opens one, and a
+     ;; nested flush is scheduled rather than performed (p0-harness).
+     :unmount (fn [rt] (.unmount rt))}))
 
 (defn- subs-bulk-arm
   "Both substrate bulk arms, one constructor. They differ ONLY in the mount
@@ -248,7 +258,7 @@
       (let [rt (rdc/create-root container)]
         (react-dom/flushSync (fn [] (rdc/render rt (rg/u-root frame-id))))
         rt))
-    (fn [rt] (react-dom/flushSync (fn [] (rdc/unmount rt))))
+    (fn [rt] (rdc/unmount rt))
     (fn [] (react-dom/flushSync (fn [] (r/flush))))))
 
 (defn- uix-bulk-arm []
@@ -258,7 +268,7 @@
       (let [rt (uix-dom/create-root container)]
         (react-dom/flushSync (fn [] (uix-dom/render-root (ux/u-root frame-id) rt)))
         rt))
-    (fn [rt] (react-dom/flushSync (fn [] (uix-dom/unmount-root rt))))
+    (fn [rt] (uix-dom/unmount-root rt))
     (fn [] (react-dom/flushSync (fn [] nil)))))
 
 (defn bulk-arms
@@ -277,7 +287,7 @@
 
 (defn release-bulk-arms! [mounts]
   (doseq [{:keys [arm handle container]} mounts]
-    (try ((:unmount arm) handle) (catch :default _ nil))
+    ((:unmount arm) handle)
     (.remove container)))
 
 ;; ---------------------------------------------------------------------------
@@ -313,7 +323,7 @@
                         :ok?      (and (= (str v) (cell-text container probe))
                                        (or (not= i :all)
                                            (= (str v) (cell-text container
-                                                                 (dec fx/cells-n)))))})))))))))
+                                                                 (dec fx/cells-n)))))}))))))))
 
 (defn chain
   "Fold `xs` into a serial promise chain, threading an accumulator."
@@ -323,13 +333,20 @@
 (def writes-per-sample
   "How many writes one SAMPLE contains.
 
-  Chrome clamps `performance.now()` to 100 us. A broad write costs every
-  arm well above that, so one write is a sample. A NARROW write does not:
-  measured one at a time on the predecessor's harness both the floor and
-  Reagent returned exactly 0.1 ms — the quantum itself, which is a null
-  result wearing a different hat. Twenty writes to a sample lifts every
-  arm clear of the clamp and the per-write figure is the sample over 20."
-  {:broad 1 :narrow 20})
+  Chrome clamps `performance.now()` to 100 us, and BOTH rows have to clear
+  it on their FASTEST arm, which is the floor.
+
+  A single broad write read 0.25-0.50 ms on the floor when this instrument
+  was first run — two to five quanta, close enough that the floor's own
+  two segment readings came out exactly 2x apart on quantisation alone.
+  Four writes to a sample lifts it to a couple of milliseconds. A NARROW
+  write is smaller again: measured one at a time on the predecessor's
+  harness both the floor and Reagent returned exactly 0.1 ms, the quantum
+  itself, which is a null result wearing a different hat.
+
+  The per-write figure is always the sample divided by this number, and
+  every write in a sample is verified at the DOM individually."
+  {:broad 4 :narrow 20})
 
 (defn- n-writes! [mnt kind n]
   (chain {:ms 0 :write-ms 0 :gap-ms 0 :force-ms 0 :bad 0 :total 0} (range n)
@@ -346,48 +363,54 @@
                                       (update :total inc))
                             (not ok?) (update :bad inc)))))))))
 
-(defn warm-bulk!
-  "Warm every bulk arm before any clock is read, for the reason the
-  harness namespace gives: position dominates adjacency and an unwarmed
-  site reads 1.26x to 5.3x its settled value."
-  [mounts kind n]
-  (chain nil (for [_ (range n) m mounts] m)
-         (fn [_ m] (-> (n-writes! m kind (get writes-per-sample kind))
-                       (.then (fn [_] nil))))))
-
 (defn bulk-round!
-  "One round of a bulk row: `samples` sample indices, every arm written at
-  every index, order rotating AND reflecting with the index. Answers a
-  promise of `{:readings :legs :order :bad :total :position}`."
-  [mounts kind {:keys [samples]} position-start]
-  (let [k (count mounts)
-        n (get writes-per-sample kind)]
+  "One round of a bulk row: `warmup + samples` sample indices, every arm
+  written at every index, order chosen by its MEASURED adjacency property.
+
+  The warm-up indices are measured and thrown away, and `:previous` is
+  threaded through them, so the first RECORDED sample has a real
+  predecessor. A warm-up run as a separate loop leaves a `<none>`
+  predecessor stratum that this instrument measured at 1.35x its siblings
+  with disjoint ranges — a real cold-start effect, and not one to hide.
+
+  Answers a promise of `{:readings :legs :order :bad :total :position
+  :schedule}`."
+  [mounts kind {:keys [warmup samples]} position-start]
+  (let [k     (count mounts)
+        n     (get writes-per-sample kind)
+        total (+ warmup samples)
+        sched (h/choose-schedule k total)
+        order (:fn sched)]
     (chain {:readings (zipmap (map #(:id (:arm %)) mounts) (repeat []))
             :legs     (zipmap (map #(:id (:arm %)) mounts) (repeat []))
             :order    []
             :bad      0
             :total    0
+            :schedule (dissoc sched :fn)
             :position position-start
             :previous nil}
-           (for [s (range samples) j (guard/slot-order k s)] [s j])
-           (fn [acc [_s j]]
+           (for [s (range total) j (order k s)] [s j])
+           (fn [acc [s j]]
              (let [mnt (nth mounts j)
                    id  (:id (:arm mnt))]
                (-> (n-writes! mnt kind n)
                    (.then (fn [{:keys [ms write-ms gap-ms force-ms bad total]}]
-                            (-> acc
-                                (update :bad + bad)
-                                (update :total + total)
-                                (update-in [:readings id] conj ms)
-                                (update-in [:legs id] conj {:write write-ms
-                                                            :gap   gap-ms
-                                                            :force force-ms})
-                                (update :order conj {:arm         id
-                                                     :value       ms
-                                                     :predecessor (:previous acc)
-                                                     :position    (:position acc)})
-                                (update :position inc)
-                                (assoc :previous id))))))))))
+                            ;; Between samples, never inside a window — see
+                            ;; `p0-harness/collect!` for the drift it removes.
+                            (h/collect!)
+                            (cond-> (assoc acc :previous id)
+                              (>= s warmup)
+                              (-> (update :bad + bad)
+                                  (update :total + total)
+                                  (update-in [:readings id] conj ms)
+                                  (update-in [:legs id] conj {:write write-ms
+                                                              :gap   gap-ms
+                                                              :force force-ms})
+                                  (update :order conj {:arm         id
+                                                       :value       ms
+                                                       :predecessor (:previous acc)
+                                                       :position    (:position acc)})
+                                  (update :position inc)))))))))))
 
 (defn leg-summary
   "Per-arm p50 of each leg of the window, in ms per SAMPLE."
