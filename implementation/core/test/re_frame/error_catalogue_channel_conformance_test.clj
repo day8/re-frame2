@@ -393,6 +393,36 @@
        (map (fn [s] (keyword (subs s 1)))) ;; ":rf.x/y" string → keyword
        set))
 
+(def ^:private always-on-mechanism-re
+  "`(… emit-error-both! :rf.<area>/<cat> …)` / `(… dispatch-on-error!
+  :rf.<area>/<cat> …)` — the `emit-error-re` alternation NARROWED to the two
+  ALWAYS-ON chokepoints alone (rf2-h4f0n). `dispatch-on-error!` is the
+  production-survivable error-emit axis (surface #4), NOT gated on
+  `interop/debug-enabled?`, and `emit-error-both!`'s axis 1 IS
+  `dispatch-on-error!` — so a category passed literally to either fn reaches
+  off-box shippers from an `:advanced` + `goog.DEBUG=false` build, whatever
+  the catalogue says. The trace-only fns (`emit-error!` / `emit-warning!`)
+  are deliberately absent: a diagnostic-catalogued category may ride those.
+
+  Same CONSERVATIVE limitation as the shared scan: a category emitted through
+  the always-on mechanism only via a VARIABLE arg (`:rf.error/handler-
+  exception` — the router computes the category and passes a variable) is not
+  captured; literal-only stays literal-only, under-reporting never
+  false-positives."
+  (re-pattern (str "(?:emit-error-both!|dispatch-on-error!)\\s+"
+                   "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
+
+(defn- always-on-mechanism-categories
+  "The SET of categories passed as a LITERAL first arg to `emit-error-both!`
+  / `dispatch-on-error!` anywhere in non-test runtime source — the categories
+  the code fans onto the always-on axis regardless of their catalogue Channel
+  cell (rf2-h4f0n)."
+  []
+  (->> (non-test-source-files)
+       (mapcat (fn [f] (map second (re-seq always-on-mechanism-re (slurp f)))))
+       (map (fn [s] (keyword (subs s 1))))
+       set))
+
 (def ^:private out-of-catalogue-allow-list
   "Categories EMITTED from non-test runtime source that currently have NO
   Spec 009 §Error event catalogue row — the KNOWN backlog at the time this
@@ -738,6 +768,35 @@
           (str "allow-list entries that are NOW catalogued (drop them so "
                "the coverage check governs them, rf2-9fvp25): "
                (pr-str (sort now-catalogued)))))))
+
+(deftest always-on-mechanism-emits-are-catalogued-always-on
+  (testing "Per rf2-h4f0n: every category passed as a LITERAL to
+            `emit-error-both!` / `dispatch-on-error!` in non-test runtime
+            source must be catalogued `always-on`. The two fns ARE the
+            always-on axis (surface #4, not debug-gated), so a category
+            emitted through them and catalogued `diagnostic` is a stale
+            Channel cell over a production-reaching emission — exactly the
+            drift that let `:rf.error/classification-effect-shape` and
+            `:rf.error/legacy-runtime-root` reach Sentry/Datadog from a
+            `goog.DEBUG=false` build while their rows read `diagnostic`.
+            The prior invariants never compared the emit MECHANISM against
+            the Channel column, so that state passed every test; this makes
+            the class unreintroducible. Literal-only, like the shared scan:
+            a VARIABLE category arg (`:rf.error/handler-exception`) is out
+            of scope by design."
+    (let [channel-by-cat (into {} (map (juxt :category :channel))
+                                (parse-catalogue))
+          not-always-on  (->> (always-on-mechanism-categories)
+                              (remove #(= "always-on" (channel-by-cat %)))
+                              sort)]
+      (is (empty? not-always-on)
+          (str "categories emitted through the always-on mechanism "
+               "(emit-error-both! / dispatch-on-error!) whose Spec 009 "
+               "catalogue row is NOT `always-on` (rf2-h4f0n): "
+               (pr-str (mapv (juxt identity channel-by-cat) not-always-on))
+               " — either graduate the row to `always-on` (and add the "
+               "category to the exercise literal in the same commit) or "
+               "demote the emission to the trace-only fns.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The TAGS-COLUMN arm (rf2-6tags) — the catalogue's sixth column against the
