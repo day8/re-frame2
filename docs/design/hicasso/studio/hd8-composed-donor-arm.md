@@ -523,7 +523,7 @@ verdicts, and they are the whole of it:
 |---|---|---|
 | `:not-owed` | every arm in the row shares one window shape | published unchanged — the harness turns are in numerator and denominator alike |
 | `:below-resolution` | the row mixes shapes and the **aggregate** yield window's max is `0.0` across every sample | published unadjusted, with the bound on the record rather than assumed |
-| `:corrected` | mixed shapes, aggregate nonzero | the subtraction is **applied**; the corrected band is published beside the unadjusted one |
+| `:corrected` | mixed shapes, aggregate nonzero | the subtraction is **applied**; both bands publish, labelled `[UNADJUSTED]` and `[CORRECTED]` in the cross-run table itself |
 | `:refused` | the correction cannot be discharged | **nothing in the row may be published**, and the run exits non-zero |
 
 **Which rows owe anything: the `slim` run's, and no others.** A row owes only
@@ -534,11 +534,21 @@ harness turns, so there is nothing asymmetric to correct.
 **Two ways to be refused, and neither has a tolerance of its own.**
 
 * **The correction changes the verdict.** If subtracting the bound moves any
-  published range across `1.0` — indistinguishable becoming a finding, or the
-  reverse — then what the row reports is the asymmetry rather than the arms. The
-  test is the instrument's **own house rule** (`:straddles-1?`), deliberately:
-  a contract that decides whether a row may be published is not entitled to
-  invent a threshold for doing so.
+  published range across `1.0` — indistinguishable becoming a finding, the
+  reverse, or a band crossing the line *whole* — then what the row reports is
+  the asymmetry rather than the arms. The test is **three-state**
+  (`hd8-rows/side-of-1`: below, straddles, above — any change of state is a
+  crossing), and it earned its third state from the PR #7282 audit: the first
+  cut compared the `:straddles-1?` boolean at both ends, and a band wholly
+  below `1.0` that lands wholly above it never straddles at either end —
+  `false → false`, a complete direction reversal accepted as `:corrected`. The
+  audit's live-rule counterexample is two slim-row rounds at floor `1.0` /
+  `reagent-slim` `0.95` under a `0.1 ms` bound: `0.95×` unadjusted, `1.0556×`
+  corrected, the bearer survives, and neither band straddles. The
+  classification is still the instrument's **own house rule** extended to
+  which side of the line a decided band sits on, deliberately: a contract
+  that decides whether a row may be published is not entitled to invent a
+  threshold for doing so.
 * **The correction exceeds the window** — a yield-bearing arm for which what
   *remains* after the subtraction does not exceed what was *removed*. That
   window was measuring the harness's turns rather than the arm.
@@ -577,16 +587,24 @@ So the contract has a **self-test**, replayed from recorded fixtures through the
 live rule, run inside the bundle **before any clock**, and fatal when it
 disagrees: `hd8-app` throws, `hd8_run.cjs` prints every check and exits `1`. It
 is `order_guard.cjs`'s technique and `parity-can-fail?`'s argument, applied to
-the newest gate rather than only the oldest ones. Six fixtures: one per verdict,
-and one per refusal reason. **Fixture 4 is the `15,518,934×` row**, kept so that
-repair cannot silently come undone.
+the newest gate rather than only the oldest ones. Seven fixtures: one per
+verdict, one per refusal reason, and one per repaired hole in the rule itself.
+**Fixture 4 is the `15,518,934×` row** and **fixture 7 is the whole-band
+crossing** — the `0.95× → 1.0556×` reversal the boolean test accepted — each
+kept so its repair cannot silently come undone.
 
 **No figure on this page moves.** The contract reads the rows; it does not take
 them. A full three-run sweep on the branch that added it returns `:not-owed` on
 every `uix` and `reagent` write row and `:below-resolution` on both `slim` write
 rows — the aggregate read `0.0` in all ten of its windows, both at `k = 10` and
 at `k = 1` — so the ratios above stand exactly as published, now with the bound
-checked rather than asserted.
+checked rather than asserted. A full sweep at the three-state repair (authored
+`79de836f35`; the landed SHA is the merge's to mint) answers the same, exit
+`0`: `:not-owed` on all four
+`uix`/`reagent` write rows, `:below-resolution` on both `slim` rows with every
+aggregate window at `0.0`, every read-back `0` unverified, and every slim write
+range overlapping the published one — the repair moves gate logic and table
+labelling, not a number.
 
 **And the contract has been watched doing the other thing, which is the only
 reason to trust it.** A `slim`-only run on the same branch and the same host
@@ -600,6 +618,17 @@ figures are not quoted here: that run was `HD8_ONLY=slim` with no `HD8_ROWS`, so
 every row it produced is marked non-publishing, and the point being made is
 about the gate rather than about the numbers. This is the case the old page
 promised to act on and the old driver exited `0` through.
+
+**The `:corrected` verdict carried a second hole, found by the same audit: its
+bands were published in the EDN record and nowhere else.** `yield-correction`
+computed `:summary-corrected` and `:head-to-head-corrected`, but the export
+carried only verdict, reason, bound and why, and the cross-run table — the
+thing a reader copies a figure out of — printed the unadjusted endpoints alone.
+So a `:corrected` run announced that both bands publish while exposing exactly
+one of them. The export now carries both bands on a `:corrected` verdict, and
+the table prints each governed figure twice, labelled `[UNADJUSTED]` and
+`[CORRECTED]`, so a figure cannot leave the table without the name of its
+band.
 
 **Second-order, worth stating in the same pass.** The same reasoning applies
 wherever a sub-quantum per-item cost is asserted negligible across a batch.
