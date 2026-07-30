@@ -15,7 +15,7 @@ or the red-zones.
 > **Re-certified on main, 2026-07-31 — the rows below reproduce.** This page was
 > the last P0 arm whose producing SHA was not on main, whose instruments carried
 > no blob anchor, and which had never been re-run under the repaired arm-order
-> guard. All three are closed by **[the re-certification below](#the-re-certification-rf2-2rtt6.17)**:
+> guard. All three are closed by **[the re-certification below](#the-re-certification)**:
 > the landed instrument commit is recovered and byte-identical, the blobs are
 > printed, and two independent five-round runs at `32cb224d6e` reproduce every
 > row. **No published figure below is superseded.** The rows stand as measured.
@@ -24,13 +24,13 @@ or the red-zones.
 
 | | |
 |---|---|
-| **Producing commit** | `19401ad083e895b19d55151157f37a59551cb5e2` — **off main.** Its landed equivalent is **`f03960a8da`** (see [the re-certification](#the-re-certification-rf2-2rtt6.17)); the rebase rewrote the id and moved no instrument byte |
+| **Producing commit** | `19401ad083e895b19d55151157f37a59551cb5e2` — **off main.** Its landed equivalent is **`f03960a8da`** (see [the re-certification](#the-re-certification)); the rebase rewrote the id and moved no instrument byte |
 | **Reproduction** | `cd implementation && npm run bench:hicasso` |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium, via Playwright), Windows x64 |
 | **Build** | `:hicasso-bench` — `:advanced`, `goog.DEBUG false` |
 | **Adapter** | `:rf.adapter/reagent`; Reagent 2.0.1 |
 | **Schedule** | 5 rounds × (8 warm-up + 12 samples) per arm per round, arms interleaved at the sample level, order rotating **and reflecting** on the sample index |
-| **Arm-order guard** | **reportable** — no arm reads differently for its position in the plan. Self-test 8/8 before anything was measured. *This was the pre-#7267 guard; the same verdict has since been re-taken under the repaired one with **zero lost positions on every arm** — see [the re-certification](#the-re-certification-rf2-2rtt6.17)* |
+| **Arm-order guard** | **reportable** — no arm reads differently for its position in the plan. Self-test 8/8 before anything was measured. *This was the pre-#7267 guard; the same verdict has since been re-taken under the repaired one with **zero lost positions on every arm** — see [the re-certification](#the-re-certification)* |
 | **Canonical-DOM parity** | clean under `:advanced` — `{:problems [] :ok? true}` |
 | **Verification** | **0 unverified of 1220** (400 mounts M1 + 400 mounts M2 + 420 writes bulk) |
 
@@ -123,9 +123,9 @@ not perfectly linear in element count, because the root, the commit and the diff
 walk do not double. Every measured control sits **below** its prediction, which
 is the direction that fixed per-root overhead predicts.
 
-## The re-certification (rf2-2rtt6.17)
+## The re-certification
 
-The audit's cold read found this page carried the wave's **least-anchored**
+Bead **rf2-2rtt6.17**. The audit's cold read found this page carried the wave's **least-anchored**
 measurement and its **first headline**: a producing SHA not on main, no blob
 anchor, four of five instrument blobs moved since, and no re-run under the
 guard repair that stopped a verdict reading `[ok]` while adjudicating on a
@@ -245,7 +245,7 @@ disjoint from 1.0, so both real. That figure was previously argued rather than
 measured, and it is the term that made the predecessor's `13.5×` broad-update row
 an upper bound of unknown content. **It has now been measured three times** — the
 publication run and two independent re-runs at main — and all three agree; see
-[the re-certification](#the-re-certification-rf2-2rtt6.17).
+[the re-certification](#the-re-certification).
 
 **Does not settle — one arm, three runs.** Repetition is not replication. The
 reactive leg still comes from *one implementation of one arm*: three runs of it
