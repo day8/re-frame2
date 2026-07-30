@@ -3,28 +3,234 @@
 //
 //   node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs
 //
-// There is no new driver here and there is no new build id. rf2-2rtt6.2
-// built `run.cjs` so that a sibling arm rides the `:hicasso-bench` lane by
-// naming its own `:init-fn`, and HD-017 makes a build-id touch a hot-zone
-// edit. This file is the three environment variables that name this arm's
-// entry, and then rf2-2rtt6.2's driver unchanged — which also makes the
-// reproduction command ABOVE runnable on Windows, where an inline
-// `VAR=value node ...` prefix is not a thing the shell understands and a
-// published repro that only runs on a POSIX shell is a repro that half the
-// maintainers cannot take.
+// Build once, serve once, load the page ONE ROW AT A TIME, and refuse a
+// figure that moves with its position in the plan.
 //
-// Exit codes are `run.cjs`'s and are not this file's to change:
+// ## No new build id
 //
-//   0  measured, guard clean, control passed
+// `implementation/shadow-cljs.edn` is not touched. rf2-2rtt6.2 owns the
+// measurement lane and HD-017 makes a build-id addition a hot-zone,
+// sequenced edit; this rides `:hicasso-bench` with an output directory and
+// an `:init-fn` merged in at the CLI, which is the seam that arm's own
+// driver established for exactly this.
+//
+// ## ONE ROW PER PAGE, and why the first cut was not
+//
+// The first cut ran all four rows in one page and THE ARM-ORDER GUARD
+// REFUSED IT, exit 2, on two independent faults. Both were the arm's and
+// both are repaired here; the tolerance was not touched.
+//
+//   1. PHASE. `M1/uix-subs/floor` — an arm that hand-builds React
+//      elements and cannot change — read LAST-THIRD 2.1739x FIRST-THIRD
+//      with ranges DISJOINT (p50 1.15 ms -> 2.50 ms). Its Reagent-segment
+//      twin climbed 2.09x and the two control arms climbed 1.96x-2.07x,
+//      so the whole page was degrading, not one arm. That is the
+//      accumulation rf2-2rtt6.4 recorded and could not explain (~12 MB per
+//      segment entry, surviving a forced major collection, never reaching
+//      the document); its repair was ONE ROUND PER PAGE. The repair here
+//      is one ROW per page, which cuts a page's measured work from ~2,460
+//      operations to ~600 and is the smaller change of the two — with
+//      round-per-page held in reserve if the guard says it is not enough.
+//
+//   2. PREDECESSOR. `narrow/reagent-subs/ctl-2x` was refused on a stratum
+//      of TWO samples labelled `M1/reagent-subs/reagent-subs` — an arm
+//      that ran in a different ROW. Those tiny cross-row strata are an
+//      artefact of the shared sample collector: `lane/collect!` advances
+//      the `:previous` pointer only for RECORDED samples, so the first
+//      recorded sample after a warm-up block is tagged with whatever ran
+//      before the warm-up rather than with what actually ran before it.
+//      rf2-2rtt6.4 hit the same class from the other side (`<none>`
+//      strata reading 1.35x their siblings). Two repairs, both in the arm:
+//      the warm-up now advances the predecessor pointer without banking a
+//      sample, so every recorded sample carries its REAL predecessor; and
+//      one row per page means no cross-row adjacency exists to mislabel.
+//
+// ## Exit codes — the guard owns 2, and it is not the arm's to move
+//
+//   0  measured, guard clean, controls passed
 //   1  the run failed (build, page error, a fatal the page recorded, a
 //      positive control that did not see what it predicted)
-//   2  THE ARM-ORDER GUARD REFUSED. Repair the ARM, never the tolerance.
+//   2  THE ARM-ORDER GUARD REFUSED. A figure whose value depends on where
+//      in the plan it was measured is not a figure. The repair is the ARM
+//      — more warm-up, fewer arms per page, a longer window — never the
+//      guard's tolerance.
+//
+// A Chromium `pageerror` is FATAL: a benchmark that threw and kept going
+// publishes a precise number for a page that is not the page under test.
 
 'use strict';
 
-process.env.HICASSO_INIT_FN =
-  process.env.HICASSO_INIT_FN || 're-frame.bench.hicasso.p0-converge-app/-main';
-process.env.HICASSO_OUT_DIR = process.env.HICASSO_OUT_DIR || 'out/hicasso-converge';
-process.env.HICASSO_PORT = process.env.HICASSO_PORT || '8134';
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const http = require('node:http');
+const path = require('node:path');
 
-require('./run.cjs');
+// The directory's ONE navigation, with its ceiling named (rf2-p9fa3).
+const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
+
+const IMPL = path.resolve(__dirname, '../../../../..');
+
+const BUILD_ID = 'hicasso-bench';
+const OUT_DIR = process.env.HICASSO_OUT_DIR || 'out/hicasso-converge';
+const INIT_FN = 're-frame.bench.hicasso.p0-converge-app/-main';
+const OUT = path.join(IMPL, OUT_DIR);
+const PORT = Number(process.env.HICASSO_PORT || 8134);
+
+// One row, one page, one fresh heap. The order is the order the studio
+// page reports them in; each is self-contained, so it is not load-bearing.
+const ROWS = [
+  { id: 'M1', why: 'mount, 901 elements, 300 sub-reading boundaries — a bar row' },
+  { id: 'M2', why: 'mount, 51 elements, 12 fields — DIAGNOSTIC, per rf2-2rtt6.2' },
+  { id: 'broad', why: 'one commit all 300 boundaries read — a bar row' },
+  { id: 'narrow', why: 'one commit exactly one boundary reads — localisation' },
+];
+
+// A page's own budget. Five rounds of two segments with warm-up is
+// minutes, not seconds, and a loaded workstation is the normal case.
+const SENTINEL_TIMEOUT_MS = 20 * 60 * 1000;
+
+// ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
+// whitespace when the EDN contains a newline.
+const CONFIG_MERGE =
+  `{:output-dir "${OUT_DIR}" :asset-path "." ` +
+  `:modules {:main {:init-fn ${INIT_FN}}}}`;
+
+function build() {
+  console.error(`[converge] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
+  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
+  const r = spawnSync(
+    process.execPath,
+    [runner, 'release', BUILD_ID, '--config-merge', CONFIG_MERGE],
+    { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
+  );
+  if (r.status !== 0) {
+    console.error(`[converge] build failed with status ${r.status}`);
+    process.exit(1);
+  }
+}
+
+const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'application/json' };
+
+function serve() {
+  fs.writeFileSync(
+    path.join(OUT, 'index.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>Hicasso P0 converged</title></head>' +
+      '<body><div id="app"></div><script src="main.js"></script></body></html>'
+  );
+  return http
+    .createServer((req, res) => {
+      const rel = decodeURIComponent(req.url.split('?')[0]);
+      const file = path.join(OUT, rel === '/' ? 'index.html' : rel);
+      if (!file.startsWith(OUT) || !fs.existsSync(file)) {
+        res.writeHead(404).end('not found');
+        return;
+      }
+      res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
+      fs.createReadStream(file).pipe(res);
+    })
+    .listen(PORT);
+}
+
+async function runRow(browser, row) {
+  // A FRESH PAGE per row, not a fresh navigation in the same one: the
+  // fault this driver was rebuilt around is a page that gets slower the
+  // longer it runs, and a reused page carries whatever caused that across
+  // the row boundary.
+  const page = await browser.newPage();
+  const pageErrors = [];
+  page.on('pageerror', (e) => {
+    pageErrors.push(e.message);
+    console.error(`[converge] PAGE ERROR (${row.id}):`, e.message);
+  });
+  page.on('console', (msg) => {
+    const t = msg.text();
+    if (t.startsWith(';; ') || t.startsWith('[converge]')) console.log(t);
+  });
+
+  // `'commit'`, not `'load'`. The bundle's `:init-fn` runs inside the
+  // `<script>`, so the measurement happens while the document is still
+  // loading and `load` cannot fire until it is over.
+  await navigate(page, `http://127.0.0.1:${PORT}/?row=${row.id}`, {
+    waitUntil: 'commit',
+    timeoutMs: NAV_TIMEOUT_MS,
+    budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
+  });
+  await page.waitForFunction('window.HICASSO_DONE === true || window.HICASSO_ERROR', null, {
+    timeout: SENTINEL_TIMEOUT_MS,
+  });
+
+  const err = await page.evaluate('window.HICASSO_ERROR || null');
+  const refused = await page.evaluate('window.HICASSO_GUARD_REFUSED === true');
+  const controlFailed = await page.evaluate('window.HICASSO_CONTROL_FAILED === true');
+  const results = await page.evaluate('window.HICASSO_RESULTS || {}');
+  await page.close();
+  return { row, err, refused, controlFailed, results, pageErrors };
+}
+
+(async () => {
+  build();
+  const server = serve();
+  const { chromium } = require('playwright');
+  const browser = await chromium.launch();
+  const version = browser.version();
+  const outcomes = [];
+  try {
+    for (const row of ROWS) {
+      console.error(`[converge] row ${row.id} — ${row.why}`);
+      outcomes.push(await runRow(browser, row));
+    }
+  } finally {
+    await browser.close();
+    server.close();
+  }
+
+  console.log(`;; ==== HICASSO RUNTIME ====`);
+  console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
+  console.log(`;; one row per page; ${ROWS.length} pages`);
+  for (const o of outcomes) {
+    for (const [k, v] of Object.entries(o.results)) {
+      console.log(`;; ==== HICASSO ${o.row.id} / ${k} ====`);
+      console.log(v);
+    }
+  }
+
+  const errored = outcomes.filter((o) => o.pageErrors.length > 0);
+  if (errored.length > 0) {
+    console.error(
+      `[converge] FAILED: uncaught page error(s) — every figure above was taken on a ` +
+        `page that had already thrown:\n  ` +
+        errored.map((o) => `${o.row.id}: ${o.pageErrors.join(' | ')}`).join('\n  ')
+    );
+    process.exit(1);
+  }
+  const refused = outcomes.filter((o) => o.refused);
+  if (refused.length > 0) {
+    console.error(
+      `[converge] ARM-ORDER GUARD REFUSED (exit 2) on: ${refused
+        .map((o) => o.row.id)
+        .join(', ')}. At least one arm reads differently for WHERE IN THE PLAN it was ` +
+        `measured, so no figure in that row is reportable. Repair the ARM — more ` +
+        `warm-up, fewer arms per page, a longer measured window. The guard tolerance ` +
+        `is not yours to move.`
+    );
+    process.exit(2);
+  }
+  const ctlFailed = outcomes.filter((o) => o.controlFailed);
+  if (ctlFailed.length > 0) {
+    console.error(
+      `[converge] FAILED: the positive control did not see the change its own ` +
+        `arithmetic predicts on: ${ctlFailed.map((o) => o.row.id).join(', ')}. An ` +
+        `instrument that cannot see a predicted change cannot be trusted with an ` +
+        `unpredicted one.`
+    );
+    process.exit(1);
+  }
+  const failed = outcomes.filter((o) => o.err);
+  if (failed.length > 0) {
+    console.error(
+      `[converge] FAILED:\n  ` + failed.map((o) => `${o.row.id}: ${o.err}`).join('\n  ')
+    );
+    process.exit(1);
+  }
+  console.error('[converge] ok');
+})();
