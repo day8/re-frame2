@@ -30,7 +30,8 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 
 | | |
 |---|---|
-| **Producing commit** | `d46ede4fb05a8f4c5af9900f0a010772f0b0883a` |
+| **Producing commit** | `d46ede4fb05a8f4c5af9900f0a010772f0b0883a` — every row except the `reagent-slim` write rows |
+| **Producing commit** | `b943c7ed20d63d66fade4775059dad9fcf0012a7` — the `reagent-slim` write rows, re-taken (`rf2-b69lw`) |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` |
 | **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
 | **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
@@ -38,6 +39,16 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 
 Every figure below is a **browser** figure, which is what HD-012 requires of
 anything quotable against the bar.
+
+**Two producing commits, and the second one only re-took what the first
+suppressed.** At `d46ede4f` the `reagent-slim` write rows read *78 of 78*
+unverified and their figures were withheld. `rf2-z3vlz` diagnosed why and
+`rf2-b69lw` repaired it; `b943c7ed` is that repair, and the `reagent-slim`
+write rows below are its. **No other row was replaced.** The repair changes the
+write window for arms on a **microtask-scheduled** substrate and leaves every
+other arm's window byte-for-byte as it was, so the rows taken at `d46ede4f`
+stand as published — see [the re-take](#the-re-take-rf2-b69lw) for what was
+changed and the reproduction check that says the change was inert for them.
 
 ## The arms
 
@@ -137,8 +148,15 @@ Within-run, `uix` run:
 | `donor-r2 / donor-r1` — the shell | 1.000 – 1.167 · *indistinguishable* |
 
 Cross-run, floor-normalised — **the weaker warrant**: `donor-r1` 5.000 – 8.000 and
-`donor-r2` 5.000 – 8.000 against `reagent` 3.000 – 5.000. This row's precision is the
-instrument's weakest (see limitations). `reagent-slim`: **UNPUBLISHED** — 78/78 unverified.
+`donor-r2` 5.000 – 8.000 against `reagent` 3.000 – 5.000 and **`reagent-slim`
+2.667 – 6.000**. This row's precision is the instrument's weakest (see
+limitations), and the `reagent-slim` figure is the weakest of those: **the floor
+it is normalised against has a p50 of 0.10 – 0.15 ms against a 100 µs quantum**,
+so the denominator is one to one-and-a-half quanta wide. An independent
+slim-only replication at `f5bd4b49` read 3.000 – 5.500 on the same row — inside
+the published range, and the run-to-run spread is the honest size of this row's
+precision. Absolute p50s: `reagent-slim` 0.40 – 0.60 ms, floor 0.10 – 0.15 ms.
+**0 unverified of 78.**
 
 ### Write — bulk (all 300 cells in one commit)
 
@@ -151,7 +169,11 @@ Within-run, `uix` run:
 | `donor-r2 / donor-r1` — the shell | 1.046 – 1.125 |
 
 Cross-run, floor-normalised — **the weaker warrant**: `donor-r1` 7.750 – 11.000 and
-`donor-r2` 8.250 – 11.750 against `reagent` 8.750 – 17.000. `reagent-slim`: **UNPUBLISHED** — 78/78 unverified.
+`donor-r2` 8.250 – 11.750 against `reagent` 8.750 – 17.000 and **`reagent-slim`
+11.000 – 13.667**. The independent slim-only replication at `f5bd4b49` read
+9.500 – 13.000. Absolute p50s: `reagent-slim` 2.05 – 2.70 ms, floor
+0.15 – 0.20 ms — four to eighteen quanta, so this row is far better resolved
+than the narrow one beside it. **0 unverified of 78.**
 
 ### What the rungs cost
 
@@ -178,7 +200,10 @@ is not passing vacuously.
 two sizes interleaved as arms in one round. **Predicted 1.9934** from the
 witness's own arithmetic `(3 + 3N) / (3 + 3(N/2))` at N = 300, before any clock
 was read. Measured `1.800–2.000` (uix run), `1.750–2.000` (reagent run) and
-`1.667–1.833` (slim run) — every round inside ±30%.
+`1.667–1.833` (slim run) — every round inside ±30%. The re-take predicted the
+same `1.9934` before its own clock and measured `1.750–1.833`, `1.750–2.083`
+and `1.714–1.846` — again every round inside the band, on the run that produced
+the `reagent-slim` figures as much as on the two that did not.
 
 **Event-vector lowering** — one click fired through rung 2's codec-lowered
 handler, outside every measured window, read back out of the DOM:
@@ -189,12 +214,21 @@ call — the fastest possible implementation of the wrong thing.
 **Arm-order guard** — every sample carries its predecessor **and its position in
 the run**; the guard partitions on both and refuses any arm whose figure moves
 with the plan. All **twelve** rows across the three runs came back
-*reportable*, on both factors, with none refused.
+*reportable*, on both factors, with none refused — and the same twelve did on
+the re-take. The two-arm write rows are the ones the `k = 2` degeneracy below
+would have silenced, and they did not run in one order: each arm's 60 samples
+split **30 / 30** across its two possible predecessors, which is the local
+`slot-order` override working.
 
-**156 unverified of 936** measured writes — every one of them the
-`reagent-slim` arm, whose figures are suppressed rather than published.
+**DOM read-back — 0 unverified of 1,248**, which is every write the driver
+executes across the three runs (`0 of 960` counting only the timed post-warmup
+samples). At `d46ede4f` the same counts read **156 of 1,248** and **120 of 960**,
+every one of them the `reagent-slim` arm, and its write figures were suppressed
+rather than published. *An earlier version of this page reported that as "156
+unverified of 936", which is not a like-for-like denominator and is corrected
+here.*
 
-### Four faults the instrument caught before they became numbers
+### Five faults the instrument caught before they became numbers
 
 1. **The floor ignored the witness's `n`** and built 300 rows for a 6-row
    witness. Caught by parity at the small size.
@@ -214,6 +248,12 @@ with the plan. All **twelve** rows across the three runs came back
    Three copies of that arithmetic carry the defect; filed as **`rf2-ouwh8`**
    and repaired locally, because sibling P0 arms were measuring on the shared
    copies at the time.
+5. **The write window waited one fixed microtask for every arm**, and one
+   fixed wait is not neutral across scheduler families. The `reagent-slim`
+   write rows read **78 of 78** unverified on the first publication and were
+   suppressed — which is the read-back doing its job, because unsuppressed
+   they said `0.16–0.50×` the floor while the page never changed. The cause
+   is below.
 
 ### Two findings that are not about the clock
 
@@ -226,15 +266,75 @@ fixes it — `ratom/flush!` settles the subscription graph and
 neither. This bounds what *"composed from parts already in the repo"* can mean:
 the composition cannot share a process with the thing it must beat.
 
-**The `reagent-slim` arm is not reactive in this bundle.** Its mount is
-correct — parity passes at both sizes, values right — but 78 of 78 writes
-failed their DOM read-back, under both write mechanisms and every drain tried.
-Its write figures are therefore **suppressed, not published**: unsuppressed
-they read 0.16–0.50× the floor while the page never changed, which is a precise,
-plausible, entirely wrong number and exactly the fault the read-back exists to
-catch. Filed as **`rf2-z3vlz`**; the leading hypothesis is a mixed-bundle
-artefact of stock `reagent` and `reagent2` coexisting, which would make it
-bench-only.
+**A benchmark harness cannot hold one wait for every substrate.** The
+`reagent-slim` arm looked non-reactive and was in fact merely **late** — every
+write landed, one macrotask after the window closed — because
+`reagent2.impl.batching` schedules its render queue on the **microtask** queue
+and the harness yielded a microtask between the write and the drain. Stock
+Reagent survived the identical harness only because its queue is
+`requestAnimationFrame`-scheduled and was therefore still full when the drain
+arrived. `app-db` followed **every** write in every bundle, so the failure was
+always on the view leg; and the positive control that reproduces it is a plain
+`reagent2` component reading a plain `reagent2.core/atom`, with no frame, no
+`subscribe` and no adapter hook, which puts **re-frame nowhere on the causal
+path**. Diagnosed under **`rf2-z3vlz`**
+([slim-non-reactive-arm-diagnosis.md](slim-non-reactive-arm-diagnosis.md)), and
+neither the adapter nor the mixed bundle is implicated: four bundle
+compositions from 96 to 114 compiled sources return byte-identical verdicts.
+**No shipped code needs changing and no consumer is affected** — an application
+does not write and then yield before flushing; the shipped reagent-slim adapter
+smoke was green throughout, and it was right.
+
+## The re-take (`rf2-b69lw`)
+
+**What changed.** The write window's wait now belongs to the **arm** rather than
+to the harness. `hd8-rows/arm-scheduler` names the queue each arm's own render
+work is scheduled on — `:none` for the floor and for the React spine,
+`:animation-frame` for stock Reagent, `:microtask` for reagent-slim — and
+`window-of` gives a `:microtask` arm a window with **nothing between the write
+and the drain**. Every other arm's window is the same three operations in the
+same order as before, and the DOM read-back still runs in the same turn as the
+drain, so a commit that arrives a turn late still reads as unverified rather
+than as a pass.
+
+**The suppressed figures were not rescued; they were re-taken.** They priced a
+commit that had not happened, and the size of the correction says so: the narrow
+write moved from `0.16–0.50×` the floor to `2.667–6.000×`, and the bulk write
+to `11.000–13.667×`. A number roughly an order of magnitude below the truth is
+what an unpaid commit looks like from inside a clock.
+
+**Two windows do not bill the same wait, so the difference was measured.** The
+`reagent-slim` window omits one harness microtask that the floor's contains.
+`hd8-rows/yield-cost!` prices exactly that turn against the same clock, outside
+every arm's window, and read **p50 0.0 ms, min 0.0, max 0.0 over 10 samples in
+all three runs** — the harness microtask is below the 100 µs quantum, so the
+asymmetry is beneath this instrument's resolution and nothing has to be
+subtracted before the ratios above are read. Had it read anything else, this
+page would owe the reader a subtraction.
+
+**Reproduction check — NOT a republication.** The re-take ran all three
+adapters, so the rows published at `d46ede4f` were measured again by a driver
+carrying the change. Every one of them reproduced: on the mount rows, which are
+the well-resolved ones, `donor-r1 / uix` in the `uix` run read `1.150 – 1.233`
+against the published `1.149 – 1.230`. On the write rows five of the six
+published cross-run ranges are **contained in** the re-take's and the sixth
+overlaps it (narrow `donor-r1` `4.000 – 8.000` ⊃ `5.000 – 8.000`; narrow
+`reagent` `2.500 – 7.000` ⊃ `3.000 – 5.000`; bulk `donor-r1` `6.000 – 12.000`
+⊃ `7.750 – 11.000`; bulk `reagent` `9.750 – 19.000` overlapping
+`8.750 – 17.000`). The re-take's write ranges are **wider** — four sibling
+workers were live on the host — which is why they are cited as a check and not
+as a replacement. **No figure moved systematically, and nothing published was
+invalidated.** `HD8_ONLY` exists so that a future re-take of one run cannot mint
+a competing set of figures for rows published at another commit.
+
+**Where the general fix belongs, and why it is not here.** The same fixed yield
+lives in the shared `lane/verified-write!`, which every Hicasso arm uses, and
+the general repair — an arm-declared drain slot, additive, today's path
+unchanged when it is absent — is filed as **`rf2-pq7d8`**. It is deliberately
+**not** made here: `lane.cljs` is a shared instrument with sibling arms
+measuring on it, and a shared instrument must not change under a measurement in
+flight. HD-008's own `timed-write!` is a separate copy, which is why this repair
+could land without touching it.
 
 ## Known limitations of this instrument
 
@@ -245,7 +345,15 @@ bench-only.
 - **The bulk write verifies one probe cell**, where the shared lane verifies a
   seq including the far end of the grid. Same bead.
 - **The write rows' donor-vs-Reagent comparison is cross-run**, floor-normalised.
-  The mount rows' is not.
+  The mount rows' is not. **The `reagent-slim` write column is normalised through
+  the floor of a run taken at a different commit** from the donor and `reagent`
+  columns beside it, which is weaker again; the reproduction check above is what
+  that reading rests on.
+- **Two window shapes now exist**, and only one of them contains the harness
+  microtask. Measured at 0.0 ms against a 100 µs quantum, so it is beneath this
+  instrument's resolution — but a future instrument with a finer clock inherits
+  a real asymmetry, not a settled one, and `rf2-pq7d8` is where it gets settled
+  properly.
 - **No retained-heap leg.** The red-zone rule governs clock *and* retained heap;
   this arm measures the clock. The heap ladder is `rf2-2rtt6.5`'s
   ([reads-per-boundary-heap-ladder.md](reads-per-boundary-heap-ladder.md)).
