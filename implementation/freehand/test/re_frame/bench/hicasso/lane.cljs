@@ -255,9 +255,12 @@
 (def slot-order
   "The reflecting schedule, taken from the guard itself rather than
   restated. `order-guard`'s self-test carries the arithmetic proof that a
-  bare rotation gives every arm exactly ONE within-round predecessor and
-  that reflecting on odd rounds gives it two in balance; a second copy
-  here would be a second authority with nothing holding it in step."
+  bare rotation gives every arm exactly ONE within-round predecessor, that
+  reflecting on odd rounds gives it two in balance, and that at `k = 2` the
+  reflection CANCELS the rotation and so is dropped (`rf2-ouwh8`); a second
+  copy here would be a second authority with nothing holding it in step —
+  and the copy that did exist, in `b6-harness`, is exactly where the `k = 2`
+  degeneracy survived a fix to this one."
   guard/slot-order)
 
 (defn sample-collector

@@ -39,6 +39,7 @@
   `D021-performance-budgets-and-release-evidence.md`."
   (:require ["react-dom" :as react-dom]
             [clojure.string :as str]
+            [re-frame.bench.order-guard :as guard]
             [re-frame.freehand.bench.measure :as m]))
 
 ;; ---------------------------------------------------------------------------
@@ -171,9 +172,9 @@
 
 (defn- p50 [xs] (:p50 (m/summarise xs)))
 
-(defn slot-order
+(def slot-order
   "Slot order for `k` arms at sample index `s`: rotate forward by `s`, then
-  REFLECT on odd indices.
+  REFLECT on odd indices — TAKEN FROM THE GUARD, never restated here.
 
   The reflection is not decoration and this used to be a bare rotation.
   `rf2-88pie` records a fault class in which an arm's reading depends on
@@ -184,13 +185,20 @@
   `:measurement-method` said 'order rotating on the sample index' and
   meant it as a mitigation, and it was not one.
 
-  Reversing a sequence replaces every `a -> a+1` adjacency with
-  `a -> a-1`, so alternating the two gives every arm two predecessors in
-  balance. `order_guard.cjs` carries the arithmetic proof of both halves
-  of that sentence, and the guard that refuses a figure the order moves."
-  [k s]
-  (let [xs (mapv #(mod (+ % s) k) (range k))]
-    (if (odd? s) (vec (rseq xs)) xs)))
+  This was a third copy of that arithmetic, and it drifted the way a
+  restated method drifts: at `k = 2` the rotation and the reflection are
+  the same permutation and cancel, so a two-arm plan ran in ONE ORDER for
+  ever (`rf2-ouwh8`, found by the guard as `only 1 stratum — the question
+  was never asked`). The repair is not a fourth spelling of the fix — it
+  is to stop spelling it. `re-frame.bench.order-guard` owns the schedule
+  and its self-test carries the arithmetic proof for `k = 2` and for
+  `k >= 3`; `re-frame.bench.hicasso.lane` takes it the same way.
+
+  Two copies of the rule remain and both are structurally forced: this
+  one's authority in `order_guard.cljc`, and `order_guard.cjs` for the
+  Node drivers that own a Chromium page and cannot consume ClojureScript.
+  Their shared self-test fixtures are what hold them in step."
+  guard/slot-order)
 
 (defn round!
   "One round: `(+ warmup samples)` sample indices, every arm mounted at
