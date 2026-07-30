@@ -83,9 +83,25 @@
   a reader can see how far it moves and how much less the derived ratio
   moves.
 
-  Segment order alternates with the round, and so does witness order
-  within a segment: rf2-2rtt6.4 recorded a fixed witness order making
-  `second` a permanent property of one witness, with the guard refusing.
+  Segment order alternates with the round, so the cross-segment figure is
+  a both-orders result rather than a single-order one however many rounds
+  it averages.
+
+  ## One row per page
+
+  The first cut ran all four rows in one page and THE ARM-ORDER GUARD
+  REFUSED IT (exit 2) on two independent faults, both the arm's:
+  `M1/uix-subs/floor` — an arm that hand-builds React elements and cannot
+  change — read LAST-THIRD 2.1739x FIRST-THIRD with disjoint ranges while
+  every other arm on the page climbed with it, which is the accumulation
+  rf2-2rtt6.4 recorded and repaired with one round per page; and
+  `narrow/reagent-subs/ctl-2x` was refused on a two-sample stratum
+  labelled with an arm from a DIFFERENT ROW, an artefact of the shared
+  collector advancing its predecessor pointer only for recorded samples.
+  The repairs are one ROW per page (a quarter of the work in a page, and
+  no cross-row adjacency to mislabel) and [[mark-predecessor!]] (the
+  warm-up advances the pointer without banking a sample, so every recorded
+  sample carries its real predecessor). The tolerance was not touched.
 
   ## What this entry does NOT measure
 
@@ -133,6 +149,27 @@
 
 (defonce ^:private gen (atom 1000))
 (defn- next-gen! [] (swap! gen inc))
+
+(defn- mark-predecessor!
+  "Advance the sample collector's `:previous` pointer WITHOUT banking a
+  sample. Warm-up samples call this.
+
+  `lane/collect!` both banks a sample and advances the pointer, so a
+  harness that skips it during warm-up leaves the first RECORDED sample of
+  a block tagged with whatever ran before the warm-up — an arm that has
+  not touched the site for twenty operations. The first cut of this entry
+  published exactly that and the guard refused it: `narrow/reagent-subs/
+  ctl-2x` was contaminated by a two-sample stratum labelled
+  `M1/reagent-subs/reagent-subs`, an arm from a different ROW. rf2-2rtt6.4
+  met the same class from the other side, where the untagged samples
+  became a `<none>` stratum reading 1.35x its siblings.
+
+  A predecessor label that names something that did not run immediately
+  before is not a weaker fact than a real one; it is a different fact
+  wearing its clothes."
+  [coll id]
+  (swap! coll assoc :prev id)
+  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Segments
@@ -293,8 +330,7 @@
                  (floor-mount-arm :ctl-2x v/m2-floor
                                   (fn [{:keys [n]}] (zeros (* 2 n))) true)])}])
 
-(defn- witness-order [r]
-  (if (even? r) mount-witnesses (vec (rseq (vec mount-witnesses)))))
+(defn- witness-named [id] (first (filter #(= id (:id %)) mount-witnesses)))
 
 ;; ---------------------------------------------------------------------------
 ;; Bulk arms
@@ -431,9 +467,13 @@
               (swap! t (fn [{:keys [of bad]}]
                          {:of (inc of) :bad (if ok? bad (inc bad))}))))
           (doseq [m mounts] (lane/release! m))
-          (when (>= s (:warmup mount-sampling))
-            (lane/collect! coll (str (name id) "/" (name segment-id) "/" (name (:id arm))) ms)
-            (swap! acc update (:id arm) conj ms)))))
+          (let [label (str (name id) "/" (name segment-id) "/" (name (:id arm)))]
+            (if (>= s (:warmup mount-sampling))
+              (do (lane/collect! coll label ms)
+                  (swap! acc update (:id arm) conj ms))
+              ;; A warm-up sample is DISCARDED but it still ran, so it is
+              ;; still the next sample's predecessor.
+              (mark-predecessor! coll label))))))
     @acc))
 
 ;; ---------------------------------------------------------------------------
@@ -480,19 +520,18 @@
     (lane/chain {:readings acc0}
                 (for [s (range total) j (lane/slot-order n s)] [s j])
                 (fn [acc [s j]]
-                  (let [mnt (nth mounts j)
-                        id  (:id (:arm mnt))]
+                  (let [mnt   (nth mounts j)
+                        id    (:id (:arm mnt))
+                        label (str (name kind) "/" (name segment-id) "/" (name id))]
                     (-> (bulk-write! t mnt kind s)
                         (.then (fn [{:keys [ms write-ms gap-ms force-ms]}]
                                  (if (>= s (:warmup bulk-sampling))
-                                   (do (lane/collect! coll
-                                                      (str (name kind) "/" (name segment-id)
-                                                           "/" (name id))
-                                                      ms)
+                                   (do (lane/collect! coll label ms)
                                        (swap! legs update [kind segment-id id] (fnil conj [])
                                               {:write write-ms :gap gap-ms :force force-ms})
                                        (update-in acc [:readings id] conj ms))
-                                   acc)))))))))
+                                   (do (mark-predecessor! coll label)
+                                       acc))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Aggregation
@@ -571,45 +610,39 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- parity-of-segment!
-  [segment-id]
-  (reduce
-    (fn [acc {:keys [id props elements arms-for]}]
-      (let [{:keys [mounts agree? counts disagree reference]} (lane/parity (arms-for segment-id) props)]
-        (try
-          (-> acc
-              (assoc-in [:reference id] reference)
-              (update :problems
-                      (fn [problems]
-                        (cond-> problems
-                          (not agree?)
-                          (conj {:segment segment-id :witness id
-                                 :problem :canonical-dom-disagreement :arms disagree})
+  [{:keys [id props elements arms-for]} segment-id]
+  (let [{:keys [mounts agree? counts disagree reference]}
+        (lane/parity (arms-for segment-id) props)]
+    (try
+      {:reference reference
+       :problems  (cond-> []
+                    (not agree?)
+                    (conj {:segment segment-id :witness id
+                           :problem :canonical-dom-disagreement :arms disagree})
 
-                          (not (every? #(= elements %) (vals counts)))
-                          (conj {:segment segment-id :witness id :problem :element-count
-                                 :expected elements :got counts})))))
-          (finally (doseq [m mounts] (lane/release! m))))))
-    {:problems [] :reference {}}
-    mount-witnesses))
+                    (not (every? #(= elements %) (vals counts)))
+                    (conj {:segment segment-id :witness id :problem :element-count
+                           :expected elements :got counts}))}
+      (finally (doseq [m mounts] (lane/release! m))))))
 
 (defn- parity!
-  "Both segments' parity, plus the CROSS-segment check.
+  "Both segments' parity for this page's witness, plus the CROSS-segment
+  check.
 
   Within a segment the floor and the substrate arm must build the same
   page. Across the seam the two SUBSTRATE arms must build the same page as
   each other — which is the comparison the red-zone actually makes, and it
   is checked directly rather than inferred from each segment agreeing with
   its own floor."
-  []
+  [witness]
   (let [by-seg (reduce (fn [acc {:keys [id] :as segment}]
                          (enter-segment! segment)
-                         (assoc acc id (parity-of-segment! id)))
+                         (assoc acc id (parity-of-segment! witness id)))
                        {}
                        segments)
-        cross  (for [{:keys [id]} mount-witnesses
-                     :when (not= (get-in by-seg [:reagent-subs :reference id])
-                                 (get-in by-seg [:uix-subs :reference id]))]
-                 {:problem :cross-segment-disagreement :witness id})]
+        cross  (when (not= (get-in by-seg [:reagent-subs :reference])
+                           (get-in by-seg [:uix-subs :reference]))
+                 [{:problem :cross-segment-disagreement :witness (:id witness)}])]
     {:problems (into (vec (mapcat (comp :problems val) by-seg)) cross)}))
 
 ;; ---------------------------------------------------------------------------
@@ -634,35 +667,64 @@
 ;; The run
 ;; ---------------------------------------------------------------------------
 
-(defn- bulk-kinds [r] (if (even? r) [:broad :narrow] [:narrow :broad]))
+(def ^:private bulk-control
+  {:predicted (/ (double (v/m1-elements (* 2 v/cells-n)))
+                 (double (v/m1-elements v/cells-n)))
+   :basis (str "element count: " (v/m1-elements (* 2 v/cells-n)) " / "
+               (v/m1-elements v/cells-n))})
+
+(def ^:private row-specs
+  "ONE ROW PER PAGE. The first cut ran all four in one page and the guard
+  refused it — the page degraded as it ran (`M1/uix-subs/floor`, an arm
+  that cannot change, read LAST-THIRD 2.1739x FIRST-THIRD with disjoint
+  ranges) and the shared collector manufactured cross-row predecessor
+  strata. One row per page cuts a page's measured work by about four and
+  removes cross-row adjacency by construction."
+  {:M1     {:kind :mount :witness :M1 :row :mount-M1 :grade :bar}
+   :M2     {:kind :mount :witness :M2 :row :mount-M2 :grade :diagnostic}
+   :broad  {:kind :bulk  :witness :M1 :row :bulk-broad :grade :bar
+            :doc (str "one commit that all " v/cells-n " sub-reading boundaries read, on "
+                      "rf2-2rtt6.2's M1 page — the make-or-break row")
+            :control bulk-control}
+   :narrow {:kind :bulk  :witness :M1 :row :bulk-narrow :grade :bar
+            :doc (str "one commit that exactly ONE of " v/cells-n
+                      " sub-reading boundaries reads — the localisation row")
+            :note (str "NEW ROW. rf2-2rtt6.2 has no narrow counterpart, so this is not a "
+                       "re-measurement of a published figure: it is rf2-2rtt6.4's U-narrow "
+                       "question asked on rf2-2rtt6.2's witness. The two numbers are NOT "
+                       "comparable with each other and neither supersedes the other; this "
+                       "one is the comparable one, because its page is the page every other "
+                       "row here uses.")
+            :control bulk-control}})
+
+(defn- query-row
+  "Which row this page runs. One row per page (see [[row-specs]]); the
+  driver loads the page once per row."
+  []
+  (let [s (or (some-> js/window .-location .-search) "")]
+    (or (some (fn [k] (when (re-find (re-pattern (str "row=" (name k))) s) k))
+              [:M1 :M2 :broad :narrow])
+        :M1)))
 
 (defn- run-round!
-  "One round: both segments, in this round's order; within each segment
-  both mount witnesses in this round's order, then the standing bulk
-  arms driven through both write kinds in this round's order.
-
-  Answers a promise of
-  `{:mount {witness-id {segment-id readings}} :bulk {kind {segment-id readings}}}`."
-  [r coll tallies legs]
+  "One round of THIS PAGE'S row: both segments, in this round's order.
+  Answers a promise of `{segment-id readings}`."
+  [{:keys [kind witness] :as _spec} row-key r coll t legs]
   (lane/chain
-    {:mount {} :bulk {}}
+    {}
     (segment-order r)
     (fn [acc {:keys [id] :as segment}]
       (enter-segment! segment)
-      (let [acc' (reduce (fn [a w]
-                           (assoc-in a [:mount (:id w) id]
-                                     (mount-round! coll (get tallies (:id w)) w id)))
-                         acc
-                         (witness-order r))
-            mounts (mount-bulk-arms! (bulk-arms id))]
-        (-> (lane/chain acc' (bulk-kinds r)
-                        (fn [a kind]
-                          (-> (seed-bulk! mounts (get tallies kind))
-                              (.then (fn [_] (bulk-round! mounts (get tallies kind)
-                                                          legs coll kind id)))
-                              (.then (fn [rd] (assoc-in a [:bulk kind id] (:readings rd)))))))
-            (.then (fn [a] (release-bulk-arms! mounts) a))
-            (.catch (fn [e] (release-bulk-arms! mounts) (throw e))))))))
+      (if (= kind :mount)
+        (js/Promise.resolve
+          (assoc acc id (mount-round! coll t (witness-named witness) id)))
+        (let [mounts (mount-bulk-arms! (bulk-arms id))]
+          (-> (seed-bulk! mounts t)
+              (.then (fn [_] (bulk-round! mounts t legs coll row-key id)))
+              (.then (fn [rd]
+                       (release-bulk-arms! mounts)
+                       (assoc acc id (:readings rd))))
+              (.catch (fn [e] (release-bulk-arms! mounts) (throw e)))))))))
 
 (defn- leg-summary [legs]
   (into {}
@@ -673,70 +735,43 @@
         legs))
 
 (defn- publish!
-  [slices tallies legs coll]
-  (let [m1 (row-record {:row :mount-M1 :grade :bar
-                        :doc (:doc (first mount-witnesses))
-                        :control (:control (first mount-witnesses))}
-                       (mapv #(get-in % [:mount :M1]) slices))
-        m2 (row-record {:row :mount-M2 :grade :diagnostic
-                        :doc (:doc (second mount-witnesses))
-                        :clock-note (:clock-note (second mount-witnesses))
-                        :control (:control (second mount-witnesses))}
-                       (mapv #(get-in % [:mount :M2]) slices))
-        bulk-control {:predicted (/ (double (v/m1-elements (* 2 v/cells-n)))
-                                    (double (v/m1-elements v/cells-n)))
-                      :basis (str "element count: " (v/m1-elements (* 2 v/cells-n)) " / "
-                                  (v/m1-elements v/cells-n))}
-        broad (row-record {:row :bulk-broad :grade :bar
-                           :doc (str "one commit that all " v/cells-n
-                                     " sub-reading boundaries read, on rf2-2rtt6.2's M1 "
-                                     "page — the make-or-break row")
-                           :control bulk-control}
-                          (mapv #(get-in % [:bulk :broad]) slices))
-        narrow (row-record {:row :bulk-narrow :grade :bar
-                            :doc (str "one commit that exactly ONE of " v/cells-n
-                                      " sub-reading boundaries reads — the localisation row")
-                            :note (str "NEW ROW. rf2-2rtt6.2 has no narrow counterpart, so "
-                                       "this is not a re-measurement of a published figure: "
-                                       "it is rf2-2rtt6.4's U-narrow question asked on "
-                                       "rf2-2rtt6.2's witness. The two numbers are NOT "
-                                       "comparable with each other and neither supersedes "
-                                       "the other; this one is the comparable one, because "
-                                       "its page is the page every other row here uses.")
-                            :control bulk-control}
-                           (mapv #(get-in % [:bulk :narrow]) slices))
-        rows [m1 m2 broad narrow]]
-    (doseq [[k {:keys [record]}] (map vector
-                                      ["mount-M1" "mount-M2" "bulk-broad" "bulk-narrow"]
-                                      rows)]
-      (lane/record! k record))
-    (lane/record! "verification"
-                  (into {} (map (fn [[k t]] [k (lane/tally-value t)])) tallies))
-    (lane/record! "write-legs" (leg-summary @legs))
-    (lane/record! "red-zones"
-                  {:axis :clock
+  [{:keys [kind witness row grade doc note control] :as _spec} row-key slices t legs coll]
+  (let [w   (witness-named witness)
+        {:keys [record controls]}
+        (row-record {:row row
+                     :grade grade
+                     :doc (or doc (:doc w))
+                     :clock-note (when (= kind :mount) (:clock-note w))
+                     :note note
+                     :control (or control (:control w))}
+                    slices)]
+    (lane/record! (name row) record)
+    (lane/record! "verification" {row-key (lane/tally-value t)})
+    (when (= kind :bulk) (lane/record! "write-legs" (leg-summary @legs)))
+    (lane/record! "red-zone"
+                  {:row row
+                   :axis :clock
                    :witness-set "rf2-2rtt6.2"
+                   :threshold (select-keys (:red-zone record)
+                                           [:mean :min :max :per-round :straddles-1?])
                    :rule (str "RULING 1 on rf2-2rtt6.1: the red-zone threshold IS the "
                               "measured UIx ratio for that witness family. A candidate row "
                               "worse than it is RED and needs an explicit operator waiver "
-                              "naming the dogfood benefit. Silence is not a pass. These "
-                              "SUPERSEDE the clock thresholds rf2-2rtt6.4 published on its "
-                              "own witnesses, which remain sound as ratios and are not "
-                              "comparable with the bar rows.")
-                   :thresholds
-                   (into {} (map (fn [[k {:keys [record]}]]
-                                   [k (select-keys (:red-zone record)
-                                                   [:mean :min :max :per-round :straddles-1?])]))
-                         (map vector ["mount-M1" "mount-M2" "bulk-broad" "bulk-narrow"] rows))})
-    (let [vd (lane/guard! (:samples @coll) "Hicasso P0 — converged witness set")]
+                              "naming the dogfood benefit. Silence is not a pass. This "
+                              "SUPERSEDES the clock threshold rf2-2rtt6.4 published on its "
+                              "own witnesses — that figure remains sound as a ratio and is "
+                              "simply not comparable with the bar rows.")})
+    (let [vd (lane/guard! (:samples @coll)
+                          (str "Hicasso P0 converged — " (name row)))]
       (lane/record! "arm-order-guard"
-                    {:tolerance (:tolerance vd)
+                    {:row row
+                     :tolerance (:tolerance vd)
                      :contaminated? (:contaminated? vd)
                      :unchecked? (:unchecked? vd)
                      :refuse? (:refuse? vd)
                      :arms (:arms vd)})
       (when (:refuse? vd) (set! (.-HICASSO_GUARD_REFUSED js/window) true)))
-    (when (some (complement :ok?) (mapcat :controls rows))
+    (when (some (complement :ok?) controls)
       (set! (.-HICASSO_CONTROL_FAILED js/window) true))
     nil))
 
@@ -765,28 +800,31 @@
           (lane/done!))
 
       :else
-      (let [{:keys [problems]} (parity!)]
+      (let [row-key (query-row)
+            spec    (get row-specs row-key)
+            w       (witness-named (:witness spec))
+            {:keys [problems]} (parity! w)]
+        (js/console.log (str ";; HICASSO row " (name row-key)))
         (lane/record! "parity"
-                      {:problems problems :ok? (empty? problems)
+                      {:row row-key :problems problems :ok? (empty? problems)
                        :note (str "canonical DOM with attribute names sorted, inside each "
-                                  "segment AND across the seam. Element counts are checked "
-                                  "against written arithmetic — 901 for M1, 51 for M2 — so "
-                                  "the gate can answer false for an arm that rendered "
-                                  "nothing.")})
+                                  "segment AND across the seam. The element count is checked "
+                                  "against written arithmetic — " (:elements w) " for "
+                                  (name (:id w)) " — so the gate can answer false for an arm "
+                                  "that rendered nothing.")})
         (if (seq problems)
           (do (lane/fail! (str "the arms do not build the same page under :advanced — "
                                (pr-str problems)))
               (lane/done!))
-          (let [coll    (lane/sample-collector)
-                tallies {:M1 (lane/tally) :M2 (lane/tally)
-                         :broad (lane/tally) :narrow (lane/tally)}
-                legs    (atom {})]
+          (let [coll (lane/sample-collector)
+                t    (lane/tally)
+                legs (atom {})]
             (-> (lane/chain [] (range rounds)
                             (fn [acc r]
-                              (-> (run-round! r coll tallies legs)
+                              (-> (run-round! spec row-key r coll t legs)
                                   (.then (fn [slice] (conj acc slice))))))
                 (.then (fn [slices]
-                         (publish! slices tallies legs coll)
+                         (publish! spec row-key slices t legs coll)
                          (lane/done!)
                          nil))
                 (.catch (fn [e]
