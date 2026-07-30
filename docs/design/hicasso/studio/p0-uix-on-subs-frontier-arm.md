@@ -317,6 +317,60 @@ precise wrong number first. They are recorded because the next arm will meet the
   control — which places it on the substrate arms and their adapter segments, not
   on the harness. One round per page makes it harmless to these figures; it does
   not make it fixed.
+
+  **Settled — and the retention is not retention.** rf2-flqpd's diagnostic
+  (`retention_{probe,run}`) drove this arm's own `window.P0H` door and took every
+  reading **twice**: as the page has it, and after a forced major collection.
+  The collected column climbs 0.90 MB in total across six segments and settles;
+  the **uncollected** column reaches the reported magnitude and **sawtooths**,
+  which a leak cannot do. So the 12 MB is *garbage*: `usedJSHeapSize` read
+  without a collection immediately before it measures how much rubbish is lying
+  about, not how much is held. The premise above — *"survives a forced major
+  collection"* — is what did not hold: a bare `gc()` is a **scavenge**.
+  H1 (unmount does not unsubscribe) is dead, positive-controlled at 300 live
+  entries and 0 after release; H2 (the segment entry retains its predecessor) is
+  dead, because the collected heap does not step at a seam. **Nothing shipped is
+  leaking** *within the tested 12 MB phenomenon and those two hypotheses* —
+  sawtoothing alone cannot exclude a smaller leak, and the collected baseline
+  and the cache census are the actual evidence.
+
+  This page's mitigation — one round per page — **was right for a reason it did
+  not have**: 30–80 MB of uncollected rubbish in a page is exactly what makes an
+  unchanging floor arm drift 3.4 → 7.0 ms, because a scavenge inside a timed
+  window is a measurement of the collector. **A heap figure must be preceded by
+  a forced MAJOR collection at the reading**, not merely somewhere earlier in
+  the run.
+
+  **The diagnostic itself now fails closed (PR #7267 audit).** It had the same
+  defect shape as the rig on the sibling page: it printed its refusals and
+  exited 0.
+
+    - `p0_arms/enter-segment!` **caught and discarded** both `destroy-frame!`
+      and `destroy-adapter!` — while this bead's whole argument rejects H2 *from
+      those exact transitions*. It now raises with the failing phase named, so
+      every caller (this page's clock rounds, the heap row, the diagnostic)
+      fails closed without having to remember to ask. *Mutation:* make a
+      teardown throw; the run stops and names `destroy-frame!`.
+    - SERIES C claimed all 50 cycles per segment were DOM-verified, but the
+      page loop **overwrote `last`** and returned only the final cycle's
+      verdict — 49 of 50 could render nothing and the row still printed `ok`.
+      It now folds every cycle, counting failures and keeping the **first**.
+      *Mutation:* fail cycle 0 only, leaving the last cycle good; the old fold
+      passed, the new one refuses and names the cycle.
+    - The **validity gates** were prints. A failed census positive control
+      printed `[FAIL] the census cannot see a live subscription` and then
+      `[ret] ok`; an absent heap column printed `n/a`; a census answering
+      `:no-frame` printed the token; and in `repro` mode an early `return`
+      skipped the page-error and unverified-cycle gates entirely. All of them
+      now exit 1, in one named `failures` list. The empty-`SERIES B` case is
+      reported as a **narrowed scope** rather than compared as `0 of 0`, which
+      would have printed `[ok]` for a control that never ran.
+
+    The reaction-**watchers** column is deliberately still not a gate: it is
+    blind under `:advanced` and carries no information in either direction, so
+    it decides nothing in either direction. **Exit 0 still means the probe ran
+    and its readings are valid — never that the heap is clean.** Rows on this
+    programme stay operator-owned (rf2-2rtt6.1).
 - **The witness set does not match rf2-2rtt6.2's.** That arm's branch (not yet
   merged) uses a 901-element M1 list reading `[:p0/cell i]` and a 51-element M2
   form reading the same sub; this page uses a 1,203-element W1 reading

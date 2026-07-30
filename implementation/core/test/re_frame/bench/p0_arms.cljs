@@ -85,17 +85,64 @@
 
 (defonce ^:private captured (atom nil))
 
+(defn- teardown!
+  "Run one teardown phase, and RAISE with the phase named if it throws.
+
+  It used to be `(catch :default _ nil)` at both sites, and this is the
+  worst place in the run to lose an exception. A `destroy-frame!` that
+  threw leaves the frame's subscription caches and its watches standing,
+  and the very next thing that happens is the OTHER adapter being
+  installed over the top of them — after which every figure in the
+  segment is a figure for a page carrying the previous segment's reactive
+  graph. rf2-flqpd is a finding ABOUT these exact transitions: a
+  diagnostic that used a segment seam to reject a retention hypothesis,
+  while discarding the evidence that the seam had failed, was arguing
+  from a page it had not checked.
+
+  A raise rather than a recorded note, because every caller already
+  fails closed on one: the clock round's `.catch` sets `P0_ERROR`, the
+  heap and retention drivers' `page.evaluate` rejects into their own
+  failure lists, and no caller has to remember to ask.
+
+  A PLAIN `js/Error`, not an `ex-info`, and the phase is in the MESSAGE
+  rather than in `ex-data`. Under `:advanced` Closure renames the
+  constructor of any `Error` subclass, so a CLJS `ExceptionInfo` crosses
+  the CDP boundary as a two-letter munged token and nothing else — the
+  first cut of this repair raised an `ex-info` and the driver dutifully
+  failed closed on `page.evaluate: aj`, which stops the instrument
+  without telling anyone what stopped it. Naming the phase is the whole
+  point, so the name has to survive the build the rig actually runs
+  under. Nothing reads the `ex-data`; the cause is appended as text.
+
+  Note that this raises only on a REAL failure. `destroy-frame!` is a
+  documented no-op for an id with no live incarnation, so the first
+  segment entry of a run — when there is nothing to tear down — passes
+  through it silently, and `destroy-adapter!` is already guarded by
+  `current-adapter`."
+  [phase f]
+  (try
+    (f)
+    (catch :default e
+      (throw (js/Error. (str "P0 segment teardown FAILED at " phase
+                             " — the previous frame and adapter may still be standing, so "
+                             "every figure in the segment that follows would be taken on a "
+                             "page carrying the previous segment's reactive graph. Cause: "
+                             (or (some-> e .-message) (str e))))))))
+
 (defn enter-segment!
   "Tear down whatever adapter is installed, install this segment's, and
   stand the frame back up seeded from the shared fixture.
 
   All of it OUTSIDE every measured window. A mount window that contained
   `make-frame` and a seeding dispatch would price frame construction on
-  whichever arm happened to own it."
+  whichever arm happened to own it.
+
+  A teardown that throws STOPS the instrument and names the phase — see
+  [[teardown!]]."
   [{:keys [adapter]}]
-  (try (rf/destroy-frame! frame-id) (catch :default _ nil))
+  (teardown! "destroy-frame!" #(rf/destroy-frame! frame-id))
   (when (rf/current-adapter)
-    (try (rf/destroy-adapter!) (catch :default _ nil)))
+    (teardown! "destroy-adapter!" #(rf/destroy-adapter!)))
   (rf/init! adapter)
   (fx/register!)
   (rf/make-frame {:id frame-id :initial-events [[:p0/seed]]})

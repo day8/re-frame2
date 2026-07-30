@@ -25,13 +25,43 @@
 //     every one, drop every container. If the climb is here, an unmounted
 //     root is still held, and the census says by how many watchers.
 //
-// ## No verdict
+// ## No verdict — but every VALIDITY gate is a gate
 //
 // This prints a table. The stop/continue rulings on this programme are
 // operator-owned on rf2-2rtt6.1 and a diagnostic must never learn to
-// issue one — exit 0 means the probe RAN, not that the heap is clean.
-// Exit 1 is reserved for the probe failing: a page error, a mount that
-// did not verify at the DOM, a census that could not be read.
+// issue one — exit 0 means the probe RAN AND ITS READINGS ARE VALID, not
+// that the heap is clean.
+//
+// That distinction is not a licence to fail open, and this driver was
+// doing exactly that. The header already reserved exit 1 for "a census
+// that could not be read" and nothing implemented it: a failed census
+// positive control printed `[FAIL] the census cannot see a live
+// subscription` and then `[ret] ok`; an absent heap column printed `n/a`;
+// a census answering `:no-frame` printed the token; and in `repro` mode
+// an early `return` skipped the page-error and unverified-cycle gates
+// altogether. A count that is DISPLAYED but not GATED is decoration.
+//
+// So the gates below are VALIDITY gates — could the instrument see what
+// it claims to have seen — and every one of them exits:
+//
+//   1. no uncaught page error;
+//   2. every cycle of every series verified at the DOM — ALL of them, not
+//      the last one (see SERIES C's fold);
+//   3. the sub-cache census positive control passed, when SERIES B ran at
+//      all; when it did not, the run says the census claim is out of
+//      scope rather than quietly passing a vacuous `0 of 0`;
+//   4. every reading is a reading — a numeric sub-cache count, a heap
+//      figure, and `window.gc` present whenever `RETENTION_COLLECT` asks
+//      the PAGE to collect;
+//   5. the probe completed at all — `P0H.prepare` now RAISES with the
+//      failing teardown phase named, instead of swallowing it.
+//
+// The reaction-WATCHERS column is deliberately NOT a gate: it is blind
+// under `:advanced` and carries no information in either direction, so it
+// decides nothing in either direction.
+//
+// EVERY failed gate is named, never the last one — `failures` is a list,
+// which is `p0_run.cjs`'s shape and the same rule.
 //
 // ## The build id
 //
@@ -179,6 +209,19 @@ async function run() {
   });
   await page.waitForFunction('window.RETENTION_READY === true', null, { timeout: 120000 });
 
+  // HAS A FRAME BEEN STOOD UP YET. Before the first `prepare` there is no
+  // frame, so the sub-cache census truthfully answers `:no-frame` — the
+  // pre-anything baseline row of SERIES A, and of SERIES C too when the
+  // cheap series are skipped. That is a legitimate reading and not a
+  // blind one, and the validity gate below has to be able to tell the
+  // two apart: `:no-frame` AFTER a segment entry means the census is
+  // pointed at nothing and no row is evidence about subscriptions.
+  let prepared = false;
+  const prepare = async (seg) => {
+    await page.evaluate(`window.P0H.prepare(${JSON.stringify(seg)})`);
+    prepared = true;
+  };
+
   const raw = () => page.evaluate('window.RETENTION.census()');
   const census = async () => {
     await collect();
@@ -198,8 +241,8 @@ async function run() {
   // --- SERIES A: bare segment entries, nothing mounted -------------------
   const entries = [];
   for (let i = 0; ONLY === 'all' && i <= ENTRIES; i++) {
-    if (i > 0) await page.evaluate(`window.P0H.prepare(${JSON.stringify(SEGMENT)})`);
-    entries.push({ i, ...(await census()) });
+    if (i > 0) await prepare(SEGMENT);
+    entries.push({ i, ...(await census()), framed: prepared });
   }
 
   // --- SERIES B: mount cycles inside ONE segment -------------------------
@@ -212,17 +255,21 @@ async function run() {
   // passing or not, because a control quoted only when it passes is not a
   // control.
   const series = async (arm) => {
-    await page.evaluate(`window.P0H.prepare(${JSON.stringify(SEGMENT)})`);
+    await prepare(SEGMENT);
     const rows = [];
-    rows.push({ i: 0, verify: null, mounted: null, ...(await census()) });
+    rows.push({ i: 0, verify: null, mounted: null, ...(await census()), framed: prepared });
     for (let i = 1; i <= CYCLES; i++) {
+      // The same verdict SHAPE as SERIES C's fold, so one gate reads both
+      // series and neither can grow a private notion of "verified".
       const verify = await page.evaluate(
         `(() => { const v = window.P0H.mount(${JSON.stringify(arm)}, ${ROOTS});` +
-          ' return {elements: v.elements, expected: v.expected, ok: v.ok}; })()'
+          ' return {cycles: 1, bad: v.ok ? 0 : 1, ok: v.ok,' +
+          '         first: v.ok ? null : {cycle: 0, elements: v.elements, expected: v.expected},' +
+          '         elements: v.elements, expected: v.expected}; })()'
       );
       const mounted = await census();
       await page.evaluate('window.P0H.release()');
-      rows.push({ i, verify, mounted, ...(await census()) });
+      rows.push({ i, verify, mounted, ...(await census()), framed: prepared });
     }
     return rows;
   };
@@ -243,21 +290,48 @@ async function run() {
   for (let s = 0; s < REPRO_SEGMENTS; s += 1) {
     plan.push(s % 2 === 0 ? ['uix-subs', 'grid/uix'] : ['reagent-subs', 'grid/reagent']);
   }
-  repro.push({ i: 0, segment: 'baseline', verify: null, ...(await bothCensus()) });
+  repro.push({
+    i: 0,
+    segment: 'baseline',
+    verify: null,
+    ...(await bothCensus()),
+    framed: prepared,
+  });
   for (let s = 0; s < plan.length; s += 1) {
     const [seg, arm] = plan[s];
-    await page.evaluate(`window.P0H.prepare(${JSON.stringify(seg)})`);
+    await prepare(seg);
+    // EVERY cycle's verdict, not the last one. This loop used to overwrite
+    // `last` and return only the final cycle's reading, so 49 of 50 cycles
+    // could render nothing at all and the row would still print `ok` —
+    // while SERIES C's own claim is that every one of them was DOM-verified
+    // at 1,200 elements. A later cycle's silence must not overwrite an
+    // earlier one's refusal, so the fold counts the failures and keeps the
+    // FIRST one, which is the one that says when the page went wrong.
     const verify = await page.evaluate(
       `(async () => {
-         let last = null;
+         let cycles = 0, bad = 0, first = null, last = null;
          for (let i = 0; i < ${REPRO_CYCLES}; i++) {
-           last = window.P0H.mount(${JSON.stringify(arm)}, ${REPRO_ROOTS});
+           const v = window.P0H.mount(${JSON.stringify(arm)}, ${REPRO_ROOTS});
+           cycles += 1;
+           last = v;
+           if (!v.ok && first === null) {
+             first = {cycle: i, elements: v.elements, expected: v.expected};
+           }
+           if (!v.ok) bad += 1;
            window.P0H.release();
          }
-         return {elements: last.elements, expected: last.expected, ok: last.ok};
+         return {cycles: cycles, bad: bad, ok: bad === 0, first: first,
+                 elements: last === null ? -1 : last.elements,
+                 expected: last === null ? -1 : last.expected};
        })()`
     );
-    repro.push({ i: s + 1, segment: seg, verify, ...(await bothCensus()) });
+    repro.push({
+      i: s + 1,
+      segment: seg,
+      verify,
+      ...(await bothCensus()),
+      framed: prepared,
+    });
   }
 
   const version = browser.version();
@@ -289,7 +363,14 @@ function table(title, rows, label) {
         `${un === null ? '     —' : MB(un)} ${garbage === null ? '     —' : MB(garbage)} ` +
         `${cell(sc)} ${m} ${r.gcAvailable ? ' yes' : '  NO'} ` +
         `${String(r.domElements).padStart(5)}  ` +
-        `${r.verify ? (r.verify.ok ? `ok ${r.verify.elements}` : `UNVERIFIED ${r.verify.elements}/${r.verify.expected}`) : '—'}`
+        `${
+          r.verify
+            ? r.verify.ok
+              ? `ok ${r.verify.elements} (${r.verify.cycles})`
+              : `UNVERIFIED ${r.verify.bad}/${r.verify.cycles} cycles, first ` +
+                `#${r.verify.first.cycle} ${r.verify.first.elements}/${r.verify.first.expected}`
+            : '—'
+        }`
     );
   }
 }
@@ -300,6 +381,14 @@ function table(title, rows, label) {
   let out;
   try {
     out = await run();
+  } catch (e) {
+    // NAMED, never a bare unhandled rejection. `P0H.prepare` now raises
+    // with the failing teardown phase in its message (`p0-arms/teardown!`),
+    // and that message is the whole point of the repair — losing it to
+    // Node's default rejection handler would put the instrument back where
+    // it started.
+    console.error(`[ret] FAILED: the probe did not complete — ${e && e.stack ? e.stack : e}`);
+    process.exit(1);
   } finally {
     server.close();
   }
@@ -322,62 +411,174 @@ function table(title, rows, label) {
     'segment'
   );
 
+  // EVERY failed gate, named, in one list. This tail used to be a chain of
+  // prints with an early `return` in the middle of it: in `repro` mode the
+  // driver returned before it had looked at the page errors or the
+  // unverified cycles at all, and a failing census positive control printed
+  // `[FAIL] the census cannot see a live subscription` and then exited 0
+  // anyway. A count that is displayed but not gated is decoration.
+  //
+  // WHAT THESE GATES ARE, AND WHAT THEY ARE NOT. They are VALIDITY gates —
+  // they decide whether the instrument could see what it claims to have
+  // seen. They are NOT a verdict on the heap: this diagnostic still prints
+  // no ruling on whether the numbers are acceptable, because rows on this
+  // programme are operator-owned (rf2-2rtt6.1). Exit 0 means THE PROBE RAN
+  // AND ITS READINGS ARE VALID, which is a stronger claim than before and
+  // still not an operator's.
+  const failures = [];
+
   // THE CENSUS'S OWN POSITIVE CONTROL. `MOUNTED` is read with 1,200
   // boundaries standing; if it is the same as `released` on every row, the
   // census cannot see a live subscription and no conclusion may be drawn
   // from it about a dead one.
   const mountedRows = out.armRows.filter((r) => r.mounted);
   if (mountedRows.length === 0) {
-    console.log(';; ==== CENSUS POSITIVE CONTROL — not run in this mode ====');
-    console.error('[ret] ok — the probe ran; the table above is the finding');
-    return;
+    // NOT A PASS. `sawEntries.length === mountedRows.length` is `0 === 0`
+    // on an empty set, so running the comparison here would print `[ok  ]
+    // the census SEES a live subscription` for a control that never ran —
+    // a vacuous truth reported as evidence, which is the same fault as the
+    // vacuous bundle-composition check the sibling rig guards against.
+    console.log(';; ==== CENSUS POSITIVE CONTROL — NOT RUN IN THIS MODE ====');
+    console.log(
+      ';;   SERIES B did not run, so the sub-cache census has no positive control in\n' +
+        ';;   this run and NO claim about live or disposed subscriptions may be drawn\n' +
+        ';;   from it. That is a NARROWED SCOPE, not a pass. The heap series above is\n' +
+        ';;   what this mode measures.'
+    );
+  } else {
+    const sawEntries = mountedRows.filter(
+      (r) => ((r.mounted.subCache || {}).entries || 0) > ((r.subCache || {}).entries || 0)
+    );
+    const sawWatchers = mountedRows.filter(
+      (r) =>
+        ((r.mounted.subCache || {})['watchers-total'] || 0) >
+        ((r.subCache || {})['watchers-total'] || 0)
+    );
+    console.log(';; ==== CENSUS POSITIVE CONTROL — published passing or not ====');
+    console.log(
+      `;;   sub-cache ENTRIES:  ${sawEntries.length} of ${mountedRows.length} cycles read MORE ` +
+        'while mounted than after release'
+    );
+    const entriesOk = sawEntries.length === mountedRows.length;
+    console.log(
+      entriesOk
+        ? ';;     [ok  ] the census SEES a live subscription, so a zero after release is a real zero'
+        : ';;     [FAIL] the census cannot see a live subscription, so its zero after release is\n' +
+          ';;            not evidence of anything'
+    );
+    // AND IT EXITS ON IT. This printed `[FAIL]` and then `[ret] ok` — an
+    // exact landed one-cycle run, deliberately blinded, did precisely that.
+    // The ENTRIES column is the one with a working control and it is the
+    // column the H1-is-dead conclusion rests on; a run whose control failed
+    // has not earned that conclusion.
+    if (!entriesOk) {
+      failures.push(
+        `the sub-cache census POSITIVE CONTROL failed: only ${sawEntries.length} of ` +
+          `${mountedRows.length} cycles read more entries with the roots standing than ` +
+          `after release. The census cannot see a live subscription, so its zero after ` +
+          `release is not evidence that anything was disposed.`
+      );
+    }
+    console.log(
+      `;;   reaction WATCHERS:  ${sawWatchers.length} of ${mountedRows.length} cycles read MORE ` +
+        'while mounted than after release'
+    );
+    // NOT A GATE, deliberately. This column is BLIND under `:advanced` and
+    // the probe says so on every run; gating it would refuse every valid
+    // run, and reading its zero as "nothing is watching" is the misreading
+    // the note exists to prevent. It carries no information in either
+    // direction, so it decides nothing in either direction.
+    console.log(
+      sawWatchers.length === 0
+        ? ';;     [UNCH] BLIND. `:advanced` renames a deftype field, so `watches` is not reachable\n' +
+          ';;            by name from outside the type. This column carries NO information in\n' +
+          ';;            EITHER direction and must not be read as "nothing is watching".'
+        : ';;     [ok  ] the watcher census can see a live watcher'
+    );
   }
-  const sawEntries = mountedRows.filter(
-    (r) => ((r.mounted.subCache || {}).entries || 0) > ((r.subCache || {}).entries || 0)
-  );
-  const sawWatchers = mountedRows.filter(
-    (r) =>
-      ((r.mounted.subCache || {})['watchers-total'] || 0) >
-      ((r.subCache || {})['watchers-total'] || 0)
-  );
-  console.log(';; ==== CENSUS POSITIVE CONTROL — published passing or not ====');
-  console.log(
-    `;;   sub-cache ENTRIES:  ${sawEntries.length} of ${mountedRows.length} cycles read MORE ` +
-      'while mounted than after release'
-  );
-  console.log(
-    sawEntries.length === mountedRows.length
-      ? ';;     [ok  ] the census SEES a live subscription, so a zero after release is a real zero'
-      : ';;     [FAIL] the census cannot see a live subscription, so its zero after release is\n' +
-        ';;            not evidence of anything'
-  );
-  console.log(
-    `;;   reaction WATCHERS:  ${sawWatchers.length} of ${mountedRows.length} cycles read MORE ` +
-      'while mounted than after release'
-  );
-  console.log(
-    sawWatchers.length === 0
-      ? ';;     [UNCH] BLIND. `:advanced` renames a deftype field, so `watches` is not reachable\n' +
-        ';;            by name from outside the type. This column carries NO information in\n' +
-        ';;            EITHER direction and must not be read as "nothing is watching".'
-      : ';;     [ok  ] the watcher census can see a live watcher'
-  );
+
+  // --- the readings themselves have to be READINGS ------------------------
+  //
+  // The header has always said exit 1 is reserved for "a census that could
+  // not be read", and nothing implemented it: a census that answered
+  // `:no-frame`, `:no-sub-cache` or an error string printed the token in
+  // the table and passed, and a heap column of `n/a` printed `n/a` and
+  // passed. Every row of every series is checked, because a diagnostic
+  // whose readings are absent has measured nothing whatever its table
+  // looks like.
+  const allRows = [
+    ['SERIES A', out.entries],
+    [`SERIES B ${ARM}`, out.armRows],
+    [`SERIES B ${CONTROL_ARM}`, out.controlRows],
+    ['SERIES C', out.repro],
+  ];
+  const readings = (r) => (r.mounted ? [r, r.mounted] : [r]);
+  for (const [series, rows] of allRows) {
+    for (const r of rows) {
+      for (const c of readings(r)) {
+        const sc = c.subCache || {};
+        if (sc.error !== undefined) {
+          failures.push(`${series} row ${r.i}: the sub-cache census threw — ${sc.error}`);
+        } else if (typeof sc.entries !== 'number' && r.framed) {
+          // GATED ON `framed`, not on the row index. The pre-anything
+          // baseline row has no frame yet and `:no-frame` is the truthful
+          // answer there; the same token AFTER a segment entry means the
+          // census is pointed at nothing. Refusing both would refuse every
+          // valid run, and refusing neither is how `:no-frame` used to
+          // print into the table and pass.
+          failures.push(
+            `${series} row ${r.i}: the sub-cache census read ${JSON.stringify(sc.entries)} ` +
+              `rather than a count, with a segment already entered — the census is ` +
+              `pointed at nothing, so no row of this table is evidence about subscriptions`
+          );
+        }
+        if (!(c.usedJSHeap >= 0)) {
+          failures.push(
+            `${series} row ${r.i}: no heap reading (performance.memory absent — ` +
+              `--enable-precise-memory-info). The heap series IS this diagnostic.`
+          );
+        }
+        // The page-side collector only has to exist when it is the one
+        // being asked to collect. `RETENTION_COLLECT=cdp` and `=none`
+        // never call it, so its absence there is not a fault.
+        if ((COLLECT === 'page' || COLLECT === 'both') && !c.gcAvailable) {
+          failures.push(
+            `${series} row ${r.i}: RETENTION_COLLECT=${COLLECT} asks the PAGE to collect ` +
+              `and window.gc is absent, so the call skipped silently and this reading ` +
+              `did not follow the collection it claims to`
+          );
+        }
+      }
+      if (r.uncollectedHeap !== undefined && !(r.uncollectedHeap >= 0)) {
+        failures.push(
+          `${series} row ${r.i}: the UNCOLLECTED reading is missing, and it is the ` +
+            `column the garbage-versus-retention conclusion is drawn from`
+        );
+      }
+    }
+  }
 
   const unverified = [...out.armRows, ...out.controlRows, ...out.repro].filter(
     (r) => r.verify && !r.verify.ok
   );
   if (out.pageErrors.length > 0) {
-    console.error(
-      `[ret] FAILED: ${out.pageErrors.length} uncaught page error(s) — every census above ` +
+    failures.push(
+      `${out.pageErrors.length} uncaught page error(s) — every census above ` +
         `was taken on a page that had already thrown:\n  ${out.pageErrors.join('\n  ')}`
     );
-    process.exit(1);
   }
   if (unverified.length > 0) {
-    console.error(
-      `[ret] FAILED: ${unverified.length} cycle(s) did not verify at the DOM. An arm that ` +
+    const detail = unverified
+      .map((r) => `row ${r.i}: ${r.verify.bad} of ${r.verify.cycles} cycles`)
+      .join('; ');
+    failures.push(
+      `${unverified.length} row(s) did not verify at the DOM (${detail}). An arm that ` +
         'silently rendered nothing would read as the substrate that retains least.'
     );
+  }
+
+  if (failures.length) {
+    for (const f of failures) console.error(`[ret] FAILED: ${f}`);
     process.exit(1);
   }
   console.error('[ret] ok — the probe ran; the table above is the finding');
