@@ -8,6 +8,20 @@ regression included the R=0 anchor the page promised it excluded. Every figure
 below is a fresh reading through the corrected fit; the superseded publication
 is recorded in [§7](#7-superseded) rather than deleted.
 
+**Regime stamp — distinct-query (Q = E), mandatory worst-case witness,
+operative upper-envelope family.** The heap red-zone regime ruling (delegated
+by Mike, 2026-07-31; authoritative text on rf2-2rtt6.16, transcription on
+rf2-2rtt6.1) makes cache cardinality part of the witness: every heap red-zone
+row stamps **B** (boundaries), **E** (boundary-query edges) and **Q** (unique
+live query keys). On this ladder every read is a distinct query, so **Q = E**
+and the fan-out E/Q is 1 on every rung — Curve B holds B = 1,200 with
+E = 1,200·R, Curve A holds R = 3 with E = 3·B. These rows are the **operative
+upper-envelope red-zone family**: where governance needs one conservative
+number, the distinct-query row is used and labelled an *upper-envelope capacity
+budget*, never "retained bytes per boundary" unqualified. The frontier arm's
+shared-query grid (E/Q = 4) is fan-out witness evidence, not comparable to
+these rows; its ratios remain the cross-regime check.
+
 **The instrument is identified by content hash, not by commit SHA.** A SHA does
 not survive a rebase — the previous publication was invalidated by exactly that,
 and this one was rebased onto `main` between its run and its merge, moving every
@@ -109,8 +123,10 @@ Three consequences, and the second is the one the programme has to act on.
    measured meets it for a boundary that reads once.** Both shells clear it
    (UIx 208 B, Reagent 428 B). At one read UIx is at **3,807 B** — 7.6× the
    1 KB paper-fail line — and Reagent at **1,562 B**, 1.6×. The budget row in
-   [validation.md](../validation.md) needs a per-read companion, or it is
-   unfalsifiable; see [§5](#5-what-this-hands-the-programme).
+   [validation.md](../validation.md) now says so explicitly: the target/fail
+   line is the **R = 0 boundary shell**, and the per-read axis is judged
+   separately under the ruling's regime-matched gates; see
+   [§5](#5-what-this-hands-the-programme).
 3. **HD-002's tier-1 exclusion now has a price in bytes.** The scalar per-read
    hook spine was excluded as product on hook-rule grounds (N reads = N hooks
    breaks HD-020's ≤2-hook budget). Memory says the same thing independently and
@@ -210,6 +226,10 @@ to be compared with the published sub-free rows.
 carries the subscription as well as the hook. That is the editing-grid shape
 (use-case A4, and A3's bulk row), and it is the honest worst case: a page where
 many boundaries read *one* shared sub pays the reaction once, not once each.
+The heap-regime ruling (rf2-2rtt6.16) makes that property normative —
+**distinct-query (Q = E), mandatory worst-case witness, operative
+upper-envelope family** — and a candidate row is judged only against donor rows
+measured under the same regime on the same witness.
 
 **The fit is over 1, 3, 7 and 20 — and over nothing else.** `validation.md`
 requires the ladder to be measured directly and never inferred from a sub-free
@@ -224,7 +244,8 @@ everywhere and regressed nowhere.
 ## 1. Curve B — fixed boundaries × growing reads
 
 1,200 boundaries, reads varying. `y` is retained bytes per boundary above the
-1,200-boundary floor. **A** is six rounds; **fwd**/**rev** split those six by
+1,200-boundary floor. Witness stamp: **B = 1,200 · E = 1,200·R · Q = E**
+(fan-out 1). **A** is six rounds; **fwd**/**rev** split those six by
 plan direction; **C** is the independent snapshot pass.
 
 ### Reagent on re-frame2 subs
@@ -273,7 +294,8 @@ a point that reads nothing.
 
 Three reads throughout; boundaries doubling. `y` is *total* excess over the
 same-size floor, so the slope is bytes per boundary and the intercept is
-whatever the page pays once. This curve never had an R=0 rung and is unaffected
+whatever the page pays once. Witness stamp: **B = 300–2,400 · E = 3·B ·
+Q = E** (fan-out 1). This curve never had an R=0 rung and is unaffected
 by the fit correction; it is re-measured here because everything else was.
 
 | boundaries | Reagent, fwd | Reagent, rev | UIx, fwd | UIx, rev |
@@ -368,10 +390,12 @@ any candidate that misses it is missing something both donors already have.
 
 ## 5. What this hands the programme
 
-**The red-zones for this witness family.** Under the delegated ruling on
-`rf2-2rtt6.1`, the measured UIx retained-heap figure *is* the red-zone
-threshold, and these are it — **re-derived from the corrected fit, superseding
-the values published on 2026-07-30**:
+**The red-zones for this witness family — distinct-query (Q = E), the
+operative upper-envelope family.** Under the delegated ruling on `rf2-2rtt6.1`
+as regime-qualified by the heap-regime ruling (rf2-2rtt6.16), the measured UIx
+retained-heap figure on this witness *is* the red-zone threshold, and these are
+it — witness stamp B = 1,200 · E = 1,200·R · Q = E, **re-derived from the
+corrected fit, superseding the values published on 2026-07-30**:
 
 | axis | UIx red-zone | superseded value |
 |---|---:|---:|
@@ -388,17 +412,17 @@ the correction. They are restated anyway, because a red-zone whose provenance
 is a fit that used a forbidden rung is not a red-zone anyone should have to
 defend.
 
-**One thing the operator should look at before those are applied mechanically.**
-The ruling's rationale is that *UIx is the frontier comparator*. On the clock
-that is the recorded position. **On retained heap, in this family, it is not**:
-UIx is 3.77× worse than Reagent per read, and the crossover sits below a single
-read. A red-zone derived from UIx alone would therefore set a per-read ceiling
-**3.77× looser than the best measured option**, and a candidate could clear it
-comfortably while being worse than the Reagent adapter that already ships. The
-rule as written is still the rule; this page only records that on this axis it
-is not binding, and that **943 B/read is the number a native layer actually has
-to beat.** Whether to tighten the memory red-zone to the per-axis best rather
-than to UIx is the operator's call, and only the operator's.
+**The inversion this page surfaced has been ruled on** (rf2-2rtt6.16, delegated
+by Mike, 2026-07-31; transcription on rf2-2rtt6.1). On retained heap UIx is
+3.77× worse than Reagent per read and the crossover sits below a single read,
+so a UIx-only ceiling is 3.77× looser than the best measured option. The ruling
+keeps **both lines, regime-matched**, rather than re-sourcing the red-zone: the
+red-zone stays UIx-sourced at **3,552 B/read** [3,551–3,553] — worse than that
+is RED and needs an explicit operator waiver naming the dogfood benefit — and
+Reagent's **943 B/read** [935–944] governs through K3 — worse than it with no
+named paper path down is K3 territory. Between the two lines a candidate is
+**"UIx-rule cleared, K3 open until a path down is named"**, never plain green.
+**943 B/read remains the number a native layer actually has to beat.**
 
 **A target for HD-002's grouped tier.** Grouped `use-subs` — one fixed hook
 receiving the whole query collection — can only remove the *hook* half of a
@@ -409,12 +433,20 @@ read**, or **≈18 KB on the census's seven-read archetype**. That is a large
 prize and a concrete pre-registered number, which is what HD-002 clause (c) asks
 strategy hypotheses to be counted against.
 
-**A budget that needs a second row.** `validation.md` sets *exclusive retained
-per boundary* at ~0.4–0.5 KB target, >1 KB paper-fail. Read as a **shell**
-budget it is exactly right and both donors pass. Read as a *boundary including
-its reads* it is unreachable — the cheapest substrate measured is 1.6× the
-paper-fail line at **one** read. The budget table wants a per-read row beside
-the per-boundary one, and the per-read row's honest anchor is 943 B.
+**The budget row is now split, shell from read.**
+[validation.md](../validation.md) sets *exclusive retained per boundary* at
+~0.4–0.5 KB target, >1 KB paper-fail, and per the heap-regime ruling
+(rf2-2rtt6.16, Part 3) that line is explicitly the **R = 0 boundary shell** —
+both donors comply (Reagent ~418–428 B, UIx ~208 B). The per-read axis is
+judged separately under the regime-matched gates above, so the shipped Reagent
+adapter is not retroactively K3-failed: its ~1,562 B at one read is shell
+(~428 B) plus first-read increment (~1,137 B), each judged on its own axis —
+and a candidate cannot pass the paper line by amortising subscriptions across
+boundaries. Component budget rows (shell / per-edge / per-unique-key) enter
+validation.md only after rf2-5prok's fan-out sweep verifies the additive heap
+model and prices the terms; in this witness (Q = E) the 943 B slope is the
+*sum* of the per-edge and per-unique-key terms — a valid total marginal cost in
+this regime only, not a pure view-layer per-read price.
 
 ---
 
