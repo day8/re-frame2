@@ -27,7 +27,7 @@
   (set! (.-Z3VLZ_UIX_ADAPTER js/window) (pr-str (:kind adapter-ref)))
   (let [stock? (install-stock?)]
     (rf/init! (if stock? stock/adapter slim/adapter))
-    (probe/run! (if stock? stock/substrate slim/substrate)
+    (probe/run-probe! (if stock? stock/substrate slim/substrate)
                 {:bundle      :mixed
                  :installed   (if stock? :reagent :reagent-slim)
                  :compiled-in [:reagent2 :reagent :uix]}

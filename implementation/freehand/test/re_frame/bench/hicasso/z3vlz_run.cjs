@@ -107,15 +107,26 @@ function build(variant) {
   // ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
   // whitespace when the EDN contains a newline and then reports `EOF while
   // reading` from a fragment.
+  // `Z3VLZ_OPT=none` builds the SAME entries unoptimised. It is a
+  // rig-debugging aid ONLY and never a source of a finding: `goog.DEBUG` is
+  // true there, which puts the whole Spec 009 instrumentation seam back on
+  // the subscription path this probe walks. Every conclusion in the bead is
+  // taken from the default `:advanced` build, which is the artefact a
+  // consumer ships and the one HD-008 measured.
+  // `release` is what carries `:advanced`; the unoptimised aid is the
+  // `compile` command, because `release` refuses `:optimizations :none`
+  // outright ("optimizations set to :none, can't optimize").
+  const dev = process.env.Z3VLZ_OPT === 'none';
   const merge =
     `{:output-dir "${variant.outDir}" :asset-path "." ` +
     `:compiler-options {:source-map true} ` +
     `:modules {:main {:init-fn ${variant.initFn}}}}`;
   const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
-  const r = spawnSync(process.execPath, [runner, 'release', BUILD_ID, '--config-merge', merge], {
-    cwd: IMPL,
-    stdio: ['ignore', 'inherit', 'inherit'],
-  });
+  const r = spawnSync(
+    process.execPath,
+    [runner, dev ? 'compile' : 'release', BUILD_ID, '--config-merge', merge],
+    { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
+  );
   if (r.status !== 0) {
     console.error(`[z3vlz] build failed with status ${r.status}`);
     process.exit(1);
@@ -139,7 +150,23 @@ function composition(variant) {
     );
     process.exit(1);
   }
-  const sources = JSON.parse(fs.readFileSync(mapFile, 'utf8')).sources || [];
+  // shadow-cljs emits an INDEXED source map (`sections`), one section per
+  // compiled input, so the file has no top-level `sources` array. Both
+  // shapes are read here: a driver that silently found zero sources would
+  // report "stock reagent absent" for every bundle, including the ones that
+  // contain it, and the bundle-composition check would pass vacuously.
+  const raw = JSON.parse(fs.readFileSync(mapFile, 'utf8'));
+  const sources = [
+    ...(raw.sources || []),
+    ...(raw.sections || []).flatMap((s) => (s.map && s.map.sources) || []),
+  ];
+  if (sources.length === 0) {
+    console.error(
+      `[z3vlz] FAILED: ${mapFile} yielded no source list — the bundle-composition ` +
+        `check would pass vacuously for every bundle`
+    );
+    process.exit(1);
+  }
   return {
     sources: sources.length,
     reagent: sources.some((s) => STOCK_REAGENT.test(s)),
@@ -195,11 +222,46 @@ function serve(outDir) {
 
 async function drive(page, url) {
   const pageErrors = [];
+  // Resolved by the FIRST uncaught page error, and raced against the
+  // done-sentinel below. A throw that escapes the probe's own promise chain
+  // leaves `window.HICASSO_DONE` unset for ever, so without this race the
+  // driver would sit out its whole sentinel and then report a TIMEOUT —
+  // burying the actual stack under a budget failure it did not have.
+  let onFirstError;
+  const firstError = new Promise((res) => {
+    onFirstError = res;
+  });
   const onError = (e) => {
-    pageErrors.push(e.message);
+    pageErrors.push({ message: e.message, stack: e.stack });
     console.error('[z3vlz] PAGE ERROR:', e.message);
+    if (e.stack) console.error(e.stack);
+    onFirstError('pageerror');
   };
   page.on('pageerror', onError);
+
+  // Playwright's `pageerror` reports `name: message`, and an `:advanced`
+  // bundle renames the constructor of any Error subclass — so a CLJS
+  // `ExceptionInfo` with an empty message arrives as a two-letter munged
+  // token and nothing else. The page-side listener keeps what the driver
+  // side cannot see: the raw stack and, for a fail-loud `ex-info`, its
+  // `ex-data` (which is where every re-frame diagnostic actually lives).
+  await page.addInitScript(() => {
+    window.addEventListener('error', (ev) => {
+      const e = ev.error;
+      let data = null;
+      try {
+        data = e && e.data ? JSON.stringify(e.data, (k, v) => (v === undefined ? null : v)) : null;
+      } catch (_) {
+        data = e && e.data ? String(e.data) : null;
+      }
+      window.Z3VLZ_UNCAUGHT = {
+        str: String(e),
+        message: e && e.message,
+        stack: e && e.stack,
+        data,
+      };
+    });
+  });
 
   // `'commit'`, not `'load'`: the bundle's `:init-fn` runs inside the
   // `<script>`, so the probe is already running while the document is
@@ -209,13 +271,24 @@ async function drive(page, url) {
     timeoutMs: NAV_TIMEOUT_MS,
     budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
   });
-  await page.waitForFunction('window.HICASSO_DONE === true || window.HICASSO_ERROR', null, {
-    timeout: SENTINEL_TIMEOUT_MS,
-  });
+  await Promise.race([
+    page.waitForFunction('window.HICASSO_DONE === true || window.HICASSO_ERROR', null, {
+      timeout: SENTINEL_TIMEOUT_MS,
+    }),
+    firstError,
+  ]);
   const err = await page.evaluate('window.HICASSO_ERROR || null');
   const results = await page.evaluate('window.HICASSO_RESULTS || {}');
+  const uncaught = await page.evaluate('window.Z3VLZ_UNCAUGHT || null');
+  if (uncaught) {
+    console.error('[z3vlz] UNCAUGHT (page-side capture):');
+    console.error(`  toString: ${uncaught.str}`);
+    console.error(`  message:  ${uncaught.message}`);
+    console.error(`  ex-data:  ${uncaught.data}`);
+    console.error(`  stack:    ${uncaught.stack}`);
+  }
   page.off('pageerror', onError);
-  return { err, results, pageErrors };
+  return { err, results, pageErrors, uncaught };
 }
 
 (async () => {
@@ -247,7 +320,7 @@ async function drive(page, url) {
           console.error(
             `[z3vlz] FAILED: ${outcome.pageErrors.length} uncaught page error(s) on ` +
               `${p.label} — every figure above was taken on a page that had already ` +
-              `thrown:\n  ${outcome.pageErrors.join('\n  ')}`
+              `thrown:\n  ${outcome.pageErrors.map((e) => e.stack || e.message).join('\n  ')}`
           );
           failed = true;
         }
@@ -266,14 +339,23 @@ async function drive(page, url) {
   console.log(`;; ==== Z3VLZ RUNTIME ====`);
   console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
   console.log(`;; ==== Z3VLZ SUMMARY ====`);
+  // The three ORDER rows side by side. `inside-drain` is the substrate's own
+  // documented contract and is therefore the row that answers the bead's
+  // question about the ADAPTER; `yield-then-drain` is `lane/verified-write!`'s
+  // shape and is the row that answers the question about the HARNESS.
+  const order = (v, k) =>
+    v ? ((v.match(new RegExp(`:${k} "([^"]+)"`)) || [])[1] || '?') : '?';
+  console.log(
+    `;; ${'page'.padEnd(40)} ${'stock?'.padEnd(7)} ${'mount'.padEnd(6)} ` +
+      `${'inside-drain'.padEnd(20)} ${'drain-immediately'.padEnd(20)} yield-then-drain`
+  );
   for (const r of rows) {
-    const reactive = r.verdict ? /:reactive\?\s+true/.test(r.verdict) : null;
     const mount = r.verdict ? /:mount-correct\?\s+true/.test(r.verdict) : null;
-    const unver = r.verdict ? (r.verdict.match(/:unverified-of "([^"]+)"/) || [])[1] : null;
     console.log(
-      `;; ${r.page.padEnd(42)} stock-reagent-in-bundle=${String(r.comp.reagent).padEnd(5)} ` +
-        `mount-correct=${String(mount).padEnd(5)} reactive=${String(reactive).padEnd(5)} ` +
-        `${unver || ''}`
+      `;; ${r.page.padEnd(40)} ${String(r.comp.reagent).padEnd(7)} ${String(mount).padEnd(6)} ` +
+        `${order(r.verdict, 'inside-drain').padEnd(20)} ` +
+        `${order(r.verdict, 'drain-immediately').padEnd(20)} ` +
+        `${order(r.verdict, 'yield-then-drain')}`
     );
   }
   console.log(
