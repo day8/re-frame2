@@ -33,6 +33,7 @@ exclude_docs: |
   tools/playground/
   migration/from-re-frame-v1/codemod/
   design/freehand/
+  design/hicasso/
 
 # Build-time hooks. mkdocs_hooks.py rewrites core/* cross-references
 # from ../../spec/ (correct for GitHub source-tree browsing, where spec/
