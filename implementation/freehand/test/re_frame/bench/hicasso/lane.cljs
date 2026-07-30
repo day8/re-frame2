@@ -212,12 +212,55 @@
     {:ms     (- (now-ms) t0)
      :mounts (mapv (fn [c h] {:arm arm :container c :handle h}) containers @handles)}))
 
+;; ---------------------------------------------------------------------------
+;; Teardown, and why a swallowed one is a measurement fault
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private teardown-failures (atom []))
+
+(defn teardown-failure!
+  "Record a release/unmount that threw, and answer nil.
+
+  Every teardown in this lane is wrapped, because a release that throws
+  half way through must still detach the container and must not abort the
+  round. What it must NOT do is vanish, which is what `(catch :default _
+  nil)` did at four sites (rf2-f5roa, from the PR #7263 and #7268 audits).
+
+  An unmount that threw has left the arm's subscriptions, its watches and
+  its React root STANDING. The next row is then measured on a page that is
+  carrying them — more work, attributed to whatever arm happens to be
+  under the clock — and the run reports a precise number for a page that
+  is not the page under test. That is the same class as a write that never
+  reached the DOM, and it gets the same treatment: recorded at the site,
+  adjudicated by the caller, fatal."
+  [where e]
+  (swap! teardown-failures conj
+         {:where (str where)
+          :error (or (some-> e .-message) (str e))})
+  nil)
+
+(defn drain-teardown-failures!
+  "Answer every teardown failure recorded since the last drain, and clear.
+
+  Draining rather than accumulating so a caller can attribute a failure to
+  the row that was running when it happened, instead of to the end of the
+  run."
+  []
+  (let [fs @teardown-failures]
+    (reset! teardown-failures [])
+    fs))
+
 (defn release!
-  "Unmount and detach. Never timed."
+  "Unmount and detach. Never timed.
+
+  A throw is RECORDED ([[teardown-failure!]]) rather than swallowed, and
+  the container is detached either way — the record is what makes it
+  fatal, and detaching is what keeps one bad arm from leaving its DOM
+  behind for every row that follows."
   [{:keys [arm handle container]}]
   (when handle
     (try (react-dom/flushSync (fn [] ((:unmount arm) handle)))
-         (catch :default _ nil)))
+         (catch :default e (teardown-failure! (str "release! " (:id arm)) e))))
   (when container (.remove container))
   nil)
 
@@ -376,6 +419,125 @@
 
 (defn tally-value [t] (let [{:keys [of bad]} @t] {:writes of :unverified bad}))
 
+(defn verified-writes!
+  "Run `ops` — a seq of `[i val probes]` — as ONE measured window: each
+  writes, waits the way THIS ARM'S SCHEDULER requires and forces the arm's
+  own synchronous drain; the clock stops after the last of them; THEN every
+  `probes` cell of every op is read back out of the DOM.
+
+  Answers a promise of `{:ms :write-ms :gap-ms :force-ms :ok? :oks}`. `:ms`
+  is the WHOLE window; the three legs are sums across the `k` ops, so a
+  per-operation figure is any of them divided by `k`. `:oks` is one flag
+  per op and `:ok?` is all of them; the tally banks `k` writes.
+
+  ## ONE CLOCK OVER k OPERATIONS
+
+  Chrome clamps `performance.now()` to 100 µs. A witness whose window is
+  four quanta wide publishes a range that is mostly quantisation — the P0
+  converged bulk-narrow row read four estimates of 1.0405 / 1.1556 /
+  1.1738 / 1.1972 with one minimum of exactly 1.0000, which is the quantum
+  wearing a null result's clothes rather than a tie (rf2-zb3qg). Timing `k`
+  operations as ONE sample lifts the window clear of the clamp, and it is
+  NOT the same as summing `k` separately-clamped readings, which quantises
+  `k` times and adds the errors. [[mount-batch!]] does this for mounts and
+  `hd8-rows/window-of` proved it for HD-008's narrow write (rf2-9zysg);
+  this is that shape lifted into the shared lane rather than a third copy
+  of it.
+
+  ## WHY THE READ-BACK SURVIVES THE BATCHING
+
+  A batched window cannot verify each write in the turn its own drain ran
+  in, because there is only one clock. It verifies all `k` after the clock
+  stops — and that is not the weakening it looks like:
+
+    NO MACROTASK RUNS INSIDE THE WINDOW. Every turn between the first
+    write and the last drain is a MICROTASK. The fault this read-back
+    exists to catch is a commit React has PARKED at the default lane,
+    which is scheduled through the Scheduler's `MessageChannel` — a
+    MACROTASK — so it cannot land inside the window however many
+    microtasks pass. A parked commit is still parked when the read-backs
+    run, and all `k` read UNVERIFIED.
+
+  What the batch relaxes is microtask-scale lateness: an early op gets up
+  to `k - 1` extra microtask turns before it is read back. The unbatched
+  window already tolerates exactly one such turn by construction — that IS
+  the yield — so this is a difference of degree on a tolerance the
+  instrument already grants, not a new blind spot. It belongs in the row's
+  stated method, and every caller that batches states it.
+
+  Each op must therefore carry its OWN value and its OWN cell, so that no
+  read-back can be satisfied by a neighbour's commit. That is the caller's
+  obligation and it is why `ops` carries `val` per op rather than one
+  value for the batch.
+
+  ## THE WAIT BELONGS TO THE ARM'S SCHEDULER, NOT TO THE HARNESS
+
+  See [[verified-write!]]. In the yielding shape the yield is preserved PER
+  OPERATION and never batched away: the next write starts in the turn the
+  previous drain finished in, so a `k`-op window holds exactly `k` harness
+  turns rather than `2k`."
+  [t {:keys [arm container]} ops]
+  (let [ops        (vec ops)
+        verify-all (fn []
+                     (mapv (fn [[_ val probes]]
+                             (every? #(= (str val) (text-at container %)) probes))
+                           ops))
+        bank!      (fn [oks]
+                     (swap! t (fn [{:keys [of bad]}]
+                                {:of  (+ of (count oks))
+                                 :bad (+ bad (count (remove identity oks)))}))
+                     oks)
+        answer     (fn [ms write-ms gap-ms force-ms]
+                     (let [oks (verify-all)]
+                       (bank! oks)
+                       {:ms       ms
+                        :write-ms write-ms
+                        :gap-ms   gap-ms
+                        :force-ms force-ms
+                        :ok?      (every? identity oks)
+                        :oks      oks}))]
+    (if (= (:scheduler arm) :microtask)
+      ;; Write, then drain, with nothing between them: the substrate's queue
+      ;; is filled synchronously by the write and is still there when the
+      ;; drain opens its boundary, so the commit lands INSIDE the window.
+      ;; The whole batch is one synchronous run, so not even a microtask
+      ;; separates a drain from the next write.
+      ;;
+      ;; `:prev` starts at the window's own `t0` and every leg boundary IS a
+      ;; clock read the unbatched window already took — at k = 1 this is
+      ;; three `now-ms` calls in the same three places, which is what makes
+      ;; the general form exactly the special one.
+      (let [t0 (now-ms)
+            {:keys [prev write force]}
+            (reduce (fn [{:keys [prev write force]} [i val _]]
+                      ((:write! arm) i val)
+                      (let [w (now-ms)]
+                        ((:force! arm))
+                        (let [f (now-ms)]
+                          {:prev f :write (+ write (- w prev)) :force (+ force (- f w))})))
+                    {:prev t0 :write 0.0 :force 0.0}
+                    ops)]
+        (js/Promise.resolve (answer (- prev t0) write 0.0 force)))
+      (let [t0 (now-ms)]
+        (letfn [(run [remaining {:keys [prev write gap force] :as acc}]
+                  (if (empty? remaining)
+                    (js/Promise.resolve (answer (- prev t0) write gap force))
+                    (let [[i val _] (first remaining)]
+                      ((:write! arm) i val)
+                      (let [w (now-ms)]
+                        (-> (js/Promise.resolve nil)
+                            (.then (fn [_]
+                                     (let [g (now-ms)]
+                                       ((:force! arm))
+                                       (let [f (now-ms)]
+                                         (run (next remaining)
+                                              (assoc acc
+                                                     :prev  f
+                                                     :write (+ write (- w prev))
+                                                     :gap   (+ gap (- g w))
+                                                     :force (+ force (- f g)))))))))))))]
+          (run (seq ops) {:prev t0 :write 0.0 :gap 0.0 :force 0.0}))))))
+
 (defn verified-write!
   "Write, wait the way THIS ARM'S SCHEDULER requires, force the arm's own
   synchronous drain, stop the clock — THEN read the written cell back out
@@ -435,44 +597,19 @@
   verifies almost nothing: the recorded fault is a commit that landed
   outside the window, and a stale page can still have one fresh cell in
   it from the previous write. The rotating probe plus the far end of the
-  grid is the cheapest read that a partial commit cannot satisfy."
-  [t {:keys [arm container]} i val probes]
-  (let [verify! (fn [] (every? #(= (str val) (text-at container %)) probes))
-        bank!   (fn [ok?]
-                  (swap! t (fn [{:keys [of bad]}]
-                             {:of (inc of) :bad (if ok? bad (inc bad))}))
-                  ok?)]
-    (if (= (:scheduler arm) :microtask)
-      ;; Write, then drain, with nothing between them: the substrate's queue
-      ;; is filled synchronously by the write and is still there when the
-      ;; drain opens its boundary, so the commit lands INSIDE the window.
-      (let [t0 (now-ms)]
-        ((:write! arm) i val)
-        (let [t1 (now-ms)]
-          ((:force! arm))
-          (let [t2  (now-ms)
-                ok? (verify!)]
-            (bank! ok?)
-            (js/Promise.resolve {:ms       (- t2 t0)
-                                 :write-ms (- t1 t0)
-                                 :gap-ms   0.0
-                                 :force-ms (- t2 t1)
-                                 :ok?      ok?}))))
-      (let [t0 (now-ms)]
-        ((:write! arm) i val)
-        (let [t1 (now-ms)]
-          (-> (js/Promise.resolve nil)
-              (.then (fn [_]
-                       (let [t2 (now-ms)]
-                         ((:force! arm))
-                         (let [t3  (now-ms)
-                               ok? (verify!)]
-                           (bank! ok?)
-                           {:ms       (- t3 t0)
-                            :write-ms (- t1 t0)
-                            :gap-ms   (- t2 t1)
-                            :force-ms (- t3 t2)
-                            :ok?      ok?}))))))))))
+  grid is the cheapest read that a partial commit cannot satisfy.
+
+  ## `k` OPERATIONS UNDER ONE CLOCK, AND WHY THE READ-BACK SURVIVES IT
+
+  [[verified-writes!]] is the general form and this is its `k = 1` case,
+  byte-for-byte: the same clock reads at the same boundaries, the same one
+  microtask between write and drain, the same read-back after the clock
+  stops. Chrome's 100 µs clamp is why the general form exists — a witness
+  whose window is 4 quanta wide publishes a range that is mostly quantum —
+  and `lane/mount-batch!` has done exactly this for mounts since the lane
+  landed."
+  [t mnt i val probes]
+  (verified-writes! t mnt [[i val probes]]))
 
 (defn bulk-probes
   "The probe seq for a BROAD write over `n` cells: a cell that ROTATES with

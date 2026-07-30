@@ -57,6 +57,7 @@ const path = require('node:path');
 // arm-order guard for the repository, never a second copy per lane.
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
 const guard = require('../../freehand/bench/order_guard.cjs');
+const { watchPage } = require('../../freehand/bench/sentinel.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const REPO = path.resolve(IMPL, '..');
@@ -100,6 +101,13 @@ if (RUNS.length === 0) {
 // number is NAMED here rather than defaulted, because an unnamed tolerance is
 // the anonymous-ceiling defect wearing a different hat.
 const TOLERANCE = Number(process.env.HD8_TOLERANCE || 0.35);
+
+// The page's own budget, for the case where the page is ALIVE and simply has
+// not finished. Six rounds of every witness across three adapters is minutes,
+// not seconds. It is no longer the budget a page ERROR is reported against —
+// `sentinel.cjs` races this against the page dying, so a throw is reported in
+// the second it happens instead of twenty minutes later (rf2-f5roa).
+const SENTINEL_TIMEOUT_MS = 20 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Build + serve
@@ -170,33 +178,43 @@ async function runOne(chromium, run) {
   // registry state at module scope; reusing a context would carry the
   // previous adapter's installation into the next run's measurement.
   const browser = await chromium.launch();
-  const page = await browser.newPage();
-  const lines = [];
-  page.on('console', (m) => {
-    const t = m.text();
-    if (t.startsWith(';; HD8')) lines.push(t);
-  });
-  page.on('pageerror', (e) => console.error(`[hd8:${run.id}] page error:`, e.message));
-  // `'commit'`, not `'load'` (rf2-p9fa3). `hd8-app/-main` is this bundle's
-  // `:init-fn`, so the parity pass and every mount row run INSIDE the
-  // `<script>` — `load` cannot fire until the benchmark has yielded, which
-  // is exactly what the sentinel below waits for against a budget twenty
-  // times larger.
-  await navigate(page, `http://127.0.0.1:${PORT}/${run.query}`, {
-    waitUntil: 'commit',
-    timeoutMs: NAV_TIMEOUT_MS,
-    budget: 'the 20-minute wait for `window.HD8_DONE`',
-  });
-  await page.waitForFunction('window.HD8_DONE === true || window.HD8_ERROR', null, {
-    timeout: 20 * 60 * 1000,
-  });
-  const err = await page.evaluate('window.HD8_ERROR || null');
-  const results = await page.evaluate('window.HD8_RESULTS || {}');
-  const samples = await page.evaluate('window.HD8_SAMPLES || []');
-  const summary = await page.evaluate('window.HD8_SUMMARY || {}');
-  const userAgent = await page.evaluate('navigator.userAgent');
-  await browser.close();
-  return { id: run.id, why: run.why, err, results, samples, summary, userAgent, lines };
+  try {
+    const page = await browser.newPage();
+    const lines = [];
+    page.on('console', (m) => {
+      const t = m.text();
+      if (t.startsWith(';; HD8')) lines.push(t);
+    });
+    // Watching starts BEFORE the navigation, because the fault this catches
+    // most often — a contaminated Shadow cache throwing out of ReactDOM —
+    // happens during bundle execution, which is inside the navigation. The
+    // driver used to merely log it here and then wait the full twenty minutes
+    // for a sentinel the throw had already made unreachable (rf2-f5roa).
+    const watch = watchPage(page, `hd8:${run.id}`);
+    // `'commit'`, not `'load'` (rf2-p9fa3). `hd8-app/-main` is this bundle's
+    // `:init-fn`, so the parity pass and every mount row run INSIDE the
+    // `<script>` — `load` cannot fire until the benchmark has yielded, which
+    // is exactly what the sentinel below waits for against a budget twenty
+    // times larger.
+    await navigate(page, `http://127.0.0.1:${PORT}/${run.query}`, {
+      waitUntil: 'commit',
+      timeoutMs: NAV_TIMEOUT_MS,
+      budget: 'the 20-minute wait for `window.HD8_DONE`',
+    });
+    await watch.race('window.HD8_DONE === true || window.HD8_ERROR', {
+      timeoutMs: SENTINEL_TIMEOUT_MS,
+      budget: 'the 20-minute wait for `window.HD8_DONE`',
+    });
+    const err = await page.evaluate('window.HD8_ERROR || null');
+    const results = await page.evaluate('window.HD8_RESULTS || {}');
+    const samples = await page.evaluate('window.HD8_SAMPLES || []');
+    const summary = await page.evaluate('window.HD8_SUMMARY || {}');
+    const userAgent = await page.evaluate('navigator.userAgent');
+    watch.dispose();
+    return { id: run.id, why: run.why, err, results, samples, summary, userAgent, lines };
+  } finally {
+    await browser.close();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -283,9 +301,19 @@ function crossRun(runs) {
   console.log(
     `;;   reproduce   ${ONLY ? `HD8_ONLY=${ONLY} ` : ''}node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs`
   );
-  console.log(`;;   build       shadow-cljs release freehand-release (:advanced, goog.DEBUG false)`);
+  console.log(`;;   build       shadow-cljs release ${BUILD_ID} (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);
   console.log(`;;   runs        ${RUNS.map((r) => r.id).join(', ')}${ONLY ? `  (HD8_ONLY=${ONLY})` : ''}`);
+  // THE EFFECTIVE TOLERANCE, on the record beside the figures it adjudicated.
+  // It was not printed, and it does not equal `order_guard`'s own default:
+  // the guard defaults to 0.10 and this driver passes 0.35, for the reason
+  // above. An adjudication whose threshold a reader has to go and find in the
+  // source — or, worse, that an unrecorded `HD8_TOLERANCE=` in someone's shell
+  // moved without trace — is the anonymous-ceiling defect again (rf2-f5roa).
+  console.log(
+    `;;   guard tol   ${TOLERANCE}  (order_guard default 0.10; this driver's stated ` +
+      `choice 0.35${process.env.HD8_TOLERANCE ? `; OVERRIDDEN by HD8_TOLERANCE=${process.env.HD8_TOLERANCE}` : ''})`
+  );
 
   build();
   const server = serve();
@@ -295,7 +323,16 @@ function crossRun(runs) {
     const { chromium } = require('playwright');
     for (const r of RUNS) {
       console.error(`[hd8] run ${r.id} — ${r.why}`);
-      const out = await runOne(chromium, r);
+      let out;
+      try {
+        out = await runOne(chromium, r);
+      } catch (e) {
+        // A page that died is a HARD failure and it stops the sweep: the
+        // remaining runs would each spend their own budget re-discovering a
+        // broken bundle, and no figure from this one is a measurement.
+        hardFail = `${r.id}: ${e.message}`;
+        break;
+      }
       runs.push(out);
       if (out.err) hardFail = `${r.id}: ${out.err}`;
     }

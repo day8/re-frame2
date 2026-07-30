@@ -190,11 +190,21 @@
   "Tear down whatever adapter is installed, install this segment's,
   re-register the sub graph and stand the frame back up seeded.
 
-  All of it OUTSIDE every measured window."
+  All of it OUTSIDE every measured window.
+
+  A destroy that throws is RECORDED rather than swallowed. This is the
+  segment SEAM, so it is the worst place in the run to lose one: a frame
+  that did not tear down keeps its subscription caches and its watches,
+  and the very next thing that happens is the OTHER adapter being
+  installed over the top of them — after which every figure in the
+  segment is a figure for a page carrying the previous segment's
+  reactive graph (rf2-f5roa, from the PR #7268 audit)."
   [{:keys [adapter]}]
-  (try (rf/destroy-frame! v/subs-frame) (catch :default _ nil))
+  (try (rf/destroy-frame! v/subs-frame)
+       (catch :default e (lane/teardown-failure! "enter-segment! destroy-frame!" e)))
   (when (rf/current-adapter)
-    (try (rf/destroy-adapter!) (catch :default _ nil)))
+    (try (rf/destroy-adapter!)
+         (catch :default e (lane/teardown-failure! "enter-segment! destroy-adapter!" e))))
   (rf/init! adapter)
   (v/register!)
   (rf/make-frame {:id v/subs-frame})
@@ -437,8 +447,29 @@
 
 (defn- release-bulk-arms! [mounts]
   (doseq [{:keys [arm handle container]} mounts]
-    (try ((:unmount arm) handle) (catch :default _ nil))
+    (try ((:unmount arm) handle)
+         (catch :default e
+           (lane/teardown-failure! (str "release-bulk-arms! " (:id arm)) e)))
     (.remove container)))
+
+(defn- assert-teardown-clean!
+  "Throw if any teardown has failed since the last check.
+
+  Checked BETWEEN rows and segments, which is where the damage is done: a
+  React root or a frame that did not tear down is still holding its
+  watches and its caches when the next row is measured, and that row then
+  reports a precise number for a page that is not the page under test.
+  The throw lands in `-main`'s existing `.catch`, which records
+  `HICASSO_ERROR` and exits 1."
+  [after]
+  (let [fs (lane/drain-teardown-failures!)]
+    (when (seq fs)
+      (throw (ex-info (str "teardown FAILED after " after
+                           " — an arm or a frame did not tear down, so its caches and "
+                           "watches are still standing and every row after this one "
+                           "would be measured on a page carrying them: " (pr-str fs))
+                      {:after after :failures fs})))
+    nil))
 
 ;; ---------------------------------------------------------------------------
 ;; One round of one mount witness in one segment
@@ -480,26 +511,66 @@
 ;; One round of one bulk kind in one segment
 ;; ---------------------------------------------------------------------------
 
+(def ^:private narrow-batch-k
+  "How many narrow writes share ONE clock (rf2-zb3qg).
+
+  Chrome clamps `performance.now()` to 100 µs and the unbatched narrow row
+  sat one to one-and-a-half quanta above its own floor: every leg was 3–5
+  quanta (floor 2–3, reagent-subs 4–4.5, uix-subs 4.5–5), so its four
+  published estimates read 1.0405 / 1.1556 / 1.1738 / 1.1972 — the same
+  DIRECTION every time, but whether the range cleared 1.0 depended on the
+  run, and one estimate had a minimum of exactly 1.0000. That is the
+  quantum, not a tie. The row was published as CLAMP-LIMITED rather than as
+  a resolved threshold precisely because that was the honest reading.
+
+  Ten writes per window puts the sample 30–50 quanta up, where the quantum
+  is ~2–3% of the reading instead of 20–33% of it.
+
+  Ten and not more, for `hd8-rows/narrow-batch-k`'s reasons, which this
+  deliberately copies rather than re-derives: the batch's cells must be
+  DISTINCT (they are `(mod (* 7 o) 300)` over consecutive `o`, and 7 is
+  coprime with 300, so any run of ten is ten different cells), and the
+  microtask-scale tolerance an early op receives grows with `k`
+  ([[lane/verified-writes!]]). Ten buys the clamp headroom and keeps that
+  tolerance at nine turns.
+
+  THE BROAD ROW DOES NOT USE THIS. It passes a batch of ONE — the pre-batch
+  window exactly — because its readings are already far above the clamp,
+  and because it is a published bar row that nothing here may move."
+  10)
+
+(defonce ^:private op-seq (atom 0))
+(defn- next-op! [] (swap! op-seq inc))
+
 (defn- bulk-write!
-  "One write on one arm, timed as one sample and verified at the DOM
-  inside its own window.
+  "One SAMPLE on one arm, timed as one window and verified at the DOM after
+  the clock stops.
 
-  BROAD changes every cell, so the probe rotates with the value AND the
-  far end of the grid is checked: a stale page can still carry one fresh
-  cell from the previous write and a single fixed probe would accept it.
+  BROAD is one write of every cell, and it is a batch of one: the probe
+  rotates with the value AND the far end of the grid is checked, because a
+  stale page can still carry one fresh cell from the previous write and a
+  single fixed probe would accept it.
 
-  NARROW changes exactly one cell, so there is nothing else in the page
-  to check — the strength of the read-back comes from the value being
-  fresh on every write, which means a stale page holds the PREVIOUS value
-  at the probed cell and fails. The cell also rotates, so no index is
-  special."
-  [t mnt kind s]
-  (let [n   (:cells (:arm mnt))
-        val (next-gen!)]
+  NARROW is [[narrow-batch-k]] writes, each changing exactly ONE cell, all
+  under one clock. Each op gets its OWN value and its OWN cell, so no
+  read-back can be satisfied by a neighbour's commit; and a narrow write
+  changes one cell, so one probe is that op's whole page's worth of
+  verification — the strength comes from the value being fresh on every
+  write, which means a stale page holds the PREVIOUS value at the probed
+  cell and fails."
+  [t mnt kind _s]
+  (let [n (:cells (:arm mnt))]
     (if (= kind :broad)
-      (lane/verified-write! t mnt :all val [(mod val n) (dec n) 0])
-      (let [i (mod (* 7 s) n)]
-        (lane/verified-write! t mnt i val [i])))))
+      (let [val (next-gen!)]
+        (lane/verified-writes! t mnt [[:all val (lane/bulk-probes val n)]]))
+      (lane/verified-writes!
+        t mnt
+        (mapv (fn [_]
+                (let [o    (next-op!)
+                      cell (mod (* 7 o) n)
+                      val  (next-gen!)]
+                  [cell val [cell]]))
+              (range narrow-batch-k))))))
 
 (defn- seed-bulk!
   [mounts t]
@@ -554,7 +625,7 @@
   "Turn one row's per-round, per-segment slices into the published record.
 
   `slices` is `[{segment-id {arm-id [ms ...]}} ...]`, one entry per round."
-  [{:keys [row doc grade clock-note control note]} slices]
+  [{:keys [row doc grade clock-note control note writes-per-sample]} slices]
   (let [norm       (mapv (fn [by-seg]
                            (into {} (map (fn [[sid rd]] [sid (ratios-of rd)])) by-seg))
                          slices)
@@ -581,6 +652,10 @@
       :clock-note  clock-note
       :note        note
       :witness-set "rf2-2rtt6.2"
+      ;; STATED ON THE ROW, because a reader comparing this against the
+      ;; pre-rf2-zb3qg numbers is comparing two different windows and has to
+      ;; be told so. 1 means the sample IS the operation.
+      :writes-per-sample (or writes-per-sample 1)
       :red-zone    (assoc (range-of rz)
                           :numerator :uix-subs
                           :denominator :reagent-subs
@@ -687,8 +762,10 @@
                       "rf2-2rtt6.2's M1 page — the make-or-break row")
             :control bulk-control}
    :narrow {:kind :bulk  :witness :M1 :row :bulk-narrow :grade :bar
-            :doc (str "one commit that exactly ONE of " v/cells-n
-                      " sub-reading boundaries reads — the localisation row")
+            :doc (str narrow-batch-k " commits, each of which exactly ONE of " v/cells-n
+                      " sub-reading boundaries reads, all inside ONE timed window — the "
+                      "localisation row. The per-commit figure is the sample divided by "
+                      narrow-batch-k)
             :note (str "NEW ROW. rf2-2rtt6.2 has no narrow counterpart, so this is not a "
                        "re-measurement of a published figure: it is rf2-2rtt6.4's U-narrow "
                        "question asked on rf2-2rtt6.2's witness. The two numbers are NOT "
@@ -715,14 +792,21 @@
     (segment-order r)
     (fn [acc {:keys [id] :as segment}]
       (enter-segment! segment)
+      ;; Checked immediately after the seam and before a single sample: a
+      ;; segment entered over a frame that would not destroy is measuring
+      ;; the previous segment's reactive graph.
+      (assert-teardown-clean! (str "entering segment " (name id)))
       (if (= kind :mount)
         (js/Promise.resolve
-          (assoc acc id (mount-round! coll t (witness-named witness) id)))
+          (let [rd (mount-round! coll t (witness-named witness) id)]
+            (assert-teardown-clean! (str "mount round, segment " (name id)))
+            (assoc acc id rd)))
         (let [mounts (mount-bulk-arms! (bulk-arms id))]
           (-> (seed-bulk! mounts t)
               (.then (fn [_] (bulk-round! mounts t legs coll row-key id)))
               (.then (fn [rd]
                        (release-bulk-arms! mounts)
+                       (assert-teardown-clean! (str "bulk round, segment " (name id)))
                        (assoc acc id (:readings rd))))
               (.catch (fn [e] (release-bulk-arms! mounts) (throw e)))))))))
 
@@ -743,7 +827,8 @@
                      :doc (or doc (:doc w))
                      :clock-note (when (= kind :mount) (:clock-note w))
                      :note note
-                     :control (or control (:control w))}
+                     :control (or control (:control w))
+                     :writes-per-sample (if (= row :bulk-narrow) narrow-batch-k 1)}
                     slices)]
     (lane/record! (name row) record)
     (lane/record! "verification" {row-key (lane/tally-value t)})
