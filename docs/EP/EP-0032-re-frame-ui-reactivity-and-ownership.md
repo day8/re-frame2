@@ -5,6 +5,16 @@ Type: standards-track
 Created: 2026-07-16
 Resolution: final 2026-07-16
 
+> **Historical record — 2026-07-30.** This EP's programme
+> ([EP-0030](EP-0030-the-compiled-view-substrate-program.md)) was absorbed into
+> Freehand, and Freehand
+> ([EP-0036](EP-0036-the-freehand-view-substrate-programme.md)) is now
+> **withdrawn**; the EP is kept as the record of the donor programme and no work
+> is in flight under it. The observation-port contract it graduated into
+> [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) is
+> unaffected and still governs — the 2026-07-30 ruling measured invariant 5's
+> tear check and retained it.
+
 ## Abstract
 
 This EP records the reactive substrate under compiled views: how a
