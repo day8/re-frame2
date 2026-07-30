@@ -150,6 +150,25 @@
 
 (defonce ratom-cells (r/atom []))
 
+(defn ratom-watch-count
+  "How many reactions are watching [[ratom-cells]] right now — the ratom
+  family's live-reference census, and the count neither of the lane's
+  built-in residue counters can supply.
+
+  Every mounted [[m1-cell-ratom]] / [[m2-field-ratom]] occurrence derefs an
+  `r/cursor` over [[ratom-cells]]. Reagent backs each cursor with a cached
+  Reaction that adds itself to the atom's watch map while anything reads it
+  and removes itself when its last watcher is disposed, so a ratom arm
+  whose unmount returned normally WITHOUT releasing its root shows up here
+  as a count that never came back down: rooted in this namespace-level
+  atom — outside the frame's sub-cache and off `document.body` — its
+  detached tree would re-render on every later bulk write. `^clj` because
+  [[ratom-cells]] is a ClojureScript deftype instance: the hint keeps
+  `:advanced` treating this access exactly like Reagent's own
+  `add-w`/`remove-w` instead of minting an extern for it."
+  []
+  (count (.-watches ^clj ratom-cells)))
+
 (defn m1-cell-ratom
   "A FORM-2 component: the outer call mints a `cursor` once per mounted
   occurrence and the returned render fn dereferences only that cursor.
