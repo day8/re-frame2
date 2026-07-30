@@ -366,6 +366,19 @@ precise wrong number first. They are recorded because the next arm will meet the
       now exit 1, in one named `failures` list. The empty-`SERIES B` case is
       reported as a **narrowed scope** rather than compared as `0 of 0`, which
       would have printed `[ok]` for a control that never ran.
+    - `retention_run`'s **`RETENTION_COLLECT` and `RETENTION_ONLY` were
+      matched, never validated** — `collect()` silently did nothing on an
+      unrecognised value, so `RETENTION_COLLECT=bogus` forced no collection
+      while the header still printed it as the collector forcing every
+      COLLECTED reading, and the run exited 0: a typo certifying uncollected
+      heap as collected. A misspelt `RETENTION_ONLY` was the same trap one
+      door over, silently narrowing the run to `repro`. Both enums now refuse
+      **before anything is built or measured**, with the value and the legal
+      set named; `none` stays legal, because asking for no collector is a
+      question this probe exists to compare. *Mutation:* the audit's exact
+      one-cycle bogus-collector repro; it exited 0 at the landed head and now
+      refuses up front, exit 1 (merged-PR audit #7281; PR #7285, landed
+      `a36272fa3e`).
 
     The reaction-**watchers** column is deliberately still not a gate: it is
     blind under `:advanced` and carries no information in either direction, so
