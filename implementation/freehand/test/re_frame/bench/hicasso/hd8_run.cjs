@@ -98,6 +98,62 @@ if (RUNS.length === 0) {
   process.exit(1);
 }
 
+// ...AND `HD8_ONLY` ALONE DOES NOT DELIVER WHAT THE PARAGRAPH ABOVE PROMISES.
+//
+// It selects ADAPTERS. Every selected run still executes the bundle's whole
+// row set, so `HD8_ONLY=slim` emits `mount-M`, `mount-U`, `write-narrow` and
+// `write-bulk` — four rows, of which a re-take needed one or two. Nothing
+// mechanically stopped the other three being read as figures beside the rows
+// published from the full three-run sweep, which is exactly the competing set
+// the comment said it prevented (rf2-b69lw, from the PR #7269 audit).
+//
+// So the declaration is made EXPLICIT and the default is the safe one:
+//
+//   HD8_ONLY unset          the full three-run sweep — the published shape;
+//                           every row publishes.
+//   HD8_ONLY set, no ROWS   a PARTIAL run. The driver cannot know which
+//                           re-take was intended, so NO row publishes and
+//                           every one is stamped NON-PUBLISHING.
+//   HD8_ONLY + HD8_ROWS     the named rows publish; every other row the run
+//                           emits is stamped NON-PUBLISHING.
+//
+// Marked rather than suppressed: the gates that qualify a row (parity, the
+// positive control, the lowering check, the read-back, the arm-order guard)
+// run over the whole set either way, and a row withheld from the log is a row
+// nobody can diagnose. What a partial run must never do is emit a figure that
+// LOOKS like the published one.
+const KNOWN_ROWS = ['mount-M', 'mount-U', 'write-narrow', 'write-bulk'];
+const ROWS = (process.env.HD8_ROWS || '').trim();
+const DECLARED_ROWS = ROWS
+  ? new Set(
+      ROWS.split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    )
+  : null;
+if (DECLARED_ROWS) {
+  const unknown = [...DECLARED_ROWS].filter((r) => !KNOWN_ROWS.includes(r));
+  if (unknown.length) {
+    console.error(
+      `[hd8] HD8_ROWS names ${unknown.join(', ')}, which this instrument does not emit; ` +
+        `known rows: ${KNOWN_ROWS.join(', ')}. A typo here would silently mark every row ` +
+        `non-publishing, so it is an error instead.`
+    );
+    process.exit(1);
+  }
+  if (!ONLY) {
+    console.error(
+      '[hd8] HD8_ROWS is set without HD8_ONLY. A full sweep IS the published shape and ' +
+        'publishes every row; narrowing what publishes without narrowing what ran would ' +
+        'describe a run that did not happen.'
+    );
+    process.exit(1);
+  }
+}
+const PARTIAL = Boolean(ONLY);
+// A row publishes only from the full sweep, or when a partial run NAMED it.
+const publishing = (row) => (!PARTIAL ? true : DECLARED_ROWS ? DECLARED_ROWS.has(row) : false);
+
 // The guard's tolerance. `order_guard.cjs` defends the choice: 0.10 sits far
 // below the 2.01x the recorded fault produced and far above the 0.4% the same
 // study's uncontaminated arms reproduced to. A browser mount clock is noisier
@@ -218,9 +274,15 @@ async function runOne(chromium, run) {
     const results = await page.evaluate('window.HD8_RESULTS || {}');
     const samples = await page.evaluate('window.HD8_SAMPLES || []');
     const summary = await page.evaluate('window.HD8_SUMMARY || {}');
+    // The harness-microtask correction's VERDICT per write row (rf2-b69lw).
+    // On a JS-readable channel rather than only inside the EDN record,
+    // because the cross-run table is what a reader copies a figure out of and
+    // a corrected row that appears there looking uncorrected is the fault the
+    // contract exists to prevent.
+    const correction = await page.evaluate('window.HD8_CORRECTION || {}');
     const userAgent = await page.evaluate('navigator.userAgent');
     watch.dispose();
-    return { id: run.id, why: run.why, err, results, samples, summary, userAgent, lines };
+    return { id: run.id, why: run.why, err, results, samples, summary, correction, userAgent, lines };
   } finally {
     await browser.close();
   }
@@ -264,18 +326,44 @@ function crossRun(runs) {
   out.push(';; ==== HD8 CROSS-RUN TABLE — every figure a RANGE over 6 rounds, ratio to the ====');
   out.push(';; ==== floor measured in the SAME round. The floor is identical code in an   ====');
   out.push(';; ==== identical bundle; only the installed adapter differs between runs.    ====');
+  if (PARTIAL) {
+    out.push(';;');
+    out.push(`;;   PARTIAL RUN — HD8_ONLY=${ONLY}. This is not the published shape.`);
+    out.push(
+      DECLARED_ROWS
+        ? `;;   Publishing: ${[...DECLARED_ROWS].join(', ')}. Every other row below is a` +
+          ';;   by-product of the adapter selection and is marked NON-PUBLISHING.'
+        : ';;   HD8_ROWS was not set, so NO row below publishes. Re-run with HD8_ROWS naming' +
+          ';;   the row this re-take is for.'
+    );
+  }
   for (const row of rows) {
+    const pub = publishing(row);
     out.push(`;;`);
-    out.push(`;;   ${row}`);
+    // The stamp goes on the row HEADING, so a reader who copies a figure out of
+    // the table cannot get it without the label that says it may not be quoted.
+    out.push(`;;   ${row}${pub ? '' : '   *** NON-PUBLISHING — a partial run\'s by-product ***'}`);
     for (const run of runs) {
       const s = run.summary[row];
       if (!s) continue;
+      const mark = pub ? '' : ' [NON-PUBLISHING]';
+      // The harness-microtask correction, stamped on the figures it governs.
+      // `:not-owed` is the common case and says nothing; the other three all
+      // change what a reader may do with the numbers on the line below.
+      const c = (run.correction || {})[row];
+      if (c && c.verdict !== 'not-owed') {
+        out.push(
+          `;;     [${run.id.padEnd(7)}] YIELD CORRECTION: ${c.verdict.toUpperCase()}` +
+            `${c.reason ? ` (${c.reason})` : ''}${c.bound != null ? ` — bound ${c.bound} ms` : ''}`
+        );
+        out.push(`;;                 ${c.why}`);
+      }
       for (const [arm, v] of Object.entries(s.vsFloor)) {
         if (arm === 'floor') continue;
-        out.push(`;;     [${run.id.padEnd(7)}] ${arm.padEnd(14)} vs floor   ${band(v)}`);
+        out.push(`;;     [${run.id.padEnd(7)}] ${arm.padEnd(14)} vs floor   ${band(v)}${mark}`);
       }
       for (const [pair, v] of Object.entries(s.headToHead)) {
-        out.push(`;;     [${run.id.padEnd(7)}] ${pair.padEnd(26)}  ${band(v)}`);
+        out.push(`;;     [${run.id.padEnd(7)}] ${pair.padEnd(26)}  ${band(v)}${mark}`);
       }
     }
   }
@@ -308,11 +396,22 @@ function crossRun(runs) {
   // bare command: a published figure whose repro command does not reproduce it
   // is a figure nobody can check.
   console.log(
-    `;;   reproduce   ${ONLY ? `HD8_ONLY=${ONLY} ` : ''}node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs`
+    `;;   reproduce   ${ONLY ? `HD8_ONLY=${ONLY} ` : ''}${ROWS ? `HD8_ROWS=${ROWS} ` : ''}node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs`
   );
   console.log(`;;   build       shadow-cljs release ${BUILD_ID} (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);
   console.log(`;;   runs        ${RUNS.map((r) => r.id).join(', ')}${ONLY ? `  (HD8_ONLY=${ONLY})` : ''}`);
+  // WHICH ROWS THIS RUN MAY PUBLISH, printed with the provenance and not left
+  // to be inferred from the absence of a warning (rf2-b69lw).
+  console.log(
+    `;;   publishes   ${
+      !PARTIAL
+        ? 'every row — this is the full three-run sweep, the published shape'
+        : DECLARED_ROWS
+          ? `${[...DECLARED_ROWS].join(', ')} only (HD8_ROWS); every other row emitted is marked NON-PUBLISHING`
+          : 'NOTHING — a partial run with no HD8_ROWS declaration; every row emitted is marked NON-PUBLISHING'
+    }`
+  );
   // THE EFFECTIVE TOLERANCE, on the record beside the figures it adjudicated.
   // It was not printed, and it does not equal `order_guard`'s own default:
   // the guard defaults to 0.10 and this driver passes 0.35, for the reason

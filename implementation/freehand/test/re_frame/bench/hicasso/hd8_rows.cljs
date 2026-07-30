@@ -101,6 +101,7 @@
   `rf2-2rtt6.1` and `docs/design/hicasso/studio/`."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
+            [clojure.string :as str]
             [re-frame.adapter.uix :as uixa]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -1051,6 +1052,201 @@
                                "clamp; it does NOT bound " narrow-batch-k
                                " of them, and this window measures them instead "
                                "of multiplying (rf2-2rtt6.19)")}}))))))))
+
+;; ===========================================================================
+;; THE CORRECTION-OR-REFUSAL CONTRACT — the asymmetry adjudicated, not noted
+;; ===========================================================================
+
+(defn- window-shape
+  "`:write-then-drain` (no harness microtask in the window) or
+  `:write-yield-drain` (`k` of them), for `arm-id` under `adapter`."
+  [arm-id adapter]
+  (if (= (arm-scheduler arm-id adapter) :microtask)
+    :write-then-drain
+    :write-yield-drain))
+
+(defn- correct-round
+  "One round's p50 map with `bound` ms subtracted from every arm in
+  `bearers`, and the floor ratios re-formed from the corrected p50s.
+
+  Re-formed and not rescaled: the ratios are within-round by construction
+  and the correction moves the DENOMINATOR whenever the floor is a bearer,
+  which no rescaling of the published ratio can express."
+  [{:keys [p50]} bearers bound]
+  (let [adj   (into {} (map (fn [[id v]] [id (if (contains? bearers id) (- v bound) v)])) p50)
+        floor (get adj :floor)]
+    ;; Only the BEARERS are checked for survival, because only they were
+    ;; subtracted from. An exempt arm reading zero is a clamp problem this
+    ;; contract did not create and must not claim to have found.
+    (when (and (pos? floor) (every? pos? (vals (select-keys adj bearers))))
+      {:p50   adj
+       :ratio (into {} (map (fn [[id v]] [id (round4 (/ v floor))])) adj)})))
+
+(defn yield-correction
+  "Adjudicate one write row against the harness-microtask asymmetry, and
+  answer a verdict rather than an observation (rf2-b69lw).
+
+  ## What is owed, and why
+
+  [[window-of]] gives a `:microtask`-scheduled arm a window with NOTHING
+  between its write and its drain, and every other arm a window holding
+  `k` harness microtasks. So on a row that mixes the two shapes, the
+  yield-bearing arms are billed for turns their rival is not, and the
+  studio record says plainly that any nonzero reading of that turn owes
+  the reader a subtraction. It said so and nothing acted on it: the
+  driver recorded [[yield-cost!]] beside the row, exited 0, and published
+  unadjusted ratios over a slim run that had measured
+  `{:p50 0 :max 0.1 :n 10}`. A contract nothing enforces is a sentence,
+  not a contract.
+
+  ## The four verdicts
+
+  `:not-owed` — every arm in the row shares one window shape, so the turns
+  are in the numerator and the denominator alike. Only a row that MIXES
+  shapes owes anything, and today that is the `slim` run's write rows and
+  no others.
+
+  `:below-resolution` — the row owes, and the aggregate yield window's MAX
+  is zero across every sample. Chrome clamps `performance.now()` to 100 µs;
+  a max of zero over `n` windows is the instrument saying it could not
+  resolve the asymmetry in any of them. There is nothing to subtract, and
+  the row publishes unadjusted with the bound on the record.
+
+  `:corrected` — the row owes, the aggregate reads nonzero, and the
+  subtraction is APPLIED. Its direction is fixed and known: the turns sit
+  in the bearers' windows only, so removing them makes the bearers
+  smaller. Where the floor is a bearer — which it is on the slim run — the
+  corrected ratio is LARGER, and the published unadjusted figure is
+  therefore a LOWER BOUND on the exempt arm's cost. Both ends are
+  published; a reader is given the interval rather than a point that
+  quietly sits at one end of it.
+
+  `:refused` — the row owes and the correction cannot be discharged. Two
+  ways, and both mean the same thing: the window is substantially the
+  harness's own turns rather than the arm's work.
+
+    (a) THE CORRECTION CHANGES THE VERDICT. If subtracting the bound moves
+        any published range across 1.0 — indistinguishable becoming a
+        finding, or a finding becoming indistinguishable — then what the
+        row reports is an artefact of the asymmetry. The test is the
+        instrument's OWN house rule (`:straddles-1?`), not a threshold
+        invented here, which is deliberate: this contract is not entitled
+        to a tolerance of its own.
+
+    (b) THE CORRECTION EXCEEDS THE WINDOW. A bearer whose reading does not
+        survive the subtraction was not measuring its arm.
+
+  Refusal is not this function's to soften and not the caller's to widen.
+  `hd8-app` fails the run on one, exactly as it does on a positive control
+  that missed its prediction.
+
+  ## Which reading is subtracted
+
+  The aggregate measured for THIS row's `k`, never a per-turn figure
+  multiplied up — `10 x below-resolution` is not below resolution, which is
+  the same argument that batched the writes in the first place. The narrow
+  row's `k` is [[narrow-batch-k]] and takes `yield-cost!`'s `:batched`
+  window; the bulk row's `k` is 1 and takes the one-turn reading. A row
+  whose `k` has no measured aggregate is `:refused` as unevaluable rather
+  than corrected with the nearest available number.
+
+  The bound subtracted is the aggregate's MAX. The p50 would be the central
+  estimate of a correction; the max is the largest the correction can
+  honestly be, and a contract that decides whether a row may be published
+  has to be evaluated at the end that could change the answer."
+  [row adapter yc]
+  (let [k        (:writes-per-sample row)
+        arms     (:arms row)
+        shapes   (into {} (map (fn [id] [id (window-shape id adapter)])) arms)
+        bearers  (into #{} (keep (fn [[id s]] (when (= s :write-yield-drain) id))) shapes)
+        exempt   (into #{} (keep (fn [[id s]] (when (= s :write-then-drain) id))) shapes)
+        base     {:row (:witness row) :k k :windows shapes
+                  :bearers (vec bearers) :exempt (vec exempt)}
+        agg      (cond
+                   (= k narrow-batch-k) (let [b (:batched yc)]
+                                          (when b {:source :batched-aggregate
+                                                   :k      (:k b)
+                                                   :p50    (:window-p50 b)
+                                                   :max    (:window-max b)
+                                                   :n      (:n b)}))
+                   (= k 1)              {:source :one-turn
+                                         :k      1
+                                         :p50    (:p50 yc)
+                                         :max    (:max yc)
+                                         :n      (:n yc)}
+                   :else                nil)]
+    (cond
+      (or (empty? bearers) (empty? exempt))
+      (assoc base :verdict :not-owed
+                  :why (str "every arm in this row was measured through the same window shape ("
+                            (name (or (first (vals shapes)) :none))
+                            "), so the harness turns are in the numerator and the denominator "
+                            "alike and no arm is billed for a turn its rival escapes"))
+
+      (nil? agg)
+      (assoc base :verdict :refused
+                  :reason :unevaluable
+                  :why (str "this row batches " k " writes to a window and yield-cost! measured no "
+                            "aggregate for that k, so the asymmetry it owes cannot be priced. "
+                            "Measure " k " turns under one clock — never multiply the one-turn "
+                            "reading, which bounds one turn and not " k " of them"))
+
+      (not (and (number? (:max agg)) (>= (:max agg) 0)))
+      (assoc base :verdict :refused :reason :unevaluable :aggregate agg
+                  :why "the aggregate yield window is not a number")
+
+      (zero? (:max agg))
+      (assoc base :verdict :below-resolution :aggregate agg
+                  :why (str "the " (:k agg) "-turn aggregate read 0.0 ms in every one of its "
+                            (:n agg) " windows, so the asymmetry is below this instrument's "
+                            "own resolution (Chrome clamps performance.now() to 100 µs). "
+                            "Nothing to subtract; the row publishes unadjusted and the bound "
+                            "is on the record rather than assumed"))
+
+      :else
+      (let [bound     (:max agg)
+            corrected (mapv #(correct-round % bearers bound) (:per-round row))]
+        (if (some nil? corrected)
+          (assoc base :verdict :refused :reason :correction-exceeds-window :aggregate agg
+                      :why (str "subtracting the " (:k agg) "-turn aggregate bound of " bound
+                                " ms leaves a bearer arm at or below zero in at least one round: "
+                                "that window was measuring the harness's turns, not the arm"))
+          (let [summary'  (lane/across-rounds (mapv :ratio corrected))
+                h2h'      (head-to-head corrected)
+                flipped   (into []
+                                (keep (fn [[id v]]
+                                        (let [v' (get summary' id)]
+                                          (when (and v' (not (:unpublished v))
+                                                     (not= (boolean (:straddles-1? v))
+                                                           (boolean (:straddles-1? v'))))
+                                            {:figure id :was v :corrected v'}))))
+                                (:summary row))
+                flipped   (into flipped
+                                (keep (fn [[id v]]
+                                        (let [v' (get h2h' id)]
+                                          (when (and v' (not= (boolean (:straddles-1? v))
+                                                              (boolean (:straddles-1? v'))))
+                                            {:figure id :was v :corrected v'}))))
+                                (:head-to-head row))]
+            (if (seq flipped)
+              (assoc base :verdict :refused :reason :correction-changes-the-verdict
+                          :aggregate agg :bound bound :flipped flipped
+                          :why (str "subtracting the measured " (:k agg) "-turn asymmetry ("
+                                    bound " ms) moves " (count flipped) " published range(s) "
+                                    "across 1.0. What this row reports is the asymmetry and "
+                                    "not the arms; no figure in it may be published"))
+              (assoc base :verdict :corrected
+                          :aggregate agg :bound bound
+                          :summary-corrected summary'
+                          :head-to-head-corrected h2h'
+                          :why (str "the " (:k agg) "-turn aggregate read " bound
+                                    " ms at its worst window; it is subtracted from every "
+                                    "yield-bearing arm (" (str/join ", " (map name bearers))
+                                    ") and the ratios re-formed within each round. The "
+                                    "correction's direction is fixed — removing turns makes a "
+                                    "bearer smaller — so the published unadjusted figure and "
+                                    "the corrected one bracket the answer, and no range "
+                                    "crossed 1.0 between them")))))))))
 
 ;; ===========================================================================
 ;; The positive control — predicted against measured, every run
