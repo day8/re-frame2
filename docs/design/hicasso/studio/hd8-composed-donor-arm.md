@@ -34,7 +34,7 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 | **Producing commit, re-take** | `b943c7ed20d63d66fade4775059dad9fcf0012a7` — the `reagent-slim` write rows only (`rf2-b69lw`) |
 | **Producing commit, re-take** | `d3f1c2fff6` on `worker/lane-control-cluster` — the **narrow write rows** only, on a batched window (`rf2-9zysg`) |
 | **Producing instrument** | `hd8_rows.cljs` blob `e6bca24420b7fc4c9de2c6137f5b2f7144ad243d`, `lane.cljs` blob `671756751ecdb25c4c3d81e164c3204b022e93ae` |
-| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — runs at every commit above |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — runs at every commit above, and **from a cold or a warm cache in any order** since `rf2-2rtt6.20` ([why](#the-lanes-shared-build-cache-made-this-page-look-broken-rf2-2rtt620)) |
 | **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
 | **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
 | **Rounds** | 6 · mount `{:warmup 4 :samples 12}` · write `{:warmup 3 :samples 10}` |
@@ -478,6 +478,57 @@ takes the same `:scheduler` declaration this page's `window-of` takes and gives
 it the same two shapes — lifted from here rather than invented a second time —
 and an arm that declares no `:scheduler` gets the lane's unchanged window. No
 arm outside HD-008 declares one, so **no published row moved.**
+
+## The lane's shared build cache made this page look broken (`rf2-2rtt6.20`)
+
+**No figure on this page moves, and none of them ever depended on this.** It is
+recorded because the symptom pointed squarely at HD-008 and the cause was not
+here at all.
+
+Found by `rf2-2rtt6.19` while re-reading the yield-cost control: after the
+natural sequence — run the P0 lane, then run HD-008 — `hd8_run.cjs` **exited 1
+before taking a single sample**, with
+
+```
+pageerror: Cannot read properties of undefined (reading 'd')
+```
+
+It reproduced at *unmodified* HEAD, which is how it was localised, and it
+cleared completely with `rm -rf implementation/.shadow-cljs/builds/hicasso-bench`.
+
+**The cause is the lane's one build id, not this arm.** HD-017 gives the whole
+programme a single `:hicasso-bench` so that no arm costs a hot-zone edit of
+`implementation/shadow-cljs.edn`; shadow-cljs derives the build cache directory
+from the build id alone, and fixes it *before* any `--config-merge` data is
+applied. The arm is therefore invisible to the cache key, and several different
+programs shared one cache entry.
+
+The carrier was isolated rather than assumed, each trial from a cold cache
+replaying the same poisoning history — the trap self-heals once the cache has
+accumulated every arm's modules, so a warm trial proves nothing:
+
+| trial | result |
+|---|---|
+| control — poison, remove nothing | **DEAD**, `reading 'd'` |
+| remove `shadow-js/` only | **ALIVE** |
+| remove `closure.property.map` + `closure.variable.map` only | **DEAD** — the first suspect, and not the carrier |
+
+`shadow-js/` is the npm-conversion cache. Its index is invalidated on shadow's
+own cache key and never on the set of npm modules the build actually needs, so
+the Reagent arms' fourteen modules — which do not include `react/jsx-runtime` —
+left an index that this page's UIx arm was then linked against. That produces a
+bundle which compiles cleanly and is wrong in a way only execution can show.
+
+**The driver's fail-closed logic behaved correctly throughout.** It refused to
+publish anything from a page that had thrown (`rf2-f5roa`), which is exactly
+right; what it could not do was say *why*, and the likeliest conclusion for a
+reader was that HD-008 was broken on main. It was not.
+
+Every driver in the lane now clears the shared entry before it builds, so
+**this page's reproduction command runs from a cold or a warm cache, in any
+order.** The clear is inside the run-to-run noise;
+`freehand/test/re_frame/bench/hicasso/lane_cache.cjs` carries the measurement
+and the alternatives that were rejected.
 
 ## Known limitations of this instrument
 
