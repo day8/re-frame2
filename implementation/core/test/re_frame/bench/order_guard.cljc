@@ -99,6 +99,15 @@
   check 11 replays it with deliberately flat values, so nothing but the
   lost positions can be what refuses.
 
+  The excuse belongs to the RUN, not to the sample, and reading it the
+  other way is how the same fault came back: a first repair counted only
+  `NaN`, so a sample carrying `:position nil` — present, unusable, dropped
+  by [[stratify]] exactly as `NaN` is — was excused one at a time, and
+  twenty-four samples with six positions and eighteen nils adjudicated
+  phase over four survivors and answered `[ok]` again. Inside a run that
+  records positions at all, EVERY unusable position is a loss; only a run
+  in which no sample offers one is excused. Check 12 prices both halves.
+
   ## What the `:predecessor` factor can and cannot attribute (rf2-om73r)
 
   Under [[slot-order]] an arm's predecessor is `(a - 1) mod n` on EVEN
@@ -248,19 +257,27 @@
          vec)))
 
 (defn lost-positions
-  "How many of `samples` CARRY a `:position` that is not a finite number.
+  "How many of `samples` have NO USABLE `:position` — nil, absent, or a
+  non-finite number — in a run that records positions AT ALL.
 
   Not the same question as \"how many have no position\". A harness that
-  records no positions at all is a documented case and is excused the phase
-  contrast; a harness that records `NaN` has LOST them, and the difference
-  between the two is the difference between a question not asked and a
-  question answered over a silently smaller set."
+  offers no position on any sample is a documented case and is excused the
+  phase contrast; a harness that records positions and loses some of them
+  has LOST them, and the difference between the two is the difference
+  between a question not asked and a question answered over a silently
+  smaller set.
+
+  So the excuse is a property of the RUN, not of the sample: only a run in
+  which NO sample offers a position is excused, and inside a run that does
+  record them every unusable position is a loss. `NaN` was the recorded
+  fault and nil is its sibling — [[stratify]] drops both from the phase
+  contrast while [[report-lines]] prints the arm's full count beside it, so
+  a guard that counted only `NaN` would adjudicate 24 samples on four and
+  answer `[ok]` for the second reason having been repaired for the first."
   [samples]
-  (count (filterv (fn [s]
-                    (and (contains? s :position)
-                         (some? (:position s))
-                         (not (finite? (:position s)))))
-                  samples)))
+  (if (not-any? #(some? (:position %)) samples)
+    0
+    (count (remove #(finite? (:position %)) samples))))
 
 (defn adjudicate
   "Adjudicate one arm's strata on one factor.
@@ -341,8 +358,8 @@
                                                 (let [strata (stratify ss f)
                                                       lost   (if (= f :phase) (lost-positions ss) 0)]
                                                   (cond
-                                                    ;; A sample that CARRIES a position
-                                                    ;; and whose position is not a number
+                                                    ;; A sample with no usable position
+                                                    ;; in a run that records positions
                                                     ;; is a HARNESS FAULT, and it is the
                                                     ;; recorded one: a shadowed binding
                                                     ;; made every position `NaN` from
@@ -350,7 +367,9 @@
                                                     ;; them, and the report said
                                                     ;; "24 samples" over a phase
                                                     ;; contrast adjudicated on six —
-                                                    ;; and answered `[ok]`. Silently
+                                                    ;; and answered `[ok]`. nil is the
+                                                    ;; same loss by another route and is
+                                                    ;; counted the same way. Silently
                                                     ;; narrowing the question is the one
                                                     ;; thing this namespace must not do.
                                                     (pos? lost)
@@ -359,10 +378,12 @@
                                                             :status         :unchecked
                                                             :lost-positions lost
                                                             :why (str lost " of " (count ss)
-                                                                      " samples carry a NON-FINITE :position"
-                                                                      " — the harness lost them, so this"
-                                                                      " contrast is over the rest and the"
-                                                                      " sample count above is not it")})
+                                                                      " samples have NO USABLE :position"
+                                                                      " (nil, absent or non-finite) in a run"
+                                                                      " that records them — the harness lost"
+                                                                      " them, so this contrast is over the"
+                                                                      " rest and the sample count above is"
+                                                                      " not it")})
 
                                                     ;; `:phase` is only askable when
                                                     ;; positions were recorded at all; a
@@ -539,6 +560,23 @@
         v-lost (verdict lost {:tolerance 0.10})
         lost-r (one v-lost "A" :phase)
 
+        ;; 12. THE SAME LOSS BY THE OTHER ROUTE. `nil` is dropped from the
+        ;;     phase contrast exactly as `NaN` is, so a guard that counts
+        ;;     only `NaN` adjudicates these 24 samples on FOUR survivors
+        ;;     and answers `[ok]` — the fault of check 11, repaired for one
+        ;;     spelling and live for the other. Only `:phase` is asked, so
+        ;;     nothing but the lost positions can be what refuses; and the
+        ;;     second half pins the excuse it must NOT swallow, a run in
+        ;;     which no sample offers a position at all.
+        nils   (mapv (fn [i] {:arm "A" :predecessor "B"
+                              :position (when (< i 6) i)
+                              :value 1.0})
+                     (range 24))
+        v-nils (verdict nils {:tolerance 0.10 :factors [:phase]})
+        nils-r (one v-nils "A" :phase)
+        none   (mapv (fn [_] {:arm "A" :predecessor "B" :value 1.0}) (range 24))
+        v-none (verdict none {:tolerance 0.10 :factors [:phase]})
+
         checks
         [{:name "the recorded 2.01x is REFUSED"
           :ok   (and (:refuse? v-smi)
@@ -594,7 +632,15 @@
           :ok   (and (:refuse? v-lost)
                      (= :unchecked (:status lost-r))
                      (= 18 (:lost-positions lost-r)))
-          :detail (:why lost-r)}]]
+          :detail (:why lost-r)}
+         {:name "a present-but-NIL :position is the same loss, and recording NONE is still excused"
+          :ok   (and (:refuse? v-nils)
+                     (= :unchecked (:status nils-r))
+                     (= 18 (:lost-positions nils-r))
+                     (not (:refuse? v-none))
+                     (not (contains? (get-in v-none [:arms "A" :factors]) :phase)))
+          :detail (str (:why nils-r)
+                       " — and a run offering no position at all is excused, not refused")}]]
     {:ok?     (every? :ok checks)
      :checks  checks}))
 

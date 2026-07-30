@@ -133,6 +133,15 @@
 // check 10 replays it with deliberately flat values, so nothing but the
 // lost positions can be what refuses.
 //
+// The excuse belongs to the RUN, not to the sample, and reading it the other
+// way is how the same fault came back: a first repair counted only `NaN`, so
+// a sample carrying `position: null` — present, unusable, dropped by
+// `stratifyArm` exactly as `NaN` is — was excused one at a time, and
+// twenty-four samples with six positions and eighteen nulls adjudicated
+// phase over four survivors and answered `[ok]` again. Inside a run that
+// records positions at all, EVERY unusable position is a loss; only a run in
+// which no sample offers one is excused. Check 11 prices both halves.
+//
 // ## What the `predecessor` factor can and cannot attribute (rf2-om73r)
 //
 // Under [[schedule]] an arm's predecessor is `(a - 1) mod n` on EVEN rounds
@@ -286,18 +295,29 @@ function stratifyArm(samples, factor) {
 }
 
 /**
- * How many of `samples` CARRY a `position` that is not a finite number.
+ * How many of `samples` have NO USABLE `position` — null, absent, or a
+ * non-finite number — in a run that records positions AT ALL.
  *
  * Not the same question as "how many have no position". A harness that
- * records no positions at all is a documented case and is excused the phase
- * contrast; a harness that records `NaN` has LOST them, and the difference
- * between the two is the difference between a question not asked and a
- * question answered over a silently smaller set.
+ * offers no position on any sample is a documented case and is excused the
+ * phase contrast; a harness that records positions and loses some of them
+ * has LOST them, and the difference between the two is the difference
+ * between a question not asked and a question answered over a silently
+ * smaller set.
+ *
+ * So the excuse is a property of the RUN, not of the sample: only a run in
+ * which NO sample offers a position is excused, and inside a run that does
+ * record them every unusable position is a loss. `NaN` was the recorded
+ * fault and null is its sibling — `stratifyArm` drops both from the phase
+ * contrast while `format` prints the arm's full count beside it, so a guard
+ * that counted only `NaN` would adjudicate 24 samples on four and answer
+ * `[ok]` for the second reason having been repaired for the first.
  */
 function lostPositions(samples) {
+  if (!samples.some((s) => s.position !== undefined && s.position !== null)) return 0;
   let n = 0;
   for (const s of samples) {
-    if (s.position !== undefined && s.position !== null && !Number.isFinite(s.position)) n += 1;
+    if (!Number.isFinite(s.position)) n += 1;
   }
   return n;
 }
@@ -380,19 +400,21 @@ function verdict(samples, opts = {}) {
       const strata = stratifyArm(ss, f);
       const lost = f === 'phase' ? lostPositions(ss) : 0;
       if (lost > 0) {
-        // A sample that CARRIES a position and whose position is not a
-        // number is a HARNESS FAULT, and it is the recorded one: a shadowed
+        // A sample with no usable position in a run that records positions
+        // is a HARNESS FAULT, and it is the recorded one: a shadowed
         // binding made every position `NaN` from round 2 on, `stratifyArm`
         // dropped them, and the report said "24 samples" over a phase
-        // contrast adjudicated on six — and answered `[ok]`. Silently
+        // contrast adjudicated on six — and answered `[ok]`. null is the
+        // same loss by another route and is counted the same way. Silently
         // narrowing the question is the one thing this module must not do.
         per[f] = {
           strata,
           status: 'unchecked',
           lostPositions: lost,
           why:
-            `${lost} of ${ss.length} samples carry a NON-FINITE position — the harness ` +
-            'lost them, so this contrast is over the rest and the sample count above is not it',
+            `${lost} of ${ss.length} samples have NO USABLE position (null, absent or ` +
+            'non-finite) in a run that records them — the harness lost them, so this ' +
+            'contrast is over the rest and the sample count above is not it',
         };
         unchecked = true;
         continue;
@@ -635,6 +657,33 @@ function selfTest() {
     'samples whose position went NON-FINITE refuse instead of narrowing the question',
     vLost.refuse && lostR.status === 'unchecked' && lostR.lostPositions === 18,
     lostR.why
+  );
+
+  // 11. THE SAME LOSS BY THE OTHER ROUTE. `null` is dropped from the phase
+  //     contrast exactly as `NaN` is, so a guard that counts only `NaN`
+  //     adjudicates these 24 samples on FOUR survivors and answers `[ok]` —
+  //     the fault of check 10, repaired for one spelling and live for the
+  //     other. Only `phase` is asked, so nothing but the lost positions can
+  //     be what refuses; and the second half pins the excuse it must NOT
+  //     swallow, a run in which no sample offers a position at all.
+  const nullSamples = Array.from({ length: 24 }, (_, i) => ({
+    arm: 'A',
+    predecessor: 'B',
+    position: i < 6 ? i : null,
+    value: 1.0,
+  }));
+  const vNull = verdict(nullSamples, { tolerance: 0.1, factors: ['phase'] });
+  const nullR = one(vNull, 'A', 'phase');
+  const noneSamples = Array.from({ length: 24 }, () => ({ arm: 'A', predecessor: 'B', value: 1.0 }));
+  const vNone = verdict(noneSamples, { tolerance: 0.1, factors: ['phase'] });
+  check(
+    'a present-but-NULL position is the same loss, and recording NONE is still excused',
+    vNull.refuse &&
+      nullR.status === 'unchecked' &&
+      nullR.lostPositions === 18 &&
+      !vNone.refuse &&
+      vNone.arms.A.factors.phase === undefined,
+    `${nullR.why} — and a run offering no position at all is excused, not refused`
   );
 
   return { ok: checks.every((c) => c.ok), checks };
