@@ -167,21 +167,23 @@ boundary.** Which is often the right design anyway, since it is also where you
 wanted the re-render granularity.
 
 There is a sharper consequence for helpers. **An inlined helper cannot read under the
-grouped surface.** The first cut of this page inferred that from React's hook rules;
-the [HD-002 adjudication](../hd-002-adjudication.md) §5 has since derived it on
-firmer ground and reached the same verdict. The ground is HD-002's own definition —
-grouped is "one fixed hook receiving *the complete query collection before the
-body*", and a helper's queries are not knowable before the body, because the body has
-to run to reach the helper. HD-020's budget agrees from the other side: it is already
-fully consumed by the subscription hook and the frame hook, so a helper calling
-`use-subs` is a third hook in the boundary.
+grouped surface** — and the reason is not the one you would guess. HD-002 defines
+grouped as one fixed hook receiving *the complete query collection before the body*,
+and a helper's queries are not knowable before the body, because the body has to run
+to reach the helper. A reading helper is structurally incompatible with the tier as
+defined. HD-020's budget agrees from the other side: it is already fully consumed by
+the subscription hook and the frame hook, so a helper calling `use-subs` would be a
+third hook in the boundary.
 
-React, notably, is *not* the reason. A helper called unconditionally and exactly once
-per render, itself calling `use-subs` unconditionally, is a custom hook by React's own
-definition and React would allow it. The grouped tier forbids it anyway. Do not reach
-for the hook-rules argument when someone asks you why.
+Both grounds are the [HD-002 adjudication](../hd-002-adjudication.md)'s, which reached
+the verdict after this guide's first pass had reached it from React's hook rules — the
+weaker argument, now withdrawn. React, notably, is *not* the reason. A helper called
+unconditionally and exactly once per render, itself calling `use-subs`
+unconditionally, is a custom hook by React's own definition and React would allow it.
+The grouped tier forbids it anyway. Do not reach for the hook-rules argument when
+someone asks you why.
 
-So there are two shapes for a helper, and the first cut only had one of them.
+So there are two shapes for a helper:
 
 ```clojure
 ;; 1. The helper takes values and reads nothing.
@@ -196,7 +198,7 @@ So there are two shapes for a helper, and the first cut only had one of them.
   (let [{:keys [title badge-count]}
         (use-subs (merge {:title [:cart/title id]}
                          (badge-queries id)))]
-    [:header title (badge id badge-count)]))
+    [:header title (badge {:count badge-count})]))
 ```
 
 The second shape adds nothing to the surface: `use-subs` takes a map and maps merge.
@@ -321,7 +323,7 @@ independently, not because the markup got long.
 | Which read surface ships | **Open by design.** HD-002 is decided by P1 measurement; three outcomes, including null |
 | `use-subs` and `sub` spellings | Pre-declared working names; [authoring.md](../authoring.md) holds all declaration spellings unfrozen until the tournament |
 | Does `use-subs` accept anything but a map — a vector of queries, a single query? | **Not addressed.** Only the map form appears in the record |
-| Can an inlined helper read under Surface A? | **Answered: no.** Not by this guide any more — [hd-002-adjudication.md](../hd-002-adjudication.md) §5 derives it from HD-002's "complete query collection before the body", with HD-020's spent budget as a second ground. The first cut inferred the same verdict from React's hook rules; that ground was the weak one and is withdrawn |
+| Can an inlined helper read under Surface A? | **Answered: no** — and no longer on this guide's authority. [hd-002-adjudication.md](../hd-002-adjudication.md) derives it from HD-002's "complete query collection before the body", with HD-020's spent budget as a second ground. This guide's earlier hook-rules argument reached the same verdict on weaker ground and is withdrawn |
 | Whether query-contributing helpers are the taught idiom or merely legal | The adjudication marks the shape **[INFERRED]** and recommends the dogfood screen exercise it. Nothing rules it in as the taught form |
 | `defview`'s own spelling and whether a props-map argument is required | Working name; the single-props-map body signature is ruled by HD-016 |
 | The dev warning for an unkeyed seq — its id and whether it is dev-only | **Not addressed** beyond "dev warning" |
