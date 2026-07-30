@@ -77,7 +77,7 @@ const PORT = Number(process.env.HN_PORT || 8141);
 // and compares the first against the last, and a third has to carry a
 // RANGE for the house rule to apply. At six samples a third is one sample
 // and the question collapses to a bare ratio.
-const ROUNDS = Number(process.env.HN_ROUNDS || 4);
+const ROUNDS = Number(process.env.HN_ROUNDS || 6);
 const IN_ROUND_WARMUP = Number(process.env.HN_ROUND_WARMUP || 2);
 const SAMPLES = Number(process.env.HN_SAMPLES || 6);
 // Chrome clamps performance.now() to 100 us and one narrow write sits on
@@ -100,8 +100,17 @@ const WRITES = Number(process.env.HN_WRITES || 20);
 // trajectory still separates from the last third by more than the guard's
 // own tolerance, to a ceiling of HN_WARMUP_MAX. The whole trajectory is
 // printed, so "wide enough" is checkable rather than asserted.
-const WARMUP = Number(process.env.HN_WARMUP || 6);
-const WARMUP_MAX = Number(process.env.HN_WARMUP_MAX || 14);
+//
+// The settle test is the MEDIAN one and only the median one. A first cut
+// accepted "the medians are within tolerance OR the ranges overlap", and on
+// a box this noisy the ranges always overlap, so every arm settled at the
+// floor while still visibly trending — `spine-replace` terminated on
+// 0.98 0.89 0.37 0.33 0.46 0.56 0.48 0.59 0.66, which is not a settled
+// site. Overlapping ranges are the right rule for ADJUDICATING two
+// measured strata; they are the wrong rule for deciding a site has stopped
+// moving, because a wide range makes the test pass by being uninformative.
+const WARMUP = Number(process.env.HN_WARMUP || 8);
+const WARMUP_MAX = Number(process.env.HN_WARMUP_MAX || 20);
 
 // The guard's tolerance, and the donor's. It is NOT a knob for making a
 // refusal go away: a refusal means the figure moved with the plan, and the
@@ -180,6 +189,23 @@ function summarise(xs) {
 const disjoint = (a, b) => a && b && (a.min > b.max || b.min > a.max);
 
 const rng = (s) => (s ? `${num(s.p50)} [${num(s.min)}-${num(s.max)}]` : '--');
+
+// THE QUANTISATION-UNBIASED ESTIMATOR, and why the split needs one.
+//
+// Chrome coarsens `performance.now()` to a 100 us grid, so a leg shorter
+// than the grid reads either 0 or 100 us depending on where the boundary
+// happened to fall. Its MEDIAN is therefore 0 by construction — which is a
+// precise wrong number, and precisely the kind this instrument exists to
+// refuse. The MEAN is not: `floor(t1/q)*q - floor(t0/q)*q` has expectation
+// exactly `t1 - t0` when the phase is uniform, so averaging over enough
+// windows recovers a sub-quantum leg that no single window can see.
+//
+// So the two estimators do two different jobs and both are published:
+// p50 + range adjudicates (the house rule needs a range, and a median is
+// robust to the scheduler), and the mean carries the write-versus-flush
+// SPLIT, which is the whole point of this bead and which a median cannot
+// express when one of the legs is under the clock floor.
+const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 // ---------------------------------------------------------------------------
 
@@ -265,6 +291,13 @@ async function main() {
 
   const arms = await page.evaluate(() => window.HN.arms);
   const cellsN = await page.evaluate(() => window.HN.cellsN);
+  const ladder = await page.evaluate(() => window.HN.ladder);
+  if (ladder[ladder.length - 1] !== cellsN) {
+    throw new Error(
+      `the ladder's top rung (${ladder[ladder.length - 1]}) is not the headline cell count ` +
+        `(${cellsN}) — the ladder would be fitted through a point no arm measured`
+    );
+  }
   console.error(`[hn] arms: ${arms.join(', ')}  (${cellsN} cells, ${WRITES} writes/sample)`);
 
   // --- gate 4: the read-back gate's non-vacuity control -------------------
@@ -291,8 +324,10 @@ async function main() {
   // --- warm-up ------------------------------------------------------------
   await page.evaluate((d) => window.HN.prepare(d), CTL_1);
   const trajectories = {};
+  const settled = {};
   for (const arm of arms) {
     const xs = [];
+    settled[arm] = false;
     for (let i = 0; i < WARMUP_MAX; i++) {
       xs.push(await page.evaluate(([a, w]) => window.HN.warm(a, w), [arm, WRITES]));
       if (i + 1 >= WARMUP) {
@@ -300,14 +335,20 @@ async function main() {
         const first = summarise(xs.slice(0, t));
         const last = summarise(xs.slice(-t));
         const ratio = last.p50 === 0 ? 1 : first.p50 / last.p50;
-        // Settled = the first third and the last third are no longer
-        // separated. Both halves of the house rule: the medians must be
-        // within tolerance OR the ranges must overlap.
-        if (Math.abs(ratio - 1) <= TOLERANCE || !disjoint(first, last)) break;
+        // Settled = the first third of the trajectory no longer reads
+        // differently from the last third, by MEDIAN. See the note on
+        // WARMUP above for why the range test is not offered here.
+        if (Math.abs(ratio - 1) <= TOLERANCE) {
+          settled[arm] = true;
+          break;
+        }
       }
     }
     trajectories[arm] = xs;
-    console.error(`[hn] warm ${arm.padEnd(16)} ${xs.map((x) => num(x, 3)).join(' ')}`);
+    console.error(
+      `[hn] warm ${arm.padEnd(17)} ${xs.map((x) => num(x, 3)).join(' ')}` +
+        `   ${settled[arm] ? 'SETTLED' : `still trending at the ${WARMUP_MAX}-window ceiling`}`
+    );
   }
 
   // --- the measured pass, at control rung 1 -------------------------------
@@ -372,6 +413,11 @@ async function main() {
   say(`sample           ${WRITES} narrow writes; per-write = sample / ${WRITES}`);
   say(`plan             ${ROUNDS} rounds x (${IN_ROUND_WARMUP} in-round warmup + ${SAMPLES} samples), arms interleaved`);
   say(`clock quantum    ${num(quantum, 5)} ms (measured in-page)`);
+  say(
+    `warm-up          ${Object.entries(settled)
+      .map(([a, s]) => `${a}:${trajectories[a].length}${s ? '' : '*'}`)
+      .join(' ')}   (* = still trending at the ${WARMUP_MAX}-window ceiling)`
+  );
   say(`window           t0 -> control -> WRITE -> microtask -> FLUSH -> t3 -> DOM read-back`);
   say(`published figure t3 - t_control  =  write + gap + force`);
   say('');
@@ -379,9 +425,7 @@ async function main() {
   // --- the headline table -------------------------------------------------
   say('PER-WRITE MILLISECONDS — p50 [min-max] across all measured samples');
   say('');
-  say(
-    '  arm               write+flush            write                  flush                  write%'
-  );
+  say('  arm               write+flush            write                  flush');
   const headline = {};
   for (const arm of arms) {
     const rows = byArm(pass1, arm);
@@ -390,14 +434,173 @@ async function main() {
     const fo = legOf(rows, 'force');
     const gp = legOf(rows, 'gap');
     headline[arm] = { total: tot, write: wr, force: fo, gap: gp };
-    const share = tot && tot.p50 > 0 ? ((wr.p50 / tot.p50) * 100).toFixed(0) : '--';
-    say(`  ${arm.padEnd(17)} ${rng(tot).padEnd(22)} ${rng(wr).padEnd(22)} ${rng(fo).padEnd(22)} ${share}%`);
+    say(`  ${arm.padEnd(17)} ${rng(tot).padEnd(22)} ${rng(wr).padEnd(22)} ${rng(fo)}`);
   }
+  say('');
+  say('  NO write-share column here, deliberately. The write leg is under the 100 us grid on');
+  say('  every arm, so its MEDIAN is 0 by construction and a share computed from it reads a');
+  say('  flat 0% — a precise wrong number. The split is taken from the mean table below.');
   say('');
   say('  (the microtask gap is priced separately and is expected to be ~0 on every arm here:');
   say('   a reagent.core/flush is already on React\'s sync lane, so no arm needs the boundary.)');
   for (const arm of arms) {
     say(`     gap  ${arm.padEnd(17)} ${rng(headline[arm].gap)}`);
+  }
+  say('');
+
+  // --- the split ----------------------------------------------------------
+  // The median above reads 0 for any leg under the 100 us grid, which is a
+  // precise wrong number rather than a small one. The mean is unbiased under
+  // that coarsening, so the SPLIT — the question this bead exists to answer
+  // — is taken from it, with the median table above left standing as the
+  // adjudication instrument.
+  say('WRITE vs FLUSH — from the quantisation-unbiased MEAN over every measured write');
+  say('');
+  say('  arm               write+flush     write           flush           write share');
+  const split = {};
+  for (const arm of arms) {
+    const rows = byArm(pass1, arm);
+    const t = mean(rows.map((s) => s.total));
+    const w = mean(rows.map((s) => s.write));
+    const g = mean(rows.map((s) => s.gap));
+    const f = mean(rows.map((s) => s.force));
+    split[arm] = { total: t, write: w, gap: g, force: f, writeShare: t > 0 ? w / t : null };
+    const share = t > 0 ? `${((w / t) * 100).toFixed(1)}%` : '--';
+    say(
+      `  ${arm.padEnd(17)} ${num(t).padEnd(15)} ${num(w).padEnd(15)} ${num(f).padEnd(15)} ${share}`
+    );
+  }
+  say('');
+  // An arithmetic identity, not a check of the substrate: the three legs
+  // are read off the SAME four clock samples the total is, so they must sum
+  // to it exactly. A discrepancy means the accumulator is mis-wired.
+  let identityOk = true;
+  for (const arm of arms) {
+    const s = split[arm];
+    const err = Math.abs(s.write + s.gap + s.force - s.total);
+    if (err > 1e-9) {
+      identityOk = false;
+      say(`  IDENTITY FAILED on ${arm}: write+gap+force - total = ${err}`);
+    }
+  }
+  if (identityOk) say('  write + gap + force = write+flush exactly, on every arm (leg accounting intact)');
+  say('');
+
+  // --- what the flush is actually made of ---------------------------------
+  // "The flush" is one word doing two jobs: Reagent re-running every
+  // dirtied reaction, and React committing the one cell that changed. A
+  // single number cannot separate them, and the separation is the whole
+  // question — the withdrawn predecessor's narrow row was wrong precisely
+  // because a framework cost was read as a rendering cost.
+  //
+  // Two cell counts separate them by construction. The React commit is the
+  // SAME one-cell commit at both rungs; only the number of layer-1
+  // subscriptions moves. So the slope is the per-subscription recompute and
+  // the intercept is everything else, and neither is inferred from a
+  // sentence.
+  const rungArm = (n) => (n === cellsN ? 'spine-replace' : `spine-${n}`);
+  const rungs = ladder
+    .map((n) => ({ n, arm: rungArm(n), split: split[rungArm(n)] }))
+    .filter((r) => r.split);
+  let flushComposition = null;
+  if (rungs.length >= 2) {
+    say('WHERE THE FLUSH GOES — the subscription-count ladder');
+    say('');
+    say('  subscriptions   flush ms/write   per subscription   local slope vs the rung below');
+    for (let i = 0; i < rungs.length; i++) {
+      const r = rungs[i];
+      const each = `${num((r.split.force / r.n) * 1000, 3)} us`;
+      let local = '--';
+      if (i > 0) {
+        const p = rungs[i - 1];
+        local = `${num(((r.split.force - p.split.force) / (r.n - p.n)) * 1000, 3)} us/sub`;
+      }
+      say(
+        `  ${String(r.n).padStart(13)}   ${num(r.split.force).padEnd(15)} ${each.padEnd(18)} ${local}`
+      );
+    }
+    say('');
+
+    // The linear model, and whether the rungs will carry it. A per-unit
+    // cost quoted from two points is only a per-unit cost if a line
+    // through them has a NON-NEGATIVE intercept: the intercept is the
+    // work that does not scale with the subscription count — React's
+    // one-cell commit and Reagent's drain overhead — and that work cannot
+    // cost less than nothing. A negative intercept is the data refusing
+    // the model, not a rounding error, and this ladder produced one at
+    // two rungs (30 -> 300 fitted 2.27 us/sub with an intercept of
+    // -0.048 ms).
+    const lo = rungs[0];
+    const hi = rungs[rungs.length - 1];
+    const slope = (hi.split.force - lo.split.force) / (hi.n - lo.n);
+    const intercept = lo.split.force - slope * lo.n;
+    const growth = lo.split.force > 0 ? hi.split.force / lo.split.force : null;
+    const scale = hi.n / lo.n;
+    const exponent = growth ? Math.log(growth) / Math.log(scale) : null;
+    flushComposition = {
+      rungs: rungs.map((r) => ({ n: r.n, flushMs: r.split.force })),
+      slopeMsPerSub: slope,
+      interceptMs: intercept,
+      exponent,
+      linear: intercept >= 0,
+    };
+    if (intercept >= 0) {
+      say(`  linear fit over ${lo.n}-${hi.n}: ${num(slope * 1000, 3)} us per subscription,`);
+      say(`  intercept ${num(intercept)} ms — React's one-cell commit and Reagent's drain overhead.`);
+      say(
+        `  => of ${num(hi.split.force)} ms of flush at ${hi.n} cells, ` +
+          `${num(slope * hi.n)} ms is the subscription graph.`
+      );
+    } else {
+      say(`  NO PER-SUBSCRIPTION COST IS QUOTED. A line through ${lo.n} and ${hi.n} has an`);
+      say(`  intercept of ${num(intercept)} ms, and the work that does NOT scale with the`);
+      say('  subscription count — React\'s one-cell commit, Reagent\'s drain overhead —');
+      say('  cannot cost less than nothing. The flush grows FASTER than the count:');
+      say(
+        `  ${scale.toFixed(1)}x the subscriptions costs ${growth.toFixed(1)}x the flush, ` +
+          `an exponent of ${exponent.toFixed(2)}.`
+      );
+      say('  The per-rung and local-slope columns above are the honest reading; a single');
+      say('  "us per subscription" figure would be a precise wrong number.');
+    }
+    say('');
+    say('  What is NOT in doubt is the shape. A one-cell write marks EVERY layer-1');
+    say('  subscription in the frame dirty and re-evaluates all of them: a layer-1 body is');
+    say('  an opaque fn of the whole app-db and the graph holds no path. That is intrinsic');
+    say('  and universal; what this ladder prices is what it costs on the ratom spine.');
+    say('');
+  }
+
+  // --- the like-for-like correction ---------------------------------------
+  // The reason this bead exists. The predecessor's narrow row pitted a
+  // re-frame application against a bare `reagent.core/atom` and read the
+  // difference as a substrate cost. Both arms are here, measured in the
+  // same interleave on the same page, so the size of that framing error is
+  // a row rather than a claim.
+  say('LIKE-FOR-LIKE — what the comparison arm was, and what it should have been');
+  say('');
+  {
+    const b = split['bare-ratom'];
+    const s = split['spine-replace'];
+    const d = split['spine-dispatch'];
+    const rb = summarise(byArm(pass1, 'bare-ratom').map((x) => x.total));
+    const rs = summarise(byArm(pass1, 'spine-replace').map((x) => x.total));
+    const rd = summarise(byArm(pass1, 'spine-dispatch').map((x) => x.total));
+    say(`  bare r/atom + cursor (no re-frame)          ${num(b.total)} ms/write   ${rng(rb)}`);
+    say(`  re-frame on the ratom spine, replace-app-db ${num(s.total)} ms/write   ${rng(rs)}`);
+    say(`  re-frame on the ratom spine, dispatch-sync  ${num(d.total)} ms/write   ${rng(rd)}`);
+    say('');
+    say(
+      `  a narrow write costs ${(s.total / b.total).toFixed(1)}x more on re-frame-over-Reagent than on ` +
+        `bare Reagent,`
+    );
+    say(
+      `  and ${(d.total / b.total).toFixed(1)}x through the event drain. Any narrow-update ratio quoted against the`
+    );
+    say('  bare-ratom column is measuring that gap and calling it something else.');
+    say(
+      `  The event drain itself is ${num(d.total - s.total)} ms/write — the difference between the two doors.`
+    );
   }
   say('');
 
@@ -489,6 +692,26 @@ async function main() {
   say('');
 
   // --- the guard ----------------------------------------------------------
+  // What the guard could actually see. The phase factor splits an arm's
+  // trajectory into THIRDS by position, so a run that lost its positions
+  // would silently adjudicate a third of the samples it claims to hold —
+  // an `[ok]` verdict taken on evidence that was never there. The counts
+  // are printed so the strata sizes below are checkable against them.
+  say('WHAT THE GUARD SAW');
+  say('');
+  let positionsLost = false;
+  for (const arm of arms) {
+    const rows = byArm(pass1, arm);
+    const fin = rows.filter((s) => Number.isFinite(s.position));
+    const ps = fin.map((s) => s.position);
+    if (fin.length !== rows.length) positionsLost = true;
+    say(
+      `  ${arm.padEnd(17)} ${rows.length} samples, ${fin.length} with a finite position` +
+        (ps.length ? ` [${Math.min(...ps)}-${Math.max(...ps)}]` : '') +
+        `, thirds of ${Math.max(1, Math.floor(fin.length / 3))}`
+    );
+  }
+  say('');
   for (const l of report.lines) say(l);
   say('');
 
@@ -500,11 +723,23 @@ async function main() {
     sha,
     runtime: RUNTIME,
     quantum,
-    plan: { rounds: ROUNDS, inRoundWarmup: IN_ROUND_WARMUP, samples: SAMPLES, writes: WRITES },
+    plan: {
+      rounds: ROUNDS,
+      inRoundWarmup: IN_ROUND_WARMUP,
+      samples: SAMPLES,
+      writes: WRITES,
+      cells: cellsN,
+      tolerance: TOLERANCE,
+    },
     warmup: trajectories,
+    warmupSettled: settled,
+    ladder,
+    flushComposition,
     control: { rung1: CTL_1, rung2: CTL_2, measured1: c1, measured2: c2 },
     negativeControl: neg,
     headline,
+    split,
+    samples: { rung1: pass1, rung2: pass2 },
     unverified: { bad: badTotal, of: writeTotal },
     guard: { refuse: report.refuse, contaminated: report.contaminated, unchecked: report.unchecked },
     edn: report.edn,
@@ -518,6 +753,16 @@ async function main() {
   say('');
 
   // --- the verdict --------------------------------------------------------
+  // A lost position is worse than a refusal, because it makes the guard's
+  // phase factor quietly adjudicate fewer samples than it names. It gets
+  // its own exit rather than being folded into the guard's.
+  if (positionsLost) {
+    say('VERDICT: FAILED — some samples reached the guard with no finite position, so the');
+    say('         phase factor was adjudicated on less evidence than it reported. Nothing');
+    say('         above may be published until every sample carries its position.');
+    process.exitCode = 1;
+    return;
+  }
   if (report.refuse) {
     say('VERDICT: REFUSED by the arm-order guard. No figure above may be published.');
     say('         Repair the arm — more warm-up, more rounds, a quieter box. Not the tolerance.');
