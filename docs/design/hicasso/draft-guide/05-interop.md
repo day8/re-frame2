@@ -101,10 +101,15 @@ ordinary host-edge React (HD-003): a callback ref, an effect, and a cleanup, wri
 in a `.cljs` namespace at the edge of your app.
 
 ```clojure
-;; Sketch only — host-edge React inside a defview body.
+;; Sketch only — host-edge React inside a defview body, in a .cljs namespace.
+(ns app.hosts.map-panel
+  (:require [re-frame.hicasso :as h :refer [defview]]
+            ["react" :as react]
+            ["some-map-sdk" :as sdk]))
+
 (defview map-panel [_]
   (let [attach (react/useCallback
-                 (fn [node] (when node (sdk/mount! node)))
+                 (fn [node] (when node (sdk/mount node)))
                  #js [])]
     [:div.map {:ref attach}]))
 ```

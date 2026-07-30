@@ -33,7 +33,8 @@ owns its identity, and it can re-render without its parent.
 A **plain call** is just a function call. Its hiccup is spliced into the caller's
 tree, it has no boundary of its own, and — this is the part that matters for
 performance — any subscription it reads donates that read *upward* to the enclosing
-boundary. Helpers are free; they cost nothing and buy nothing.
+boundary. Helpers cost nothing at runtime and buy no re-render granularity, which is
+the trade in one sentence.
 
 One rule, one visible distinction. This is deliberate: re-render granularity is a
 thing you should be able to see by reading the source, and Reagent's `^{:key}`
@@ -42,14 +43,15 @@ metadata folklore is deleted along with it. Keys go in the props map:
 ```clojure
 (defview todo-list [_]
   [:ul
-   (for [id (sub [:todo/visible-ids])]     ;; read surface — see the fork below
+   (for [id (sub [:todo/visible-ids])]     ;; collector spelling — see the fork below
      [todo-row {:key id :id id}])])
 ```
 
 A bare seq of boundary children needs keys, and you get a dev warning if you forget.
 The `for`-lowering sugar that would derive the key from the binding is **not v0** —
-you write `:key` yourself. A plain function in head position (`[todo-row {...}]`
-where `todo-row` is not a view) is a loud error rather than a silent embedding.
+you write `:key` yourself. Putting a plain `defn` in head position — `[badge {...}]`
+where `badge` was never minted by `defview` — is a loud error rather than a silent
+embedding.
 
 ### The component ABI
 
