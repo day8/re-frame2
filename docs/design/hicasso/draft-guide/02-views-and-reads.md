@@ -291,10 +291,6 @@ Whichever surface wins:
   folded into the query, a JS object or a function, which carry reference identity
   rather than value identity. Documented, programmer-trusted, not policed.
 
-  (Read [validation.md](../validation.md)'s shorthand — "unstable map args thrash the
-  index" — as *value*-unstable. A guide does not own that page's wording; the reading
-  is the one Spec 006's cache identity forces.)
-
 ## Troubleshooting
 
 No Hicasso error ids exist yet; this table names mechanisms.
