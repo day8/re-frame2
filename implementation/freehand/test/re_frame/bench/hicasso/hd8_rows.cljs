@@ -733,8 +733,31 @@
 
 (defn release-write-arms! [mounts]
   (doseq [{:keys [arm handle container]} mounts]
-    (try ((:unmount arm) handle) (catch :default _ nil))
+    (try ((:unmount arm) handle)
+         (catch :default e
+           (lane/teardown-failure! (str "release-write-arms! " (:id arm)) e)))
     (.remove container)))
+
+(defn assert-teardown-clean!
+  "Throw if any teardown has failed since the last check.
+
+  Called BETWEEN rows rather than at the end of the run, because that is
+  where the damage is done: an arm whose unmount threw has left its React
+  root, its watches and its subscription caches standing, and every row
+  measured after it is measured on a page carrying them. The throw lands
+  in `hd8-app`'s existing `.catch`, which records `HD8_ERROR` and exits 1
+  — the same fail-closed path parity and the lowering check already take
+  (rf2-f5roa, from the PR #7263 audit)."
+  [after]
+  (let [fs (lane/drain-teardown-failures!)]
+    (when (seq fs)
+      (throw (ex-info (str "teardown FAILED after " after
+                           " — an arm did not unmount, so its React root, watches and "
+                           "subscription caches are still standing and every row after "
+                           "this one would be measured on a page carrying them: "
+                           (pr-str fs))
+                      {:after after :failures fs})))
+    nil))
 
 (defn timed-write!
   "Run `ops` — a seq of `[i val probes]` — as ONE measured window: each
@@ -1046,7 +1069,8 @@
         root      (react-dom-client/createRoot container)
         cleanup!  (fn []
                     (try (react-dom/flushSync (fn [] (.unmount root)))
-                         (catch :default _ nil))
+                         (catch :default e
+                           (lane/teardown-failure! "lowering-works! cleanup" e)))
                     (.remove container)
                     (reseed! :donor-r2))]
     (react-dom/flushSync

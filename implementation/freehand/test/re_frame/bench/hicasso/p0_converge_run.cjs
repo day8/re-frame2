@@ -67,6 +67,8 @@ const path = require('node:path');
 
 // The directory's ONE navigation, with its ceiling named (rf2-p9fa3).
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
+// The directory's ONE sentinel wait, raced against the page dying (rf2-f5roa).
+const { watchPage } = require('../../freehand/bench/sentinel.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 
@@ -78,12 +80,33 @@ const PORT = Number(process.env.HICASSO_PORT || 8134);
 
 // One row, one page, one fresh heap. The order is the order the studio
 // page reports them in; each is self-contained, so it is not load-bearing.
-const ROWS = [
+const ALL_ROWS = [
   { id: 'M1', why: 'mount, 901 elements, 300 sub-reading boundaries — a bar row' },
   { id: 'M2', why: 'mount, 51 elements, 12 fields — DIAGNOSTIC, per rf2-2rtt6.2' },
   { id: 'broad', why: 'one commit all 300 boundaries read — a bar row' },
-  { id: 'narrow', why: 'one commit exactly one boundary reads — localisation' },
+  { id: 'narrow', why: 'k commits each read by exactly one boundary — localisation' },
 ];
+
+// `HICASSO_ONLY=narrow` drives one row instead of four, over the SAME bundle
+// and the same gates. Not a shortcut, and it is `hd8_run.cjs`'s `HD8_ONLY`
+// for the same reason that one has it: re-taking ONE row whose window moved
+// must not re-take the three whose windows did not, because that would mint a
+// competing set of figures for rows already published at another SHA and
+// leave a reader unable to tell which table is current. rf2-zb3qg batched the
+// narrow window and nothing else; the mount rows and the broad row are
+// untouched by it — the broad row passes a batch of one, which is the
+// pre-batch window exactly — so re-taking them would be replacing sound
+// published numbers with different ones for no reason.
+//
+// Unset is all four, so the published shape is the default.
+const ONLY = (process.env.HICASSO_ONLY || '').trim();
+const ROWS = ONLY ? ALL_ROWS.filter((r) => ONLY.split(',').includes(r.id)) : ALL_ROWS;
+if (ROWS.length === 0) {
+  console.error(
+    `[converge] HICASSO_ONLY=${ONLY} selects no row; known ids: ${ALL_ROWS.map((r) => r.id).join(', ')}`
+  );
+  process.exit(1);
+}
 
 // A page's own budget. Five rounds of two segments with warm-up is
 // minutes, not seconds, and a loaded workstation is the normal case.
@@ -137,34 +160,43 @@ async function runRow(browser, row) {
   // longer it runs, and a reused page carries whatever caused that across
   // the row boundary.
   const page = await browser.newPage();
-  const pageErrors = [];
-  page.on('pageerror', (e) => {
-    pageErrors.push(e.message);
-    console.error(`[converge] PAGE ERROR (${row.id}):`, e.message);
-  });
   page.on('console', (msg) => {
     const t = msg.text();
     if (t.startsWith(';; ') || t.startsWith('[converge]')) console.log(t);
   });
+  // Watching starts BEFORE the navigation. `pageerror` used to be pushed onto
+  // an array that nothing read until after the sentinel wait, so a throw
+  // before HICASSO_DONE — which is every throw, since a page that threw never
+  // reaches its own `done!` — cost the FULL twenty-minute budget before the
+  // driver looked at the answer it had held all along (rf2-f5roa, from the PR
+  // #7268 audit).
+  const watch = watchPage(page, `converge:${row.id}`);
 
-  // `'commit'`, not `'load'`. The bundle's `:init-fn` runs inside the
-  // `<script>`, so the measurement happens while the document is still
-  // loading and `load` cannot fire until it is over.
-  await navigate(page, `http://127.0.0.1:${PORT}/?row=${row.id}`, {
-    waitUntil: 'commit',
-    timeoutMs: NAV_TIMEOUT_MS,
-    budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
-  });
-  await page.waitForFunction('window.HICASSO_DONE === true || window.HICASSO_ERROR', null, {
-    timeout: SENTINEL_TIMEOUT_MS,
-  });
+  try {
+    // `'commit'`, not `'load'`. The bundle's `:init-fn` runs inside the
+    // `<script>`, so the measurement happens while the document is still
+    // loading and `load` cannot fire until it is over.
+    await navigate(page, `http://127.0.0.1:${PORT}/?row=${row.id}`, {
+      waitUntil: 'commit',
+      timeoutMs: NAV_TIMEOUT_MS,
+      budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
+    });
+    await watch.race('window.HICASSO_DONE === true || window.HICASSO_ERROR', {
+      timeoutMs: SENTINEL_TIMEOUT_MS,
+      budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
+    });
 
-  const err = await page.evaluate('window.HICASSO_ERROR || null');
-  const refused = await page.evaluate('window.HICASSO_GUARD_REFUSED === true');
-  const controlFailed = await page.evaluate('window.HICASSO_CONTROL_FAILED === true');
-  const results = await page.evaluate('window.HICASSO_RESULTS || {}');
-  await page.close();
-  return { row, err, refused, controlFailed, results, pageErrors };
+    const err = await page.evaluate('window.HICASSO_ERROR || null');
+    const refused = await page.evaluate('window.HICASSO_GUARD_REFUSED === true');
+    const controlFailed = await page.evaluate('window.HICASSO_CONTROL_FAILED === true');
+    const results = await page.evaluate('window.HICASSO_RESULTS || {}');
+    // Kept as a BACKSTOP for an error arriving in the same tick as the
+    // sentinel, which the race cannot order.
+    return { row, err, refused, controlFailed, results, pageErrors: watch.failures.map((f) => `${f.kind}: ${f.detail}`) };
+  } finally {
+    watch.dispose();
+    await page.close();
+  }
 }
 
 (async () => {
@@ -174,19 +206,41 @@ async function runRow(browser, row) {
   const browser = await chromium.launch();
   const version = browser.version();
   const outcomes = [];
+  let died = null;
   try {
     for (const row of ROWS) {
       console.error(`[converge] row ${row.id} — ${row.why}`);
-      outcomes.push(await runRow(browser, row));
+      try {
+        outcomes.push(await runRow(browser, row));
+      } catch (e) {
+        // The sweep STOPS. The remaining rows would each spend their own
+        // budget re-discovering the same broken bundle, and nothing this row
+        // recorded is a measurement.
+        died = `${row.id}: ${e.message}`;
+        break;
+      }
     }
   } finally {
     await browser.close();
     server.close();
   }
 
+  if (died) {
+    console.error(`[converge] FAILED: ${died}`);
+    process.exit(1);
+  }
+
   console.log(`;; ==== HICASSO RUNTIME ====`);
   console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
   console.log(`;; one row per page; ${ROWS.length} pages`);
+  // The repro line carries the environment it was actually run with, not the
+  // bare command: a published figure whose repro command does not reproduce
+  // it is a figure nobody can check.
+  console.log(
+    `;; reproduce  ${ONLY ? `HICASSO_ONLY=${ONLY} ` : ''}node ` +
+      `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs`
+  );
+  console.log(`;; rows       ${ROWS.map((r) => r.id).join(', ')}${ONLY ? `  (HICASSO_ONLY=${ONLY})` : ''}`);
   for (const o of outcomes) {
     for (const [k, v] of Object.entries(o.results)) {
       console.log(`;; ==== HICASSO ${o.row.id} / ${k} ====`);

@@ -165,55 +165,78 @@
 
             ;; ---- the positive control, then the lowering check -------------
             (let [pc (record! :positive-control (rows/positive-control! 3 control-sampling))]
-              (when-not (:within? pc)
-                (js/console.warn
-                  (str ";; HD8 WARNING — the positive control missed its prediction "
-                       "(predicted " (:predicted pc) ", measured " (pr-str (:measured pc))
-                       "). Every clock figure in this run is suspect.")))
-              (-> (if (rows/donor-run? which)
-                    (rows/lowering-works! which)
-                    ;; The donor rungs are not in this run's arm set (see
-                    ;; `arm-ids-for`), so there is no lowering here to check
-                    ;; and a check that trivially passed would be worse than
-                    ;; no check at all. Recorded as inapplicable rather than
-                    ;; as green.
-                    (js/Promise.resolve {:lowered? true :applicable? false
-                                         :why (str "the donor arms are not REACTIVE under this "
-                                                   "run's ratom spine, so a lowering check here "
-                                                   "would fail for an unrelated reason; the uix "
-                                                   "run is where this question is asked")}))
-                  (.then
-                    (fn [low]
-                      (record! :lowering-check low)
-                      (if-not (:lowered? low)
-                        (do (fail! (str "rung 2's event-vector lowering did not reach the DOM: "
-                                        (pr-str low) " — the rung-2 clock would be pricing a "
-                                        "lowering that produces a closure nobody can call"))
-                            (done!)
-                            nil)
+              (if-not (:within? pc)
+                ;; FAIL CLOSED. This used to `console.warn` and then measure
+                ;; everything anyway, so a run whose instrument could not see
+                ;; a change its own arithmetic PREDICTS still published a full
+                ;; clock table and still exited 0 — and the warning sat in a
+                ;; console log nobody reads beside numbers that looked fine
+                ;; (rf2-f5roa, from the PR #7263 audit). A control is the row
+                ;; that separates `this arm is cheap` from `the instrument is
+                ;; not running`; if it misses, nothing measured after it is a
+                ;; measurement, so nothing after it runs.
+                (do (fail! (str "the positive control missed its prediction — predicted "
+                                (:predicted pc) "x, measured " (pr-str (:measured pc))
+                                " against a tolerance of " (:tolerance pc)
+                                ". The instrument did not see a change its own arithmetic "
+                                "says it must, so no clock figure in this run would be "
+                                "reportable and none was taken."))
+                    (done!))
+                (-> (if (rows/donor-run? which)
+                      (rows/lowering-works! which)
+                      ;; The donor rungs are not in this run's arm set (see
+                      ;; `arm-ids-for`), so there is no lowering here to check
+                      ;; and a check that trivially passed would be worse than
+                      ;; no check at all. Recorded as inapplicable rather than
+                      ;; as green.
+                      (js/Promise.resolve {:lowered? true :applicable? false
+                                           :why (str "the donor arms are not REACTIVE under this "
+                                                     "run's ratom spine, so a lowering check here "
+                                                     "would fail for an unrelated reason; the uix "
+                                                     "run is where this question is asked")}))
+                    (.then
+                      (fn [low]
+                        (record! :lowering-check low)
+                        (if-not (:lowered? low)
+                          (do (fail! (str "rung 2's event-vector lowering did not reach the DOM: "
+                                          (pr-str low) " — the rung-2 clock would be pricing a "
+                                          "lowering that produces a closure nobody can call"))
+                              (done!)
+                              nil)
 
-                        ;; ---- the clocks ------------------------------------
-                        (do
-                          (doseq [wit rows/witnesses]
-                            (record-row! (keyword (str "mount-" (name (:id wit))))
-                                         (rows/measure-mount! wit arm-ids rounds mount-sampling)))
-                          ;; The harness microtask, priced before the write rows
-                          ;; and outside every one of their windows. A
-                          ;; microtask-scheduled arm's window does not contain
-                          ;; that turn and its rivals' do (rf2-b69lw), so the
-                          ;; size of the asymmetry is published beside the rows
-                          ;; rather than argued about after them.
-                          (-> (rows/yield-cost! write-sampling)
-                              (.then (fn [yc]
-                                       (record! :yield-cost yc)
-                                       (rows/measure-write! write-ids which :narrow rounds write-sampling)))
-                              (.then (fn [r]
-                                       (record-row! :write-narrow r)
-                                       (rows/measure-write! write-ids which :bulk rounds write-sampling)))
-                              (.then (fn [r] (record-row! :write-bulk r) (done!))))))))
-                  (.catch (fn [e]
-                            (fail! (str "the run threw: " (.-message e) "\n" (.-stack e)))
-                            (done!)))))))))))
+                          ;; ---- the clocks ----------------------------------
+                          (do
+                            (doseq [wit rows/witnesses]
+                              (record-row! (keyword (str "mount-" (name (:id wit))))
+                                           (rows/measure-mount! wit arm-ids rounds mount-sampling))
+                              ;; A teardown that threw is checked BETWEEN rows,
+                              ;; not swallowed until the end: an arm whose
+                              ;; unmount failed leaves its watches and its
+                              ;; caches standing, and the next row is then
+                              ;; measured on a page that is carrying them
+                              ;; (rf2-f5roa, from the PR #7263 audit).
+                              (rows/assert-teardown-clean! (str "mount-" (name (:id wit)))))
+                            ;; The harness microtask, priced before the write rows
+                            ;; and outside every one of their windows. A
+                            ;; microtask-scheduled arm's window does not contain
+                            ;; that turn and its rivals' do (rf2-b69lw), so the
+                            ;; size of the asymmetry is published beside the rows
+                            ;; rather than argued about after them.
+                            (-> (rows/yield-cost! write-sampling)
+                                (.then (fn [yc]
+                                         (record! :yield-cost yc)
+                                         (rows/measure-write! write-ids which :narrow rounds write-sampling)))
+                                (.then (fn [r]
+                                         (record-row! :write-narrow r)
+                                         (rows/assert-teardown-clean! "write-narrow")
+                                         (rows/measure-write! write-ids which :bulk rounds write-sampling)))
+                                (.then (fn [r]
+                                         (record-row! :write-bulk r)
+                                         (rows/assert-teardown-clean! "write-bulk")
+                                         (done!))))))))
+                    (.catch (fn [e]
+                              (fail! (str "the run threw: " (.-message e) "\n" (.-stack e)))
+                              (done!))))))))))))
 
 (defn ^:export -main []
   (try
