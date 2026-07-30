@@ -418,5 +418,8 @@
                                 :curveA {:reads      curve-a-reads
                                          :boundaries curve-a-boundaries}
                                 :cells  cells-needed})
-             :arms           (into-array (map name (keys @installed)))})
+             ;; `(subs (str kw) 1)`, NOT `name` — `name` drops the namespace,
+             ;; so every arm reached the driver as `b-r0-b2400` with the
+             ;; `floor`/`reagent`/`uix` half missing and nothing to parse.
+             :arms           (into-array (map #(subs (str %) 1) (keys @installed)))})
   nil)
