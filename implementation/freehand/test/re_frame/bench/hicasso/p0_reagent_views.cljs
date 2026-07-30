@@ -102,7 +102,21 @@
 ;; The subscriptions and the frames
 ;; ---------------------------------------------------------------------------
 
-(rf/reg-sub :p0/cell (fn [db [_ i]] (get-in db [:cells i])))
+(defn register!
+  "The sub graph: ONE layer-1 subscription, keyed by index, one read per
+  boundary — the first rung of the HD-002 1/3/7/20 ladder.
+
+  Called at load, exactly as it was when rf2-2rtt6.2 published, so this
+  arm's behaviour is unchanged. It is a FUNCTION as well because the
+  witness-convergence run (rf2-a4x1o) installs and destroys an adapter
+  once per segment and calls it again on every segment entry. A
+  re-register overwrites with the identical handler, so calling it twice
+  and calling it once are the same registry."
+  []
+  (rf/reg-sub :p0/cell (fn [db [_ i]] (get-in db [:cells i])))
+  nil)
+
+(register!)
 
 (def subs-frame
   "One frame for the `:reagent-subs` arm, created once at boot. A frame is
