@@ -2,7 +2,7 @@
 // HD-008's driver — build once, serve once, run three adapters, refuse a
 // contaminated figure (rf2-2rtt6.7).
 //
-//   node implementation/freehand/test/re_frame/freehand/bench/hd8_run.cjs
+//   node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs
 //
 // ## What this measures, and why it comes before any API
 //
@@ -28,9 +28,9 @@
 //
 // No new build id, and `implementation/shadow-cljs.edn` is not touched:
 // rf2-2rtt6.2 owns the measurement lane and any build-id addition (a
-// hot-zone, sequenced file). This rides `:freehand-release` with an
+// hot-zone, sequenced file). This rides its `:hicasso-bench` with an
 // output directory and an `:init-fn` merged in at the CLI, which is the
-// seam `b6_prod_run.cjs` already established for exactly this.
+// seam rf2-2rtt6.2's own driver established for exactly this.
 //
 // ## Exit codes
 //
@@ -57,8 +57,14 @@ const guard = require('./order_guard.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const REPO = path.resolve(IMPL, '..');
+// rf2-2rtt6.2's lane, reused rather than re-minted: ONE build id serves the
+// whole programme, and HD-017 makes a new one a hot-zone edit of
+// implementation/shadow-cljs.edn that rf2-2rtt6.2 owns. `:hicasso-bench` is
+// already `:advanced` with goog.DEBUG false, which is what HD-012 requires of
+// every bar-relevant figure, so this arm needs nothing of its own.
+const BUILD_ID = 'hicasso-bench';
 const OUT_DIR = process.env.HD8_OUT_DIR || 'out/hd8-donor';
-const INIT_FN = 're-frame.freehand.bench.hd8-app/-main';
+const INIT_FN = 're-frame.bench.hicasso.hd8-app/-main';
 const OUT = path.join(IMPL, OUT_DIR);
 const PORT = Number(process.env.HD8_PORT || 8129);
 
@@ -108,7 +114,7 @@ function build() {
   const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
   const r = spawnSync(
     process.execPath,
-    [runner, 'release', 'freehand-release', '--config-merge', CONFIG_MERGE],
+    [runner, 'release', BUILD_ID, '--config-merge', CONFIG_MERGE],
     { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
   );
   if (r.status !== 0) {
@@ -256,7 +262,7 @@ function crossRun(runs) {
   console.log(`;; ==== HD8 PROVENANCE ====`);
   console.log(`;;   bead        rf2-2rtt6.7 (HD-008, EP-0038)`);
   console.log(`;;   commit      ${sha}`);
-  console.log(`;;   reproduce   node implementation/freehand/test/re_frame/freehand/bench/hd8_run.cjs`);
+  console.log(`;;   reproduce   node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs`);
   console.log(`;;   build       shadow-cljs release freehand-release (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);
 

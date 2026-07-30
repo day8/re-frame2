@@ -1,4 +1,4 @@
-(ns re-frame.freehand.bench.hd8-app
+(ns re-frame.bench.hicasso.hd8-app
   "HD-008's `:advanced` entry — the composed donor arm's published run
   (rf2-2rtt6.7).
 
@@ -7,7 +7,7 @@
   the two Reagent paths need the ratom spine while the frontier arm and
   both donor rungs ride React hooks. Everything else — the arms, the
   witnesses, the parity gate, both clocks — is
-  [[re-frame.freehand.bench.hd8-rows]]'s, unchanged, so the method is one
+  [[re-frame.bench.hicasso.hd8-rows]]'s, unchanged, so the method is one
   thing a reader checks once.
 
   ## Why the numbers come from here and not from a test namespace
@@ -29,15 +29,16 @@
   clocks. Nothing is published from a run whose gates did not pass.
 
   Built and driven by
-  `implementation/freehand/test/re_frame/freehand/bench/hd8_run.cjs`.
+  `implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs`, on
+  rf2-2rtt6.2's `:hicasso-bench` build id.
 
   Normative owner: `docs/design/hicasso/decisions.md` HD-008."
   (:require [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.adapter.reagent-slim :as slim-adapter]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
-            [re-frame.freehand.bench.b6-harness :as h]
-            [re-frame.freehand.bench.hd8-rows :as rows]))
+            [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.bench.hicasso.hd8-rows :as rows]))
 
 (def ^:private rounds 6)
 (def ^:private mount-sampling {:warmup 4 :samples 12})
@@ -140,7 +141,7 @@
         _        (install! which)
         arm-ids  (get rows/arm-ids-for which)
         write-ids (get rows/write-arm-ids-for which)]
-    (h/leave-act-environment!)
+    (lane/leave-act-environment!)
     (doseq [id arm-ids] (rows/ensure-frame! id))
     (record! :method (rows/method-record which arm-ids write-ids rounds mount-sampling write-sampling))
 
