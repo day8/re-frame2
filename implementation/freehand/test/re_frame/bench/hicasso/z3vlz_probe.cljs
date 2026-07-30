@@ -356,10 +356,15 @@
                  ;; root, its `reg-view` boundaries and their subscriptions
                  ;; standing, and the next page's arms would be certified on
                  ;; a contaminated document. The container is detached either
-                 ;; way; the record is what makes it fatal.
-                 (try (unmount handle)
-                      (catch :default e
-                        (lane/teardown-failure! "z3vlz subs-arm unmount" e)))
+                 ;; way; the record is what makes it fatal. A NORMAL return is
+                 ;; not taken at its word either (rf2-z3vlz, from the PR #7291
+                 ;; audit): `lane/container-released!` reads the container
+                 ;; before it goes, exactly as `lane/release!` does.
+                 (when (try (unmount handle)
+                            true
+                            (catch :default e
+                              (lane/teardown-failure! "z3vlz subs-arm unmount" e)))
+                   (lane/container-released! "z3vlz subs-arm unmount" container))
                  (.remove container)
                  {:mount    {:ok? mount-ok? :cells mount-cells}
                   :orders   (tally results)
@@ -390,10 +395,15 @@
                  ;; on the same document, so a swallowed failure here is the
                  ;; worse of the two: the arm whose result the bead turns on
                  ;; would be measured on a page still carrying the control's
-                 ;; roots and its ratom's watchers.
-                 (try (unmount handle)
-                      (catch :default e
-                        (lane/teardown-failure! "z3vlz raw-control unmount" e)))
+                 ;; roots and its ratom's watchers. A NORMAL return is not
+                 ;; taken at its word either (rf2-z3vlz, from the PR #7291
+                 ;; audit): `lane/container-released!` reads the container
+                 ;; before it goes, exactly as `lane/release!` does.
+                 (when (try (unmount handle)
+                            true
+                            (catch :default e
+                              (lane/teardown-failure! "z3vlz raw-control unmount" e)))
+                   (lane/container-released! "z3vlz raw-control unmount" container))
                  (.remove container)
                  {:mount    {:ok? mount-ok?}
                   :orders   (tally results)
