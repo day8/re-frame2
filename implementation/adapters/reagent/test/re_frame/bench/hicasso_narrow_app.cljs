@@ -119,6 +119,17 @@
           ;; `cellsN` — the top rung is `:spine-replace` itself rather than
           ;; a fourth mounted copy of it.
           "ladder"        (clj->js hn/ladder-cells)
+          ;; Arms whose windows render no cell, so a DOM read-back on them
+          ;; would be verifying nothing. The driver excludes these from the
+          ;; "N unverified of M" denominator rather than counting a forced
+          ;; `ok` as a verified write.
+          "skipVerify"    (clj->js (into [] (comp (filter :skip-verify?)
+                                                  (map #(name (:id %))))
+                                         arms))
+          ;; How many of each arm's `cellsN` cells actually subscribe. The
+          ;; ladder is fitted through THIS, and the driver prints it so the
+          ;; isolation claim is checkable rather than asserted.
+          "subs"          (clj->js (into {} (map (fn [a] [(name (:id a)) (:subs a)])) arms))
           ;; Run before any measurement: proves this bundle reads the keys
           ;; it writes, under the renaming it was actually compiled with.
           "integrity"     (fn [] (hn/integrity-probe))
