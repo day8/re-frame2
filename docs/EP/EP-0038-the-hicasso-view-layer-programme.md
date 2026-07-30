@@ -1,0 +1,212 @@
+# EP-0038: The Hicasso View-Layer Programme
+
+Status: accepted
+Type: standards-track
+Created: 2026-07-30
+Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated authority; operator-overturnable)
+
+## Abstract
+
+**Hicasso** (`re-frame.hicasso`, alias `h`) is re-frame2's third and final native
+view-layer attempt: **interpreted Hiccup on a UIx-class React function-component
+host, optimised for re-frame2** — a better UIx with hiccup interpretation, not a
+better Reagent. The programme is a bounded product experiment, not a rewrite
+mandate: a measured browser-only bar built first, a composed donor arm as a
+stop-gate before any API exists, a two-arm spike tournament under a six-week
+clock with pre-registered kill criteria, and an operator fork ruling that
+graduates exactly one arm — or stops, with "adapters + sugar" recorded as a
+*successful* outcome. On a win, the public Freehand and re-frame.ui surfaces are
+deleted (no absorption programme); on a loss, the adapters stand. The durable
+design record is `docs/design/hicasso/` (excluded from the published site, read
+in the source tree — the EP-0036 precedent); every design decision is resolved
+in `docs/design/hicasso/decisions.md` (HD-001–HD-021).
+
+## Motivation
+
+Two prior attempts (EP-0030's re-frame.ui; EP-0036's Freehand) validated the
+authoring model — data views, `sub`-as-value, intent-as-data; zero correctness
+failures ever recorded — and failed on runtime economics, discovering their
+deficits after the build (bulk re-render ~10× Reagent in the browser;
+per-boundary retained memory multiples of both Reagent and UIx). The measured
+post-mortems attribute the cost to two mechanisms (a per-read dependency ledger
+and a per-boundary shell) whose residual costs Hicasso re-prices under explicit
+budgets with tripwires, and identify the fastest measured arm in the repo — a
+UIx-class React FC — as the correct runtime parent. What users demonstrably
+miss on that parent is precisely hiccup-as-data and intent-as-data: that is the
+product. The ultimate test is speed **in the browser** — fast applications, not
+fast SSR or fast test lanes.
+
+## Specification
+
+The programme runs as three waves of beads under one epic. Authority and detail
+live in the design record: `charter.md`, `architecture.md`, `validation.md`,
+`authoring.md`, and `decisions.md` under `docs/design/hicasso/`. Where this EP
+and those pages ever differ, decisions.md governs, then validation.md.
+
+Glossary for this EP: **"donor arm"** = the composed spike built from parts the
+existing *adapters* donate (reagent-slim `:f>` + UIx `use-subscribe`) — distinct
+from the **"donor trees"** (the Freehand/re-frame.ui source trees, EP-0036's
+sense). **"Adapter-Prime"** = that same composition ridden forward through the
+whole tournament as the adapters-plus-sugar null hypothesis — the referent of
+"null" in the P2 ruling.
+
+### Wave 0 — governance, the bar, and the draft guide (parallel-safe; off-clock)
+
+- **The standard bead** (operator-owned): the two-number bar (ship ≤ 1.0×
+  Reagent like-for-like on the clock; 1.5× bulk architecture-kill), the
+  browser-numbers-only rule, the budgets, kill criteria K1–K7, the UIx red-zone
+  ratio protocol, the clock definition, the HD-002 adjudication clauses, and
+  the P2 decider protocol (the operator decides; recorded adversarial +
+  creative reviews advise; the earlier donor-gate ruling is a delegated
+  advisory ruling, operator-overturnable — HD-013).
+- **The like-for-like instruments**, filed as **fresh beads** (the prior
+  instrument beads rf2-mapni / rf2-m7xs7 / rf2-ssn1o are closed do-not-refile
+  specification donors, per their own close direction): Reagent-on-subs mount
+  and bulk arms, the ratom-spine write+flush leg, a UIx-on-subs arm, and the
+  1/3/7/20 reads-per-boundary heap ladder.
+- **W1 baseline carry-over** (already resolved in the tracked record): P0
+  carries ≈2.99–3.08× floor / ≈1.9–2.0× Reagent into the baseline table; the
+  residual dominance-attribution question rides its own existing bead.
+- **The draft user guide** (parallel, operator-requested): first-cut guide
+  pages into `docs/design/hicasso/draft-guide/`, written per `docs/AUTHORING.md`
+  against the designed authoring surface (the grouped default *and* the
+  collector-contingent sketch, clearly caveated) — explicitly disposable, to be
+  redone properly after P2 against the real implementation; excluded from the
+  published site with the rest of the design tree.
+
+### Wave 1 — the stop-gate and the tournament
+
+- **The composed donor arm** (HD-008): two rungs — (i) `:f>` + runtime hiccup +
+  UIx subs; (ii) plus one frame-context hook and native event-vector lowering.
+  Off-clock; its stop/continue ruling is a delegated advisory ruling issued
+  only against the published P0 baseline table. Stop here — before any API —
+  if it cannot clearly beat both Reagent paths and stay inside the UIx
+  red-zones.
+- **The shared front half** is built once, as the **first post-gate tournament
+  work item**, alongside the witness-set build: the codec (extracted from
+  reagent-slim's measured plumbing), the subscription→boundary index
+  (graduating the spike-01 model into the tracked bench/test tree, HD-017),
+  and intent lowering. The donor arm's rung-(ii) lowering is a minimal
+  disposable slice, not the shared build. The dogfood screen's shared app/state
+  code lives with the bench trees per HD-017.
+- **The tournament** (HD-007; the six-week clock starts at the first
+  Hicasso-arm commit that mounts the dogfood screen, HD-014): Hicasso
+  lean-React and Hicasso/PATCH arms on the shared front half and identical
+  witnesses, Adapter-Prime riding every measurement; the HD-002 sub-read tiers
+  instrumented; the dogfood screen written in **three renderings** (collector,
+  grouped, raw UIx) as the ergonomics half of the verdict; witness set,
+  red-zones, and measurement discipline per validation.md.
+
+### Wave 2 — the fork ruling and (on a go) v0
+
+- **P2 ruling** (HD-013): **the decider is the operator**; one adversarial and
+  one creative review pass over the P0/P1 evidence are prepared and recorded on
+  the standard bead to advise the ruling. Outcomes: graduate exactly one arm
+  into a tracked `implementation/hicasso/` artefact and build v0 (five tier-1
+  shapes, controlled input R-A1/R-A2, one host hatch, the short guide — charter
+  §Use cases), or stop with adapters-as-success.
+- On a go, wave 3 is filed only then: donor-surface deletion per HD-018, the
+  real guide (superseding the wave-0 draft), skill/migration work, and the
+  product-phase roster.
+
+### Sequencing law
+
+Wave-0 beads are parallel-safe (bench trees, the design tree, and the tracker
+only). The donor arm may run alongside wave 0; tournament arms dispatch only
+after the donor gate passes and the standard bead carries P0's numbers.
+**Before the P2 graduation**, nothing in this programme edits `spec/*`, release
+workflows, or the Freehand/re-frame.ui `src` trees — with one carve-out: the
+bench/test measurement lane (e.g. `implementation/freehand/test/.../bench/`) is
+the programme's measurement apparatus and accepts instrument-only merges
+(HD-017). Runtime skeletons stay off `main` until the P2 graduation; arms
+needing new build ids or dev-http ports touch the hot-zone
+`implementation/shadow-cljs.edn` and are sequenced, never parallel. Results
+publish to beads and `docs/design/hicasso/studio/`. The programme does not
+contend with the release train.
+
+## Rationale
+
+Measure-first with a null control is the direct inversion of both predecessors'
+failure shape (bars discovered at 90% built; no dignified stop; success defined
+as machinery absorbed rather than product preferred). The two-arm tournament
+exists because the lean arm's honest ceiling inside React may be UIx-parity
+while only the own-renderer family can beat the frontier on bulk and memory —
+a question only instruments can settle. The read-mechanism ladder (grouped
+default, collector challenger, scalar comparator) puts the burden of proof on
+the mechanism class that killed the predecessor while keeping the authoring
+surface that justifies the product alive as the hardest-ridden challenger. Full
+per-decision rationale lives with each HD record.
+
+## Backwards Compatibility
+
+Nothing published changes during waves 0–2: the adapters (Reagent,
+reagent-slim, UIx) remain first-class and untouched; the Freehand and
+re-frame.ui trees are frozen except the bench/test measurement lane; no released
+artefact depends on any programme output. On a P2 "go", wave 3 executes HD-018
+(delete the public donor surfaces; `spec/004`-family re-homing per Graduation
+below). On a stop, the repo's shipped surface is exactly what it was.
+
+## Resolved Decisions
+
+All twenty-one design decisions are resolved in
+`docs/design/hicasso/decisions.md`; dispositions in brief: HD-001 name/alias ·
+HD-002 sub-read tiers (grouped default / collector challenger / scalar
+comparator; both-fail→null) · HD-003 hooks placement rule (taught, not policed)
+· HD-004 accelerants arm-scoped · HD-005 evidence seam only · HD-006 no default
+memoization · HD-007 two equal-class arms · HD-008 donor stop-gate · HD-009 no
+`local`, sugar unfrozen · HD-010 theming laws, no Hicasso context · HD-011
+`defhost` + the one `[:>]` escape · HD-012 clock-only ship bar, UIx red-zones ·
+HD-013 deciders (operator at P2; delegated advisory at the donor gate) · HD-014
+the clock · HD-015 start now · HD-016 invocation + component ABI · HD-017 code
+residence + bench-lane carve-out · HD-018 delete-on-win · HD-019 the
+synchronous door · HD-020 v0 host mechanics · HD-021 root/HMR/headless.
+**Future operator rulings made under this EP — the donor-gate ruling and the P2
+fork ruling — are recorded here when made** (per EP-0009 rule 2), with their
+evidence on the standard bead.
+
+## Open Issues
+
+1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).
+2. The P2 fork ruling (operator; end of the tournament).
+3. The HD-002 read-mechanism adjudication (resolved by P1 instrumentation).
+4. The residual W1 dominance-attribution bead (does not gate the baseline).
+
+## Graduation
+
+Standards-track terminal states, made explicit per exit:
+
+- **Go**: v0 lands; the winning public contract graduates narrowly — the
+  `spec/004` view-family re-homes from Freehand-voiced text to Hicasso, and
+  EP-0036 is marked superseded by this EP for the view-layer surface; guide
+  impact is assessed then (the wave-0 draft guide is replaced by real
+  `docs/core/…` pages under the sample gates). This EP goes `final` when v0 and
+  that graduation land.
+- **Stop (donor gate or P2)**: this EP goes `final` with the Resolution line
+  amended to record the null outcome and its evidence; no spec change; open
+  programme beads are closed with the ruling; the adapters are affirmed as the
+  answer. Both exits are successful deliveries of a *decided* question with
+  receipts.
+
+## Non-goals
+
+A compiler or analyzer; a second authoring mode; a ViewCell-class per-boundary
+runtime; a component-local state system; a Hicasso context abstraction;
+batteries, overlay, SSR-identity, or devtools-glass programmes before the P2
+gate; any absorption/migration programme over the donor trees; SSR/JVM render
+speed as a bar input. The anti-regression fence and banned vocabulary in
+charter §Constraints are normative for every brief filed under this EP.
+
+## References
+
+- Design record: `docs/design/hicasso/` (README · charter · decisions ·
+  architecture · validation · authoring; `studio/` and `draft-guide/` minted by
+  wave-0/1 workers).
+- Predecessor EPs: [EP-0030](EP-0030-the-compiled-view-substrate-program.md),
+  [EP-0036](EP-0036-the-freehand-view-substrate-programme.md).
+- Measured record: `docs/design/freehand/studio/` (incl.
+  `bulk-rerender-where-the-time-goes.md` and the fitness harness
+  `fitness-harness.md`).
+- Closed instrument-spec donor beads: rf2-mapni, rf2-m7xs7, rf2-ssn1o
+  (do-not-refile); the retired Freehand standard rf2-lbs3y.
+- The operator-owned standard bead and the EP-0038 epic bead (ids recorded on
+  the epic at filing).
