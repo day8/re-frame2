@@ -32,7 +32,8 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 |---|---|
 | **Producing commit** | `d46ede4fb05a8f4c5af9900f0a010772f0b0883a` — every row except the `reagent-slim` write rows |
 | **Producing commit, re-take** | `b943c7ed20d63d66fade4775059dad9fcf0012a7` — the `reagent-slim` write rows only (`rf2-b69lw`) |
-| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` |
+| **Producing commit, re-take** | `1c7c963e219a6f5cf0f5620b248e69c2ec6a990f` — the **narrow write rows** only, on a batched window (`rf2-9zysg`) |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — runs at every commit above |
 | **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
 | **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
 | **Rounds** | 6 · mount `{:warmup 4 :samples 12}` · write `{:warmup 3 :samples 10}` |
@@ -40,8 +41,14 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 Every figure below is a **browser** figure, which is what HD-012 requires of
 anything quotable against the bar.
 
-**Two producing commits, and the second one only re-took what the first
-suppressed.** At `d46ede4f` the `reagent-slim` write rows read *78 of 78*
+**Three producing commits, and each later one re-took only the rows whose
+window it changed.** The narrow write rows are `1c7c963e`'s and are marked as
+such in [their own section](#write--narrow-one-cell-in-a-300-cell-grid), where
+the superseded unbatched ranges are kept rather than deleted; `rf2-9zysg`
+batched ten writes under one clock and left every other window alone, so no
+other row moved. Before that:
+
+At `d46ede4f` the `reagent-slim` write rows read *78 of 78*
 unverified and their figures were withheld. `rf2-z3vlz` diagnosed why and
 `rf2-b69lw` repaired it; `b943c7ed` is that repair, and the `reagent-slim`
 write rows below are its. **No other row was replaced.** The repair changes the
@@ -139,24 +146,69 @@ Against the floor: `reagent` 4.800 – 6.700, `reagent-slim` 5.500 – 7.750, `u
 
 ### Write — narrow (one cell in a 300-cell grid)
 
+> **These figures were re-taken at `1c7c963e` on a BATCHED window
+> (`rf2-9zysg`).** Ten single-cell writes, to ten distinct cells, now share one
+> clock; the per-write figure is the sample divided by ten. The ranges directly
+> below **supersede** the ones taken on the unbatched window, which are kept at
+> the end of this section so a reader can see the measurement was revisited
+> rather than quietly replaced. Every other row on this page is unchanged and
+> still carries its original producing commit — the batch touches the narrow
+> window and nothing else.
+
 Within-run, `uix` run:
 
 | comparison | range |
 |---|---|
-| `donor-r1 / uix` | 0.909 – 1.200 · *indistinguishable* |
-| `donor-r2 / uix` | 0.960 – 1.200 · *indistinguishable* |
-| `donor-r2 / donor-r1` — the shell | 1.000 – 1.167 · *indistinguishable* |
+| `donor-r1 / uix` | 0.947 – 1.056 · *indistinguishable* |
+| `donor-r2 / uix` | 0.926 – 1.148 · *indistinguishable* |
+| `donor-r2 / donor-r1` — the shell | 0.939 – 1.088 · *indistinguishable* |
 
-Cross-run, floor-normalised — **the weaker warrant**: `donor-r1` 5.000 – 8.000 and
-`donor-r2` 5.000 – 8.000 against `reagent` 3.000 – 5.000 and **`reagent-slim`
-2.667 – 6.000**. This row's precision is the instrument's weakest (see
-limitations), and the `reagent-slim` figure is the weakest of those: **the floor
-it is normalised against has a p50 of 0.10 – 0.15 ms against a 100 µs quantum**,
-so the denominator is one to one-and-a-half quanta wide. An independent
-slim-only replication at `f5bd4b49` read 3.000 – 5.500 on the same row — inside
-the published range, and the run-to-run spread is the honest size of this row's
-precision. Absolute p50s: `reagent-slim` 0.40 – 0.60 ms, floor 0.10 – 0.15 ms.
-**0 unverified of 78.**
+Cross-run, floor-normalised — **the weaker warrant**: `donor-r1` 5.182 – 6.790
+and `donor-r2` 5.400 – 6.579 against `reagent` 4.130 – 6.947 and
+**`reagent-slim` 4.222 – 5.944**.
+
+Absolute p50s, **per write** (the sample ÷ 10): floor 0.090 – 0.110 ms, `uix`
+0.510 – 0.675, `donor-r1` 0.505 – 0.665, `donor-r2` 0.490 – 0.665; `reagent`
+0.475 – 0.760 against its own floor 0.095 – 0.125; `reagent-slim` 0.380 – 0.535
+against its own floor 0.090 – 0.095. **0 unverified of 780** on every arm of
+every run.
+
+**What the batch bought, and what it did not.** The denominator is no longer on
+the clamp: the floor's *sample* p50 is 0.90 – 1.25 ms, nine to twelve quanta,
+where the unbatched floor was 0.10 – 0.15 ms — one to one-and-a-half. That was
+named as this instrument's weakest figure and it is now the same order of
+resolution as everything else on the page. The ranges tightened where
+quantisation was what made them wide (`reagent-slim` 2.667 – 6.000 → 4.222 –
+5.944, a 2.25× spread down to 1.41×; `donor-r1` 5.000 – 8.000 → 5.182 – 6.790,
+1.60× down to 1.31×). They did **not** tighten for `reagent` (1.67× → 1.68×),
+where round-to-round drift, not the quantum, is what the range is made of.
+Batching cannot help with drift and is not claimed to.
+
+**The per-write absolutes reproduce the unbatched run**, which is the check that
+says the batch measures the same operation: `reagent-slim` reads 0.380 – 0.535
+ms per write here against 0.40 – 0.60 ms published, and its floor 0.090 – 0.095
+against 0.10 – 0.15. The batched ratios sit *higher* than the unbatched ones for
+the same reason — a denominator pinned at one quantum was rounded **up**, and a
+floor rounded up understates every ratio taken against it.
+
+<details><summary><b>Superseded — the same row on the unbatched window</b>
+(`d46ede4f`, and `b943c7ed` for <code>reagent-slim</code>)</summary>
+
+Within-run, `uix` run: `donor-r1 / uix` 0.909 – 1.200, `donor-r2 / uix`
+0.960 – 1.200, `donor-r2 / donor-r1` 1.000 – 1.167 — all *indistinguishable*.
+
+Cross-run, floor-normalised: `donor-r1` 5.000 – 8.000 and `donor-r2`
+5.000 – 8.000 against `reagent` 3.000 – 5.000 and `reagent-slim` 2.667 – 6.000.
+An independent slim-only replication at `f5bd4b49` read 3.000 – 5.500. Absolute
+p50s: `reagent-slim` 0.40 – 0.60 ms, floor 0.10 – 0.15 ms. **0 unverified of
+78.**
+
+These were taken one write per clock, so both numerator and denominator carried
+a 100 µs quantum. They are kept because a superseded measurement is evidence
+about the instrument, and deleting it would hide that this row was ever
+revisited.
+
+</details>
 
 ### Write — bulk (all 300 cells in one commit)
 
@@ -221,8 +273,13 @@ split **30 / 30** across its two possible predecessors, which is the local
 `slot-order` override working.
 
 **DOM read-back — 0 unverified of 1,248**, which is every write the driver
-executes across the three runs (`0 of 960` counting only the timed post-warmup
-samples). At `d46ede4f` the same counts read **156 of 1,248** and **120 of 960**,
+executed across the three runs at `b943c7ed` (`0 of 960` counting only the timed
+post-warmup samples). **At `1c7c963e` the narrow rows carry ten writes per
+sample, so the same three runs execute 0 unverified of 6,864** — `0 of 780` on
+each of the eight narrow arm-columns, plus the bulk rows' `0 of 78` each. The
+denominator grew with the batch; the numerator did not.
+
+At `d46ede4f` the same counts read **156 of 1,248** and **120 of 960**,
 every one of them the `reagent-slim` arm, and its write figures were suppressed
 rather than published. *An earlier version of this page reported that as "156
 unverified of 936", which is not a like-for-like denominator and is corrected
@@ -338,10 +395,17 @@ could land without touching it.
 
 ## Known limitations of this instrument
 
-- **The narrow-write row sits near Chrome's `performance.now()` clamp.** Its
-  p50s are ~0.4–1.2 ms against a 100 µs quantum, and its ranges are wide in
-  proportion. rf2-2rtt6.2's `lane/mount-batch!` — timing *k* operations as one
-  window — is the repair; this arm predates it. Filed as **`rf2-f5roa`**.
+- ~~**The narrow-write row sits near Chrome's `performance.now()` clamp.**~~
+  **Repaired at `1c7c963e` (`rf2-9zysg`).** Ten writes now share one clock, so
+  the row's samples are 3.8–7.6 ms and its floor 0.90–1.25 ms, against a 100 µs
+  quantum. What remains is that an early write in a batch is read back up to
+  nine microtask turns after its own drain — the pre-batch window already
+  granted one such turn by construction, and a commit React parks at the default
+  lane needs a *macrotask*, which never occurs inside the window, so the
+  read-back's actual target is unaffected. The batched window also contains ten
+  harness microtasks for every arm except the microtask-scheduled one, which
+  contains none; each such turn measures 0.0 ms against this clock, so the
+  asymmetry is ten times a quantity below the instrument's own resolution.
 - **The bulk write verifies one probe cell**, where the shared lane verifies a
   seq including the far end of the grid. Same bead.
 - **The write rows' donor-vs-Reagent comparison is cross-run**, floor-normalised.
