@@ -185,6 +185,33 @@
     (react-dom/flushSync (fn [] (vreset! handle ((:mount arm) container props n))))
     {:ms (- (now-ms) t0) :container container :handle @handle :arm arm}))
 
+(defn mount-batch!
+  "Mount `arm` `k` times with ALL k inside ONE timed window; answer
+  `{:ms … :mounts […]}`. The caller releases the mounts.
+
+  `k` exists because Chrome clamps `performance.now()` to 100 µs and a
+  small witness sits on that clamp: the predecessor's narrow row measured
+  one write at a time and got back exactly 0.1 ms from two different
+  arms — the quantum itself, wearing a null result's clothes. Timing `k`
+  operations as ONE sample lifts the window clear of the clamp, and it is
+  not the same as summing `k` separately-clamped readings, which
+  quantises `k` times and adds the errors.
+
+  Every container is created and attached BEFORE the clock starts, for
+  the same reason [[mount-arm!]] does it: a `document.createElement`
+  billed to one arm and not another is a systematic error the size of
+  some of the effects here."
+  [arm props k]
+  (let [containers (vec (repeatedly k fresh-container!))
+        handles    (volatile! nil)
+        t0         (now-ms)]
+    (react-dom/flushSync
+      (fn [] (vreset! handles
+                      (mapv (fn [c] ((:mount arm) c props (swap! mount-seq inc)))
+                            containers))))
+    {:ms     (- (now-ms) t0)
+     :mounts (mapv (fn [c h] {:arm arm :container c :handle h}) containers @handles)}))
+
 (defn release!
   "Unmount and detach. Never timed."
   [{:keys [arm handle container]}]
@@ -266,23 +293,31 @@
   order. Warm-up samples are taken and DISCARDED — they still move the
   site's position, which is the point.
 
+  `label` names an arm to the GUARD, and it must be unique across every
+  row a single verdict pools. Three witnesses' `:floor` arms are three
+  different amounts of work; pooled under one name their ranges are
+  disjoint by construction and the guard refuses a contamination that is
+  really just the witness table.
+
   Answers `{:readings [{id [ms …]} …] :samples [guard-samples]}`."
-  [arms {:keys [warmup samples] :as _sampling} rounds measure-one!]
-  (let [k    (count arms)
-        coll (sample-collector)
-        out  (mapv
-               (fn [_round]
-                 (let [acc (atom (zipmap (map :id arms) (repeat [])))]
-                   (dotimes [s (+ warmup samples)]
-                     (doseq [j (slot-order k s)]
-                       (let [arm (nth arms j)
-                             ms  (measure-one! arm)]
-                         (when (>= s warmup)
-                           (collect! coll (:id arm) ms)
-                           (swap! acc update (:id arm) conj ms)))))
-                   @acc))
-               (range rounds))]
-    {:readings out :samples (:samples @coll)}))
+  ([arms sampling rounds measure-one!]
+   (rounds! arms sampling rounds measure-one! (fn [arm] (name (:id arm)))))
+  ([arms {:keys [warmup samples] :as _sampling} rounds measure-one! label]
+   (let [k    (count arms)
+         coll (sample-collector)
+         out  (mapv
+                (fn [_round]
+                  (let [acc (atom (zipmap (map :id arms) (repeat [])))]
+                    (dotimes [s (+ warmup samples)]
+                      (doseq [j (slot-order k s)]
+                        (let [arm (nth arms j)
+                              ms  (measure-one! arm)]
+                          (when (>= s warmup)
+                            (collect! coll (label arm) ms)
+                            (swap! acc update (:id arm) conj ms)))))
+                    @acc))
+                (range rounds))]
+     {:readings out :samples (:samples @coll)})))
 
 (defn normalise
   "One round's raw readings as `{:p50 {id ms} :ratio {id r}}`, every ratio
@@ -355,8 +390,15 @@
   rather than synchronous, and it is priced in situ: `:gap-ms` is
   reported per arm, and an arm that commits without it reads 0.0 there.
   Splitting the window is what lets a reader see how much of a ratio is
-  the reactive leg and how much is React."
-  [t {:keys [arm container]} i val probe]
+  the reactive leg and how much is React.
+
+  `probes` is a SEQ of cell indices and ALL of them must hold the written
+  value. A broad write changes every cell, so verifying one of them
+  verifies almost nothing: the recorded fault is a commit that landed
+  outside the window, and a stale page can still have one fresh cell in
+  it from the previous write. The rotating probe plus the far end of the
+  grid is the cheapest read that a partial commit cannot satisfy."
+  [t {:keys [arm container]} i val probes]
   (let [t0 (now-ms)]
     ((:write! arm) i val)
     (let [t1 (now-ms)]
@@ -365,7 +407,7 @@
                    (let [t2 (now-ms)]
                      ((:force! arm))
                      (let [t3  (now-ms)
-                           ok? (= (str val) (text-at container probe))]
+                           ok? (every? #(= (str val) (text-at container %)) probes)]
                        (swap! t (fn [{:keys [of bad]}]
                                   {:of (inc of) :bad (if ok? bad (inc bad))}))
                        {:ms       (- t3 t0)
