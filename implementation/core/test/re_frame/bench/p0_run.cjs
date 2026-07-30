@@ -22,15 +22,20 @@
 // ## No shadow-cljs.edn change, deliberately
 //
 // The epic's SEQUENCING LAW makes `implementation/shadow-cljs.edn`
-// build-id touches hot-zone sequenced, and rf2-2rtt6.2 owns that file for
-// this wave. So this driver does what `b6_prod_run.cjs` and `b7_run.cjs`
-// already do: it merges an output directory and an `:init-fn` into an
-// EXISTING `:advanced` `:browser` build id, which contributes nothing but
-// its compiler settings — `:target :browser`, `:optimizations :advanced`,
-// `:infer-externs :auto`, `goog.DEBUG false`. The module's entry, and
-// therefore everything that ends up in the bundle, is this arm's.
-// `P0_BUILD` overrides the donor id: when rf2-2rtt6.2's measurement-lane
-// build id lands, point this at it and delete this paragraph.
+// build-id touches hot-zone sequenced. So this driver does what
+// `b6_prod_run.cjs` and `b7_run.cjs` already do: it merges an output
+// directory and an `:init-fn` into an EXISTING `:advanced` `:browser`
+// build id, which contributes nothing but its compiler settings —
+// `:target :browser`, `:optimizations :advanced`, `:infer-externs :auto`,
+// `goog.DEBUG false`. The module's entry, and therefore everything that
+// ends up in the bundle, is this arm's. The default id is rf2-2rtt6.2's
+// measurement lane, `:hicasso-bench` — the id the lane landed for exactly
+// this ride — and `P0_BUILD` overrides it. One id serves N programs, so
+// the driven id's cache entry is cleared before every build
+// (`lane_cache.cjs`, rf2-2rtt6.20): a sibling arm's stale `shadow-js/`
+// index compiles clean and dies at runtime under `:advanced`, and the
+// trap is the ride itself — a foreign `:init-fn` merged onto an existing
+// id — not any one donor.
 //
 // ## The heap row runs HERE and the clock row runs in the page
 //
@@ -89,9 +94,12 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
+// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+const { resetLaneBuildCache } = require('../../../../freehand/test/re_frame/bench/hicasso/lane_cache.cjs');
+
 const IMPL = path.resolve(__dirname, '../../../..');
 
-const BUILD = process.env.P0_BUILD || 'freehand-release';
+const BUILD = process.env.P0_BUILD || 'hicasso-bench';
 const OUT_DIR = process.env.P0_OUT_DIR || 'out/p0-hicasso';
 const OUT = path.join(IMPL, OUT_DIR);
 const INIT_FN = process.env.P0_INIT_FN || 're-frame.bench.p0-app/-main';
@@ -138,6 +146,13 @@ const CONFIG_MERGE =
   `{:output-dir "${OUT_DIR}" :asset-path "." :modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
+  // The lane's cache rule, before anything reads the cache: this driver
+  // merges its own `:init-fn` onto `BUILD`, so `BUILD`'s cache entry was
+  // written by a different program. `lane_cache.cjs` carries the measured
+  // fault and the rejected alternatives (rf2-2rtt6.20).
+  if (resetLaneBuildCache(IMPL, BUILD)) {
+    console.error(`[p0] cleared .shadow-cljs/builds/${BUILD} — one build id, N arms (rf2-2rtt6.20)`);
+  }
   console.error(`[p0] building :advanced bundle (donor build id: ${BUILD}) ...`);
   // `node cli/runner.js` rather than the `.cmd` shim: spawning a shim on
   // Windows needs `shell: true`, and a shell concatenates argv, which is
