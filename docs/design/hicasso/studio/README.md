@@ -89,9 +89,9 @@ requires nothing from any donor `src/` tree.
 |---|---|---|
 | [P0 — Reagent-on-subs baseline (mount + bulk)](p0-reagent-on-subs-baseline.md) | P0 | The ship bar's **denominator**: mount and bulk view work for Reagent reading re-frame2 subscriptions. |
 | [P0 — ratom-spine narrow write](p0-ratom-spine-narrow-write.md) | P0 | What a narrow write on the ratom spine costs, and the write-versus-flush split. |
-| [P0 — the UIx-on-subs frontier arm](p0-uix-on-subs-frontier-arm.md) | P0 | The frontier against the denominator, on the arm's own witnesses. Its **retained-heap** red-zones stand; its clock rows are superseded by the converged page. |
+| [P0 — the UIx-on-subs frontier arm](p0-uix-on-subs-frontier-arm.md) | P0 | The frontier against the denominator, on the arm's own witnesses. Its retained-heap absolutes are **shared-query fan-out evidence** (rf2-2rtt6.16), its ratios the cross-regime check; its clock rows are superseded by the converged page. |
 | [P0 — the converged witness set, and the red-zones re-derived on it](p0-converged-witness-set.md) | P0 | The **clock red-zones** on the denominator's own witnesses, and how far the earlier per-arm witness sets moved the verdicts. |
-| [P0 — the reads-per-boundary heap ladder](reads-per-boundary-heap-ladder.md) | P0 | Retained heap per subscribing boundary across the 1/3/7/20 reads ladder, both donors. |
+| [P0 — the reads-per-boundary heap ladder](reads-per-boundary-heap-ladder.md) | P0 | Retained heap per subscribing boundary across the 1/3/7/20 reads ladder, both donors — the **operative** distinct-query (Q = E) red-zone family. |
 | [HD-008 — the composed donor arm](hd8-composed-donor-arm.md) | donor gate | What the composed donor arm costs against both Reagent paths and against the frontier. |
 | [The UIx spine's per-read allocation, decomposed](uix-spine-per-read-decomposition.md) | P0 | Where a UIx-on-subs read's bytes go. |
 | [The reagent-slim non-reactive arm — diagnosis](slim-non-reactive-arm-diagnosis.md) | P0 | Why HD-008's reagent-slim arm read `78 unverified of 78`: the **arm's composition**, not the adapter and not the mixed bundle. A single-substrate slim bundle re-renders on every write. |
@@ -102,9 +102,19 @@ Reagent-on-subs, so the denominator's witness set defines the comparison by
 construction, and a threshold measured on a different witness is a threshold on
 a different question.
 
-**Retained-heap red-zones are not superseded.** They live on the heap ladder and
-on the frontier arm's own record, and stand as published. Three shapes spanning
-a 4× range in markup density agree within 8% — because retained bytes per
-subscribing boundary is a property of the boundary. The clock is not: element
-count decides what fraction of the window is React's own work, which is why the
-clock rows had to move to the denominator's pages and the heap rows did not.
+**Retained-heap red-zones are regime-matched** (heap red-zone regime ruling,
+delegated by Mike, 2026-07-31; authoritative text on rf2-2rtt6.16,
+transcription on rf2-2rtt6.1). Cache cardinality is part of the witness, so
+every heap red-zone row stamps **B** (boundaries), **E** (boundary-query edges)
+and **Q** (unique live query keys). The
+[heap ladder](reads-per-boundary-heap-ladder.md)'s distinct-query rows (Q = E)
+are the mandatory worst-case witness and the operative upper-envelope red-zone
+family; the frontier arm's absolute heap rows are fan-out 4 (amortised ×4)
+shared-query witness evidence, not comparable to distinct-query rows, and its
+ratios stay published as the cross-regime check — the 8% agreement across
+shapes is *ratio* agreement, common-mode across both arms, so the ratio ports
+and the quantity does not. A candidate heap row is judged only against donor
+rows measured under the same regime on the same witness, and reports both
+regime-matched gates: UIx 3,552 B/read (worse is RED, operator waiver
+required) and Reagent 943 B/read (worse with no named paper path down is K3
+territory; between the two is "UIx-rule cleared, K3 open", never plain green).
