@@ -82,6 +82,23 @@
   so the case is not exotic. [[slot-order]] drops the reflection at `n = 2`,
   where the bare rotation already supplies both of the orders that exist.
 
+  ## A LOST position is a refusal, not a smaller question
+
+  Every instrument fault on this programme produced a plausible PRECISE
+  WRONG NUMBER before it was caught, and one of them was aimed straight at
+  this namespace: a shadowed binding in a harness made every `:position`
+  `NaN` from round 2 on. [[stratify]] filters non-finite positions out of
+  the phase contrast, so the phase question was quietly answered over the
+  six samples that still had one while [[report-lines]] printed the arm's
+  full twenty-four beside it — and the run returned `[ok]`.
+
+  A harness that records NO positions is a different and documented case:
+  it is excused the phase contrast (and still owes the predecessor one). A
+  harness that records positions and LOSES them is broken, and
+  [[lost-positions]] separates the two so the second refuses. [[self-test]]
+  check 11 replays it with deliberately flat values, so nothing but the
+  lost positions can be what refuses.
+
   ## What the `:predecessor` factor can and cannot attribute (rf2-om73r)
 
   Under [[slot-order]] an arm's predecessor is `(a - 1) mod n` on EVEN
@@ -230,6 +247,21 @@
          (sort-by :p50)
          vec)))
 
+(defn lost-positions
+  "How many of `samples` CARRY a `:position` that is not a finite number.
+
+  Not the same question as \"how many have no position\". A harness that
+  records no positions at all is a documented case and is excused the phase
+  contrast; a harness that records `NaN` has LOST them, and the difference
+  between the two is the difference between a question not asked and a
+  question answered over a silently smaller set."
+  [samples]
+  (count (filterv (fn [s]
+                    (and (contains? s :position)
+                         (some? (:position s))
+                         (not (finite? (:position s)))))
+                  samples)))
+
 (defn adjudicate
   "Adjudicate one arm's strata on one factor.
 
@@ -306,16 +338,43 @@
                              [arm {:n       (count ss)
                                    :factors (reduce
                                               (fn [acc f]
-                                                (let [strata (stratify ss f)]
-                                                  ;; `:phase` is only askable when
-                                                  ;; positions were recorded; a
-                                                  ;; harness that does not record
-                                                  ;; them is not thereby excused
-                                                  ;; the predecessor question, so
-                                                  ;; an empty phase stratification
-                                                  ;; is skipped rather than failed.
-                                                  (if (and (= f :phase) (empty? strata))
+                                                (let [strata (stratify ss f)
+                                                      lost   (if (= f :phase) (lost-positions ss) 0)]
+                                                  (cond
+                                                    ;; A sample that CARRIES a position
+                                                    ;; and whose position is not a number
+                                                    ;; is a HARNESS FAULT, and it is the
+                                                    ;; recorded one: a shadowed binding
+                                                    ;; made every position `NaN` from
+                                                    ;; round 2 on, `stratify` dropped
+                                                    ;; them, and the report said
+                                                    ;; "24 samples" over a phase
+                                                    ;; contrast adjudicated on six —
+                                                    ;; and answered `[ok]`. Silently
+                                                    ;; narrowing the question is the one
+                                                    ;; thing this namespace must not do.
+                                                    (pos? lost)
+                                                    (assoc acc f
+                                                           {:strata         strata
+                                                            :status         :unchecked
+                                                            :lost-positions lost
+                                                            :why (str lost " of " (count ss)
+                                                                      " samples carry a NON-FINITE :position"
+                                                                      " — the harness lost them, so this"
+                                                                      " contrast is over the rest and the"
+                                                                      " sample count above is not it")})
+
+                                                    ;; `:phase` is only askable when
+                                                    ;; positions were recorded at all; a
+                                                    ;; harness that does not record them
+                                                    ;; is not thereby excused the
+                                                    ;; predecessor question, so an empty
+                                                    ;; phase stratification is skipped
+                                                    ;; rather than failed.
+                                                    (and (= f :phase) (empty? strata))
                                                     acc
+
+                                                    :else
                                                     (assoc acc f (adjudicate strata tolerance)))))
                                               {}
                                               factors)}]))
@@ -466,6 +525,20 @@
         fix-d (mapv :distinct (vals (:arms fix2)))
         fix-s (apply max (map :modal-share (vals (:arms fix2))))
 
+        ;; 11. THE LOST POSITIONS, replayed. A shadowed binding made every
+        ;;     position `NaN` from round 2 on; `stratify` dropped them, the
+        ;;     report printed the arm's full sample count beside a phase
+        ;;     contrast taken over the survivors, and the run came back
+        ;;     `[ok]`. Values are deliberately flat, so nothing but the lost
+        ;;     positions can be what refuses this.
+        nan*   #?(:clj Double/NaN :cljs js/NaN)
+        lost   (mapv (fn [i] {:arm "A" :predecessor "B"
+                              :position (if (< i 6) i nan*)
+                              :value 1.0})
+                     (range 24))
+        v-lost (verdict lost {:tolerance 0.10})
+        lost-r (one v-lost "A" :phase)
+
         checks
         [{:name "the recorded 2.01x is REFUSED"
           :ok   (and (:refuse? v-smi)
@@ -516,7 +589,12 @@
           :detail (str "slot-order: " fix-orders " distinct orders, predecessors per arm "
                        (str/join "," fix-d) ", largest modal share "
                        #?(:clj (format "%.0f" (* 100.0 fix-s))
-                          :cljs (.toFixed (* 100.0 fix-s) 0)) "%")}]]
+                          :cljs (.toFixed (* 100.0 fix-s) 0)) "%")}
+         {:name "samples whose :position went NON-FINITE refuse instead of narrowing the question"
+          :ok   (and (:refuse? v-lost)
+                     (= :unchecked (:status lost-r))
+                     (= 18 (:lost-positions lost-r)))
+          :detail (:why lost-r)}]]
     {:ok?     (every? :ok checks)
      :checks  checks}))
 
