@@ -1037,6 +1037,53 @@
    ;; The load-bearing hook is inherited from :build-defaults.
    :compiler-options {:infer-externs false}}
 
+  ;; rf2-2rtt6.2 — THE HICASSO MEASUREMENT LANE (EP-0038 / HD-017).
+  ;;
+  ;; ONE build id for the whole programme, deliberately. HD-017 makes a new
+  ;; build id a hot-zone edit to this file and therefore a SEQUENCED
+  ;; dispatch; four P0 arms landing four build ids would be four
+  ;; sequenced dispatches for what is one compilation shape. This build is
+  ;; that shape, and every arm rides it by MERGING its own entry:
+  ;;
+  ;;   node .../re_frame/bench/hicasso/run.cjs
+  ;;   HICASSO_INIT_FN=<ns>/-main HICASSO_OUT_DIR=out/<arm> node .../run.cjs
+  ;;
+  ;; `run.cjs` passes `--config-merge {:output-dir … :modules {:main
+  ;; {:init-fn …}}}` exactly as `b6_prod_run.cjs` rides `:freehand-release`,
+  ;; so a sibling arm needs NO edit to this file at all. The sequencing law
+  ;; is paid once, here.
+  ;;
+  ;; WHY A NEW ID RATHER THAN RIDING `:freehand-release`. The b6 driver's
+  ;; trick works because a build id is only a template, and this lane could
+  ;; have merged onto the Freehand release build. It does not, for two
+  ;; reasons: the Freehand programme is withdrawn and its release build has
+  ;; its own gates reading its own `out/` dir (`:freehand-release` is
+  ;; cleaned and rebuilt by `test:freehand-reachability` and
+  ;; `test:freehand-matched`), so a bench run and a gate run would race the
+  ;; same `.shadow-cljs/builds/freehand-release` cache; and the charter's
+  ;; anti-regression fence is explicit that Hicasso does not carry a
+  ;; continuity claim to its donors — the measurement lane should not have
+  ;; to borrow a donor's identity to compile.
+  ;;
+  ;; :advanced with goog.DEBUG false, because HD-012 makes every bar number
+  ;; a browser number taken from the artefact a consumer ships. The Spec 009
+  ;; instrumentation seam, schema validation and trace emission are all
+  ;; `goog.DEBUG`-gated and all sit on the subscription path the bulk row
+  ;; measures; a development build would price a cost no user pays. And
+  ;; `:advanced` cannot compile shadow's `:browser-test` target
+  ;; (`cljs-test-display`'s `goog.define`s collide), which is why the lane
+  ;; is a plain `:browser` module with an `:init-fn` rather than a test
+  ;; build. No `:dev-http` — like every other advanced build here it is
+  ;; compiled and driven, never served by shadow.
+  :hicasso-bench
+  {:target     :browser
+   :output-dir "out/hicasso-bench"
+   :asset-path "."
+   :compiler-options {:optimizations   :advanced
+                      :infer-externs   :auto
+                      :closure-defines {goog.DEBUG false}}
+   :modules {:main {:init-fn re-frame.bench.hicasso.p0-reagent-app/-main}}}
+
   ;; rf2-vxgfnd.6 — the G-1 direct-render parity gate (07 §5) for the
   ;; re-frame.ui compiled-view substrate. A :node-script RELEASE build
   ;; (:advanced — the gate measures + inspects PRODUCTION emission):

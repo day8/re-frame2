@@ -1,0 +1,479 @@
+(ns re-frame.bench.hicasso.lane
+  "THE HICASSO P0 MEASUREMENT LANE — the shared instrument every P0 arm
+  runs on (EP-0038, HD-017; built by rf2-2rtt6.2 for rf2-2rtt6.2/.3/.4/.5).
+
+  One instrument, four arms' worth of consumers, so the METHOD is one
+  thing a reader checks once. What lives here is everything that is the
+  same whatever is being measured: the canonical-DOM fairness gate, the
+  timed window, the reflecting schedule, the per-round floor
+  normalisation, the DOM read-back accounting, the positive control's
+  predicted-vs-measured arithmetic, and the arm-order guard's refusal.
+
+  ## Where this file lives, and why the namespace does not say `freehand`
+
+  Physically under `implementation/freehand/test/` because HD-017 carves
+  the bench/test measurement lane out of the donor freeze and that tree
+  is the one whose classpath already carries Reagent, UIx, React and
+  `react-dom` together. The NAMESPACE is `re-frame.bench.hicasso.*`
+  because the charter's anti-regression fence is explicit that Hicasso
+  carries no continuity claim to its predecessors: an instrument that had
+  to spell a withdrawn programme's name to compile would be making one.
+  `implementation/freehand/test` is a shadow `:source-paths` root, so the
+  path under it is the namespace and nothing else is needed.
+
+  Nothing here requires anything out of `implementation/freehand/src`.
+  That is deliberate and it is why `now-ms`/`summarise` are re-derived in
+  eleven lines rather than borrowed from the donor's `bench.measure`: a
+  frozen donor `src/` tree is not a dependency this lane should acquire.
+
+  ## What a reading is
+
+  `react-dom/flushSync` brackets the commit, so the measured window holds
+  the substrate's element construction AND React's render, commit and DOM
+  mutation, with nothing scheduled out of it. Nothing runs inside an
+  `act` environment: `act` diverts work to its own queue, which is not
+  what a browser does, and the whole point of the window is that it is
+  the browser's.
+
+  ## The five disciplines this file enforces, and what each one cost
+
+  Fifteen instrument faults were caught on the predecessor programme's
+  harnesses, and every one of them produced a plausible PRECISE WRONG
+  NUMBER before it was caught. The five that are structural are enforced
+  here rather than left to each arm:
+
+  1. **Both orders, and position before adjacency.** [[rounds!]] schedules
+     with [[re-frame.bench.order-guard/slot-order]], which rotates AND
+     REFLECTS, so every arm has at least two distinct immediate
+     predecessors. A bare cyclic rotation — which four harnesses published
+     as \"order rotating with the round\" — changes only which arm goes
+     first and leaves every adjacency intact. And the larger effect is not
+     adjacency at all: the recorded live reproduction read the same
+     control `10.32 10.26 10.26 10.26 10.33 10.28` and then `8.12` for
+     ever, +27% across six windows with nothing varying but how many times
+     the site had run, while a held-fixed predecessor was worth 0.0–0.3%.
+     So WARM-UP MATTERS MORE THAN INTERLEAVING, every sample carries its
+     `:position` in the whole run, and the guard partitions on thirds.
+  2. **Ranges, never a mean alone.** [[across-rounds]] answers min/max/mean
+     per arm and flags `:straddles-1?`; overlapping ranges mean
+     INDISTINGUISHABLE and a report must say so rather than quote the
+     mean as a winner.
+  3. **Every measured write is read back out of the DOM inside its own
+     window.** [[verified-write!]] reads the written cell after the clock
+     stops and before the sample is banked; [[tally]] carries the count
+     forward so every published row states `N unverified of M`. A clock
+     alone once accepted a window in which 1,320 of 1,320 writes never
+     reached the page.
+  4. **A positive control with predicted vs measured, every run.**
+     [[control-verdict]] takes a stated prediction and the measured range
+     and answers whether the instrument had the signal its own arithmetic
+     says it must. An instrument that cannot see a change it PREDICTS
+     cannot be trusted to see one it does not.
+  5. **The guard refuses, and the refusal is exit code 2.** [[guard!]]
+     runs the shared self-test before anything is measured and the
+     verdict after; `run.cjs` turns `:refuse? true` into `exit 2`. Four
+     workers have hit a refusal on the predecessor harnesses and every one
+     of them repaired the ARM. The tolerance is not the arm's to move."
+  (:require ["react-dom" :as react-dom]
+            [clojure.string :as str]
+            [re-frame.bench.order-guard :as guard]))
+
+;; ---------------------------------------------------------------------------
+;; Clock and summary — eleven lines, so the lane owes the donor tree nothing
+;; ---------------------------------------------------------------------------
+
+(defn now-ms
+  "`performance.now()` where it exists. Chrome clamps it to 100 µs, which
+  is why every row states how many operations one SAMPLE contains."
+  []
+  (if (and (exists? js/performance) (.-now js/performance))
+    (js/performance.now)
+    (.getTime (js/Date.))))
+
+(defn summarise
+  "`{:n :min :max :p50}` over `xs`."
+  [xs]
+  (let [v (vec (sort xs))
+        c (count v)]
+    (when (pos? c)
+      {:n   c
+       :min (nth v 0)
+       :max (peek v)
+       :p50 (if (odd? c)
+              (nth v (quot c 2))
+              (/ (+ (nth v (dec (quot c 2))) (nth v (quot c 2))) 2.0))})))
+
+(defn round4 [x] (/ (js/Math.round (* (double x) 10000.0)) 10000.0))
+
+;; ---------------------------------------------------------------------------
+;; Hosts
+;; ---------------------------------------------------------------------------
+
+(defn browser? []
+  (and (exists? js/document) (some? (.-createElement js/document))))
+
+(defn leave-act-environment!
+  "React's `act` queue is not the browser's scheduler. Every reading in
+  this lane is taken outside it, so a commit measured here is the commit
+  a user's page performs."
+  []
+  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+  nil)
+
+(defn fresh-container! []
+  (let [c (js/document.createElement "div")]
+    (.appendChild js/document.body c)
+    c))
+
+;; ---------------------------------------------------------------------------
+;; Canonical DOM — the fairness gate
+;; ---------------------------------------------------------------------------
+
+(defn canonical
+  "Serialise `node`'s subtree with every element's attribute names SORTED.
+
+  `innerHTML` preserves insertion order and two front ends write props in
+  different orders, so comparing it compares the serialiser rather than
+  the page. Sorting the names compares the DOM. This is the entire
+  fairness guarantee of a cross-arm ratio: without it two arms can be
+  timed against each other while building different pages."
+  [node]
+  (let [out (array)]
+    (letfn [(walk [n]
+              (case (.-nodeType n)
+                1 (let [tag   (str/lower-case (.-tagName n))
+                        attrs (->> (array-seq (.-attributes n))
+                                   (map (fn [a] [(.-name a) (.-value a)]))
+                                   (sort-by first))]
+                    (.push out (str "<" tag))
+                    (doseq [[k v] attrs] (.push out (str " " k "=\"" v "\"")))
+                    (.push out ">")
+                    (doseq [c (array-seq (.-childNodes n))] (walk c))
+                    (.push out (str "</" tag ">")))
+                3 (.push out (.-nodeValue n))
+                8 nil
+                (.push out (str "#" (.-nodeType n)))))]
+      (doseq [c (array-seq (.-childNodes node))] (walk c)))
+    (.join out "")))
+
+(defn element-count [node] (.-length (.querySelectorAll node "*")))
+
+(defn text-at
+  "The text of the `data-i=\"i\"` cell inside `container`, or nil. The
+  read-back probe every verified window uses."
+  [container i]
+  (some-> (.querySelector container (str "[data-i=\"" i "\"]")) (.-textContent)))
+
+;; ---------------------------------------------------------------------------
+;; One timed mount
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private mount-seq (atom 0))
+
+(defn mount-arm!
+  "Mount `arm` over `props` into a fresh host; answer
+  `{:ms … :container … :handle … :arm …}`.
+
+  The container is created and attached OUTSIDE the window: a
+  `document.createElement` billed to one arm and not another would be a
+  systematic error the size of some of the effects here."
+  [arm props]
+  (let [n         (swap! mount-seq inc)
+        container (fresh-container!)
+        handle    (volatile! nil)
+        t0        (now-ms)]
+    (react-dom/flushSync (fn [] (vreset! handle ((:mount arm) container props n))))
+    {:ms (- (now-ms) t0) :container container :handle @handle :arm arm}))
+
+(defn release!
+  "Unmount and detach. Never timed."
+  [{:keys [arm handle container]}]
+  (when handle
+    (try (react-dom/flushSync (fn [] ((:unmount arm) handle)))
+         (catch :default _ nil)))
+  (when container (.remove container))
+  nil)
+
+;; ---------------------------------------------------------------------------
+;; Parity — run before any clock is read
+;; ---------------------------------------------------------------------------
+
+(defn parity
+  "Mount every arm of `arms` at `props` at once and compare their pages.
+
+  `:parity-exempt?` arms are mounted and released but excluded from the
+  comparison — the positive control builds a DIFFERENT page on purpose
+  (that is what makes it a control), so folding it into the equality
+  would turn the fairness gate into a permanent failure.
+
+  Leaves the mounts standing; the caller releases them, so it can read
+  the pages before they go."
+  [arms props]
+  (let [mounts (mapv (fn [a] (mount-arm! a props)) arms)
+        judged (remove #(:parity-exempt? (:arm %)) mounts)
+        canon  (into {} (map (fn [m] [(:id (:arm m)) (canonical (:container m))])) judged)
+        counts (into {} (map (fn [m] [(:id (:arm m)) (element-count (:container m))])) judged)
+        ref    (get canon (:id (:arm (first judged))))]
+    {:mounts    mounts
+     :canon     canon
+     :counts    counts
+     :reference ref
+     :agree?    (every? #(= ref %) (vals canon))
+     :disagree  (into [] (comp (remove (fn [[_ h]] (= ref h))) (map first)) canon)}))
+
+;; ---------------------------------------------------------------------------
+;; The schedule, and the guard's samples
+;; ---------------------------------------------------------------------------
+
+(def slot-order
+  "The reflecting schedule, taken from the guard itself rather than
+  restated. `order-guard`'s self-test carries the arithmetic proof that a
+  bare rotation gives every arm exactly ONE within-round predecessor and
+  that reflecting on odd rounds gives it two in balance; a second copy
+  here would be a second authority with nothing holding it in step."
+  guard/slot-order)
+
+(defn sample-collector
+  "A mutable collector for the guard's samples.
+
+  `:position` is the index in the WHOLE run, not within a round, because
+  the effect the guard is most likely to catch is warm-up and warm-up
+  does not restart at a round boundary."
+  []
+  (atom {:pos 0 :prev nil :samples []}))
+
+(defn collect!
+  "Bank one sample for arm `id` at `value`, tagged with what ran
+  immediately before it and where in the run it sits."
+  [coll id value]
+  (swap! coll (fn [{:keys [pos prev samples]}]
+                {:pos      (inc pos)
+                 :prev     id
+                 :samples  (conj samples {:arm (name id) :value value
+                                          :predecessor (some-> prev name)
+                                          :position pos})}))
+  value)
+
+;; ---------------------------------------------------------------------------
+;; Rounds
+;; ---------------------------------------------------------------------------
+
+(defn rounds!
+  "Run `rounds` rounds of `sampling` over `arms`, calling
+  `(measure-one! arm)` for each sample and banking the answer.
+
+  Every sample index visits every arm, in [[slot-order]]'s reflecting
+  order. Warm-up samples are taken and DISCARDED — they still move the
+  site's position, which is the point.
+
+  Answers `{:readings [{id [ms …]} …] :samples [guard-samples]}`."
+  [arms {:keys [warmup samples] :as _sampling} rounds measure-one!]
+  (let [k    (count arms)
+        coll (sample-collector)
+        out  (mapv
+               (fn [_round]
+                 (let [acc (atom (zipmap (map :id arms) (repeat [])))]
+                   (dotimes [s (+ warmup samples)]
+                     (doseq [j (slot-order k s)]
+                       (let [arm (nth arms j)
+                             ms  (measure-one! arm)]
+                         (when (>= s warmup)
+                           (collect! coll (:id arm) ms)
+                           (swap! acc update (:id arm) conj ms)))))
+                   @acc))
+               (range rounds))]
+    {:readings out :samples (:samples @coll)}))
+
+(defn normalise
+  "One round's raw readings as `{:p50 {id ms} :ratio {id r}}`, every ratio
+  against the floor measured in THAT round."
+  [readings floor-id]
+  (let [p50s  (into {} (map (fn [[id xs]] [id (:p50 (summarise xs))])) readings)
+        floor (get p50s floor-id)]
+    {:p50   p50s
+     :ratio (into {} (map (fn [[id v]] [id (round4 (/ v floor))])) p50s)}))
+
+(defn across-rounds
+  "Fold per-round ratio maps into
+  `{id {:mean :min :max :rounds :straddles-1?}}`.
+
+  `:straddles-1?` is the honesty flag: when an arm's range includes 1.0
+  the report says the arms are indistinguishable rather than quoting the
+  mean as a winner."
+  [round-ratios]
+  (let [ids (keys (first round-ratios))]
+    (into {}
+          (map (fn [id]
+                 (let [vs (mapv #(get % id) round-ratios)]
+                   [id {:mean         (round4 (/ (reduce + 0.0 vs) (count vs)))
+                        :min          (round4 (apply min vs))
+                        :max          (round4 (apply max vs))
+                        :rounds       (count vs)
+                        :straddles-1? (and (<= (apply min vs) 1.0)
+                                           (>= (apply max vs) 1.0))}])))
+          ids)))
+
+(defn ratio-between
+  "The ratio of arm `a` to arm `b`, per round, as a range. The bar is
+  stated against a DENOMINATOR ARM, not against the floor, so this is the
+  arithmetic a bar row quotes."
+  [round-ratios a b]
+  (let [vs (mapv (fn [r] (round4 (/ (get r a) (get r b)))) round-ratios)]
+    {:numerator a :denominator b
+     :mean (round4 (/ (reduce + 0.0 vs) (count vs)))
+     :min (apply min vs) :max (apply max vs)
+     :per-round vs
+     :straddles-1? (and (<= (apply min vs) 1.0) (>= (apply max vs) 1.0))}))
+
+;; ---------------------------------------------------------------------------
+;; Verified writes — "N unverified of M"
+;; ---------------------------------------------------------------------------
+
+(defn tally
+  "A write-verification tally. `:of` counts every measured write; `:bad`
+  counts those whose value never reached the page inside their own
+  window."
+  []
+  (atom {:of 0 :bad 0}))
+
+(defn tally-value [t] (let [{:keys [of bad]} @t] {:writes of :unverified bad}))
+
+(defn verified-write!
+  "Write, yield ONE microtask, force the arm's own synchronous drain, stop
+  the clock — THEN read the written cell back out of the DOM.
+
+  Answers a promise of `{:ms :write-ms :gap-ms :force-ms :ok?}` and banks
+  the verification in `t`.
+
+  The read-back is inside the sample's own window, not a spot check at
+  the end: a window whose commit lands after the clock stops reads the
+  OLD value and its milliseconds are a measurement of nothing. The
+  recorded fault is 1,320 of 1,320 writes accepted by a clock that never
+  looked at the page.
+
+  The microtask is load-bearing for any arm whose notification is queued
+  rather than synchronous, and it is priced in situ: `:gap-ms` is
+  reported per arm, and an arm that commits without it reads 0.0 there.
+  Splitting the window is what lets a reader see how much of a ratio is
+  the reactive leg and how much is React."
+  [t {:keys [arm container]} i val probe]
+  (let [t0 (now-ms)]
+    ((:write! arm) i val)
+    (let [t1 (now-ms)]
+      (-> (js/Promise.resolve nil)
+          (.then (fn [_]
+                   (let [t2 (now-ms)]
+                     ((:force! arm))
+                     (let [t3  (now-ms)
+                           ok? (= (str val) (text-at container probe))]
+                       (swap! t (fn [{:keys [of bad]}]
+                                  {:of (inc of) :bad (if ok? bad (inc bad))}))
+                       {:ms       (- t3 t0)
+                        :write-ms (- t1 t0)
+                        :gap-ms   (- t2 t1)
+                        :force-ms (- t3 t2)
+                        :ok?      ok?}))))))))
+
+(defn chain
+  "Fold `xs` into a serial promise chain, threading an accumulator."
+  [init xs f]
+  (reduce (fn [p x] (.then p (fn [acc] (f acc x)))) (js/Promise.resolve init) xs))
+
+;; ---------------------------------------------------------------------------
+;; The positive control
+;; ---------------------------------------------------------------------------
+
+(defn control-verdict
+  "Adjudicate a positive control: a STATED prediction against a measured
+  range.
+
+  `predicted` is a number the control's own arithmetic produces before
+  the run — the element count doubles, so the work doubles — and
+  `measured` is `{:min :max :mean}`. `slack` is how far the measured
+  range may sit from the prediction and still count as the instrument
+  having seen what it predicted; it is generous on purpose, because the
+  claim being made is `THE INSTRUMENT HAS SIGNAL`, not `THE MODEL IS
+  EXACT`. A control whose measured range does not contain a value within
+  `slack` of the prediction means the instrument cannot see a change it
+  predicts, and nothing else it measured is worth reading.
+
+  Answers `{:predicted :measured :ok? :why}` — published on every run,
+  passing or not, because a control quoted only when it passes is not a
+  control."
+  [predicted {:keys [min max mean] :as measured} slack]
+  (let [lo (* predicted (- 1.0 slack))
+        hi (* predicted (+ 1.0 slack))
+        ok? (and (<= min hi) (>= max lo))]
+    {:predicted predicted
+     :measured  measured
+     :slack     slack
+     :ok?       ok?
+     :why       (if ok?
+                  (str "predicted " (.toFixed predicted 3) "x, measured "
+                       (.toFixed mean 3) "x [" (.toFixed min 3) "–" (.toFixed max 3)
+                       "] — the range meets the prediction within ±"
+                       (.toFixed (* 100.0 slack) 0) "%")
+                  (str "predicted " (.toFixed predicted 3) "x, measured "
+                       (.toFixed mean 3) "x [" (.toFixed min 3) "–" (.toFixed max 3)
+                       "] — DISJOINT from ±" (.toFixed (* 100.0 slack) 0)
+                       "% of the prediction; the instrument did not see a change "
+                       "its own arithmetic says it must, so no figure in this run "
+                       "is reportable"))}))
+
+;; ---------------------------------------------------------------------------
+;; The guard
+;; ---------------------------------------------------------------------------
+
+(defn self-test!
+  "Run the shared arm-order self-test. A harness that gets `false` must
+  measure nothing — the copy of the rule it is about to rely on no longer
+  behaves like the one the `.cjs` drivers use."
+  []
+  (guard/print-self-test!))
+
+(defn guard!
+  "Adjudicate `samples` and print the report. `:refuse?` is what the
+  driver acts on, and `run.cjs` turns it into exit code 2."
+  ([samples] (guard! samples nil {}))
+  ([samples title] (guard! samples title {}))
+  ([samples title opts]
+   (let [v (guard/verdict samples (merge {:tolerance 0.10} opts))]
+     (doseq [l (guard/report-lines v title)] (js/console.log l))
+     v)))
+
+;; ---------------------------------------------------------------------------
+;; Publication
+;; ---------------------------------------------------------------------------
+
+(defn runtime-label
+  "The runtime a figure was taken on, carried BESIDE the figure. A ratio
+  without its runtime is a number without a denominator."
+  []
+  {:user-agent   (when (exists? js/navigator) (.-userAgent js/navigator))
+   :optimizations :advanced
+   :goog-debug   ^boolean goog/DEBUG
+   :hardware-concurrency (when (exists? js/navigator) (.-hardwareConcurrency js/navigator))
+   :device-memory        (when (exists? js/navigator) (.-deviceMemory js/navigator))})
+
+(defn record!
+  "Park one record on `window.HICASSO_RESULTS` for the driver to read, and
+  echo it to the console as EDN."
+  [k v]
+  (let [acc (or (.-HICASSO_RESULTS js/window) #js {})]
+    (aset acc (name k) (pr-str v))
+    (set! (.-HICASSO_RESULTS js/window) acc)
+    (js/console.log (str ";; HICASSO " (name k) "\n" (pr-str v)))
+    v))
+
+(defn fail!
+  "Record a fatal reason. The driver exits non-zero and publishes nothing
+  as measured."
+  [why]
+  (set! (.-HICASSO_ERROR js/window) (str why))
+  (js/console.error (str ";; HICASSO FAILED — " why))
+  nil)
+
+(defn done! []
+  (set! (.-HICASSO_DONE js/window) true)
+  (js/console.log ";; HICASSO DONE")
+  nil)
