@@ -528,11 +528,19 @@
             {:arm a :container c :handle handle}))
         arms))
 
-(defn- release-bulk-arms! [mounts]
+(defn- release-bulk-arms!
+  "Release every bulk arm. A throw is RECORDED, never swallowed — and a
+  normal return is not taken at its word: `lane/container-released!` reads
+  each container before it is removed, exactly as `lane/release!` and
+  `p0_reagent_app`'s sibling do, because a root that survives its own
+  unmount does so on a DETACHED tree no later census can see (rf2-jk3vj)."
+  [mounts]
   (doseq [{:keys [arm handle container]} mounts]
-    (try ((:unmount arm) handle)
-         (catch :default e
-           (lane/teardown-failure! (str "release-bulk-arms! " (:id arm)) e)))
+    (when (try ((:unmount arm) handle)
+               true
+               (catch :default e
+                 (lane/teardown-failure! (str "release-bulk-arms! " (:id arm)) e)))
+      (lane/container-released! (str "release-bulk-arms! " (:id arm)) container))
     (.remove container)))
 
 (def ^:private assert-teardown-clean!
