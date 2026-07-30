@@ -131,11 +131,15 @@ Two contract facts, each pinned against the shipped spec:
     polarities. Three narrow assertions over MIGRATION_MD only: no `"<latest>"`
     version placeholder in a dependency coordinate; no leave-the-dep-alone /
     wait-for-a-release stop instruction (the migration is fully doable — a
-    first release is not a precondition, per the skill's setup.md); and M-0
+    first release is not a precondition, per the skill's setup.md); and the
+    M-0 SECTION ITSELF (its heading up to the next `### M-N.` rule heading)
     links the canonical deps-versions.md §Choosing the coordinate recipe so one
-    publication-state decision governs the whole guide. Same class as the setup
-    skill's Lock 9. Retire deliberately at a real first publish. See
-    `m0_publication_route_problems`.
+    publication-state decision governs the whole guide. The delegation check is
+    section-scoped because the seven artefact rules M-27..M-33 carry the same
+    anchor by design — a whole-file substring test stays green with M-0's own
+    link removed (the rf2-snjn5 merged-PR audit's acceptance seam). Same class
+    as the setup skill's Lock 9. Retire deliberately at a real first publish.
+    See `m0_publication_route_problems`.
 
 All of these rules are written to fire ONLY on the stale ASSERTION / bad-command
 shape, never on the corrected wording that states the negation — and never on the
@@ -1588,10 +1592,17 @@ def form3_capture_once_retarget_problems() -> list[str]:
 #     instruction. Narrow by design: an honestly-labelled per-build-tool option
 #     (the Leiningen paragraph pausing ITS OWN dep edit pending publication)
 #     carries neither shape and stays legal.
-#   * M0-RECIPE-DELEGATION — M-0 links the canonical coordinate recipe
+#   * M0-RECIPE-DELEGATION — the M-0 SECTION (its rule heading up to the next
+#     `### M-N.` rule heading) links the canonical coordinate recipe
 #     (re-frame2-setup references/deps-versions.md §Choosing the coordinate),
 #     so ONE publication-state decision governs the whole guide instead of
-#     eight independently drifting copies.
+#     eight independently drifting copies. Scoped to the M-0 section because
+#     the seven artefact rules M-27..M-33 carry the same anchor by design: a
+#     whole-file substring check stayed green with only M-0's occurrence
+#     removed — the deciding rule silently un-delegated while its inheritors
+#     still pointed at the recipe (the rf2-snjn5 merged-PR audit's acceptance
+#     seam). The `<latest>` and stop-and-wait assertions stay whole-file: those
+#     shapes are illegal anywhere in the guide.
 #
 # Retire this lock deliberately at a real first publish — it pins the
 # pre-publish polarity.
@@ -1608,6 +1619,23 @@ M0_STOP_AND_WAIT_RE = re.compile(
 # (…#choosing-the-coordinate) still satisfies it while a dropped delegation
 # does not.
 M0_DELEGATION_ANCHOR = "deps-versions.md#choosing-the-coordinate"
+# The M-0 section: the `### M-0.` rule heading up to the next `### M-N.` rule
+# heading (M-1 today). Bounded by rule headings — not by "any heading" — so a
+# future subsection inside M-0 cannot truncate the span, and matched at any
+# ATX level so a heading-depth reshuffle does not blind the lock.
+M0_RULE_HEADING_RE = re.compile(r"^ {0,3}#{1,6} +M-0\.", re.MULTILINE)
+M_RULE_HEADING_RE = re.compile(r"^ {0,3}#{1,6} +M-\d+\.", re.MULTILINE)
+
+
+def _m0_section_span(text: str) -> tuple[int, int] | None:
+    """`(start, end)` offsets of the M-0 section, or None when `text` carries
+    no M-0 rule heading (the delegation assertion then has nothing to scope to
+    and must report)."""
+    start_m = M0_RULE_HEADING_RE.search(text)
+    if start_m is None:
+        return None
+    end_m = M_RULE_HEADING_RE.search(text, start_m.end())
+    return (start_m.start(), end_m.start() if end_m else len(text))
 
 M0_LATEST_PROBLEM = (
     "M0-LATEST-MAVEN: the migration guide carries a `\"<latest>\"` version "
@@ -1626,25 +1654,27 @@ M0_STOP_PROBLEM = (
     "setup.md §Discovering the current VERSION). (rf2-snjn5.)"
 )
 M0_DELEGATION_PROBLEM = (
-    "M0-RECIPE-DELEGATION-MISSING: the guide no longer links the canonical "
-    "coordinate recipe (re-frame2-setup references/deps-versions.md "
-    "§Choosing the coordinate). One publication-state decision must govern "
-    "the whole guide — restated per-rule recipes are how eight copies drifted "
-    "independently. (rf2-snjn5.)"
+    "M0-RECIPE-DELEGATION-MISSING: the M-0 section no longer links the "
+    "canonical coordinate recipe (re-frame2-setup references/deps-versions.md "
+    "§Choosing the coordinate). The route decision is made ONCE, at M-0, and "
+    "every later artefact rule inherits it — the M-27..M-33 copies delegating "
+    "is not enough when the deciding rule itself does not; restated per-rule "
+    "recipes are how eight copies drifted independently. (rf2-snjn5.)"
 )
 
 
 def _m0_publication_route_problems(text: str) -> list[tuple[int, str, str]]:
     """Rule-6 drift in the migration guide's text. `(lineno, label, excerpt)`;
-    the whole-text delegation check reports lineno 0 with an empty excerpt.
-    Text-pure so the self-test can exercise it against fixtures."""
+    the section-scoped delegation check reports lineno 0 with an empty
+    excerpt. Text-pure so the self-test can exercise it against fixtures."""
     problems: list[tuple[int, str, str]] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
         if M0_LATEST_PLACEHOLDER_RE.search(line):
             problems.append((lineno, M0_LATEST_PROBLEM, line.strip()))
         if M0_STOP_AND_WAIT_RE.search(line):
             problems.append((lineno, M0_STOP_PROBLEM, line.strip()))
-    if M0_DELEGATION_ANCHOR not in text:
+    span = _m0_section_span(text)
+    if span is None or M0_DELEGATION_ANCHOR not in text[span[0]:span[1]]:
         problems.append((0, M0_DELEGATION_PROBLEM, ""))
     return problems
 
@@ -1867,6 +1897,53 @@ def _live_captured_subscribe_problems() -> list[str]:
             "LIVE-CAPTURED-SUBSCRIBE-UNDETECTED: swapping the LIVE captured acquire "
             "for the ambient `rf/subscribe` did not trip Rule 5b — the guard is "
             "blind to the false-green the bead reproduced (rf2-v84zn)."
+        ]
+    return []
+
+
+def _live_m0_delegation_problems() -> list[str]:
+    """Run Rule 6's delegation assertion against a MUTATION OF THE SHIPPED
+    migration guide, not hand-written fixtures (rf2-snjn5). The landed guide
+    carries the delegation anchor eight times — once in M-0 and once in each
+    artefact rule M-27..M-33 — which made a whole-file substring check the
+    audit's acceptance seam: removing only M-0's occurrence left seven copies
+    and a green gate. This tooth removes exactly that one occurrence and
+    requires M0-RECIPE-DELEGATION to red. If the guide is re-authored so the
+    anchors move, it reports STALE rather than quietly proving nothing."""
+    if not MIGRATION_MD.is_file():
+        return [
+            f"SETUP: {MIGRATION_MD.name} missing — the M-0 delegation mutation "
+            "tooth cannot run."
+        ]
+    text = _slurp(MIGRATION_MD)
+    if _m0_publication_route_problems(text):
+        return [
+            "LIVE-M0-DIRTY: the shipped migration guide already trips Rule 6, "
+            "so the M-0 delegation mutation tooth cannot prove the guard has "
+            "bite. Fix the guide (or the rule) first."
+        ]
+    span = _m0_section_span(text)  # non-None: the guide just scanned clean
+    start, end = span if span else (0, 0)
+    mutated = (
+        text[:start]
+        + text[start:end].replace(M0_DELEGATION_ANCHOR, "deps-versions.md")
+        + text[end:]
+    )
+    if M0_DELEGATION_ANCHOR not in mutated:
+        return [
+            "LIVE-M0-STALE: removing the M-0 section's delegation anchor left "
+            "no copy anywhere else in the guide — the M-27..M-33 artefact-rule "
+            "copies were re-authored, so this tooth no longer proves the "
+            "section scoping (a whole-file check would red here too). Re-point "
+            "the tooth at the current guide."
+        ]
+    got = _m0_publication_route_problems(mutated)
+    if not any(label == M0_DELEGATION_PROBLEM for _, label, _ in got):
+        return [
+            "LIVE-M0-UNDETECTED: removing ONLY the M-0 section's delegation "
+            "anchor (the seven M-27..M-33 copies intact) did not trip "
+            "M0-RECIPE-DELEGATION — the acceptance seam the rf2-snjn5 "
+            "merged-PR audit reproduced is open."
         ]
     return []
 
@@ -2768,7 +2845,12 @@ def _self_test() -> int:
     # seven artefact-rule `<latest>` recipes); the PASS fixture is the corrected
     # author-supplied-route wording, including the two sentences that must stay
     # legal: the labelled if/when-published `:mvn/version` destination and the
-    # honestly-scoped Leiningen pause option.
+    # honestly-scoped Leiningen pause option. The delegation assertion is
+    # scoped to the M-0 section, so the fixtures carry the guide's real rule-
+    # heading structure (`### M-0.` … `### M-1.`) — appended dirty lines land
+    # after the M-1 heading, proving the `<latest>` / stop-and-wait assertions
+    # stay whole-file — and M0-7 reproduces the merged-PR audit's acceptance
+    # seam: the anchor present only in a later artefact rule.
     def expect_m0(text: str, *, dirty: bool, label: str) -> None:
         nonlocal failures
         got = bool(_m0_publication_route_problems(text))
@@ -2780,6 +2862,7 @@ def _self_test() -> int:
             failures += 1
 
     M0_CLEAN = (
+        "### M-0. Bump the dependency coordinate to `day8/re-frame2`\n"
         'day8/re-frame2 {:git/url "https://github.com/day8/re-frame2.git" '
         ':git/sha "<SHA>" :deps/root "implementation/core"}\n'
         "The recipe is maintained in one place, the setup skill's "
@@ -2790,7 +2873,9 @@ def _self_test() -> int:
         "If and when re-frame2 artefacts are published to a Maven registry, "
         'published coordinates take a `{:mvn/version "…"}` shape instead.\n'
         "Leiningen may instead pause this build tool's dep edit pending "
-        "publication."
+        "publication.\n"
+        "### M-1. Private namespace access\n"
+        "Every rule below assumes the coord chosen at M-0 is in place."
     )
     expect_m0(M0_CLEAN, dirty=False, label="M0-1 corrected route text is clean")
     expect_m0(
@@ -2819,6 +2904,31 @@ def _self_test() -> int:
         ),
         dirty=True, label="M0-6 dropped delegation anchor is dirty",
     )
+    # M0-7 — the rf2-snjn5 merged-PR audit's acceptance seam: the anchor
+    # removed from the M-0 section while a later artefact rule (the M-27..M-33
+    # shape) still carries it. A whole-file substring check stays green here;
+    # the section-scoped assertion must red.
+    expect_m0(
+        M0_CLEAN.replace(
+            "deps-versions.md"
+            "#choosing-the-coordinate-publication-state-decides-the-shape",
+            "deps-versions.md",
+        )
+        + "\nAdd `day8/re-frame2-schemas` at the coordinate kind and pin "
+        "chosen at M-0; the per-artefact paths live in the setup skill's "
+        "[`deps-versions.md` §Choosing the coordinate](../../skills/"
+        "re-frame2-setup/references/deps-versions.md"
+        "#choosing-the-coordinate-publication-state-decides-the-shape).",
+        dirty=True,
+        label="M0-7 anchor only in a later artefact rule is dirty",
+    )
+    # M0-8 — no M-0 rule heading at all: the delegation assertion has nothing
+    # to scope to, so the lock must report rather than silently pass.
+    expect_m0(
+        M0_CLEAN.replace("### M-0. Bump", "Bump"),
+        dirty=True,
+        label="M0-8 missing M-0 heading is dirty",
+    )
 
     # Live red-proof teeth: the lock must have BITE against the exact pre-fix
     # M-0 text — the `<latest>` recipe and the stop instruction verbatim from
@@ -2836,6 +2946,15 @@ def _self_test() -> int:
             "SELF-TEST FAIL (M0-red-proof): the exact pre-fix M-0 text does "
             "not trip both the <latest> and stop-and-wait assertions."
         )
+        failures += 1
+
+    # Live-corpus M-0 delegation tooth (rf2-snjn5): remove ONLY the M-0
+    # section's anchor from the SHIPPED guide — the seven M-27..M-33 copies
+    # stay intact — and require M0-RECIPE-DELEGATION to red. This is the
+    # merged-PR audit's acceptance seam, proven against the landed corpus
+    # rather than a fixture that could drift away from it.
+    for problem in _live_m0_delegation_problems():
+        print(f"SELF-TEST FAIL (M0 delegation live): {problem}")
         failures += 1
 
     # Live-corpus teeth: the SHIPPED owners must both carry the invariant, and a
