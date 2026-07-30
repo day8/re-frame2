@@ -9,8 +9,9 @@ explicit *"accept your recommendation and proceed"*) says it mechanically:
 > RED. A red row needs an explicit operator waiver naming the dogfood benefit.
 > Silence is still not a pass.
 
-So every number in the two "red-zone" tables below *is* a threshold, not a
-supporting figure. **Red is not fail** — the ship bar (HD-012: mount AND bulk
+So every number in the two "red-zone" tables below was set as a threshold, not
+a supporting figure — and both tables have since been qualified, each by the
+banner below. **Red is not fail** — the ship bar (HD-012: mount AND bulk
 ≤ 1.0× Reagent, like-for-like, clock only) is independent, and a row can clear
 the bar and still be red. That tension is intended.
 
@@ -28,13 +29,21 @@ the bar, the budgets, the kill criteria, or these thresholds.
 > a different question. This page's own *Open items* anticipated the move; quote
 > the converged table.
 >
-> **The retained-heap table is NOT superseded, and stands as published.** It was
-> deliberately not re-run: three shapes spanning a 4× range in markup density
-> agree within 8% — this page's list at 2.262×, its grid at 2.254×, and the heap
-> ladder's 2.435× — because retained bytes per subscribing boundary is a property
-> of *the boundary*. The clock is not, since element count decides what fraction
-> of the window is React's own work. That asymmetry is why the clock rows had to
-> move onto the denominator's pages and these did not.
+> **The retained-heap table is regime-qualified — the heap red-zone regime
+> ruling (delegated by Mike, 2026-07-31; authoritative text on rf2-2rtt6.16,
+> transcription on rf2-2rtt6.1).** Cache cardinality is part of the witness:
+> this arm's four held roots render the *same* 300 query vectors against one
+> frame, so one subscription cache serves all 1,200 boundaries and the
+> per-boundary figures amortise the subscription half of every read across four
+> consumers. The absolute rows below therefore stand as **fan-out 4 (amortised
+> ×4), shared-query witness evidence — not comparable to distinct-query rows** —
+> and the operative upper-envelope red-zone family is the
+> [heap ladder](reads-per-boundary-heap-ladder.md)'s distinct-query rows
+> (Q = E). The ratios stay published as the cross-regime check: the 8% agreement
+> across shapes — this page's list at 2.262×, its grid at 2.254×, the ladder's
+> 2.435× — is *ratio* agreement, because the amortisation is common-mode across
+> both arms and cancels in the ratio. Portability of the ratio is real;
+> portability of the quantity is not.
 
 ## Provenance
 
@@ -60,12 +69,13 @@ housekeeping.
 this page says so rather than leaving a reader to discover it.** The three arm
 definitions and both fixtures are byte-identical on main; the driver, the heap
 probe, the app shell, the harness and the guard are not. The heap rows are
-**not** re-run on that account, and the reason is the one this page and [the
-converged set](p0-converged-witness-set.md) both give: retained bytes per
-subscribing boundary is a property of *the boundary*, and the axis already
-rests on three shapes spanning a 4× range in markup density agreeing within 8%
-— this page's list at 2.262×, its grid at 2.254×, and [the heap
-ladder](reads-per-boundary-heap-ladder.md)'s 2.435×. **The ladder was itself
+**not** re-run on that account: under the heap-regime ruling (rf2-2rtt6.16)
+they stand as shared-query fan-out evidence rather than as the operative
+red-zone family, and the sweep that prices the regimes against each other is
+rf2-5prok's, not a re-take of this arm. The cross-regime check — this page's
+list at 2.262×, its grid at 2.254×, and [the heap
+ladder](reads-per-boundary-heap-ladder.md)'s 2.435× — agrees within 8% because
+the amortisation cancels in the ratio. **The ladder was itself
 re-run under the repaired guard and every threshold moved by less than 0.2%**,
 which is the best available evidence that #7267's guard change is inert. A
 reader who wants the stronger check has the blob table above and the command
@@ -187,11 +197,25 @@ notification path fanning out across 300 subscribed boundaries. That is a
 statement about the React-hook spine's invalidation, not about UIx's rendering,
 and it is the row a native view layer has the clearest structural claim on.
 
-## RED-ZONE — retained heap
+## Retained heap — shared-query fan-out evidence, and the cross-regime check
 
-**Not superseded.** These are the operative retained-heap thresholds; the
-convergence re-ran the clock axis only, for the reason given at the top of the
-page.
+**Regime-qualified, not operative as absolutes** — the heap red-zone regime
+ruling (rf2-2rtt6.16; transcription on rf2-2rtt6.1). The operative
+upper-envelope red-zone family is the
+[heap ladder](reads-per-boundary-heap-ladder.md)'s distinct-query rows (Q = E);
+this section's ratios stay published as the cross-regime check, and its
+absolute rows stand as **fan-out 4 (amortised ×4), shared-query witness
+evidence — not comparable to distinct-query rows**. A candidate row is judged
+only against donor rows measured under the same regime on the same witness.
+
+**Witness stamp — B/E/Q.** Four held roots render the *same* 300 query vectors
+against one frame, so one subscription cache serves every root: **B = 1,200**
+boundaries (300 × 4 roots), **E = 1,200** boundary-query edges (one read per
+boundary, E/B = 1), **Q = 300** unique live query keys — **mean fan-out
+E/Q = 4**. The production cache key is the query vector itself, so four
+consumers of one `(frame, query-vector)` retain one reaction plus four
+attachments, and dividing the held delta by 1,200 boundaries amortises the
+subscription half of every read across four of them.
 
 Retention, never allocation: V8's sampling heap profiler drops the samples of
 collected objects, and on the predecessor's instrument the same 80,000 objects
@@ -200,16 +224,18 @@ driver forces a collection, reads, asks the page to mount 4 roots and keep them,
 collects, reads again, releases, collects, reads a third time.
 
 **Exclusive** = `arm − floor` in the same segment: the substrate's own standing
-cost, and the axis [validation.md](../validation.md) states the budget on
-(~0.4–0.5 KB per boundary target, > 1 KB fails on paper).
+cost. [validation.md](../validation.md)'s budget on this axis — ~0.4–0.5 KB per
+boundary target, > 1 KB fails on paper — is the **R = 0 boundary shell**, not a
+boundary including its reads (heap-regime ruling, rf2-2rtt6.16, Part 3).
 
-| family | **threshold — exclusive (mean)** | range | absolute (mean) | range |
+| family | **cross-regime check — exclusive (mean)** | range | absolute (mean) | range |
 |---|---|---|---|---|
 | **list** (300 sub-reading rows) | **2.262×** | 2.196 – 2.335 | 1.580× | 1.564 – 1.603 |
 | **grid** (300 sub-reading cells) | **2.254×** | 2.217 – 2.288 | 1.989× | 1.968 – 2.002 |
 
-Bytes per boundary, CDP `Runtime.getHeapUsage` after a forced collection, 4 roots
-held:
+Bytes per boundary — **fan-out 4 (amortised ×4), shared-query witness evidence,
+not comparable to distinct-query rows**. CDP `Runtime.getHeapUsage` after a
+forced collection, 4 roots held:
 
 | arm | B/boundary (mean) | range |
 |---|---|---|
@@ -222,14 +248,22 @@ held:
 | `uix-subs \| grid/floor` | 244 | 239 – 247 |
 | `uix-subs \| grid/uix` | **2,378** | 2,372 – 2,388 |
 
-**Exclusive per boundary**: Reagent-on-subs ≈ **954 B** (list) and **947 B**
-(grid); UIx-on-subs ≈ **2,156 B** (list) and **2,134 B** (grid).
+**Exclusive per boundary, fan-out 4 (amortised ×4)**: Reagent-on-subs ≈
+**954 B** (list) and **947 B** (grid); UIx-on-subs ≈ **2,156 B** (list) and
+**2,134 B** (grid). Their distinct-query counterparts on the
+[ladder](reads-per-boundary-heap-ladder.md) read ≈ **1,562 B** and ≈ **3,807 B**
+at one read — the same boundaries, carrying the full subscription instead of a
+quarter of it.
 
-Against the paper budget that is a finding in its own right, and it belongs to
-K3 rather than to the ship number: **the frontier comparator is itself over the
-1 KB paper-fail line, by more than 2×, and the Reagent denominator is close to
-it.** A candidate is red above 2.26×; it is over budget above ~0.5 KB. The two
-lines are far apart and a candidate can sit between them.
+Against the paper budget these figures decide nothing:
+[validation.md](../validation.md)'s ~0.4–0.5 KB target / > 1 KB paper-fail line
+is the **R = 0 boundary shell**, which both measured arms comply with (Reagent
+~418–428 B, UIx ~208 B), and a boundary *including its read* — amortised or not
+— is judged on the per-read axis instead, under the ruling's regime-matched
+gates: UIx **3,552 B/read** [3,551–3,553], worse is RED and needs an explicit
+operator waiver; Reagent **943 B/read** [935–944], worse with no named paper
+path down is K3 territory; between the two is "UIx-rule cleared, K3 open",
+never plain green.
 
 DOM nodes live in Blink's C++ heap, not V8's, so none of these figures contain
 the elements themselves. Every arm builds the identical DOM — the canonical-DOM
@@ -401,8 +435,10 @@ precise wrong number first. They are recorded because the next arm will meet the
   witnesses and re-derived the clock red-zones there; three of the four verdicts
   moved, and U-broad's margin widened from 0.838× to 0.624×. See
   [the converged witness set](p0-converged-witness-set.md). The clock rows above
-  are superseded as thresholds by that page; the heap rows are not, and were
-  deliberately not re-run.
+  are superseded as thresholds by that page; the heap rows were deliberately not
+  re-run, and have since been regime-qualified as shared-query fan-out evidence
+  by the heap-regime ruling (rf2-2rtt6.16), with the operative family on
+  [the ladder](reads-per-boundary-heap-ladder.md).
 - **This arm rides `:freehand-release` for its compiler settings** because the
   epic's sequencing law gives `implementation/shadow-cljs.edn` to rf2-2rtt6.2 and
   that arm had not merged. `P0_BUILD` points the driver at another build id;
