@@ -210,6 +210,11 @@ function Test-SameContent {
 # primary worktree is the first entry of `git worktree list --porcelain`; the
 # same derivation as scripts/git-hooks/lib/check-beads-boundary.sh and
 # scripts/assert-worker-worktree.ps1, with the same RF2_MAYOR_ROOT override.
+#
+# Only the COMMITTING arm is gated. -PrePull is a read-only question -
+# "would clearing .beads discard tracker state?" - that every worktree
+# legitimately asks before its own pull, and it must keep answering from
+# worker worktrees (rf2-fifk0).
 # ---------------------------------------------------------------------------
 function Get-NormalizedPath {
     param([string]$Path)
@@ -219,19 +224,21 @@ function Get-NormalizedPath {
     return ($Path -replace '\\', '/').TrimEnd('/').ToLowerInvariant()
 }
 
-$gitRoot = (& git rev-parse --show-toplevel 2>$null)
-if ($LASTEXITCODE -ne 0 -or -not $gitRoot) {
-    Die 'not inside a git checkout.'
-}
-$primary = $env:RF2_MAYOR_ROOT
-if (-not $primary) {
-    $primary = (& git worktree list --porcelain |
-        Where-Object { $_ -like 'worktree *' } |
-        Select-Object -First 1) -replace '^worktree ', ''
-}
-if ($primary -and
-    (Get-NormalizedPath $gitRoot.Trim()) -ne (Get-NormalizedPath $primary.Trim())) {
-    Die 'this is a linked (worker) worktree; the tracker database is the mayor checkout''s to commit.'
+if (-not $PrePull) {
+    $gitRoot = (& git rev-parse --show-toplevel 2>$null)
+    if ($LASTEXITCODE -ne 0 -or -not $gitRoot) {
+        Die 'not inside a git checkout.'
+    }
+    $primary = $env:RF2_MAYOR_ROOT
+    if (-not $primary) {
+        $primary = (& git worktree list --porcelain |
+            Where-Object { $_ -like 'worktree *' } |
+            Select-Object -First 1) -replace '^worktree ', ''
+    }
+    if ($primary -and
+        (Get-NormalizedPath $gitRoot.Trim()) -ne (Get-NormalizedPath $primary.Trim())) {
+        Die 'this is a linked (worker) worktree; the tracker database is the mayor checkout''s to commit.'
+    }
 }
 
 $tmpExport = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(),
@@ -282,7 +289,12 @@ try {
         Die 'bd is not on PATH; a checkpoint must re-export from the database, so it cannot proceed.'
     }
 
-    $code = Invoke-RawToFile -Exe $bdCmd.Source -Arguments @('export') -OutFile $tmpExport
+    # --include-memories is load-bearing (rf2-fifk0). bd v1.1.2 made the bare
+    # export EXCLUDE the `bd remember` memory rows that v1.0.3 always carried,
+    # so a flagless checkpoint would silently drop every one of them - caught
+    # only because the shrink floor below refused the memory-less export
+    # against HEAD. The tracker commits whole: issues AND memories.
+    $code = Invoke-RawToFile -Exe $bdCmd.Source -Arguments @('export', '--include-memories') -OutFile $tmpExport
     if ($code -ne 0) {
         Die "bd export failed (exit $code); leaving $tracker untouched."
     }

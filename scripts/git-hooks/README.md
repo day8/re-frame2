@@ -393,12 +393,16 @@ From rf2-51uz1, on the other side of the same boundary — the checkpoint helper
 (`scripts/beads-checkpoint.sh`), against a stub `bd`:
 
 19. A `bd close` that exists only in the database survives the standard
-    `git checkout HEAD -- .beads` cleanup, because the checkpoint re-exports
+    `git checkout HEAD -- .beads` cleanup, because the checkpoint re-exports —
+    and the committed tracker still carries its memory rows, because the
+    export runs `--include-memories` (bd v1.1.2 drops them bare, rf2-fifk0)
 20. `--pre-pull` refuses while the working export is ahead of HEAD, and is
     silent once it is not
 21. A failed or empty export commits nothing and leaves the tracker untouched
 22. A memory reorder is not a change, so it is not a commit
-23. A worker worktree is refused: the tracker database is the mayor's to commit
+23. A worker worktree is refused the committing arm — the tracker database is
+    the mayor's to commit — while `--pre-pull`, the read-only question, still
+    answers there
 
 From rf2-or8te, driving the floor from the sandbox's **primary** worktree —
 the checkout both incidents came from, and the one every layer above no-ops in:
