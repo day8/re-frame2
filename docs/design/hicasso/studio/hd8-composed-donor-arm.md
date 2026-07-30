@@ -31,7 +31,7 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 | | |
 |---|---|
 | **Producing commit** | `d46ede4fb05a8f4c5af9900f0a010772f0b0883a` — every row except the `reagent-slim` write rows |
-| **Producing commit** | `b943c7ed20d63d66fade4775059dad9fcf0012a7` — the `reagent-slim` write rows, re-taken (`rf2-b69lw`) |
+| **Producing commit, re-take** | `b943c7ed20d63d66fade4775059dad9fcf0012a7` — the `reagent-slim` write rows only (`rf2-b69lw`) |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` |
 | **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
 | **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
