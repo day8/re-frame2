@@ -735,11 +735,19 @@
             {:arm a :container c :handle ((:mount a) c)}))
         arm-ids))
 
-(defn release-write-arms! [mounts]
+(defn release-write-arms!
+  "Release every write arm. A throw is RECORDED, never swallowed — and a
+  normal return is not taken at its word: `lane/container-released!` reads
+  each container before it is removed, exactly as `lane/release!` does,
+  because a root that survives its own unmount does so on a DETACHED tree
+  no later census can see (rf2-jk3vj)."
+  [mounts]
   (doseq [{:keys [arm handle container]} mounts]
-    (try ((:unmount arm) handle)
-         (catch :default e
-           (lane/teardown-failure! (str "release-write-arms! " (:id arm)) e)))
+    (when (try ((:unmount arm) handle)
+               true
+               (catch :default e
+                 (lane/teardown-failure! (str "release-write-arms! " (:id arm)) e)))
+      (lane/container-released! (str "release-write-arms! " (:id arm)) container))
     (.remove container)))
 
 (defn assert-teardown-clean!
