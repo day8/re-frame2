@@ -382,6 +382,75 @@ asymmetry is beneath this instrument's resolution and nothing has to be
 subtracted before the ratios above are read. Had it read anything else, this
 page would owe the reader a subtraction.
 
+**And since the narrow window now holds ten of those turns rather than one, ten
+of them are priced under one clock as well** (`rf2-2rtt6.19`). That reading is
+also **0.0 ms**, which bounds the whole ten-turn asymmetry at `< 100 µs` instead
+of at ten times a sub-quantum reading — see [The ten-turn asymmetry is measured,
+not multiplied](#the-ten-turn-asymmetry-is-measured-not-multiplied).
+
+### The ten-turn asymmetry is measured, not multiplied
+
+**The arithmetic that was wrong.** After the batched re-take, this page bounded
+its own microtask asymmetry as *"ten times a quantity below the instrument's own
+resolution"*. That does not follow, and it is the same argument the batch was
+adopted to make: `hd8-rows/yield-cost!` read `p50 0.0, min 0.0, max 0.0` over
+`n = 10`, which against Chrome's 100 µs clamp bounds **one** turn at `< 100 µs`.
+It bounds **ten** turns at `< 1.0 ms` — up to **~26%** of a 3.8–7.6 ms batched
+narrow sample. And the term is present in three columns and absent from the
+fourth:
+
+| arm | batched narrow, × floor | harness microtasks in the window |
+|---|---|---|
+| `reagent-slim` | 4.222 – 5.944 | **zero** |
+| `donor-r1` | 5.182 – 6.790 | ten |
+| `donor-r2` | 5.400 – 6.579 | ten |
+| `reagent` | 4.130 – 6.947 | ten |
+
+An unpriced term present in three columns and absent from the one they are read
+against is exactly the shape of thing that decides whether `reagent-slim` reads
+faster than the donor rungs — and HD-008 is the donor gate, so that comparison
+is the point of the row.
+
+**The repair is this page's own technique, applied to the control.**
+`yield-cost!` now prices **ten harness microtasks inside one clock window**, the
+way the narrow row prices ten writes, and reports the per-turn figure as the
+sample divided by ten. The recursion mirrors `window-of`'s non-microtask branch
+exactly — `(js/Promise.resolve nil)` with the continuation inside the `.then`,
+so the next turn begins in the turn the previous one finished in — because
+threading the turns through a promise-returning `.then` would add two resolution
+ticks per step and price a window no arm runs. The two readings are taken
+**sequentially, never through `Promise.all`**: two microtask chains in flight on
+one queue would each be timing the other's turns.
+
+**The measurement, all three runs:**
+
+| reading | window | per turn | n |
+|---|---|---|---|
+| one turn (unchanged, as published) | **0.0 ms** | 0.0 ms | 10 |
+| **ten turns under one clock** | **0.0 ms** | **0.0 ms** | 10 |
+
+**Ten turns together still measure 0.0 ms against a 100 µs quantum.** So the
+asymmetry is bounded at `< 100 µs` for the whole batch — not at `< 1.0 ms` — and
+per turn at `< 10 µs`. Against the narrow row's 3.8–7.6 ms samples that is **at
+most 2.6% of the smallest sample and 1.3% of the largest**, where the sentence
+this replaces left a reader facing up to 26%.
+
+**Nothing is subtracted, and now that is a finding rather than an assumption.**
+The bound is ten times tighter than the one it replaces, and it is the bound the
+batched window actually needs. Had the ten-turn window read anything above the
+clamp, this page would have owed the reader the subtraction the old sentence
+quietly assumed away.
+
+**No published row moves.** The control is measured outside every arm's window,
+the one-turn reading is unchanged and still reported, and no arm's window was
+touched — so the ratios above are the ratios above.
+
+**Second-order, worth stating in the same pass.** The same reasoning applies
+wherever a sub-quantum per-item cost is asserted negligible across a batch.
+`lane/verified-write!`'s `:gap-ms` is priced per window; if a future arm batches
+*k* operations under one clock on the shared lane, the same multiplication
+reappears there and wants the same treatment.
+
 **Reproduction check — NOT a republication.** The re-take ran all three
 adapters, so the rows published at `d46ede4f` were measured again by a driver
 carrying the change. Every one of them reproduced: on the mount rows, which are
@@ -417,8 +486,13 @@ could land without touching it.
   lane needs a *macrotask*, which never occurs inside the window, so the
   read-back's actual target is unaffected. The batched window also contains ten
   harness microtasks for every arm except the microtask-scheduled one, which
-  contains none; each such turn measures 0.0 ms against this clock, so the
-  asymmetry is ten times a quantity below the instrument's own resolution.
+  contains none. ~~Each such turn measures 0.0 ms against this clock, so the
+  asymmetry is ten times a quantity below the instrument's own resolution.~~
+  **That sentence was wrong, and `rf2-2rtt6.19` replaced the multiplication with
+  a measurement — see [The ten-turn asymmetry is measured, not
+  multiplied](#the-ten-turn-asymmetry-is-measured-not-multiplied).** Ten times a
+  quantity below resolution is *not* below resolution: it bounds ten turns at
+  `< 1.0 ms`, which is up to ~26% of a 3.8–7.6 ms sample.
 - **The bulk write verifies one probe cell**, where the shared lane verifies a
   seq including the far end of the grid. Same bead.
 - **The write rows' donor-vs-Reagent comparison is cross-run**, floor-normalised.
@@ -427,10 +501,11 @@ could land without touching it.
   columns beside it, which is weaker again; the reproduction check above is what
   that reading rests on.
 - **Two window shapes now exist**, and only one of them contains the harness
-  microtask. Measured at 0.0 ms against a 100 µs quantum, so it is beneath this
-  instrument's resolution — but a future instrument with a finer clock inherits
-  a real asymmetry, not a settled one, and `rf2-pq7d8` is where it gets settled
-  properly.
+  microtask. Measured at 0.0 ms against a 100 µs quantum **one turn at a time and
+  ten turns at a time** (`rf2-2rtt6.19`), so the whole batched asymmetry is
+  beneath this instrument's resolution rather than ten times something beneath it
+  — but a future instrument with a finer clock inherits a real asymmetry, not a
+  settled one, and `rf2-pq7d8` is where it gets settled properly.
 - **No retained-heap leg.** The red-zone rule governs clock *and* retained heap;
   this arm measures the clock. The heap ladder is `rf2-2rtt6.5`'s
   ([reads-per-boundary-heap-ladder.md](reads-per-boundary-heap-ladder.md)).
