@@ -24,11 +24,33 @@
 // is only attributable if the transcribed-but-unablated arm (`xcript`)
 // reproduces the SHIPPED hook (`uix`). If it does not, the transcription
 // prices something else and every difference taken from it is void. This
-// driver computes that check, prints it first, and marks the decomposition
-// NOT ATTRIBUTABLE when the two arms' per-read ranges do not overlap. It
-// does not exit non-zero for it — a failed fidelity check is a finding
-// about the instrument, and suppressing the table would hide the evidence
-// that says so.
+// driver computes that check on BOTH readers — bytes and the headline object
+// count — prints it first, and marks the decomposition NOT ATTRIBUTABLE when
+// either pair of ranges fails. The table is still written to disk, because
+// suppressing it would hide the evidence that says the instrument is wrong;
+// but the RUN then exits 4, because a `VERDICT: 0` printed beside a void
+// decomposition is exactly the fail-open shape the audit of PR #7264 found.
+//
+// ## What else fails the run now, and why each of them was fail-open
+//
+//   * THE WITNESS was printed against its prediction and never compared with
+//     it, so the counting claim this bead exists to make could be falsified
+//     by the run's own probe while the run exited 0.
+//   * READER C was caught into `snapError` and stepped over. C is the
+//     object-COUNT reader and the object count is the headline here, so a
+//     run without it has no source for its central number.
+//   * THE POSITIVE CONTROL and the fits were recorded and adjudicated by
+//     nobody: a control out by any amount, and a "line" with any r2, both
+//     passed.
+//   * A FAILED UNMOUNT was swallowed by the page and reported as success,
+//     which converts a live subscription into measurement state.
+//
+// EXIT CODES
+//   0  reportable
+//   1  a gate failed before measurement, or the run could not complete
+//   2  THE ARM-ORDER GUARD REFUSED. Repair the arm, never the tolerance.
+//   3  a mount did not verify at the DOM
+//   4  a claim this table is published on did not hold — see the list above
 //
 // ## Readers
 //
@@ -108,6 +130,26 @@ const FIDELITY_BAND = Number(process.env.ABL_FIDELITY_BAND || 0.03);
 // percent between rounds, so this sits above that and far below the 2.01x
 // the recorded fault made.
 const TOLERANCE = Number(process.env.ABL_TOLERANCE || 0.25);
+// THE PUBLISHABILITY BANDS, declared here and therefore BEFORE the run.
+//
+// The audit of PR #7264 found the central checks fail-open: the witness
+// counts were printed but never compared with the prediction, fidelity was
+// computed for reader-A bytes only and failed nothing, a reader-C failure was
+// caught and stepped over, and neither a bad control nor a curve that is not a
+// line could stop the run. So `exit 0` could be reached with the counting
+// claim falsified, the ablation non-fidelitous, or reader C absent.
+//
+// `CONTROL_BAND` — the in-situ 8N control must land within 1% of prediction on
+// every reader. The ladder's worst reading on this box was 0.13%, so 1% is
+// loose enough not to fire on drift and tight enough to catch a control that
+// is not measuring what it says: B7's fictional control was out by orders of
+// magnitude, not percent.
+//
+// `R2_FLOOR` — a per-read cost is only a per-read cost if the rungs carry a
+// line. Every fit this instrument has ever published sits above 0.999; 0.99 is
+// the floor below which the slope is not a slope.
+const CONTROL_BAND = Number(process.env.ABL_CONTROL_BAND || 0.01);
+const R2_FLOOR = Number(process.env.ABL_R2_FLOOR || 0.99);
 const INIT_FN = 're-frame.freehand.bench.spine-ablation-app/-main';
 
 // ---------------------------------------------------------------------------
@@ -313,6 +355,35 @@ async function runSubstrate(chromium, substrate) {
     if (!w.ok) { unverifiedWitness++; console.error(`[abl] UNVERIFIED witness ${substrate} offset ${offset}: ${w.elements}/${w.expected}`); }
   }
 
+  // THE PREDICTION, CHECKED. The counts above were printed against the
+  // prediction and never compared with it, so the central claim of this bead
+  // — that a UIx read with no live cache entry builds TWO reactions and keeps
+  // the first — could be falsified by the run's own witness while the run
+  // exited 0. `EXPECTED_WITNESS` is the prediction from the driver header,
+  // stated as multiples of N.
+  const EXPECTED_WITNESS = {
+    uix: { commits: 1, rebuilt: 1, bodyRuns: 2 },
+    reagent: { commits: 0, rebuilt: 0, bodyRuns: 1 },
+  };
+  const witnessFailures = [];
+  const expect = EXPECTED_WITNESS[substrate];
+  if (!expect) {
+    witnessFailures.push(`no witness prediction is recorded for substrate '${substrate}'`);
+  } else {
+    for (const w of witness) {
+      for (const k of ['commits', 'rebuilt', 'bodyRuns']) {
+        const want = expect[k] * w.reads;
+        if (w[k] !== want) {
+          witnessFailures.push(
+            `${substrate} offset ${w.offset}: ${k} = ${w[k]}, predicted ${expect[k]}N = ${want} ` +
+              `for N = ${w.reads} reads`
+          );
+        }
+      }
+    }
+  }
+  for (const f of witnessFailures) console.error(`[abl] WITNESS MISMATCH — ${f}`);
+
   const rounds = [];
   const orderSamples = [];
   let position = 0;
@@ -447,18 +518,77 @@ async function runSubstrate(chromium, substrate) {
     }
   }
 
+  // --- what the page says about its own teardown -------------------------
+  // A swallowed unmount leaves the committed subscription, its watch and its
+  // cache entry live, so every later arm stops being a fresh-cache-miss arm
+  // while the DOM read-back and the guard both still pass.
+  const releaseErrors = await page.evaluate(() => window.ABL.releaseErrors());
+  for (const e of releaseErrors) console.error(`[abl] UNMOUNT FAILED on ${e.arm}: ${e.error}`);
+
   await browser.close();
+
+  // --- the gates that decide whether this table may be published ---------
+  const gateFailures = [...witnessFailures];
+  for (const e of releaseErrors) gateFailures.push(`unmount failed on ${e.arm}: ${e.error}`);
+
+  // Reader C is the object-COUNT reader, and the object count is the whole
+  // finding here — bytes are the cross-check, not the headline. A run that
+  // asked for C and did not get it has no source for its central number.
+  if (SNAP_ROUNDS > 0) {
+    if (snapError) gateFailures.push(`reader C failed: ${snapError}`);
+    else if (snapRounds.length !== SNAP_ROUNDS) {
+      gateFailures.push(`reader C produced ${snapRounds.length} of ${SNAP_ROUNDS} requested rounds`);
+    }
+  }
+
+  // The in-situ control, on every reader that took one.
+  for (const r of rounds) {
+    if (Math.abs(r.control.errorCdp) > CONTROL_BAND) {
+      gateFailures.push(
+        `round ${r.round} reader-A control off by ${(r.control.errorCdp * 100).toFixed(3)}% ` +
+          `(band ${(CONTROL_BAND * 100).toFixed(1)}%)`
+      );
+    }
+  }
+  for (const r of snapRounds) {
+    if (Math.abs(r.control.error) > CONTROL_BAND) {
+      gateFailures.push(
+        `snapshot round ${r.round} reader-C control off by ${(r.control.error * 100).toFixed(3)}% ` +
+          `(band ${(CONTROL_BAND * 100).toFixed(1)}%)`
+      );
+    }
+  }
+
+  const variants = variantCurves(arms, rounds, snapRounds);
+
+  // A slope is only a per-read cost if the rungs carry a line.
+  for (const [v, c] of Object.entries(variants)) {
+    if (Number.isFinite(c.r2.min) && c.r2.min < R2_FLOOR) {
+      gateFailures.push(`variant ${v}: bytes r2 ${c.r2.min.toFixed(5)} below the ${R2_FLOOR} floor`);
+    }
+    if (Number.isFinite(c.objectsR2.min) && c.objectsR2.min < R2_FLOOR) {
+      gateFailures.push(
+        `variant ${v}: objects r2 ${c.objectsR2.min.toFixed(5)} below the ${R2_FLOOR} floor`
+      );
+    }
+  }
+
+  for (const f of gateFailures) console.error(`[abl] GATE — ${f}`);
+
   return {
     substrate,
     plan,
     arms: arms.map((a) => a.id),
     witness,
+    witnessExpected: expect || null,
     verification: { mounts, unverified, unverifiedWitness },
     perRound: rounds,
     orderVerdict: guard.verdict(orderSamples, { tolerance: TOLERANCE }),
     snapRounds,
     snapError,
-    variants: variantCurves(arms, rounds, snapRounds),
+    releaseErrors,
+    gateFailures,
+    variants,
   };
 }
 
@@ -573,6 +703,31 @@ function delta(a, b_) {
 }
 const dstr = (d, f = b) => (d ? `${f(d.p50)}  [${f(d.min)}-${f(d.max)}]` : 'n/a');
 
+// THE FIDELITY CONTROL, on BOTH readers.
+//
+// The whole instrument turns on subtracting one variant from another, and
+// that is only attributable if the transcribed-but-unablated arm (`xcript`)
+// reproduces the SHIPPED hook (`uix`). The first cut checked reader-A BYTES
+// only — and bytes are this bead's cross-check, not its headline. The
+// decomposition is quoted in OBJECTS, so the object count has to pass the
+// same control, and a failure has to stop the table being treated as
+// attributable rather than merely being labelled.
+function fidelityCheck(all) {
+  const byName = Object.fromEntries(all.map((s) => [s.substrate, s]));
+  const U = byName.uix && byName.uix.variants;
+  if (!U || !U.uix || !U.xcript) return { present: false, ok: true, legs: [] };
+  const leg = (name, a, b_) => {
+    const ovl = overlap(a, b_);
+    const rel = Math.abs(b_.p50 / a.p50 - 1);
+    return { name, shipped: a, copy: b_, ovl, rel, ok: ovl || rel <= FIDELITY_BAND };
+  };
+  const legs = [
+    leg('bytes/read', U.uix.bytesPerRead, U.xcript.bytesPerRead),
+    leg('objects/read', U.uix.objectsPerRead, U.xcript.objectsPerRead),
+  ].filter((l) => Number.isFinite(l.shipped.p50) && Number.isFinite(l.copy.p50));
+  return { present: true, legs, ok: legs.length > 0 && legs.every((l) => l.ok) };
+}
+
 function report(all) {
   const L = [];
   const byName = Object.fromEntries(all.map((s) => [s.substrate, s]));
@@ -643,17 +798,18 @@ function report(all) {
   // --- the fidelity check, and only then the decomposition ---------------
   const U = byName.uix && byName.uix.variants;
   const R = byName.reagent && byName.reagent.variants;
-  if (U && U.uix && U.xcript) {
-    const ovl = overlap(U.uix.bytesPerRead, U.xcript.bytesPerRead);
-    const rel = Math.abs(U.xcript.bytesPerRead.p50 / U.uix.bytesPerRead.p50 - 1);
-    const ok = ovl || rel <= FIDELITY_BAND;
+  const fid = fidelityCheck(all);
+  if (fid.present) {
     L.push('');
-    L.push(';; ---- FIDELITY CONTROL --------------------------------------------');
-    L.push(`;;   shipped  uix     ${b(U.uix.bytesPerRead.p50)} B/read  [${b(U.uix.bytesPerRead.min)}-${b(U.uix.bytesPerRead.max)}]`);
-    L.push(`;;   copy     xcript  ${b(U.xcript.bytesPerRead.p50)} B/read  [${b(U.xcript.bytesPerRead.min)}-${b(U.xcript.bytesPerRead.max)}]`);
-    L.push(`;;   ranges ${ovl ? 'OVERLAP' : 'do not overlap'};  medians ${pct(rel)} apart ` +
-           `(band ${pct(FIDELITY_BAND)})`);
-    L.push(`;;   => decomposition is ${ok ? 'ATTRIBUTABLE' : 'NOT ATTRIBUTABLE; every delta below is void'}`);
+    L.push(';; ---- FIDELITY CONTROL — BOTH readers ------------------------------');
+    for (const l of fid.legs) {
+      const f = l.name === 'bytes/read' ? b : n1;
+      L.push(`;;   ${l.name.padEnd(13)} shipped uix ${f(l.shipped.p50)} [${f(l.shipped.min)}-${f(l.shipped.max)}]  ` +
+             `copy xcript ${f(l.copy.p50)} [${f(l.copy.min)}-${f(l.copy.max)}]`);
+      L.push(`;;   ${''.padEnd(13)} ranges ${l.ovl ? 'OVERLAP' : 'do not overlap'};  ` +
+             `medians ${pct(l.rel)} apart (band ${pct(FIDELITY_BAND)})  => ${l.ok ? 'ok' : 'FAIL'}`);
+    }
+    L.push(`;;   => decomposition is ${fid.ok ? 'ATTRIBUTABLE' : 'NOT ATTRIBUTABLE; every delta below is void'}`);
   }
   if (U && U.uix && U.noretain && U.hooks) {
     L.push('');
@@ -738,6 +894,28 @@ function report(all) {
     }
     console.error('[abl] ORDER GUARD REFUSED — repair the arm, not the guard');
     process.exit(2);
+  }
+  // THE CLAIMS THIS TABLE IS PUBLISHED ON. The report above is written to
+  // disk first, so the evidence for a refusal survives the refusal — but the
+  // run does not exit 0 with its own witness falsified, its ablation
+  // non-fidelitous, its control out of band, its curves not lines, reader C
+  // absent, or an unmount silently converted into measurement state.
+  const gateFailures = all.flatMap((s) => s.gateFailures.map((f) => `${s.substrate}: ${f}`));
+  const fid = fidelityCheck(all);
+  if (fid.present && !fid.ok) {
+    for (const l of fid.legs) {
+      if (!l.ok) {
+        gateFailures.push(
+          `fidelity ${l.name}: shipped and transcribed ranges do not overlap and medians are ` +
+            `${pct(l.rel)} apart (band ${pct(FIDELITY_BAND)}) — every delta in the decomposition is void`
+        );
+      }
+    }
+  }
+  if (gateFailures.length) {
+    console.error('[abl] THIS TABLE MAY NOT BE PUBLISHED:');
+    for (const f of gateFailures) console.error(`  - ${f}`);
+    process.exit(4);
   }
   console.error('[abl] done');
 })().catch((e) => { console.error(e); process.exit(1); });

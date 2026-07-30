@@ -567,13 +567,37 @@
 (defonce ^:private installed (atom nil))
 (defonce ^:private held (atom nil))
 
+(defonce ^:private release-errors
+  ;; A FAILED UNMOUNT IS MEASUREMENT STATE, so it may not be swallowed.
+  ;;
+  ;; This used to be `(catch :default _ nil)` followed by removing the
+  ;; container and reporting success. But the container is the DOM half; the
+  ;; half that matters here is the committed subscription, its watch on the
+  ;; frame and its cache entry, and an unmount that threw part-way can leave
+  ;; all three live. Every later arm is then measured against a page that is
+  ;; no longer the fresh-cache-miss shape this instrument claims to price —
+  ;; and because the DOM read-back and the order guard both still pass, the
+  ;; run reports a clean verdict over arms that are no longer the arms.
+  ;;
+  ;; So: cleanup stays best-effort (the container goes and the slot clears
+  ;; either way, so one bad arm cannot wedge the run), and the ERROR is
+  ;; recorded and surfaced to the driver, which fails on it.
+  (atom []))
+
 (defn- release!* []
   (when-some [{:keys [arm handle container]} @held]
-    (let [{:keys [unmount-one]} (get @installed arm)]
-      (try (unmount-one handle) (catch :default _ nil)))
-    (.remove container)
-    (reset! held nil))
+    (let [{:keys [unmount-one]} (get @installed arm)
+          err (try (unmount-one handle) nil
+                   (catch :default e (str e)))]
+      (when err (swap! release-errors conj {:arm arm :error err}))
+      (.remove container)
+      (reset! held nil)))
   nil)
+
+(defn release-errors-js
+  "Every unmount that threw, in order. Empty is the only publishable state."
+  []
+  (clj->js (mapv (fn [e] {"arm" (str (:arm e)) "error" (:error e)}) @release-errors)))
 
 (defn mount!
   "Mount `arm-id` and KEEP it. Answers `{:elements :expected :ok
@@ -771,7 +795,11 @@
   (reset! installed (arms substrate))
   (set! (.-ABL js/window)
         #js {:mount          (fn [arm] (mount! (keyword arm)))
-             :release        (fn [] (release!*) true)
+             ;; Answers the running unmount-error COUNT, not a bare `true`.
+             ;; A release that threw is measurement state; see
+             ;; [[release-errors]].
+             :release        (fn [] (release!*) (count @release-errors))
+             :releaseErrors  (fn [] (release-errors-js))
              :control        (fn [n] (control! n))
              :controlRelease (fn [] (control-release!))
              :witness        (fn [n offset] (witness! substrate n offset))
