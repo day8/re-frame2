@@ -80,8 +80,13 @@ const guard = require('./order_guard.cjs');
 const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
-const OUT_DIR = process.env.LADDER_OUT_DIR || path.join('out', 'reads-ladder');
-const OUT = path.join(IMPL, OUT_DIR);
+// FORWARD SLASHES, and not by accident. `:output-dir` is spliced into the
+// `--config-merge` EDN string below, and on Windows `path.join('out',
+// 'reads-ladder')` yields `out\reads-ladder` whose `\r` the EDN reader takes
+// as a carriage return: shadow-cljs then writes `outeads-ladder\main.js` and
+// dies on a filename the OS will not accept. Seen once, here.
+const OUT_DIR = process.env.LADDER_OUT_DIR || 'out/reads-ladder';
+const OUT = path.resolve(IMPL, OUT_DIR);
 const PORT = Number(process.env.LADDER_PORT || 8137);
 
 const ROUNDS = Number(process.env.LADDER_ROUNDS || 6);
