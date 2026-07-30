@@ -1104,6 +1104,25 @@
       {:p50   adj
        :ratio (into {} (map (fn [[id v]] [id (round4 (/ v floor))])) adj)})))
 
+(defn- side-of-1
+  "Which side of 1.0 a published range sits on — `:below`, `:straddles` or
+  `:above`.
+
+  Three states rather than the `:straddles-1?` boolean, because the boolean
+  cannot see a COMPLETE crossing: a band wholly below 1.0 that lands wholly
+  above it after correction is `false -> false`, no straddle at either end,
+  and the PR #7282 audit built a live-rule counterexample that published
+  exactly that — 0.95x unadjusted, 1.0556x corrected, a full direction
+  reversal accepted as `:corrected`. The classification is still the
+  instrument's own house rule extended to which side of the line a DECIDED
+  band sits on: `:straddles-1?` names the indistinguishable state, and the
+  other two are the only places a decided band can be."
+  [v]
+  (cond
+    (:straddles-1? v) :straddles
+    (< (:max v) 1.0)  :below
+    :else             :above))
+
 (defn yield-correction
   "Adjudicate one write row against the harness-microtask asymmetry, and
   answer a verdict rather than an observation (rf2-b69lw).
@@ -1149,11 +1168,18 @@
 
     (a) THE CORRECTION CHANGES THE VERDICT. If subtracting the bound moves
         any published range across 1.0 — indistinguishable becoming a
-        finding, or a finding becoming indistinguishable — then what the
-        row reports is an artefact of the asymmetry. The test is the
-        instrument's OWN house rule (`:straddles-1?`), not a threshold
-        invented here, which is deliberate: this contract is not entitled
-        to a tolerance of its own.
+        finding, a finding becoming indistinguishable, or a band leaping
+        the line WHOLE, wholly below 1.0 before the correction and wholly
+        above it after — then what the row reports is an artefact of the
+        asymmetry. The test is three-state ([[side-of-1]]): a band is
+        below, straddling, or above, and ANY change of state is a
+        crossing. It began as a comparison of the `:straddles-1?` boolean
+        alone, and a complete reversal never flips that boolean — the PR
+        #7282 audit's counterexample published 0.95x unadjusted as 1.0556x
+        corrected through exactly that hole. The classification is still
+        the instrument's OWN house rule extended to which side of the line
+        a decided band sits on, not a threshold invented here: this
+        contract remains not entitled to a tolerance of its own.
 
     (b) THE CORRECTION EXCEEDS THE WINDOW — a bearer for which what REMAINS
         after the subtraction does not exceed what was REMOVED. That window
@@ -1244,20 +1270,20 @@
                                 "survives only by a rounding error is not a denominator"))
           (let [summary'  (lane/across-rounds (mapv :ratio corrected))
                 h2h'      (head-to-head corrected)
+                ;; [[side-of-1]] on both ends, and ANY change of state is a
+                ;; crossing. Comparing the `:straddles-1?` booleans is not
+                ;; the same test: a band that leaps the line WHOLE never
+                ;; straddles at either end (PR #7282 audit).
+                crossed   (fn [id v v']
+                            (when (and v' (not (:unpublished v))
+                                       (not= (side-of-1 v) (side-of-1 v')))
+                              {:figure id :was v :corrected v'
+                               :was-side (side-of-1 v) :now-side (side-of-1 v')}))
                 flipped   (into []
-                                (keep (fn [[id v]]
-                                        (let [v' (get summary' id)]
-                                          (when (and v' (not (:unpublished v))
-                                                     (not= (boolean (:straddles-1? v))
-                                                           (boolean (:straddles-1? v'))))
-                                            {:figure id :was v :corrected v'}))))
+                                (keep (fn [[id v]] (crossed id v (get summary' id))))
                                 (:summary row))
                 flipped   (into flipped
-                                (keep (fn [[id v]]
-                                        (let [v' (get h2h' id)]
-                                          (when (and v' (not= (boolean (:straddles-1? v))
-                                                              (boolean (:straddles-1? v'))))
-                                            {:figure id :was v :corrected v'}))))
+                                (keep (fn [[id v]] (crossed id v (get h2h' id))))
                                 (:head-to-head row))]
             (if (seq flipped)
               (assoc base :verdict :refused :reason :correction-changes-the-verdict
@@ -1313,7 +1339,10 @@
   Fixture 4 is not invented. It is the row that made the survival test
   `pos?` publish a corrected ratio of 15,518,934x — a bulk floor of one
   clock quantum against a bound of one clock quantum — and it is here so
-  that repair cannot silently come undone."
+  that repair cannot silently come undone. Fixture 7 is not invented
+  either: it is the PR #7282 audit's counterexample, the band that crossed
+  1.0 WHOLE without flipping `:straddles-1?` at either end, published as
+  0.95x unadjusted and 1.0556x corrected — kept here for the same reason."
   []
   (let [zero-yc    {:p50 0 :min 0 :max 0 :n 10
                     :batched {:k narrow-batch-k :window-p50 0 :window-max 0 :n 10}}
@@ -1380,6 +1409,20 @@
                              :slim no-agg-yc)]
            {:name "no aggregate measured for this row's k is REFUSED as unevaluable"
             :ok   (and (= :refused (:verdict v)) (= :unevaluable (:reason v)))
+            :detail (str (name (:verdict v)) "/" (some-> (:reason v) name))})
+
+         ;; 7. THE WHOLE-BAND CROSSING (PR #7282 audit). A band wholly below
+         ;;    1.0 that lands wholly above it after correction never flips
+         ;;    `:straddles-1?` — false -> false at both ends — and the
+         ;;    boolean test published exactly this complete direction
+         ;;    reversal as :corrected: 0.95x unadjusted, 1.0556x corrected.
+         ;;    [[side-of-1]] is three-state so that it cannot.
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
+                                          [{:floor 1.0 :reagent-slim 0.95} {:floor 1.0 :reagent-slim 0.95}])
+                             :slim live-yc)]
+           {:name "a band that crosses 1.0 WHOLE (no straddle at either end) is REFUSED"
+            :ok   (and (= :refused (:verdict v))
+                       (= :correction-changes-the-verdict (:reason v)))
             :detail (str (name (:verdict v)) "/" (some-> (:reason v) name))})]]
     {:ok?    (every? :ok checks)
      :checks (mapv (fn [c] (update c :ok boolean)) checks)}))
