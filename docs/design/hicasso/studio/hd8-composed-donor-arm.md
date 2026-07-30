@@ -30,7 +30,7 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 
 | | |
 |---|---|
-| **Producing commit** | `d0faa28ce022c6585e5bd412ea1b610df1efefde` |
+| **Producing commit** | `d46ede4fb05a8f4c5af9900f0a010772f0b0883a` |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` |
 | **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
 | **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
@@ -90,43 +90,41 @@ Within-run in every row.
 
 | run | comparison | range |
 |---|---|---|
-| uix | `donor-r1 / uix` | 1.196 – 1.272 |
-| uix | `donor-r2 / uix` | 1.123 – 1.326 |
-| uix | **`donor-r2 / donor-r1` — the shell** | 0.937 – 1.046 · *indistinguishable* |
-| reagent | **`donor-r1 / reagent`** | **1.341 – 1.671** |
-| reagent | **`donor-r2 / reagent`** | **1.354 – 1.476** |
-| reagent | `donor-r1 / uix` | 1.174 – 1.356 |
-| reagent | `donor-r2 / uix` | 1.185 – 1.241 |
-| reagent | **`donor-r2 / donor-r1` — the shell** | 0.883 – 1.019 · *indistinguishable* |
-| slim | **`donor-r1 / reagent-slim`** | 0.990 – 1.085 · *indistinguishable* |
-| slim | **`donor-r2 / reagent-slim`** | 1.011 – 1.117 |
-| slim | `donor-r1 / uix` | 1.125 – 1.263 |
-| slim | `donor-r2 / uix` | 1.171 – 1.250 |
-| slim | **`donor-r2 / donor-r1` — the shell** | 0.990 – 1.042 · *indistinguishable* |
+| uix | `donor-r1 / uix` | 1.149 – 1.230 |
+| uix | `donor-r2 / uix` | 1.162 – 1.286 |
+| uix | **`donor-r2 / donor-r1` — the shell** | 1.012 – 1.049 |
+| reagent | **`donor-r1 / reagent`** | 1.333 – 1.473 |
+| reagent | **`donor-r2 / reagent`** | 1.353 – 1.460 |
+| reagent | `donor-r1 / uix` | 1.184 – 1.267 |
+| reagent | `donor-r2 / uix` | 1.209 – 1.250 |
+| reagent | **`donor-r2 / donor-r1` — the shell** | 0.954 – 1.023 · *indistinguishable* |
+| slim | **`donor-r1 / reagent-slim`** | 1.000 – 1.120 · *indistinguishable* |
+| slim | **`donor-r2 / reagent-slim`** | 1.034 – 1.133 |
+| slim | `donor-r1 / uix` | 1.086 – 1.184 |
+| slim | `donor-r2 / uix` | 1.123 – 1.200 |
+| slim | **`donor-r2 / donor-r1` — the shell** | 0.961 – 1.063 · *indistinguishable* |
 
-Against the floor, for scale: `reagent` 3.524–4.100, `reagent-slim` 4.273–5.000,
-`uix` 3.800–4.609, `donor-r1` 4.591–5.957, `donor-r2` 4.591–5.600.
+Against the floor, for scale: `reagent` 3.500 – 3.895, `reagent-slim` 4.200 – 4.500, `uix` 3.889 – 4.111, `donor-r1` 4.500 – 4.790, `donor-r2` 4.667 – 5.000.
 
 ### Mount — the `U` page (300 cells)
 
 | run | comparison | range |
 |---|---|---|
-| uix | `donor-r1 / uix` | 1.078 – 1.219 |
-| uix | `donor-r2 / uix` | 1.052 – 1.203 |
-| uix | **`donor-r2 / donor-r1` — the shell** | 0.949 – 1.055 · *indistinguishable* |
-| reagent | **`donor-r1 / reagent`** | **1.443 – 1.518** |
-| reagent | **`donor-r2 / reagent`** | **1.468 – 1.607** |
-| reagent | `donor-r1 / uix` | 1.049 – 1.150 |
-| reagent | `donor-r2 / uix` | 1.111 – 1.154 |
-| reagent | **`donor-r2 / donor-r1` — the shell** | 1.000 – 1.059 · *indistinguishable* |
-| slim | **`donor-r1 / reagent-slim`** | 0.986 – 1.105 · *indistinguishable* |
-| slim | **`donor-r2 / reagent-slim`** | 1.051 – 1.141 |
-| slim | `donor-r1 / uix` | 1.015 – 1.105 |
-| slim | `donor-r2 / uix` | 1.079 – 1.141 |
-| slim | **`donor-r2 / donor-r1` — the shell** | 1.000 – 1.087 · *indistinguishable* |
+| uix | `donor-r1 / uix` | 0.984 – 1.250 · *indistinguishable* |
+| uix | `donor-r2 / uix` | 1.125 – 1.222 |
+| uix | **`donor-r2 / donor-r1` — the shell** | 0.943 – 1.143 · *indistinguishable* |
+| reagent | **`donor-r1 / reagent`** | 1.448 – 1.542 |
+| reagent | **`donor-r2 / reagent`** | 1.250 – 1.542 |
+| reagent | `donor-r1 / uix` | 1.125 – 1.333 |
+| reagent | `donor-r2 / uix` | 1.078 – 1.299 |
+| reagent | **`donor-r2 / donor-r1` — the shell** | 0.813 – 1.031 · *indistinguishable* |
+| slim | **`donor-r1 / reagent-slim`** | 0.948 – 1.106 · *indistinguishable* |
+| slim | **`donor-r2 / reagent-slim`** | 1.043 – 1.121 |
+| slim | `donor-r1 / uix` | 1.028 – 1.364 |
+| slim | `donor-r2 / uix` | 1.121 – 1.439 |
+| slim | **`donor-r2 / donor-r1` — the shell** | 0.990 – 1.110 · *indistinguishable* |
 
-Against the floor: `reagent` 5.600–6.200, `reagent-slim` 6.500–7.600, `uix`
-6.250–8.100, `donor-r1` 6.500–9.200, `donor-r2` 6.833–9.375.
+Against the floor: `reagent` 4.800 – 6.700, `reagent-slim` 5.500 – 7.750, `uix` 5.400 – 6.400, `donor-r1` 6.300 – 7.300, `donor-r2` 6.600 – 7.200.
 
 ### Write — narrow (one cell in a 300-cell grid)
 
@@ -134,15 +132,13 @@ Within-run, `uix` run:
 
 | comparison | range |
 |---|---|
-| `donor-r1 / uix` | 0.889 – 1.200 · *indistinguishable* |
-| `donor-r2 / uix` | 1.000 – 1.111 · *indistinguishable* |
-| `donor-r2 / donor-r1` — the shell | 0.833 – 1.250 · *indistinguishable* |
+| `donor-r1 / uix` | 0.909 – 1.200 · *indistinguishable* |
+| `donor-r2 / uix` | 0.960 – 1.200 · *indistinguishable* |
+| `donor-r2 / donor-r1` — the shell | 1.000 – 1.167 · *indistinguishable* |
 
-Cross-run, floor-normalised — **the weaker warrant**: `donor-r1` 4.000–7.000
-and `donor-r2` 4.667–7.500 against `reagent` 3.000–5.000. Those ranges overlap,
-so the arms are indistinguishable on this row *at this instrument's precision* —
-and this row's precision is its weakest (see limitations). `reagent-slim`:
-**UNPUBLISHED**, 78/78 unverified.
+Cross-run, floor-normalised — **the weaker warrant**: `donor-r1` 5.000 – 8.000 and
+`donor-r2` 5.000 – 8.000 against `reagent` 3.000 – 5.000. This row's precision is the
+instrument's weakest (see limitations). `reagent-slim`: **UNPUBLISHED** — 78/78 unverified.
 
 ### Write — bulk (all 300 cells in one commit)
 
@@ -150,27 +146,24 @@ Within-run, `uix` run:
 
 | comparison | range |
 |---|---|
-| `donor-r1 / uix` | 1.222 – 1.667 |
-| `donor-r2 / uix` | 1.333 – 1.556 |
-| `donor-r2 / donor-r1` — the shell | 0.900 – 1.167 · *indistinguishable* |
+| `donor-r1 / uix` | 1.185 – 1.313 |
+| `donor-r2 / uix` | 1.278 – 1.469 |
+| `donor-r2 / donor-r1` — the shell | 1.046 – 1.125 |
 
-Cross-run, floor-normalised — **the weaker warrant**: `donor-r1` 5.500–11.000
-and `donor-r2` 5.500–12.000 against `reagent` 9.500–19.000. `reagent-slim`:
-**UNPUBLISHED**, 78/78 unverified.
+Cross-run, floor-normalised — **the weaker warrant**: `donor-r1` 7.750 – 11.000 and
+`donor-r2` 8.250 – 11.750 against `reagent` 8.750 – 17.000. `reagent-slim`: **UNPUBLISHED** — 78/78 unverified.
 
 ### What the rungs cost
 
-**Markup and reactivity (rung 1)** is where the whole cost sits. Against the
-frontier it is 1.05–1.36× on mount and indistinguishable on a narrow write;
-against stock Reagent's mount it is 1.34–1.67×.
+**Markup and reactivity (rung 1) is where essentially the whole cost sits.**
 
-**The product shell (rung 2) is free on the clock at these witnesses.** One
+**The product shell (rung 2) is at or below this instrument's resolution.** One
 frame-context hook per boundary plus codec-side event-vector lowering read
-0.883–1.059 against rung 1 on mount and 0.833–1.250 on writes — every one of
-those ranges includes 1.0, in all three runs, on all four rows. That is the
-single most consistent result on this page: whatever the composed arm costs, the
-shell is not what it costs.
-
+**indistinguishable from rung 1 on 6 of the 8 rows** above. Where it is
+distinguishable at all it is small: mount-M (uix run) 1.012 – 1.049; write-bulk (uix run) 1.046 – 1.125. An earlier run of the same instrument
+had it indistinguishable on every row, which is itself the finding — the shell
+sits close enough to zero that whether it resolves depends on the round, and no
+row shows it as a material cost.
 
 ---
 
@@ -184,7 +177,8 @@ is not passing vacuously.
 **Positive control** — the floor arm building the `M` page at N and at N/2, the
 two sizes interleaved as arms in one round. **Predicted 1.9934** from the
 witness's own arithmetic `(3 + 3N) / (3 + 3(N/2))` at N = 300, before any clock
-was read. Measured: `1.733–1.857` (uix run), `1.769–1.929` (reagent run), `1.571–2.000` (slim run). Every round inside ±30%.
+was read. Measured `1.800–2.000` (uix run), `1.750–2.000` (reagent run) and
+`1.667–1.833` (slim run) — every round inside ±30%.
 
 **Event-vector lowering** — one click fired through rung 2's codec-lowered
 handler, outside every measured window, read back out of the DOM:
@@ -194,7 +188,11 @@ call — the fastest possible implementation of the wrong thing.
 
 **Arm-order guard** — every sample carries its predecessor **and its position in
 the run**; the guard partitions on both and refuses any arm whose figure moves
-with the plan. All **twelve** rows across the three runs came back *reportable*, on both factors. **156 unverified of 936** measured writes — every one of them the `reagent-slim` arm, whose figures are suppressed below rather than published (see below).
+with the plan. All **twelve** rows across the three runs came back
+*reportable*, on both factors, with none refused.
+
+**156 unverified of 936** measured writes — every one of them the
+`reagent-slim` arm, whose figures are suppressed rather than published.
 
 ### Four faults the instrument caught before they became numbers
 
