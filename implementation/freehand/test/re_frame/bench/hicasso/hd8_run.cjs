@@ -52,8 +52,11 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
-const guard = require('./order_guard.cjs');
+// Both shared with the freehand bench tree, and reached the same way
+// rf2-2rtt6.2's own driver reaches `navigate`: one navigation helper and one
+// arm-order guard for the repository, never a second copy per lane.
+const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
+const guard = require('../../freehand/bench/order_guard.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const REPO = path.resolve(IMPL, '..');
