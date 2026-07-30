@@ -164,10 +164,23 @@ P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
 git rev-parse <candidate>:$P   # must print f4b09dc20712e45f44f9ec9339f8dd00ce51e8f7
 ```
 
-The reproduction command was run **at this commit, on a clean working tree**,
-and the figures below are that run's. A second, independent five-round run of
-the identical instrument is published beside them; where the two disagree, the
-page says so rather than picking one.
+**The reproduction command was run at this instrument, on a clean working tree
+— and it produced the NARROW row and nothing else.** This paragraph used to say
+*"the figures below are that run's"*, unqualified, which is not what happened:
+`HICASSO_ONLY=narrow` re-took one row of four, exactly as the paragraph above
+says it should. Three of the four rows below therefore come off a **different
+instrument**, and a provenance block that does not partition its own table is
+the blur such a block exists to prevent.
+
+| rows | instrument | which run |
+|---|---|---|
+| M1 mount · M2 mount · bulk broad | the **earlier** instrument — `p0_converge_app.cljs` blob `9b5c0d63db5528d8b9790111f9bc53cda052106f`, at `4c3f7189c4` | the original five-round sweep in [Provenance](#provenance) above. Re-**checked** against the current instrument by [the rf2-rjfz1 sweep](#all-four-rows-reproduce-against-the-revived-driver-rf2-rjfz1); not re-taken |
+| **bulk narrow** *(batched)* | `f4b09dc20712e45f44f9ec9339f8dd00ce51e8f7` — the blob table immediately above | run **twice** at this instrument, and both runs are published |
+
+A second, independent five-round run of the identical instrument is published
+beside the **narrow** row; where the two disagree, the page says so rather than
+picking one. The other three rows have one run each and a reproduction check,
+which is a weaker warrant and is labelled as one wherever it appears.
 
 All bar numbers are browser numbers. No JVM or Node figure appears on this page.
 
@@ -304,7 +317,7 @@ has never been.
 | **Position completeness** | **zero lost positions on every arm of every row**; each phase contrast adjudicated on a full 20-against-20 of 60 |
 | **Canonical-DOM parity** | clean in both segments and across the seam, every row — `{:problems [] :ok? true}` |
 | **Verification** | **0 unverified of 7,860** — 600 M1 mounts + 600 M2 mounts + 630 broad writes + 6,030 narrow writes |
-| **Positive controls** | eight, **eight passes** under the overlap rule; see below for the strict reading |
+| **Positive controls** | **this sweep's** four rows × two segments = eight, **eight passes** under the overlap rule; see below for the strict reading. Not the page's live count — the [positive-control table](#the-positive-controls) carries ten entries, because the narrow row is published from two runs and the superseded one is struck |
 
 **The M2 control that rf2-egdaq holds open reads differently on this sweep,
 and the ruling is still the operator's.** The published M2 control range
@@ -496,9 +509,19 @@ can honestly be held to it.)
 | **bulk narrow** *(batched, run 2)* | 1.9989× | 1.941× [1.905 – 1.977] ✅ | 1.935× [1.814 – 2.000] ✅ | 1801 / 901 elements |
 | ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.9989×~~ | ~~2.013× [1.667 – 2.400] ✅~~ | ~~1.867× [1.667 – 2.000] ✅~~ | ~~1801 / 901 elements~~ |
 
-Eight controls, eight passes, and seven of the eight sit **below** their
-prediction — the direction a fixed per-root term predicts, and the same
-direction rf2-2rtt6.2 and rf2-2rtt6.4 both recorded.
+**Ten controls, ten passes, and all ten sit below their prediction** — the
+direction a fixed per-root term predicts, and the same direction rf2-2rtt6.2
+and rf2-2rtt6.4 both recorded.
+
+**This summary read *"Eight controls, eight passes, and seven of the eight sit
+below"*, and the table it described no longer exists.** It was right when the
+table held M1, M2, broad and the unbatched narrow row — four entries across two
+segments, of which exactly one, the narrow Reagent segment's `2.013×`, sat above
+its prediction. The batched re-take struck that row and added two batched runs
+in its place, so the live table is **five entries × two segments = ten**, the
+one entry that sat above prediction is the superseded one, and the direction is
+now unanimous. Counting the struck row would be counting a figure this page has
+withdrawn.
 
 The narrow row's controls were **predicted before the run** at `1801 / 901 =
 1.9989×` and re-measured on the batched window; all four ranges above sit
@@ -798,3 +821,15 @@ mutation evidence is on
   the boundary rather than of the page.
 - **The per-page accumulation is still unexplained.** One row per page makes it
   harmless to these figures; it does not make it fixed.
+- **`p0_converge_app.cljs`'s own row table still describes the pre-batch narrow
+  window, and this page cannot fix it.** Its namespace docstring reads
+  *"`bulk-narrow` | the M1 page, one commit exactly ONE boundary reads"*, which
+  was true before `rf2-zb3qg` and is not true of the landed row: `narrow-batch-k`
+  commits share one timed window, and the `:doc` on the entry itself — ~730 lines
+  further down the same file — already says so. So the file contradicts itself,
+  and a reader who stops at the summary table reads a window that no longer
+  exists. **Marked rather than corrected**: a sibling worker holds 362
+  uncommitted lines in that file at the time of writing, its earliest hunk at
+  line 229, and a one-line docstring fix landed into a live working surface buys
+  a conflict on a hot file for nothing. The correction belongs to whoever
+  finishes there, and it is one line.
