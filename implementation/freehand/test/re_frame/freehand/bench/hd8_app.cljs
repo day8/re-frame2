@@ -138,10 +138,11 @@
 (defn- run-all! []
   (let [which    (query-adapter)
         _        (install! which)
-        arm-ids  (get rows/arm-ids-for which)]
+        arm-ids  (get rows/arm-ids-for which)
+        write-ids (get rows/write-arm-ids-for which)]
     (h/leave-act-environment!)
     (doseq [id arm-ids] (rows/ensure-frame! id))
-    (record! :method (rows/method-record which arm-ids rounds mount-sampling write-sampling))
+    (record! :method (rows/method-record which arm-ids write-ids rounds mount-sampling write-sampling))
 
     ;; ---- the fairness gate, before any clock ------------------------------
     (let [problems (rows/parity-problems arm-ids)]
@@ -176,7 +177,10 @@
                     ;; no check at all. Recorded as inapplicable rather than
                     ;; as green.
                     (js/Promise.resolve {:lowered? true :applicable? false
-                                         :why "no donor arm in this run"}))
+                                         :why (str "the donor arms are not REACTIVE under this "
+                                                   "run's ratom spine, so a lowering check here "
+                                                   "would fail for an unrelated reason; the uix "
+                                                   "run is where this question is asked")}))
                   (.then
                     (fn [low]
                       (record! :lowering-check low)
@@ -192,10 +196,10 @@
                           (doseq [wit rows/witnesses]
                             (record-row! (keyword (str "mount-" (name (:id wit))))
                                          (rows/measure-mount! wit arm-ids rounds mount-sampling)))
-                          (-> (rows/measure-write! arm-ids which :narrow rounds write-sampling)
+                          (-> (rows/measure-write! write-ids which :narrow rounds write-sampling)
                               (.then (fn [r]
                                        (record-row! :write-narrow r)
-                                       (rows/measure-write! arm-ids which :bulk rounds write-sampling)))
+                                       (rows/measure-write! write-ids which :bulk rounds write-sampling)))
                               (.then (fn [r] (record-row! :write-bulk r) (done!))))))))
                   (.catch (fn [e]
                             (fail! (str "the run threw: " (.-message e) "\n" (.-stack e)))
