@@ -136,6 +136,20 @@
   (* boundaries (apply max reads-rungs)))
 
 ;; ---------------------------------------------------------------------------
+;; The witness counters
+;; ---------------------------------------------------------------------------
+
+(def ^:private witness
+  "Plain counters for the WITNESS probe. Declared here because the witness
+  sub body (below) increments one of them.
+
+    bodyRuns  — sub-body invocations
+    commits   — commit-phase `subscribe-fn` calls, i.e. reads that mounted
+    rebuilt   — commit-phase acquisitions whose reaction is NOT `identical?`
+                to the render-phase handle the same read is holding"
+  (js-obj "bodyRuns" 0 "commits" 0 "rebuilt" 0))
+
+;; ---------------------------------------------------------------------------
 ;; The store
 ;; ---------------------------------------------------------------------------
 
@@ -151,6 +165,19 @@
 
 (rf/reg-sub :abl/cell
   (fn [db [_ i]] (nth (:cells db) i)))
+
+;; ---- the witness sub (see the WITNESS section at the foot of this file) ----
+;;
+;; Identical body to `:abl/cell`, plus a counter. It exists so the
+;; double-registration claim can be settled by COUNTING rather than by
+;; weighing: a count is immune to every fault a heap instrument has, and
+;; fifteen instrument faults have been caught on these surfaces. It is
+;; never read by an arm in the heap table — a sub body with a side effect
+;; has no business on a page that is pricing retention.
+(rf/reg-sub :abl/witness-cell
+  (fn [db [_ i]]
+    (aset witness "bodyRuns" (inc (aget witness "bodyRuns")))
+    (nth (:cells db) i)))
 
 (defn ensure-frame! []
   (rf/make-frame {:id frame-id :initial-events [[:abl/seed cells-needed]]}))
@@ -570,6 +597,145 @@
          :ok         (= elements boundaries)}))
 
 ;; ---------------------------------------------------------------------------
+;; THE WITNESS — the same claim, settled by counting
+;; ---------------------------------------------------------------------------
+;;
+;; Everything above is a heap measurement, and a heap measurement on this
+;; surface is guilty until it has produced a control. The central claim —
+;; that a UIx read with no live cache entry BUILDS TWO REACTIONS and keeps
+;; the first — is not really a claim about bytes at all. It is a claim about
+;; COUNTS, and counts can be read exactly.
+;;
+;; So: mount a small grid whose reads go through a transcription that is
+;; `use-sub-xcript` PLUS three counter increments, and read the counters
+;; back. The witness components never appear in the heap table (a sub body
+;; with a side effect has no business on a page pricing retention) and the
+;; heap arms never touch the witness sub. The two halves of this file check
+;; each other and share nothing but the frame.
+;;
+;; PREDICTED BEFORE THE RUN, for `n` boundaries x `r` reads = N reads:
+;;
+;;   uix      commits N,  rebuilt N,  bodyRuns 2N
+;;   reagent  commits 0,  rebuilt 0,  bodyRuns  N
+;;
+;; `rebuilt = N` is the whole finding: EVERY read's commit-phase acquire
+;; hands back a DIFFERENT reaction object from the one the render phase
+;; already built and the fiber is still holding. `bodyRuns = 2N` is its
+;; shadow — the second reaction's first deref re-runs the user's sub body.
+;; A `rebuilt` of 0 would falsify the finding outright.
+
+(defn- use-sub-witness [frame-kw query-v]
+  (let [key-ref       (react/useRef nil)
+        committed-ref (react/useRef nil)
+        stable-key      (stable-key-of key-ref frame-kw query-v)
+        stable-frame-kw (aget stable-key 0)
+        stable-query-v  (aget stable-key 1)
+        reaction
+        (uix-hooks/use-memo
+          (fn []
+            (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})]
+              (subs/unsubscribe stable-frame-kw stable-query-v)
+              r))
+          #js [stable-key])
+        get-snap
+        (uix-hooks/use-callback
+          (fn []
+            (let [stored (.-current committed-ref)
+                  r      (if (and stored
+                                  (identical? (aget stored 0) stable-key))
+                           (aget stored 1)
+                           reaction)]
+              (when r @r)))
+          #js [stable-key reaction])
+        subscribe-fn
+        (uix-hooks/use-callback
+          (fn [on-change]
+            (let [committed (subs/subscribe stable-query-v
+                                            {:frame stable-frame-kw})]
+              (aset witness "commits" (inc (aget witness "commits")))
+              ;; THE WITNESS. `reaction` is the handle the render phase built
+              ;; and the fiber is still holding; `committed` is what the
+              ;; commit-phase acquire just returned. Not `identical?` means
+              ;; the render-phase one was disposed and evicted between the
+              ;; two calls and a second reaction was built to replace it.
+              (when-not (identical? committed reaction)
+                (aset witness "rebuilt" (inc (aget witness "rebuilt"))))
+              (set! (.-current committed-ref) #js [stable-key committed])
+              (let [k (keyword watch-ns (str (gensym "watch-")))]
+                (when committed
+                  (add-watch committed k (fn [_ _ _ _] (on-change))))
+                (fn unsubscribe []
+                  (when committed (remove-watch committed k))
+                  (let [stored (.-current committed-ref)]
+                    (when (and stored (identical? (aget stored 1) committed))
+                      (set! (.-current committed-ref) nil)))
+                  (subs/unsubscribe stable-frame-kw stable-query-v)))))
+          #js [stable-key reaction])]
+    (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
+
+(defn- w [i] (use-sub-witness frame-id [:abl/witness-cell i]))
+
+(defui w-cell [{:keys [base]}]
+  (let [v (+ (w (+ base 0)) (w (+ base 1)) (w (+ base 2)))]
+    ($ :span.wcell {:data-i base} (str v))))
+
+(defui w-grid [{:keys [n offset]}]
+  ($ :div.wab
+     (for [i (range n)]
+       ($ w-cell {:key i :base (+ offset (* i 3))}))))
+
+(defn- w-rg-cell [base]
+  (let [v (loop [k 0 acc 0]
+            (if (< k 3)
+              (recur (inc k)
+                     (+ acc @(rf/subscribe [:abl/witness-cell (+ base k)]
+                                           {:frame frame-id})))
+              acc))]
+    [:span.wcell {:data-i base} (str v)]))
+
+(defn- w-rg-grid [n offset]
+  (into [:div.wab]
+        (map (fn [i] ^{:key i} [w-rg-cell (+ offset (* i 3))]))
+        (range n)))
+
+(defn witness!
+  "Mount `n` witness boundaries of 3 reads each on `substrate`, read the
+  counters, unmount, and answer the counts beside the read count they are
+  to be compared against. Fresh counters per call, and a fresh subtree of
+  cells per call (`offset`) so no call can be served by another's cache
+  entries."
+  [substrate n offset]
+  (aset witness "bodyRuns" 0)
+  (aset witness "commits" 0)
+  (aset witness "rebuilt" 0)
+  (let [c  (container!)
+        rt (case (keyword substrate)
+             :uix     (let [rt (uix-dom/create-root c)]
+                        (react-dom/flushSync
+                          (fn [] (uix-dom/render-root
+                                   ($ w-grid {:n n :offset offset}) rt)))
+                        rt)
+             :reagent (let [rt (rdc/create-root c)]
+                        (react-dom/flushSync
+                          (fn [] (rdc/render rt [w-rg-grid n offset])))
+                        rt))
+        elements (.-length (.querySelectorAll js/document ".wcell"))
+        out #js {:reads    (* n 3)
+                 :offset   offset
+                 :elements elements
+                 :expected n
+                 :ok       (= elements n)
+                 :bodyRuns (aget witness "bodyRuns")
+                 :commits  (aget witness "commits")
+                 :rebuilt  (aget witness "rebuilt")}]
+    (react-dom/flushSync
+      (fn [] (case (keyword substrate)
+               :uix     (uix-dom/unmount-root rt)
+               :reagent (rdc/unmount rt))))
+    (.remove c)
+    out))
+
+;; ---------------------------------------------------------------------------
 ;; The positive control
 ;; ---------------------------------------------------------------------------
 
@@ -608,6 +774,7 @@
              :release        (fn [] (release!*) true)
              :control        (fn [n] (control! n))
              :controlRelease (fn [] (control-release!))
+             :witness        (fn [n offset] (witness! substrate n offset))
              :perfMem        (fn []
                                (if-some [m (.-memory js/performance)]
                                  (.-usedJSHeapSize m)

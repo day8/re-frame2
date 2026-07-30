@@ -90,6 +90,19 @@ const SUBSTRATES = (process.env.ABL_SUBSTRATES || 'uix,reagent')
   .split(',').map((s) => s.trim()).filter(Boolean);
 const CONTROL_DOUBLES = Number(process.env.ABL_CONTROL_DOUBLES || 587500);
 const CONTROL_PREDICTED = CONTROL_DOUBLES * 8;
+// The witness grid: small, because it is counting and not weighing. 200
+// boundaries x 3 reads, and the two offsets below must keep every cell index
+// inside the seeded `cells-needed` (1,200 x 7 = 8,400).
+const WITNESS_BOUNDARIES = Number(process.env.ABL_WITNESS_BOUNDARIES || 200);
+// The fidelity control passes when the shipped arm's and the transcription's
+// per-read RANGES overlap, or — DECLARED HERE, BEFORE THE RUN, and not
+// afterwards — when their medians are within 3%. The second clause exists
+// because a range is a range across ROUNDS: at one round every range has
+// zero width and can never overlap, so overlap alone would make the control
+// unpassable at low round counts rather than strict. 3% is an order of
+// magnitude below the 22% term the ablation is here to resolve, so a band
+// this wide cannot manufacture the finding.
+const FIDELITY_BAND = Number(process.env.ABL_FIDELITY_BAND || 0.03);
 // A relative difference of medians, matching B7's and the ladder's. A
 // retention reading taken across a mount/collect/release cycle moves several
 // percent between rounds, so this sits above that and far below the 2.01x
@@ -284,6 +297,22 @@ async function runSubstrate(chromium, substrate) {
   const arms = armIds.map(parseArm);
   const { cdp, gc, read } = await makeReaders(page);
 
+  // --- THE WITNESS, first, because it is the claim ----------------------
+  // Counts, not bytes. 200 boundaries x 3 reads = 600 reads, twice, over
+  // DISJOINT cells so the second call cannot be served by the first's cache
+  // entries. Predicted before the run and printed against the prediction:
+  //   uix      commits 600, rebuilt 600, bodyRuns 1200
+  //   reagent  commits   0, rebuilt   0, bodyRuns  600
+  const witness = [];
+  let unverifiedWitness = 0;
+  for (const offset of [0, 900]) {
+    const w = await page.evaluate(
+      ([n, off]) => window.ABL.witness(n, off), [WITNESS_BOUNDARIES, offset]
+    );
+    witness.push(w);
+    if (!w.ok) { unverifiedWitness++; console.error(`[abl] UNVERIFIED witness ${substrate} offset ${offset}: ${w.elements}/${w.expected}`); }
+  }
+
   const rounds = [];
   const orderSamples = [];
   let position = 0;
@@ -423,7 +452,8 @@ async function runSubstrate(chromium, substrate) {
     substrate,
     plan,
     arms: arms.map((a) => a.id),
-    verification: { mounts, unverified },
+    witness,
+    verification: { mounts, unverified, unverifiedWitness },
     perRound: rounds,
     orderVerdict: guard.verdict(orderSamples, { tolerance: TOLERANCE }),
     snapRounds,
@@ -551,6 +581,23 @@ function report(all) {
   L.push(';; retention instrument, :advanced, headless Chromium');
   L.push(';; ================================================================');
 
+  // --- the witness first: counts, not bytes ------------------------------
+  L.push('');
+  L.push(';; ---- WITNESS — reactions built per read, by COUNT -----------------');
+  L.push(';;   PREDICTED before the run, for N reads:');
+  L.push(';;     uix      commits N, rebuilt N, bodyRuns 2N');
+  L.push(';;     reagent  commits 0, rebuilt 0, bodyRuns  N');
+  for (const s of all) {
+    for (const w of s.witness) {
+      const nn = w.reads;
+      L.push(`;;   ${s.substrate.padEnd(8)} offset ${String(w.offset).padStart(4)}  N=${nn}  ` +
+             `commits ${w.commits} (${(w.commits / nn).toFixed(2)}N)  ` +
+             `rebuilt ${w.rebuilt} (${(w.rebuilt / nn).toFixed(2)}N)  ` +
+             `bodyRuns ${w.bodyRuns} (${(w.bodyRuns / nn).toFixed(2)}N)  ` +
+             `${w.ok ? '' : 'DOM UNVERIFIED'}`);
+    }
+  }
+
   for (const s of all) {
     const ctl = s.perRound.map((r) => r.control);
     L.push('');
@@ -597,12 +644,15 @@ function report(all) {
   const U = byName.uix && byName.uix.variants;
   const R = byName.reagent && byName.reagent.variants;
   if (U && U.uix && U.xcript) {
-    const ok = overlap(U.uix.bytesPerRead, U.xcript.bytesPerRead);
+    const ovl = overlap(U.uix.bytesPerRead, U.xcript.bytesPerRead);
+    const rel = Math.abs(U.xcript.bytesPerRead.p50 / U.uix.bytesPerRead.p50 - 1);
+    const ok = ovl || rel <= FIDELITY_BAND;
     L.push('');
     L.push(';; ---- FIDELITY CONTROL --------------------------------------------');
     L.push(`;;   shipped  uix     ${b(U.uix.bytesPerRead.p50)} B/read  [${b(U.uix.bytesPerRead.min)}-${b(U.uix.bytesPerRead.max)}]`);
     L.push(`;;   copy     xcript  ${b(U.xcript.bytesPerRead.p50)} B/read  [${b(U.xcript.bytesPerRead.min)}-${b(U.xcript.bytesPerRead.max)}]`);
-    L.push(`;;   ranges ${ok ? 'OVERLAP — the transcription reproduces the shipped hook' : 'DO NOT OVERLAP — the transcription is NOT the shipped hook'}`);
+    L.push(`;;   ranges ${ovl ? 'OVERLAP' : 'do not overlap'};  medians ${pct(rel)} apart ` +
+           `(band ${pct(FIDELITY_BAND)})`);
     L.push(`;;   => decomposition is ${ok ? 'ATTRIBUTABLE' : 'NOT ATTRIBUTABLE; every delta below is void'}`);
   }
   if (U && U.uix && U.noretain && U.hooks) {
@@ -676,7 +726,8 @@ function report(all) {
   console.error(`[abl] wrote ${path.join(OUT, 'spine-ablation.json')}`);
 
   const refused = all.filter((s) => s.orderVerdict.refuse);
-  const unverified = all.reduce((t, s) => t + s.verification.unverified, 0);
+  const unverified = all.reduce(
+    (t, s) => t + s.verification.unverified + s.verification.unverifiedWitness, 0);
   if (unverified > 0) {
     console.error(`[abl] ${unverified} UNVERIFIED mounts — the DOM read-back did not match`);
     process.exit(3);
