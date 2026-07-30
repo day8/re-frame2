@@ -305,7 +305,27 @@
     ;; pinned by `re-frame.always-on-validation-production-test`. This leg
     ;; drives the category through `dispatch-error-record!` (the
     ;; `record-categories` branch below) to prove the listener fan-out.
-    :rf.error/schema-validation-failure})
+    :rf.error/schema-validation-failure
+    ;; rf2-h4f0n: the two router in-band FINAL-effects-boundary rejections
+    ;; graduated `always-on` in the Spec 009 catalogue. The code always fanned
+    ;; both through `error-emit/emit-error-both!` — whose axis 1 is
+    ;; `dispatch-on-error!`, NOT debug-gated — so both reached off-box
+    ;; shippers from an `:advanced` + `goog.DEBUG=false` build while the
+    ;; catalogue's Channel column read `diagnostic`; the spec caught up with
+    ;; the deliberate always-on fan-out (each aborts an event with NO commit,
+    ;; invisible at the dispatch call site — exactly the class an operator
+    ;; must see in production). The emit SITES live in `re-frame.router`
+    ;; (`emit-classification-effect-shape!` / `emit-legacy-runtime-root!`);
+    ;; both are event-centric `emit-error-both!` categories, so this leg
+    ;; drives them through `dispatch-on-error!` (the `:else` axis below) to
+    ;; prove the listener fan-out — the `:rf.error/bad-frame-provider-arg`
+    ;; precedent, no bespoke exercise arm. The always-on record ships exactly
+    ;; as before (`:offending-key` stays the classification rejection's lone
+    ;; always-on discriminator; the rejected `:value` / interpolating
+    ;; `:reason` ride the DCE'd dev trace only), pinned by
+    ;; `classification_effect_shape_record_cljs_test.cljc`.
+    :rf.error/classification-effect-shape
+    :rf.error/legacy-runtime-root})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
