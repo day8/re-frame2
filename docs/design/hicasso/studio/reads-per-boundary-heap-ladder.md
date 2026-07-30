@@ -8,9 +8,10 @@ regression included the R=0 anchor the page promised it excluded. Every figure
 below is a fresh reading through the corrected fit; the superseded publication
 is recorded in [§7](#7-superseded) rather than deleted.
 
-Measured at commit **`c0f9121daf914f0009fd5d1e47da9b465d3bd1f6`**. A SHA does
-not survive a rebase — the previous publication was invalidated by exactly
-that — so the instrument is also identified by content hashes, which do:
+**The instrument is identified by content hash, not by commit SHA.** A SHA does
+not survive a rebase — the previous publication was invalidated by exactly that,
+and this one was rebased onto `main` between its run and its merge, moving every
+SHA again while the three blobs below did not move at all:
 
 | file | blob |
 |---|---|
@@ -18,10 +19,19 @@ that — so the instrument is also identified by content hashes, which do:
 | `reads_ladder.cljs` | `535ee5fd67fb0579854720ff26776c51c7007fd7` |
 | `reads_ladder_app.cljs` | `5b1770a49d4cac50248946b9e80bed726ca4f53d` |
 
-All three live under
-`implementation/freehand/test/re_frame/freehand/bench/`, and
-`git rev-parse HEAD:<path>` answers these at any commit whose tree carries the
-instrument.
+All three live under `implementation/freehand/test/re_frame/freehand/bench/`.
+Authored as `09ec4e6b3c` on `worker/bench-audit-cluster`. **If that SHA does not
+resolve, a rebase moved it and the blobs above are what to trust** — this finds
+a commit carrying them, and confirms it:
+
+```bash
+P=implementation/freehand/test/re_frame/freehand/bench/reads_ladder_run.cjs
+git log --oneline --all -- $P
+git rev-parse <candidate>:$P    # must print eabd226bcb6fe3877d056145cae496eccd5ab62c
+```
+
+The reproduction below runs unchanged at any commit whose tree answers those
+three hashes.
 
 Reagent **2.0.1**, UIx **1.4.4**, React **19.2.0**, node **24.13.0**, headless
 **Chromium 147.0.7727.15** via Playwright. Windows 11, single developer

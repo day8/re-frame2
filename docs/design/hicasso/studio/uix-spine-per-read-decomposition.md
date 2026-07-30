@@ -10,17 +10,22 @@
 > authored-to-landed mapping for PR #7264 is `bb8fc38173=811f6cec42`,
 > `0cf86fb580=24e8822d7f`, `fa30f51128=27fa21ac4e`, `1f381947ed=86c50a5d83`.
 >
-> **Every figure below was re-measured on 2026-07-31 at
-> `e5ddd0f1c5581f92c3b11f4a18d57f4cbf770965` after the audit repairs, and
-> nothing moved** — see [§ What the audit changed](#what-the-audit-changed).
+> **Every figure below was re-measured on 2026-07-31 after the audit repairs,
+> and nothing moved** — see [§ What the audit changed](#what-the-audit-changed).
 > The repairs are refusals, not calculations, so there was nothing in them that
 > could move a number, and the confirmation run says so rather than assuming it.
 >
 > A SHA does not survive a rebase, which is how the citation above went wrong in
-> the first place. Content hashes do:
+> the first place — and this page's own repair branch was then rebased onto
+> `main` between its confirmation run and its merge, moving every SHA again
+> while the blobs did not move at all. **Content hashes are the identifier:**
 > `spine_ablation.cljs` `c553b2bd25c57d753d41df1915e1ff565b94681f`,
 > `spine_ablation_app.cljs` `a1ae49372b1b6d7d443408446ded9dd19f44ecfb`,
-> `spine_ablation_run.cjs` `6567a4a47783b8a77fdfea340aff8987743f941f`.
+> `spine_ablation_run.cjs` `6567a4a47783b8a77fdfea340aff8987743f941f`. The
+> confirmation run was authored as `fa09c5ad7a` on
+> `worker/bench-audit-cluster`; if that does not resolve,
+> `git log --oneline --all -- <path>` finds a commit carrying the blobs and
+> `git rev-parse <candidate>:<path>` confirms it.
 
 Reproduce:
 
@@ -357,9 +362,9 @@ refusal survives it. Exit 4 is the new code.
 ### The confirmation run
 
 Every repair is a refusal, so none of them can move a number — but that is an
-argument, and this page prefers a measurement. Re-run at
-`e5ddd0f1c5581f92c3b11f4a18d57f4cbf770965`, four rounds and two snapshot rounds
-per page, **exit 0 under all six new gates**:
+argument, and this page prefers a measurement. Re-run on the repaired
+instrument (blobs in the header; authored as `fa09c5ad7a`), four rounds and two
+snapshot rounds per page, **exit 0 under all six new gates**:
 
 | | published | confirmation run |
 |---|---:|---:|

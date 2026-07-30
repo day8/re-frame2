@@ -1,26 +1,36 @@
 # P0 — the ratom-spine narrow write (write + flush, summed)
 
-**Bead** `rf2-2rtt6.3` · **Producing commit**
-`a1934a64035ad13a231de82eb94ea6519e432c42` — the commit carrying the
-instrument that took these readings.
+**Bead** `rf2-2rtt6.3`
 
 ```bash
 cd implementation && npm ci
 node adapters/reagent/test/re_frame/bench/hicasso_narrow_run.cjs
 ```
 
-A commit SHA does not survive a rebase and this page has already been
-invalidated once by one. The instrument is therefore also identified by the
-content hashes of its three files, which do:
+**The instrument that took these readings is identified by content hash, not
+by commit SHA.** That is not fastidiousness: this page has now been invalidated
+by a rebase *twice*, once before the audit and once during the repair of it —
+the branch was rebased onto `main` between the run and the merge and every
+commit SHA moved, while the three blobs below did not move at all.
 
-| file | blob |
+| file (`implementation/adapters/reagent/test/re_frame/bench/`) | blob |
 |---|---|
-| `implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs` | `713fb3877dea102213da851bc8c21a8e0a9c835d` |
-| `implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow_app.cljs` | `a201ff16debe57b2aa297fe6ae7d27a19c3831d2` |
-| `implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow_run.cjs` | `cbffc0205675b524060f8c956efe2205f9e3570f` |
+| `hicasso_narrow.cljs` | `713fb3877dea102213da851bc8c21a8e0a9c835d` |
+| `hicasso_narrow_app.cljs` | `a201ff16debe57b2aa297fe6ae7d27a19c3831d2` |
+| `hicasso_narrow_run.cjs` | `cbffc0205675b524060f8c956efe2205f9e3570f` |
 
-`git rev-parse HEAD:<path>` answers these at any commit whose tree carries
-the instrument, rebased or not.
+Authored as `7c51e77b4f` on `worker/bench-audit-cluster`. **If that SHA does
+not resolve, a rebase moved it and the blobs above are what to trust** — this
+finds a commit carrying them, and confirms it:
+
+```bash
+P=implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs
+git log --oneline --all -- $P
+git rev-parse <candidate>:$P    # must print 713fb3877dea102213da851bc8c21a8e0a9c835d
+```
+
+The reproduction above runs unchanged at any commit whose tree answers those
+three hashes.
 
 **Runtime, and it is the same for every figure on this page:** Chromium
 147.0.7727.15, `:advanced`, `goog.DEBUG=false`, Windows 11 (10.0.26200), 24
