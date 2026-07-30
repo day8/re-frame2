@@ -465,7 +465,37 @@
 
   Answers `{:predicted :measured :ok? :why}` — published on every run,
   passing or not, because a control quoted only when it passes is not a
-  control."
+  control.
+
+  ## KNOWN DEFECT: this rule is WEAKER than HD-008's, and the two
+  ## disagree on a row that is already published (rf2-egdaq)
+
+  `:ok?` asks whether the measured range OVERLAPS the ±`slack` band.
+  `hd8-rows/positive-control!` asks whether EVERY ROUND sits INSIDE it,
+  and argues the stricter reading explicitly: a control whose worst round
+  is wrong has caught something, and letting a good round vouch for a bad
+  one is how an instrument stops being one. THE STRICTER RULE IS THE
+  RIGHT ONE. This one is the lane's known defect, and a caller must not
+  read `:ok?` as though it were the strict answer.
+
+  It is not repaired here, and the reason is arithmetic rather than
+  caution. Re-adjudicating the ELEVEN controls this function has already
+  published under the overlap rule flips exactly one:
+
+      docs/design/hicasso/studio/p0-converged-witness-set.md
+      M2 mount, UIx segment — predicted 1.9412, slack 0.25, so the band
+      is [1.4559 – 2.4265]. The published range is [1.333 – 2.000]: its
+      worst round sits 8.4% BELOW the band's floor. It carries a ✅, and
+      it holds that ✅ only because a good round vouched for a bad one —
+      which is precisely the failure the stricter rule exists to catch.
+
+  The other ten pass under either reading. So tightening `:ok?` turns a
+  published pass into a published failure, and that is a finding about a
+  published number rather than a refactor: it needs an operator ruling on
+  rf2-2rtt6.1 (re-adjudicate the row, or apply the strict rule only from
+  the next run), and if the row is re-adjudicated the converged arm needs
+  a re-run to replace it. Whoever takes that must not simply flip the
+  `and` and leave the studio page reading as current."
   [predicted {:keys [min max mean] :as measured} slack]
   (let [lo (* predicted (- 1.0 slack))
         hi (* predicted (+ 1.0 slack))
