@@ -29,6 +29,11 @@ Then use it anywhere, and it is indistinguishable from a native view:
 
 ## Why a declaration instead of `[:>]`
 
+HD-011's Ruling settles the hierarchy in a sentence: **`defhost` is the door, and the
+only form taught**; `[:>]` "survives only as the explicitly secondary raw escape …
+for the cases a static declaration cannot express." Both forms are legal. Only one is
+taught. This page is written in that order for that reason.
+
 `[:> DatePicker {...}]` puts a raw JavaScript value inside your data tree. Three
 things break at that node, all of them quietly:
 
@@ -97,8 +102,19 @@ invocation are not in the record.
 
 A mapping SDK, a chart library that wants a DOM node, anything that hands you a
 handle and expects you to feed it — that is **not** an interop-door problem. It is
-ordinary host-edge React (HD-003): a callback ref, an effect, and a cleanup, written
-in a `.cljs` namespace at the edge of your app.
+ordinary host-edge React (HD-003): a callback ref, written in a `.cljs` namespace at
+the edge of your app.
+
+There is no Hicasso concept for this, deliberately. "Behaviors" — a predecessor
+product concept for imperative host ownership — is **not v0 vocabulary**. A richer
+host-ownership pattern is a product-phase question; the v0 answer is React, used
+honestly, at the edge.
+
+Used honestly means **the attach and the teardown are written as one thing.** An SDK
+that mounts and never tears down is the most common bug on this seam, and it is not
+subtle — you get two maps, two resize observers, and a leak per remount. React 19's
+callback ref makes the pairing structural: **whatever the ref function returns is its
+cleanup**, so you cannot write the attach without deciding what undoes it.
 
 ```clojure
 ;; Sketch only — host-edge React inside a defview body, in a .cljs namespace.
@@ -109,19 +125,88 @@ in a `.cljs` namespace at the edge of your app.
 
 (defview map-panel [_]
   (let [attach (react/useCallback
-                 (fn [node] (when node (sdk/mount node)))
-                 #js [])]
+                 (fn [node]
+                   ;; One attach, one handle, one teardown. The handle lives in
+                   ;; this closure and nowhere else.
+                   (let [handle (sdk/mount node)
+                         done?  (volatile! false)]
+                     (fn cleanup []
+                       (when-not @done?
+                         (vreset! done? true)
+                         (sdk/destroy handle)))))
+                 #js [])]                    ;; stable identity — see below
     [:div.map {:ref attach}]))
 ```
 
-There is no Hicasso concept for this, deliberately. "Behaviors" — a predecessor
-product concept for imperative host ownership — is **not v0 vocabulary**. A richer
-host-ownership pattern is a product-phase question; the v0 answer is React, used
-honestly, at the edge.
+Four properties, and each one is load-bearing.
 
-Note the two hook-budget consequences: this body now has hooks in it, so it is
-outside the headless testing scope ([Testing](08-testing.md)) and you have taken on
-React's hook rules yourself. Both are fine. Both are on you.
+**The handle is per-attach, not per-namespace.** It is created by the attach and
+captured by the cleanup that attach returned. Two attaches produce two handles and
+two cleanups, correctly paired. The moment you hoist that handle into a `defonce`
+atom or a module-level var, a second attach overwrites the first and the first
+instance leaks — which is the actual mechanism behind every "it mounted twice" report
+on this seam.
+
+**The teardown is idempotent.** The `done?` latch makes a second call a no-op. React
+calls each cleanup exactly once, so strictly this is belt and braces — but SDK
+`destroy` methods that throw on a dead handle are common enough that the three lines
+are worth it, and the alternative is finding out in production. This is the same
+idempotence the root teardown has ([Getting started](01-getting-started.md)); the
+discipline does not change because the object is foreign.
+
+**Returning a cleanup and handling a `nil` node are exclusive.** When a ref callback
+returns a function, React calls that function on detach *instead of* invoking the
+callback again with `nil`. Write both and you will have written a `nil` branch that
+never runs — a dead path that reads like a teardown and is not one. Pick the return.
+
+**`useCallback` with an empty dependency array is what makes any of this
+deterministic.** A ref function with a fresh identity every render is detached and
+re-attached on every render, so the SDK is destroyed and rebuilt on every keystroke
+elsewhere in the tree. The stable identity is the difference between one mount and
+one mount per render.
+
+### Under StrictMode
+
+StrictMode double-invokes the mount in development: attach, cleanup, attach. The
+shape above survives it, and the reason is the first property, not the second. The
+first attach's handle is destroyed by the cleanup that attach returned, and the
+second attach builds a fresh one. You end with exactly one live handle, which is what
+you would have had in production.
+
+What does *not* survive is a handle stored outside the closure, or a cleanup that
+tears down less than the attach built — a listener left on `window`, an observer left
+connected. Then the second attach genuinely doubles, and the symptom is two of
+everything in dev and one leak per remount in production. **The rule is that the
+cleanup returns the world to the state the attach found it in**; there is no runtime
+that can check that for you.
+
+### If the runtime does not target React 19
+
+The cleanup-returning ref is a React 19 contract. The record does not pin a React
+version (see **Not settled yet**), so the older shape is worth knowing: the callback
+is invoked with the node on attach and with `nil` on detach, and the handle needs a
+home that outlives one invocation.
+
+```clojure
+(let [handle (react/useRef nil)
+      attach (react/useCallback
+               (fn [node]
+                 (if node
+                   (set! (.-current handle) (sdk/mount node))
+                   (when-let [h (.-current handle)]
+                     (set! (.-current handle) nil)   ;; clear first — idempotent
+                     (sdk/destroy h))))
+               #js [])]
+  [:div.map {:ref attach}])
+```
+
+Same discipline, one more moving part. That the handle now needs a home outside the
+closure is exactly what the React 19 contract removes, which is why it is the shape
+taught above.
+
+Note the two consequences of putting hooks in a body at all: it is outside the
+headless testing scope ([Testing](08-testing.md)), and you have taken on React's hook
+rules yourself. Both are fine. Both are on you.
 
 ## Troubleshooting
 
@@ -133,7 +218,10 @@ No Hicasso error ids exist yet; this table names mechanisms.
 | A namespace stops loading on the JVM | A JS require reached a `.cljc` file | Quarantine the require in a `.cljs` host namespace |
 | Structural test can't match a node | It's a `[:>]` node — reduced structural identity, by design | Declare it with `defhost`, or assert around it |
 | Provider from a library needs to wrap the tree | Hosted like anything else | `defhost` the provider; it is a component |
-| The SDK mounts twice in dev | StrictMode double-invoke of effects | Make attach and cleanup idempotent — the same discipline React requires of any JS app |
+| The SDK mounts twice in dev and you end with two live handles | StrictMode double-invoke, plus a handle stored outside the attach's closure — so the second attach overwrote the first instead of replacing it | One attach, one handle, one cleanup, all in one closure; return the cleanup from the ref |
+| The SDK is destroyed and rebuilt on every unrelated render | The ref function has a fresh identity each render, so React detaches and re-attaches | `useCallback` with `#js []` — a stable ref identity |
+| A `nil`-node branch in a ref never runs | The callback returns a cleanup, so React calls that instead of re-invoking with `nil` | Pick one contract; with React 19, pick the return |
+| A listener or observer survives unmount | The cleanup tears down less than the attach built | The cleanup returns the world to the state the attach found it in — nothing checks this for you |
 
 ## When not to reach for the door
 
@@ -150,6 +238,7 @@ two or three genuinely hard widgets.
 |---|---|
 | `defhost`'s option keys | **Not addressed.** "Policy overrides live on the declaration" is as far as the record goes |
 | The codemod's name and invocation | **Not addressed** |
+| Which React version the runtime targets | **Not addressed by the design record.** The cleanup-returning callback ref taught above is a React 19 contract; this repo's implementation currently pins React 19.2, but that is a fact about today's tree, not a Hicasso ruling. If v0 lands on 18, the fallback shape above is the one to teach |
 | Whether `::h/value` works across a host crossing | **Not addressed.** The example above assumes it does; a foreign `onChange` may hand you something other than a DOM event |
 | The SSR placeholder's shape | Declared policy, inert in v0 |
 | Whether a hosted component can be a `defview`'s child via `(:children props)` | The ABI says an existing React element is a legal child anywhere, which implies yes; not stated for the host case specifically |
