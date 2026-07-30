@@ -236,6 +236,148 @@ tightening: **a strict rule would retroactively fail a control this page already
 published as passing**, on a quantisation artefact rather than on a loss of
 signal. Nothing here installs it.
 
+## The control that could not fail, and the teardown that said nothing
+
+Bead **rf2-2rtt6.2**, reopened by the PR #7259 audit. Two load-bearing controls
+were missing rather than wrong, and **no figure on this page moves** — the
+corrected instrument was run and every row reproduces. What changed is what the
+instrument is now able to refuse.
+
+### The `:ctl-2x` arm was the one arm whose page was never checked
+
+The positive control's whole claim is *this is exactly twice the page*. Nothing
+tested it. Three independent gates each excused it, and the third is the one
+that makes the first two matter:
+
+| gate | what it did | why the control slipped through |
+|---|---|---|
+| the per-mount element count | `expected (if (:parity-exempt? arm) nil elements)` | `nil` for every parity-exempt arm, so the control's count was compared with nothing |
+| the per-mount content probe | `verify-m1` read indices `0` and `299`; `verify-m2` read fields `0` and `11` | both exist in a **600-row** page and in a **300-row** one, so the probe could not tell them apart |
+| the canonical-DOM parity gate | compared counts over `lane/parity`'s `counts` map | that map **excludes parity-exempt arms by construction** |
+
+So a `:ctl-2x` arm that rendered only its base prefix passed every gate, and all
+**200 measured control mounts** (100 M1 + 100 M2) contributed to `0 unverified
+of 1,220` without the doubling being tested anywhere. The `2×` was **asserted,
+not verified** — and the row's whole warrant is *"a control that renders only
+the base prefix must fail before any figure is reportable"*.
+
+**The repair is arithmetic, not a new gate.** `:parity-exempt?` is now *derived*
+from a new `:scale`, so an arm's size and its exemption are one fact rather than
+two that can drift apart. Every arm — the control included — is held to the
+witness's own arithmetic applied to *its own* scale:
+
+| arm | element count checked against | far probe |
+|---|---|---|
+| M1 `:floor` / `:reagent-subs` / `:reagent-ratom` | **901** | index 299 |
+| **M1 `:ctl-2x`** | **1,801** | **index 599** |
+| M2 `:floor` / `:reagent-subs` / `:reagent-ratom` | **51** | field 11 |
+| **M2 `:ctl-2x`** | **99** | **field 23** |
+| **bulk `:ctl-2x`** | **1,801**, at mount, from its own `:cells` | index 599 (already, via `lane/bulk-probes`) |
+
+Exempt from the canonical-DOM **equality** is not exempt from **arithmetic**:
+the control is exempt because its page differs, and the size it differs *by* is
+the claim it exists to make. The per-arm expectations are published on every row
+as `:expected-elements`.
+
+### And `unverified > 0` now fails the run
+
+The third finding, and the one that made the other two possible. **The tally was
+published and never adjudicated.** `N unverified of M` reached the record, the
+record reached the console, and nothing between the tally and the exit code ever
+read `:unverified` — a row could report `400 unverified of 400` and the driver
+would still exit 0. `lane/assert-verified!` closes that, after the row's record
+is published so the evidence is on screen before the run dies on it.
+
+### Mutation-proved: a base-prefix control now fails, three ways
+
+Each mutation was run against this instrument, at this commit, with nothing else
+changed.
+
+| mutation | what the run did | exit |
+|---|---|---|
+| M1 `:ctl-2x` renders `(zeros n)` instead of `(zeros (* 2 n))` | refused at the **parity gate, before any clock**: `{:witness :M1, :problem :element-count, :arms {:ctl-2x {:expected 1801, :got 901}}}` | **1** |
+| the same control shrinks **only after parity** (so parity passes: `{:problems [] :ok? true}`) | refused at the **measured path**: `mount row M1: 100 UNVERIFIED of 400` — exactly the 100 control mounts | **1** |
+| the **bulk** `:ctl-2x` renders only its base 300 cells while still declaring 600 | refused at mount, before the row's first write: `the bulk arm :ctl-2x built 901 elements where its own 600 cells make 1801` | **1** |
+
+The second is the one that matters, because parity alone would have been a gate
+that fires before the measurement rather than on it. The control is now checked
+**per mount, on every sample**, and the count it produces is fatal.
+
+### Teardown: recorded, adjudicated, and proved
+
+`release-bulk-arms!` read `(try ((:unmount arm) handle) (catch :default _ nil))`
+and there was no residue assertion anywhere. The bulk arms stand for a whole
+row, so an unmount that threw would leave three hundred subscribing boundaries
+watching the app-db while every later sample was measured on top of them.
+
+Two halves, because there are two ways a release fails:
+
+- **A release that THREW** is recorded by `lane/teardown-failure!` and
+  adjudicated by `lane/assert-teardown-clean!` between every pair of rows.
+  Fatal.
+- **A release that returned normally and did not release** is caught by
+  `lane/residue` — three integers, all read outside every timed window:
+  attached containers under `document.body`, sub-cache entries, and the sum of
+  their ref-counts. re-frame2 evicts a cache entry the moment its ref-count
+  reaches zero, with no grace period, so a fully released row leaves an **empty
+  cache** and the comparison is equality rather than a threshold.
+
+### What that assertion found on its first run — and it is not a leak
+
+It went red immediately. After the parity phase released every arm of both
+witnesses, the frame's sub-cache still held **300 entries, ref-count 312** — M1's
+300 `[:p0/cell i]` subscriptions plus M2's 12, all still live after
+`root.unmount()` inside a `flushSync`.
+
+Reading the same census at three points settled what it was:
+
+| when | `:sub-entries` | `:sub-ref-count` |
+|---|---|---|
+| immediately after `lane/release!` | **300** | **312** |
+| after `reagent.core/flush` — Reagent's own *synchronous* render drain | **300** | **312** |
+| after ONE `setTimeout` | **0** | **0** |
+
+**Nothing is leaking.** Reagent's disposals sit on `reagent.impl.batching`'s
+next-tick queue, which is a *macrotask*; a synchronous drain cannot reach them
+and one turn of the event loop can.
+
+**It is not cosmetic, and this is the part worth keeping.** A mount row is
+wholly synchronous — `lane/rounds!` is `dotimes` inside `doseq` inside `mapv` —
+so **an entire row of a hundred mount-and-release cycles ran in one macrotask
+and not one disposal happened inside it.** Without a settle point, the M2 row
+began on a page whose 300 cached subscriptions still carried every consumer
+reaction the M1 row had mounted, and the bulk row began carrying both. The rows
+are now **chained with a settle between them**, which is as much the repair as
+the assertion is. `residue-baseline` and `residue-after-bulk` are published on
+every run: both read `{:body-children 2, :sub-entries 0, :sub-ref-count 0}`.
+
+### The corrected instrument, re-run — and nothing moves
+
+`cd implementation && npm run bench:hicasso` — **exit 0**, guard `refuse? false /
+contaminated? false / unchecked? false`, tolerance 0.10, `0 unverified of 1,220`.
+
+| row | figure | published | corrected instrument | overlap | verdict |
+|---|---|---|---|---|---|
+| **M1 mount** | `reagent-subs ÷ floor` | 3.899 [3.447 – 4.300] | 4.029 [3.429 – 4.733] | 3.447 – 4.300 | **reproduces** |
+| | **reactive leg** | **1.218 [1.122 – 1.310]** | **1.271 [1.200 – 1.326]** | 1.200 – 1.310 | **reproduces**, disjoint from 1.0 both |
+| **M2 mount** *(diagnostic)* | `reagent-subs ÷ floor` | 1.874 [1.750 – 2.050] | 1.867 [1.333 – 3.000] | wholly inside | reproduces |
+| | **reactive leg** | 1.056 [0.960 – 1.242] | 1.000 [1.000 – 1.000] | — | **same verdict — straddles 1.0**, and see below |
+| **bulk broad** | `reagent-subs ÷ floor` | 7.064 [6.200 – 7.700] | 7.230 [5.000 – 10.250] | wholly inside | **reproduces** |
+| | **reactive leg** | **2.008 [1.938 – 2.100]** | **2.170 [2.000 – 2.286]** | 2.000 – 2.100 | **reproduces**, disjoint from 1.0 both |
+
+**M2's reactive leg read exactly 1.0000 in all five rounds**, because its two
+Reagent arms returned the *same p50* in every round — which on a witness whose
+absolute p50 is two to four of Chrome's 100 µs quanta is the quantum, not a tie.
+It is the same signature the converged page records on its own M2 row, it agrees
+with the published verdict (*indistinguishable*), and it is exactly why **this
+row is graded diagnostic and must not be quoted against the bar.**
+
+Controls under both readings of rf2-egdaq's open question: M1 `1.963×
+[1.857 – 2.357]` and M2 `1.733× [1.500 – 2.000]` pass under **either** rule;
+bulk `2.000× [1.500 – 2.500]` passes the overlap rule and misses the strict one
+by **0.0014** — the same lattice artefact recorded above, on a floor of two to
+three quanta. Nothing here installs the strict rule.
+
 ## What this settles, and what it does not
 
 **Settles.** The bar's denominator exists and is a browser number. Reading

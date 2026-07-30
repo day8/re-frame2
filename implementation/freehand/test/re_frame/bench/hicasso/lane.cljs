@@ -76,7 +76,8 @@
      of them repaired the ARM. The tolerance is not the arm's to move."
   (:require ["react-dom" :as react-dom]
             [clojure.string :as str]
-            [re-frame.bench.order-guard :as guard]))
+            [re-frame.bench.order-guard :as guard]
+            [re-frame.frame :as frame]))
 
 ;; ---------------------------------------------------------------------------
 ;; Clock and summary — eleven lines, so the lane owes the donor tree nothing
@@ -264,6 +265,115 @@
   (when container (.remove container))
   nil)
 
+(defn assert-teardown-clean!
+  "Throw if any teardown has failed since the last check.
+
+  Checked BETWEEN rows, segments and rounds, which is where the damage is
+  done: a React root or a frame that did not tear down is still holding
+  its watches and its caches when the next row is measured, and that row
+  then reports a precise number for a page that is not the page under
+  test. The throw lands in the caller's fatal path, which records
+  `HICASSO_ERROR`, and the driver exits 1.
+
+  This is the ADJUDICATION half of [[teardown-failure!]]. Recording a
+  failure and never asking about it is the same silence
+  `(catch :default _ nil)` produced, one indirection further out."
+  [after]
+  (let [fs (drain-teardown-failures!)]
+    (when (seq fs)
+      (throw (ex-info (str "teardown FAILED after " after
+                           " — an arm or a frame did not tear down, so its caches and "
+                           "watches are still standing and every row after this one "
+                           "would be measured on a page carrying them: " (pr-str fs))
+                      {:after after :failures fs})))
+    nil))
+
+;; ---------------------------------------------------------------------------
+;; Residue — the proof that the teardown that did not throw also worked
+;; ---------------------------------------------------------------------------
+
+(defn residue
+  "The live-reference census a fully released row must return to.
+
+  Three integers, all read OUTSIDE every timed window:
+
+    `:body-children`  attached elements under `document.body`. Every
+                      container this lane mints is attached there and
+                      detached by [[release!]], so a container whose arm
+                      survived its unmount shows up here as a page the
+                      NEXT row is measured on top of.
+    `:sub-entries`    slots in the frame's sub-cache.
+    `:sub-ref-count`  the sum of those slots' ref-counts.
+
+  Both subscription numbers return to their starting value by
+  construction rather than by hope: `re-frame.subs.cache/unsubscribe!`
+  EVICTS an entry the moment its ref-count reaches zero, with no grace
+  period, so a row whose every boundary unmounted leaves an EMPTY cache.
+  A row that left three hundred `[:p0/cell i]` reactions watching the
+  app-db is therefore visible as a non-zero count and not merely as a
+  slower page.
+
+  A teardown that THREW is caught by [[teardown-failure!]]. This is the
+  other half: a teardown that returned normally and did not actually
+  release. Neither is a leak detector and neither is a lifecycle
+  framework — this answers one question, `did the release this row just
+  performed actually happen`, in three integers."
+  [frame-id]
+  (let [cache (some-> (frame/frame frame-id) :sub-cache deref)]
+    {:body-children (.-childElementCount js/document.body)
+     :sub-entries   (count cache)
+     :sub-ref-count (reduce + 0 (map #(or (:ref-count %) 0) (vals cache)))}))
+
+(defn settle!
+  "Yield ONE MACROTASK, so a substrate that schedules its disposals there
+  has run them. Answers a promise. Never inside a timed window.
+
+  ## Reagent's unmount does not release its subscriptions synchronously
+
+  Measured, not assumed. Reading [[residue]] at three points after the
+  parity phase releases every arm of both witnesses:
+
+      immediately after `release!`   {:sub-entries 300 :sub-ref-count 312}
+      after `reagent.core/flush`     {:sub-entries 300 :sub-ref-count 312}
+      after ONE `setTimeout`         {:sub-entries   0 :sub-ref-count   0}
+
+  `root.unmount()` inside a `flushSync` returns with the frame's sub-cache
+  still holding every entry the page was reading, and Reagent's own
+  SYNCHRONOUS render drain does not move them either — the disposals are
+  on `reagent.impl.batching`'s next-tick queue, which is a macrotask. One
+  turn later they are gone. Nothing is leaking.
+
+  It is not cosmetic, and this is why a settle point belongs BETWEEN ROWS
+  rather than only in front of the assertion. A mount row is fully
+  synchronous — `rounds!` is `dotimes` inside `doseq` inside `mapv` — so
+  an entire row of a hundred mount-and-release cycles runs in ONE
+  macrotask and NOT ONE disposal happens inside it. Without a settle the
+  next row begins on a page whose cached subscriptions still carry every
+  consumer reaction the previous row mounted, and the row after that
+  carries both. Yielding here is what makes each row's first sample and
+  its last sample the same experiment."
+  []
+  (js/Promise. (fn [resolve] (js/setTimeout (fn [] (resolve nil)) 0))))
+
+(defn assert-residue!
+  "Throw unless the residue is back at `baseline`. Answers the reading.
+
+  Called between rows and never inside a window, and always AFTER
+  [[settle!]] — the claim is `the release happened`, not `the release
+  happened synchronously`, and Reagent's does not. The comparison is
+  EQUALITY, not a threshold: the quantities are counts of live references
+  that a correct teardown drives to exactly where they started, and a
+  tolerance on them would only make room for the fault."
+  [baseline frame-id after]
+  (let [now (residue frame-id)]
+    (when (not= baseline now)
+      (throw (ex-info (str "RESIDUE after " after " — the teardown returned without "
+                           "throwing but did not release: expected " (pr-str baseline)
+                           ", found " (pr-str now) ". Every later sample would be "
+                           "measured on a page still carrying it")
+                      {:after after :baseline baseline :residue now})))
+    now))
+
 ;; ---------------------------------------------------------------------------
 ;; Parity — run before any clock is read
 ;; ---------------------------------------------------------------------------
@@ -418,6 +528,29 @@
   (atom {:of 0 :bad 0}))
 
 (defn tally-value [t] (let [{:keys [of bad]} @t] {:writes of :unverified bad}))
+
+(defn assert-verified!
+  "Throw unless the tally reads `0 unverified of M`. Answers the tally.
+
+  The count was PUBLISHED and never ADJUDICATED, on both P0 entries: a row
+  could report `400 unverified of 400` and the driver would still exit 0,
+  because nothing between the tally and the exit code ever looked at
+  `:unverified`. Every read-back this lane performs — the written cell, the
+  mount's element count, the far end of the page — banks here, so this one
+  line is what makes ALL of them load-bearing rather than decorative.
+
+  Called AFTER the row's record is published, so the evidence a reader
+  needs is on the console before the run dies on it, and never inside a
+  timed window."
+  [t where]
+  (let [{:keys [writes unverified] :as v} (tally-value t)]
+    (when (pos? unverified)
+      (throw (ex-info (str where ": " unverified " UNVERIFIED of " writes
+                           " — a measured operation did not produce the page it claims. "
+                           "Every figure in this row is a clock reading over a page that "
+                           "was not checked, so none of them is reportable")
+                      {:where where :verification v})))
+    v))
 
 (defn verified-writes!
   "Run `ops` — a seq of `[i val probes]` — as ONE measured window: each
