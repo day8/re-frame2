@@ -282,6 +282,21 @@ None of the headline terms is exposed to it. The binding figure is `N-BINDONLY`,
 which allocates no closure at all; the budget and symmetric-pair reconstructions
 each difference two arms carrying exactly one, so the mode cancels.
 
+**Added after this study — the floor-aware quote (`rf2-hydpy`).** The rf2-2ix22
+levers later optimised six of these arms to the instrument's own floor, and the
+guard then refused every one of them by phase — an identical ratio across arms
+with nothing else in common, which is a per-**window** floor moving mid-run, not
+any arm's subject. The harness now answers that refusal instead of only
+inheriting it: each refused arm is re-measured across a reps ladder derived from
+its own calibrated reps (the `rf2-tmzie` sweep — a real per-call cost is
+rep-independent in B/call, a per-window floor falls as the window grows), and a
+refusal every arm of which collapses by at least half the ladder span is
+downgraded to **certified at the floor**: each arm quoted as its worst round's
+upper bound, never as a p50, and the run exits 0. Anything the sweep cannot
+attribute — flat, bimodal, unverified, or an `:unchecked` plan defect — keeps
+exit 2. The guard itself, its 25% tolerance and its refusals are untouched; the
+attribution can only ever weaken a claim (measurement → bound), never lift one.
+
 ### Runs
 
 | run | n | order | guard | read-back |
