@@ -47,6 +47,8 @@ const http = require('node:http');
 const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
+// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+const { resetLaneBuildCache } = require('./lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 
@@ -92,6 +94,11 @@ const CONFIG_MERGE =
   `{:output-dir "${OUT_DIR}" :asset-path "." :modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
+  // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
+  // carries the measurement and the rejected alternatives.
+  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+    console.error(`[ret] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+  }
   console.error(`[ret] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   // `node cli/runner.js` rather than the `.cmd` shim: spawning a shim on
   // Windows needs `shell: true`, and a shell concatenates argv, which is
