@@ -60,17 +60,23 @@
   are deliberately NOT adopted, and the reasons are here so the question is
   not reopened by inspection:
 
-  1. **The BATCHED write window is not adopted, and adopting it is a
-     RE-RUN.** `lane/mount-batch!` times `k` operations as one sample to
-     lift a reading clear of Chrome's 100 µs `performance.now()` clamp, and
-     the write-narrow row here reads p50s of 0.4–1.2 ms — 4 to 12 quanta,
-     which is why its published ranges are as wide as they are. Batching
-     the write window would narrow them. It would also CHANGE THE MEASURED
-     WINDOW, which invalidates the HD-008 rows already published in
-     `docs/design/hicasso/studio/hd8-composed-donor-arm.md`; a window
-     change cannot be validated by anything but a re-run, and re-running is
-     a separate piece of work with its own publication obligations. The
-     mount rows (4–13 ms) do not need it.
+  1. **The BATCHED write window IS now adopted on the narrow row, and it
+     came with its re-run (rf2-9zysg).** `lane/mount-batch!`'s argument —
+     timing `k` operations as one sample lifts a reading clear of Chrome's
+     100 µs `performance.now()` clamp, and is not the same as summing `k`
+     separately-clamped readings — applies to the narrow write row, which
+     read p50s of 0.4–1.2 ms, i.e. 4 to 12 quanta, and published ranges as
+     wide as `4.500–8.000x` because of it. [[narrow-batch-k]] writes now
+     share one clock ([[window-of]] carries the shape and the argument for
+     why the DOM read-back survives the batching).
+
+     This CHANGED THE MEASURED WINDOW, so the earlier narrow rows were
+     re-taken rather than re-labelled: `docs/design/hicasso/studio/
+     hd8-composed-donor-arm.md` carries the new numbers, the producing SHA
+     and a repro command that runs at that SHA, and says plainly that the
+     superseded ranges were taken on an unbatched window. The BULK row
+     passes a batch of one — the pre-batch window exactly — and did not
+     move; the mount rows (4–13 ms) never needed it.
 
   2. **`lane/control-verdict` is WEAKER than [[positive-control!]]'s own
      rule and would be a downgrade.** The lane passes a control whose
@@ -561,10 +567,43 @@
 (defn- window-of
   "The measured write window for an arm on `scheduler`.
 
-  Answers `(fn [write! verify!] → promise of {:ms :ok?})`. The clock starts
-  before the write and stops after the arm's own synchronous drain; the DOM
-  read-back runs in the SAME turn as the drain, never in a later one, so a
-  commit that arrived a turn late reads as UNVERIFIED rather than as a pass.
+  Answers `(fn [steps] → promise of {:ms :oks})`, where `steps` is a seq of
+  `{:write! :verify!}` and ALL of them share ONE clock. The clock starts
+  before the first write and stops after the last drain; the DOM read-backs
+  run after it, in the same turn as the last drain, never in a later one, so
+  a commit that arrived a turn late reads as UNVERIFIED rather than as a pass.
+
+  ## ONE CLOCK OVER k OPERATIONS, AND WHY THE READ-BACK SURVIVES IT
+
+  Chrome clamps `performance.now()` to 100 µs and the narrow row sits 4 to
+  12 quanta above it, so a per-write clock quantises every reading and the
+  published ranges carry that noise (rf2-9zysg). Timing `k` writes as ONE
+  sample lifts the window clear of the clamp, and it is NOT the same as
+  summing `k` separately-clamped readings, which quantises `k` times and
+  adds the errors. `lane/mount-batch!` does exactly this for mounts.
+
+  The cost is that a batched window cannot verify each write in the turn
+  its own drain ran in, because there is only one clock. It verifies all
+  `k` after the clock stops — and that is not the weakening it looks like,
+  for a reason worth writing down rather than rediscovering:
+
+    NO MACROTASK RUNS INSIDE THE WINDOW. Every turn between the first
+    write and the last drain is a MICROTASK (a resolved-promise turn).
+    The fault this read-back exists to catch is a commit React has PARKED
+    at the default lane — which is scheduled through the Scheduler's
+    `MessageChannel`, i.e. a macrotask — so it cannot land inside the
+    window no matter how many microtasks pass. A parked commit is still
+    parked when the read-backs run, and all `k` read UNVERIFIED.
+
+  What the batch does relax is microtask-scale lateness: an early write in
+  the batch gets up to `k - 1` extra microtask turns before it is read
+  back. Today's unbatched window already tolerates exactly one such turn
+  by construction — that IS the yield — so this is a difference of degree
+  on a tolerance the instrument already grants, not a new blind spot. It
+  is stated in the row's `:measurement-method` rather than left implicit.
+
+  `k = 1` reduces this to the pre-batch window exactly, which is why the
+  BULK row is untouched by any of it.
 
   TWO SHAPES, BECAUSE ONE FIXED WAIT IS NOT NEUTRAL ACROSS SCHEDULER
   FAMILIES. That is rf2-b69lw, and rf2-z3vlz diagnosed it against a
@@ -595,21 +634,31 @@
   same clock, outside every arm's window, and it is published beside the
   write rows."
   [scheduler force!]
-  (if (= scheduler :microtask)
-    (fn [write! verify!]
-      (let [t0 (lane/now-ms)]
-        (write!)
-        (force!)
-        (let [ms (- (lane/now-ms) t0)]
-          (js/Promise.resolve {:ms ms :ok? (verify!)}))))
-    (fn [write! verify!]
-      (let [t0 (lane/now-ms)]
-        (write!)
-        (-> (js/Promise.resolve nil)
-            (.then (fn [_]
-                     (force!)
-                     (let [ms (- (lane/now-ms) t0)]
-                       {:ms ms :ok? (verify!)}))))))))
+  (let [verify-all (fn [steps] (mapv (fn [s] ((:verify! s))) steps))]
+    (if (= scheduler :microtask)
+      ;; Write, then drain, with NOTHING between them — and the whole batch
+      ;; is one synchronous run, so not even a microtask separates a drain
+      ;; from the next write.
+      (fn [steps]
+        (let [t0 (lane/now-ms)]
+          (doseq [s steps] ((:write! s)) (force!))
+          (let [ms (- (lane/now-ms) t0)]
+            (js/Promise.resolve {:ms ms :oks (verify-all steps)}))))
+      ;; Write, yield ONE microtask, drain — per operation, k times, under
+      ;; one clock. The next write starts in the turn the previous drain
+      ;; finished in, so the window holds exactly k harness turns and not
+      ;; 2k: the fixed yield is preserved per operation, never batched away
+      ;; and never doubled.
+      (fn [steps]
+        (let [t0 (lane/now-ms)]
+          (letfn [(run [ss]
+                    (if (empty? ss)
+                      (let [ms (- (lane/now-ms) t0)]
+                        (js/Promise.resolve {:ms ms :oks (verify-all steps)}))
+                      (do ((:write! (first ss)))
+                          (-> (js/Promise.resolve nil)
+                              (.then (fn [_] (force!) (run (next ss))))))))]
+            (run (seq steps))))))))
 
 (defn- write-arm
   "The write door for `arm-id` on the U page.
@@ -688,10 +737,16 @@
     (.remove container)))
 
 (defn timed-write!
-  "Write, wait the way THIS ARM'S SCHEDULER requires, force the arm's own
-  synchronous drain, stop the clock — then VERIFY at the DOM that EVERY
-  cell in `probes` holds what was written. Answers a promise of
-  `{:ms … :ok? …}`.
+  "Run `ops` — a seq of `[i val probes]` — as ONE measured window: each
+  writes, waits the way THIS ARM'S SCHEDULER requires and forces the arm's
+  own synchronous drain; the clock stops after the last of them; then EVERY
+  `probes` cell of EVERY op is read back out of the DOM. Answers a promise
+  of `{:ms … :oks [bool …]}`, one flag per op.
+
+  `ops` is a SEQ because the narrow row batches `k` writes under one clock
+  to clear Chrome's 100 µs quantum ([[window-of]] carries that argument and
+  the read-back's survival of it). The bulk row passes a single op, which
+  is the pre-batch window exactly.
 
   The wait belongs to the arm ([[window-of]]) and not to this function,
   which is the whole of rf2-b69lw: a fixed one-microtask yield is
@@ -713,20 +768,42 @@
   the table, which is the exact shape of the fault this exists to prevent.
   Widening the probe seq does not move the measured window: the clock stops
   before the first `querySelector` either way."
-  [{:keys [arm container]} i val probes]
+  [{:keys [arm container]} ops]
   ((:window! arm)
-   (fn [] ((:write! arm) i val))
-   (fn [] (every? #(= val (cell-text container %)) probes))))
+   (mapv (fn [[i val probes]]
+           {:write!  (fn [] ((:write! arm) i val))
+            :verify! (fn [] (every? #(= val (cell-text container %)) probes))})
+         ops)))
 
 (defn- chain
   "Sequence `f` over `xs` through promises, threading `acc`."
   [acc xs f]
   (reduce (fn [p x] (.then p (fn [a] (f a x)))) (js/Promise.resolve acc) xs))
 
+(def narrow-batch-k
+  "How many narrow writes share ONE clock (rf2-9zysg).
+
+  Chrome clamps `performance.now()` to 100 µs. The unbatched narrow row
+  read p50s of 0.4–1.2 ms — 4 to 12 quanta — and published ranges as wide
+  as `4.500–8.000x` the floor because of it. Ten writes per window puts
+  the sample 40 to 120 quanta above the clamp, where the quantum is
+  roughly 1% of the reading rather than 10–25% of it.
+
+  Ten and not more: the batch's cells must be DISTINCT (they are
+  `(mod o 300)` over consecutive `o`, so any `k` up to 300 is distinct),
+  and the microtask-scale tolerance an early write in the batch receives
+  grows with `k` ([[window-of]]). Ten buys the clamp headroom the row
+  needs and keeps that tolerance at nine turns.
+
+  The BULK row does not use this — it passes a batch of one, which is the
+  pre-batch window exactly — because its readings are already 4–13 ms."
+  10)
+
 (defn- write-round!
   "One write round. Every mounted arm writes at every sample index, order
-  rotating and reflecting; `kind` is `:narrow` (one cell) or `:bulk` (all
-  300 in one commit)."
+  rotating and reflecting; `kind` is `:narrow` ([[narrow-batch-k]] cells,
+  one per commit, all under ONE clock) or `:bulk` (all 300 in one commit,
+  one commit per window)."
   [mounts kind {:keys [warmup samples]} position0]
   (let [k   (count mounts)
         ids (mapv #(:id (:arm %)) mounts)]
@@ -746,28 +823,39 @@
                     (fn [a j]
                       (let [mnt (nth mounts j)
                             id  (:id (:arm mnt))
-                            v   (str "v" (:position a))
-                            cell (mod (:position a) w/cells-n)
+                            p   (:position a)
+                            bk  (if (= kind :bulk) 1 narrow-batch-k)
+                            ;; Every op in a batch gets its OWN value and
+                            ;; its OWN cell, so no read-back can be
+                            ;; satisfied by a neighbour's commit and the
+                            ;; batch's k cells are k distinct cells.
+                            ;;
                             ;; A broad write changes every cell, so it is
                             ;; verified at three (`lane/bulk-probes`); a
                             ;; narrow write changes one, so it is verified
                             ;; at that one.
-                            [i probes] (if (= kind :bulk)
-                                         [:all (lane/bulk-probes (:position a) w/cells-n)]
-                                         [cell [cell]])]
-                        (-> (timed-write! mnt i v probes)
-                            (.then (fn [{:keys [ms ok?]}]
-                                     (cond-> (-> a
-                                                 (assoc :position (inc (:position a)) :prev id)
-                                                 (update-in [:total id] inc)
-                                                 (cond-> (not ok?) (update-in [:unverified id] inc)))
-                                       (>= s warmup)
-                                       (-> (update-in [:readings id] conj ms)
-                                           (update :samples conj
-                                                   {:arm         (name id)
-                                                    :value       ms
-                                                    :predecessor (some-> (:prev a) name)
-                                                    :position    (:position a)})))))))))))))
+                            ops (mapv (fn [c]
+                                        (let [o (+ (* p bk) c)
+                                              v (str "v" o)]
+                                          (if (= kind :bulk)
+                                            [:all v (lane/bulk-probes o w/cells-n)]
+                                            (let [cell (mod o w/cells-n)]
+                                              [cell v [cell]]))))
+                                      (range bk))]
+                        (-> (timed-write! mnt ops)
+                            (.then (fn [{:keys [ms oks]}]
+                                     (let [bad (count (remove identity oks))]
+                                       (cond-> (-> a
+                                                   (assoc :position (inc p) :prev id)
+                                                   (update-in [:total id] + bk)
+                                                   (update-in [:unverified id] + bad))
+                                         (>= s warmup)
+                                         (-> (update-in [:readings id] conj ms)
+                                             (update :samples conj
+                                                     {:arm         (name id)
+                                                      :value       ms
+                                                      :predecessor (some-> (:prev a) name)
+                                                      :position    p}))))))))))))))
 
 (defn measure-write!
   "`rounds` interleaved rounds of the write clock, `kind` ∈ `#{:narrow
@@ -800,7 +888,14 @@
                  {:witness    (keyword (str "U-" (name kind)))
                   :doc        (if (= kind :bulk)
                                 "all 300 cells written in ONE commit — bulk view work"
-                                "one cell written in a 300-cell grid — the narrow-write path")
+                                (str narrow-batch-k " single-cell writes into a 300-cell "
+                                     "grid, each its own commit, all inside ONE timed "
+                                     "window — the narrow-write path. The per-write "
+                                     "figure is the sample divided by " narrow-batch-k))
+                  ;; Stated on the row, because a reader comparing this
+                  ;; against the pre-rf2-9zysg numbers is comparing two
+                  ;; different windows and has to be told so.
+                  :writes-per-sample (if (= kind :bulk) 1 narrow-batch-k)
                   :arms       (vec arm-ids)
                   :per-round  (:rounds-out acc)
                   ;; AN ARM WHOSE WRITES DID NOT REACH THE DOM HAS NO FIGURE.
@@ -1014,6 +1109,11 @@
    :rounds            rounds
    :mount-sampling    mount-sampling
    :write-sampling    write-sampling
+   ;; A narrow SAMPLE is k writes under one clock (rf2-9zysg); a bulk
+   ;; sample is one. Published because the narrow figures before that
+   ;; change were taken through a different window and are not comparable
+   ;; to these without knowing it.
+   :writes-per-sample {:narrow narrow-batch-k :bulk 1}
    :measurement-method
    (str "arms interleaved at the SAMPLE level with the order rotating AND "
         "REFLECTING on the sample index (a cyclic rotation does not vary "
@@ -1021,4 +1121,9 @@
         "the run; ratios taken against the floor measured in the SAME round; "
         "reported as a RANGE across rounds, and a range straddling 1.0 is "
         "INDISTINGUISHABLE rather than a winner; every write read back out of "
-        "the DOM inside its own window")})
+        "the DOM inside its own window — where a NARROW window is "
+        narrow-batch-k " writes to " narrow-batch-k " distinct cells "
+        "under one clock, each read back after the clock stops and in the same "
+        "turn as the last drain, so a commit React parked at the default lane "
+        "(a macrotask, and no macrotask runs inside the window) still reads "
+        "UNVERIFIED")})
