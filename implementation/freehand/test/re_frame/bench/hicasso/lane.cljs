@@ -377,8 +377,9 @@
 (defn tally-value [t] (let [{:keys [of bad]} @t] {:writes of :unverified bad}))
 
 (defn verified-write!
-  "Write, yield ONE microtask, force the arm's own synchronous drain, stop
-  the clock — THEN read the written cell back out of the DOM.
+  "Write, wait the way THIS ARM'S SCHEDULER requires, force the arm's own
+  synchronous drain, stop the clock — THEN read the written cell back out
+  of the DOM.
 
   Answers a promise of `{:ms :write-ms :gap-ms :force-ms :ok?}` and banks
   the verification in `t`.
@@ -389,11 +390,45 @@
   recorded fault is 1,320 of 1,320 writes accepted by a clock that never
   looked at the page.
 
-  The microtask is load-bearing for any arm whose notification is queued
-  rather than synchronous, and it is priced in situ: `:gap-ms` is
-  reported per arm, and an arm that commits without it reads 0.0 there.
-  Splitting the window is what lets a reader see how much of a ratio is
-  the reactive leg and how much is React.
+  ## THE WAIT BELONGS TO THE ARM'S SCHEDULER, NOT TO THE HARNESS
+
+  An arm declares `:scheduler` — the family its OWN render queue is
+  scheduled on — and gets the window that family needs. This is the
+  general form of rf2-b69lw, which repaired it inside HD-008 only;
+  `hd8-rows/window-of` is these same two shapes, and this is deliberately
+  the same shape lifted rather than a second mechanism (rf2-pq7d8).
+
+    `:scheduler :microtask`   write, then drain, with NOTHING between
+                              them. `:gap-ms` is 0.0 and means it.
+
+    anything else, or the
+    key absent                write, yield ONE microtask, drain. Today's
+                              window, unchanged — which is why no arm
+                              that does not declare `:microtask` moves.
+
+  ONE FIXED YIELD CANNOT SERVE BOTH FAMILIES, and that is the whole of
+  this. The yield is load-bearing for an arm whose notification is queued
+  somewhere ELSE: stock Reagent's `reagent.impl.batching` schedules its
+  component queue on `requestAnimationFrame`, so the queue is still full
+  a microtask later and the drain finds the work. It is FATAL for an arm
+  whose notification is queued on the very queue the harness yields to.
+  `reagent2.impl.batching` (reagent-slim) is microtask-based, so the
+  yield hands it the commit FIRST: it issues its `forceUpdate` outside
+  any `flushSync` boundary, React parks the work at the default lane, and
+  the drain that follows finds nothing to commit. The arm then reads `N
+  unverified of N` against a DOM that is merely LATE — and, with the
+  read-back suppressed, `0.16–0.50x` the floor from a page that never
+  changed. rf2-z3vlz pinned it against a standalone rig and
+  `docs/design/hicasso/studio/slim-non-reactive-arm-diagnosis.md` carries
+  the evidence.
+
+  The two shapes do not bill the same wait, so an arm measured through
+  one is not like-for-like against an arm measured through the other
+  until the harness microtask is priced against the same clock —
+  `hd8-rows/yield-cost!` does exactly that, outside every arm's window,
+  and publishes it beside the write rows. `:gap-ms` is reported per arm
+  for the same reason: splitting the window is what lets a reader see how
+  much of a ratio is the reactive leg and how much is React.
 
   `probes` is a SEQ of cell indices and ALL of them must hold the written
   value. A broad write changes every cell, so verifying one of them
@@ -402,22 +437,42 @@
   it from the previous write. The rotating probe plus the far end of the
   grid is the cheapest read that a partial commit cannot satisfy."
   [t {:keys [arm container]} i val probes]
-  (let [t0 (now-ms)]
-    ((:write! arm) i val)
-    (let [t1 (now-ms)]
-      (-> (js/Promise.resolve nil)
-          (.then (fn [_]
-                   (let [t2 (now-ms)]
-                     ((:force! arm))
-                     (let [t3  (now-ms)
-                           ok? (every? #(= (str val) (text-at container %)) probes)]
-                       (swap! t (fn [{:keys [of bad]}]
-                                  {:of (inc of) :bad (if ok? bad (inc bad))}))
-                       {:ms       (- t3 t0)
-                        :write-ms (- t1 t0)
-                        :gap-ms   (- t2 t1)
-                        :force-ms (- t3 t2)
-                        :ok?      ok?}))))))))
+  (let [verify! (fn [] (every? #(= (str val) (text-at container %)) probes))
+        bank!   (fn [ok?]
+                  (swap! t (fn [{:keys [of bad]}]
+                             {:of (inc of) :bad (if ok? bad (inc bad))}))
+                  ok?)]
+    (if (= (:scheduler arm) :microtask)
+      ;; Write, then drain, with nothing between them: the substrate's queue
+      ;; is filled synchronously by the write and is still there when the
+      ;; drain opens its boundary, so the commit lands INSIDE the window.
+      (let [t0 (now-ms)]
+        ((:write! arm) i val)
+        (let [t1 (now-ms)]
+          ((:force! arm))
+          (let [t2  (now-ms)
+                ok? (verify!)]
+            (bank! ok?)
+            (js/Promise.resolve {:ms       (- t2 t0)
+                                 :write-ms (- t1 t0)
+                                 :gap-ms   0.0
+                                 :force-ms (- t2 t1)
+                                 :ok?      ok?}))))
+      (let [t0 (now-ms)]
+        ((:write! arm) i val)
+        (let [t1 (now-ms)]
+          (-> (js/Promise.resolve nil)
+              (.then (fn [_]
+                       (let [t2 (now-ms)]
+                         ((:force! arm))
+                         (let [t3  (now-ms)
+                               ok? (verify!)]
+                           (bank! ok?)
+                           {:ms       (- t3 t0)
+                            :write-ms (- t1 t0)
+                            :gap-ms   (- t2 t1)
+                            :force-ms (- t3 t2)
+                            :ok?      ok?}))))))))))
 
 (defn bulk-probes
   "The probe seq for a BROAD write over `n` cells: a cell that ROTATES with
