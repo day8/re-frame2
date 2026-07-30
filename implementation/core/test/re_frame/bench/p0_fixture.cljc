@@ -41,10 +41,11 @@
 
   ## Sub-key identity
 
-  `(query-id, args)` under value equality, args a bare long. Deliberately
-  not a map: the validation record calls unstable map args out as a
-  thrashing hazard, and a bench that used one would be measuring the
-  hazard.
+  `(query-id, args)` under value equality, args a bare long. A map would
+  be equally safe — a freshly allocated but =-equal map is one cache key;
+  only value-unstable args thrash the index — but a bare long is
+  value-stable by construction, so key churn cannot enter what the arms
+  measure.
 
   Owner: the operator-owned standard bead rf2-2rtt6.1; this arm rf2-2rtt6.4."
   (:require [re-frame.core :as rf]))
