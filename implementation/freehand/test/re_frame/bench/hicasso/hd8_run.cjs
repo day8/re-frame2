@@ -329,13 +329,13 @@ function crossRun(runs) {
   if (PARTIAL) {
     out.push(';;');
     out.push(`;;   PARTIAL RUN — HD8_ONLY=${ONLY}. This is not the published shape.`);
-    out.push(
-      DECLARED_ROWS
-        ? `;;   Publishing: ${[...DECLARED_ROWS].join(', ')}. Every other row below is a` +
-          ';;   by-product of the adapter selection and is marked NON-PUBLISHING.'
-        : ';;   HD8_ROWS was not set, so NO row below publishes. Re-run with HD8_ROWS naming' +
-          ';;   the row this re-take is for.'
-    );
+    if (DECLARED_ROWS) {
+      out.push(`;;   Publishing: ${[...DECLARED_ROWS].join(', ')}. Every other row below is a`);
+      out.push(';;   by-product of the adapter selection and is marked NON-PUBLISHING.');
+    } else {
+      out.push(';;   HD8_ROWS was not set, so NO row below publishes. Re-run with HD8_ROWS');
+      out.push(';;   naming the row this re-take is for.');
+    }
   }
   for (const row of rows) {
     const pub = publishing(row);
