@@ -1112,11 +1112,14 @@
 ;; arm across window sizes. A REAL per-call cost cannot see the window, so
 ;; its B/call is flat across the ladder; a per-WINDOW quantity divides by
 ;; reps, so across a span-S ladder it falls ~S-fold. [[floor-verdict]] demands
-;; at least HALF the full per-window collapse, so every recorded per-call
-;; signature refuses attribution: rf2-tmzie's C-FRAME drifted 1.09x over a
-;; 62x range (real, stays refused), rf2-ktrvw's closure bimodality is bounded
-;; by 2x — its two modes (real, stays refused) — and the demanded ratio is
-;; span/2 >= 2 at the minimum span of 4. A refused arm whose sweep DOES
+;; STRICTLY MORE than half the full per-window collapse, so every recorded
+;; per-call signature refuses attribution: rf2-tmzie's C-FRAME drifted 1.09x
+;; over a 62x range (real, stays refused), and rf2-ktrvw's closure bimodality
+;; is bounded by 2x — its two modes (real, stays refused). The strictness is
+;; load-bearing at the MINIMUM span: there the demanded ratio is span/2 = 2,
+;; exactly the bimodal class's own bound, and the inclusive comparison this
+;; replaced classified that bound as the floor (MERGED-PR AUDIT #7292).
+;; Equality is not collapse. A refused arm whose sweep DOES
 ;; collapse is CERTIFIED AT THE FLOOR: quotable as the upper bound of its
 ;; worst round, never as a measured p50 — the same quote the floor arms in
 ;; the table above already carry, now with the exit code to match.
@@ -1141,11 +1144,13 @@
   re-measuring the arm at window sizes derived from its own calibrated reps.
 
   Answers `{:status :floor | :per-call | :indeterminate}` plus the numbers.
-  `:floor` needs B/call to fall by at least span/2 from the smallest window
-  to the largest — half the collapse a pure per-window floor shows — over a
-  span of at least 4. Everything else, including an unverified sweep window,
-  a short ladder or a zero-only sweep, is NOT attribution: the refusal
-  stands."
+  `:floor` needs B/call to fall by STRICTLY MORE than span/2 from the
+  smallest window to the largest — more than half the collapse a pure
+  per-window floor shows — over a span of at least 4. Strict, because at the
+  minimum span the threshold is exactly the 2x bimodal class's bound
+  (rf2-ktrvw), and equality is not collapse. Everything else, including an
+  unverified sweep window, a short ladder or a zero-only sweep, is NOT
+  attribution: the refusal stands."
   [points]
   (let [pts   (vec (sort-by :reps points))
         r-lo  (:reps (first pts) 0)
@@ -1177,17 +1182,22 @@
                             (zero? large)    js/Infinity
                             :else            (/ small large))
             threshold (/ span 2.0)
-            floor?    (>= ratio threshold)]
+            ;; STRICT — equality is not collapse. At the minimum span of 4
+            ;; the threshold is exactly 2, which is the rf2-ktrvw bimodal
+            ;; class's own bound; an inclusive comparison classified that
+            ;; bound as :floor (MERGED-PR AUDIT #7292, and the pinned
+            ;; minimum-span fixture in [[floor-self-test]] holds the line).
+            floor?    (> ratio threshold)]
         {:status    (if floor? :floor :per-call)
          :ratio     ratio
          :span      span
          :threshold threshold
          :why       (if floor?
                       (str "B/call falls " (.toFixed ratio 2) "x across a " (.toFixed span 1)
-                           "x ladder (>= span/2 = " (.toFixed threshold 1)
+                           "x ladder (> span/2 = " (.toFixed threshold 1)
                            ") — a per-WINDOW floor, not a per-call cost")
                       (str "B/call moves only " (.toFixed ratio 2) "x across a " (.toFixed span 1)
-                           "x ladder (< span/2 = " (.toFixed threshold 1)
+                           "x ladder (<= span/2 = " (.toFixed threshold 1)
                            ") — a real per-call reading; the refusal stands"))}))))
 
 (defn- floor-self-test
@@ -1215,13 +1225,24 @@
           :points [{:reps 500 :p50 128.0} {:reps 1000 :p50 64.0}
                    {:reps 2000 :p50 32.0} {:reps 4000 :p50 16.0}]}
          ;; rf2-ktrvw's closure bimodality: a REAL 64/128 B per-call cost whose
-         ;; p50 lands in different modes at different ladder points. Its 2x is
-         ;; below span/2 at every accepted span, so it must NOT attribute —
-         ;; this is the planted-bimodal direction, priced as a fixture.
+         ;; p50 lands in different modes at different ladder points. Its 2x
+         ;; never EXCEEDS span/2 at any accepted span — it touches it exactly
+         ;; at span 4 (the pinned fixture below) — so it must NOT attribute.
+         ;; This is the planted-bimodal direction, priced as a fixture.
          {:name   "the bimodal closure step is NOT the floor — the refusal stands"
           :want   :per-call
           :points [{:reps 500 :p50 128.1} {:reps 1000 :p50 128.1}
                    {:reps 2000 :p50 64.0} {:reps 4000 :p50 64.0}]}
+         ;; rf2-hydpy (MERGED-PR AUDIT #7292): the SAME 2x class at the
+         ;; verdict's MINIMUM legal span, where span/2 is exactly the class's
+         ;; own bound — ratio 2.0 against threshold 2.0. The inclusive
+         ;; comparison classified this :floor; equality is not collapse, and
+         ;; the bound refuses. PINNED at the boundary — do not widen the span
+         ;; or nudge a p50 to make it pass.
+         {:name   "the 2x bimodal bound at the minimum span 4 is NOT the floor"
+          :want   :per-call
+          :points [{:reps 1 :p50 128.0} {:reps 2 :p50 128.0}
+                   {:reps 4 :p50 64.0}]}
          ;; the recorded 2.0125x order contamination (rf2-jr76s's fixture in
          ;; the guard's own self-test) is likewise under span/2
          {:name   "a 2x contaminated reading is NOT the floor at span 8"
@@ -1984,8 +2005,8 @@
               (println ";; ==== FLOOR ATTRIBUTION (rf2-hydpy) — is each refused arm reading its subject, or the instrument? ====")
               (println ";;   each refused arm re-measured across window sizes derived from its own reps.")
               (println ";;   a REAL per-call cost is rep-INDEPENDENT in B/call; a per-WINDOW floor falls")
-              (println ";;   as the window grows. attribution demands at least HALF the full per-window")
-              (println ";;   collapse (ratio >= span/2), which no recorded per-call signature reaches.")
+              (println ";;   as the window grows. attribution demands STRICTLY MORE than half the full")
+              (println ";;   per-window collapse (ratio > span/2), which no recorded per-call signature reaches.")
               (if (seq unchecked)
                 (refuse! [(str ";;   FLOOR ATTRIBUTION does not apply: "
                                (str/join ", " unchecked)
