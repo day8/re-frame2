@@ -60,6 +60,15 @@
 // not the CLJS compile the cache holds. Against a driver run measured in
 // minutes it is not a cost at all.
 //
+// And it buys something beyond not crashing: **the build becomes
+// deterministic.** Two cleared-cache builds of the same arm emit a
+// byte-identical `main.js` (sha256 `a1d14753ef818fcd…`, measured both ways),
+// where before the fix the bundle depended on which arm had built last —
+// Closure's renaming for a build compiled fresh differs from the same build
+// compiled with a sibling warm, which `hicasso_narrow_run.cjs` measured at
+// 4,075 bytes. A reproduction command a studio page publishes should not emit
+// a different bundle depending on what the reader ran an hour ago.
+//
 // Rejected, with reasons, so the next reader does not re-litigate them:
 //
 //   * A build id per arm. Six hot-zone, sequenced edits to
