@@ -49,12 +49,16 @@
 
   `?mode=aggregate` installs `window.P0A`, which folds the driver's
   collected per-round EDN into the published records: ranges across
-  rounds, the red-zone ratios, and the arm-order verdict.
+  rounds, the red-zone ratios, and the arm-order verdict. It answers the
+  row's GATES beside the record — the summed `N unverified of M` and the
+  positive control's verdict — because a figure the driver prints and
+  never exits on is decoration (rf2-95s5b).
 
   Built and driven by `p0_run.cjs` beside this file.
 
   Owner: rf2-2rtt6.1 (standard); this arm rf2-2rtt6.4."
   (:require [cljs.reader :as reader]
+            [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.order-guard :as guard]
             [re-frame.bench.p0-arms :as arms]
             [re-frame.bench.p0-fixture :as fx]
@@ -419,6 +423,76 @@
      :refused   (into [] (comp (filter (fn [[_ v]] (refused? v))) (map key)) all)}))
 
 ;; ---------------------------------------------------------------------------
+;; Adjudication — the clock row's own gates, answered where the fold is
+;; ---------------------------------------------------------------------------
+
+(defn- published-rows
+  "Every row the fold publishes, keyed as the driver names them."
+  [agg]
+  (merge (:mount agg)
+         {:bulk-broad (get-in agg [:bulk :broad])
+          :bulk-narrow (get-in agg [:bulk :narrow])}))
+
+(defn- verification-totals
+  "Every published clock row's DOM read-back tally, summed — the
+  `N unverified of M` the whole row stands or falls on.
+
+  ## The positive control is NOT in this denominator, and that is the point
+
+  `control-round!` mounts two arms that build DIFFERENT pages on purpose,
+  so it hands `mount-round!` `nil` as the expectation and there is nothing
+  to read back. An unverifiable window contributes to neither the
+  numerator nor the denominator (see `p0-harness/mount-sample!`): counting
+  it as verified would let the control dilute a real failure, and counting
+  it as unverified would red every run for ever. The control is
+  adjudicated by its own gate instead — [[lane/control-verdict]], below —
+  and the driver reports it beside this figure rather than folding one
+  into the other."
+  [agg]
+  (let [rows (published-rows agg)]
+    {:unverified (reduce + 0 (map #(get-in % [:verification :unverified] 0) (vals rows)))
+     :of         (reduce + 0 (map #(get-in % [:verification :of] 0) (vals rows)))
+     :per-row    (into (sorted-map)
+                       (map (fn [[id r]] [id (:verification r)]))
+                       rows)}))
+
+(defn adjudicate
+  "Fold the per-round EDN into the published record AND answer the gates
+  the driver has to exit on. **The only door onto the fold**, deliberately:
+  a caller that could take the record without the verdicts is the fail-open
+  this replaced (rf2-95s5b) — the clock row's `N unverified of M` was
+  printed inside the record and nothing read it, and the positive control
+  was published as a bare ratio nothing adjudicated.
+
+  The adjudication is the LANE's, not a second copy: [[lane/control-verdict]]
+  is what the freehand P0 arms already publish their controls under, and
+  what it DECIDES is not this namespace's to change (rf2-egdaq, which is
+  open, is the ruling on whether that decision tightens). Read its
+  docstring before quoting `:ok?`: the rule is range OVERLAP, not
+  every-round-inside.
+
+  Answers a flat JS object because a driver reading `verify.ok?` off a
+  `clj->js` map sees `undefined` — every gate green while every gate was
+  unread. That happened on the predecessor's first run."
+  [round-edns slack]
+  (let [agg (aggregate (vec round-edns))
+        vt  (verification-totals agg)
+        ctl (lane/control-verdict (get-in agg [:control :predicted])
+                                  (select-keys (get-in agg [:control :measured])
+                                               [:min :max :mean])
+                                  slack)
+        rec (-> agg
+                (assoc :verification vt)
+                (assoc-in [:control :slack] slack)
+                (assoc-in [:control :verdict] ctl))]
+    #js {:edn        (pr-str rec)
+         :unverified (:unverified vt)
+         :of         (:of vt)
+         :perRow     (pr-str (:per-row vt))
+         :controlOk  (boolean (:ok? ctl))
+         :controlWhy (:why ctl)}))
+
+;; ---------------------------------------------------------------------------
 
 (defn ^:export -main
   []
@@ -446,7 +520,11 @@
 
       "aggregate"
       (do (set! (.-P0A js/window)
-                #js {:aggregate (fn [edns] (pr-str (aggregate (vec edns))))})
+                ;; ONE door, and it hands back the verdicts with the record.
+                ;; A bare `aggregate` beside it would be a way to take the
+                ;; figures without the gates, which is the defect this
+                ;; namespace was carrying (rf2-95s5b).
+                #js {:adjudicate (fn [edns slack] (adjudicate edns slack))})
           (js/console.log ";; P0 aggregator installed")
           (set! (.-P0_READY js/window) true))
 

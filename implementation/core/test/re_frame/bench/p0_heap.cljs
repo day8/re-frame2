@@ -56,6 +56,7 @@
   Owner: rf2-2rtt6.1 (standard); this arm rf2-2rtt6.4."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
+            [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.order-guard :as guard]
             [re-frame.bench.p0-arms :as arms]
             [re-frame.bench.p0-fixture :as fx]
@@ -247,6 +248,30 @@
              :verdict        (fn [samples tolerance]
                                (pr-str (guard/verdict (js->clj samples :keywordize-keys true)
                                                       {:tolerance tolerance})))
+             ;; ONE expression of the positive-control rule too, and it is
+             ;; the LANE's. The driver owns the collector, so it is the
+             ;; driver that reads `predicted` against the measured range —
+             ;; and until rf2-95s5b it printed that pair as a bare ratio
+             ;; nothing adjudicated. `lane/control-verdict` is what the
+             ;; freehand P0 arms already publish their controls under; what
+             ;; it DECIDES is not this namespace's to change (rf2-egdaq),
+             ;; and its docstring states the rule it applies — range
+             ;; OVERLAP, not every-round-inside.
+             ;;
+             ;; A flat literal `#js` answer, never `clj->js`: that would
+             ;; render `:ok?` as the key `"ok?"` and a driver reading
+             ;; `v.ok` would see `undefined` — the control green for ever
+             ;; because nothing could read it. The same trap `mount!`
+             ;; already carries the scar from.
+             :controlVerdict (fn [predicted measured slack]
+                               (let [m (js->clj measured :keywordize-keys true)
+                                     v (lane/control-verdict
+                                         predicted
+                                         (select-keys m [:min :max :mean])
+                                         slack)]
+                                 #js {:ok    (boolean (:ok? v))
+                                      :why   (:why v)
+                                      :slack (:slack v)}))
              :guardSelfTest  (fn [] (pr-str (guard/self-test)))
              :boundariesPerRoot #js {:list rows-per-root :grid per-root}})
   nil)

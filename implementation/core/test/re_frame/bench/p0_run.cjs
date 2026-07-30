@@ -49,6 +49,38 @@
 // bench, and a third would be a third place for it to drift. Its
 // self-test runs before anything is measured, in both modes. **A refusal
 // exits 2, and the repair is to the ARM, never to the guard.**
+//
+// ## Every figure this driver prints as a check, it EXITS on (rf2-95s5b)
+//
+// It did not. The clock row's `N unverified of M` and BOTH positive
+// controls were printed and only the heap row's read-back count was
+// adjudicated, so a run in which no write reached the page, or in which
+// the instrument could not see a change its own arithmetic predicted,
+// printed the count beside `VERDICT: reportable` and exited 0. A count
+// that is displayed and not gated is decoration. The four exit-bearing
+// checks are now, in the order they are taken:
+//
+//   1. the arm-order guard's self-test, in the page, before anything is
+//      measured — exit 1 (clock) / the page refuses to install (heap);
+//   2. `N unverified of M` — clock and heap, exit 1 on any nonzero count;
+//   3. the positive control — clock and heap, adjudicated by
+//      `lane/control-verdict` and exit 1 when it is not `ok`;
+//   4. the arm-order verdict over the samples — exit 2, figures not
+//      quotable.
+//
+// The positive controls are UNVERIFIABLE BY CONSTRUCTION — the clock's
+// two control arms build different pages on purpose, and the heap's is a
+// dense array with no DOM at all — so their windows are excluded from
+// (2)'s denominator rather than counted as verified, and (3) is the gate
+// they answer to instead. See `p0-harness/mount-sample!`.
+//
+// `lane/control-verdict` is the lane's shared rule and WHAT IT DECIDES IS
+// NOT THIS DRIVER'S TO CHANGE: rf2-egdaq is the open ruling on whether it
+// tightens from range-overlap to every-round-inside. Read its docstring
+// before quoting `:ok?`. Both of this driver's controls pass under either
+// reading — heap 4,700,317 B [4,699,074–4,700,974] against a predicted
+// 4,700,000 B, clock 1.8381x [1.8182–1.8548] against a predicted 1.9975x
+// with ±25% slack — so wiring them in changed no published figure.
 
 'use strict';
 
@@ -74,6 +106,11 @@ const CONTROL_DOUBLES = Number(process.env.P0_CONTROL_DOUBLES || 587500);
 const CONTROL_PREDICTED = CONTROL_DOUBLES * 8;
 const HEAP_TOLERANCE = Number(process.env.P0_HEAP_TOLERANCE || 0.25);
 const CLOCK_TIMEOUT_MS = Number(process.env.P0_CLOCK_TIMEOUT_MS || 30 * 60 * 1000);
+// How far a positive control's measured range may sit from the prediction
+// its own arithmetic made and still count as THE INSTRUMENT HAS SIGNAL.
+// Generous on purpose — the claim being gated is not that the model is
+// exact. `lane/control-verdict` applies it; this driver only carries it.
+const CONTROL_SLACK = Number(process.env.P0_CONTROL_SLACK || 0.25);
 
 const ONLY = (() => {
   const i = process.argv.indexOf('--only');
@@ -203,18 +240,29 @@ async function clockRow(chromium) {
   if (err) return { err, results: null };
   if (!roundEdns.length) return { err: 'no round produced a record', results: null };
 
-  // The fold runs in a page too, so the ranges, the red-zone ratios and
-  // the arm-order verdict are computed by `re-frame.bench.order-guard`
-  // and `p0-harness` — the same code the rounds ran under — rather than
-  // by a second, drifting expression of the same arithmetic in JavaScript.
+  // The fold runs in a page too, so the ranges, the red-zone ratios, the
+  // arm-order verdict, the summed read-back tally and the positive
+  // control's verdict are computed by `re-frame.bench.order-guard`,
+  // `p0-harness` and `hicasso.lane` — the same code the rounds ran under —
+  // rather than by a second, drifting expression of the same arithmetic in
+  // JavaScript. `adjudicate` is the ONLY door onto the fold: a driver that
+  // could take the record without the verdicts is the hole this closed.
   console.error('[p0] aggregating ...');
   const { browser, page } = await newPage(chromium, '?mode=aggregate');
   await page.waitForFunction('window.P0_READY === true || window.P0_ERROR', null, {
     timeout: 180000,
   });
-  const edn = await page.evaluate((e) => window.P0A.aggregate(e), roundEdns);
+  const adj = await page.evaluate(
+    ([e, s]) => window.P0A.adjudicate(e, s),
+    [roundEdns, CONTROL_SLACK]
+  );
   await browser.close();
-  return { err: null, results: edn };
+  return {
+    err: null,
+    results: adj.edn,
+    verification: { unverified: adj.unverified, of: adj.of, perRow: adj.perRow },
+    control: { ok: adj.controlOk, why: adj.controlWhy, slack: CONTROL_SLACK },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -363,6 +411,19 @@ async function heapRow(chromium) {
     ([s, t]) => window.P0H.verdict(s, t),
     [orderSamples, HEAP_TOLERANCE]
   );
+
+  // THE CONTROL IS ADJUDICATED, not printed. `predicted` is 8 bytes a
+  // double, fixed before the run; the measured range is this row's own
+  // per-round readings. The rule is `lane/control-verdict`'s, the same one
+  // the freehand P0 arms publish under — this driver states the pair and
+  // reads the answer, and it does so HERE because the page has to still be
+  // open for the rule to be the lane's rather than a JavaScript copy of it.
+  const ctlStat = stat(rounds.map((r) => r.control.measuredCdp));
+  const controlVerdict = await page.evaluate(
+    ([p, m, s]) => window.P0H.controlVerdict(p, m, s),
+    [CONTROL_PREDICTED, { min: ctlStat.min, max: ctlStat.max, mean: ctlStat.mean }, CONTROL_SLACK]
+  );
+
   await browser.close();
 
   return {
@@ -383,6 +444,9 @@ async function heapRow(chromium) {
       shape: 'dense JS array of doubles',
       doubles: CONTROL_DOUBLES,
       predictedBytes: CONTROL_PREDICTED,
+      measured: ctlStat,
+      slack: CONTROL_SLACK,
+      verdict: controlVerdict,
     },
     verification: { mounts, unverified },
     perRound: rounds,
@@ -401,13 +465,35 @@ const stat = (xs) => {
   return { mean, min: s[0], max: s[s.length - 1] };
 };
 
+// The clock row's two gates, stated where a reader will look for them
+// rather than buried inside the record's EDN. Both were printed and
+// neither was adjudicated until rf2-95s5b; the exit logic below reads
+// exactly these figures.
+function summariseClock(c) {
+  console.log(';;');
+  console.log(';; ==== P0 CLOCK — VERIFICATION AND POSITIVE CONTROL ====');
+  console.log(`;;   verification: ${c.verification.unverified} unverified of ${c.verification.of} windows`);
+  console.log(`;;                 ${c.verification.perRow}`);
+  console.log(';;   The positive control is NOT in that denominator and cannot be: its two');
+  console.log(';;   arms build DIFFERENT pages on purpose, so no window of it has anything to');
+  console.log(';;   read back. It is reported and adjudicated separately, here:');
+  console.log(
+    `;;   positive control (slack ±${(c.control.slack * 100).toFixed(0)}%): ` +
+      `${c.control.ok ? 'OK' : 'FAILED'} — ${c.control.why}`
+  );
+}
+
 function summariseHeap(row) {
   console.log('\n;; ==== P0 RETAINED HEAP — bytes per boundary ====');
   console.log(`;; ${row.roots} roots held per arm; list=${row.perRoot.list} rows, grid=${row.perRoot.grid} cells`);
-  const ctlA = stat(row.perRound.map((r) => r.control.measuredCdp));
+  const ctlA = row.control.measured;
   console.log(
     `;; positive control: predicted ${CONTROL_PREDICTED} B  |  measured ${Math.round(ctlA.mean)} B ` +
       `[${Math.round(ctlA.min)}–${Math.round(ctlA.max)}]  (ratio ${(ctlA.mean / CONTROL_PREDICTED).toFixed(4)})`
+  );
+  console.log(
+    `;;   VERDICT (lane/control-verdict, slack ±${(row.control.slack * 100).toFixed(0)}%): ` +
+      `${row.control.verdict.ok ? 'OK' : 'FAILED'} — ${row.control.verdict.why}`
   );
   console.log(`;; verification: ${row.verification.unverified} unverified of ${row.verification.mounts} mounts`);
   console.log(';;');
@@ -463,7 +549,10 @@ function summariseHeap(row) {
   const server = serve();
   const { chromium } = require('playwright');
   const out = { generatedAt: new Date().toISOString(), build: BUILD, initFn: INIT_FN };
-  let failed = null;
+  // EVERY failed gate, not the last one. A single `failed` slot let a
+  // later gate's silence overwrite an earlier gate's refusal, and a run
+  // that failed two things would name one of them.
+  const failures = [];
   let refused = false;
   try {
     if (ONLY !== 'heap') {
@@ -471,10 +560,22 @@ function summariseHeap(row) {
       const c = await clockRow(chromium);
       out.clock = c.results;
       if (c.err) {
-        failed = `clock: ${c.err}`;
+        failures.push(`clock: ${c.err}`);
       } else {
+        out.clockGates = { verification: c.verification, control: c.control };
         console.log(';; ==== P0 CLOCK ====');
         console.log(c.results);
+        summariseClock(c);
+        // A row whose writes never reached the page is the cheapest row in
+        // any table. The count was printed inside the record from the
+        // first run; nothing exited on it until rf2-95s5b.
+        if (c.verification.unverified > 0) {
+          failures.push(
+            `clock: ${c.verification.unverified} unverified of ${c.verification.of} windows ` +
+              `— ${c.verification.perRow}`
+          );
+        }
+        if (!c.control.ok) failures.push(`clock: positive control — ${c.control.why}`);
         const m = /:refused \[([^\]]*)\]/.exec(c.results);
         if (m && m[1].trim()) {
           refused = true;
@@ -489,12 +590,15 @@ function summariseHeap(row) {
       out.heap = await heapRow(chromium);
       summariseHeap(out.heap);
       if (out.heap.verification.unverified > 0) {
-        failed = `heap: ${out.heap.verification.unverified} unverified mounts`;
+        failures.push(`heap: ${out.heap.verification.unverified} unverified mounts`);
+      }
+      if (!out.heap.control.verdict.ok) {
+        failures.push(`heap: positive control — ${out.heap.control.verdict.why}`);
       }
       refused = refused || out.heap.orderRefused;
     }
   } catch (e) {
-    failed = String(e && e.stack ? e.stack : e);
+    failures.push(String(e && e.stack ? e.stack : e));
   } finally {
     server.close();
   }
@@ -504,8 +608,8 @@ function summariseHeap(row) {
     fs.writeFileSync(raw, JSON.stringify(out, null, 2));
     console.error(`[p0] raw data -> ${raw}`);
   }
-  if (failed) {
-    console.error(`[p0] FAILED: ${failed}`);
+  if (failures.length) {
+    for (const f of failures) console.error(`[p0] FAILED: ${f}`);
     process.exit(1);
   }
   // A run whose figures the arm-order guard refused is not a green run.
