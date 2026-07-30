@@ -7,11 +7,11 @@
 > the host boundary shared by the interpreted and compiled modes — is owned by
 > [004-Views](004-Views.md), which this Spec refines rather than restates. The
 > ownership cut follows [EP-0036 §Canonical contract migration](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md#canonical-contract-migration):
-> this file is the donor-era Spec 004 moved intact, and it evolves into the v1
-> compiled-tier grammar as the Freehand slices land. Where the text below still says
+> this file is the donor-era Spec 004 moved intact, and it is the home of the v1
+> compiled-tier grammar. Where the text below still says
 > `ui/*` and `re-frame.ui`, read the donor spelling of a contract whose Freehand name
-> is `v/*` and `re-frame.freehand`; the migration is mechanical and lands with the
-> slice that owns each surface.
+> is `v/*` and `re-frame.freehand`; EP-0036 was withdrawn on 2026-07-30 before that
+> renaming was finished, and no further renaming is scheduled.
 >
 > A compiled view is `ui/defview` — a pure function of **one props map** to a
 > **template**. Templates are Reagent-familiar hiccup with the ambiguities removed; a
@@ -40,8 +40,8 @@
 > The two emitters remain **separate implementations**
 > over one normalized AST: sharing a normalizer is not sharing an emitter, and
 > neither consumes the other's output. The donor artifact keeps its own frozen
-> copy of that code only so it still builds while the two coexist — that copy is
-> not a second owner, and it is deleted with the artifact. Reuse of donor code
+> copy of that code only so that it still builds — that copy is
+> not a second owner, and it has no life apart from the artifact. Reuse of donor code
 > confers no API status: none of these namespaces is Freehand API, which is
 > `re-frame.freehand` alone.
 
