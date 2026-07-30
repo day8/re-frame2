@@ -38,9 +38,48 @@ the bar, the budgets, the kill criteria, or these thresholds.
 
 ## Provenance
 
+**The instrument is identified by content hash, not by commit SHA** — a blob
+survives the rebase and the merge that rewrite a SHA, and this page's rows are
+the **retained-heap red-zone thresholds**, which are operative and not
+housekeeping.
+
+| file (`implementation/core/test/re_frame/bench/`) | blob at `bc5f38f10a` **and** `1415d9f7af` | on main `32cb224d6e` |
+|---|---|---|
+| `p0_run.cjs` | `e2d6eb6c722ad142123c34b99f9292328ddb11be` | `eec62f5a727e…` — **moved** |
+| `p0_heap.cljs` | `28caa45a31e4cb27b3305b1abf63d97dcc2c1a5e` | `d4dcb3f6e4a4…` — **moved** |
+| `p0_app.cljs` | `047ff2c0fdb1faaa4554778873e5f7f715befaf9` | `095731f2880c…` — **moved** |
+| `p0_harness.cljs` | `f33cb6449743c9e7e830c373683f40038d6bd132` | `74672756f712…` — **moved** |
+| `order_guard.cljc` | `adf59ca03cfe8e2639de97c031c138838f2d34b7` | `e42450ef1c77…` — **moved** (#7267) |
+| `p0_arms.cljs` | `89d26f8b9853d4fd06abfbdd99e6c7ac8a4cc060` | **unchanged** |
+| `p0_uix.cljs` | `45654d01eaefed42e61d4520ed48be0cebb08057` | **unchanged** |
+| `p0_reagent.cljs` | `f13d7e9cf0e59c498eae3358a14d239cf5338b35` | **unchanged** |
+| `p0_fixture.cljc` | `f5f615972f29c5c1418c0a788ffc8d84945d865a` | **unchanged** |
+| `p0_floor.cljs` | `66016daefb3c5dcf7e9601bc7a7ea6e8f68b8678` | **unchanged** |
+
+**Five of the ten instrument blobs have moved since these rows were taken, and
+this page says so rather than leaving a reader to discover it.** The three arm
+definitions and both fixtures are byte-identical on main; the driver, the heap
+probe, the app shell, the harness and the guard are not. The heap rows are
+**not** re-run on that account, and the reason is the one this page and [the
+converged set](p0-converged-witness-set.md) both give: retained bytes per
+subscribing boundary is a property of *the boundary*, and the axis already
+rests on three shapes spanning a 4× range in markup density agreeing within 8%
+— this page's list at 2.262×, its grid at 2.254×, and [the heap
+ladder](reads-per-boundary-heap-ladder.md)'s 2.435×. **The ladder was itself
+re-run under the repaired guard and every threshold moved by less than 0.2%**,
+which is the best available evidence that #7267's guard change is inert. A
+reader who wants the stronger check has the blob table above and the command
+below.
+
+```bash
+P=implementation/core/test/re_frame/bench/p0_heap.cljs
+git rev-parse 1415d9f7af:$P   # 28caa45a31e4cb27b3305b1abf63d97dcc2c1a5e
+git merge-base --is-ancestor 1415d9f7af origin/main && echo on-main
+```
+
 | | |
 |---|---|
-| **Producing commit** | `bc5f38f10a` |
+| **Producing commit** | `bc5f38f10a` — **off main.** Its landed equivalent is **`1415d9f7af`**, whose instrument tree is **byte-identical** (every blob in the table above matches); this page landed as **`462bcbffd4`**. The rebase rewrote the ids and moved no instrument byte |
 | **Reproduction (clock)** | `P0_ROUNDS=5 P0_SAMPLES=10 P0_WARMUPS=4 node implementation/core/test/re_frame/bench/p0_run.cjs --only clock` |
 | **Reproduction (heap)** | `P0_ROUNDS=5 P0_ROOTS=4 node implementation/core/test/re_frame/bench/p0_run.cjs --only heap` |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows x64 |
