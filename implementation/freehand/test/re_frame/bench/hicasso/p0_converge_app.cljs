@@ -59,15 +59,22 @@
 
   ## Three arms a segment, and why not two
 
-  rf2-ouwh8: `lane/slot-order` rotates and then REFLECTS, and at k=2 those
-  two operations cancel — `[0 1]` rotates to `[1 0]` and reflects back to
-  `[0 1]`, at every sample index, for ever. A two-arm plan therefore runs
-  in ONE order and `both orders` is a claim it cannot support. This entry
-  never forms a two-arm plan: `:ctl-2x` is measured INSIDE the interleave
-  as rf2-2rtt6.2 measures it, so every segment carries three arms and the
-  reflection does what the guard's self-test says it does. The property is
-  asserted at boot ([[slot-order-degenerates-at-2?]]) rather than trusted,
-  and the run refuses to measure if the assertion does not hold.
+  rf2-ouwh8: `lane/slot-order` rotated and then REFLECTED, and at k=2 those
+  two operations cancelled — `[0 1]` rotates to `[1 0]` and reflects back
+  to `[0 1]`, at every sample index, for ever. A two-arm plan therefore ran
+  in ONE order and `both orders` was a claim it could not support. This
+  entry was designed around that and never forms a two-arm plan: `:ctl-2x`
+  is measured INSIDE the interleave as rf2-2rtt6.2 measures it, so every
+  segment carries three arms.
+
+  THE DEFECT HAS SINCE BEEN REPAIRED (PR #7267): at k=2 the reflection is
+  dropped, and the plain rotation alternates, which is every order two arms
+  have. The three-arm plan is KEPT anyway — it is what every published row
+  on this page was measured under, and the schedule an arm runs is part of
+  its window. The boot assertion therefore checks the REPAIRED property
+  rather than the defect ([[slot-order-varies-at-2?]], which records what
+  went wrong when that distinction was missed), and the run still refuses
+  to measure if it does not hold.
 
   ## Two segments, and what makes the seam legitimate
 
@@ -724,14 +731,38 @@
 ;; The schedule's own precondition (rf2-ouwh8)
 ;; ---------------------------------------------------------------------------
 
-(defn- slot-order-degenerates-at-2?
-  "Does `slot-order` emit the SAME order at every sample index when there
-  are two arms? rf2-ouwh8 says yes — rotate `[0 1]` to `[1 0]`, reflect
-  back to `[0 1]` — and three copies of the rule carry it. Asserted here
-  rather than trusted, because this entry's whole `both orders` claim
-  rests on never forming a two-arm plan."
+(defn- slot-order-varies-at-2?
+  "Does `slot-order` emit MORE THAN ONE order at `k = 2`?
+
+  It does now, and that is a REVERSAL of what this function used to assert.
+  rf2-ouwh8 found that composing rotate-then-reflect at `k = 2` returns
+  `[0 1]` at every index — reversing a pair IS rotating it by one, so the
+  two operations cancel and a two-arm plan ran in ONE ORDER FOR EVER. This
+  entry was designed around that defect: it puts THREE arms in every
+  segment so it never forms a two-arm plan, and it asserted the degeneracy
+  at boot so the justification could not rot.
+
+  The defect was then REPAIRED (`e176fed976`, PR #7267): at `k = 2` the
+  reflection is dropped and the plain rotation alternates `[0 1]` and
+  `[1 0]`, which is every order two arms have. The assertion did rot — in
+  the other direction. It went on asserting the pre-repair behaviour, went
+  false the moment the repair landed, and this entry's `-main` refused to
+  measure anything from then until rf2-zb3qg found it. Every row of
+  `docs/design/hicasso/studio/p0-converged-witness-set.md` was
+  unreproducible at HEAD for that whole window: the repro command exited 1
+  before taking a sample.
+
+  So it asserts the REPAIRED property instead, as a canary — if `k = 2`
+  ever silently degenerates again, this entry says so at boot rather than
+  in a table.
+
+  THE THREE-ARM PLAN IS KEPT, and not because a two-arm plan would still
+  be single-order. It would not. It is kept because three arms is what
+  every published row on this page was measured under, and the schedule an
+  arm runs is part of its window: changing it would move numbers that
+  nothing here is re-running."
   []
-  (apply = (map #(guard/slot-order 2 %) (range 8))))
+  (> (count (distinct (map #(guard/slot-order 2 %) (range 8)))) 1))
 
 (defn- slot-order-varies-at-3?
   "And the three-arm plan this entry actually runs must NOT degenerate."
@@ -871,11 +902,13 @@
                            "was measured"))
           (lane/done!))
 
-      (not (slot-order-degenerates-at-2?))
-      (do (lane/fail! (str "slot-order no longer degenerates at k=2. rf2-ouwh8 is the reason "
-                           "this entry puts three arms in every segment; if the rule has "
-                           "changed, the schedule's justification has to be re-derived before "
-                           "anything here is measured"))
+      (not (slot-order-varies-at-2?))
+      (do (lane/fail! (str "slot-order has DEGENERATED at k=2 — it emits one order at every "
+                           "sample index, which is the rf2-ouwh8 defect returning. This entry "
+                           "runs three arms and is not itself affected, but the shared rule it "
+                           "takes its schedule from is, so nothing here is measured until the "
+                           "rule is repaired. The repair belongs to the schedule, never to the "
+                           "tolerance"))
           (lane/done!))
 
       (not (slot-order-varies-at-3?))

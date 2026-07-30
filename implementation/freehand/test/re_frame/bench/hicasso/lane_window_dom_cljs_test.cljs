@@ -66,11 +66,22 @@
     (.appendChild js/document.body c)
     c))
 
+(defn- grid-container!
+  "A container holding `n` cells, all reading `\"old\"` — the smallest page
+  a BATCHED window can write `k` distinct cells into."
+  [n]
+  (let [c (js/document.createElement "div")]
+    (set! (.-innerHTML c)
+          (apply str (map (fn [i] (str "<span data-i=\"" i "\">old</span>")) (range n))))
+    (.appendChild js/document.body c)
+    c))
+
 (defn- commit!
   "Put `v` on the page. The ONLY way anything here reaches the DOM, so a
   window that does not reach it leaves the cell reading `\"old\"`."
-  [container v]
-  (set! (.-textContent (.querySelector container "[data-i=\"0\"]")) (str v)))
+  ([container v] (commit! container 0 v))
+  ([container i v]
+   (set! (.-textContent (.querySelector container (str "[data-i=\"" i "\"]"))) (str v))))
 
 ;; ---------------------------------------------------------------------------
 ;; The two scheduler families, as fakes
@@ -251,6 +262,137 @@
                        ;; asymmetry against the microtask window is a NUMBER
                        ;; rather than an assurance.
                        (is (number? (:gap-ms r)) ":gap-ms is measured, not asserted")
+                       (.remove c)
+                       (done)))
+              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+
+;; ---------------------------------------------------------------------------
+;; The batched window — k operations, ONE clock (rf2-zb3qg)
+;; ---------------------------------------------------------------------------
+
+(defn- recording-arm
+  "An arm that writes straight to the page and records the ORDER of its
+  turns, so a test can assert how many harness microtasks a window holds.
+
+  The write queues a microtask that records the fact; if the window yields
+  before draining, that microtask has run by the time `force!` is called."
+  [container seen]
+  {:id     :recording
+   :write! (fn [i v]
+             (.then (js/Promise.resolve nil) (fn [_] (swap! seen conj :microtask-ran)))
+             (swap! seen conj :wrote)
+             (commit! container i v)
+             nil)
+   :force! (fn [] (swap! seen conj :forced))})
+
+(defn- ops-for
+  "`k` ops, each its OWN cell and its OWN value — the caller obligation
+  `lane/verified-writes!` states, so no read-back can be satisfied by a
+  neighbour's commit."
+  [k]
+  (mapv (fn [i] [i (str "v" i) [i]]) (range k)))
+
+(deftest batched-yielding-window-holds-exactly-one-yield-per-operation
+  (testing "k ops under one clock keep the fixed yield PER OPERATION — the
+           window holds k harness turns, never 2k and never one for the
+           whole batch, which is what makes a batched figure comparable
+           with the unbatched one it supersedes"
+    (async done
+      (if-not (lane/browser?)
+        (do (is true off-browser) (done))
+        (let [k    3
+              c    (grid-container! k)
+              seen (atom [])
+              t    (lane/tally)]
+          (-> (lane/verified-writes! t {:arm (recording-arm c seen) :container c} (ops-for k))
+              (.then (fn [r]
+                       (is (= [:wrote :microtask-ran :forced
+                               :wrote :microtask-ran :forced
+                               :wrote :microtask-ran :forced]
+                              @seen)
+                           "exactly one microtask sits between each write and its own drain")
+                       (is (true? (:ok? r)))
+                       (is (= [true true true] (:oks r)) "one flag per op")
+                       ;; The tally counts OPERATIONS, not samples: a batched
+                       ;; row that banked one write per window would publish
+                       ;; `N unverified of M` with an M a tenth of the truth.
+                       (is (= {:writes k :unverified 0} (lane/tally-value t))
+                           "the tally banks every op in the batch")
+                       (.remove c)
+                       (done)))
+              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+
+(deftest a-batch-of-one-is-the-unbatched-window-exactly
+  (testing "k = 1 is the pre-batch window, turn for turn — this is what lets
+           the BROAD row pass a batch of one and not move, while the narrow
+           row batches"
+    (async done
+      (if-not (lane/browser?)
+        (do (is true off-browser) (done))
+        (let [c    (grid-container! 1)
+              seen (atom [])
+              t    (lane/tally)]
+          (-> (lane/verified-writes! t {:arm (recording-arm c seen) :container c} (ops-for 1))
+              (.then (fn [r]
+                       (is (= [:wrote :microtask-ran :forced] @seen)
+                           "one write, one yield, one drain — the unbatched shape")
+                       (is (true? (:ok? r)))
+                       (is (= {:writes 1 :unverified 0} (lane/tally-value t)))
+                       (.remove c)
+                       (done)))
+              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+
+(deftest a-batched-microtask-arm-puts-nothing-between-write-and-drain
+  (testing "the microtask family's batched window is one synchronous run —
+           not even a microtask separates a drain from the next write"
+    (async done
+      (if-not (lane/browser?)
+        (do (is true off-browser) (done))
+        (let [k    3
+              c    (grid-container! k)
+              seen (atom [])
+              t    (lane/tally)
+              arm  (assoc (recording-arm c seen) :scheduler :microtask)]
+          (-> (lane/verified-writes! t {:arm arm :container c} (ops-for k))
+              (.then (fn [r]
+                       ;; The first 2k entries are the WINDOW, and they are
+                       ;; write/drain/write/drain with nothing in between. The
+                       ;; arm's own queued microtasks appear only AFTER all of
+                       ;; them, which is the claim stated from the other side:
+                       ;; the batch is one synchronous run, so no microtask —
+                       ;; not even one the arm queued itself — can interleave
+                       ;; with it. Under the yielding shape those same three
+                       ;; turns land INSIDE the window, one per operation.
+                       (is (= [:wrote :forced :wrote :forced :wrote :forced]
+                              (vec (take (* 2 k) @seen)))
+                           "no turn of any kind between a write and its drain")
+                       (is (= [:microtask-ran :microtask-ran :microtask-ran]
+                              (vec (drop (* 2 k) @seen)))
+                           "and the arm's own microtasks ran only once the window had closed")
+                       (is (zero? (:gap-ms r)) ":gap-ms must be 0.0, not merely small")
+                       (is (= {:writes k :unverified 0} (lane/tally-value t)))
+                       (.remove c)
+                       (done)))
+              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+
+(deftest a-batch-reports-every-op-that-missed-the-dom
+  (testing "an arm whose commits never land reads `k unverified of k`, not
+           one — the count a published row quotes is per OPERATION"
+    (async done
+      (if-not (lane/browser?)
+        (do (is true off-browser) (done))
+        (let [k   3
+              c   (grid-container! k)
+              t   (lane/tally)
+              ;; Writes nothing to the page at all: the window's milliseconds
+              ;; are real and they measure nothing.
+              arm {:id :never-commits :write! (fn [_i _v] nil) :force! (fn [] nil)}]
+          (-> (lane/verified-writes! t {:arm arm :container c} (ops-for k))
+              (.then (fn [r]
+                       (is (false? (:ok? r)))
+                       (is (= [false false false] (:oks r)))
+                       (is (= {:writes k :unverified k} (lane/tally-value t))
+                           "k unverified of k")
                        (.remove c)
                        (done)))
               (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
