@@ -76,6 +76,12 @@
   3. **An arm-order guard that exits 2 on refusal** (rf2-om73r). It
      partitions each arm's per-round figures by predecessor AND by
      position and refuses `unchecked` as loudly as `contaminated`.
+     One downgrade exists (rf2-hydpy): a refusal every one of whose arms
+     provably reads the instrument's per-WINDOW floor — shown by the
+     rf2-tmzie reps sweep, per arm, at the time of refusal — is quoted as
+     CERTIFIED AT THE FLOOR (each arm an upper bound, never a p50) and the
+     run exits 0. Any arm the sweep cannot attribute keeps exit 2; the
+     guard itself, its tolerance and its refusals are untouched.
 
   ## Read-back: \"N unverified of M\"
 
@@ -270,7 +276,8 @@
   RA_ORDER=rev (reverse the base plan before scheduling — a knob, not the
   mitigation), RA_COORDS=0 (register WITHOUT source coords — a labelled
   control, not the default)."
-  (:require [goog.object :as gobj]
+  (:require [clojure.string :as str]
+            [goog.object :as gobj]
             [goog.string :as gstring]
             [goog.string.format]
             [re-frame.adapter.context :as adapter-context]
@@ -1089,6 +1096,165 @@
     (-> (js/Math.round (/ target per)) (max 1) (min 4000))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-hydpy — the floor-aware quote
+;;
+;; Every improvement on this surface now lands its arms at the instrument's
+;; own floor, and the arm-order guard refuses a floor-level arm exactly as it
+;; refuses a contaminated one — rf2-2ix22's two AFTER runs exited 2 on six
+;; arms the levers had optimised to ~nothing, every one refused by PHASE with
+;; an identical ratio and nothing else in common. The signature is a
+;; per-WINDOW floor: an arm that no longer allocates reads the instrument's
+;; own per-window bytes divided by its rep count, and when that floor moves
+;; mid-run the arm's rounds split disjointly. That is not the arm's subject
+;; moving, but the guard cannot know it from the plan alone.
+;;
+;; The discriminator is rf2-tmzie's, applied per REFUSED arm: re-measure the
+;; arm across window sizes. A REAL per-call cost cannot see the window, so
+;; its B/call is flat across the ladder; a per-WINDOW quantity divides by
+;; reps, so across a span-S ladder it falls ~S-fold. [[floor-verdict]] demands
+;; at least HALF the full per-window collapse, so every recorded per-call
+;; signature refuses attribution: rf2-tmzie's C-FRAME drifted 1.09x over a
+;; 62x range (real, stays refused), rf2-ktrvw's closure bimodality is bounded
+;; by 2x — its two modes (real, stays refused) — and the demanded ratio is
+;; span/2 >= 2 at the minimum span of 4. A refused arm whose sweep DOES
+;; collapse is CERTIFIED AT THE FLOOR: quotable as the upper bound of its
+;; worst round, never as a measured p50 — the same quote the floor arms in
+;; the table above already carry, now with the exit code to match.
+;;
+;; What this is NOT: the guard is untouched — its tolerance, its factors and
+;; its refusals stand exactly as before, and an arm the sweep cannot attribute
+;; (flat, bimodal, unverified, or a plan-level :unchecked) leaves the run at
+;; exit 2. Attribution can only ever move a refusal to a WEAKER claim (an
+;; upper bound), never to a certified measurement, and every branch of
+;; [[floor-verdict]] fails toward refusal. Residual risk, stated: a genuinely
+;; per-call mechanism that fell by more than half the ladder span across an
+;; 8x window range would read as the floor; no mechanism on record does, and
+;; one that did would first have to defeat the read-back check that pins
+;; `per x reps` units of work to every sweep window.
+
+(defn- floor-verdict
+  "Classify what one guard-refused arm reads: a per-CALL cost, or the
+  instrument's per-WINDOW floor. PURE — [[floor-self-test]] prices it on
+  recorded fixtures before any live sweep is trusted.
+
+  `points` — [{:reps r :p50 bytes-per-call :unverified u} ...] from
+  re-measuring the arm at window sizes derived from its own calibrated reps.
+
+  Answers `{:status :floor | :per-call | :indeterminate}` plus the numbers.
+  `:floor` needs B/call to fall by at least span/2 from the smallest window
+  to the largest — half the collapse a pure per-window floor shows — over a
+  span of at least 4. Everything else, including an unverified sweep window,
+  a short ladder or a zero-only sweep, is NOT attribution: the refusal
+  stands."
+  [points]
+  (let [pts   (vec (sort-by :reps points))
+        r-lo  (:reps (first pts) 0)
+        r-hi  (:reps (peek pts) 0)
+        span  (if (pos? r-lo) (/ r-hi r-lo) 0)
+        small (:p50 (first pts))
+        large (:p50 (peek pts))
+        unv   (reduce + (map #(:unverified % 0) pts))]
+    (cond
+      (< (count pts) 2)
+      {:status :indeterminate :why "fewer than two ladder points"}
+
+      (pos? unv)
+      {:status :indeterminate
+       :why    (str unv " UNVERIFIED sweep window(s) — the sweep did not measure the arm")}
+
+      (some #(neg? (:p50 %)) pts)
+      {:status :indeterminate :why "a ladder point accepted no samples"}
+
+      (< span 4)
+      {:status :indeterminate
+       :why    (str "ladder span " span "x < 4x — too narrow to tell a floor from a cost")}
+
+      (and (zero? small) (zero? large))
+      {:status :indeterminate :why "both endpoints read 0 — nothing here explains a refusal"}
+
+      :else
+      (let [ratio     (cond (== small large) 1.0
+                            (zero? large)    js/Infinity
+                            :else            (/ small large))
+            threshold (/ span 2.0)
+            floor?    (>= ratio threshold)]
+        {:status    (if floor? :floor :per-call)
+         :ratio     ratio
+         :span      span
+         :threshold threshold
+         :why       (if floor?
+                      (str "B/call falls " (.toFixed ratio 2) "x across a " span
+                           "x ladder (>= span/2 = " (.toFixed threshold 1)
+                           ") — a per-WINDOW floor, not a per-call cost")
+                      (str "B/call moves only " (.toFixed ratio 2) "x across a " span
+                           "x ladder (< span/2 = " (.toFixed threshold 1)
+                           ") — a real per-call reading; the refusal stands"))}))))
+
+(defn- floor-self-test
+  "Deterministic fixtures replayed from recorded readings, one per property
+  the verdict must hold. Both directions are priced: the floors that must
+  attribute, and the real per-call signatures — flat, and bimodal — that must
+  not."
+  []
+  (let [checks
+        [;; rf2-tmzie's C-FRAME: the recorded REAL per-call cost, flat within
+         ;; 9% over a 62x range. A cost this flat may never read as the floor.
+         {:name   "a rep-INDEPENDENT reading is a per-call cost — the refusal stands"
+          :want   :per-call
+          :points [{:reps 64 :p50 34.8} {:reps 256 :p50 32.7}
+                   {:reps 512 :p50 32.1} {:reps 4000 :p50 32.0}]}
+         ;; rf2-tmzie's C-FRAMEG: the recorded floor, falling as 1/reps to
+         ;; zero — the endpoint ratio is infinite and infinity clears span/2.
+         {:name   "the recorded 1/reps collapse to zero is the floor"
+          :want   :floor
+          :points [{:reps 64 :p50 2.3} {:reps 256 :p50 0.6}
+                   {:reps 512 :p50 0.0} {:reps 4000 :p50 0.0}]}
+         ;; a floor that never reaches zero still collapses with the window
+         {:name   "a 1/reps collapse that stays nonzero is still the floor"
+          :want   :floor
+          :points [{:reps 500 :p50 128.0} {:reps 1000 :p50 64.0}
+                   {:reps 2000 :p50 32.0} {:reps 4000 :p50 16.0}]}
+         ;; rf2-ktrvw's closure bimodality: a REAL 64/128 B per-call cost whose
+         ;; p50 lands in different modes at different ladder points. Its 2x is
+         ;; below span/2 at every accepted span, so it must NOT attribute —
+         ;; this is the planted-bimodal direction, priced as a fixture.
+         {:name   "the bimodal closure step is NOT the floor — the refusal stands"
+          :want   :per-call
+          :points [{:reps 500 :p50 128.1} {:reps 1000 :p50 128.1}
+                   {:reps 2000 :p50 64.0} {:reps 4000 :p50 64.0}]}
+         ;; the recorded 2.0125x order contamination (rf2-jr76s's fixture in
+         ;; the guard's own self-test) is likewise under span/2
+         {:name   "a 2x contaminated reading is NOT the floor at span 8"
+          :want   :per-call
+          :points [{:reps 500 :p50 16.1} {:reps 1000 :p50 12.0}
+                   {:reps 2000 :p50 9.0} {:reps 4000 :p50 8.0}]}
+         {:name   "a ladder too narrow to discriminate refuses attribution"
+          :want   :indeterminate
+          :points [{:reps 2 :p50 10.0} {:reps 4 :p50 2.0}]}
+         {:name   "an unverified sweep window refuses attribution"
+          :want   :indeterminate
+          :points [{:reps 500 :p50 128.0} {:reps 4000 :p50 16.0 :unverified 1}]}
+         {:name   "a zero-only sweep explains no refusal"
+          :want   :indeterminate
+          :points [{:reps 500 :p50 0.0} {:reps 4000 :p50 0.0}]}]
+        results (mapv (fn [{:keys [name want points]}]
+                        (let [v (floor-verdict points)]
+                          {:name name :want want :got (:status v)
+                           :ok (= want (:status v)) :why (:why v)}))
+                      checks)]
+    {:ok? (every? :ok results) :checks results}))
+
+(defn- print-floor-self-test!
+  "Run [[floor-self-test]], print each check, and answer whether it passed. A
+  harness that gets `false` must measure nothing."
+  []
+  (let [st (floor-self-test)]
+    (doseq [c (:checks st)]
+      (println (str ";; floor-verdict " (if (:ok c) "ok  " "FAIL") " " (:name c)
+                    "  — want " (name (:want c)) ", got " (name (:got c)))))
+    (:ok? st)))
+
+;; ---------------------------------------------------------------------------
 ;; rig construction
 
 (defn- db-of [n] {:items (mapv (fn [i] [:v i]) (range n))})
@@ -1167,6 +1333,10 @@
   ;; are fixtures replayed from recorded readings, so this is deterministic.
   (when-not (guard/print-self-test!)
     (throw (ex-info "order guard self-test FAILED — nothing may be measured" {})))
+  ;; And its floor-attribution counterpart (rf2-hydpy), for the same reason:
+  ;; a broken verdict here could lift a refusal it had no right to lift.
+  (when-not (print-floor-self-test!)
+    (throw (ex-info "floor-verdict self-test FAILED — nothing may be measured" {})))
   (let [n            (env-int "RA_N" 300)
         samples      (env-int "RA_SAMPLES" 42)
         warmup       (env-int "RA_WARMUP" 3)
@@ -1759,18 +1929,96 @@
         ;; --- arm order, LAST, and it governs everything above ---------------
         ;; The figures are printed and the refusal is about what may be QUOTED,
         ;; not about throwing the measurement away — so the exit code carries it.
+        ;;
+        ;; rf2-hydpy: a refusal is no longer the last word. Each refused arm is
+        ;; re-measured across a reps ladder (the rf2-tmzie sweep), and a
+        ;; refusal every one of whose arms provably reads the instrument's
+        ;; per-WINDOW floor — not its own subject — is downgraded to a
+        ;; CERTIFIED-AT-FLOOR quote: the arm's worst round as an upper bound,
+        ;; never its p50. Any arm the sweep cannot attribute, and any
+        ;; :unchecked refusal (a plan defect, which no sweep can excuse),
+        ;; keeps the run at exit 2 exactly as before.
         (let [v (guard/verdict (:order run) {:tolerance tolerance})]
           (doseq [line (guard/report-lines v "the per-arm figure, one p50 per round")]
             (println line))
           (when (:refuse? v)
-            (println ";;")
-            (println ";; ==== ARM ORDER: THESE FIGURES ARE NOT REPORTABLE ====")
-            (println (str ";;   at least one arm reads differently for what preceded it, or for where "
-                          "in the run"))
-            (println (str ";;   it was measured (rf2-88pie). The table above stands as raw data; "
-                          "nothing in it"))
-            (println ";;   may be quoted.")
-            (set! (.-exitCode js/process) 2)))
+            (let [arms-with    (fn [k]
+                                 (->> (:arms v)
+                                      (filter (fn [[_ a]]
+                                                (some (fn [[_ r]] (= k (:status r)))
+                                                      (:factors a))))
+                                      (map key)
+                                      sort
+                                      vec))
+                  unchecked    (arms-with :unchecked)
+                  contaminated (arms-with :contaminated)
+                  by-label     (into {} (map (fn [[label f per]] [label [f per]])) plan)
+                  refuse!      (fn [extra-lines]
+                                 (println ";;")
+                                 (println ";; ==== ARM ORDER: THESE FIGURES ARE NOT REPORTABLE ====")
+                                 (println (str ";;   at least one arm reads differently for what preceded it, or for where "
+                                               "in the run"))
+                                 (println (str ";;   it was measured (rf2-88pie). The table above stands as raw data; "
+                                               "nothing in it"))
+                                 (println ";;   may be quoted.")
+                                 (doseq [l extra-lines] (println l))
+                                 (set! (.-exitCode js/process) 2))]
+              (println ";;")
+              (println ";; ==== FLOOR ATTRIBUTION (rf2-hydpy) — is each refused arm reading its subject, or the instrument? ====")
+              (println ";;   each refused arm re-measured across window sizes derived from its own reps.")
+              (println ";;   a REAL per-call cost is rep-INDEPENDENT in B/call; a per-WINDOW floor falls")
+              (println ";;   as the window grows. attribution demands at least HALF the full per-window")
+              (println ";;   collapse (ratio >= span/2), which no recorded per-call signature reaches.")
+              (if (seq unchecked)
+                (refuse! [(str ";;   FLOOR ATTRIBUTION does not apply: "
+                               (str/join ", " unchecked)
+                               " refused as UNCHECKED — a plan defect, which no sweep can excuse.")])
+                (let [verdicts
+                      (mapv
+                        (fn [label]
+                          (let [[f per] (get by-label label)
+                                reps*   (:reps (get res label))
+                                ladder  (->> [(/ reps* 8) (/ reps* 4) (/ reps* 2) reps*]
+                                             (map #(js/Math.ceil %))
+                                             (map #(max 1 %))
+                                             distinct
+                                             vec)
+                                points  (mapv (fn [r]
+                                                (let [m (measure f r 9 (advanced-by per))]
+                                                  {:reps r :p50 (:p50 m)
+                                                   :unverified (:unverified m)}))
+                                              ladder)
+                                fv      (floor-verdict points)
+                                bound   (apply max (:rounds (get res label)))]
+                            (println (gstring/format ";;   %-12s worst round p50 %s B/call (%s per unit)"
+                                             label (fmt bound) (fmt (/ bound per))))
+                            (doseq [{:keys [reps p50 unverified]} points]
+                              (println (gstring/format ";;     reps=%-6d %12s B/call  %14s B/window  (%d UNVERIFIED of 9)"
+                                               reps (fmt p50) (fmt (* reps p50)) unverified)))
+                            (println (gstring/format ";;     -> %s: %s"
+                                             (case (:status fv)
+                                               :floor         "FLOOR"
+                                               :per-call      "PER-CALL"
+                                               "INDETERMINATE")
+                                             (:why fv)))
+                            (assoc fv :label label :bound bound :per per)))
+                        contaminated)]
+                  (if (every? #(= :floor (:status %)) verdicts)
+                    (do
+                      (println ";;")
+                      (println ";; ==== ARM ORDER: EVERY REFUSAL IS THE INSTRUMENT'S OWN FLOOR ====")
+                      (println ";;   the guard's refusals above are attributed, arm by arm, to a per-WINDOW")
+                      (println ";;   floor by the sweep. Each arm below is CERTIFIED AT THE FLOOR: quotable")
+                      (println ";;   ONLY as its upper bound, never as a measured p50. Arms the guard did")
+                      (println ";;   not refuse are unaffected, and remain quotable as measured.")
+                      (doseq [{:keys [label bound per]} verdicts]
+                        (println (gstring/format ";;   %-12s <= %s B/call  (%s per unit)  — an UPPER BOUND at the instrument's floor"
+                                         label (fmt bound) (fmt (/ bound per))))))
+                    (refuse! [(str ";;   FLOOR ATTRIBUTION failed on: "
+                                   (str/join ", "
+                                             (keep #(when (not= :floor (:status %)) (:label %))
+                                                   verdicts))
+                                   " — what those arms read is not the per-window floor.")])))))))
         (let [total (reduce + (map (fn [[l _ _]] (:unverified (get res l))) plan))
               wins  (reduce + (map (fn [[l _ _]] (:windows (get res l))) plan))]
           (println ";;")
