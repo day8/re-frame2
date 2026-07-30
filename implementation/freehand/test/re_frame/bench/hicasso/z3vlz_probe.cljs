@@ -294,7 +294,16 @@
 
 (defn- tally
   "`N unverified of M` per ORDER, plus the rung histogram that tells a
-  never-re-rendered apart from a late one."
+  never-re-rendered apart from a late one.
+
+  `:db-followed-all?` is gated on the KEY BEING PRESENT and never on the
+  value being truthy. `(some :db-followed? rs)` — what this did — drops
+  the slot precisely when every write failed the app-db witness, which is
+  the one case it exists to report: the field goes silent exactly when the
+  interesting thing has happened, and a reader sees the same absence it
+  sees for the raw control, which legitimately has no app-db at all. The
+  population is what is asserted (`every?`), not the existence of one
+  member of it."
   [results]
   (into {}
         (map (fn [[order rs]]
@@ -309,8 +318,10 @@
                                                [m {:of (count ms)
                                                    :unverified (count (remove :ok? ms))}]))
                                      (group-by :mechanism rs)))
-                        (some :db-followed? rs)
-                        (assoc :db-followed-all? (every? :db-followed? rs)))]))
+                        (some #(contains? % :db-followed?) rs)
+                        (assoc :db-followed-all? (every? :db-followed? rs)
+                               :db-followed-of   (str (count (filter :db-followed? rs))
+                                                      " of " (count rs))))]))
         (group-by :order results)))
 
 (defn- writes-over-orders!
@@ -339,11 +350,21 @@
                                (let [mech (if (odd? v) :replace-app-db :dispatch-sync)]
                                  [mech (write-fn fid v mech)])))
         (.then (fn [results]
-                 (try (unmount handle) (catch :default _ nil))
+                 ;; RECORDED, never swallowed. This arm runs BEFORE nothing
+                 ;; and AFTER the raw control, in one page, against one
+                 ;; document — an unmount that threw leaves this arm's React
+                 ;; root, its `reg-view` boundaries and their subscriptions
+                 ;; standing, and the next page's arms would be certified on
+                 ;; a contaminated document. The container is detached either
+                 ;; way; the record is what makes it fatal.
+                 (try (unmount handle)
+                      (catch :default e
+                        (lane/teardown-failure! "z3vlz subs-arm unmount" e)))
                  (.remove container)
-                 {:mount  {:ok? mount-ok? :cells mount-cells}
-                  :orders (tally results)
-                  :failed (vec (take 3 (remove :ok? results)))})))))
+                 {:mount    {:ok? mount-ok? :cells mount-cells}
+                  :orders   (tally results)
+                  :teardown (lane/drain-teardown-failures!)
+                  :failed   (vec (take 3 (remove :ok? results)))})))))
 
 (defn- run-raw-control!
   "THE POSITIVE CONTROL, in the same bundle and the same harness: a plain
@@ -365,10 +386,65 @@
     (-> (writes-over-orders! substrate container nil
                              (fn [v] [nil (fn [] (raw-write! v))]))
         (.then (fn [results]
-                 (try (unmount handle) (catch :default _ nil))
+                 ;; The control runs FIRST and the arm under test follows it
+                 ;; on the same document, so a swallowed failure here is the
+                 ;; worse of the two: the arm whose result the bead turns on
+                 ;; would be measured on a page still carrying the control's
+                 ;; roots and its ratom's watchers.
+                 (try (unmount handle)
+                      (catch :default e
+                        (lane/teardown-failure! "z3vlz raw-control unmount" e)))
                  (.remove container)
-                 {:mount  {:ok? mount-ok?}
-                  :orders (tally results)})))))
+                 {:mount    {:ok? mount-ok?}
+                  :orders   (tally results)
+                  :teardown (lane/drain-teardown-failures!)})))))
+
+;; ---------------------------------------------------------------------------
+;; The gate payload — the same figures, in a shape a driver can ADJUDICATE
+;; ---------------------------------------------------------------------------
+;;
+;; `lane/record!` parks EDN strings, which are for a reader. A driver that
+;; had to scrape them with regexes would be a second, drifting expression
+;; of the same arithmetic — and a regex that stopped matching would report
+;; `?` and pass, which is the fail-open shape this rig is being repaired
+;; for. So the probe publishes its own figures once more as a flat JS
+;; record with no `?` in any key.
+;;
+;; A LITERAL `#js` object, deliberately: `clj->js` renders `:ok?` as the
+;; key `"ok?"`, and `p0-heap/mount!`'s docstring records the run where a
+;; driver reading `verify.ok` saw `undefined` and reported every mount
+;; unverified while every mount was fine. `:by-rung`'s keys carry no `?`
+;; and are converted.
+
+(defn- order-gate
+  "One order's figures. `dbFollowedAll` is `null` when the arm has no
+  app-db to witness (the raw control) and a BOOLEAN otherwise — so the
+  driver can require `true` of the subs arm and `null` of the control, and
+  a slot that went missing reads as a refusal rather than as a pass."
+  [orders k]
+  (let [o (get orders k)]
+    #js {"of"            (:of o)
+         "unverified"    (:unverified o)
+         "rungs"         (clj->js (:by-rung o))
+         "dbFollowedAll" (:db-followed-all? o)}))
+
+(defn- arm-gate [arm]
+  #js {"mountOk"  (boolean (:ok? (:mount arm)))
+       "teardown" (clj->js (mapv (fn [f] (str (:where f) ": " (:error f)))
+                                 (:teardown arm)))
+       "orders"   #js {"inside-drain"      (order-gate (:orders arm) :inside-drain)
+                       "drain-immediately" (order-gate (:orders arm) :drain-immediately)
+                       "yield-then-drain"  (order-gate (:orders arm) :yield-then-drain)}})
+
+(defn- publish-gates!
+  "Park the adjudicable record on `window.Z3VLZ_GATES`. Absent means the
+  probe did not get this far, and the driver treats that as a failure —
+  a page that produced no gates cannot have its contract checked, and an
+  unchecked contract is the thing being repaired."
+  [control subs]
+  (set! (.-Z3VLZ_GATES js/window)
+        #js {"raw" (arm-gate control) "subs" (arm-gate subs)})
+  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; The run
@@ -379,9 +455,11 @@
   (-> (run-raw-control! substrate)
       (.then (fn [control]
                (lane/record! :raw-control control)
-               (run-subs-arm! substrate fid)))
-      (.then (fn [subs]
+               (-> (run-subs-arm! substrate fid)
+                   (.then (fn [subs] [control subs])))))
+      (.then (fn [[control subs]]
                (lane/record! :subs-arm subs)
+               (publish-gates! control subs)
                (let [o (:orders subs)
                      un (fn [k] (get-in o [k :summary]))]
                  (lane/record! :verdict

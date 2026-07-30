@@ -27,10 +27,47 @@
 // probe that threw and kept going reports on a page that is not the page
 // under test.
 //
+// ## EVERY FIGURE THIS DRIVER PRINTS, IT EXITS ON
+//
+// It did not. Until this repair the only exit-bearing checks were the
+// build, the bundle-composition check and a page error — so a run in
+// which a mount did not verify, in which a slim page stopped reading
+// `0/0/12`, in which the app-db witness went missing, or in which an
+// unmount threw between the two arms, printed a `?` or a different number
+// beside `[z3vlz] ok` and exited 0. A count that is DISPLAYED but not
+// GATED is decoration, and this rig exists because an ungated count in
+// HD-008 nearly published `reagent-slim narrow write is 2-6x faster than
+// a top-down re-render` off a page that never changed.
+//
+// So every page now carries a CONTRACT in data — `PAGE_CONTRACT` below —
+// and the driver adjudicates the probe's own figures against it. The
+// contract is exactly the matrix this rig published
+// (`docs/design/hicasso/studio/slim-non-reactive-arm-diagnosis.md`), and
+// it is stated per page rather than derived, so a drift has to be
+// declared to be accepted.
+//
+// The figures come from `window.Z3VLZ_GATES`, which the probe publishes
+// as a flat JS record beside its EDN. Scraping the EDN with regexes would
+// be a second expression of the same arithmetic, and a regex that stopped
+// matching would report `?` and PASS — the same fail-open shape.
+//
+// EVERY failed gate is named, never the last one: `failures` is a list,
+// not a slot, because a run that failed two things must not report one.
+// That is `p0_run.cjs`'s shape and this is the same rule.
+//
+// THE CONTRACT IS ENFORCED IN THE `Z3VLZ_OPT=none` AID TOO. The aid is a
+// rig-debugging build and never a source of a finding, so a divergence
+// there is a finding ABOUT THE AID and the driver names it rather than
+// quietly exempting it. There is no knob to relax the contract: the
+// repair for a refusal is the arm or the declared contract, never the
+// gate.
+//
 // EXIT CODES
-//   0  every declared bundle matched, every page ran, every record printed
+//   0  every declared bundle matched, every page ran, and every page met
+//      its declared contract
 //   1  a build failed, a bundle did not match its declared composition, a
-//      page threw, or the probe recorded a fatal
+//      page threw, the probe recorded a fatal, a page published no gate
+//      record, or a page's figures drifted from its declared contract
 //
 // The arm-order guard owns exit 2 on the timed lanes. It is NOT ENGAGED
 // here and the run says so in its own record: this driver publishes no
@@ -51,15 +88,57 @@ const BUILD_ID = 'hicasso-bench';
 const PORT = Number(process.env.Z3VLZ_PORT || 8171);
 const SENTINEL_TIMEOUT_MS = 5 * 60 * 1000;
 
+// ---------------------------------------------------------------------------
+// THE DECLARED PAGE CONTRACTS
+// ---------------------------------------------------------------------------
+//
+// One row of the published matrix, as data. `of` is the probe's
+// `writes-n`; `unverified` is how many of those writes the DOM did not
+// follow inside the write's own window; `rungs` is the escalation-ladder
+// histogram, and it is gated because LATE and NEVER are different
+// findings and the whole conclusion turns on which one this is. A run
+// whose slim page moved from `macrotask=12` to `never=12` would be a
+// different result wearing the same `12 of 12`.
+const SYNC12 = { of: 12, unverified: 0, rungs: { sync: 12 } };
+const LATE12 = { of: 12, unverified: 12, rungs: { macrotask: 12 } };
+
+// reagent-slim installed: the DOM follows every write under the adapter's
+// own drain contract and under an immediate drain, and is one macrotask
+// late when the harness yields first. Stock Reagent installed: all three
+// orders commit at `:sync`, because its queue is rAF-scheduled and a
+// microtask has not emptied it.
+const SLIM_LATE = {
+  'inside-drain': SYNC12,
+  'drain-immediately': SYNC12,
+  'yield-then-drain': LATE12,
+};
+const STOCK_SYNC = {
+  'inside-drain': SYNC12,
+  'drain-immediately': SYNC12,
+  'yield-then-drain': SYNC12,
+};
+
+// BOTH ARMS TAKE THE SAME CONTRACT, and that is the finding rather than a
+// convenience: the raw positive control — a plain substrate component
+// reading a plain substrate atom, no frame, no `subscribe`, no
+// `:adapter/*` hook — moves in lockstep with the `reg-view` arm in every
+// bundle. That is what killed the late-binding hypothesis, so it is what
+// the contract asserts.
+const ORDERS = ['inside-drain', 'drain-immediately', 'yield-then-drain'];
+
 // Each rung adds ONE namespace to the one above it. The `expect` map is
-// checked against the build's own source map before the page is driven.
+// checked against the build's own source map before the page is driven;
+// each page's `contract` is checked against the probe's own figures after
+// it has run.
 const VARIANTS = [
   {
     name: 'slim-only',
     initFn: 're-frame.bench.hicasso.z3vlz-slim-only/-main',
     outDir: 'out/z3vlz-slim-only',
     expect: { reagent: false, reagent2: true, uix: false },
-    pages: [{ label: 'slim-only / install=reagent-slim', query: '' }],
+    pages: [
+      { label: 'slim-only / install=reagent-slim', query: '', contract: SLIM_LATE },
+    ],
   },
   {
     name: 'slim+reagent',
@@ -67,8 +146,12 @@ const VARIANTS = [
     outDir: 'out/z3vlz-slim-reagent',
     expect: { reagent: true, reagent2: true, uix: false },
     pages: [
-      { label: 'slim+reagent / install=reagent-slim', query: '' },
-      { label: 'slim+reagent / install=reagent (control)', query: '?install=reagent' },
+      { label: 'slim+reagent / install=reagent-slim', query: '', contract: SLIM_LATE },
+      {
+        label: 'slim+reagent / install=reagent (control)',
+        query: '?install=reagent',
+        contract: STOCK_SYNC,
+      },
     ],
   },
   {
@@ -76,7 +159,9 @@ const VARIANTS = [
     initFn: 're-frame.bench.hicasso.z3vlz-slim-uix/-main',
     outDir: 'out/z3vlz-slim-uix',
     expect: { reagent: false, reagent2: true, uix: true },
-    pages: [{ label: 'slim+uix / install=reagent-slim', query: '' }],
+    pages: [
+      { label: 'slim+uix / install=reagent-slim', query: '', contract: SLIM_LATE },
+    ],
   },
   {
     name: 'mixed',
@@ -84,8 +169,12 @@ const VARIANTS = [
     outDir: 'out/z3vlz-mixed',
     expect: { reagent: true, reagent2: true, uix: true },
     pages: [
-      { label: 'mixed / install=reagent-slim', query: '' },
-      { label: 'mixed / install=reagent (control)', query: '?install=reagent' },
+      { label: 'mixed / install=reagent-slim', query: '', contract: SLIM_LATE },
+      {
+        label: 'mixed / install=reagent (control)',
+        query: '?install=reagent',
+        contract: STOCK_SYNC,
+      },
     ],
   },
 ];
@@ -279,6 +368,7 @@ async function drive(page, url) {
   ]);
   const err = await page.evaluate('window.HICASSO_ERROR || null');
   const results = await page.evaluate('window.HICASSO_RESULTS || {}');
+  const gates = await page.evaluate('window.Z3VLZ_GATES || null');
   const uncaught = await page.evaluate('window.Z3VLZ_UNCAUGHT || null');
   if (uncaught) {
     console.error('[z3vlz] UNCAUGHT (page-side capture):');
@@ -288,7 +378,104 @@ async function drive(page, url) {
     console.error(`  stack:    ${uncaught.stack}`);
   }
   page.off('pageerror', onError);
-  return { err, results, pageErrors, uncaught };
+  return { err, results, gates, pageErrors, uncaught };
+}
+
+// ---------------------------------------------------------------------------
+// ADJUDICATION — the declared contract against the figures the page produced
+// ---------------------------------------------------------------------------
+
+// A histogram as one canonical, order-independent string, so `{sync: 12}`
+// compares as a whole rather than key by key. A rung that appeared and
+// one that vanished are both drift and both have to be named.
+const rungs = (h) =>
+  Object.keys(h || {})
+    .sort()
+    .map((k) => `${k}=${h[k]}`)
+    .join(',') || '(none)';
+
+// `wantDb` is `true` for the arm that has an app-db behind it and `null`
+// for the raw control, which legitimately has none. Requiring `null`
+// rather than ignoring it is deliberate: `:db-followed-all?` used to be
+// gated on `(some :db-followed? rs)`, so it VANISHED on the all-false
+// case — the arm looked exactly like the control precisely when every
+// write had failed the app-db witness. The driver now refuses an absent
+// slot on the arm and an unexpectedly present one on the control, so the
+// trap cannot come back silently.
+function checkArm(label, armName, got, contract, wantDb, failures) {
+  const at = `${label} / ${armName}`;
+  if (!got) {
+    failures.push(`${at}: the page published no gate record for this arm`);
+    return;
+  }
+  if (!got.mountOk) {
+    failures.push(
+      `${at}: the MOUNT did not verify at the DOM — every write figure below it ` +
+        `was taken against a page that had not rendered correctly to begin with`
+    );
+  }
+  if (got.teardown && got.teardown.length) {
+    failures.push(
+      `${at}: ${got.teardown.length} teardown failure(s) — the arm's roots, its ` +
+        `boundaries and their subscriptions are still standing, so whatever ran ` +
+        `next on this document was measured on a contaminated page: ` +
+        got.teardown.join('; ')
+    );
+  }
+  for (const order of ORDERS) {
+    const want = contract[order];
+    const g = (got.orders || {})[order];
+    if (!g) {
+      failures.push(`${at} / ${order}: no figures published for this order`);
+      continue;
+    }
+    if (g.of !== want.of) {
+      failures.push(`${at} / ${order}: ${g.of} writes, contract declares ${want.of}`);
+    }
+    if (g.unverified !== want.unverified) {
+      failures.push(
+        `${at} / ${order}: ${g.unverified} unverified of ${g.of}, contract declares ` +
+          `${want.unverified} of ${want.of}`
+      );
+    }
+    const gotRungs = rungs(g.rungs);
+    const wantRungs = rungs(want.rungs);
+    if (gotRungs !== wantRungs) {
+      failures.push(
+        `${at} / ${order}: escalation ladder reads ${gotRungs}, contract declares ` +
+          `${wantRungs} — LATE and NEVER are different findings and this rig's ` +
+          `conclusion is which one it is`
+      );
+    }
+    if (wantDb === null && g.dbFollowedAll !== null) {
+      failures.push(
+        `${at} / ${order}: the raw control published an app-db witness ` +
+          `(${g.dbFollowedAll}) and it has no app-db to witness`
+      );
+    } else if (wantDb === true && g.dbFollowedAll !== true) {
+      failures.push(
+        `${at} / ${order}: app-db witness is ${g.dbFollowedAll} — ` +
+          (g.dbFollowedAll === null
+            ? 'the slot is ABSENT, which is what the `(some :db-followed? rs)` trap did ' +
+              'on the all-false case and is never a pass'
+            : 'app-db did not take the new value on every write, so a failed read-back ' +
+              'can no longer be attributed to the view leg')
+      );
+    }
+  }
+}
+
+function checkPage(label, contract, gates, failures) {
+  if (!gates) {
+    failures.push(
+      `${label}: the page published no window.Z3VLZ_GATES — its declared contract ` +
+        `could not be checked, and an unchecked contract is exactly the fail-open ` +
+        `this driver was repaired for`
+    );
+    return;
+  }
+  checkArm(label, 'subs-arm', gates.subs, contract, true, failures);
+  checkArm(label, 'raw-control', gates.raw, contract, null, failures);
 }
 
 (async () => {
@@ -297,7 +484,10 @@ async function drive(page, url) {
   const browser = await chromium.launch();
   const version = browser.version();
   const rows = [];
-  let failed = false;
+  // EVERY failed gate, not the last one and not a bare boolean. A run that
+  // failed two pages must name two pages: `p0_run.cjs` carries the same
+  // list for the same reason.
+  const failures = [];
 
   for (const variant of variants) {
     build(variant);
@@ -317,17 +507,18 @@ async function drive(page, url) {
           console.log(`;; ---- ${p.label} :${k}\n${v}`);
         }
         if (outcome.pageErrors.length) {
-          console.error(
-            `[z3vlz] FAILED: ${outcome.pageErrors.length} uncaught page error(s) on ` +
+          failures.push(
+            `${outcome.pageErrors.length} uncaught page error(s) on ` +
               `${p.label} — every figure above was taken on a page that had already ` +
               `thrown:\n  ${outcome.pageErrors.map((e) => e.stack || e.message).join('\n  ')}`
           );
-          failed = true;
         }
         if (outcome.err) {
-          console.error(`[z3vlz] FAILED: ${p.label}: ${outcome.err}`);
-          failed = true;
+          failures.push(`${p.label}: ${outcome.err}`);
         }
+        // THE DECLARED CONTRACT. Checked even when the page reported a
+        // fatal: a page that failed two ways must say so.
+        checkPage(p.label, p.contract, outcome.gates, failures);
         rows.push({ page: p.label, comp, verdict: outcome.results.verdict || null });
       }
     } finally {
@@ -362,7 +553,14 @@ async function drive(page, url) {
     `;; arm-order guard: NOT ENGAGED — no timed figure and no arm-to-arm ratio is ` +
       `published by this driver, so there is nothing to adjudicate.`
   );
+  console.log(
+    `;; page contracts: ${rows.length} page(s) adjudicated against the declared ` +
+      `matrix — ${failures.length === 0 ? 'all met' : `${failures.length} refusal(s)`}`
+  );
 
-  if (failed) process.exit(1);
+  if (failures.length) {
+    for (const f of failures) console.error(`[z3vlz] FAILED: ${f}`);
+    process.exit(1);
+  }
   console.error('[z3vlz] ok');
 })();

@@ -183,3 +183,103 @@ figures the instrument suppressed — reading 0.16–0.50× the floor while chan
 nothing — remain unpublished and unpublishable: they were taken through the
 composition this page identifies as broken, so they price a commit that had not
 happened. They must be re-taken through a corrected arm, not rescued.
+
+## The rig now fails closed (rf2-z3vlz, PR #7266 audit)
+
+Everything above stands unchanged. What follows is about the **instrument**,
+not the finding: the rig that produced this page could print every number on it
+and still exit 0.
+
+`z3vlz_run.cjs` set its failure flag at exactly two places — an uncaught page
+error, and a fatal the probe recorded for itself. It had **no assertion about
+the result at all**. A run in which a mount stopped verifying, in which a slim
+page moved off `0 / 0 / 12`, in which the app-db witness went missing, or in
+which an unmount threw between the two arms, printed a `?` or a different
+number into the summary table and ended `[z3vlz] ok`. That is the same shape as
+the fault this whole page exists to describe: HD-008's arm published
+`156 unverified of 936` and exited 0, and the suppressed figures read 0.16–0.50×
+the floor from a page that never changed.
+
+**Three repairs, each proved by planting the defect it is meant to catch.**
+
+### 1. The six page contracts, in data
+
+Every declared page now carries the row of the matrix above as data, and the
+driver adjudicates the probe's own figures against it. The contract is stated
+per page rather than derived, so a drift has to be **declared** to be accepted:
+
+| contract | `inside-drain` | `drain-immediately` | `yield-then-drain` |
+|---|---|---|---|
+| `SLIM_LATE` — the four reagent-slim pages | `0 of 12`, `sync=12` | `0 of 12`, `sync=12` | `12 of 12`, `macrotask=12` |
+| `STOCK_SYNC` — the two stock-Reagent pages | `0 of 12`, `sync=12` | `0 of 12`, `sync=12` | `0 of 12`, `sync=12` |
+
+**Both arms take the same contract, and that is the finding rather than a
+convenience** — the raw positive control moves in lockstep with the `reg-view`
+arm in every bundle, which is what killed the late-binding hypothesis.
+
+The **escalation ladder is gated too**, and it has to be: `LATE` and `NEVER` are
+different findings and this page's whole conclusion is which one it is. A run
+that moved from `macrotask=12` to `never=12` would be a different result wearing
+the same `12 of 12`.
+
+*Mutation.* Delete the microtask from `:yield-then-drain`, so the rig measures
+an ordering it does not declare. Before the repair this run printed
+`0 unverified of 12` into the table and exited 0 — silently republishing this
+page's conclusion as its **opposite**. It now exits **1** with four named
+refusals, count and rung, on both arms:
+
+```
+[z3vlz] FAILED: … / subs-arm / yield-then-drain: 0 unverified of 12, contract declares 12 of 12
+[z3vlz] FAILED: … / subs-arm / yield-then-drain: escalation ladder reads sync=12, contract
+                declares macrotask=12 — LATE and NEVER are different findings and this rig's
+                conclusion is which one it is
+```
+
+The figures reach the driver through a flat `window.Z3VLZ_GATES` record the
+probe publishes beside its EDN. Scraping the EDN with regexes would be a second
+expression of the same arithmetic, and **a regex that stopped matching would
+report `?` and pass** — the same fail-open.
+
+### 2. `(some pred rs)` over a boolean field is the silent-on-all-false trap
+
+The app-db witness — the slot that attributes a failed read-back to the view leg
+rather than the event leg — was gated on `(some :db-followed? rs)`. That drops
+the field **precisely when every write failed the witness**, which is the one
+case it exists to report. The field went silent exactly when the interesting
+thing had happened, and a reader saw the same absence the raw control shows,
+which legitimately has no app-db at all.
+
+It now tests **key presence**, then asserts the **population** with `every?`,
+and reports the count (`:db-followed-of "12 of 12"`) so the all-false case is
+legible rather than merely false. The driver requires `true` of the arm and
+`null` of the control, so an absent slot is a refusal in its own right and the
+trap cannot return silently.
+
+*Mutation.* Make the witness compare against the wrong value, so all 12 writes
+fail it. Under the old `(some …)` predicate the slot **vanishes** from the
+record; under the repair it reads `:db-followed-all? false, :db-followed-of
+"0 of 12"` and the driver names it. Both now exit **1** — the second by naming
+the population, the first by refusing the absence.
+
+### 3. Teardown is recorded, never swallowed
+
+`(try (unmount handle) (catch :default _ nil))` at both arms. The control runs
+**first** and the arm whose result this page turns on runs after it, on the same
+document — so a swallowed unmount failure meant the arm under test could be
+certified on a page still carrying the control's roots and its ratom's watchers.
+Both sites now record through `lane/teardown-failure!`, the record rides the
+arm, and the driver refuses on it.
+
+*Mutation.* Make the subs-arm unmount throw. Exit **1**, naming the arm and the
+error.
+
+### Every failure is named, and no figure moved
+
+`failed = true` became a `failures` list — `p0_run.cjs`'s shape, where
+`adjudicate` replaced `aggregate` as the only door onto the fold — so a run that
+fails two pages reports two pages instead of one.
+
+**The full six-page run was re-taken with every gate armed and exits 0 with all
+six contracts met.** Every number in the tables above is byte-identical to the
+figures this page published. Nothing here was re-measured, relaxed or moved;
+the gates were fitted around figures that already stood.
