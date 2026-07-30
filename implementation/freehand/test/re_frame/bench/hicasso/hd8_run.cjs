@@ -274,11 +274,12 @@ async function runOne(chromium, run) {
     const results = await page.evaluate('window.HD8_RESULTS || {}');
     const samples = await page.evaluate('window.HD8_SAMPLES || []');
     const summary = await page.evaluate('window.HD8_SUMMARY || {}');
-    // The harness-microtask correction's VERDICT per write row (rf2-b69lw).
-    // On a JS-readable channel rather than only inside the EDN record,
-    // because the cross-run table is what a reader copies a figure out of and
-    // a corrected row that appears there looking uncorrected is the fault the
-    // contract exists to prevent.
+    // The harness-microtask correction's VERDICT per write row — and, on a
+    // `:corrected` row, BOTH of its bands (rf2-b69lw). On a JS-readable
+    // channel rather than only inside the EDN record, because the cross-run
+    // table is what a reader copies a figure out of and a corrected row that
+    // appears there looking uncorrected — or whose corrected endpoints the
+    // table cannot print — is the fault the contract exists to prevent.
     const correction = await page.evaluate('window.HD8_CORRECTION || {}');
     // The contract's own self-test result, on a JS-readable channel so the
     // driver can FAIL on it rather than leaving it in an EDN blob nobody
@@ -367,12 +368,32 @@ function crossRun(runs) {
         );
         out.push(`;;                 ${c.why}`);
       }
+      // A `:corrected` verdict publishes BOTH bands, so BOTH must be in the
+      // table a reader copies from. The EDN record carried the corrected
+      // endpoints while this table printed only the unadjusted ones — a
+      // corrected row whose correction a reader cannot copy (rf2-b69lw,
+      // from the PR #7282 audit). Each line carries its own label, so a
+      // figure cannot leave the table without the name of its band.
+      const cSummary = c && c.verdict === 'corrected' ? c.summaryCorrected || {} : {};
+      const cH2h = c && c.verdict === 'corrected' ? c.headToHeadCorrected || {} : {};
       for (const [arm, v] of Object.entries(s.vsFloor)) {
         if (arm === 'floor') continue;
-        out.push(`;;     [${run.id.padEnd(7)}] ${arm.padEnd(14)} vs floor   ${band(v)}${mark}`);
+        const cv = cSummary[arm];
+        out.push(
+          `;;     [${run.id.padEnd(7)}] ${arm.padEnd(14)} vs floor   ${band(v)}${cv ? '  [UNADJUSTED]' : ''}${mark}`
+        );
+        if (cv) {
+          out.push(`;;     [${run.id.padEnd(7)}] ${arm.padEnd(14)} vs floor   ${band(cv)}  [CORRECTED]${mark}`);
+        }
       }
       for (const [pair, v] of Object.entries(s.headToHead)) {
-        out.push(`;;     [${run.id.padEnd(7)}] ${pair.padEnd(26)}  ${band(v)}${mark}`);
+        const cv = cH2h[pair];
+        out.push(
+          `;;     [${run.id.padEnd(7)}] ${pair.padEnd(26)}  ${band(v)}${cv ? '  [UNADJUSTED]' : ''}${mark}`
+        );
+        if (cv) {
+          out.push(`;;     [${run.id.padEnd(7)}] ${pair.padEnd(26)}  ${band(cv)}  [CORRECTED]${mark}`);
+        }
       }
     }
   }

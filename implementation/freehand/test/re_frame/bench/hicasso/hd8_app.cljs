@@ -79,6 +79,25 @@
     (set! (.-HD8_SAMPLES js/window) acc)
     nil))
 
+(defn- pack-bands
+  "A per-figure RANGE map packed as plain JS for the driver.
+
+  Shared by [[summary!]] and [[correction!]] rather than private to the
+  first: a `:corrected` verdict's bands ride the exact shape the unadjusted
+  ones do, so the driver reads both with ONE reader and the cross-run table
+  cannot end up labelling one band in a format the other lacks."
+  [m]
+  (clj->js
+    (into {} (map (fn [[k v]]
+                    [(name k)
+                     (if (:unpublished v)
+                       {"unpublished" (name (:unpublished v))
+                        "unverified"  (:unverified v)
+                        "of"          (:of v)}
+                       {"min" (:min v) "max" (:max v)
+                        "straddles1" (boolean (:straddles-1? v))})]))
+          m)))
+
 (defn- summary!
   "Park one row's floor-normalised RANGE per arm, plus its head-to-head
   ranges, in a shape the driver can read without an EDN reader.
@@ -87,21 +106,10 @@
   overlapping ranges mean indistinguishable, and a table of means invites
   exactly the reading the rule forbids."
   [row-name r]
-  (let [acc (or (.-HD8_SUMMARY js/window) #js {})
-        pack (fn [m]
-               (clj->js
-                 (into {} (map (fn [[k v]]
-                                 [(name k)
-                                  (if (:unpublished v)
-                                    {"unpublished" (name (:unpublished v))
-                                     "unverified"  (:unverified v)
-                                     "of"          (:of v)}
-                                    {"min" (:min v) "max" (:max v)
-                                     "straddles1" (boolean (:straddles-1? v))})]))
-                       m)))]
+  (let [acc (or (.-HD8_SUMMARY js/window) #js {})]
     (aset acc (name row-name)
-          #js {"vsFloor" (pack (:summary r))
-               "headToHead" (pack (:head-to-head r))})
+          #js {"vsFloor" (pack-bands (:summary r))
+               "headToHead" (pack-bands (:head-to-head r))})
     (set! (.-HD8_SUMMARY js/window) acc)
     nil))
 
@@ -111,19 +119,27 @@
   (record! k (dissoc r :samples)))
 
 (defn- correction!
-  "Park one write row's yield-correction VERDICT where the driver can read
-  it without an EDN reader, so the cross-run table can stamp the row.
+  "Park one write row's yield-correction VERDICT — and, on `:corrected`,
+  BOTH of its bands — where the driver can read them without an EDN
+  reader, so the cross-run table can stamp the row.
 
   A corrected row that appears in the table looking uncorrected is the
   exact fault this contract exists to prevent, and the table is what a
-  reader copies a figure out of."
+  reader copies a figure out of. That argument covers the ENDPOINTS too:
+  this export used to carry the verdict and not the corrected bands, so a
+  `:corrected` run announced that both bands publish while the copyable
+  table could print only the unadjusted one (rf2-b69lw, from the PR #7282
+  audit)."
   [row-name v]
-  (let [acc (or (.-HD8_CORRECTION js/window) #js {})]
-    (aset acc (name row-name)
-          #js {"verdict" (name (:verdict v))
-               "reason"  (some-> (:reason v) name)
-               "bound"   (:bound v)
-               "why"     (:why v)})
+  (let [acc (or (.-HD8_CORRECTION js/window) #js {})
+        o   #js {"verdict" (name (:verdict v))
+                 "reason"  (some-> (:reason v) name)
+                 "bound"   (:bound v)
+                 "why"     (:why v)}]
+    (when (= :corrected (:verdict v))
+      (aset o "summaryCorrected" (pack-bands (:summary-corrected v)))
+      (aset o "headToHeadCorrected" (pack-bands (:head-to-head-corrected v))))
+    (aset acc (name row-name) o)
     (set! (.-HD8_CORRECTION js/window) acc)
     nil))
 
