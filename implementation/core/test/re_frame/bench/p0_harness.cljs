@@ -328,14 +328,24 @@
   `slot-order` — rotate then reflect on odd indices — is the shared rule,
   and for three or more arms it is the right one: a bare cyclic rotation
   changes which arm goes FIRST and nothing else, so every arm keeps the
-  same predecessor in every round. **But for exactly TWO arms it
-  degenerates**: rotating `[0 1]` gives `[1 0]`, reversing that gives
-  `[0 1]` again, so the reflecting schedule emits the identical order at
-  every index and each arm has exactly one predecessor for ever. This run
+  same predecessor in every round. **For exactly TWO arms it used to
+  degenerate**: rotating `[0 1]` gives `[1 0]`, reversing that gives
+  `[0 1]` again, so the reflecting schedule emitted the identical order at
+  every index and each arm had exactly one predecessor for ever. This run
   measured that too — the guard reported `:unchecked`, `only 1 stratum —
   the question was never asked`, on every substrate arm, and refused.
-  That is the guard doing its job, and the repair belongs HERE, in the
-  arm, not in the guard.
+  That is the guard doing its job, and the repair belonged in the ARM, not
+  in the guard.
+
+  **`rf2-ouwh8` has since repaired it at the source**: `slot-order` drops
+  the reflection at `k = 2`, where the bare rotation already supplies both
+  of the orders two arms have. The two candidates below therefore now
+  COINCIDE at `k = 2` and this function no longer has a degenerate case to
+  route around. It stays because scoring is worth more than assuming — it
+  publishes the measured adjacency of the schedule it actually ran, which
+  is the difference between a mitigation and a claim of one — but a reader
+  should not take its presence as evidence that the shared rule is still
+  broken.
 
   So rather than hard-coding either rule, both candidates are scored with
   the guard's own `adjacency` over the run this harness is about to
