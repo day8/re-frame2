@@ -130,11 +130,31 @@
 
    {:id         :M2
     :verify     verify-m2
-    ;; 51 elements mounts in a few tenths of a millisecond — three to six
-    ;; of Chrome's 100 µs quanta, which is a ratio quantised more coarsely
-    ;; than the effects it is being asked to resolve. Eight mounts in ONE
-    ;; window puts the sample an order of magnitude clear of the clamp.
-    :per-sample 8
+    ;; ONE mount per sample, and the batching that would have lifted this
+    ;; witness clear of Chrome's 100 µs clamp is NOT USED. It was tried —
+    ;; eight mounts in one `flushSync` — and THE ARM-ORDER GUARD REFUSED
+    ;; THE WHOLE RUN, exit 2: with eight 51-element roots standing in the
+    ;; document at once, all four M2 arms read 3.2×–5.4× slower in the last
+    ;; third of the run than in the first, ranges DISJOINT, while the
+    ;; predecessor factor stayed clean on every one of them. That is the
+    ;; recorded position-dominates-adjacency class exactly, and it is a
+    ;; property of the batched arm rather than of anything under test — the
+    ;; unbatched M1 row, running immediately before it in the same page,
+    ;; drifted 1.13×–1.16× with ranges overlapping.
+    ;;
+    ;; The repair is therefore the ARM, never the tolerance: the batch is
+    ;; withdrawn and the resulting clock coarseness is STATED on the row.
+    ;; A refused figure and a quantised figure are not the same thing —
+    ;; the first may not be published at all, the second may be published
+    ;; with its resolution attached, and it is published as DIAGNOSTIC
+    ;; rather than as a bar row.
+    :per-sample 1
+    :clock-note (str "DIAGNOSTIC-GRADE, not a bar row. A 51-element mount takes "
+                     "a few tenths of a millisecond — three to six of Chrome's "
+                     "100 us performance.now() quanta — so this witness's ratios "
+                     "are quantised more coarsely than a 10% effect. Quote M1 and "
+                     "the bulk row against the bar; M2 says only that the ordinary "
+                     "form shape shows no LARGE reactive-system penalty on mount.")
     :doc      (str "the ordinary 12-field form on subs — the shape most "
                    "applications are made of")
     :props    {:n v/fields-n}
@@ -250,7 +270,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- measure-mount!
-  [{:keys [id doc props arms elements control verify per-sample]}]
+  [{:keys [id doc props arms elements control verify per-sample clock-note]}]
   (let [k     (or per-sample 1)
         t     (lane/tally)
         one!  (fn [arm]
@@ -286,6 +306,8 @@
         {:benchmark        (keyword "hicasso.P0" (str "mount-" (name id)))
          :doc              doc
          :bead             "rf2-2rtt6.2"
+         :grade            (if clock-note :diagnostic :bar)
+         :clock-note       clock-note
          :fixture          (merge (fixture-common)
                                   {:witness  id
                                    :props    props
