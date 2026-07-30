@@ -214,10 +214,33 @@
   adapter at all. Within-run where the physics allows it; floor-normalised
   and LABELLED AS SUCH where it does not."
   {:uix     [:floor :uix :donor-r1 :donor-r2]
+   :reagent [:floor :reagent :uix :donor-r1 :donor-r2]
+   :slim    [:floor :reagent-slim :uix :donor-r1 :donor-r2]})
+
+(def write-arm-ids-for
+  "The WRITE rows are narrower than the mount rows, and only there.
+
+  A mount is a ONE-SHOT READ: `use-subscribe` takes its first snapshot
+  correctly under either spine, and the canonical-DOM parity gate proves it
+  — every arm above builds the same page in every run, at both sizes. So
+  the mount rows, which carry half of HD-012's ship bar, get their
+  donor-vs-Reagent comparison WITHIN a single process.
+
+  Updates are where the spines part company, so the write rows keep only
+  the arms native to the installed adapter and the donor comparison there
+  is made through the floor."
+  {:uix     [:floor :uix :donor-r1 :donor-r2]
    :reagent [:floor :reagent]
    :slim    [:floor :reagent-slim]})
 
-(defn donor-run? [adapter] (= adapter :uix))
+(defn donor-run?
+  "Is this the run whose donor arms are REACTIVE, and therefore the run
+  whose lowering check can answer? Under a ratom spine the lowered handler
+  dispatches and `app-db` changes — the check reports `:db-after` to prove
+  it — but no view follows, so a lowering check there would fail for a
+  reason that has nothing to do with the lowering."
+  [adapter]
+  (= adapter :uix))
 
 (def witnesses
   [{:id       :M
@@ -297,6 +320,29 @@
 (defn- round4 [x] (/ (js/Math.round (* (double x) 10000.0)) 10000.0))
 (defn- p50 [xs] (:p50 (m/summarise xs)))
 
+(defn slot-order
+  "Slot order for `k` arms at sample index `s`.
+
+  `b6-harness/slot-order` rotates forward by `s` and then REFLECTS on odd
+  `s`, which gives every arm at least two distinct predecessors — for
+  `k >= 3`. AT `k = 2` THE TWO OPERATIONS CANCEL: rotating a pair by one is
+  the same permutation as reversing it, so `[0 1]` comes back at every
+  index and the plan runs in ONE ORDER for ever.
+
+  The arm-order guard found this rather than a reader: the two-arm runs
+  came back `only 1 stratum — the question was never asked`, and REFUSED,
+  which is precisely what a single-order result is supposed to do. The
+  repair belongs to the PLAN, never to the guard — so a pair alternates
+  explicitly here, and everything wider defers to the shared harness.
+
+  The shared harness's own degeneracy is left alone deliberately: four
+  sibling P0 arms are measuring on `b6-harness` right now and a shared
+  instrument must not change under them mid-flight. It is filed instead."
+  [k s]
+  (if (= k 2)
+    (if (even? s) [0 1] [1 0])
+    (h/slot-order k s)))
+
 (defn mount-round!
   "One round over `arms`: `(+ warmup samples)` sample indices, every arm
   mounted at every index, order rotating AND REFLECTING with the index.
@@ -313,7 +359,7 @@
         pos  (atom position0)
         prev (atom nil)]
     (dotimes [s (+ warmup samples)]
-      (doseq [j (h/slot-order k s)]
+      (doseq [j (slot-order k s)]
         (let [arm (nth arms j)
               mnt (h/mount-arm! arm props)
               p   @pos]
@@ -557,7 +603,7 @@
             :prev     nil}
            (range (+ warmup samples))
            (fn [acc s]
-             (chain acc (h/slot-order k s)
+             (chain acc (slot-order k s)
                     (fn [a j]
                       (let [mnt (nth mounts j)
                             id  (:id (:arm mnt))
@@ -751,11 +797,12 @@
 (defn method-record
   "The method, published beside every figure so a reader never has to
   reconstruct it from prose."
-  [adapter arm-ids rounds mount-sampling write-sampling]
+  [adapter arm-ids write-ids rounds mount-sampling write-sampling]
   {:bead              "rf2-2rtt6.7"
    :decision          "HD-008"
    :adapter           adapter
-   :arms              (vec arm-ids)
+   :mount-arms        (vec arm-ids)
+   :write-arms        (vec write-ids)
    ;; The runtime is labelled beside every figure, not in a footnote. HD-012
    ;; makes every bar-relevant number a BROWSER number under `:advanced`
    ;; with goog.DEBUG false; a JVM or Node figure is diagnostic only and is
