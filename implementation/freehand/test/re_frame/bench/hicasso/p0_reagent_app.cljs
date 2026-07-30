@@ -355,11 +355,12 @@
   A broad write changes every cell, so the probe rotates with the value
   AND the far end of the grid is checked: a stale page can still carry one
   fresh cell from the previous write, and a single fixed probe would
-  accept it."
+  accept it. The rule is `lane/bulk-probes`, not a literal here — HD-008's
+  bulk row probed cell 0 alone while this one probed three (rf2-f5roa)."
   [t mnt]
   (let [n   (:cells (:arm mnt))
         val (next-gen!)]
-    (lane/verified-write! t mnt :all val [(mod val n) (dec n) 0])))
+    (lane/verified-write! t mnt :all val (lane/bulk-probes val n))))
 
 (defn- seed-bulk! [mounts t]
   (lane/chain nil mounts
