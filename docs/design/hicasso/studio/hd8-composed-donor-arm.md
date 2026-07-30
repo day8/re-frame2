@@ -28,34 +28,63 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 
 ## Provenance
 
+Three producing commits, each re-taking only the rows whose window it changed.
+**The SHA in the left column is the one that LANDED on `main`** — the commit a
+reader can check out. The authored SHA beside it is what the run actually
+executed, kept because it is what the run's own artefacts recorded, and because
+a mapping a reader can verify is worth more than a rewritten SHA presented as if
+it had always been the one.
+
+| rows | landed on `main` | authored (rewritten by rebase) | instrument at the landed commit |
+|---|---|---|---|
+| every row except the `reagent-slim` and narrow write rows | **`172244521eb780a3ba38ccd057cad3430017bf1f`** | `d46ede4fb05a8f4c5af9900f0a010772f0b0883a` | `hd8_rows.cljs` `edec4ba86f543f0f0f4b9566b322c3c1021b360e` · `hd8_witnesses.cljs` `87b8624adefc502f127ddef27ef3e768ecae618c` · `lane.cljs` `d32312d9c562f0b6aa7d7f84538eb81ffc18e61c` |
+| the `reagent-slim` write rows (`rf2-b69lw`) | **`c7e4c70ac067d1ace58720a63804d268dad3df3a`** | `b943c7ed20d63d66fade4775059dad9fcf0012a7` | `hd8_rows.cljs` `ab4e7dab4e072123120e0f825f5e2befd8a62452` · `hd8_witnesses.cljs` `87b8624adefc502f127ddef27ef3e768ecae618c` · `lane.cljs` `d32312d9c562f0b6aa7d7f84538eb81ffc18e61c` |
+| the **narrow** write rows, on a batched window (`rf2-9zysg`) | **`0cba8181a7293f4aca4d9bd397cdbfc94b2c850a`** | `d3f1c2fff6305235216dc1e4cd9ac1cdf4519d9d` | `hd8_rows.cljs` `e6bca24420b7fc4c9de2c6137f5b2f7144ad243d` · `hd8_witnesses.cljs` `87b8624adefc502f127ddef27ef3e768ecae618c` · `lane.cljs` `671756751ecdb25c4c3d81e164c3204b022e93ae` |
+
+`5cd819c5bffc665fce4fae06abb144dbca1a92db` (authored `7aa55a2433`) is where this
+page's final `rf2-b69lw` record landed; it moved no figure.
+
 | | |
 |---|---|
-| **Producing commit** | `d46ede4fb05a8f4c5af9900f0a010772f0b0883a` — every row except the `reagent-slim` write rows |
-| **Producing commit, re-take** | `b943c7ed20d63d66fade4775059dad9fcf0012a7` — the `reagent-slim` write rows only (`rf2-b69lw`) |
-| **Producing commit, re-take** | `d3f1c2fff6` on `worker/lane-control-cluster` — the **narrow write rows** only, on a batched window (`rf2-9zysg`) |
-| **Producing instrument** | `hd8_rows.cljs` blob `e6bca24420b7fc4c9de2c6137f5b2f7144ad243d`, `lane.cljs` blob `671756751ecdb25c4c3d81e164c3204b022e93ae` |
-| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — runs at every commit above, and **from a cold or a warm cache in any order** since `rf2-2rtt6.20` ([why](#the-lanes-shared-build-cache-made-this-page-look-broken-rf2-2rtt620)) |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — runs at each **landed** commit above, and **from a cold or a warm cache in any order** since `rf2-2rtt6.20` ([why](#the-lanes-shared-build-cache-made-this-page-look-broken-rf2-2rtt620)) |
 | **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
 | **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
 | **Rounds** | 6 · mount `{:warmup 4 :samples 12}` · write `{:warmup 3 :samples 10}` |
 
+**The instrument at `main`'s tip is no longer any of the three.** `ba0c215a73`
+batched the yield-cost control (`rf2-2rtt6.19`), and `rf2-b69lw` has since turned
+that control into an enforced gate — see [The correction contract is enforced,
+not stated](#the-correction-contract-is-enforced-not-stated). Neither touched an
+arm's window, so no figure on this page moves; but a run at the tip is a run of
+a *later* instrument over the same plan, and only a run at the landed commit in
+the row's own line reproduces that row's instrument exactly.
+
 Every figure below is a **browser** figure, which is what HD-012 requires of
 anything quotable against the bar.
 
-**The narrow rows are anchored by BLOB HASH as well as by commit, and that is
-not belt-and-braces.** The run was executed at `1c7c963e`; rebasing onto a main
-that had moved rewrote it to `d3f1c2fff6`, and merging this branch will rewrite
-it again. `git diff 1c7c963e d3f1c2fff6 -- implementation/` is empty, so the
-instrument did not change — but a reader handed only a rewritten SHA cannot
-check that. The two blob hashes above identify the exact instrument these
-figures came off regardless of how the commit carrying it is rebased, and
-`git rev-parse HEAD:implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs`
-is how a reader confirms the checkout in front of them is the one that produced
-this row.
+**Why both columns, and what each one is actually good for.** A producing SHA is
+rewritten by rebase *and* by merge. Every authored SHA in the middle column above
+is now unreachable — `d46ede4f`, `b943c7ed` and `d3f1c2ff` are on no branch, so a
+reader handed one of them can check out nothing and run nothing. That is what the
+landed column is for, and it is the **whole-tree anchor**: the bundle these
+figures came off depends on `re-frame.core`, on the three adapters, on
+`deps.edn`, `package-lock.json` and the React version, and only a commit pins all
+of them.
 
-**Three producing commits, and each later one re-took only the rows whose
-window it changed.** The narrow write rows are the batched re-take's and are marked as
-such in [their own section](#write--narrow-one-cell-in-a-300-cell-grid), where
+**The blob hashes pin the files they name and nothing else, which is a real but
+narrower guarantee.** `git rev-parse HEAD:implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs`
+tells a reader whether the instrument file in front of them is the one that took
+the row — useful precisely because it survives a rebase. It does **not** tell
+them the rest of the tree matches, and this page used to claim it did. The
+sibling P0 page has a concrete witness that the claim is false: its narrow row's
+authored and landed commits carry the *same* three pinned instrument blobs while
+the imported `lane.cljs` changed underneath them. So the two are recorded side by
+side and neither substitutes for the other — the commit says *which tree*, the
+blob says *which instrument*.
+
+**Each later producing commit re-took only the rows whose window it changed.**
+The narrow write rows are the batched re-take's and are marked as such in
+[their own section](#write--narrow-one-cell-in-a-300-cell-grid), where
 the superseded unbatched ranges are kept rather than deleted; `rf2-9zysg`
 batched ten writes under one clock and left every other window alone, so no
 other row moved. Before that:
@@ -72,19 +101,43 @@ changed and the reproduction check that says the change was inert for them.
 ## The arms
 
 Every arm reads **re-frame2 subscriptions** — the bar's like-for-like
-condition. No arm reads a bare ratom. Every arm resolves its dispatch fn the
-same way (one map lookup, primed outside render), so an arm that minted a fresh
-ops map per render would not be carrying an allocation its rivals escape; the
-frontier comparator in particular is never strawmanned.
+condition. No arm reads a bare ratom.
 
-| arm | hooks | markup | handler |
-|---|---|---|---|
-| `floor` | 0 | hand-written `createElement` | inert |
-| `reagent` | 0 | Reagent hiccup (`reg-view`) | author closure |
-| `reagent-slim` | 0 | slim hiccup (`reg-view`) | author closure |
-| `uix` | 2 | `$` macro — resolved at compile time | author closure |
-| `donor-r1` | 1 | slim hiccup + `:f>` | author closure |
-| `donor-r2` | 2 | slim hiccup + `:f>` | **codec-lowered** |
+| arm | hooks | markup | handler | how it resolves `dispatch` |
+|---|---|---|---|---|
+| `floor` | 0 | hand-written `createElement` | inert | **nothing** — one hoisted `(fn [_] nil)`, shared by every element |
+| `reagent` | 0 | Reagent hiccup (`reg-view`) | author closure | the **lexical** `dispatch` `reg-view` injects, bound to the surrounding frame |
+| `reagent-slim` | 0 | slim hiccup (`reg-view`) | author closure | the same lexical `dispatch` — one source, the other engine |
+| `uix` | 2 | `$` macro — resolved at compile time | author closure | `dispatch-for` — a **deref + lookup** in the shared `frame-dispatch` atom, in render |
+| `donor-r1` | 1 | slim hiccup + `:f>` | author closure | `dispatch-for`, as above |
+| `donor-r2` | 2 | slim hiccup + `:f>` | **codec-lowered** | `dispatch-for`, as above, then lowered by `lower-events` |
+
+**The arms do NOT all resolve dispatch the same way, and this page used to say
+they did.** The sentence here read *"every arm resolves its dispatch fn the same
+way — one map lookup, primed outside render"*. Three mechanisms are in the
+instrument, not one, and the column above is what the source does:
+
+* `prime-frame!` runs outside every measured window and puts each frame's
+  `dispatch` in a shared atom. That much of the old sentence is true, and it is
+  what stops any arm paying to *construct* a dispatch fn during a render.
+* But only the three React-spine arms go through it, and the **lookup** —
+  `(dispatch-for frame)`, a deref of the atom plus a `get` — happens **inside**
+  each boundary's render, 300 times a mount. "Primed outside render" described
+  the value; it did not describe the read.
+* The two Reagent paths never touch that atom at all. `reg-view` injects a
+  lexical `dispatch` already bound to the frame from context, which is what a
+  Reagent application actually contains.
+* The floor resolves nothing. Its handler is a single hoisted no-op shared by all
+  300 elements, which is correct — it is the calibrator, not a rival — but it is
+  a third thing again.
+
+**What the sentence was defending is still true, and worth keeping.** No arm
+mints a fresh **ops map** per render; every mechanism above is one indirection or
+fewer; and the frontier comparator is not strawmanned. **The direction of what
+remains is stated rather than waved away:** the deref-plus-`get` is paid by
+`uix`, `donor-r1` and `donor-r2` and *not* by the two Reagent paths, so the
+residual asymmetry runs **against** the arms HD-008 is arguing for. It cannot
+have flattered the donor rungs in the ship comparison.
 
 So `donor-r2 / donor-r1` is the product shell's price and nothing else's;
 `donor-r2 / uix` holds hooks and dispatch fixed and varies **the codec**;
@@ -656,6 +709,12 @@ and the alternatives that were rejected.
   A future instrument with a finer clock inherits a real asymmetry, and
   `rf2-pq7d8` has since carried both shapes into the shared lane, which inherits
   that asymmetry rather than settling it.
+- **The arms resolve `dispatch` three ways, not one** — see
+  [The arms](#the-arms). `:uix` and both donor rungs read the shared
+  `frame-dispatch` atom inside each boundary's render; the two Reagent paths take
+  `reg-view`'s lexical `dispatch`; the floor's handler is inert. The residual runs
+  against the donor rungs, so it cannot have flattered them, but the arms are not
+  levelled on this axis and this page claimed they were.
 - **No retained-heap leg.** The red-zone rule governs clock *and* retained heap;
   this arm measures the clock. The heap ladder is `rf2-2rtt6.5`'s
   ([reads-per-boundary-heap-ladder.md](reads-per-boundary-heap-ladder.md)).
