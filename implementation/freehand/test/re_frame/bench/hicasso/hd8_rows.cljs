@@ -319,33 +319,25 @@
 (defn- round4 [x] (/ (js/Math.round (* (double x) 10000.0)) 10000.0))
 (defn- p50 [xs] (:p50 (lane/summarise xs)))
 
-(defn slot-order
-  "Slot order for `k` arms at sample index `s`.
+(def slot-order
+  "Slot order for `k` arms at sample index `s` — `lane/slot-order`, and
+  nothing local.
 
-  `lane/slot-order` rotates forward by `s` and then REFLECTS on odd
-  `s`, which gives every arm at least two distinct predecessors — for
-  `k >= 3`. AT `k = 2` THE TWO OPERATIONS CANCEL: rotating a pair by one is
-  the same permutation as reversing it, so `[0 1]` comes back at every
-  index and the plan runs in ONE ORDER for ever.
+  This was a local override, added because `lane/slot-order` composed a
+  rotation with a reflection and the two CANCEL at `k = 2`: rotating a pair
+  by one is the same permutation as reversing it, so `[0 1]` came back at
+  every index and a two-arm plan ran in ONE ORDER for ever. The arm-order
+  guard found that rather than a reader — the two-arm runs came back `only
+  1 stratum — the question was never asked`, and REFUSED, which is
+  precisely what a single-order result is supposed to do.
 
-  The arm-order guard found this rather than a reader: the two-arm runs
-  came back `only 1 stratum — the question was never asked`, and REFUSED,
-  which is precisely what a single-order result is supposed to do. The
-  repair belongs to the PLAN, never to the guard — so a pair alternates
-  explicitly here, and everything wider defers to the shared harness.
-
-  The shared copies are left alone deliberately. There are THREE of them —
-  `re-frame.bench.order-guard/slot-order` (which `lane/slot-order`
-  re-exports), `b6-harness/slot-order`, and `order_guard.cjs`'s
-  `schedule` — all carrying the same arithmetic and therefore the same
-  degeneracy, and sibling P0 arms are measuring on them right now. A shared
-  instrument must not change under a measurement in flight, so the defect
-  is FILED (rf2-ouwh8) rather than patched here, and this local override is
-  deleted when that lands."
-  [k s]
-  (if (= k 2)
-    (if (even? s) [0 1] [1 0])
-    (lane/slot-order k s)))
+  The override was local rather than shared because sibling P0 arms were
+  measuring on the shared copies at the time, and a shared instrument must
+  not change under a measurement in flight. Those arms have landed, and
+  `rf2-ouwh8` has since repaired the schedule where it lives — so the
+  override is gone and this name is the lane's, exactly like every other
+  mechanism in this file."
+  lane/slot-order)
 
 (defn mount-round!
   "One round over `arms`: `(+ warmup samples)` sample indices, every arm

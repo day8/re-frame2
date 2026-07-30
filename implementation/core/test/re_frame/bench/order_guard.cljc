@@ -71,6 +71,17 @@
   `a -> a+1` adjacency with `a -> a-1`. [[self-test]] proves both halves of
   that arithmetically.
 
+  ## Two arms are the case where the reflection cancels (rf2-ouwh8)
+
+  Reversing a pair IS rotating it by one. So at `n = 2` — and only there —
+  composing the rotation with the reflection returns `[0 1]` at every index,
+  and a two-arm plan runs in a SINGLE ORDER for ever. That is not a weaker
+  version of the property; it is the absence of it, and the guard says so:
+  four two-arm rows came back `only 1 stratum — the question was never
+  asked`. Two arms is the natural shape for *candidate versus comparator*,
+  so the case is not exotic. [[slot-order]] drops the reflection at `n = 2`,
+  where the bare rotation already supplies both of the orders that exist.
+
   ## What the `:predecessor` factor can and cannot attribute (rf2-om73r)
 
   Under [[slot-order]] an arm's predecessor is `(a - 1) mod n` on EVEN
@@ -107,11 +118,26 @@
 
 (defn slot-order
   "Slot order for `n` arms in `round`: rotate forward by `round`, then REFLECT
-  on odd rounds. The same arithmetic as `order_guard.cjs`'s `schedule` and
-  `b6-harness/slot-order`."
+  on odd rounds — EXCEPT at `n = 2`, where the two operations are the SAME
+  permutation and composing them cancels.
+
+  Reversing a pair is rotating it by one, so `(rseq [1 0])` is `[0 1]` and a
+  schedule that always composes returns `[0 1]` at every index: a two-arm
+  plan runs in ONE ORDER FOR EVER, which is the single-order result this
+  namespace exists to refuse. `rf2-ouwh8` records it, and the guard is how it
+  was found — four two-arm rows came back `only 1 stratum — the question was
+  never asked` and were REFUSED. The repair belongs to the plan, never to the
+  tolerance. At `n = 2` the plain rotation already alternates `[0 1]` and
+  `[1 0]`, which is every order two arms have, so the reflection is dropped
+  rather than composed. [[self-test]] check 9 prices both halves.
+
+  The same arithmetic as `order_guard.cjs`'s `schedule`. `b6-harness` and
+  `re-frame.bench.hicasso.lane` take this function rather than restate it, so
+  there are two copies of the rule and not four — and the two are the ones a
+  Node driver and a ClojureScript harness genuinely cannot share."
   [n round]
   (let [xs (mapv #(mod (+ % round) n) (range n))]
-    (if (odd? round) (vec (rseq xs)) xs)))
+    (if (and (odd? round) (> n 2)) (vec (rseq xs)) xs)))
 
 (defn rotation-only
   "The plain cyclic rotation, kept so [[self-test]] can price it."
@@ -420,6 +446,26 @@
         ref-d (mapv :distinct (vals (:arms refl)))
         ref-s (apply max (map :modal-share (vals (:arms refl))))
 
+        ;; 9. TWO ARMS, where the reflection cancels the rotation. Priced
+        ;;    beside 7 and 8 because it is the same arithmetic asked at the
+        ;;    smallest `n` a comparison can have. `always-reflect` is what
+        ;;    [[slot-order]] used to be, kept HERE and nowhere else so the
+        ;;    defect stays reproducible rather than merely described.
+        ;;
+        ;;    A pair has exactly one adjacency per round, so the WITHIN-round
+        ;;    question is unaskable at `n = 2` for any schedule; the seams
+        ;;    are the run, and `:seams? true` is the honest setting.
+        always-reflect (fn [n' round]
+                         (let [xs (mapv #(mod (+ % round) n') (range n'))]
+                           (if (odd? round) (vec (rseq xs)) xs)))
+        deg-orders (count (set (map #(always-reflect 2 %) (range r))))
+        fix-orders (count (set (map #(slot-order 2 %) (range r))))
+        deg2  (adjacency 2 r always-reflect)
+        fix2  (adjacency 2 r slot-order)
+        deg-d (mapv :distinct (vals (:arms deg2)))
+        fix-d (mapv :distinct (vals (:arms fix2)))
+        fix-s (apply max (map :modal-share (vals (:arms fix2))))
+
         checks
         [{:name "the recorded 2.01x is REFUSED"
           :ok   (and (:refuse? v-smi)
@@ -458,7 +504,19 @@
           :detail (str "reflected: " (str/join "," ref-d)
                        " predecessors per arm, largest modal share "
                        #?(:clj (format "%.0f" (* 100.0 ref-s))
-                          :cljs (.toFixed (* 100.0 ref-s) 0)) "%")}]]
+                          :cljs (.toFixed (* 100.0 ref-s) 0)) "%")}
+         {:name "at k=2 an ALWAYS-reflecting schedule runs one order for ever and is UNCHECKED"
+          :ok   (and (= 1 deg-orders) (some #(= 1 %) deg-d))
+          :detail (str "always-reflect over " r " rounds of 2 arms: "
+                       deg-orders " distinct order(s), predecessors per arm "
+                       (str/join "," deg-d)
+                       " — rotating a pair by one IS reversing it, so the two cancel")}
+         {:name "at k=2 slot-order alternates, and every arm gets TWO predecessors in balance"
+          :ok   (and (= 2 fix-orders) (every? #(>= % 2) fix-d) (<= fix-s 0.75))
+          :detail (str "slot-order: " fix-orders " distinct orders, predecessors per arm "
+                       (str/join "," fix-d) ", largest modal share "
+                       #?(:clj (format "%.0f" (* 100.0 fix-s))
+                          :cljs (.toFixed (* 100.0 fix-s) 0)) "%")}]]
     {:ok?     (every? :ok checks)
      :checks  checks}))
 
