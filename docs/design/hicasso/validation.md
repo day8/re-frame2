@@ -38,7 +38,7 @@ as HD-nnn are normative in [decisions.md](decisions.md).
 | Template identity | a stated cache key for any cached shape work |
 | Host boundaries | priced separately (foreign components are census-rare) |
 
-Sub-key identity: `(query-id, args)` under value equality; unstable map args
+Sub-key identity: `(query-id, args)` under value equality; value-unstable map args
 thrash the index — documented, programmer-trusted. A missed invalidation is a P0
 bug class: the staged-stale case is a CI witness for any asynchronous-host
 variant.
