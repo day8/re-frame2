@@ -57,6 +57,24 @@ Exit codes: `0` measured and clean, `1` the run failed, **`2` the arm-order
 guard refused** — a figure that moves with its position in the plan is not a
 figure, and the repair is the arm, never the tolerance.
 
+**One build id also means one build cache, and each driver now clears it before
+building** (`rf2-2rtt6.20`). shadow-cljs derives the cache directory from the
+build id alone, and fixes it before any `--config-merge` data is applied — so
+the arm is invisible to the cache key and every arm above shared one cache
+entry. Running the commands in this section in sequence used to leave a cache
+that compiled cleanly and then produced an `:advanced` bundle that **died on its
+first execution**, `Cannot read properties of undefined (reading 'd')`, which
+made a sound arm look broken at HEAD. The carrier was the `shadow-js/`
+npm-conversion cache: its index is invalidated on shadow's own cache key, never
+on the set of npm modules the build actually needs, so the UIx arm's
+`react/jsx-runtime` was linked against whole-build state established for the
+Reagent arms' fourteen modules. **Every reproduction command on these pages
+therefore runs from a cold or a warm cache, in any order.** The clear sits
+inside the run-to-run noise — the time is JVM start, classpath and the Closure
+`:advanced` pass, not the CLJS compile the cache holds —
+and `freehand/test/re_frame/bench/hicasso/lane_cache.cjs` carries the isolation,
+the measurement and the alternatives that were rejected.
+
 The instrument is
 `implementation/freehand/test/re_frame/bench/hicasso/lane.cljs`; it lives in the
 bench/test measurement lane HD-017 carves out of the donor freeze, and it
