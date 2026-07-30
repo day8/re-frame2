@@ -280,9 +280,18 @@ async function runOne(chromium, run) {
     // a corrected row that appears there looking uncorrected is the fault the
     // contract exists to prevent.
     const correction = await page.evaluate('window.HD8_CORRECTION || {}');
+    // The contract's own self-test result, on a JS-readable channel so the
+    // driver can FAIL on it rather than leaving it in an EDN blob nobody
+    // parses — which is the exact fault the contract itself was filed for.
+    const contractSelfTest = await page.evaluate(
+      'window.HD8_CORRECTION_SELFTEST === undefined ? null : window.HD8_CORRECTION_SELFTEST'
+    );
     const userAgent = await page.evaluate('navigator.userAgent');
     watch.dispose();
-    return { id: run.id, why: run.why, err, results, samples, summary, correction, userAgent, lines };
+    return {
+      id: run.id, why: run.why, err, results, samples, summary,
+      correction, contractSelfTest, userAgent, lines,
+    };
   } finally {
     await browser.close();
   }
@@ -448,6 +457,24 @@ function crossRun(runs) {
     server.close();
   }
 
+  // The correction contract's self-test, printed and ENFORCED. It runs in the
+  // bundle before any clock; a run that reached the far side without it is a
+  // run whose publication gate was never checked against its own fixtures.
+  let contractFailed = null;
+  for (const run of runs) {
+    const st = run.contractSelfTest;
+    console.log(`\n;; ==== HD8 YIELD-CORRECTION CONTRACT SELF-TEST — ${run.id} ====`);
+    if (!st) {
+      contractFailed = `${run.id}: the run recorded no contract self-test at all`;
+      console.log(';;   MISSING — the run recorded no result');
+      continue;
+    }
+    for (const c of st.checks) {
+      console.log(`;;   ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}${c.detail ? '  — ' + c.detail : ''}`);
+    }
+    if (!st.ok) contractFailed = `${run.id}: the yield-correction contract failed its own fixtures`;
+  }
+
   let refused = false;
   for (const run of runs) {
     console.log(`\n;; ==== HD8 RUN ${run.id} — ${run.why} ====`);
@@ -474,6 +501,13 @@ function crossRun(runs) {
 
   if (hardFail) {
     console.error(`[hd8] FAILED: ${hardFail}`);
+    process.exit(1);
+  }
+  if (contractFailed) {
+    console.error(
+      `[hd8] FAILED: ${contractFailed}. The gate that decides whether a write row may be ` +
+        'published does not agree with its recorded fixtures, so no figure above may be reported.'
+    );
     process.exit(1);
   }
   if (refused) {

@@ -539,8 +539,19 @@ harness turns, so there is nothing asymmetric to correct.
   test is the instrument's **own house rule** (`:straddles-1?`), deliberately:
   a contract that decides whether a row may be published is not entitled to
   invent a threshold for doing so.
-* **The correction exceeds the window.** A yield-bearing arm whose reading does
-  not survive the subtraction was not measuring its arm.
+* **The correction exceeds the window** — a yield-bearing arm for which what
+  *remains* after the subtraction does not exceed what was *removed*. That
+  window was measuring the harness's turns rather than the arm.
+
+  **This test began as `pos?`, and the gate run caught it publishing a precise
+  wrong number**, which is worth recording because it is the same shape of fault
+  the whole instrument is built against. On a `slim` run where the one-turn
+  aggregate resolved at `0.0999999 ms`, the **bulk** row's floor — whose p50 is
+  about *one clock quantum* — survived the subtraction at `~1e-8 ms`, still
+  positive, and the corrected `reagent-slim / floor` came out at
+  **`15,518,934×`**. A denominator that survives by a rounding error is not a
+  denominator. The rule is now the comparison between two measured quantities
+  with no constant between them, and that row refuses.
 
 **Which number is subtracted, and why the max.** The aggregate measured for
 *this row's* `k` — the ten-turn window for narrow, the one-turn reading for bulk
@@ -557,6 +568,18 @@ the bearers *smaller*. On the `slim` run the floor is the bearer, so a corrected
 `reagent-slim / floor` is **larger** than the published one — the unadjusted
 figure is a **lower bound** on the slim arm's cost. Both ends are published; a
 reader gets the interval instead of a point sitting quietly at one end of it.
+
+**A gate nobody has watched refuse is not a gate, and this one refuses
+rarely.** The harness asymmetry reads `0.0` on most runs of this host and
+resolves only intermittently, so a live run cannot be relied on to exercise the
+branch that matters — which is the branch that stops a figure being published.
+So the contract has a **self-test**, replayed from recorded fixtures through the
+live rule, run inside the bundle **before any clock**, and fatal when it
+disagrees: `hd8-app` throws, `hd8_run.cjs` prints every check and exits `1`. It
+is `order_guard.cjs`'s technique and `parity-can-fail?`'s argument, applied to
+the newest gate rather than only the oldest ones. Six fixtures: one per verdict,
+and one per refusal reason. **Fixture 4 is the `15,518,934×` row**, kept so that
+repair cannot silently come undone.
 
 **No figure on this page moves.** The contract reads the rows; it does not take
 them. A full three-run sweep on the branch that added it returns `:not-owed` on
@@ -708,6 +731,17 @@ and the alternatives that were rejected.
   `< 1.0 ms`, which is up to ~26% of a 3.8–7.6 ms sample.
 - **The bulk write verifies one probe cell**, where the shared lane verifies a
   seq including the far end of the grid. Same bead.
+- **The bulk row's FLOOR sits on the clock clamp**, at a p50 of about one 100 µs
+  quantum, and that is a harder limit than it looks. The published row was taken
+  on a run whose harness-microtask aggregate read `0.0`, so nothing was owed and
+  the figure stands. But on a run where that aggregate *resolves* — and it does,
+  intermittently, at `0.1 ms` on this host — the correction is the whole of the
+  bulk floor, and [the contract](#the-correction-contract-is-enforced-not-stated)
+  refuses the row rather than quoting a ratio against a denominator that is
+  mostly harness. Lifting it needs the same repair the narrow row got: **batch
+  the bulk window** so the floor clears the clamp. Not done here — that changes a
+  measured window and therefore obliges a re-take of the row, which is a
+  re-publication and not this bead's to make.
 - **The write rows' donor-vs-Reagent comparison is cross-run**, floor-normalised.
   The mount rows' is not. **The `reagent-slim` write column is normalised through
   the floor of a run taken at a different commit** from the donor and `reagent`

@@ -162,6 +162,35 @@
     (doseq [id arm-ids] (rows/ensure-frame! id))
     (record! :method (rows/method-record which arm-ids write-ids rounds mount-sampling write-sampling))
 
+    ;; ---- gate 0: the correction contract's own self-test -------------------
+    ;; Before anything is measured, because a harness that gets `false` here
+    ;; may measure nothing — the same placement, and the same argument, as
+    ;; the arm-order guard's self-test in `hd8_run.cjs`.
+    ;;
+    ;; It exists because THE BRANCH THAT MATTERS ALMOST NEVER FIRES LIVE: the
+    ;; harness asymmetry reads 0.0 on most runs of this host, so a run cannot
+    ;; be relied on to exercise a refusal, and a gate nobody has watched
+    ;; refuse is not evidence. Fixtures replayed through the live rule are.
+    ;;
+    ;; It THROWS rather than recording a failure and reading on: `-main`'s
+    ;; `catch` is the fail-closed path (`assert-teardown-clean!` uses it for
+    ;; the same reason), and a `when-not` here would print the failure and
+    ;; then measure the whole plan anyway.
+    (let [st (rows/yield-correction-self-test)]
+      (record! :yield-correction-self-test st)
+      ;; Also on a JS-readable channel, so the driver can fail on it instead
+      ;; of parsing EDN it has no reader for.
+      (set! (.-HD8_CORRECTION_SELFTEST js/window)
+            (clj->js {"ok" (boolean (:ok? st))
+                      "checks" (mapv (fn [c] {"name" (:name c) "ok" (:ok c) "detail" (:detail c)})
+                                     (:checks st))}))
+      (when-not (:ok? st)
+        (throw (ex-info (str "the yield-correction contract failed its own self-test — the gate "
+                             "that decides whether a write row may be published does not agree "
+                             "with its recorded fixtures, so nothing may be measured: "
+                             (pr-str (remove :ok (:checks st))))
+                        {:checks (:checks st)}))))
+
     ;; ---- the fairness gate, before any clock ------------------------------
     (let [problems (rows/parity-problems arm-ids)]
       (if (seq problems)
