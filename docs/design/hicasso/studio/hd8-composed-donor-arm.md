@@ -35,6 +35,12 @@ Bead **`rf2-2rtt6.7`**. Decision **[HD-008](../decisions.md)**. The standard is
 | **Producing commit, re-take** | `d3f1c2fff6` on `worker/lane-control-cluster` — the **narrow write rows** only, on a batched window (`rf2-9zysg`) |
 | **Producing instrument** | `hd8_rows.cljs` blob `e6bca24420b7fc4c9de2c6137f5b2f7144ad243d`, `lane.cljs` blob `671756751ecdb25c4c3d81e164c3204b022e93ae` |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — runs at every commit above |
+| **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
+| **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
+| **Rounds** | 6 · mount `{:warmup 4 :samples 12}` · write `{:warmup 3 :samples 10}` |
+
+Every figure below is a **browser** figure, which is what HD-012 requires of
+anything quotable against the bar.
 
 **The narrow rows are anchored by BLOB HASH as well as by commit, and that is
 not belt-and-braces.** The run was executed at `1c7c963e`; rebasing onto a main
@@ -46,15 +52,9 @@ figures came off regardless of how the commit carrying it is rebased, and
 `git rev-parse HEAD:implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs`
 is how a reader confirms the checkout in front of them is the one that produced
 this row.
-| **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
-| **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
-| **Rounds** | 6 · mount `{:warmup 4 :samples 12}` · write `{:warmup 3 :samples 10}` |
-
-Every figure below is a **browser** figure, which is what HD-012 requires of
-anything quotable against the bar.
 
 **Three producing commits, and each later one re-took only the rows whose
-window it changed.** The narrow write rows are `1c7c963e`'s and are marked as
+window it changed.** The narrow write rows are the batched re-take's and are marked as
 such in [their own section](#write--narrow-one-cell-in-a-300-cell-grid), where
 the superseded unbatched ranges are kept rather than deleted; `rf2-9zysg`
 batched ten writes under one clock and left every other window alone, so no
@@ -287,7 +287,7 @@ split **30 / 30** across its two possible predecessors, which is the local
 
 **DOM read-back — 0 unverified of 1,248**, which is every write the driver
 executed across the three runs at `b943c7ed` (`0 of 960` counting only the timed
-post-warmup samples). **At `1c7c963e` the narrow rows carry ten writes per
+post-warmup samples). **On the batched re-take the narrow rows carry ten writes per
 sample, so the same three runs execute 0 unverified of 6,864** — `0 of 780` on
 each of the eight narrow arm-columns, plus the bulk rows' `0 of 78` each. The
 denominator grew with the batch; the numerator did not.
@@ -409,7 +409,7 @@ could land without touching it.
 ## Known limitations of this instrument
 
 - ~~**The narrow-write row sits near Chrome's `performance.now()` clamp.**~~
-  **Repaired at `1c7c963e` (`rf2-9zysg`).** Ten writes now share one clock, so
+  **Repaired by the batched re-take (`rf2-9zysg`).** Ten writes now share one clock, so
   the row's samples are 3.8–7.6 ms and its floor 0.90–1.25 ms, against a 100 µs
   quantum. What remains is that an early write in a batch is read back up to
   nine microtask turns after its own drain — the pre-batch window already
