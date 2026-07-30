@@ -26,11 +26,12 @@
 (defonce ^:private raw-cells (r/atom (vec (repeat probe/cells-n 0))))
 
 (defn- raw-list []
-  [:ul.grid {:role "list"}
-   (for [i (range probe/cells-n)]
-     ^{:key i} [:li.row
-                [:span.lbl "cell "]
-                [:span.cell {:data-i i} (str (get @raw-cells i))]])])
+  (let [cells @raw-cells]
+    [:ul.grid {:role "list"}
+     (for [i (range probe/cells-n)]
+       ^{:key i} [:li.row
+                  [:span.lbl "cell "]
+                  [:span.cell {:data-i i} (str (get cells i))]])]))
 
 (def adapter reagent-adapter/adapter)
 
@@ -43,5 +44,10 @@
    ;; `reagent.core/flush` renders the dirty components; draining only the
    ;; component queue leaves the page reading a stale snapshot.
    :drain!      (fn [] (react-dom/flushSync (fn [] (reagent-ratom/flush!) (r/flush))))
+   ;; The stock counterpart of the slim `:drain-with!`. Stock Reagent's
+   ;; component queue is rAF-scheduled, so it is still full a microtask
+   ;; later and this arm passes under every order — which is precisely why
+   ;; it passed 78 of 78 in HD-008 beside a slim arm that failed 78 of 78.
+   :drain-with! (fn [f] (react-dom/flushSync (fn [] (f) (reagent-ratom/flush!) (r/flush))))
    :raw-element (fn [] [raw-list])
    :raw-write!  (fn [v] (reset! raw-cells (vec (repeat probe/cells-n v))))})

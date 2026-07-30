@@ -27,13 +27,20 @@
 
 (defn- raw-list
   "The positive control's component: plain reagent-slim reading a plain
-  `reagent2.core/atom`, no re-frame on the path."
+  `reagent2.core/atom`, no re-frame on the path.
+
+  The deref is in the COMPONENT BODY, not inside the `for`. A deref that
+  happens only when a lazy seq child is realised is captured by whatever
+  reactive context realises it, which is not necessarily this component's
+  render reaction — and a control whose reactivity depends on that
+  subtlety cannot certify anything about the arm beside it."
   []
-  [:ul.grid {:role "list"}
-   (for [i (range probe/cells-n)]
-     ^{:key i} [:li.row
-                [:span.lbl "cell "]
-                [:span.cell {:data-i i} (str (get @raw-cells i))]])])
+  (let [cells @raw-cells]
+    [:ul.grid {:role "list"}
+     (for [i (range probe/cells-n)]
+       ^{:key i} [:li.row
+                  [:span.lbl "cell "]
+                  [:span.cell {:data-i i} (str (get cells i))]])]))
 
 (def adapter slim-adapter/adapter)
 
@@ -45,5 +52,11 @@
    ;; reagent-slim's drain brings its OWN `flushSync` boundary, and its
    ;; `f` slot is exactly where the subscription-graph settle belongs.
    :drain!      (fn [] (rdc2/flush-render! (fn [] (ratom2/flush!))))
+   ;; THE DOCUMENTED PRODUCTION CONTRACT: the write goes in `f`, so the
+   ;; `forceUpdate` it provokes is issued INSIDE `flush-render!`'s
+   ;; `react-dom/flushSync` boundary and commits before the call returns.
+   ;; `reagent2.dom.client/flush-render!` says so in as many words, and the
+   ;; adapter's own `reagent_slim_flush_render_dom_cljs_test` pins it.
+   :drain-with! (fn [f] (rdc2/flush-render! (fn [] (f) (ratom2/flush!))))
    :raw-element (fn [] [raw-list])
    :raw-write!  (fn [v] (reset! raw-cells (vec (repeat probe/cells-n v))))})

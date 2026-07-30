@@ -26,7 +26,7 @@
 (defn ^:export -main []
   (let [stock? (install-stock?)]
     (rf/init! (if stock? stock/adapter slim/adapter))
-    (probe/run! (if stock? stock/substrate slim/substrate)
+    (probe/run-probe! (if stock? stock/substrate slim/substrate)
                 {:bundle      :slim+reagent
                  :installed   (if stock? :reagent :reagent-slim)
                  :compiled-in [:reagent2 :reagent]}

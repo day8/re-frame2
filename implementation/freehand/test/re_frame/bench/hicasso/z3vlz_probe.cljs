@@ -64,7 +64,8 @@
 
   Owner: rf2-z3vlz. Normative context: `docs/design/hicasso/decisions.md`
   HD-008."
-  (:require [re-frame.bench.hicasso.lane :as lane]
+  (:require ["react-dom" :as react-dom]
+            [re-frame.bench.hicasso.lane :as lane]
             [re-frame.core :as rf]
             [re-frame.frame :as frame])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -92,7 +93,12 @@
 
 (rf/reg-sub :z3vlz/cell (fn [db [_ i]] (get-in db [:cells i])))
 
-(rf/reg-event-db :z3vlz/set-all (fn [db [_ v]] (assoc db :cells (vec (repeat cells-n v)))))
+;; `reg-event-db` is REMOVED in EP-0018 (no alias): the db arrives
+;; destructured out of the coeffects map and the return is wrapped in
+;; `{:db …}`.
+(rf/reg-event :z3vlz/set-all
+  (fn [{:keys [db]} [_ v]]
+    {:db (assoc db :cells (vec (repeat cells-n v)))}))
 
 (defn seed-db [v] {:cells (vec (repeat cells-n v))})
 
@@ -148,32 +154,86 @@
     (every? (fn [i] (= want (lane/text-at container i))) (range cells-n))))
 
 ;; ---------------------------------------------------------------------------
+;; THE THIRD VARIABLE — the ORDER of write against drain
+;; ---------------------------------------------------------------------------
+;;
+;; The first run of this rig made a single-substrate reagent-slim bundle
+;; fail 12 of 12, which by the bead's stated logic would have read as
+;; candidate (a) — a defect in shipped adapter code. It is not, and the
+;; reason is a variable the bead does not name: WHEN the drain runs
+;; relative to the write.
+;;
+;; The two Reagent builds schedule their component queue differently, and
+;; that difference is documented in both of them:
+;;
+;;   - stock Reagent drains on a three-phase `requestAnimationFrame` queue;
+;;   - reagent-slim drains on a MICROTASK queue
+;;     (`reagent2.impl.batching`: "a microtask-based scheduler ... no
+;;     requestAnimationFrame fallback is required").
+;;
+;; `reagent2.dom.client/flush-render!` is documented as running `(do (f)
+;; (batching/flush!))` INSIDE a `react-dom/flushSync` boundary, and that
+;; boundary is the load-bearing part: "under React 19 `createRoot`, a bare
+;; `forceUpdate` issued from outside React's batching context is subject to
+;; automatic batching: React SCHEDULES the re-render rather than committing
+;; it synchronously".
+;;
+;; Put those two facts together. A harness that writes, YIELDS ONE
+;; MICROTASK, and only then drains has already let reagent-slim's own
+;; microtask scheduler run: the component queue is empty by the time
+;; `flush-render!` sees it, and the `forceUpdate` it issued went out
+;; OUTSIDE any `flushSync` boundary, so React holds it. `flush-render!`
+;; then finds nothing to flush and the DOM read-back reads the old value.
+;; Stock Reagent survives the identical harness because its rAF queue has
+;; NOT fired after one microtask — the drain still finds the queue full and
+;; commits it inside the boundary.
+;;
+;; So the order is measured rather than assumed. Three of them, every arm,
+;; every bundle:
+
+(def orders
+  [{:id    :inside-drain
+    :doc   (str "the write happens INSIDE `flush-render!`'s `f` — the adapter's own "
+                "documented production contract, and the shape the shipped "
+                "reagent-slim adapter smoke exercises through clicks")}
+   {:id    :drain-immediately
+    :doc   (str "write, then drain with NO yield in between. The component queue is "
+                "still full, so the drain has something to flush")}
+   {:id    :yield-then-drain
+    :doc   (str "write, yield ONE microtask, then drain — the shape of "
+                "`lane/verified-write!`, and therefore of HD-008's arm")}])
+
+;; ---------------------------------------------------------------------------
 ;; One verified write, with the escalation ladder
 ;; ---------------------------------------------------------------------------
 
 (defn- verified-write!
-  "Perform one write, then chase it through progressively more generous
-  drains until the DOM shows it or the ladder is exhausted.
+  "Perform one write under `order`, then chase it through progressively
+  more generous drains until the DOM shows it or the ladder is exhausted.
 
-  Answers a promise of
-  `{:v :mechanism :db-followed? :ok? :rung :cells}` where `:rung` is the
-  first drain that got the value onto the page — `:sync` (the substrate's
-  own drain after one microtask, which is what an application gets),
-  `:redrain`, `:macrotask`, `:raf2` — or `:never`.
+  Answers a promise of `{:v :order :mechanism :db-followed? :ok? :rung
+  :cells}` where `:rung` is the first drain that got the value onto the
+  page — `:sync` (the order's own drain, which is what an application
+  gets), then `:redrain`, `:macrotask`, `:raf2` — or `:never`.
 
   The rungs past `:sync` are diagnostic ONLY. A value that needs a
   macrotask is a LATE re-render, which is a different (and far milder)
   finding from a re-render that never happens; collapsing the two would
   lose the distinction the bead turns on."
-  [{:keys [drain!]} container fid v mechanism write!]
-  (write!)
-  (let [db-followed? (= (vec (repeat cells-n v))
-                        (:cells (frame/frame-app-db-value fid)))
-        rung         (volatile! nil)]
-    (-> (microtask)
-        (.then (fn [_]
-                 (drain!)
-                 (when (all-at? container v) (vreset! rung :sync))))
+  [{:keys [drain! drain-with!]} container fid order v mechanism write!]
+  (let [rung    (volatile! nil)
+        started (case order
+                  :inside-drain      (do (drain-with! write!)
+                                         (js/Promise.resolve nil))
+                  :drain-immediately (do (write!) (drain!)
+                                         (js/Promise.resolve nil))
+                  :yield-then-drain  (do (write!)
+                                         (.then (microtask) (fn [_] (drain!)))))
+        db-followed? (when fid
+                       (= (vec (repeat cells-n v))
+                          (:cells (frame/frame-app-db-value fid))))]
+    (-> started
+        (.then (fn [_] (when (all-at? container v) (vreset! rung :sync))))
         (.then (fn [_]
                  (when-not @rung
                    (drain!)
@@ -189,12 +249,13 @@
                    (drain!)
                    (when (all-at? container v) (vreset! rung :raf2)))))
         (.then (fn [_]
-                 {:v            v
-                  :mechanism    mechanism
-                  :db-followed? db-followed?
-                  :ok?          (= :sync @rung)
-                  :rung         (or @rung :never)
-                  :cells        (when-not (= :sync @rung) (cells-text container))})))))
+                 (cond-> {:v         v
+                          :order     order
+                          :mechanism mechanism
+                          :ok?       (= :sync @rung)
+                          :rung      (or @rung :never)}
+                   (some? db-followed?) (assoc :db-followed? db-followed?)
+                   (not= :sync @rung)   (assoc :cells (cells-text container))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The two write mechanisms the bead reproduced with
@@ -214,20 +275,54 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- mount!
+  "Create the root and render INSIDE a `react-dom/flushSync`.
+
+  `root.render` called outside a React event schedules at the default lane
+  and does not commit before the next line runs, so a mount read-back taken
+  without this boundary reads an EMPTY container — which is what the first
+  run of this probe did, in every arm including the raw control. The raw
+  control failing beside the arm under test is the whole reason that was a
+  ten-minute harness fix rather than a published finding about
+  reagent-slim.
+
+  The boundary is React's, not a substrate's, so all three substrates take
+  the identical mount and no arm is billed for a commit another arm skipped."
   [{:keys [create-root render]} container tree]
   (let [r (create-root container)]
-    (render r tree)
+    (react-dom/flushSync (fn [] (render r tree)))
     r))
 
-(defn- tally [results]
-  {:of         (count results)
-   :unverified (count (remove :ok? results))
-   :by-rung    (frequencies (map :rung results))
-   :by-mechanism
-   (into {} (map (fn [[m rs]]
-                   [m {:of (count rs) :unverified (count (remove :ok? rs))}]))
-         (group-by :mechanism results))
-   :db-followed-all? (every? :db-followed? results)})
+(defn- tally
+  "`N unverified of M` per ORDER, plus the rung histogram that tells a
+  never-re-rendered apart from a late one."
+  [results]
+  (into {}
+        (map (fn [[order rs]]
+               [order (cond-> {:of         (count rs)
+                               :unverified (count (remove :ok? rs))
+                               :summary    (str (count (remove :ok? rs))
+                                                " unverified of " (count rs))
+                               :by-rung    (frequencies (map :rung rs))}
+                        (some :mechanism rs)
+                        (assoc :by-mechanism
+                               (into {} (map (fn [[m ms]]
+                                               [m {:of (count ms)
+                                                   :unverified (count (remove :ok? ms))}]))
+                                     (group-by :mechanism rs)))
+                        (some :db-followed? rs)
+                        (assoc :db-followed-all? (every? :db-followed? rs)))]))
+        (group-by :order results)))
+
+(defn- writes-over-orders!
+  "Run [[writes-n]] verified writes under EVERY order, serially, against a
+  standing mount. Answers a promise of the flat result vector."
+  [substrate container fid write-of]
+  (lane/chain []
+              (for [{:keys [id]} orders, v (range 1 (inc writes-n))] [id v])
+              (fn [acc [order v]]
+                (let [[mech write!] (write-of v)]
+                  (-> (verified-write! substrate container fid order v mech write!)
+                      (.then (fn [r] (conj acc r))))))))
 
 (defn- run-subs-arm!
   "The arm under test: `reg-view` boundaries reading `rf/subscribe`,
@@ -235,23 +330,19 @@
   [{:keys [unmount] :as substrate} fid]
   (rf/make-frame {:id fid})
   (frame/replace-app-db! fid (seed-db 0))
-  (let [container (lane/fresh-container!)
-        handle    (mount! substrate container (root fid cells-n))
+  (let [container   (lane/fresh-container!)
+        handle      (mount! substrate container (root fid cells-n))
         mount-cells (cells-text container)
         mount-ok?   (all-at? container 0)]
-    (-> (lane/chain []
-                    (range 1 (inc writes-n))
-                    (fn [acc v]
-                      (let [mech (if (odd? v) :replace-app-db :dispatch-sync)]
-                        (-> (verified-write! substrate container fid v mech
-                                             (write-fn fid v mech))
-                            (.then (fn [r] (conj acc r)))))))
+    (-> (writes-over-orders! substrate container fid
+                             (fn [v]
+                               (let [mech (if (odd? v) :replace-app-db :dispatch-sync)]
+                                 [mech (write-fn fid v mech)])))
         (.then (fn [results]
                  (try (unmount handle) (catch :default _ nil))
                  (.remove container)
                  {:mount  {:ok? mount-ok? :cells mount-cells}
-                  :writes (tally results)
-                  :detail (mapv #(dissoc % :cells) results)
+                  :orders (tally results)
                   :failed (vec (take 3 (remove :ok? results)))})))))
 
 (defn- run-raw-control!
@@ -263,61 +354,80 @@
   fails while this passes, the substrate's reactivity and this harness's
   drain + read-back both work and the finding is on the re-frame side. If
   both fail, the finding is the harness or the engine, and nothing about
-  re-frame has been shown."
+  re-frame has been shown — which is exactly what this control said on the
+  first run of this rig, when an unflushed mount was making every arm look
+  inert."
   [{:keys [unmount raw-element raw-write!] :as substrate}]
   (raw-write! 0)
   (let [container (lane/fresh-container!)
         handle    (mount! substrate container (raw-element))
         mount-ok? (all-at? container 0)]
-    (-> (lane/chain []
-                    (range 1 (inc writes-n))
-                    (fn [acc v]
-                      (-> (verified-write! substrate container nil v :raw-atom
-                                           (fn [] (raw-write! v)))
-                          (.then (fn [r] (conj acc (dissoc r :db-followed?)))))))
+    (-> (writes-over-orders! substrate container nil
+                             (fn [v] [nil (fn [] (raw-write! v))]))
         (.then (fn [results]
                  (try (unmount handle) (catch :default _ nil))
                  (.remove container)
                  {:mount  {:ok? mount-ok?}
-                  :writes (dissoc (tally results) :db-followed-all? :by-mechanism)})))))
+                  :orders (tally results)})))))
 
 ;; ---------------------------------------------------------------------------
 ;; The run
 ;; ---------------------------------------------------------------------------
 
-(defn run!
-  "Run the probe for one bundle. `substrate` is
-  `{:label :create-root :render :unmount :drain! :raw-element :raw-write!}`;
-  `manifest` describes the bundle so the record is self-describing.
-
-  Answers a promise of the whole record and parks it under
-  `window.HICASSO_RESULTS` via [[re-frame.bench.hicasso.lane/record!]]."
-  [substrate {:keys [bundle installed compiled-in] :as manifest} fid]
-  (lane/leave-act-environment!)
-  (lane/record! :manifest (assoc manifest :runtime (lane/runtime-label)
-                                          :cells cells-n :writes writes-n))
+(defn- run-chain!
+  [substrate {:keys [bundle installed compiled-in]} fid]
   (-> (run-raw-control! substrate)
       (.then (fn [control]
                (lane/record! :raw-control control)
                (run-subs-arm! substrate fid)))
       (.then (fn [subs]
                (lane/record! :subs-arm subs)
-               (lane/record! :verdict
-                 {:bundle        bundle
-                  :installed     installed
-                  :compiled-in   compiled-in
-                  :mount-correct? (:ok? (:mount subs))
-                  :reactive?     (zero? (:unverified (:writes subs)))
-                  :unverified-of (str (:unverified (:writes subs)) " unverified of "
-                                      (:of (:writes subs)))
-                  :arm-order-guard
-                  (str "NOT ENGAGED — this run publishes no timed figure and no "
-                       "arm-to-arm ratio, so there is nothing for the guard to "
-                       "adjudicate. The only numbers here are write and DOM "
-                       "read-back counts.")})
+               (let [o (:orders subs)
+                     un (fn [k] (get-in o [k :summary]))]
+                 (lane/record! :verdict
+                   {:bundle         bundle
+                    :installed      installed
+                    :compiled-in    compiled-in
+                    :mount-correct? (:ok? (:mount subs))
+                    ;; REACTIVE means: under the substrate's OWN documented
+                    ;; drain contract — the write inside `flush-render!` — the
+                    ;; DOM followed every write. That is the question the bead
+                    ;; asks about the ADAPTER. The `:yield-then-drain` row
+                    ;; beside it is the question about the HARNESS.
+                    :reactive?      (zero? (:unverified (:inside-drain o)))
+                    :unverified-of  {:inside-drain      (un :inside-drain)
+                                     :drain-immediately (un :drain-immediately)
+                                     :yield-then-drain  (un :yield-then-drain)}
+                    :arm-order-guard
+                    (str "NOT ENGAGED — this run publishes no timed figure and no "
+                         "arm-to-arm ratio, so there is nothing for the guard to "
+                         "adjudicate. The only numbers here are write and DOM "
+                         "read-back counts.")}))
                (lane/done!)
                nil))
       (.catch (fn [e]
                 (lane/fail! (str "the probe threw: " (.-message e) "\n" (.-stack e)))
                 (lane/done!)
                 nil))))
+
+(defn run-probe!
+  "Run the probe for one bundle. `substrate` is
+  `{:label :create-root :render :unmount :drain! :raw-element :raw-write!}`;
+  `manifest` describes the bundle so the record is self-describing.
+
+  Answers a promise of the whole record and parks it under
+  `window.HICASSO_RESULTS` via [[re-frame.bench.hicasso.lane/record!]]."
+  [substrate manifest fid]
+  (lane/leave-act-environment!)
+  (lane/record! :manifest (assoc manifest :runtime (lane/runtime-label)
+                                          :cells cells-n :writes writes-n))
+  ;; SYNCHRONOUS throws get the same treatment as rejections. A mount that
+  ;; throws before the first `.then` would otherwise escape the chain
+  ;; entirely, leaving `HICASSO_DONE` unset and the driver waiting out its
+  ;; whole sentinel on what is really a one-line stack.
+  (try
+    (run-chain! substrate manifest fid)
+    (catch :default e
+      (lane/fail! (str "the probe threw synchronously: " (.-message e) "\n" (.-stack e)))
+      (lane/done!)
+      nil)))

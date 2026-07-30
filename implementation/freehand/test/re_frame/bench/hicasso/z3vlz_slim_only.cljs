@@ -26,7 +26,7 @@
 
 (defn ^:export -main []
   (rf/init! slim/adapter)
-  (probe/run! slim/substrate
+  (probe/run-probe! slim/substrate
               {:bundle      :slim-only
                :installed   :reagent-slim
                :compiled-in [:reagent2]}

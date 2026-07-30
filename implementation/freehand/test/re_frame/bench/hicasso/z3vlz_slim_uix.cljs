@@ -20,7 +20,7 @@
 (defn ^:export -main []
   (set! (.-Z3VLZ_UIX_ADAPTER js/window) (pr-str (:kind adapter-ref)))
   (rf/init! slim/adapter)
-  (probe/run! slim/substrate
+  (probe/run-probe! slim/substrate
               {:bundle      :slim+uix
                :installed   :reagent-slim
                :compiled-in [:reagent2 :uix]}
