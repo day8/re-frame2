@@ -1167,7 +1167,7 @@
 
       (< span 4)
       {:status :indeterminate
-       :why    (str "ladder span " span "x < 4x — too narrow to tell a floor from a cost")}
+       :why    (str "ladder span " (.toFixed span 1) "x < 4x — too narrow to tell a floor from a cost")}
 
       (and (zero? small) (zero? large))
       {:status :indeterminate :why "both endpoints read 0 — nothing here explains a refusal"}
@@ -1183,10 +1183,10 @@
          :span      span
          :threshold threshold
          :why       (if floor?
-                      (str "B/call falls " (.toFixed ratio 2) "x across a " span
+                      (str "B/call falls " (.toFixed ratio 2) "x across a " (.toFixed span 1)
                            "x ladder (>= span/2 = " (.toFixed threshold 1)
                            ") — a per-WINDOW floor, not a per-call cost")
-                      (str "B/call moves only " (.toFixed ratio 2) "x across a " span
+                      (str "B/call moves only " (.toFixed ratio 2) "x across a " (.toFixed span 1)
                            "x ladder (< span/2 = " (.toFixed threshold 1)
                            ") — a real per-call reading; the refusal stands"))}))))
 
@@ -1228,6 +1228,23 @@
           :want   :per-call
           :points [{:reps 500 :p50 16.1} {:reps 1000 :p50 12.0}
                    {:reps 2000 :p50 9.0} {:reps 4000 :p50 8.0}]}
+         ;; LIVE, recorded from this harness on this host, 2026-07-31, one
+         ;; run: H-ROUTED refused by phase (its plan rounds split 179.4 ->
+         ;; 1227.9 B/call at reps=4000, the rf2-2ix22 signature) and its sweep
+         ;; collapsed 7.83x across an 8x ladder — the floor, attributed.
+         {:name   "the live rf2-2ix22 signature attributes to the floor"
+          :want   :floor
+          :points [{:reps 500 :p50 9616.0} {:reps 1000 :p50 1227.9}
+                   {:reps 2000 :p50 1227.9} {:reps 4000 :p50 1227.9}]}
+         ;; The SAME run's H-SAMEFLAT — the flat predicate, nominally the same
+         ;; near-zero subject — was pinned by the instrument in a rep-
+         ;; INDEPENDENT state instead (9632.0 B/call, bit-flat across its
+         ;; ladder), and its refusal must stand: a flat sweep proves nothing
+         ;; about the floor, whatever the arm's subject nominally costs.
+         {:name   "the same run's rep-independent sibling stays refused"
+          :want   :per-call
+          :points [{:reps 75 :p50 9632.0} {:reps 149 :p50 9632.0}
+                   {:reps 297 :p50 9632.0} {:reps 593 :p50 9632.0}]}
          {:name   "a ladder too narrow to discriminate refuses attribution"
           :want   :indeterminate
           :points [{:reps 2 :p50 10.0} {:reps 4 :p50 2.0}]}
