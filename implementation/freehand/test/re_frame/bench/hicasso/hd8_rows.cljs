@@ -614,9 +614,12 @@
   carries the evidence, including the positive control (a plain component
   reading a plain `reagent2.core/atom`, no re-frame anywhere on the path)
   that reproduces it in all four bundle compositions. The general form —
-  the same fixed yield in the shared `lane/verified-write!` — is filed as
-  rf2-pq7d8 and is NOT repaired here: `lane.cljs` is a shared instrument
-  with sibling arms measuring on it.
+  the same fixed yield in the shared `lane/verified-write!` — is rf2-pq7d8,
+  and it HAS since been repaired: the lane takes the same `:scheduler`
+  declaration and gives it these same two shapes, lifted from here rather
+  than invented a second time. That repair is additive — an arm that
+  declares no `:scheduler` gets the lane's unchanged window, and none does
+  outside this file — so no published row moved.
 
     `:microtask`  write, then drain, with NOTHING between them. The
                   substrate's queue is filled synchronously by the write and
