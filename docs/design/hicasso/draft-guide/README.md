@@ -76,5 +76,7 @@ plausible ones would be the single most damaging thing this draft could do.
 [decisions.md](../decisions.md) governs; [validation.md](../validation.md) is next.
 [authoring.md](../authoring.md) holds the canonical spellings that do exist, and
 where this guide shows a symbol that authoring.md does not, the symbol is invented
-here and marked. The programme is sequenced by
+here and marked. [hd-002-adjudication.md](../hd-002-adjudication.md) is a delegated
+advisory on the read fork — it settles what the collector may do and what kills it,
+and explicitly does **not** decide which surface ships. The programme is sequenced by
 [EP-0038](../../../EP/EP-0038-the-hicasso-view-layer-programme.md).
