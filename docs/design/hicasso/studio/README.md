@@ -63,3 +63,4 @@ requires nothing from any donor `src/` tree.
 | Page | Phase | What it settles |
 |---|---|---|
 | [P0 — Reagent-on-subs baseline (mount + bulk)](p0-reagent-on-subs-baseline.md) | P0 | The ship bar's **denominator**: mount and bulk view work for Reagent reading re-frame2 subscriptions. |
+| [The reagent-slim non-reactive arm — diagnosis](slim-non-reactive-arm-diagnosis.md) | P0 | Why HD-008's reagent-slim arm read `78 unverified of 78`: the **arm's composition**, not the adapter and not the mixed bundle. A single-substrate slim bundle re-renders on every write. |
