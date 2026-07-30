@@ -944,9 +944,29 @@
 ;; What the two window shapes cost differently
 ;; ===========================================================================
 
+(defn- yield-window!
+  "Price `k` consecutive harness microtasks inside ONE clock window.
+
+  `now-ms`, `k` yields, `now-ms`, and nothing else in between.
+
+  The recursion mirrors [[window-of]]'s non-microtask branch EXACTLY —
+  `(js/Promise.resolve nil)` with the continuation inside the `.then`, so
+  the next turn begins in the turn the previous one finished in. That
+  matters: threading these through a promise-returning `.then` instead
+  would add two resolution ticks per step and price a window the arms
+  never run. At `k = 1` this is the original one-turn reading exactly."
+  [k]
+  (let [t0 (lane/now-ms)]
+    (letfn [(run [n]
+              (if (zero? n)
+                (js/Promise.resolve (- (lane/now-ms) t0))
+                (-> (js/Promise.resolve nil)
+                    (.then (fn [_] (run (dec n)))))))]
+      (run k))))
+
 (defn yield-cost!
-  "Price ONE harness microtask against the same clock the write rows use:
-  `now-ms`, a resolved-promise turn, `now-ms`, and nothing else in between.
+  "Price the harness microtask against the same clock the write rows use —
+  ONE turn per window, and `narrow-batch-k` turns per window.
 
   [[window-of]] gives a microtask-scheduled arm a window that does NOT
   contain this turn while every other arm's does, and that asymmetry has to
@@ -957,30 +977,77 @@
   its own resolution; anything else has to be subtracted before a ratio is
   quoted, and the report must say which happened.
 
+  WHY THE SECOND WINDOW EXISTS (rf2-2rtt6.19). The narrow row now batches
+  `narrow-batch-k` writes under one clock, so its window contains that many
+  harness microtasks rather than one — for every arm except the
+  microtask-scheduled one, which contains none. The one-turn reading bounds
+  the asymmetry at `< 100 µs` for ONE turn; multiplying it by ten does NOT
+  bound ten turns at `< 100 µs`, it bounds them at `< 1.0 ms`, which is up
+  to ~26% of a 3.8–7.6 ms batched sample. `10 × below-resolution` is not
+  below resolution, and that is the same argument that justified batching
+  the writes in the first place: timing k operations as ONE window lifts
+  the sample clear of the clamp, and is not the same as summing k
+  separately-clamped readings.
+
+  So the control is batched the way the row is. Ten turns share one clock,
+  the per-turn figure is that sample divided by ten, and the asymmetry
+  becomes a measurement instead of a multiplication.
+
   Measured OUTSIDE every arm's window, in its own turns, so it perturbs no
   published figure. Warmed like every other row, because a first promise
   turn is not a representative one."
   [{:keys [warmup samples]}]
-  (-> (chain []
-             (range (+ warmup samples))
-             (fn [acc s]
-               (let [t0 (lane/now-ms)]
-                 (-> (js/Promise.resolve nil)
-                     (.then (fn [_]
-                              (let [ms (- (lane/now-ms) t0)]
-                                (cond-> acc (>= s warmup) (conj ms)))))))))
-      (.then (fn [xs]
-               (let [s (lane/summarise xs)]
-                 {:control :harness-microtask-yield
-                  :p50     (:p50 s)
-                  :min     (:min s)
-                  :max     (:max s)
-                  :n       (:n s)
-                  :clamp   "Chrome clamps performance.now() to 100 µs"
-                  :note    (str "the turn every non-microtask-scheduled arm's write "
-                                "window contains and the reagent-slim arm's does not "
-                                "(rf2-b69lw); 0.0 means the asymmetry is below this "
-                                "instrument's resolution")})))))
+  (let [run (fn [k]
+              (chain []
+                     (range (+ warmup samples))
+                     (fn [acc s]
+                       (-> (yield-window! k)
+                           (.then (fn [ms] (cond-> acc (>= s warmup) (conj ms))))))))]
+    ;; SEQUENTIALLY, never `Promise.all`: two microtask chains in flight at
+    ;; once interleave on the one queue, and each would then be timing the
+    ;; other's turns as well as its own. The second run nests inside the
+    ;; first's `.then` and closes over its samples.
+    (-> (run 1)
+        (.then
+          (fn [xs1]
+            (.then
+              (run narrow-batch-k)
+              (fn [xsk]
+                (let [s1  (lane/summarise xs1)
+                      sk  (lane/summarise xsk)
+                      per (fn [v] (when (number? v) (/ v narrow-batch-k)))]
+                  {:control :harness-microtask-yield
+                   ;; The original one-turn reading, unchanged, so nothing
+                   ;; published against it moves.
+                   :p50     (:p50 s1)
+                   :min     (:min s1)
+                   :max     (:max s1)
+                   :n       (:n s1)
+                   :clamp   "Chrome clamps performance.now() to 100 µs"
+                   :note    (str "the turn every non-microtask-scheduled arm's write "
+                                 "window contains and the reagent-slim arm's does not "
+                                 "(rf2-b69lw); 0.0 means ONE such turn is below this "
+                                 "instrument's resolution")
+                   ;; The batched reading — the one the batched narrow row
+                   ;; actually needs, because its window holds k of these.
+                   :batched
+                   {:k            narrow-batch-k
+                    :window-p50   (:p50 sk)
+                    :window-min   (:min sk)
+                    :window-max   (:max sk)
+                    :n            (:n sk)
+                    :per-turn-p50 (per (:p50 sk))
+                    :per-turn-min (per (:min sk))
+                    :per-turn-max (per (:max sk))
+                    :note (str narrow-batch-k " harness microtasks under ONE clock, "
+                               "the same technique the narrow row uses for its "
+                               "writes. This is the quantity the batched narrow "
+                               "window's asymmetry actually is — present in every "
+                               "arm except the microtask-scheduled one. The "
+                               "one-turn reading above bounds ONE turn below the "
+                               "clamp; it does NOT bound " narrow-batch-k
+                               " of them, and this window measures them instead "
+                               "of multiplying (rf2-2rtt6.19)")}}))))))))
 
 ;; ===========================================================================
 ;; The positive control — predicted against measured, every run
