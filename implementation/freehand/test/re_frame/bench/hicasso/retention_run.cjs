@@ -52,7 +52,9 @@
 //      scope rather than quietly passing a vacuous `0 of 0`;
 //   4. every reading is a reading — a numeric sub-cache count, a heap
 //      figure, and `window.gc` present whenever `RETENTION_COLLECT` asks
-//      the PAGE to collect;
+//      the PAGE to collect — and `RETENTION_COLLECT` itself names a real
+//      collector, refused up front on a typo, because a misspelt one
+//      forces no collection and certifies uncollected heap as collected;
 //   5. the probe completed at all — `P0H.prepare` now RAISES with the
 //      failing teardown phase named, instead of swallowing it.
 //
@@ -119,6 +121,33 @@ const COLLECT = process.env.RETENTION_COLLECT || 'both';
 // `all` (default) | repro — the two cheap series are worth running once,
 // not on every variant of the collector question.
 const ONLY = process.env.RETENTION_ONLY || 'all';
+
+// THE ENUMS REFUSE A TYPO, before anything is built or measured. `collect()`
+// matches these strings and silently does NOTHING on any other, so an
+// unvalidated `RETENTION_COLLECT=bogus` performed no forced collection at
+// all while the header still printed it as the collector forcing every
+// COLLECTED reading — and the run exited 0, certifying UNCOLLECTED heap as
+// collected. Proven at the landed head with the one-cycle `repro` shape
+// (rf2-flqpd, merged-PR audit #7281). `none` stays a legal answer: asking
+// for no collector is a question this probe exists to compare, and is
+// nothing like failing to name one. `RETENTION_ONLY` is the same trap one
+// door over — a typo there silently narrows the run to `repro` — so it is
+// held to the same rule.
+for (const [name, value, legal] of [
+  ['RETENTION_COLLECT', COLLECT, ['both', 'page', 'cdp', 'none']],
+  ['RETENTION_ONLY', ONLY, ['all', 'repro']],
+]) {
+  if (!legal.includes(value)) {
+    console.error(
+      `[ret] FAILED: ${name}=${JSON.stringify(value)} is not one of ` +
+        `${legal.join(' | ')} — refusing before anything is measured. Without ` +
+        `this gate an unrecognised value does not stop the run: a misspelt ` +
+        `collector forces NO collection and certifies uncollected heap as ` +
+        `COLLECTED; a misspelt scope silently narrows the run to repro.`
+    );
+    process.exit(1);
+  }
+}
 
 const CONFIG_MERGE =
   `{:output-dir "${OUT_DIR}" :asset-path "." :modules {:main {:init-fn ${INIT_FN}}}}`;
