@@ -1,0 +1,113 @@
+(ns re-frame.bench.p0-uix
+  "EP-0038 P0 — **the frontier arm**: UIx reading re-frame2 subscriptions
+  through the existing `use-subscribe` spine.
+
+  UIx is the best existing React-idiomatic option on re-frame2 subs, and
+  the delegated ruling recorded on rf2-2rtt6.1 makes the ratios this arm
+  produces the RED-ZONE THRESHOLDS for every later candidate, on both the
+  clock and retained heap. Nothing here may therefore be a convenience
+  spelling: every boundary is written the way the adapter's own
+  documentation and examples write one.
+
+  ## What is deliberately NOT here
+
+  - **No `set-hiccup-emitter!`.** UIx's `$` is a macro that expands to
+    `react/createElement` at compile time. An arm written through the
+    hiccup emitter would be measuring a hiccup interpreter, which is the
+    candidate's product delta and not UIx's. Using it here would set the
+    red-zone from the wrong runtime and flatter every later candidate.
+  - **No `use-memo` around the subscription args.** `use-subscribe`'s own
+    stable-deps-key handling is part of the spine under test; wrapping it
+    would price a hand optimisation no ordinary application writes.
+  - **No prop threading in place of a read.** Every boundary that a
+    Reagent arm subscribes in, this arm subscribes in — one read per
+    boundary, the first rung of the HD-002 ladder. A row that took its
+    text as a prop would be a different sub graph wearing the same name.
+
+  ## One boundary, one read
+
+  `w1-row`, `w3-field` and `u-cell` are each a `defui` — a React function
+  component — calling `use-subscribe` once. That is the paved UIx
+  spelling; the counterpart Reagent arm is a `reg-view` derefing
+  `(rf/subscribe …)` once. Neither is doing the other's work.
+
+  Owner: rf2-2rtt6.1 (standard); this arm rf2-2rtt6.4."
+  (:require [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.bench.p0-fixture :as fx]
+            [uix.core :refer [$ defui]]))
+
+;; ---------------------------------------------------------------------------
+;; W1 — the large template
+;; ---------------------------------------------------------------------------
+
+(defui w1-row [{:keys [i]}]
+  (let [text (uix-adapter/use-subscribe [:p0/row i])]
+    ($ :li.row.cell.wide {:style      {:padding-left "4px" :color "rebeccapurple"}
+                          :data-index i}
+       ($ :img.avatar {:src "/avatar.png" :alt ""})
+       ($ :span.label "row ")
+       ($ :em.n text))))
+
+(defui w1 [{:keys [rows]}]
+  ($ :section.panel {:aria-label "bench rows"}
+     ($ :h1.title "Rows")
+     ($ :ul.rows {:role "list"}
+        (for [i (range rows)]
+          ($ w1-row {:key i :i i})))))
+
+;; ---------------------------------------------------------------------------
+;; W3 — the ordinary form
+;; ---------------------------------------------------------------------------
+
+(defui w3-field [{:keys [i]}]
+  (let [{:keys [value error]} (uix-adapter/use-subscribe [:p0/field i])]
+    ($ :div.field
+       ($ :label.lbl {:for (str "f" i)} (str "Field " i))
+       ($ :input.inp {:id        (str "f" i)
+                      :name      (str "f" i)
+                      :type      "text"
+                      :value     value
+                      :read-only true})
+       ($ :p.err error))))
+
+(defui w3 [{:keys [fields]}]
+  ($ :form.w3form
+     ($ :fieldset.fields
+        (for [i (range fields)]
+          ($ w3-field {:key i :i i})))
+     ($ :button.submit {:type "submit" :disabled true} "Submit")))
+
+;; ---------------------------------------------------------------------------
+;; U — the bulk witness
+;; ---------------------------------------------------------------------------
+
+(defui u-cell [{:keys [i]}]
+  (let [v (uix-adapter/use-subscribe [:p0/cell i])]
+    ($ :span.cell {:data-i i} (str v))))
+
+(defui u-grid [{:keys [n]}]
+  ($ :div.ugrid
+     (for [i (range n)]
+       ($ u-cell {:key i :i i}))))
+
+;; ---------------------------------------------------------------------------
+;; Roots — the frame scope every read resolves through
+;; ---------------------------------------------------------------------------
+;;
+;; `frame-provider` SCOPES an already-created frame and renders no DOM of
+;; its own, so it cannot move the canonical-DOM gate. The frame is created
+;; outside the measured window by the segment's setup: a mount window that
+;; contained `make-frame` and a seeding dispatch would be pricing frame
+;; construction on the arm that happens to own it.
+
+(defn w1-root [frame-id rows]
+  ($ uix-adapter/frame-provider {:frame frame-id}
+     ($ w1 {:rows rows})))
+
+(defn w3-root [frame-id fields]
+  ($ uix-adapter/frame-provider {:frame frame-id}
+     ($ w3 {:fields fields})))
+
+(defn u-root [frame-id]
+  ($ uix-adapter/frame-provider {:frame frame-id}
+     ($ u-grid {:n fx/cells-n})))
