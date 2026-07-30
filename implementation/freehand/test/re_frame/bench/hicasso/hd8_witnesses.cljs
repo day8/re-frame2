@@ -33,25 +33,40 @@
 
   ## The hook ladder, and why it is the readable variable
 
-  Every arm below resolves its dispatch fn the SAME way — one map lookup
-  keyed by frame, from [[frame-dispatch]], primed once outside render.
-  That is deliberate levelling: an arm that minted a fresh ops map per
-  render would be carrying an allocation none of its rivals pay, and the
-  frontier comparator in particular must never be strawmanned. What is
-  left varying is the thing under test:
+  THREE dispatch mechanisms live here, not one, and this docstring used to
+  claim otherwise — *\"every arm below resolves its dispatch fn the SAME way
+  — one map lookup keyed by frame\"*. What the source does:
 
-      arm            hooks  markup                     handler
-      :floor           0    hand createElement         inert
-      :reagent         0    Reagent hiccup (reg-view)  author closure
-      :reagent-slim    0    slim hiccup (reg-view)     author closure
-      :uix             2    `$` macro (compile-time)   author closure
-      :donor-r1        1    slim hiccup + `:f>`        author closure
-      :donor-r2        2    slim hiccup + `:f>`        CODEC-LOWERED
+      arm            hooks  markup                     handler        dispatch
+      :floor           0    hand createElement         inert          none — one hoisted no-op, shared
+      :reagent         0    Reagent hiccup (reg-view)  author closure LEXICAL, injected by reg-view
+      :reagent-slim    0    slim hiccup (reg-view)     author closure LEXICAL, injected by reg-view
+      :uix             2    `$` macro (compile-time)   author closure [[dispatch-for]] — deref + get, IN RENDER
+      :donor-r1        1    slim hiccup + `:f>`        author closure [[dispatch-for]]
+      :donor-r2        2    slim hiccup + `:f>`        CODEC-LOWERED  [[dispatch-for]], then [[lower-events]]
 
-  So `donor-r2 / donor-r1` is the product shell's price and nothing
-  else's; `donor-r2 / uix` holds the hooks and the dispatch mechanism
-  fixed and varies the CODEC; `donor-r* / reagent*` is HD-008's ship
-  comparison.
+  [[prime-frame!]] does run outside every measured window, so no arm pays
+  to CONSTRUCT a dispatch fn during a render — that part of the old claim
+  holds and is the point of the levelling. But only the three React-spine
+  arms read [[frame-dispatch]], and they read it INSIDE each boundary's
+  render, 300 times a mount; the two Reagent paths never touch it, because
+  `reg-view` hands them a `dispatch` already bound to the frame from
+  context, which is what a Reagent application contains; and the floor
+  resolves nothing at all.
+
+  What the old sentence was defending is still true and still matters: no
+  arm mints a fresh OPS MAP per render, every mechanism above is one
+  indirection or fewer, and the frontier comparator is never strawmanned.
+  And the residual runs in the safe direction — the deref-plus-`get` is
+  paid by `:uix` and both donor rungs and NOT by the Reagent paths, so it
+  cannot have flattered the arms HD-008 is arguing for.
+
+  What is left varying is the thing under test. `donor-r2 / donor-r1` is
+  the product shell's price and nothing else's; `donor-r2 / uix` holds the
+  hooks and the dispatch mechanism fixed — both go through
+  [[dispatch-for]] — and varies the CODEC; `donor-r* / reagent*` is
+  HD-008's ship comparison, and is the one pair the mechanisms differ
+  across.
 
   ## Why every arm is written out longhand
 
@@ -134,13 +149,20 @@
 (defn u-elements [n] (+ 1 n))
 
 ;; ===========================================================================
-;; The levelled dispatch lookup
+;; The dispatch lookup the React-spine arms share
 ;; ===========================================================================
 
 (defonce ^:private frame-dispatch
   ;; frame keyword -> the frame-locked `dispatch` fn. Primed by
   ;; [[prime-frame!]] at arm construction, outside every measured window,
-  ;; so no arm pays for capturing it and every arm pays the same lookup.
+  ;; so no arm pays to CONSTRUCT a dispatch fn during a render.
+  ;;
+  ;; It does NOT make every arm pay the same lookup, and the comment here
+  ;; used to say it did. Its readers are `:uix`, `:donor-r1` and
+  ;; `:donor-r2`, which call [[dispatch-for]] inside each boundary's
+  ;; render; the two Reagent arms take `reg-view`'s lexical `dispatch` and
+  ;; never come here, and the floor's handler is [[inert]]. See the ns
+  ;; docstring for the three mechanisms and which way the residual runs.
   (atom {}))
 
 (defn prime-frame! [frame-kw]
