@@ -47,6 +47,11 @@ and the design record does not answer. Those tables are the most useful part of 
 draft. A guide that reads as finished when the design is not is worse than one that
 says where the floor is missing.
 
+Examples deliberately alternate between the two candidate read surfaces rather than
+settling on one, and every page that shows a read says which surface it is using.
+[Views and reads](02-views-and-reads.md) is where the fork is explained; the real
+guide will have exactly one spelling and will be much shorter for it.
+
 ## What this draft is not
 
 - **Not published.** `design/hicasso/` is in `exclude_docs` in `mkdocs.yml`, so this

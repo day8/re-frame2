@@ -56,6 +56,10 @@ Three namespaces, in the shape any re-frame2 app already uses.
        title]])])
 ```
 
+That view reads with `sub`, which is the *collector* surface — one of two candidates
+still under adjudication. [Views and reads](02-views-and-reads.md) covers both and
+explains why this draft doesn't choose. Nothing on this page turns on it.
+
 And the boot namespace, which is the actual subject of this page:
 
 ```clojure
