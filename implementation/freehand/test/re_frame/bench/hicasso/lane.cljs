@@ -419,6 +419,27 @@
                         :force-ms (- t3 t2)
                         :ok?      ok?}))))))))
 
+(defn bulk-probes
+  "The probe seq for a BROAD write over `n` cells: a cell that ROTATES with
+  `rotor`, the far end of the grid, and cell 0.
+
+  A broad write changes every cell, so verifying one of them verifies
+  almost nothing — a page left stale by a commit that landed outside the
+  window can still carry one fresh cell from the PREVIOUS write, and a
+  single fixed probe accepts it. Rotating one probe means a stale page has
+  to have been stale in the same place twice; the far end means a partial
+  commit that got as far as the front of the grid is caught.
+
+  Stated once, here, because it is a RULE and not an argument list: HD-008
+  probed cell 0 alone on its bulk row while the P0 arm three files away
+  probed three cells, which is the shape of divergence this lane exists to
+  prevent (rf2-f5roa).
+
+  A NARROW write is the other case and does not use this: it changes
+  exactly one cell, so its probe seq is that cell and nothing else."
+  [rotor n]
+  [(mod rotor n) (dec n) 0])
+
 (defn chain
   "Fold `xs` into a serial promise chain, threading an accumulator."
   [init xs f]

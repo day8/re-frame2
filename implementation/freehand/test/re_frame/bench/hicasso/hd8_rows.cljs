@@ -51,6 +51,46 @@
   IMPLEMENTATION contributes: the same UIx arm measured over Reagent
   reactions and over the React spine's containers.
 
+  ## What this arm takes from the lane, and what it deliberately does not
+
+  This instrument was written before rf2-2rtt6.2's shared lane landed. It
+  now takes mount, release, parity, `across-rounds`, `slot-order`,
+  `now-ms`, `round4`, `summarise`, `ratio-between` and `bulk-probes` from
+  `re-frame.bench.hicasso.lane` (rf2-f5roa). Four of the lane's mechanisms
+  are deliberately NOT adopted, and the reasons are here so the question is
+  not reopened by inspection:
+
+  1. **The BATCHED write window is not adopted, and adopting it is a
+     RE-RUN.** `lane/mount-batch!` times `k` operations as one sample to
+     lift a reading clear of Chrome's 100 µs `performance.now()` clamp, and
+     the write-narrow row here reads p50s of 0.4–1.2 ms — 4 to 12 quanta,
+     which is why its published ranges are as wide as they are. Batching
+     the write window would narrow them. It would also CHANGE THE MEASURED
+     WINDOW, which invalidates the HD-008 rows already published in
+     `docs/design/hicasso/studio/hd8-composed-donor-arm.md`; a window
+     change cannot be validated by anything but a re-run, and re-running is
+     a separate piece of work with its own publication obligations. The
+     mount rows (4–13 ms) do not need it.
+
+  2. **`lane/control-verdict` is WEAKER than [[positive-control!]]'s own
+     rule and would be a downgrade.** The lane passes a control whose
+     measured range merely OVERLAPS ±slack of the prediction; this one
+     requires EVERY round inside the band. Letting a good round vouch for a
+     bad one is how an instrument stops being one, and the stricter rule
+     stays.
+
+  3. **`lane/tally` counts `{:of :bad}` in one atom; this row counts them
+     PER ARM.** A pooled count says half the writes failed and leaves a
+     reader to guess which arm. The per-arm map is the difference between a
+     diagnosis and a mystery, and it is threaded immutably through the
+     promise chain rather than mutated beside it.
+
+  4. **The verdict is adjudicated in the DRIVER, not in ClojureScript.**
+     `lane/guard!` adjudicates in-bundle with the `.cljc` copy of the rule;
+     `hd8_run.cjs` adjudicates with the `.cjs` copy. The two copies are
+     held in step by shared self-test fixtures, and a lane that exercises
+     the other one is worth more than the symmetry.
+
   Normative owner: `docs/design/hicasso/decisions.md` HD-008; results to
   `rf2-2rtt6.1` and `docs/design/hicasso/studio/`."
   (:require ["react-dom" :as react-dom]
@@ -316,7 +356,7 @@
 ;; The mount clock — with the order-guard's per-sample records
 ;; ===========================================================================
 
-(defn- round4 [x] (/ (js/Math.round (* (double x) 10000.0)) 10000.0))
+(def ^:private round4 lane/round4)
 (defn- p50 [xs] (:p50 (lane/summarise xs)))
 
 (def slot-order
@@ -402,20 +442,21 @@
   between rounds cancels exactly as it does for the floor-normalised
   figures. Reported as a RANGE, with `:straddles-1?` set when the range
   includes 1.0 — in which case the two arms are INDISTINGUISHABLE on this
-  witness and the mean must not be quoted as a winner."
+  witness and the mean must not be quoted as a winner.
+
+  The arithmetic is `lane/ratio-between` and no longer a second copy of it
+  (rf2-f5roa). It is fed this row's raw `:p50` maps rather than its
+  floor-normalised `:ratio` maps — algebraically the floor cancels either
+  way, but rounding to four places twice is not the same as rounding once,
+  and these are the digits the published rows carry."
   [per-round]
-  (let [present (set (keys (:p50 (first per-round))))]
+  (let [present (set (keys (:p50 (first per-round))))
+        p50s    (mapv :p50 per-round)]
     (into {}
           (keep (fn [[a b]]
                   (when (and (contains? present a) (contains? present b))
-                    (let [vs (mapv (fn [r] (round4 (/ (get-in r [:p50 a])
-                                                      (get-in r [:p50 b]))))
-                                   per-round)
-                          lo (apply min vs)
-                          hi (apply max vs)]
-                      [(keyword (str (name a) "-over-" (name b)))
-                       {:min lo :max hi :rounds vs
-                        :straddles-1? (and (<= lo 1.0) (>= hi 1.0))}]))))
+                    [(keyword (str (name a) "-over-" (name b)))
+                     (lane/ratio-between p50s a b)])))
           head-to-head-pairs)))
 
 (defn measure-mount!
@@ -648,8 +689,8 @@
 
 (defn timed-write!
   "Write, wait the way THIS ARM'S SCHEDULER requires, force the arm's own
-  synchronous drain, stop the clock — then VERIFY at the DOM that the
-  probed cell holds what was written. Answers a promise of
+  synchronous drain, stop the clock — then VERIFY at the DOM that EVERY
+  cell in `probes` holds what was written. Answers a promise of
   `{:ms … :ok? …}`.
 
   The wait belongs to the arm ([[window-of]]) and not to this function,
@@ -658,15 +699,24 @@
   is FATAL for an arm whose notification is queued on the microtask queue
   itself.
 
+  `probes` is a SEQ and used to be a single cell, which was thin on the
+  BULK row (rf2-f5roa): a broad write changes all 300 cells, this probed
+  cell 0, and a page left stale by a commit landing outside the window can
+  still carry one fresh cell from the previous write. `lane/bulk-probes`
+  is the rule now, and the P0 arm three files away already used it. The
+  NARROW row is unchanged and was already right — one cell changes, so one
+  probe is the whole page's worth of verification.
+
   The read-back is inside the window's own iteration and in the same turn
   as the drain, so an arm that silently rendered nothing — or rendered a
   turn late — reports as UNVERIFIED rather than as the fastest substrate in
-  the table, which is the exact shape of the fault this exists to prevent."
-  [{:keys [arm container]} i val]
-  (let [probe (if (= i :all) 0 i)]
-    ((:window! arm)
-     (fn [] ((:write! arm) i val))
-     (fn [] (= val (cell-text container probe))))))
+  the table, which is the exact shape of the fault this exists to prevent.
+  Widening the probe seq does not move the measured window: the clock stops
+  before the first `querySelector` either way."
+  [{:keys [arm container]} i val probes]
+  ((:window! arm)
+   (fn [] ((:write! arm) i val))
+   (fn [] (every? #(= val (cell-text container %)) probes))))
 
 (defn- chain
   "Sequence `f` over `xs` through promises, threading `acc`."
@@ -696,8 +746,16 @@
                     (fn [a j]
                       (let [mnt (nth mounts j)
                             id  (:id (:arm mnt))
-                            v   (str "v" (:position a))]
-                        (-> (timed-write! mnt (if (= kind :bulk) :all (mod (:position a) w/cells-n)) v)
+                            v   (str "v" (:position a))
+                            cell (mod (:position a) w/cells-n)
+                            ;; A broad write changes every cell, so it is
+                            ;; verified at three (`lane/bulk-probes`); a
+                            ;; narrow write changes one, so it is verified
+                            ;; at that one.
+                            [i probes] (if (= kind :bulk)
+                                         [:all (lane/bulk-probes (:position a) w/cells-n)]
+                                         [cell [cell]])]
+                        (-> (timed-write! mnt i v probes)
                             (.then (fn [{:keys [ms ok?]}]
                                      (cond-> (-> a
                                                  (assoc :position (inc (:position a)) :prev id)
