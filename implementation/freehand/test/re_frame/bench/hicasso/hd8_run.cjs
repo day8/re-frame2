@@ -277,7 +277,12 @@ function crossRun(runs) {
   console.log(`;; ==== HD8 PROVENANCE ====`);
   console.log(`;;   bead        rf2-2rtt6.7 (HD-008, EP-0038)`);
   console.log(`;;   commit      ${sha}`);
-  console.log(`;;   reproduce   node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs`);
+  // The repro line carries the environment it was actually run with, not the
+  // bare command: a published figure whose repro command does not reproduce it
+  // is a figure nobody can check.
+  console.log(
+    `;;   reproduce   ${ONLY ? `HD8_ONLY=${ONLY} ` : ''}node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs`
+  );
   console.log(`;;   build       shadow-cljs release freehand-release (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);
   console.log(`;;   runs        ${RUNS.map((r) => r.id).join(', ')}${ONLY ? `  (HD8_ONLY=${ONLY})` : ''}`);
