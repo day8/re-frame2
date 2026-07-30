@@ -85,7 +85,7 @@
                   (let [r (react-dom-client/createRoot c)]
                     (react-dom/flushSync (fn [] (.render r (element-of))))
                     r))
-   :unmount-one (fn [r] (react-dom/flushSync (fn [] (.unmount r))))})
+   :unmount-one (fn [r] (.unmount r))})
 
 (defn- reagent-root-arm [form-of selector expected]
   {:selector    selector
@@ -94,7 +94,7 @@
                   (let [rt (rdc/create-root c)]
                     (react-dom/flushSync (fn [] (rdc/render rt (form-of))))
                     rt))
-   :unmount-one (fn [rt] (react-dom/flushSync (fn [] (rdc/unmount rt))))})
+   :unmount-one (fn [rt] (rdc/unmount rt))})
 
 (defn- uix-root-arm [element-of selector expected]
   {:selector    selector
@@ -103,7 +103,7 @@
                   (let [rt (uix-dom/create-root c)]
                     (react-dom/flushSync (fn [] (uix-dom/render-root (element-of) rt)))
                     rt))
-   :unmount-one (fn [rt] (react-dom/flushSync (fn [] (uix-dom/unmount-root rt))))})
+   :unmount-one (fn [rt] (uix-dom/unmount-root rt))})
 
 (def arm-table
   "`arm-id -> {:segment :selector :expected :mount-one :unmount-one}`.
@@ -167,7 +167,7 @@
   (when-some [{:keys [arm handles containers]} @held]
     (let [{:keys [unmount-one]} (get arm-table arm)]
       (doseq [hd (reverse handles)]
-        (try (unmount-one hd) (catch :default _ nil))))
+        (unmount-one hd)))
     (doseq [c containers] (.remove c))
     (reset! held nil))
   nil)
