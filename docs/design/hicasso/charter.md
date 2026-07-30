@@ -51,7 +51,7 @@ canonical.
   dependency ledger — the two measured killers — are omitted as *designed
   mechanisms* and their residual costs re-priced under explicit budgets, with
   tripwires rather than intentions (boundary-exclusive retention is inventoried
-  and priced, never claimed absent ([validation.md](validation.md)).
+  and priced, never claimed absent; see [validation.md](validation.md)).
 
 ## The measured evidence base
 

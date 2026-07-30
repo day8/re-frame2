@@ -54,6 +54,8 @@ an API early. Decisions cited as HD-nnn are normative in
 the default surface is scored from day one, not discovered mid-clock:
 
 ```clojure
+(:require [re-frame.hicasso :as h :refer [defview use-subs]])
+
 (defview todo-row [{:keys [id]}]
   (let [{:keys [todo editing? draft]}
         (use-subs {:todo     [:todo/by-id id]
@@ -101,8 +103,8 @@ end-of-discrete-event restore is React's; a PATCH back end must own it
 
 ## The interop door (HD-011)
 
-No `[:> Component …]` form. One declaration per foreign component, with strong
-defaults:
+`defhost` is the door, and the only form taught — one declaration per foreign
+component, with strong defaults:
 
 ```clojure
 (h/defhost date-picker DatePicker)  ;; defaults: shallow camelCase props,
@@ -114,7 +116,8 @@ Usage `[date-picker {...}]` is indistinguishable from a native view; the JS
 require stays quarantined in one `.cljs` host namespace; the crossing has a
 declared identity for tooling; policy overrides live on the declaration. A
 migration codemod (collect `[:> X …]` sites → emit the defhost block → rewrite
-call sites) upgrades sites incrementally. **The one raw escape** (HD-011):
+call sites) upgrades sites incrementally. **The one raw escape** (HD-011),
+explicitly secondary to the declaration:
 `[:> Component props & children]` — same foreign lowering path, same default
 conversions, `.cljs`-only at that node, reduced structural identity; for
 runtime-selected components, `memo`/`lazy` values, render-prop-supplied

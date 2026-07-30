@@ -220,12 +220,14 @@ instance props can express.
 
 ## HD-011 — The interop door
 
-**Ruling.** No `[:> Component …]` form. One-line `defhost` with strong defaults
-(shallow camelCase props, hiccup children → elements, functions pass through,
-SSR placeholder), policy overrides on the declaration, and a migration codemod
-for Reagent's `[:>]` sites. Identity-keyed auto-hosting of a raw JS component in
-head position is held in reserve, gated on dogfood evidence and the concept
-budget.
+**Ruling.** **`defhost` is the door, and the only form taught**: a one-line
+declaration with strong defaults (shallow camelCase props, hiccup children →
+elements, functions pass through, SSR placeholder), policy overrides on the
+declaration, and a migration codemod for Reagent's `[:>]` sites. **`[:> Component
+…]` is not that door** — it survives only as the explicitly secondary raw escape
+recorded below, for the cases a static declaration cannot express. Identity-keyed
+auto-hosting of a raw JS component in head position was held in reserve; the
+escape supersedes that reserve, leaving bare-head auto-hosting rejected.
 **Rationale.** A raw JS value in data position kills `.cljc` purity, structural
 testing, and tooling identity at that node, and `[:>]`'s implicit conversions are
 a documented support burden. The one-line declaration amortizes to zero while
