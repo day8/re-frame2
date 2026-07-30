@@ -177,7 +177,9 @@ when the repair landed, and the consequence was not cosmetic: the assertion went
 false, `-main` refused to measure, and this page's reproduction command exited 1
 before taking a single sample — from PR #7267 until rf2-zb3qg found it. The
 figures above were unaffected (they predate the repair) but were not
-reproducible at HEAD for that window.**
+reproducible at HEAD for that window.** **rf2-rjfz1 has since run the full
+four-row sweep against the revived driver and every row reproduces — see
+[All four rows reproduce](#all-four-rows-reproduce-against-the-revived-driver-rf2-rjfz1).**
 
 **`install-adapter!` is once per process** (Spec 006 §Single adapter per
 process), so each round runs two segments — destroy the adapter, install the
@@ -222,6 +224,66 @@ Both arms against the floor, for context:
 | bulk broad | 7.443× [7.000 – 8.000] | 4.607× [3.667 – 5.500] |
 | bulk narrow *(batched window)* | 1.880× [1.8167 – 1.9259] | 2.168× [2.0357 – 2.2500] |
 | ~~bulk narrow *(unbatched, superseded)*~~ | ~~1.820× [1.500 – 2.000]~~ | ~~2.117× [1.667 – 2.500]~~ |
+
+### All four rows reproduce against the revived driver (rf2-rjfz1)
+
+**Why this check exists.** `p0_converge_app` asserted at boot that
+`lane/slot-order` *degenerates* at `k = 2`. PR #7267 repaired that degeneracy
+and did not touch this file, so the assertion went false the moment the repair
+landed: `p0_converge_run.cjs` **exited 1 before taking a single sample**, and
+every row on this page was unreproducible at HEAD until rf2-zb3qg found it.
+rf2-zb3qg re-ran only the narrow row, because only the narrow row's window had
+moved — the right call, but it left **the M1 mount, M2 mount and broad rows
+never once reproduced against a driver that runs.**
+
+They have now been. One full four-row sweep at main `32cb224d6e`:
+
+```bash
+node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs   # exit 0
+```
+
+**This is a reproduction check, not a re-publication. No figure on this page
+moves.** Ranges are min–max across the five rounds; overlap with the published
+range and an unchanged verdict is the test.
+
+| row | published | reproduction sweep | overlap | verdict |
+|---|---|---|---|---|
+| **M1 mount** | 1.2301 [1.1099 – 1.3538] disjoint | 1.2887 [1.1462 – 1.4242] disjoint | 1.1462 – 1.3538 | **reproduces**, UIx slower both times |
+| **M2 mount** *(diagnostic)* | 1.0539 [0.8572 – 1.4286] straddles | 1.0327 [0.8000 – 1.2727] straddles | 0.8572 – 1.2727 | **reproduces**, indistinguishable both times |
+| **bulk broad** | 0.6239 [0.4701 – 0.7857] disjoint | 0.6020 [0.5263 – 0.7353] disjoint | wholly inside | **reproduces**, UIx faster both times |
+| bulk narrow *(rf2-zb3qg's re-take, checked again here)* | 1.1540 [1.0570 – 1.2053] disjoint | 1.1693 [1.1136 – 1.2528] disjoint | 1.1136 – 1.2053 | **reproduces** |
+
+Per round, the sweep read M1 `1.4242 · 1.1462 · 1.3611 · 1.3214 · 1.1905` ·
+M2 `1.2727 · 0.8000 · 1.0000 · 1.0909 · 1.0000` · broad `0.5750 · 0.5263 ·
+0.6176 · 0.5556 · 0.7353` · narrow `1.2528 · 1.1591 · 1.1705 · 1.1507 ·
+1.1136`.
+
+**Every operative clock red-zone in the table above is therefore now a
+threshold that a reader can reproduce**, which for the three unmoved rows it
+has never been.
+
+| | |
+|---|---|
+| **Commit measured at** | `32cb224d6e5dde730d1e7ddc99c062656cb68155` — `origin/main`, clean tree |
+| **Instrument** | unchanged from the rf2-zb3qg blob table above — `p0_converge_app.cljs` `f4b09dc2…`, `lane.cljs` `885592cf…`, `p0_converge_run.cjs` `253b468a…`, `p0_reagent_views.cljs` `4032e397…`, `p0_uix_views.cljs` `34e0e89d…`, all five **byte-identical on main** |
+| **Arm-order guard** | **no refusal on any of the four rows** — `refuse? false`, `contaminated? false`, `unchecked? false`, tolerance 0.10 |
+| **Position completeness** | **zero lost positions on every arm of every row**; each phase contrast adjudicated on a full 20-against-20 of 60 |
+| **Canonical-DOM parity** | clean in both segments and across the seam, every row — `{:problems [] :ok? true}` |
+| **Verification** | **0 unverified of 7,860** — 600 M1 mounts + 600 M2 mounts + 630 broad writes + 6,030 narrow writes |
+| **Positive controls** | eight, **eight passes** under the overlap rule; see below for the strict reading |
+
+**The M2 control that rf2-egdaq holds open reads differently on this sweep,
+and the ruling is still the operator's.** The published M2 control range
+`[1.333 – 2.000]` sits against a ±25% band whose floor is `1.4559`: it passes
+the overlap rule `lane/control-verdict` implements and fails a strict
+every-round-inside reading. **This sweep's M2 controls are `[1.500 – 2.000]`
+(Reagent segment) and `[1.600 – 2.000]` (UIx segment) — both wholly inside the
+band, so both pass under *either* reading.** That is reported, not used: a
+re-run producing a friendlier control is not an argument for a rule, and
+rf2-egdaq is not settled here. The broad row's controls on this sweep, `[1.600
+– 2.500]` and `[1.667 – 2.500]`, miss the strict reading by `0.0014` — the
+lattice point above a `2.4986` ceiling on a floor of two to three quanta, the
+same quantisation artefact the denominator page records.
 
 ### The denominator reproduces rf2-2rtt6.2
 
