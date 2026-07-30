@@ -24,6 +24,7 @@
   },
   "scripts": {
     "dev": "node scripts/dev-testbed.cjs",
+    "bench:hicasso": "node freehand/test/re_frame/bench/hicasso/run.cjs",
     "bench:freehand-node": "shadow-cljs compile freehand-bench-node >&2 && node out/freehand-bench-node.js",
     "bench:freehand-browser": "shadow-cljs compile browser-test-freehand-bench && node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-freehand-bench --port 8024",
     "test:cljs": "shadow-cljs compile node-test && node out/node-test.js",
