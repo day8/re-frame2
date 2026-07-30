@@ -291,8 +291,8 @@ function crossRun(runs) {
   for (const line of crossRun(runs)) console.log(line);
 
   console.log('');
-  console.log(';; ==== HD8 — THE RULING IS NOT THIS INSTRUMENT'S TO ISSUE ====');
-  console.log(';;   HD-008's stop/continue ruling is a DELEGATED ADVISORY ruling (HD-013),');
+  console.log(';; ==== HD8 — THE RULING IS NOT THIS INSTRUMENT\'S TO ISSUE ====');
+  console.log(';;   HD-008\'s stop/continue ruling is a DELEGATED ADVISORY ruling (HD-013),');
   console.log(';;   issued ONLY against the PUBLISHED P0 baseline table, recorded on the');
   console.log(';;   standard bead rf2-2rtt6.1, and operator-overturnable. The P0 table is');
   console.log(';;   being filled by rf2-2rtt6.2/.3/.4/.5 and is not published yet, and the');
