@@ -47,6 +47,10 @@ HICASSO_INIT_FN=re-frame.bench.hicasso.<arm>-app/-main \
 HICASSO_OUT_DIR=out/hicasso-<arm> \
 HICASSO_PORT=8132 \
   node freehand/test/re_frame/bench/hicasso/run.cjs
+
+# an arm that needs more than one page load brings its own thin driver on
+# the same build id — e.g. the converged clock table, one row per page
+node freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs
 ```
 
 Exit codes: `0` measured and clean, `1` the run failed, **`2` the arm-order
@@ -63,4 +67,23 @@ requires nothing from any donor `src/` tree.
 | Page | Phase | What it settles |
 |---|---|---|
 | [P0 — Reagent-on-subs baseline (mount + bulk)](p0-reagent-on-subs-baseline.md) | P0 | The ship bar's **denominator**: mount and bulk view work for Reagent reading re-frame2 subscriptions. |
+| [P0 — ratom-spine narrow write](p0-ratom-spine-narrow-write.md) | P0 | What a narrow write on the ratom spine costs, and the write-versus-flush split. |
+| [P0 — the UIx-on-subs frontier arm](p0-uix-on-subs-frontier-arm.md) | P0 | The frontier against the denominator, on the arm's own witnesses. Its **retained-heap** red-zones stand; its clock rows are superseded by the converged page. |
+| [P0 — the converged witness set, and the red-zones re-derived on it](p0-converged-witness-set.md) | P0 | The **clock red-zones** on the denominator's own witnesses, and how far the earlier per-arm witness sets moved the verdicts. |
+| [P0 — the reads-per-boundary heap ladder](reads-per-boundary-heap-ladder.md) | P0 | Retained heap per subscribing boundary across the 1/3/7/20 reads ladder, both donors. |
+| [HD-008 — the composed donor arm](hd8-composed-donor-arm.md) | donor gate | What the composed donor arm costs against both Reagent paths and against the frontier. |
+| [The UIx spine's per-read allocation, decomposed](uix-spine-per-read-decomposition.md) | P0 | Where a UIx-on-subs read's bytes go. |
 | [The reagent-slim non-reactive arm — diagnosis](slim-non-reactive-arm-diagnosis.md) | P0 | Why HD-008's reagent-slim arm read `78 unverified of 78`: the **arm's composition**, not the adapter and not the mixed bundle. A single-substrate slim bundle re-renders on every write. |
+
+**Clock red-zones live on the converged page.** Where it and the frontier arm
+disagree, the converged row is the operative one: the bar's denominator is
+Reagent-on-subs, so the denominator's witness set defines the comparison by
+construction, and a threshold measured on a different witness is a threshold on
+a different question.
+
+**Retained-heap red-zones are not superseded.** They live on the heap ladder and
+on the frontier arm's own record, and stand as published. Three shapes spanning
+a 4× range in markup density agree within 8% — because retained bytes per
+subscribing boundary is a property of the boundary. The clock is not: element
+count decides what fraction of the window is React's own work, which is why the
+clock rows had to move to the denominator's pages and the heap rows did not.
