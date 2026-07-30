@@ -87,7 +87,7 @@ rows do not.
 
 | | |
 |---|---|
-| **Producing commit** | `44900cd4fd35815b3e2462ae7752242efcb296b9` |
+| **Producing commit** | `44900cd4fd35815b3e2462ae7752242efcb296b9` — the branch was later rebased onto PR #7265, which **rewrote that commit's id without touching the instrument**: the four bench files are byte-identical (same blob hashes) at the rebased commit, so the reproduction command is unaffected. Nothing was re-measured. |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows 11 x64, sibling agents live on the box |
 | **Build** | `:hicasso-bench` — `:browser`, `:advanced`, `goog.DEBUG false`. **No new build id; `implementation/shadow-cljs.edn` untouched** |
@@ -384,9 +384,13 @@ first cut produced looked entirely plausible.
   tried batching mounts on this exact witness and the guard refused the whole
   run (exit 2, all four arms 3.2×–5.4× last-third over first-third, ranges
   disjoint). This entry does not re-litigate that; the row stays diagnostic.
-- **rf2-2rtt6.4's page and tree are not on main** (PR #7265 was open when this
-  was measured). Its clock rows remain sound as ratios and are superseded as
-  *thresholds* by the table above. Its **heap** rows are not superseded by
-  anything here — this entry measures no heap.
+- **rf2-2rtt6.4's page and tree were not on main when this was measured** (PR
+  #7265 was still open; it has since merged, and this entry was rebased onto it
+  rather than re-measured — both records keep their own producing SHAs). Its
+  clock rows remain sound as ratios and are superseded as *thresholds* by the
+  table above; [its page](p0-uix-on-subs-frontier-arm.md) is marked accordingly
+  rather than rewritten. Its **heap** rows are not superseded by anything here —
+  this entry measures no heap, and retained bytes per boundary is a property of
+  the boundary rather than of the page.
 - **The per-page accumulation is still unexplained.** One row per page makes it
   harmless to these figures; it does not make it fixed.

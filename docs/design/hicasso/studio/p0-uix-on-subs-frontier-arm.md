@@ -17,6 +17,25 @@ the bar and still be red. That tension is intended.
 Bead **rf2-2rtt6.4**. Rows are appended to rf2-2rtt6.1; only the operator amends
 the bar, the budgets, the kill criteria, or these thresholds.
 
+> **Superseded on the clock axis only — rf2-a4x1o, PR #7268.** The clock
+> thresholds in the first red-zone table below are superseded *as thresholds* by
+> [the converged witness set](p0-converged-witness-set.md), which re-derived them
+> on the bar denominator's own witnesses and moved three of the four verdicts.
+> They remain sound *as ratios* — each is still two arms measured against each
+> other in one run, on one page, through one sub graph. But the bar's denominator
+> is Reagent-on-subs, so the denominator's witness set defines the comparison by
+> construction, and a threshold measured on a different witness is a threshold on
+> a different question. This page's own *Open items* anticipated the move; quote
+> the converged table.
+>
+> **The retained-heap table is NOT superseded, and stands as published.** It was
+> deliberately not re-run: three shapes spanning a 4× range in markup density
+> agree within 8% — this page's list at 2.262×, its grid at 2.254×, and the heap
+> ladder's 2.435× — because retained bytes per subscribing boundary is a property
+> of *the boundary*. The clock is not, since element count decides what fraction
+> of the window is React's own work. That asymmetry is why the clock rows had to
+> move onto the denominator's pages and these did not.
+
 ## Provenance
 
 | | |
@@ -94,6 +113,9 @@ measuring the hazard.
 
 ## RED-ZONE — clock
 
+**Superseded as thresholds** by [the converged witness set](p0-converged-witness-set.md);
+retained here as the ratios this arm measured, on this arm's witnesses.
+
 **UIx-on-subs ÷ Reagent-on-subs**, both floor-normalised in the same round.
 Ranges are min–max across the five rounds. A range that includes 1.0 means the
 two are **indistinguishable** and is reported as such rather than as a winner.
@@ -126,6 +148,10 @@ statement about the React-hook spine's invalidation, not about UIx's rendering,
 and it is the row a native view layer has the clearest structural claim on.
 
 ## RED-ZONE — retained heap
+
+**Not superseded.** These are the operative retained-heap thresholds; the
+convergence re-ran the clock axis only, for the reason given at the top of the
+page.
 
 Retention, never allocation: V8's sampling heap profiler drops the samples of
 collected objects, and on the predecessor's instrument the same 80,000 objects
@@ -264,6 +290,12 @@ precise wrong number first. They are recorded because the next arm will meet the
   closest existing correspondence is this page's **U-broad** (300 boundaries,
   one commit all read, `[:p0/cell i]`), which matches that arm's bulk row in
   boundary count and sub graph and differs only in markup density.
+  **Settled — this happened.** rf2-a4x1o re-pointed the UIx arm at rf2-2rtt6.2's
+  witnesses and re-derived the clock red-zones there; three of the four verdicts
+  moved, and U-broad's margin widened from 0.838× to 0.624×. See
+  [the converged witness set](p0-converged-witness-set.md). The clock rows above
+  are superseded as thresholds by that page; the heap rows are not, and were
+  deliberately not re-run.
 - **This arm rides `:freehand-release` for its compiler settings** because the
   epic's sequencing law gives `implementation/shadow-cljs.edn` to rf2-2rtt6.2 and
   that arm had not merged. `P0_BUILD` points the driver at another build id;
