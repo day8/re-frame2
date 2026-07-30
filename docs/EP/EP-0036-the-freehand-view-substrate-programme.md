@@ -1,9 +1,47 @@
 # EP-0036: The Freehand View-Substrate Programme
 
-Status: accepted
+Status: withdrawn
 Type: standards-track
 Created: 2026-07-22
-Resolution: accepted 2026-07-22 (D001–D021 ratified and folded)
+Resolution: accepted 2026-07-22 (D001–D021 ratified and folded); withdrawn 2026-07-30
+
+> **Withdrawn — 2026-07-30 (operator ruling, Mike).** The Freehand
+> view-substrate programme is closed as a failed experiment. No further work is
+> authorised under this EP. The document is kept, as EP-0009 requires of every
+> terminal status — recording why something was *not* done is half the value of
+> an EP corpus — and everything below stands as the record of what was proposed
+> and built, not as live direction.
+>
+> **Why.** The programme was held to a product standard the operator set on
+> 2026-07-27 (`rf2-lbs3y`, verbatim): *"Freehand can't be used if it is slower
+> than Reagent."* It was not met. On the paved interpreted path, a broad repaint
+> of 300 boundaries measured 27.78× the shared React floor against Reagent's
+> 2.639×, and compiling the same views moved it only to 24.83× — the deficit
+> survives the hot tier, so it was never something the compiler was going to
+> absorb. What remains is architectural, not an optimisation backlog, and the
+> programme was retracted rather than left open against a target for which
+> nobody could describe a route.
+>
+> **The tear-check guarantee was not the cost, and it stays.** An earlier
+> reading held that Freehand's repaint gap simply *was* the price of the
+> cross-render tear check (Spec 006 invariant 5). The ablation recorded on
+> `rf2-so3io` (PR #7159) falsified it: removing both `useSyncExternalStore` and
+> the commit-side re-read returns 13.6–14.8% of the broad-update clock and 375 B
+> of heap, and a contract-free boundary still measures ~5.5× Reagent on that
+> clock and ~5× on heap. The same experiment found invariant 5 worth *more* than
+> [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) claims
+> for it — without the tear check a staged site publishes stale and nothing ever
+> corrects it — so the guarantee is retained and vindicated, not implicated.
+>
+> **The code is not removed.** This is a change to the normative record and
+> nothing else. `implementation/freehand/`, its build ids, its CI lanes and the
+> spec homes that describe its shipped behaviour are untouched; their
+> disposition is a separate, later decision. There is no successor EP, and this
+> one is not superseded: a third view layer is in design, but it carries no EP
+> number and inventing one here would record a decision that has not been made.
+>
+> **EP-0030 through EP-0035 remain** the historical record of the donor
+> programme, as `docs/design/freehand/` remains its design record.
 
 ## Abstract
 
@@ -310,6 +348,11 @@ External renderer adapters remain independent and are not renamed into Freehand.
   automatically at graduation.
 
 ## Open Issues
+
+> **Closed by the 2026-07-30 withdrawal.** The programme never reached F6 and
+> will not; nothing recorded in this section is open for resolution, and the
+> obligations below describe the plan that was abandoned rather than work that
+> remains owed.
 
 There are no open product decisions blocking the accepted implementation work. If
 a slice discovers a genuine contradiction, it must propose one explicit amendment
