@@ -3534,7 +3534,7 @@ Per-field MUST-level requirements (catalogued at [009 §Wire marker — `:rf.siz
 
 - `:path` is **absolute** inside the snapshot slice — not relative to the elision site. An agent that asked for `:path [:user]` and got the marker back at `:uploaded-pdf` sees `:path [:user :uploaded-pdf]`.
 - `:handle` is an EDN vector (not a tagged literal). The default shape is `[:rf.elision/at <path>]`; markers riding inside a past-epoch payload (e.g. an `:rf.mcp/diff-from` patch's `:assoc` slot) carry the variant `[:rf.elision/at <path> :as-of-epoch <epoch-id>]` so `get-path` resolves against that epoch's `:db-after` snapshot rather than now's.
-- `:digest` is OPTIONAL and only present when the caller passed `:rf.size/include-digests? true` (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)). Default off because the digest forces a full walk of the elided value, which negates the cost-saving.
+- `:digest` is OPTIONAL and only present when the caller passed `:rf.size/include-digests? true` (per [API.md §`rf/elide-wire-value`](API.md#size-elision-wire-boundary-walker)). Default off because the digest forces a full walk of the elided value, which negates the cost-saving.
 
 The reserved sentinel `:rf.elision/at` (under the `:rf.elision/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) marks the handle as fetchable. Agents pattern-match on the leading `:rf.elision/at` keyword — no decoder needed.
 

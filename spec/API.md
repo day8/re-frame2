@@ -1022,7 +1022,7 @@ The framework primitive that walks tree-shaped values at the wire boundary and s
 
 > Cross-reference: [015 §Projection](015-Data-Classification.md#projection) is the normative home; `project-egress` is the public, record-level boundary primitive layered over `elide-wire-value`. The six-member `:rf.egress/*` profile enum is the named-boundary vocabulary; the boolean `:rf.size/*` flags remain the advanced override layer beneath it (EP-0015 §10/§11).
 
-`rf/project-egress` is the required projection step before any off-box sink. It dispatches on a record's `:kind` (the `:rf.observe/*` record kinds) to a **private** per-kind projector — only `project-egress` is public (EP-0015 issue 2: the name names the *boundary*, not a record kind) — and delegates every tree-shaped slot to [`rf/elide-wire-value`](#elide-wire-value-the-wire-boundary-walker). A profile resolves to a `:rf.size/*` opt-set; an explicit `:rf.size/*` boolean composes on top (the override wins).
+`rf/project-egress` is the required projection step before any off-box sink. It dispatches on a record's `:kind` (the `:rf.observe/*` record kinds) to a **private** per-kind projector — only `project-egress` is public (EP-0015 issue 2: the name names the *boundary*, not a record kind) — and delegates every tree-shaped slot to [`rf/elide-wire-value`](#size-elision-wire-boundary-walker). A profile resolves to a `:rf.size/*` opt-set; an explicit `:rf.size/*` boolean composes on top (the override wins).
 
 | API | M/Fn | Signature | Status | Tier | Spec |
 |---|---|---|---|---|---|
