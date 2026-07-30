@@ -1,8 +1,26 @@
 # The UIx spine's per-read allocation, decomposed
 
 **Bead** `rf2-2rtt6.12` · **epic** `rf2-2rtt6` (EP-0038) · **Wave 0**
-**Producing commit** `0cf86fb580` · **measured** 2026-07-31 AUSEST
+**Landed instrument commit `24e8822d7f`** · **measured** 2026-07-31 AUSEST
 **Runtime for every figure on this page: headless Chromium, `:advanced`, `goog.DEBUG false`.**
+
+> This page first cited `0cf86fb580`, which is the **authored PR commit and is
+> not on `main`** — a reader could not check it out and could not run the
+> reproduction at it. The durable landed commit is `24e8822d7f`; the full
+> authored-to-landed mapping for PR #7264 is `bb8fc38173=811f6cec42`,
+> `0cf86fb580=24e8822d7f`, `fa30f51128=27fa21ac4e`, `1f381947ed=86c50a5d83`.
+>
+> **Every figure below was re-measured on 2026-07-31 at
+> `e5ddd0f1c5581f92c3b11f4a18d57f4cbf770965` after the audit repairs, and
+> nothing moved** — see [§ What the audit changed](#what-the-audit-changed).
+> The repairs are refusals, not calculations, so there was nothing in them that
+> could move a number, and the confirmation run says so rather than assuming it.
+>
+> A SHA does not survive a rebase, which is how the citation above went wrong in
+> the first place. Content hashes do:
+> `spine_ablation.cljs` `c553b2bd25c57d753d41df1915e1ff565b94681f`,
+> `spine_ablation_app.cljs` `a1ae49372b1b6d7d443408446ded9dd19f44ecfb`,
+> `spine_ablation_run.cjs` `6567a4a47783b8a77fdfea340aff8987743f941f`.
 
 Reproduce:
 
@@ -240,17 +258,27 @@ Same shape and same size as `rf2-2rtt6.5`'s, so the errors are directly comparab
 | uix | 4,699,971 B, **−0.001%** | 4,699,971 B, −0.001% | 4,700,146 B, +0.003% |
 | reagent | 4,700,796 B, +0.017% | 4,700,751 B, +0.016% | 4,700,014 B, **0.000%** |
 
-**Fidelity control.** An ablation is attributable only if the transcribed-but-
-unablated arm reproduces the shipped hook. Shipped `uix` 3,501 `[3,499–3,503]`;
-transcription `xcript` 3,489 `[3,488–3,492]` — **0.332% apart**, inside the 3%
-band the driver declares before it measures. The band is an order of magnitude
-below the 22% term being resolved, so it cannot manufacture the finding.
+**Fidelity control, on both readers.** An ablation is attributable only if the
+transcribed-but-unablated arm reproduces the shipped hook. Shipped `uix` 3,501
+`[3,499–3,503]`; transcription `xcript` 3,489 `[3,488–3,492]` — **0.332%
+apart**, inside the 3% band the driver declares before it measures. The band is
+an order of magnitude below the 22% term being resolved, so it cannot
+manufacture the finding. **The object count is checked the same way** and lands
+0.045% apart, which matters because the object count is this page's headline and
+bytes are the cross-check.
+
+Note which clause carries it: the two arms' *ranges do not overlap* — at four
+rounds these ranges are a few bytes wide — and it is the pre-declared 3% band
+that passes them. That is the clause's purpose, and it is why the band is
+declared in the driver rather than chosen afterwards.
 
 **Order guard.** `order_guard.schedule` rotates and reflects with the round; even
-rounds forward, odd rounds reversed, both reported separately. Its self-test (8
-checks) runs before the bundle is built. **Verdict: clean on both pages, no
-refusal.** Forward/reversed slopes: uix 3,501/3,501, xcript 3,489/3,490, noretain
-2,710/2,721, hooks 1,036/1,038, reagent 866/866.
+rounds forward, odd rounds reversed, both reported separately. Its self-test (**11
+checks**, including the two repairs PR #7267 landed: the k=2 ordering degeneracy,
+and refusal when samples are silently lost) runs before the bundle is built.
+**Verdict: clean on both pages, no refusal.** Forward/reversed slopes: uix
+3,501/3,501, xcript 3,489/3,490, noretain 2,710/2,721, hooks 1,036/1,038,
+reagent 866/866.
 
 **Verification.** Every mount reads the DOM back against the boundary count the arm
 should have produced: **0 unverified of 154 mounts** across both pages.
@@ -276,17 +304,85 @@ same collector design.
 
 | | this page | `rf2-2rtt6.5` ladder | agreement |
 |---|---:|---:|---|
-| UIx bytes/read | 3,501 | 3,550 | 1.4% |
-| UIx objects/read | 125.8 | 128.5 | 2.1% |
-| Reagent bytes/read | 866 | 942 | 8.1% |
-| Reagent objects/read | 31.5 | 36.2 | 13% |
+| UIx bytes/read | 3,501 | 3,552 | 1.4% |
+| UIx objects/read | 125.8 | 128.4 | 2.0% |
+| Reagent bytes/read | 866 | 943 | 8.2% |
+| Reagent objects/read | 31.5 | 35.8 | 12% |
 | UIx/Reagent ratio | 4.04× | 3.77× | |
-| UIx shell ÷ Reagent shell | 267 ÷ 586 = 0.46× | 0.49× | |
+| UIx shell ÷ Reagent shell | 266 ÷ 589 = 0.45× | 0.49× | |
 
-The UIx arms agree closely; the Reagent arms sit ~8–13% below the ladder's, which
+The ladder column is its **corrected** publication: `rf2-2rtt6.5`'s fit had
+included the sub-free R=0 anchor it promised to exclude, and refitting over
+1/3/7/20 alone moved it from 3,550/942 to 3,552/943 and its object counts from
+128.5/36.2 to 128.4/35.8. Every agreement above holds to within 0.1 percentage
+point of what it was, which is the useful thing to know: **this page never
+depended on the defect in that one.**
+
+The UIx arms agree closely; the Reagent arms sit ~8–12% below the ladder's, which
 is the rung set — dropping R=20 removes the point with the most leverage from a
 line whose r² is 0.997 rather than 0.9999. The ratio is quoted here from
 same-run arms, which is the comparison that carries.
+
+---
+
+## What the audit changed
+
+The audit of PR #7264 found that **an exit-0 rerun of this instrument was not
+self-validating**. The decomposition it published was internally coherent and
+the range-diff of the landed patches was exact; what was wrong was that nothing
+above could have stopped a run from printing.
+
+Five checks were fail-open, and all five are gates now:
+
+| claim | before | now |
+|---|---|---|
+| the witness counts match the N/N/2N and 0/0/N predictions | printed beside the prediction, never compared | compared per offset per counter; a mismatch fails |
+| the ablation is fidelitous | reader-A **bytes** only, and failed nothing | **bytes and the headline object count**; a failure fails the run |
+| reader C answered | a snapshot failure was caught and stepped over | absent or incomplete reader C fails |
+| the positive control hit its 8N prediction | recorded, adjudicated by nobody | must land within **1%**, declared in the driver |
+| the rungs carry a line | r² recorded, adjudicated by nobody | **r² ≥ 0.99** on bytes and on objects |
+
+A sixth was in the page rather than the driver: `release!*` caught every
+unmount exception, removed the container and reported success. The container is
+the DOM half; the half that matters is the committed subscription, its watch on
+the frame and its cache entry, and an unmount that threw part-way can leave all
+three live — after which later arms are no longer the fresh-cache-miss arms this
+page prices, while DOM verification and the process verdict both still pass.
+Cleanup stays best-effort so one bad arm cannot wedge a run; the error is now
+recorded and fails it.
+
+The report is still written to disk before any refusal, so the evidence for a
+refusal survives it. Exit 4 is the new code.
+
+### The confirmation run
+
+Every repair is a refusal, so none of them can move a number — but that is an
+argument, and this page prefers a measurement. Re-run at
+`e5ddd0f1c5581f92c3b11f4a18d57f4cbf770965`, four rounds and two snapshot rounds
+per page, **exit 0 under all six new gates**:
+
+| | published | confirmation run |
+|---|---:|---:|
+| retained render-phase reaction | 769 B `[765–793]` / 23.0 obj | 768 B `[764–770]` / 23.0 obj |
+| one live subscription | 1,684 B `[1,660–1,687]` / 56.7 obj | 1,685 B `[1,683–1,689]` / 56.7 obj |
+| React's six-hook stack | 1,037 B `[1,035–1,039]` / 46.1 obj | 1,037 B `[1,034–1,038]` / 46.1 obj |
+| measured whole (`xcript`) | 3,489 B / 125.8 obj | 3,489 B / 125.8 obj |
+| Reagent, same run | 866 B / 31.5 obj | 866 B / 31.5 obj |
+| the defect's share | 22.0% | 22.0% |
+
+**No object count moved at all, and no byte figure by more than 0.1%.** The
+witness came back exact for the second time — `commits` 1.00N, `rebuilt` 1.00N,
+`bodyRuns` 2.00N on UIx against 0, 0 and 1.00N on Reagent, twice over disjoint
+cells — which is now checked rather than admired. 0 unverified of 154 mounts,
+order guard clean on both pages, controls at −0.003%/+0.003% (uix, readers A/C)
+and +0.017%/0.000% (reagent).
+
+The r² floor is worth one note. Reagent's fits sit at 0.9973 (bytes) and 0.9961
+(objects), so a floor set at the UIx arms' 0.9999 would have refused a run that
+is fine — the Reagent arm is less linear because its R=0 shell is twice UIx's,
+which §*Cross-checks* already explains. 0.99 is the floor below which a slope is
+not a slope, and it was chosen against that reasoning rather than against these
+observations.
 
 ---
 
