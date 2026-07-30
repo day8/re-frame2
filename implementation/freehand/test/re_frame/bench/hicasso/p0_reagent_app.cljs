@@ -25,9 +25,15 @@
      silently deciding the comparison.
   3. **The mount rows**, then the bulk row, with a SETTLE POINT between
      every pair. A release that threw is fatal, and so is a release that
-     returned normally without releasing: `lane/residue` reads the
-     attached-container count and the frame's subscription ref-counts back
-     to the empty-page baseline. The settle is not politeness to the
+     returned normally without releasing — observed twice over: every
+     unmount's container is read BEFORE it is detached
+     (`lane/container-released!` — a React root's unmount empties its
+     container synchronously, so a populated one is a root that was never
+     released), and `lane/residue` reads the attached-container count, the
+     frame's subscription ref-counts AND the watch count on
+     `v/ratom-cells` back to the empty-page baseline, because the ratom
+     arms' live references sit on that namespace-level atom where neither
+     built-in counter can see them. The settle is not politeness to the
      assertion — a mount row is wholly synchronous and Reagent's disposals
      are queued on a macrotask, so without it row N+1 begins on a page
      still carrying every consumer reaction row N mounted
@@ -303,19 +309,28 @@
         arms))
 
 (defn- release-bulk-arms!
-  "Release every bulk arm. A throw is RECORDED, never swallowed.
+  "Release every bulk arm. A throw is RECORDED, never swallowed — and a
+  normal return is not taken at its word.
 
   `(catch :default _ nil)` was here, and the arm it hid is the one that
   matters most: the bulk arms stand for a whole row, so an unmount that
   threw leaves three hundred subscribing boundaries watching the app-db
-  while every later sample is measured on top of them. The caller
-  adjudicates with `lane/assert-teardown-clean!` and proves the release
-  with `lane/assert-residue!`."
+  while every later sample is measured on top of them. The second audit
+  then proved the remaining half by mutation: an unmount that RETURNED
+  NORMALLY without releasing left the ratom arm's root standing on a
+  detached tree, rooted in `v/ratom-cells` where neither the body census
+  nor the frame's sub-cache could see it — so `lane/container-released!`
+  now reads each container before it is removed, exactly as
+  `lane/release!` does. The caller adjudicates with
+  `lane/assert-teardown-clean!` and proves the reference census with
+  `lane/assert-residue!`."
   [mounts]
   (doseq [{:keys [arm handle container]} mounts]
-    (try ((:unmount arm) handle)
-         (catch :default e
-           (lane/teardown-failure! (str "release-bulk-arms! " (:id arm)) e)))
+    (when (try ((:unmount arm) handle)
+               true
+               (catch :default e
+                 (lane/teardown-failure! (str "release-bulk-arms! " (:id arm)) e)))
+      (lane/container-released! (str "release-bulk-arms! " (:id arm)) container))
     (.remove container)))
 
 ;; ---------------------------------------------------------------------------
@@ -598,6 +613,15 @@
 ;; The run
 ;; ---------------------------------------------------------------------------
 
+(def ^:private census
+  "This run's additions to `lane/residue` — the places its own arms' live
+  references sit that the built-in counters cannot see. One entry: the
+  ratom arms' cursor reactions are watches on `v/ratom-cells`, not frame
+  subscriptions and not attached DOM, so without this count a ratom root
+  that survived its unmount was invisible to the whole census
+  (`v/ratom-watch-count` carries the mechanics)."
+  {:ratom-watches v/ratom-watch-count})
+
 (defn- settled!
   "Let the substrate's disposal queue run, then adjudicate the two things a
   released row owes: that nothing threw on the way out, and that the
@@ -607,12 +631,14 @@
   previous row's un-released boundaries is the same class of fault as a
   write that never reached the page, and this is where it is caught — see
   [[lane/settle!]] for why the yield is load-bearing rather than a
-  courtesy to the assertion."
+  courtesy to the assertion. The [[census]] rides both the baseline and
+  every assertion, so the ratom family is held to the same equality as
+  the subs family."
   [baseline after]
   (-> (lane/settle!)
       (.then (fn [_]
                (lane/assert-teardown-clean! after)
-               (lane/assert-residue! baseline v/subs-frame after)))))
+               (lane/assert-residue! baseline v/subs-frame after census)))))
 
 (defn- finish!
   [{:keys [samples controls]}]
@@ -645,7 +671,7 @@
       ;; The residue this run must return to after every row. Taken before
       ;; the first mount of the run, so it is the empty-page, empty-cache
       ;; reading and not a reading of whatever the previous row left.
-      (let [baseline (lane/residue v/subs-frame)
+      (let [baseline (lane/residue v/subs-frame census)
             problems (parity-problems)]
         (lane/record! "parity" {:problems problems :ok? (empty? problems)})
         (lane/record! "residue-baseline" baseline)

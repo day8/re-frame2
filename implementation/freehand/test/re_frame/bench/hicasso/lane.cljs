@@ -251,17 +251,51 @@
     (reset! teardown-failures [])
     fs))
 
+(defn container-released!
+  "Record a teardown failure unless `container` is EMPTY; answer whether it
+  was. Called after an unmount RETURNED NORMALLY, and BEFORE the container
+  is detached.
+
+  Every mount door in this lane is a React root, and a root's `unmount`
+  deletes its tree from its container synchronously — so a container still
+  holding nodes names the fault a thrown exception cannot: an unmount that
+  returned without releasing. Detach the container without looking and
+  that root lives on, standing on a DETACHED tree no later census can see
+  — [[residue]]'s body-children count sees only attached elements, its
+  sub-cache census only frame subscriptions, and a ratom arm's reactions
+  are rooted in a namespace-level atom outside both, still consuming every
+  later write. The rf2-2rtt6.2 second audit proved the gap by mutation: a
+  no-op'd bulk ratom unmount sailed through `residue-after-bulk`. This one
+  read, taken while the container is still in hand, is where a SUCCESSFUL
+  release is observable per arm, whatever family the arm belongs to."
+  [where container]
+  (let [n (.-length (.-childNodes container))]
+    (if (zero? n)
+      true
+      (teardown-failure!
+        where
+        (str "the unmount RETURNED NORMALLY but its container still holds " n
+             " node(s) — the root was never released, and it would stay live "
+             "on a detached tree, consuming every later write")))))
+
 (defn release!
   "Unmount and detach. Never timed.
 
   A throw is RECORDED ([[teardown-failure!]]) rather than swallowed, and
   the container is detached either way — the record is what makes it
   fatal, and detaching is what keeps one bad arm from leaving its DOM
-  behind for every row that follows."
+  behind for every row that follows. An unmount that returns NORMALLY is
+  not taken at its word either: [[container-released!]] reads the
+  container before it goes, because a root that survives its own unmount
+  does so on a detached tree that no census downstream can see."
   [{:keys [arm handle container]}]
   (when handle
-    (try (react-dom/flushSync (fn [] ((:unmount arm) handle)))
-         (catch :default e (teardown-failure! (str "release! " (:id arm)) e))))
+    (when (try (react-dom/flushSync (fn [] ((:unmount arm) handle)))
+               true
+               (catch :default e
+                 (teardown-failure! (str "release! " (:id arm)) e)))
+      (when container
+        (container-released! (str "release! " (:id arm)) container))))
   (when container (.remove container))
   nil)
 
@@ -317,12 +351,26 @@
   other half: a teardown that returned normally and did not actually
   release. Neither is a leak detector and neither is a lifecycle
   framework — this answers one question, `did the release this row just
-  performed actually happen`, in three integers."
-  [frame-id]
-  (let [cache (some-> (frame/frame frame-id) :sub-cache deref)]
-    {:body-children (.-childElementCount js/document.body)
-     :sub-entries   (count cache)
-     :sub-ref-count (reduce + 0 (map #(or (:ref-count %) 0) (vals cache)))}))
+  performed actually happen`, in three integers.
+
+  `counters` is the caller's own additions to the census — `{key thunk}`,
+  each thunk answering an integer — for an arm family whose live
+  references are rooted where NEITHER built-in counter can see them. The
+  P0 ratom arms are the recorded case (rf2-2rtt6.2, second audit): their
+  cursor reactions watch a namespace-level `reagent.core/atom`, not the
+  frame's sub-cache, and a surviving root's tree is detached, not under
+  `document.body`, so a release that never happened was invisible to all
+  three integers while the detached tree consumed every later write. One
+  map of counts per run, compared by the same equality — the caller names
+  where its arms' references live, and nothing more general than that."
+  ([frame-id] (residue frame-id nil))
+  ([frame-id counters]
+   (let [cache (some-> (frame/frame frame-id) :sub-cache deref)]
+     (into {:body-children (.-childElementCount js/document.body)
+            :sub-entries   (count cache)
+            :sub-ref-count (reduce + 0 (map #(or (:ref-count %) 0) (vals cache)))}
+           (map (fn [[k f]] [k (f)]))
+           counters))))
 
 (defn settle!
   "Yield ONE MACROTASK, so a substrate that schedules its disposals there
@@ -363,16 +411,21 @@
   happened synchronously`, and Reagent's does not. The comparison is
   EQUALITY, not a threshold: the quantities are counts of live references
   that a correct teardown drives to exactly where they started, and a
-  tolerance on them would only make room for the fault."
-  [baseline frame-id after]
-  (let [now (residue frame-id)]
-    (when (not= baseline now)
-      (throw (ex-info (str "RESIDUE after " after " — the teardown returned without "
-                           "throwing but did not release: expected " (pr-str baseline)
-                           ", found " (pr-str now) ". Every later sample would be "
-                           "measured on a page still carrying it")
-                      {:after after :baseline baseline :residue now})))
-    now))
+  tolerance on them would only make room for the fault.
+
+  `counters` is [[residue]]'s: the caller that took its baseline with an
+  extra census must assert with the same one, or the comparison silently
+  narrows to the counters a surviving root does not touch."
+  ([baseline frame-id after] (assert-residue! baseline frame-id after nil))
+  ([baseline frame-id after counters]
+   (let [now (residue frame-id counters)]
+     (when (not= baseline now)
+       (throw (ex-info (str "RESIDUE after " after " — the teardown returned without "
+                            "throwing but did not release: expected " (pr-str baseline)
+                            ", found " (pr-str now) ". Every later sample would be "
+                            "measured on a page still carrying it")
+                       {:after after :baseline baseline :residue now})))
+     now)))
 
 ;; ---------------------------------------------------------------------------
 ;; Parity — run before any clock is read
