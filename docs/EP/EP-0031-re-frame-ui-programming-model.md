@@ -5,6 +5,13 @@ Type: standards-track
 Created: 2026-07-16
 Resolution: final 2026-07-19
 
+> **Historical record — 2026-07-30.** This EP's programme
+> ([EP-0030](EP-0030-the-compiled-view-substrate-program.md)) was absorbed into
+> Freehand, and Freehand
+> ([EP-0036](EP-0036-the-freehand-view-substrate-programme.md)) is now
+> **withdrawn**; the EP is kept as the record of the donor programme and no work
+> is in flight under it.
+
 ## Abstract
 
 `re-frame.ui` introduces, for the new compiled substrate, one authoring

@@ -5,6 +5,12 @@ Type: standards-track
 Created: 2026-07-16
 Resolution: accepted 2026-07-11 (program ratification); adapter disposition reframed 2026-07-17
 
+> **Historical record — 2026-07-30.** This programme's compiled substrate was
+> absorbed into Freehand, and Freehand
+> ([EP-0036](EP-0036-the-freehand-view-substrate-programme.md)) is now
+> **withdrawn**. Nothing is in flight under this EP or its siblings
+> EP-0031–EP-0035; they are kept as the record of the donor programme.
+
 ## Abstract
 
 This is the umbrella EP of the compiled-view substrate program. It records **one
