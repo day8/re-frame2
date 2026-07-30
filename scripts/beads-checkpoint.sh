@@ -89,9 +89,14 @@ cd "$REPO_ROOT"
 # library so there is one rule in one place. If the library is missing (a
 # partial checkout), skip the check rather than refuse — the pre-commit hook
 # and the CI arm are the enforcement; this is a convenience.
+#
+# Only the COMMITTING arm is gated. --pre-pull is a read-only question —
+# "would clearing `.beads` discard tracker state?" — that every worktree
+# legitimately asks before its own pull, and it must keep answering from
+# worker worktrees (rf2-fifk0).
 # ---------------------------------------------------------------------------
 BOUNDARY_LIB="$REPO_ROOT/scripts/git-hooks/lib/check-beads-boundary.sh"
-if [ -f "$BOUNDARY_LIB" ]; then
+if [ "$MODE" = "checkpoint" ] && [ -f "$BOUNDARY_LIB" ]; then
   # shellcheck source=git-hooks/lib/check-beads-boundary.sh
   . "$BOUNDARY_LIB"
   if ! rf2_beads_in_primary_worktree; then
@@ -218,7 +223,13 @@ command -v bd >/dev/null 2>&1 \
 TMP_EXPORT=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-export-XXXXXX")
 # Redirect rather than `bd export -o`: a shell redirection needs no path
 # translation, so this works identically under Git Bash and on Unix.
-bd export > "$TMP_EXPORT" 2>/dev/null \
+#
+# --include-memories is load-bearing (rf2-fifk0). bd v1.1.2 made the bare
+# export EXCLUDE the `bd remember` memory rows that v1.0.3 always carried, so
+# a flagless checkpoint would silently drop every one of them — caught only
+# because the shrink floor below refused the memory-less export against HEAD.
+# The tracker commits whole: issues AND memories.
+bd export --include-memories > "$TMP_EXPORT" 2>/dev/null \
   || die "bd export failed; leaving $TRACKER untouched."
 
 TMP_HEAD=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-head-XXXXXX")

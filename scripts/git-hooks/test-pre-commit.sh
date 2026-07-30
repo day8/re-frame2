@@ -1213,6 +1213,12 @@ rm -rf "$RBOX"
 # reorder-ONLY export producing no commit at all; 8h pins the normal case — one
 # real edit commits exactly that edit — and 8i pins the shrink guard that the
 # ordering work must not cost.
+#
+# WHETHER THE MEMORIES RIDE AT ALL is the third (rf2-fifk0). bd v1.1.2 made the
+# bare `bd export` EXCLUDE the `bd remember` rows that v1.0.3 always carried,
+# so the stub models that contract and 8a asserts the committed tracker still
+# carries its memories — a checkpoint that loses --include-memories fails here
+# before it can silently drop every memory on main.
 # ----------------------------------------------------------------------------
 
 printf '\n[8] checkpoint helper: export from the database, never the working file\n'
@@ -1235,13 +1241,21 @@ CBIN="$CBOX/bin"
 mkdir -p "$CBIN" "$CREPO/scripts/git-hooks/lib" "$CREPO/.beads"
 cat > "$CBIN/bd" <<EOF
 #!/usr/bin/env sh
-# Stub bd for the layer-8 checkpoint tests. Prints the "database" on stdout,
-# the way \`bd export\` does; fails when told to.
+# Stub bd for the layer-8 checkpoint tests. Prints the "database" on stdout
+# the way \`bd export\` does under bd v1.1.2: memory rows ride ONLY behind
+# --include-memories (rf2-fifk0 — a bare export silently drops every one).
+# Fails when told to.
 if [ -f "$CBOX/bd-fails" ]; then
   printf 'stub bd: export failed\n' >&2
   exit 1
 fi
-cat "$CBOX/db.jsonl"
+for arg in "\$@"; do
+  if [ "\$arg" = "--include-memories" ]; then
+    cat "$CBOX/db.jsonl"
+    exit 0
+  fi
+done
+grep -v '"_type":"memory"' "$CBOX/db.jsonl" || :
 EOF
 chmod +x "$CBIN/bd"
 
@@ -1298,7 +1312,17 @@ case "$out" in
       *)
         fail "(8a) the close EVAPORATED: the checkpoint committed the reverted file"
         printf '%s\n' "$committed" >&2 ;;
-    esac ;;
+    esac
+    # The memories must ride the same commit (rf2-fifk0). The stub models bd
+    # v1.1.2, where only `bd export --include-memories` carries them — a
+    # checkpoint that goes back to the bare export commits an issues-only
+    # tracker here and this assertion catches it.
+    if [ "$(printf '%s\n' "$committed" | grep -c '"_type":"memory"')" = "2" ]; then
+      pass "(8a) and both memory rows survive: the export runs --include-memories"
+    else
+      fail "(8a) the commit DROPPED memory rows: the export is running bare (rf2-fifk0)"
+      printf '%s\n' "$committed" >&2
+    fi ;;
   *) fail "(8a) checkpoint failed ($out)"; cat "$CERR" >&2 ;;
 esac
 
@@ -1405,6 +1429,19 @@ case "$out" in
       fail "(8g) refused in a worker worktree, but not for the stated reason"
       cat "$CERR" >&2
     fi ;;
+esac
+
+# The READ-ONLY arm is not gated (rf2-fifk0): any worktree may ask whether
+# clearing `.beads` is safe before its own pull. The COMMIT is the mayor's;
+# the question is everyone's. The fresh worktree matches its HEAD, so the
+# answer here is a silent yes.
+out=$(run_checkpoint "$CWORKER" --pre-pull)
+case "$out" in
+  EXIT=0)
+    pass "(8g) but --pre-pull still answers from a worker worktree: read-only is not gated" ;;
+  *)
+    fail "(8g) --pre-pull refused to answer from a worker worktree ($out)"
+    cat "$CERR" >&2 ;;
 esac
 git -C "$CREPO" worktree remove --force "$CWORKER" >/dev/null 2>&1 || true
 
