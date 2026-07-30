@@ -172,9 +172,10 @@ async function runOne(chromium, run) {
   const err = await page.evaluate('window.HD8_ERROR || null');
   const results = await page.evaluate('window.HD8_RESULTS || {}');
   const samples = await page.evaluate('window.HD8_SAMPLES || []');
+  const summary = await page.evaluate('window.HD8_SUMMARY || {}');
   const userAgent = await page.evaluate('navigator.userAgent');
   await browser.close();
-  return { id: run.id, why: run.why, err, results, samples, userAgent, lines };
+  return { id: run.id, why: run.why, err, results, samples, summary, userAgent, lines };
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +191,47 @@ function adjudicate(run) {
     if (v.refuse) refused = true;
   }
   return { verdicts, refused };
+}
+
+// ---------------------------------------------------------------------------
+// The table
+// ---------------------------------------------------------------------------
+
+const band = (v) =>
+  v.unpublished
+    ? `UNPUBLISHED (${v.unverified}/${v.of} unverified)`
+    : `${v.min.toFixed(3)} – ${v.max.toFixed(3)}${v.straddles1 ? '  [STRADDLES 1.0 — indistinguishable]' : ''}`;
+
+// The cross-run table. Every arm's figure is a ratio to the floor measured
+// in its OWN round, and the floor is the same hand-written `createElement`
+// code in the same bundle, touching no adapter at all. That is what makes
+// the columns comparable across runs — and it is a WEAKER warrant than the
+// within-run head-to-head ratios printed beside it, so the two are never
+// mixed in one number.
+function crossRun(runs) {
+  const rows = new Set();
+  for (const r of runs) for (const k of Object.keys(r.summary)) rows.add(k);
+  const out = [];
+  out.push('');
+  out.push(';; ==== HD8 CROSS-RUN TABLE — every figure a RANGE over 6 rounds, ratio to the ====');
+  out.push(';; ==== floor measured in the SAME round. The floor is identical code in an   ====');
+  out.push(';; ==== identical bundle; only the installed adapter differs between runs.    ====');
+  for (const row of rows) {
+    out.push(`;;`);
+    out.push(`;;   ${row}`);
+    for (const run of runs) {
+      const s = run.summary[row];
+      if (!s) continue;
+      for (const [arm, v] of Object.entries(s.vsFloor)) {
+        if (arm === 'floor') continue;
+        out.push(`;;     [${run.id.padEnd(7)}] ${arm.padEnd(14)} vs floor   ${band(v)}`);
+      }
+      for (const [pair, v] of Object.entries(s.headToHead)) {
+        out.push(`;;     [${run.id.padEnd(7)}] ${pair.padEnd(26)}  ${band(v)}`);
+      }
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +287,18 @@ function adjudicate(run) {
       for (const line of guard.format(verdict, `${run.id} / ${row}`)) console.log(line);
     }
   }
+
+  for (const line of crossRun(runs)) console.log(line);
+
+  console.log('');
+  console.log(';; ==== HD8 — THE RULING IS NOT THIS INSTRUMENT'S TO ISSUE ====');
+  console.log(';;   HD-008's stop/continue ruling is a DELEGATED ADVISORY ruling (HD-013),');
+  console.log(';;   issued ONLY against the PUBLISHED P0 baseline table, recorded on the');
+  console.log(';;   standard bead rf2-2rtt6.1, and operator-overturnable. The P0 table is');
+  console.log(';;   being filled by rf2-2rtt6.2/.3/.4/.5 and is not published yet, and the');
+  console.log(';;   red-zone thresholds (= the measured UIx ratios, per witness family, on');
+  console.log(';;   clock and retained heap) do not exist yet either. These are');
+  console.log(';;   measurements. There is no verdict here and there must not be.');
 
   if (hardFail) {
     console.error(`[hd8] FAILED: ${hardFail}`);

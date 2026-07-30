@@ -110,6 +110,16 @@
 ;; would perform. It IS fired once per arm outside every window by the
 ;; lowering correctness check in hd8-rows, so that rung 2 cannot be
 ;; measuring a lowering that does not work.
+;; The write rows drive these rather than replacing `app-db` wholesale. An
+;; application writes through events, so an event is what the write leg
+;; should contain — and it is the same event, through the same queue, for
+;; every reactive arm, so it cancels out of every arm-to-arm ratio.
+(rf/reg-event :hd8/set
+  (fn [{:keys [db]} [_ i v]] {:db (assoc-in db [:cells i] v)}))
+
+(rf/reg-event :hd8/set-all
+  (fn [{:keys [db]} [_ v]] {:db (assoc db :cells (vec (repeat cells-n v)))}))
+
 (rf/reg-event :hd8/touch
   (fn [{:keys [db]} [_ i]]
     {:db (assoc-in db [:cells i] "T")}))
@@ -169,7 +179,14 @@
 ;; arm itself and is part of what that arm costs).
 (def ^:private inert (fn [_] nil))
 
-(defn floor-m [{:keys [rows]}]
+;; `subvec` rather than `take`: the floor must honour the witness's `n` —
+;; the parity gate caught it building 300 rows for a 6-row witness — but it
+;; must not be billed for a lazy sequence per mount that no rival pays.
+;; `subvec` is constant time and allocates one view.
+(defn- ^:private window-of [v n]
+  (if (and (some? v) (< n (count v))) (subvec v 0 n) v))
+
+(defn floor-m [{:keys [rows n]}]
   (fel "section" #js {:className "panel" :aria-label "hd8"}
        #js [(fel "h1" #js {:key "h" :className "title"} "Rows")
             (fel "ul" #js {:key "l" :className "rows" :role "list"}
@@ -180,15 +197,15 @@
                                       :onClick inert}
                             #js [(fel "span" #js {:key "s" :className "label"} "row ")
                                  (fel "em" #js {:key "e" :className "n"} v)]))
-                     rows)))]))
+                     (window-of rows n))))]))
 
-(defn floor-u [{:keys [cells]}]
+(defn floor-u [{:keys [cells n]}]
   (fel "div" #js {:className "ugrid"}
        (into-array
          (map-indexed
            (fn [i v]
              (fel "span" #js {:key i :className "cell" :data-i i :onClick inert} v))
-           cells))))
+           (window-of cells n)))))
 
 ;; ===========================================================================
 ;; ARM: Reagent — stock and slim, one source, on re-frame2 subscriptions

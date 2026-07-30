@@ -78,8 +78,35 @@
     (set! (.-HD8_SAMPLES js/window) acc)
     nil))
 
+(defn- summary!
+  "Park one row's floor-normalised RANGE per arm, plus its head-to-head
+  ranges, in a shape the driver can read without an EDN reader.
+
+  The range and not the mean, everywhere: the house rule is that
+  overlapping ranges mean indistinguishable, and a table of means invites
+  exactly the reading the rule forbids."
+  [row-name r]
+  (let [acc (or (.-HD8_SUMMARY js/window) #js {})
+        pack (fn [m]
+               (clj->js
+                 (into {} (map (fn [[k v]]
+                                 [(name k)
+                                  (if (:unpublished v)
+                                    {"unpublished" (name (:unpublished v))
+                                     "unverified"  (:unverified v)
+                                     "of"          (:of v)}
+                                    {"min" (:min v) "max" (:max v)
+                                     "straddles1" (boolean (:straddles-1? v))})]))
+                       m)))]
+    (aset acc (name row-name)
+          #js {"vsFloor" (pack (:summary r))
+               "headToHead" (pack (:head-to-head r))})
+    (set! (.-HD8_SUMMARY js/window) acc)
+    nil))
+
 (defn- record-row! [k r]
   (samples! k (:samples r))
+  (summary! k r)
   (record! k (dissoc r :samples)))
 
 (defn- done! [] (set! (.-HD8_DONE js/window) true))
@@ -108,7 +135,7 @@
 ;; The run
 ;; ---------------------------------------------------------------------------
 
-(defn- run! []
+(defn- run-all! []
   (let [which    (query-adapter)
         _        (install! which)
         arm-ids  (get rows/arm-ids-for which)]
@@ -135,36 +162,48 @@
                 (done!))
 
             ;; ---- the positive control, then the lowering check -------------
-            (let [pc  (record! :positive-control (rows/positive-control! 3 control-sampling))
-                  low (record! :lowering-check (rows/lowering-works?))]
+            (let [pc (record! :positive-control (rows/positive-control! 3 control-sampling))]
               (when-not (:within? pc)
                 (js/console.warn
                   (str ";; HD8 WARNING — the positive control missed its prediction "
                        "(predicted " (:predicted pc) ", measured " (pr-str (:measured pc))
                        "). Every clock figure in this run is suspect.")))
-              (if-not (:lowered? low)
-                (do (fail! (str "rung 2's event-vector lowering did not reach the DOM: "
-                                (pr-str low) " — the rung-2 clock would be pricing a "
-                                "lowering that produces a closure nobody can call"))
-                    (done!))
+              (-> (if (rows/donor-run? which)
+                    (rows/lowering-works! which)
+                    ;; The donor rungs are not in this run's arm set (see
+                    ;; `arm-ids-for`), so there is no lowering here to check
+                    ;; and a check that trivially passed would be worse than
+                    ;; no check at all. Recorded as inapplicable rather than
+                    ;; as green.
+                    (js/Promise.resolve {:lowered? true :applicable? false
+                                         :why "no donor arm in this run"}))
+                  (.then
+                    (fn [low]
+                      (record! :lowering-check low)
+                      (if-not (:lowered? low)
+                        (do (fail! (str "rung 2's event-vector lowering did not reach the DOM: "
+                                        (pr-str low) " — the rung-2 clock would be pricing a "
+                                        "lowering that produces a closure nobody can call"))
+                            (done!)
+                            nil)
 
-                ;; ---- the clocks ------------------------------------------
-                (do
-                  (doseq [wit rows/witnesses]
-                    (record-row! (keyword (str "mount-" (name (:id wit))))
-                                 (rows/measure-mount! wit arm-ids rounds mount-sampling)))
-                  (-> (rows/measure-write! arm-ids :narrow rounds write-sampling)
-                      (.then (fn [r]
-                               (record-row! :write-narrow r)
-                               (rows/measure-write! arm-ids :bulk rounds write-sampling)))
-                      (.then (fn [r] (record-row! :write-bulk r) (done!)))
-                      (.catch (fn [e]
-                                (fail! (str "write rows threw: " (.-message e)))
-                                (done!)))))))))))))
+                        ;; ---- the clocks ------------------------------------
+                        (do
+                          (doseq [wit rows/witnesses]
+                            (record-row! (keyword (str "mount-" (name (:id wit))))
+                                         (rows/measure-mount! wit arm-ids rounds mount-sampling)))
+                          (-> (rows/measure-write! arm-ids which :narrow rounds write-sampling)
+                              (.then (fn [r]
+                                       (record-row! :write-narrow r)
+                                       (rows/measure-write! arm-ids which :bulk rounds write-sampling)))
+                              (.then (fn [r] (record-row! :write-bulk r) (done!))))))))
+                  (.catch (fn [e]
+                            (fail! (str "the run threw: " (.-message e) "\n" (.-stack e)))
+                            (done!)))))))))))
 
 (defn ^:export -main []
   (try
-    (run!)
+    (run-all!)
     (catch :default e
       (fail! (str (.-message e) "\n" (.-stack e)))
       (done!))))

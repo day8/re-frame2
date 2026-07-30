@@ -63,7 +63,9 @@
             [re-frame.freehand.bench.measure :as m]
             [reagent.core :as reagent]
             [reagent.dom.client :as rdc]
+            [reagent.ratom :as reagent-ratom]
             [reagent2.dom.client :as slim-rdc]
+            [reagent2.ratom :as slim-ratom]
             [uix.core :refer [$]]))
 
 ;; ===========================================================================
@@ -185,14 +187,37 @@
 ;; ===========================================================================
 
 (def arm-ids-for
-  "Which arms are measurable under which installed adapter. The frontier
-  arm rides every run: it reads through `use-current-frame` +
-  two-arity `use-subscribe`, neither of which consults the installed
-  adapter's frame hook, so it is the one arm whose figure can be compared
-  ACROSS runs as well as within one."
+  "Which arms are measurable under which installed adapter — and this
+  partition is itself an HD-008 finding, arrived at by measurement rather
+  than by design.
+
+  The first cut put the frontier arm and both donor rungs into ALL THREE
+  runs, so that every comparison would land within one process. It does not
+  work, and the instrument said so rather than quietly producing numbers: on
+  a ratom spine the lowering check reported `:db-after \"T\"` — the click
+  dispatched, the event ran, `app-db` was written — while the DOM stayed at
+  `\"0\"`. The React `use-subscribe` spine does not propagate over a ratom
+  spine, in either direction, and no drain fixes it: `ratom/flush!` settles
+  the subscription graph and `reagent.core/flush` renders the dirty
+  components, and a `useSyncExternalStore` subscriber watching a Reagent
+  Reaction is notified by neither.
+
+  That is worth stating plainly, because it bounds what \"composed from
+  parts already in the repo\" can mean: Spec 006 allows exactly one adapter
+  per process, the two Reagent paths need the ratom spine, the donor rungs
+  need the React one, and the composition therefore cannot share a process
+  with the thing it must beat.
+
+  So each run measures the arms NATIVE to its adapter, and the donor
+  comparison against either Reagent path is made through the floor — the
+  same hand-written `createElement` code, in the same bundle, touching no
+  adapter at all. Within-run where the physics allows it; floor-normalised
+  and LABELLED AS SUCH where it does not."
   {:uix     [:floor :uix :donor-r1 :donor-r2]
-   :reagent [:floor :reagent :uix :donor-r1 :donor-r2]
-   :slim    [:floor :reagent-slim :uix :donor-r1 :donor-r2]})
+   :reagent [:floor :reagent]
+   :slim    [:floor :reagent-slim]})
+
+(defn donor-run? [adapter] (= adapter :uix))
 
 (def witnesses
   [{:id       :M
@@ -312,6 +337,45 @@
     {:p50   p50s
      :ratio (into {} (map (fn [[id v]] [id (round4 (/ v floor))])) p50s)}))
 
+(def head-to-head-pairs
+  "The comparisons HD-008 is actually about. The floor is the calibrator,
+  never a rival: the stop rule asks whether the composed arm *clearly
+  beats both Reagent paths* and *stays acceptably close to direct UIx*, so
+  those are the ratios that have to be published as first-class figures
+  rather than left for a reader to divide out of two floor-normalised
+  numbers (which would also lose the within-round pairing that makes them
+  trustworthy).
+
+  `donor-r2 / donor-r1` is the price of the product shell, and it is the
+  one figure in this instrument that no comparator can supply."
+  [[:donor-r1 :reagent] [:donor-r2 :reagent]
+   [:donor-r1 :reagent-slim] [:donor-r2 :reagent-slim]
+   [:donor-r1 :uix] [:donor-r2 :uix]
+   [:donor-r2 :donor-r1]])
+
+(defn head-to-head
+  "Per-round arm-to-arm ratios, ranged across rounds.
+
+  Each ratio is formed WITHIN a round from that round's own p50s, so drift
+  between rounds cancels exactly as it does for the floor-normalised
+  figures. Reported as a RANGE, with `:straddles-1?` set when the range
+  includes 1.0 — in which case the two arms are INDISTINGUISHABLE on this
+  witness and the mean must not be quoted as a winner."
+  [per-round]
+  (let [present (set (keys (:p50 (first per-round))))]
+    (into {}
+          (keep (fn [[a b]]
+                  (when (and (contains? present a) (contains? present b))
+                    (let [vs (mapv (fn [r] (round4 (/ (get-in r [:p50 a])
+                                                      (get-in r [:p50 b]))))
+                                   per-round)
+                          lo (apply min vs)
+                          hi (apply max vs)]
+                      [(keyword (str (name a) "-over-" (name b)))
+                       {:min lo :max hi :rounds vs
+                        :straddles-1? (and (<= lo 1.0) (>= hi 1.0))}]))))
+          head-to-head-pairs)))
+
 (defn measure-mount!
   "`rounds` interleaved rounds of the mount clock over `witness`.
 
@@ -329,28 +393,66 @@
                      {:rounds-out [] :samples [] :position 0}
                      (range rounds))
         norm (:rounds-out acc)]
-    {:witness  (:id witness)
-     :doc      (:doc witness)
-     :arms     (vec arm-ids)
+    {:witness   (:id witness)
+     :doc       (:doc witness)
+     :arms      (vec arm-ids)
      :per-round norm
-     :summary  (h/across-rounds (mapv :ratio norm))
-     :samples  (:samples acc)}))
+     :summary   (h/across-rounds (mapv :ratio norm))
+     :head-to-head (head-to-head norm)
+     :samples   (:samples acc)}))
 
 ;; ===========================================================================
 ;; The write clock — narrow and bulk, every write read back out of the DOM
 ;; ===========================================================================
 
+(defn spine-drain!
+  "The INSTALLED substrate's own synchronous render drain.
+
+  This is a property of the run, not of the arm, and discovering that cost
+  a debugging pass: under a RATOM spine (`?adapter=reagent|slim`) the
+  frame's app-db is a reactive atom, so a write marks dependent reactions
+  dirty and queues them on the substrate's batching queue — and NOTHING
+  propagates, not even to a `useSyncExternalStore` subscriber, until that
+  queue is flushed. An empty `flushSync` (which is the whole drain under
+  the React spine, where the container notifies synchronously) commits
+  nothing there, and the DOM read-back reported every donor write as
+  unverified. Which is the read-back doing its job: the alternative was a
+  fast, precise, meaningless number.
+
+  So every arm in a run shares the run's drain, exactly as b6's method
+  prescribes — each substrate's OWN documented synchronous drain, inside
+  the measured window."
+  [adapter]
+  (case adapter
+    ;; SETTLE, THEN RENDER, and both halves are load-bearing. `ratom/flush!`
+    ;; runs the queued Reactions — which is what notifies a
+    ;; `useSyncExternalStore` subscriber watching one — and
+    ;; `reagent.core/flush` renders the dirty Reagent components. Draining
+    ;; only the component queue leaves every hook-based arm reading a stale
+    ;; snapshot: the click reached `app-db` (`:db-after` said so) and the DOM
+    ;; never followed.
+    :reagent (react-dom/flushSync (fn [] (reagent-ratom/flush!) (reagent/flush)))
+    ;; reagent-slim's drain brings its OWN `flushSync` boundary (it wraps
+    ;; `(do (f) (batching/flush!))`), so wrapping it in a second one would
+    ;; nest the commit and bill this run for a boundary no slim application
+    ;; pays. Its `f` slot is exactly where the subscription-graph settle
+    ;; belongs.
+    :slim    (slim-rdc/flush-render! (fn [] (slim-ratom/flush!)))
+    ;; The React spine notifies its containers synchronously, so the empty
+    ;; `flushSync` is the whole drain: it makes React commit the already
+    ;; queued notification inside this window rather than on its own
+    ;; scheduler a couple of milliseconds later.
+    (react-dom/flushSync (fn [] nil))))
+
 (defn- write-arm
   "The write door for `arm-id` on the U page.
 
-  `:force!` is each substrate's OWN synchronous drain, wrapped in
-  `flushSync` so the commit lands inside the measured window rather than
-  on React's scheduler a couple of milliseconds later. The floor's render
-  happens INSIDE the flushSync for the reason b6 records: `root.render`
-  outside a React event schedules at the default lane, and an EMPTY
-  flushSync flushes only the sync lane — a floor arm that rendered in
-  `write!` would have its commit land outside the window entirely."
-  [arm-id]
+  The floor's render happens INSIDE the flushSync for the reason b6
+  records: `root.render` outside a React event schedules at the default
+  lane, and an EMPTY flushSync flushes only the sync lane — a floor arm
+  that rendered in `write!` would have its commit land outside the window
+  entirely. Every other arm drains through [[spine-drain!]]."
+  [arm-id adapter]
   (let [fid   (frame-of arm-id)
         state (atom nil)
         rt    (volatile! nil)
@@ -370,23 +472,24 @@
                    @handle)))
      :write! (fn [i val]
                (if (= arm-id :floor)
+                 ;; The floor has no frame and no events by construction — it
+                 ;; is the arm with no substrate at all. Its write is a local
+                 ;; swap, and its `force!` re-renders the whole root, which
+                 ;; is exactly what an application with no reactive substrate
+                 ;; costs. On UPDATE the floor is therefore not a lower bound
+                 ;; and the report says so: a fine-grained substrate can and
+                 ;; should beat it on a narrow write.
                  (if (= i :all)
                    (reset! state (vec (repeat w/cells-n val)))
                    (swap! state assoc i val))
                  (if (= i :all)
-                   (frame/replace-app-db!
-                     fid (assoc (frame/frame-app-db-value fid)
-                                :cells (vec (repeat w/cells-n val))))
-                   (frame/replace-app-db!
-                     fid (update (frame/frame-app-db-value fid) :cells assoc i val)))))
+                   (rf/dispatch-sync [:hd8/set-all val] {:frame fid})
+                   (rf/dispatch-sync [:hd8/set i val] {:frame fid}))))
      :force! (fn []
-               (case arm-id
-                 :floor        (react-dom/flushSync
-                                 (fn [] (.render ^js @rt (w/floor-u {:cells @state
-                                                                     :n w/cells-n}))))
-                 :reagent      (react-dom/flushSync (fn [] (reagent/flush)))
-                 :reagent-slim (react-dom/flushSync (fn [] (slim-rdc/flush-render!)))
-                 (react-dom/flushSync (fn [] nil))))
+               (if (= arm-id :floor)
+                 (react-dom/flushSync
+                   (fn [] (.render ^js @rt (w/floor-u {:cells @state :n w/cells-n}))))
+                 (spine-drain! adapter)))
      :unmount (fn [handle]
                 (react-dom/flushSync
                   (fn [] (if (= arm-id :floor)
@@ -396,9 +499,9 @@
 (defn cell-text [container i]
   (some-> (.querySelector container (str "[data-i=\"" i "\"]")) (.-textContent)))
 
-(defn mount-write-arms! [arm-ids]
+(defn mount-write-arms! [arm-ids adapter]
   (mapv (fn [id]
-          (let [a (write-arm id)
+          (let [a (write-arm id adapter)
                 c (js/document.createElement "div")]
             (.appendChild js/document.body c)
             {:arm a :container c :handle ((:mount a) c)}))
@@ -440,11 +543,16 @@
   rotating and reflecting; `kind` is `:narrow` (one cell) or `:bulk` (all
   300 in one commit)."
   [mounts kind {:keys [warmup samples]} position0]
-  (let [k (count mounts)]
-    (chain {:readings (zipmap (map #(:id (:arm %)) mounts) (repeat []))
+  (let [k   (count mounts)
+        ids (mapv #(:id (:arm %)) mounts)]
+    (chain {:readings (zipmap ids (repeat []))
             :samples  []
-            :unverified 0
-            :total    0
+            ;; PER ARM, not a single total. A pooled count says half the
+            ;; writes failed and leaves a reader to guess which arm; the
+            ;; per-arm map names it, which is the difference between a
+            ;; diagnosis and a mystery.
+            :unverified (zipmap ids (repeat 0))
+            :total    (zipmap ids (repeat 0))
             :position position0
             :prev     nil}
            (range (+ warmup samples))
@@ -456,12 +564,10 @@
                             v   (str "v" (:position a))]
                         (-> (timed-write! mnt (if (= kind :bulk) :all (mod (:position a) w/cells-n)) v)
                             (.then (fn [{:keys [ms ok?]}]
-                                     (cond-> (assoc a
-                                                    :position (inc (:position a))
-                                                    :prev id
-                                                    :total (inc (:total a))
-                                                    :unverified (cond-> (:unverified a)
-                                                                  (not ok?) inc))
+                                     (cond-> (-> a
+                                                 (assoc :position (inc (:position a)) :prev id)
+                                                 (update-in [:total id] inc)
+                                                 (cond-> (not ok?) (update-in [:unverified id] inc)))
                                        (>= s warmup)
                                        (-> (update-in [:readings id] conj ms)
                                            (update :samples conj
@@ -473,31 +579,54 @@
 (defn measure-write!
   "`rounds` interleaved rounds of the write clock, `kind` ∈ `#{:narrow
   :bulk}`. Answers a promise of the published record."
-  [arm-ids kind rounds sampling]
+  [arm-ids adapter kind rounds sampling]
   (doseq [id arm-ids] (reseed! id))
-  (let [mounts (mount-write-arms! arm-ids)]
-    (-> (chain {:rounds-out [] :samples [] :unverified 0 :total 0 :position 0}
+  (let [mounts (mount-write-arms! arm-ids adapter)]
+    (-> (chain {:rounds-out [] :samples [] :unverified {} :total {} :position 0}
                (range rounds)
                (fn [acc _]
                  (-> (write-round! mounts kind sampling (:position acc))
                      (.then (fn [r]
                               {:rounds-out (conj (:rounds-out acc) (normalise (:readings r)))
                                :samples    (into (:samples acc) (:samples r))
-                               :unverified (+ (:unverified acc) (:unverified r))
-                               :total      (+ (:total acc) (:total r))
+                               :unverified (merge-with + (:unverified acc) (:unverified r))
+                               :total      (merge-with + (:total acc) (:total r))
                                :position   (:position r)})))))
         (.then (fn [acc]
                  (release-write-arms! mounts)
+                 (let [bad (into #{} (comp (filter (fn [[_ n]] (pos? n))) (map key))
+                                 (:unverified acc))
+                       publishable (fn [m]
+                                     (reduce (fn [acc' arm]
+                                               (assoc acc' arm
+                                                      {:unpublished :failed-dom-read-back
+                                                       :unverified  (get (:unverified acc) arm)
+                                                       :of          (get (:total acc) arm)}))
+                                             m
+                                             bad))]
                  {:witness    (keyword (str "U-" (name kind)))
                   :doc        (if (= kind :bulk)
                                 "all 300 cells written in ONE commit — bulk view work"
                                 "one cell written in a 300-cell grid — the narrow-write path")
                   :arms       (vec arm-ids)
                   :per-round  (:rounds-out acc)
-                  :summary    (h/across-rounds (mapv :ratio (:rounds-out acc)))
+                  ;; AN ARM WHOSE WRITES DID NOT REACH THE DOM HAS NO FIGURE.
+                  ;; Its clock readings are real milliseconds and they are
+                  ;; measuring a page that never changed — which is the
+                  ;; cheapest possible way to be fast and the exact fault the
+                  ;; read-back exists to catch. So the summary carries
+                  ;; `:unpublished` in that arm's place rather than a number a
+                  ;; reader could quote, and every head-to-head pair touching
+                  ;; it is dropped.
+                  :summary    (publishable (h/across-rounds (mapv :ratio (:rounds-out acc))))
+                  :head-to-head (into {}
+                                      (remove (fn [[k _]]
+                                                (some #(re-find (re-pattern (name %)) (name k))
+                                                      bad)))
+                                      (head-to-head (:rounds-out acc)))
                   :unverified (:unverified acc)
                   :writes     (:total acc)
-                  :samples    (:samples acc)}))
+                  :samples    (:samples acc)})))
         (.catch (fn [e] (release-write-arms! mounts) (throw e))))))
 
 ;; ===========================================================================
@@ -521,58 +650,99 @@
   wide enough to pass an honest instrument and far too tight to pass one
   that is not measuring the page."
   [rounds sampling]
-  (let [big   (m-arm :floor)
-        small (m-arm :floor)
-        n     w/rows-n
-        half  (quot n 2)
+  (let [n         w/rows-n
+        half      (quot n 2)
         predicted (/ (double (w/m-elements n)) (double (w/m-elements half)))
+        ;; The two sizes are TWO ARMS in ONE round, interleaved and
+        ;; reflected like everything else. They were not, in the first cut,
+        ;; and the control promptly read 0.42 in one round of three — the
+        ;; full page measured FASTER than the half page. A control measured
+        ;; as two consecutive blocks is subject to the very drift it exists
+        ;; to detect, which would have made it a source of false alarm
+        ;; rather than an instrument.
+        full-arm  (react-root-arm :control-full
+                                  (fn [_] (w/floor-m {:rows (:rows (db-of :floor)) :n n})))
+        half-arm  (react-root-arm :control-half
+                                  (fn [_] (w/floor-m {:rows (:rows (db-of :floor)) :n half})))
         per-round (mapv (fn [_]
-                          (let [b (mount-round! [big] {:n n} sampling 0)
-                                s (mount-round! [small] {:n half} sampling 0)]
-                            (round4 (/ (p50 (get (:readings b) :floor))
-                                       (p50 (get (:readings s) :floor))))))
+                          (let [r (mount-round! [full-arm half-arm] {} sampling 0)]
+                            (round4 (/ (p50 (get (:readings r) :control-full))
+                                       (p50 (get (:readings r) :control-half))))))
                         (range rounds))
         lo (apply min per-round)
-        hi (apply max per-round)]
+        hi (apply max per-round)
+        tol 0.30]
     {:control    :floor-M-page-halved
      :predicted  (round4 predicted)
      :measured   {:min lo :max hi :rounds per-round}
-     :tolerance  0.30
-     :within?    (and (>= hi (* predicted 0.70)) (<= lo (* predicted 1.30)))
+     :tolerance  tol
+     ;; EVERY round inside the band, not merely a range that overlaps it: a
+     ;; control whose worst round is wrong has caught something, and letting
+     ;; a good round vouch for a bad one is how an instrument stops being one.
+     :within?    (and (>= lo (* predicted (- 1.0 tol)))
+                      (<= hi (* predicted (+ 1.0 tol))))
      :note       (str "predicted from the witness arithmetic (3 + 3N) / (3 + 3(N/2)) "
-                      "at N=" n ", before any clock was read")}))
+                      "at N=" n ", before any clock was read; the two sizes are "
+                      "interleaved arms in one round, not consecutive blocks")}))
 
 ;; ===========================================================================
 ;; The lowering correctness check — rung 2 must LOWER, not merely construct
 ;; ===========================================================================
 
-(defn lowering-works?
+(defn lowering-works!
   "Fire ONE click through rung 2's codec-lowered handler, outside every
-  measured window, and read the result back out of the DOM.
+  measured window, and read the result back out of the DOM. Answers a
+  promise.
 
   Without this the rung-2 clock could be pricing a lowering that produces
   a closure nobody can call — the fastest possible implementation of the
-  wrong thing. `:hd8/touch` writes `\"T\"` into the clicked cell, so a
-  working lowering is visible at the DOM and a broken one is not."
-  []
+  wrong thing, and one that would flatter rung 2 rather than fail it.
+  `:hd8/touch` writes `\"T\"` into the clicked cell, so a working lowering
+  is visible at the DOM and a broken one is not.
+
+  Asynchronous because `dispatch` is: re-frame's event queue drains on its
+  own turn, so a synchronous read-back after `.click` sees the page before
+  the event ran and reports a working lowering as broken. (It did, on the
+  first run of this check — which is the read-back doing its job in the
+  safe direction.) The yield is a macrotask, comfortably past the queue's
+  own drain, and the check is outside every clock so it costs nothing that
+  is published. The run's own [[spine-drain!]] follows, because under a
+  ratom spine nothing reaches the DOM without it."
+  [adapter]
   (reseed! :donor-r2)
   (let [fid       (frame-of :donor-r2)
         container (js/document.createElement "div")
         _         (.appendChild js/document.body container)
-        root      (react-dom-client/createRoot container)]
-    (try
-      (react-dom/flushSync
-        (fn [] (.render root (provided fid (w/slim-element (w/r2-u 8))))))
-      (let [before (cell-text container 3)
-            node   (.querySelector container "[data-i=\"3\"]")]
-        (react-dom/flushSync (fn [] (.click node)))
-        (react-dom/flushSync (fn [] nil))
-        (let [after (cell-text container 3)]
-          {:before before :after after :lowered? (and (not= before after) (= "T" after))}))
-      (finally
-        (try (react-dom/flushSync (fn [] (.unmount root))) (catch :default _ nil))
-        (.remove container)
-        (reseed! :donor-r2)))))
+        root      (react-dom-client/createRoot container)
+        cleanup!  (fn []
+                    (try (react-dom/flushSync (fn [] (.unmount root)))
+                         (catch :default _ nil))
+                    (.remove container)
+                    (reseed! :donor-r2))]
+    (react-dom/flushSync
+      (fn [] (.render root (provided fid (w/slim-element (w/r2-u 8))))))
+    (let [before (cell-text container 3)
+          node   (.querySelector container "[data-i=\"3\"]")]
+      (.click node)
+      (-> (js/Promise. (fn [resolve] (js/setTimeout #(resolve nil) 0)))
+          (.then (fn [_]
+                   (spine-drain! adapter)
+                   (let [after (cell-text container 3)
+                         ;; The app-db value beside the DOM value, because
+                         ;; the two failure modes need different repairs and
+                         ;; look identical from the DOM alone: `:db-after`
+                         ;; unchanged means the lowered closure never
+                         ;; dispatched; `:db-after` written while `:after` is
+                         ;; stale means it dispatched and the view did not
+                         ;; follow, which is a drain problem, not a lowering
+                         ;; one.
+                         db-after (get-in (db-of :donor-r2) [:cells 3])]
+                     (cleanup!)
+                     {:before   before
+                      :after    after
+                      :db-after db-after
+                      :lowered? (and (not= before after) (= "T" after))})))
+          (.catch (fn [e] (cleanup!) (throw e)))))))
 
 ;; ===========================================================================
 ;; Provenance
