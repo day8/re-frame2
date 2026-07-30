@@ -116,6 +116,23 @@
 // the case is not exotic. [[schedule]] drops the reflection at `n === 2`,
 // where the bare rotation already supplies both of the orders that exist.
 //
+// ## A LOST position is a refusal, not a smaller question
+//
+// Every instrument fault on this programme produced a plausible PRECISE
+// WRONG NUMBER before it was caught, and one of them was aimed straight at
+// this module: a shadowed binding in a harness made every `position` `NaN`
+// from round 2 on. `stratifyArm` filters non-finite positions out of the
+// phase contrast, so the phase question was quietly answered over the six
+// samples that still had one while `format` printed the arm's full
+// twenty-four beside it — and the run returned `[ok]`.
+//
+// A harness that records NO positions is a different and documented case:
+// it is excused the phase contrast (and still owes the predecessor one). A
+// harness that records positions and LOSES them is broken, and
+// [[lostPositions]] separates the two so the second refuses. `selfTest`
+// check 10 replays it with deliberately flat values, so nothing but the
+// lost positions can be what refuses.
+//
 // ## What the `predecessor` factor can and cannot attribute (rf2-om73r)
 //
 // Under [[schedule]] an arm's predecessor is `(a - 1) mod n` on EVEN rounds
@@ -269,6 +286,23 @@ function stratifyArm(samples, factor) {
 }
 
 /**
+ * How many of `samples` CARRY a `position` that is not a finite number.
+ *
+ * Not the same question as "how many have no position". A harness that
+ * records no positions at all is a documented case and is excused the phase
+ * contrast; a harness that records `NaN` has LOST them, and the difference
+ * between the two is the difference between a question not asked and a
+ * question answered over a silently smaller set.
+ */
+function lostPositions(samples) {
+  let n = 0;
+  for (const s of samples) {
+    if (s.position !== undefined && s.position !== null && !Number.isFinite(s.position)) n += 1;
+  }
+  return n;
+}
+
+/**
  * Adjudicate one arm's strata on one factor.
  *
  * Strata of a single sample carry no range, so they are adjudicated on the
@@ -344,10 +378,29 @@ function verdict(samples, opts = {}) {
     const per = {};
     for (const f of factors) {
       const strata = stratifyArm(ss, f);
-      // `phase` is only askable when positions were recorded; a driver
-      // that does not record them is not thereby excused the predecessor
-      // question, so an empty phase stratification is skipped rather than
-      // failed.
+      const lost = f === 'phase' ? lostPositions(ss) : 0;
+      if (lost > 0) {
+        // A sample that CARRIES a position and whose position is not a
+        // number is a HARNESS FAULT, and it is the recorded one: a shadowed
+        // binding made every position `NaN` from round 2 on, `stratifyArm`
+        // dropped them, and the report said "24 samples" over a phase
+        // contrast adjudicated on six — and answered `[ok]`. Silently
+        // narrowing the question is the one thing this module must not do.
+        per[f] = {
+          strata,
+          status: 'unchecked',
+          lostPositions: lost,
+          why:
+            `${lost} of ${ss.length} samples carry a NON-FINITE position — the harness ` +
+            'lost them, so this contrast is over the rest and the sample count above is not it',
+        };
+        unchecked = true;
+        continue;
+      }
+      // `phase` is only askable when positions were recorded at all; a
+      // driver that does not record them is not thereby excused the
+      // predecessor question, so an empty phase stratification is skipped
+      // rather than failed.
       if (f === 'phase' && strata.length === 0) continue;
       per[f] = adjudicate(strata, tolerance);
       if (per[f].status === 'contaminated') contaminated = true;
@@ -563,6 +616,25 @@ function selfTest() {
     fixOrders === 2 && fixDistinct.every((d) => d >= 2) && fixShare <= 0.75,
     `schedule: ${fixOrders} distinct orders, predecessors per arm ${fixDistinct.join(',')}, ` +
       `largest modal share ${(fixShare * 100).toFixed(0)}%`
+  );
+
+  // 10. THE LOST POSITIONS, replayed. A shadowed binding made every position
+  //     `NaN` from round 2 on; `stratifyArm` dropped them, the report printed
+  //     the arm's full sample count beside a phase contrast taken over the
+  //     survivors, and the run came back `[ok]`. Values are deliberately flat,
+  //     so nothing but the lost positions can be what refuses this.
+  const lostSamples = Array.from({ length: 24 }, (_, i) => ({
+    arm: 'A',
+    predecessor: 'B',
+    position: i < 6 ? i : NaN,
+    value: 1.0,
+  }));
+  const vLost = verdict(lostSamples, { tolerance: 0.1 });
+  const lostR = one(vLost, 'A', 'phase');
+  check(
+    'samples whose position went NON-FINITE refuse instead of narrowing the question',
+    vLost.refuse && lostR.status === 'unchecked' && lostR.lostPositions === 18,
+    lostR.why
   );
 
   return { ok: checks.every((c) => c.ok), checks };
