@@ -48,7 +48,19 @@
 //      consequence that an arm's total must NOT move when the control's
 //      size does;
 //   6. the read-back gate's non-vacuity control: the same arm with an
-//      EMPTY `flushSync` for its drain, which must go red.
+//      EMPTY `flushSync` for its drain, which must go red;
+//   7. the ladder-isolation gate: every rung mounts the same fixture, so a
+//      rung moves the SUBSCRIPTION count and nothing else.
+//
+// AND THE GATES THAT NOW FAIL THE RUN RATHER THAN DECORATING IT
+// -------------------------------------------------------------
+// The audit of PR #7262 found the three central checks fail-OPEN: a stale
+// write on a real arm was printed and stored, a broken leg identity was
+// printed and stepped over, and the verification denominator counted 720
+// windows of a pseudo-arm that renders no cell and forces `ok` true. So a
+// run could print `VERDICT: reportable` beside a column saying some of its
+// writes never reached the page. All three are exits now, and the
+// denominator counts only arms that could have been verified.
 //
 // EXIT CODES
 //   0  reportable
@@ -312,6 +324,8 @@ async function main() {
   const arms = await page.evaluate(() => window.HN.arms);
   const cellsN = await page.evaluate(() => window.HN.cellsN);
   const ladder = await page.evaluate(() => window.HN.ladder);
+  const skipVerify = await page.evaluate(() => window.HN.skipVerify);
+  const subsOf = await page.evaluate(() => window.HN.subs);
   if (ladder[ladder.length - 1] !== cellsN) {
     throw new Error(
       `the ladder's top rung (${ladder[ladder.length - 1]}) is not the headline cell count ` +
@@ -319,6 +333,35 @@ async function main() {
     );
   }
   console.error(`[hn] arms: ${arms.join(', ')}  (${cellsN} cells, ${WRITES} writes/sample)`);
+  console.error(
+    `[hn] skip-verify arms (excluded from the read-back denominator): ` +
+      `${skipVerify.length ? skipVerify.join(', ') : 'none'}`
+  );
+
+  // --- gate 3b: the ladder isolates SUBSCRIPTIONS, not fixture size -------
+  // The audit's first correction. Every rung must mount the same cell count
+  // so a rung moves the subscription count and nothing else; a rung that
+  // also moved the app-db vector, the component count and the DOM span
+  // count would be a fixture-size ladder wearing a subscription ladder's
+  // label, which is exactly what the first cut published.
+  const rungArmName = (n) => (n === cellsN ? 'spine-replace' : `spine-${n}`);
+  {
+    const wrong = [];
+    for (const n of ladder) {
+      const a = rungArmName(n);
+      if (subsOf[a] !== n) wrong.push(`${a} subscribes ${subsOf[a]}, expected ${n}`);
+    }
+    if (wrong.length) {
+      throw new Error(
+        `the subscription ladder is mis-wired — ${wrong.join('; ')}. ` +
+          `The ladder may not be fitted until each rung's subscription count is its own.`
+      );
+    }
+    console.error(
+      `[hn] gate 3b ok — every ladder rung mounts ${cellsN} cells and ${cellsN} components; ` +
+        `only the subscription count moves (${ladder.join('/')})`
+    );
+  }
 
   // --- gate 4: the read-back gate's non-vacuity control -------------------
   // The same arm with an EMPTY `flushSync` for its drain. An empty flush
@@ -430,6 +473,10 @@ async function main() {
   say('=========================================================================');
   say(`runtime          ${RUNTIME}`);
   say(`fixture          ${cellsN} cells, one layer-1 subscription per cell`);
+  say(
+    `ladder fixture   every rung mounts ${cellsN} cells / ${cellsN} components / ${cellsN} spans; ` +
+      `only ${ladder.join('/')} of them SUBSCRIBE`
+  );
   say(`sample           ${WRITES} narrow writes; per-write = sample / ${WRITES}`);
   say(`plan             ${ROUNDS} rounds x (${IN_ROUND_WARMUP} in-round warmup + ${SAMPLES} samples), arms interleaved`);
   say(`clock quantum    ${num(quantum, 5)} ms (measured in-page)`);
@@ -513,18 +560,27 @@ async function main() {
   // question — the withdrawn predecessor's narrow row was wrong precisely
   // because a framework cost was read as a rendering cost.
   //
-  // Two cell counts separate them by construction. The React commit is the
-  // SAME one-cell commit at both rungs; only the number of layer-1
-  // subscriptions moves. So the slope is the per-subscription recompute and
-  // the intercept is everything else, and neither is inferred from a
-  // sentence.
-  const rungArm = (n) => (n === cellsN ? 'spine-replace' : `spine-${n}`);
+  // The rungs separate them by construction — and "by construction" is now
+  // literal. Every rung mounts the SAME 300-cell fixture: 300 cells in
+  // app-db, 300 mounted components, 300 DOM spans. The rung's number is how
+  // many of those cells hold a subscription, and writes land inside that
+  // range, so the React commit is one cell at every rung. The slope is
+  // therefore the per-subscription recompute and the intercept is
+  // everything else.
+  //
+  // The first cut did NOT do this: a rung was a whole smaller fixture, and
+  // the slope described fixture size. Gate 3b above is what stops that
+  // coming back.
   const rungs = ladder
-    .map((n) => ({ n, arm: rungArm(n), split: split[rungArm(n)] }))
+    .map((n) => ({ n, arm: rungArmName(n), split: split[rungArmName(n)] }))
     .filter((r) => r.split);
   let flushComposition = null;
   if (rungs.length >= 2) {
     say('WHERE THE FLUSH GOES — the subscription-count ladder');
+    say('');
+    say(`  Every rung mounts ${cellsN} cells, ${cellsN} components and ${cellsN} DOM spans. Only the`);
+    say('  number of them that SUBSCRIBE moves, and writes land on a subscribing cell, so the');
+    say('  React commit is the same one-cell commit at every rung.');
     say('');
     say('  subscriptions   flush ms/write   per subscription   local slope vs the rung below');
     for (let i = 0; i < rungs.length; i++) {
@@ -643,18 +699,34 @@ async function main() {
   // --- DOM verification ---------------------------------------------------
   say('DOM READ-BACK — every measured write read out of the page inside its own window');
   say('');
+  // THE DENOMINATOR COUNTS ONLY WRITES THAT COULD HAVE BEEN VERIFIED.
+  // `:instrument` renders no cell and forces `ok` true; folding its windows
+  // in inflated the published denominator from 3,600 to 4,320 and let the
+  // claim "every write read out of the DOM" stand over 720 writes that were
+  // never looked at. Skipped arms get their own line and no credit.
   let badTotal = 0;
   let writeTotal = 0;
+  let skippedTotal = 0;
+  const badByArm = {};
   for (const arm of arms) {
     const rows = byArm(pass1, arm);
     const bad = rows.reduce((a, s) => a + s.bad, 0);
     const n = rows.length * WRITES;
+    badByArm[arm] = bad;
+    if (skipVerify.includes(arm)) {
+      skippedTotal += n;
+      say(`  ${arm.padEnd(17)} ${n} writes NOT VERIFIABLE (renders no cell) — excluded from the tally`);
+      continue;
+    }
     badTotal += bad;
     writeTotal += n;
-    const note = arm === 'instrument' ? '  (pseudo-arm: renders no cell, verification skipped)' : '';
-    say(`  ${arm.padEnd(17)} ${bad} unverified of ${n}${note}`);
+    say(`  ${arm.padEnd(17)} ${bad} unverified of ${n}`);
   }
-  say(`  ${'ALL ARMS'.padEnd(17)} ${badTotal} unverified of ${writeTotal}`);
+  say(`  ${'VERIFIABLE ARMS'.padEnd(17)} ${badTotal} unverified of ${writeTotal}`);
+  say(
+    `  ${'(excluded)'.padEnd(17)} ${skippedTotal} writes on ${skipVerify.join(', ') || 'no arm'} — ` +
+      `a forced ok is not a verified write`
+  );
   say(
     `  negative control  ${neg.bad} unverified of ${neg.writes} — an EMPTY flushSync, which MUST go red`
   );
@@ -760,7 +832,8 @@ async function main() {
     headline,
     split,
     samples: { rung1: pass1, rung2: pass2 },
-    unverified: { bad: badTotal, of: writeTotal },
+    unverified: { bad: badTotal, of: writeTotal, skipped: skippedTotal, byArm: badByArm },
+    legIdentity: identityOk,
     guard: { refuse: report.refuse, contaminated: report.contaminated, unchecked: report.unchecked },
     edn: report.edn,
   };
@@ -791,6 +864,31 @@ async function main() {
   }
   if (leaked) {
     say('VERDICT: FAILED — an arm\'s total moved with the control size. The leg accounting leaks.');
+    process.exitCode = 1;
+    return;
+  }
+  // A stale write on a REAL arm was printed and stored and nothing else: a
+  // run could report `VERDICT: reportable` beside a column saying some of
+  // its writes never reached the page. The read-back gate is the reason the
+  // figures above are about a page rather than about a clock, so it fails
+  // the run.
+  if (badTotal > 0) {
+    const offenders = arms
+      .filter((a) => !skipVerify.includes(a) && badByArm[a] > 0)
+      .map((a) => `${a}:${badByArm[a]}`)
+      .join(' ');
+    say(`VERDICT: FAILED — ${badTotal} of ${writeTotal} measured writes never reached the DOM`);
+    say(`         (${offenders}). A window that did not commit is not a measurement of one.`);
+    process.exitCode = 1;
+    return;
+  }
+  // The three legs are read off the SAME four clock samples the total is, so
+  // they must sum to it exactly. A discrepancy means the accumulator is
+  // mis-wired, and the write-versus-flush SPLIT — the figure this bead
+  // exists to publish — is taken straight from those legs.
+  if (!identityOk) {
+    say('VERDICT: FAILED — write + gap + force does not equal the published total on every arm.');
+    say('         The leg accounting is mis-wired and the write/flush split cannot be quoted.');
     process.exitCode = 1;
     return;
   }

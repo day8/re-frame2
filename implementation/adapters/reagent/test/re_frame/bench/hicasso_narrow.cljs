@@ -85,8 +85,16 @@
   never reached the page. So the written cell is read back out of the
   DOM after `t3` — inside the write's own window, not once at the end —
   and the count of failures is published beside every figure as
-  \"N unverified of M\". A sample with any unverified write is still
-  reported; it is the count that is the evidence.
+  \"N unverified of M\".
+
+  **M COUNTS ONLY WRITES THAT COULD HAVE BEEN VERIFIED.** `:instrument`
+  renders no cell and forces `ok` true, so its windows are not evidence of
+  anything having reached a page; folding them into the denominator
+  inflated it from 3,600 to 4,320 and made the headline claim \"every write
+  read out of the DOM\" true of 83% of the writes it named. Skip-verify
+  arms are excluded from the tally and reported on their own line, and a
+  nonzero count on a REAL arm now fails the run rather than being printed
+  beside a `reportable` verdict.
 
   ## Chrome clamps `performance.now()` to 100 microseconds
 
@@ -278,17 +286,21 @@
 ;; frame-provider's React context, and a render-time `subscribe` that
 ;; cannot resolve a frame raises `:rf.error/no-frame-context` (Spec 002
 ;; §Reading the frame from React context).
-(reg-view spine-cell [i]
-  [:span.cell {:data-i i} (str @(rf/subscribe [:hn/cell i]))])
+;; `sub?` is what makes the ladder a SUBSCRIPTION-count ladder rather than a
+;; fixture-size one. A cell renders the same span at the same `data-i` either
+;; way; only the `subscribe` is conditional. See [[ladder-cells]].
+(reg-view spine-cell [i sub?]
+  [:span.cell {:data-i i}
+   (if sub? (str @(rf/subscribe [:hn/cell i])) "-")])
 
-(reg-view spine-grid [n]
+(reg-view spine-grid [n-cells n-subs]
   [:div.ugrid
-   (for [i (range n)]
-     ^{:key i} [spine-cell i])])
+   (for [i (range n-cells)]
+     ^{:key i} [spine-cell i (< i n-subs)])])
 
 (def ladder-cells
-  "The SUBSCRIPTION-COUNT ladder — three rungs, and three rather than two
-  is a repair.
+  "The SUBSCRIPTION-COUNT ladder — three rungs, and every rung mounts the
+  SAME 300-cell fixture.
 
   The headline figure says the flush carries essentially all of a narrow
   write's cost on this substrate. That is one word doing two jobs: the
@@ -296,18 +308,31 @@
   commits the one cell that changed, and a single number cannot say which
   of those the money went to.
 
-  Two rungs looked like enough — the React commit is the same one-cell
-  commit at both, so the slope should be the per-subscription cost and the
-  intercept everything else. Measured, 30 and 300 gave a slope of 2.27 us
-  per subscription and an intercept of MINUS 0.048 ms. A negative
-  intercept is not a small error; it is the two points refusing the linear
-  model they were fitted to, because the flush grows FASTER than the
-  subscription count. A third rung makes that visible instead of hiding it
-  inside a number that reads like a per-unit cost.
+  THE FIRST CUT DID NOT ISOLATE THE THING IT NAMED, and the correction is
+  the reason this reads the way it does. Each rung was built by handing
+  `spine-arm` a cell count, so a rung changed the app-db vector, the
+  mounted component count, the DOM span count, the reaction count AND the
+  subscription count together. The page said \"the React commit is the same
+  one-cell commit at every rung, and only the subscription count moves\";
+  it was not, and a slope fitted through those rungs described a compound
+  FIXTURE-SIZE ladder. The negative intercept and the super-linear
+  exponent were real properties of that ladder, but they could not be
+  attributed to layer-1 subscriptions, which is exactly what the page did.
 
-  30 rather than 1 at the bottom: a one-cell grid changes the shape of
-  both the DOM and the write, and a ladder wants one shape at three
-  sizes."
+  So the rungs now hold everything constant but the subscription. Every
+  rung seeds 300 cells into app-db, mounts 300 `spine-cell` occurrences and
+  renders 300 spans; the rung's number is how many of those cells actually
+  `subscribe`, and the rest render an inert dash. Writes target the
+  SUBSCRIBING range, so the React commit is one cell at every rung by
+  construction rather than by assertion.
+
+  Three rungs rather than two is the earlier repair, kept: two points
+  cannot show a line refusing the model it was fitted to, and 30/300 fitted
+  2.27 us per subscription on an intercept of MINUS 0.048 ms. Work that
+  does not scale with the count cannot cost less than nothing.
+
+  30 rather than 1 at the bottom: one subscription in a 300-cell page is a
+  degenerate graph, and a ladder wants one shape at three sizes."
   [30 100 300])
 
 ;; ---------------------------------------------------------------------------
@@ -354,14 +379,14 @@
   clock reads, one promise, one accumulate. Its read-back is skipped
   because it renders no cell to read back."
   []
-  {:id :instrument :skip-verify? true :cells cells-n
+  {:id :instrument :skip-verify? true :cells cells-n :subs cells-n
    :mount   (fn [container] container)
    :write!  (fn [_ _] nil)
    :force!  (fn [] nil)
    :unmount (fn [_] nil)})
 
 (defn- bare-ratom-arm []
-  {:id :bare-ratom :cells cells-n
+  {:id :bare-ratom :cells cells-n :subs cells-n
    :mount   (fn [container]
               (reset! bare-cells (vec (repeat cells-n 0)))
               (let [root (rdc/create-root container)]
@@ -379,19 +404,30 @@
   donor row's door — the frame write and the signal graph, with no event
   drain) or `:dispatch-sync` (the door an application uses).
 
+  `n-subs` is HOW MANY CELLS SUBSCRIBE, not how big the fixture is. Every
+  arm seeds `cells-n` cells into app-db, mounts `cells-n` `spine-cell`
+  occurrences and renders `cells-n` spans; only the first `n-subs` of them
+  hold a subscription. That is what makes the ladder in [[ladder-cells]] a
+  subscription ladder — the audit's first correction, and the reason
+  `n-subs` is the ONLY thing a rung is allowed to move.
+
+  Writes target `[0, n-subs)` so a narrow write always lands on a
+  SUBSCRIBING cell, which keeps the React commit one cell at every rung by
+  construction.
+
   Each arm owns its OWN frame: frames are isolated contexts and two arms
   sharing one would let each other's writes into the other's graph."
   ([id frame-id write-door] (spine-arm id frame-id write-door cells-n))
-  ([id frame-id write-door n]
-   {:id id :cells n
+  ([id frame-id write-door n-subs]
+   {:id id :cells cells-n :subs n-subs
     :mount
     (fn [container]
       (rf/make-frame {:id frame-id})
-      (rf/with-frame frame-id (rf/dispatch-sync [:hn/seed n]))
+      (rf/with-frame frame-id (rf/dispatch-sync [:hn/seed cells-n]))
       (let [root (rdc/create-root container)]
         (react-dom/flushSync
           (fn [] (rdc/render root [rf/frame-provider {:frame frame-id}
-                                   [spine-grid n]])))
+                                   [spine-grid cells-n n-subs]])))
         root))
     :write!
     (fn [i val]
@@ -401,13 +437,13 @@
           (frame/replace-app-db!
             frame-id
             (if (= i :all)
-              (assoc db :cells (vec (repeat n val)))
+              (assoc db :cells (vec (repeat cells-n val)))
               (update db :cells assoc i val))))
 
         :dispatch-sync
         (rf/with-frame frame-id
           (if (= i :all)
-            (rf/dispatch-sync [:hn/set-all n val])
+            (rf/dispatch-sync [:hn/set-all cells-n val])
             (rf/dispatch-sync [:hn/set-cell i val])))))
     :force!  flush-reagent!
     :unmount (fn [root] (react-dom/flushSync (fn [] (rdc/unmount root))))}))
@@ -437,9 +473,11 @@
          (bare-ratom-arm)
          (spine-arm :spine-replace  :hn/spine-replace  :replace-app-db)
          (spine-arm :spine-dispatch :hn/spine-dispatch :dispatch-sync)]
-        ;; The ladder's rungs BELOW the headline count. The 300-cell rung
-        ;; is `:spine-replace` itself — measuring it twice would price the
-        ;; same arm under two names and invite the two copies to disagree.
+        ;; The ladder's rungs BELOW the headline count. The 300-subscription
+        ;; rung is `:spine-replace` itself — measuring it twice would price
+        ;; the same arm under two names and invite the two copies to
+        ;; disagree. `n` here is a SUBSCRIPTION count; every rung mounts the
+        ;; full `cells-n` fixture.
         (map (fn [n]
                (spine-arm (keyword (str "spine-" n))
                           (keyword "hn" (str "spine-" n))
@@ -527,7 +565,10 @@
   write verified at the DOM in its own window."
   [mnt n]
   (let [acc   (fresh-acc)
-        width (or (:cells (:arm mnt)) cells-n)]
+        ;; The SUBSCRIBING range, not the fixture: a ladder rung mounts 300
+        ;; cells of which `:subs` subscribe, and a write outside that range
+        ;; would commit nothing and verify nothing.
+        width (or (:subs (:arm mnt)) cells-n)]
     (chain acc (range n)
       (fn [a _]
         (let [val (next-gen!)
