@@ -29,8 +29,8 @@
 // own b8 driver does: it takes an EXISTING `:advanced` `:browser` build as
 // a config template and overrides the entry point and the output directory
 // with `--config-merge`, so the repository gains no build id from this
-// bead. `HN_BASE_BUILD` selects the template; point it at the Hicasso lane
-// build the moment rf2-2rtt6.2 lands one, with no change to this file.
+// bead. The template is rf2-2rtt6.2's `:hicasso-bench`, which is the lane
+// every Hicasso arm compiles through.
 //
 // THE INSTRUMENT'S OWN GATES, all of which run BEFORE any figure is taken
 // ----------------------------------------------------------------------
@@ -123,35 +123,27 @@ const TOLERANCE = Number(process.env.HN_TOLERANCE || 0.10);
 const CTL_1 = Number(process.env.HN_CTL_1 || 0.3);
 const CTL_2 = Number(process.env.HN_CTL_2 || 0.9);
 
-// The build TEMPLATE, chosen from what the checkout actually has.
+// The build TEMPLATE.
 //
 // `implementation/shadow-cljs.edn` is hot-zone and rf2-2rtt6.2 owns the
-// measurement lane's build id, so this bead adds none: it overrides an
-// existing `:advanced` `:browser` build's entry point and output directory
-// with `--config-merge`, which is the technique the donor's own b8 driver
-// uses. Which build it borrows is decided here rather than pinned, so that
-// when rf2-2rtt6.2's `:hicasso-bench` lands this driver picks it up with no
-// edit and no rebase conflict.
+// measurement lane's build id, so this bead adds none: it overrides
+// `:hicasso-bench`'s entry point and output directory with
+// `--config-merge`, which is the technique the donor's own b8 driver uses,
+// and the repository gains no build id from this driver.
 //
-// The preference is not cosmetic. `:freehand-release` is CLEANED AND
-// REBUILT by `test:freehand-reachability` and `test:freehand-matched`, so a
-// bench run and a gate run racing the same
-// `.shadow-cljs/builds/freehand-release` cache is a live hazard — and
-// Closure's renaming for a build compiled fresh differs from the same build
-// compiled with a sibling warm, which the donor measured at 4,075 bytes.
-// The Hicasso lane's own id has neither problem.
-function pickBaseBuild() {
-  if (process.env.HN_BASE_BUILD) return process.env.HN_BASE_BUILD;
-  try {
-    const cfg = fs.readFileSync(path.join(IMPL, 'shadow-cljs.edn'), 'utf8');
-    if (/^\s*:hicasso-bench\b/m.test(cfg)) return 'hicasso-bench';
-  } catch (_) {
-    /* fall through to the donor template */
-  }
-  return 'freehand-release';
-}
-
-const BASE_BUILD = pickBaseBuild();
+// This used to CHOOSE its template — `:hicasso-bench` when the checkout had
+// it, `:freehand-release` otherwise — because the lane's build id had not
+// landed yet. It has (rf2-2rtt6.2), so the fallback was unreachable code
+// carrying a paragraph of reasoning for a branch that could no longer be
+// taken, and rf2-uhw11 removes both. The donor template was never
+// equivalent anyway: `:freehand-release` is CLEANED AND REBUILT by
+// `test:freehand-reachability` and `test:freehand-matched`, so a bench run
+// and a gate run raced the same `.shadow-cljs/builds/freehand-release`
+// cache — and Closure's renaming for a build compiled fresh differs from
+// the same build compiled with a sibling warm, which the donor measured at
+// 4,075 bytes. A figure taken through the fallback would not have been
+// comparable with one taken through the lane.
+const BASE_BUILD = 'hicasso-bench';
 const NO_BUILD = process.argv.includes('--no-build');
 
 const CONFIG_MERGE =

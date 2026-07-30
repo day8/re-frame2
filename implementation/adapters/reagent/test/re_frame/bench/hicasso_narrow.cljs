@@ -117,12 +117,34 @@
   `goog.object` with string literals, and [[integrity-probe]] proves it
   from inside the shipped bundle before anything is measured.
 
+  ## Two instruments, one method (rf2-uhw11)
+
+  `re-frame.bench.hicasso.lane` is the other P0 harness, and it is not a
+  rival: a mount is ONE timed commit and a narrow write is write,
+  microtask, flush, verify, so the two windows genuinely differ and
+  neither subsumes the other. What must not differ is the METHOD, and it
+  was written down twice — `summarise`, `chain`, the schedule and the
+  verification tally all existed here and there.
+
+  So the shared parts are TAKEN from the lane rather than restated:
+  [[summarise]] and `chain` are `lane/`'s, and the schedule is
+  `guard/slot-order`, which the lane also merely holds. What stays local
+  is what is genuinely this window's — the clock (`(js/performance.now)`
+  with no branch inside a timed leg), the six-leg accumulator, and the
+  `goog.object` string-literal discipline the `:advanced` bundle needs.
+
+  The cost of getting this wrong is on record: `slot-order` was one rule
+  written down three times, one copy was repaired, and the other two went
+  on returning a single order for two-arm plans until the guard refused
+  four rows (rf2-ouwh8).
+
   Authority: `docs/EP/EP-0038-the-hicasso-view-layer-programme.md`;
   the bar and the P0 table are operator-owned on bead rf2-2rtt6.1.
   Spec donor: rf2-ssn1o (closed, do-not-refile)."
   (:require ["react-dom" :as react-dom]
             [goog.object :as gobj]
             [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.order-guard :as guard]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -462,10 +484,10 @@
 (defonce ^:private gen-seq (atom 1000))
 (defn next-gen! [] (swap! gen-seq inc))
 
-(defn- chain
-  "Fold `xs` into a serial promise chain, threading an accumulator."
-  [init xs f]
-  (reduce (fn [p x] (.then p (fn [acc] (f acc x)))) (js/Promise.resolve init) xs))
+(def ^:private chain
+  "Fold `xs` into a serial promise chain, threading an accumulator —
+  `lane/chain`, not a restatement of it (rf2-uhw11)."
+  lane/chain)
 
 (defn- timed-write!
   "One narrow write, clocked at every leg boundary, then verified at the
@@ -589,21 +611,18 @@
 ;; Summaries
 ;; ---------------------------------------------------------------------------
 
-(defn median [xs]
-  (let [s (vec (sort xs)) c (count s) m (quot c 2)]
-    (cond
-      (zero? c) nil
-      (odd? c)  (nth s m)
-      :else     (/ (+ (nth s (dec m)) (nth s m)) 2.0))))
-
-(defn summarise
+(def summarise
   "`{:n :min :p50 :max}` over `xs`. A RANGE, always — never a mean alone.
   Overlapping ranges mean indistinguishable, and a report that quotes a
-  central value without its range cannot say that."
-  [xs]
-  (let [xs (vec xs)]
-    (when (seq xs)
-      {:n (count xs) :min (apply min xs) :p50 (median xs) :max (apply max xs)})))
+  central value without its range cannot say that.
+
+  `lane/summarise`, not a restatement of it. This lane and the mount lane
+  are two INSTRUMENTS — a mount is one timed commit, a narrow write is
+  write, microtask, flush, verify — but they are one METHOD, and the
+  method must not be written down twice (rf2-uhw11). The `slot-order`
+  degeneracy this repository has just finished repairing was a method
+  written down three times and fixed in one of them (rf2-ouwh8)."
+  lane/summarise)
 
 (defn per-write
   "Divide a per-SAMPLE leg figure by the writes it contains."
