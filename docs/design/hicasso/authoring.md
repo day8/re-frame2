@@ -157,6 +157,12 @@ crosses under the name it was written as. And an element's own classes belong on
 the **tag**, where the shorthand merge composes them with a forwarded `:class`
 rather than one silently replacing the other.
 
+Both halves of the law are enforced on the **slot the key is emitted into**, not on
+the key itself. Prop names reach React through one canonicalisation, so `"key"`,
+`:x/key` and `'key` are all React's key, and `:onInput` is the same handler as an
+owned `:on-input` — a remainder cannot reach either by changing how it spells them
+(HD-023(c′)).
+
 ## The controlled-input door
 
 Controlled text rides the synchronous door: dispatch → drain/commit → re-render

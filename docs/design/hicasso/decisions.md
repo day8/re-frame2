@@ -453,6 +453,13 @@ rather than passing it to React as an opaque value. That is the whole ruling —
 one refusal branch and one error id. **Not in scope, explicitly:** a behaviors
 registry, a `:timing` option, a commands roster, or any host-ownership subsystem
 in v0.
+The refusal is taken **at the canonical ref slot**, not at the key `:ref`
+(HD-023(c′)): the codec accepts string, symbol and namespaced prop spellings and
+emits them all under React's one `ref`, so a check that reads `(:ref props)` is a
+check `"ref"` and `:x/ref` walk past — carrying the opaque array to React, which
+ignores it in silence, which is the ref-that-never-fires the reservation exists to
+replace. The ref position's exclusion from callback lowering is taken on the same
+slot, for the same reason and at the same cost: the walk has the value already.
 **Rationale.** `:ref` is the one place Hicasso is planned to be *less*
 data-oriented than the substrate it replaces: the predecessor's registered
 behaviors keep the use site as data (`[v/behavior {:use autosize :target … :config
@@ -509,6 +516,20 @@ theming.
 (c) `:key` and `:ref` are **never taken from a `:&` map**. They address the element
 the caller wrote, not the one it is forwarding onto; a remainder is about
 attributes.
+(c′) **Both halves of the law are enforced on the CANONICAL SLOT, never on the map
+key.** The codec accepts a prop key written as a keyword, a string, a symbol or a
+namespaced keyword, in kebab or in camel, and emits them all under one React name —
+so `"key"`, `:x/key` and `'key` are all React's key, and `:onInput` and `:on-input`
+are one handler. A deny written against the raw key denies one spelling and lets the
+rest through: the structural slots become reachable from a remainder, and an owned
+literal shares its slot with an alias that survived the merge as a second map entry,
+leaving *which one React sees* to the order the props map happens to iterate in. An
+unconditional law cannot be map-order-dependent, so the deny set is the two
+structural slots seeded with the slot of every literal the element writes, and the
+resolver is the codec's own emitted prop name (`canonical-slot`) — the thing a deny
+asks is the thing the emitter will do. That resolver must be a pure function of the
+key, which is why a string prop name does not share the prop-name cache with the
+keyword of the same name.
 (d) The **same key and the same law hold at a crossing** (a Hicasso view head, a
 `defhost` head, `[:>]`). `:&` is merged *before* any conversion, and the conversion
 that follows is the position's own — so a forwarded `:className` crosses under the
@@ -568,6 +589,13 @@ the runtime already knows every position it walks:
 A Hicasso **view's** props map is not a position — it is data in transit, exactly
 as an intent vector is. The view puts the value on an element and *that* position
 lowers it.
+**The event wrapper forwards every argument its invoker passes.** A native DOM
+event position calls with one argument and that is the overwhelming case, but the
+same wrapper serves a `defhost` `:callbacks` entry declared `:event`, and a foreign
+component's live invoker calls with whatever its own contract says —
+`(on-change value event)`, `(on-select item index)`. A wrapper fixed at one
+argument would silently drop the rest, or raise an arity error naming nothing the
+author wrote, against a form whose parameter vector is arbitrary by construction.
 **`raw-fn` is NOT v0**, and costs nothing to omit: the codec already passes
 functions to React by identity, deliberately, so that `React.memo` and every
 downstream bail-out comparing handler identity keep working. The behaviour the
@@ -616,7 +644,14 @@ child is in that phase:
 ```
 
 The override wins over the node's own literals (that is what an override is), and
-`:key` and `:ref` are never taken from it — the same law `:&` carries (HD-023).
+`:key` and `:ref` are never taken from it — the same law `:&` carries, through the
+same canonical-slot filter (HD-023(c′)). Sharing that filter is the point rather
+than a convenience: an override carrying `"key"` or `:x/key` survives a raw
+`#{:key :ref}` dissoc and canonicalises onto React's key, which would remount the
+very node presence exists to retain, at the one moment it must not be — mid-exit,
+mid-animation. Retained key identity is therefore pinned by construction: the only
+`:key` in the merged attributes is the one the child is retained under, because
+nothing else can reach that slot in any spelling.
 
 **(2) When the presence child IS a boundary, the phase arrives as an ORDINARY
 PROP** — `[toast-card {:key id :toast t :rf/phase :unmounting}]`. An attribute

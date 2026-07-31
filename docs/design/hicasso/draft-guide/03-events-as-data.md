@@ -92,6 +92,12 @@ not the call.
 
 You never pick a form. There is one, and where you put it is the decision.
 
+**Write the parameter vector the caller actually calls with.** A DOM event position
+hands you one argument, so `(h/fn [e] …)` is what you will write almost every time
+— but at a `defhost` callback the declaration named `:event`, the arguments are the
+foreign component's, and it may pass two or three. Take them all: they arrive
+exactly as that library sends them.
+
 One thing the policy defaults above do *not* do: **`h/fn` at `:on-submit` does not
 auto-prevent.** That default exists because an intent vector never sees the event,
 so the runtime has to decide for it. A callback is handed the event, so the event
