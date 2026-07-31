@@ -5,7 +5,13 @@
 //   node implementation/core/test/re_frame/bench/p0_run.cjs
 //   node implementation/core/test/re_frame/bench/p0_run.cjs --only clock
 //   node implementation/core/test/re_frame/bench/p0_run.cjs --only heap
+//   node implementation/core/test/re_frame/bench/p0_run.cjs --only fanout
 //   P0_ROUNDS=6 P0_SAMPLES=12 node .../p0_run.cjs
+//
+// `--only fanout` is the CACHE-CARDINALITY row (rf2-5prok): the same page,
+// readers, collector and guard as the heap row, with B and reads/boundary
+// held fixed while the number of UNIQUE live query keys moves. It is
+// opt-in, runs nothing else, and takes `P0_ROOTS` and `P0_FAN_ROUNDS`.
 //
 // ## Why the numbers have to come from here
 //
@@ -134,6 +140,99 @@ const HEAP_SEGMENTS = [
   { segment: 'reagent-subs', arms: ['list/floor', 'list/reagent', 'grid/floor', 'grid/reagent'] },
   { segment: 'uix-subs', arms: ['list/floor', 'list/uix', 'grid/floor', 'grid/uix'] },
 ];
+
+// ---------------------------------------------------------------------------
+// The fan-out sweep (rf2-5prok)
+// ---------------------------------------------------------------------------
+//
+// The heap-regime ruling (rf2-2rtt6.16) made cache cardinality part of the
+// witness: a retained-bytes-per-boundary figure is defined only relative to
+// how many boundaries share a subscription. `--only fanout` is the row that
+// walks that axis and nothing else — the same page, the same readers, the
+// same collector, the same guard, and B and E/B held fixed while Q moves.
+//
+// The rungs, per substrate, at whatever `P0_ROOTS` sets B to:
+//
+//   R0      0 reads          — the boundary SHELL, Q = 0
+//   R1Q1    1 read,  Q = B   — fan-out 1, the distinct-query worst case
+//   R1Q2    1 read,  Q = B/2 — fan-out 2
+//   R1Q4    1 read,  Q = B/4 — fan-out 4, which at ROOTS=4 is exactly the
+//                              regime rf2-2rtt6.4's published grid rows were
+//                              measured in
+//   R1Q8    1 read,  Q = B/8 — fan-out 8
+//   R2Q2B   2 reads, Q = 2B  — held out of the fit
+//   R2QB2   2 reads, Q = B/2 — held out of the fit
+//
+// and the published `grid/<substrate>` arm rides along unchanged as the
+// REPRODUCTION ANCHOR: at ROOTS=4 it is the same B, E and Q as R1Q4 through
+// a different query id, so the two agreeing is a same-run check that the
+// fan family is measuring the published family's quantity.
+//
+// Why two R=2 rungs. They are the only rungs the model is not fitted to,
+// and they are what turns a curve fit into a test: `R2QB2 − R1Q2` is one
+// extra edge per boundary at IDENTICAL Q, which is the per-edge term with
+// nothing else moving, and the R=2 pair prices the per-key term a second
+// time from samples the R=1 slope never saw.
+const FAN_ROUNDS = Number(process.env.P0_FAN_ROUNDS || 6);
+
+function fanRungs(boundaries) {
+  const B = boundaries;
+  return [
+    { rung: 'R0', reads: 0, keys: 0 },
+    { rung: 'R1Q1', reads: 1, keys: B },
+    { rung: 'R1Q2', reads: 1, keys: Math.round(B / 2) },
+    { rung: 'R1Q4', reads: 1, keys: Math.round(B / 4) },
+    { rung: 'R1Q8', reads: 1, keys: Math.round(B / 8) },
+    { rung: 'R2Q2B', reads: 2, keys: 2 * B },
+    { rung: 'R2QB2', reads: 2, keys: Math.round(B / 2) },
+  ];
+}
+
+const FAN_SUBSTRATE = { 'reagent-subs': 'reagent', 'uix-subs': 'uix' };
+
+function fanPlan(perRoot, roots) {
+  const B = roots * perRoot.grid;
+  return Object.keys(FAN_SUBSTRATE).map((segment) => {
+    const sub = FAN_SUBSTRATE[segment];
+    const arms = [
+      { arm: 'grid/floor', key: `${segment}|grid/floor`, boundaries: B, opts: null, rung: 'floor' },
+    ];
+    for (const r of fanRungs(B)) {
+      arms.push({
+        arm: `fan/${sub}`,
+        key: `${segment}|fan/${sub}#${r.rung}`,
+        boundaries: B,
+        opts: { reads: r.reads, keys: r.keys },
+        rung: r.rung,
+        reads: r.reads,
+        keys: r.keys,
+      });
+    }
+    arms.push({
+      arm: `grid/${sub}`,
+      key: `${segment}|grid/${sub}`,
+      boundaries: B,
+      opts: null,
+      rung: 'anchor',
+      reads: 1,
+      keys: perRoot.grid,
+    });
+    return { segment, arms };
+  });
+}
+
+function legacyPlan(perRoot, roots) {
+  return HEAP_SEGMENTS.map(({ segment, arms }) => ({
+    segment,
+    arms: arms.map((arm) => ({
+      arm,
+      key: `${segment}|${arm}`,
+      boundaries: roots * perRoot[arm.split('/')[0]],
+      opts: null,
+      rung: arm,
+    })),
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // Build and serve
@@ -311,7 +410,17 @@ async function makeReaders(page) {
 // The heap row
 // ---------------------------------------------------------------------------
 
-async function heapRow(chromium) {
+// ONE measurement engine, two plans. The heap row's plan is the published
+// four-arm one; the fan-out row's walks cache cardinality. Everything
+// between them — the warm-up pass, the collector, the in-situ control, the
+// slot order, the read-back gates, the arm-order verdict — is shared, so
+// the two rows cannot drift into being two instruments wearing one name.
+// `analyse` runs with the page STILL OPEN, because the rules it reaches
+// live in ClojureScript.
+async function heapPass(
+  chromium,
+  { benchmark, bead, plan: planOf, roots, rounds: nRounds, preflight, analyse }
+) {
   const { browser, page } = await newPage(chromium, '?mode=heap');
   await page.waitForFunction('window.P0_READY === true || window.P0_ERROR', null, {
     timeout: 180000,
@@ -321,16 +430,39 @@ async function heapRow(chromium) {
     await browser.close();
     throw new Error(`heap page failed to initialise: ${err}`);
   }
+  if (preflight) {
+    try {
+      await preflight(page);
+    } catch (e) {
+      await browser.close();
+      throw e;
+    }
+  }
   const perRoot = await page.evaluate(() => window.P0H.boundariesPerRoot);
+  const plan = planOf(perRoot, roots);
   const { gc, read } = await makeReaders(page);
-
-  const boundariesOf = (arm) => ROOTS * perRoot[arm.split('/')[0]];
 
   let unverified = 0;
   let mounts = 0;
+  const unverifiedDetail = [];
   const orderSamples = [];
   let position = 0;
   let previous = null;
+
+  const mountOne = async (entry) => {
+    const v = await page.evaluate(
+      ([a, k, o]) => window.P0H.mount(a, k, o),
+      [entry.arm, roots, entry.opts]
+    );
+    mounts++;
+    if (!v.ok) {
+      unverified++;
+      unverifiedDetail.push(
+        `${entry.key}: elements ${v.elements}/${v.expected}, keys ${v.keys}/${v.keysExpected}`
+      );
+    }
+    return v;
+  };
 
   // A WARM-UP PASS, mounted and released once per arm and never read. The
   // first mount of any arm allocates things that are not the page and
@@ -338,12 +470,10 @@ async function heapRow(chromium) {
   // caches, interned keywords, one-time module state. Charged to round 1
   // they read as retention per boundary, and they are not.
   console.error('[p0] heap warm-up pass ...');
-  for (const { segment, arms } of HEAP_SEGMENTS) {
+  for (const { segment, arms } of plan) {
     await page.evaluate((s) => window.P0H.prepare(s), segment);
-    for (const arm of arms) {
-      const v = await page.evaluate(([a, k]) => window.P0H.mount(a, k), [arm, ROOTS]);
-      mounts++;
-      if (!v.ok) unverified++;
+    for (const entry of arms) {
+      await mountOne(entry);
       await page.evaluate(() => window.P0H.release());
     }
   }
@@ -351,8 +481,8 @@ async function heapRow(chromium) {
   await page.evaluate(() => window.P0H.controlRelease());
 
   const rounds = [];
-  for (let round = 0; round < ROUNDS; round++) {
-    console.error(`[p0] heap round ${round + 1}/${ROUNDS}`);
+  for (let round = 0; round < nRounds; round++) {
+    console.error(`[p0] heap round ${round + 1}/${nRounds}`);
 
     // --- the positive control, in situ, before this round's arms --------
     await gc();
@@ -375,7 +505,7 @@ async function heapRow(chromium) {
     // Segment order alternates with the round for the same reason the
     // clock row's does: two segments admit two orders, and a single-order
     // result has not been checked.
-    const segs = round % 2 === 0 ? HEAP_SEGMENTS : [...HEAP_SEGMENTS].slice().reverse();
+    const segs = round % 2 === 0 ? plan : [...plan].slice().reverse();
     const armsOut = {};
     for (const { segment, arms } of segs) {
       // `prepare` BEFORE the baseline read, so the adapter swap's own
@@ -386,22 +516,22 @@ async function heapRow(chromium) {
         [arms.length, round]
       );
       for (const j of order) {
-        const arm = arms[j];
+        const entry = arms[j];
         await gc();
         const pre = await read();
-        const verify = await page.evaluate(([a, k]) => window.P0H.mount(a, k), [arm, ROOTS]);
-        mounts++;
-        if (!verify.ok) unverified++;
+        const verify = await mountOne(entry);
         await gc();
         const held = await read();
         await page.evaluate(() => window.P0H.release());
         await gc();
         const post = await read();
-        const boundaries = boundariesOf(arm);
-        const key = `${segment}|${arm}`;
-        armsOut[key] = {
+        const boundaries = entry.boundaries;
+        armsOut[entry.key] = {
           segment,
-          arm,
+          arm: entry.arm,
+          rung: entry.rung,
+          reads: entry.reads,
+          keys: entry.keys,
           verify,
           boundaries,
           retainedCdp: held.cdp - pre.cdp,
@@ -411,12 +541,12 @@ async function heapRow(chromium) {
           bytesPerBoundaryPerf: (held.perf - pre.perf) / boundaries,
         };
         orderSamples.push({
-          arm: key,
-          value: armsOut[key].bytesPerBoundaryCdp,
+          arm: entry.key,
+          value: armsOut[entry.key].bytesPerBoundaryCdp,
           predecessor: previous,
           position: position++,
         });
-        previous = key;
+        previous = entry.key;
       }
     }
     rounds.push({ round, control, arms: armsOut });
@@ -439,35 +569,138 @@ async function heapRow(chromium) {
     [CONTROL_PREDICTED, { min: ctlStat.min, max: ctlStat.max, mean: ctlStat.mean }, CONTROL_SLACK]
   );
 
+  const extra = analyse ? await analyse(page, rounds, plan) : {};
+
   await browser.close();
 
-  return {
+  return Object.assign(
+    {
+      benchmark,
+      bead,
+      roots,
+      perRoot,
+      rounds: nRounds,
+      plan: plan.map((p) => ({
+        segment: p.segment,
+        arms: p.arms.map((a) => ({
+          key: a.key,
+          arm: a.arm,
+          rung: a.rung,
+          boundaries: a.boundaries,
+          reads: a.reads,
+          keys: a.keys,
+        })),
+      })),
+      instruments: {
+        A: 'CDP Runtime.getHeapUsage().usedSize after 3x HeapProfiler.collectGarbage',
+        B: 'in-page performance.memory.usedJSHeapSize, same moment, --enable-precise-memory-info',
+        note:
+          'A and B are two doors onto one V8 counter and are NOT independent — on the ' +
+          'predecessor instrument, pointed at 80,000 held objects, they returned 3868954 both.',
+      },
+      control: {
+        shape: 'dense JS array of doubles',
+        doubles: CONTROL_DOUBLES,
+        predictedBytes: CONTROL_PREDICTED,
+        measured: ctlStat,
+        slack: CONTROL_SLACK,
+        verdict: controlVerdict,
+      },
+      verification: { mounts, unverified, detail: unverifiedDetail },
+      perRound: rounds,
+      orderVerdictEdn: verdictEdn,
+      orderRefused: /:refuse\? true/.test(verdictEdn),
+    },
+    extra
+  );
+}
+
+async function heapRow(chromium) {
+  const row = await heapPass(chromium, {
     benchmark: 'P0:retained-heap-per-boundary',
     bead: 'rf2-2rtt6.4',
+    plan: legacyPlan,
     roots: ROOTS,
-    perRoot,
     rounds: ROUNDS,
-    segments: HEAP_SEGMENTS,
-    instruments: {
-      A: 'CDP Runtime.getHeapUsage().usedSize after 3x HeapProfiler.collectGarbage',
-      B: 'in-page performance.memory.usedJSHeapSize, same moment, --enable-precise-memory-info',
-      note:
-        'A and B are two doors onto one V8 counter and are NOT independent — on the ' +
-        'predecessor instrument, pointed at 80,000 held objects, they returned 3868954 both.',
+  });
+  row.segments = HEAP_SEGMENTS;
+  return row;
+}
+
+// ---------------------------------------------------------------------------
+// The fan-out row
+// ---------------------------------------------------------------------------
+
+async function fanoutRow(chromium) {
+  return heapPass(chromium, {
+    benchmark: 'P0:retained-heap-fan-out-sweep',
+    bead: 'rf2-5prok',
+    plan: fanPlan,
+    roots: ROOTS,
+    rounds: FAN_ROUNDS,
+    // The adjudicator's own self-test, BEFORE anything is measured, on the
+    // same footing as the arm-order guard's: two synthetic pages built by
+    // arithmetic, one exactly additive and one carrying a quadratic key
+    // term. The first has to be priced back to its own three terms and the
+    // second has to be REFUSED — and refused out of sample, since its r²
+    // clears the linearity floor. A fit rule that cannot fail would make
+    // every price below unfalsifiable.
+    preflight: async (page) => {
+      const st = await page.evaluate(() => window.P0H.fanSelfTest());
+      for (const c of st.checks) {
+        console.log(`;; P0 fan-fit ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}  — ${c.detail}`);
+      }
+      if (!st.ok) {
+        throw new Error(
+          'the additive-model self-test FAILED — no fan-out figure may be priced'
+        );
+      }
     },
-    control: {
-      shape: 'dense JS array of doubles',
-      doubles: CONTROL_DOUBLES,
-      predictedBytes: CONTROL_PREDICTED,
-      measured: ctlStat,
-      slack: CONTROL_SLACK,
-      verdict: controlVerdict,
+    // The fit and its refusal rule are ClojureScript
+    // (`p0-heap/additive-fit`), reached through the page while it is still
+    // open, for the same reason the arm-order verdict and the control
+    // verdict are: a JavaScript restatement would be a second place for the
+    // rule to drift, and this one decides whether a component price may be
+    // quoted at all.
+    analyse: async (page, rounds) => {
+      const substrates = Object.keys(FAN_SUBSTRATE);
+      const perRoundFits = {};
+      const meanFits = {};
+      for (const segment of substrates) {
+        const sub = FAN_SUBSTRATE[segment];
+        const rungsOf = (r) => {
+          const floor = r.arms[`${segment}|grid/floor`];
+          return fanRungs(floor.boundaries).map((g) => {
+            const a = r.arms[`${segment}|fan/${sub}#${g.rung}`];
+            return {
+              rung: g.rung,
+              reads: g.reads,
+              keys: g.keys,
+              boundaries: a.boundaries,
+              y: a.bytesPerBoundaryCdp - floor.bytesPerBoundaryCdp,
+            };
+          });
+        };
+        perRoundFits[segment] = [];
+        for (const r of rounds) {
+          perRoundFits[segment].push(
+            await page.evaluate((rs) => window.P0H.fanVerdict(rs), rungsOf(r))
+          );
+        }
+        // The headline fit, over the per-rung MEANS. Reported beside the
+        // per-round fits and never instead of them: a criterion applied
+        // only to a mean is a criterion a single bad round can hide from.
+        const all = rounds.map(rungsOf);
+        const meanRungs = all[0].map((g, i) => ({
+          ...g,
+          y: all.reduce((acc, rr) => acc + rr[i].y, 0) / all.length,
+        }));
+        meanFits[segment] = await page.evaluate((rs) => window.P0H.fanVerdict(rs), meanRungs);
+        meanFits[segment].rungs = meanRungs;
+      }
+      return { fanFits: { perRound: perRoundFits, mean: meanFits } };
     },
-    verification: { mounts, unverified },
-    perRound: rounds,
-    orderVerdictEdn: verdictEdn,
-    orderRefused: /:refuse\? true/.test(verdictEdn),
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -513,6 +746,9 @@ function summariseHeap(row) {
   console.log(`;;     ${row.control.verdict.why}`);
   console.log(';;     (the shared rule words its figures with an "x"; this control\'s unit is BYTES)');
   console.log(`;; verification: ${row.verification.unverified} unverified of ${row.verification.mounts} mounts`);
+  console.log(';;   (a mount is verified on TWO read-backs: the boundary elements it produced,');
+  console.log(";;    and the unique query keys the frame's sub-cache is holding — B and Q)");
+  for (const d of row.verification.detail || []) console.log(`;;   UNVERIFIED ${d}`);
   console.log(';;');
   console.log(';; arm                              B/boundary (mean) [min-max]     residue B');
   const keys = Object.keys(row.perRound[0].arms);
@@ -561,6 +797,115 @@ function summariseHeap(row) {
 
 // ---------------------------------------------------------------------------
 
+const n0 = (x) => String(Math.round(x));
+
+function summariseFanout(row) {
+  const B = row.plan[0].arms[0].boundaries;
+  console.log('\n;; ==== P0 RETAINED HEAP — THE FAN-OUT SWEEP (rf2-5prok) ====');
+  console.log(
+    `;; ${row.roots} root(s) held per arm, ${row.perRoot.grid} cells each — B = ${B} boundaries, ` +
+      `held FIXED across every rung`
+  );
+  console.log(`;; ${row.rounds} rounds. Q is COUNTED off the frame's own sub-cache on every mount,`);
+  console.log(';; not asserted by the plan — an unstamped or mis-stamped rung is an unverified mount.');
+  const ctlA = row.control.measured;
+  console.log(
+    `;; positive control: predicted ${CONTROL_PREDICTED} B  |  measured ${Math.round(ctlA.mean)} B ` +
+      `[${Math.round(ctlA.min)}–${Math.round(ctlA.max)}]  (ratio ${(ctlA.mean / CONTROL_PREDICTED).toFixed(4)})`
+  );
+  console.log(
+    `;;   VERDICT (lane/control-verdict, slack ±${(row.control.slack * 100).toFixed(0)}%): ` +
+      `${row.control.verdict.ok ? 'OK' : 'FAILED'}`
+  );
+  console.log(`;;     ${row.control.verdict.why}`);
+  console.log(`;; verification: ${row.verification.unverified} unverified of ${row.verification.mounts} mounts`);
+  for (const d of row.verification.detail || []) console.log(`;;   UNVERIFIED ${d}`);
+
+  for (const segment of Object.keys(FAN_SUBSTRATE)) {
+    const sub = FAN_SUBSTRATE[segment];
+    console.log(';;');
+    console.log(`;; ---- ${segment} ----`);
+    console.log(
+      ';; rung    reads    B      E      Q     E/B    E/Q    exclusive B/boundary [min–max]   residue'
+    );
+    const floorKey = `${segment}|grid/floor`;
+    const line = (label, key, reads, keys) => {
+      const excl = stat(
+        row.perRound.map((r) => r.arms[key].bytesPerBoundaryCdp - r.arms[floorKey].bytesPerBoundaryCdp)
+      );
+      const res = stat(row.perRound.map((r) => r.arms[key].residueCdp));
+      const E = B * reads;
+      console.log(
+        `;; ${label.padEnd(8)}${String(reads).padStart(3)}  ${String(B).padStart(6)} ` +
+          `${String(E).padStart(6)} ${String(keys).padStart(6)} ` +
+          `${reads.toFixed(2).padStart(5)}  ${(keys ? (E / keys).toFixed(2) : '—').padStart(5)}   ` +
+          `${n0(excl.mean).padStart(8)} [${n0(excl.min)}–${n0(excl.max)}]`.padEnd(24) +
+          `${n0(res.mean).padStart(9)}`
+      );
+    };
+    const floorStat = stat(row.perRound.map((r) => r.arms[floorKey].bytesPerBoundaryCdp));
+    console.log(
+      `;; floor     0  ${String(B).padStart(6)} ${String(0).padStart(6)} ${String(0).padStart(6)} ` +
+        ` 0.00      —   ${n0(floorStat.mean).padStart(8)} [${n0(floorStat.min)}–${n0(floorStat.max)}]` +
+        '   (absolute, the calibrator)'
+    );
+    for (const g of fanRungs(B)) line(g.rung, `${segment}|fan/${sub}#${g.rung}`, g.reads, g.keys);
+    line('anchor', `${segment}|grid/${sub}`, 1, row.perRoot.grid);
+    console.log(
+      `;;   'anchor' is the PUBLISHED rf2-2rtt6.4 ${sub} grid arm, unchanged — same B/E/Q as ` +
+        `R1Q${Math.round(B / row.perRoot.grid)} at these roots, through :p0/cell instead of :p0/fan.`
+    );
+  }
+
+  // --- the additive model -------------------------------------------------
+  console.log(';;');
+  console.log(';; ==== THE ADDITIVE MODEL — y = shell + (E/B)·edge + (Q/B)·key ====');
+  console.log(';;   The R=1 family identifies it (slope = key, intercept = shell + edge, and the');
+  console.log(';;   R=0 rung measures shell on its own). The two R=2 rungs are HELD OUT and');
+  console.log(";;   predicted from those three numbers alone. The rule is p0-heap/additive-fit's;");
+  console.log(';;   this driver states the rungs and reads the answer.');
+  const fits = row.fanFits;
+  for (const segment of Object.keys(FAN_SUBSTRATE)) {
+    const m = fits.mean[segment];
+    const per = fits.perRound[segment];
+    const rng = (f) => {
+      const xs = per.map(f).filter((x) => typeof x === 'number' && isFinite(x));
+      return xs.length ? `[${n0(Math.min(...xs))}–${n0(Math.max(...xs))}]` : '[—]';
+    };
+    console.log(';;');
+    console.log(
+      `;;   ${segment}:  shell ${n0(m.shell)} B ${rng((f) => f.shell)}` +
+        `   edge ${n0(m.edge)} B ${rng((f) => f.edge)}` +
+        `   key ${n0(m.key)} B ${rng((f) => f.key)}`
+    );
+    console.log(
+      `;;     r² ${m.r2.toFixed(5)}   ·   edge re-measured as R2QB2 − R1Q2 = ${n0(m.edgeAlt)} B` +
+        `   ·   key re-measured from the R=2 pair = ${n0(m.keyAlt)} B`
+    );
+    for (const c of m.checks) {
+      console.log(`;;     [${c.ok ? 'ok  ' : 'FAIL'}] ${c.name}`);
+      console.log(`;;              ${c.detail}`);
+    }
+    const badRounds = per.filter((f) => !f.ok).length;
+    console.log(
+      `;;     per-round: ${per.length - badRounds} of ${per.length} rounds additive on the same criterion`
+    );
+    console.log(
+      `;;     VERDICT: ${m.ok && badRounds === 0 ? 'ADDITIVE — component prices may be quoted' : 'REFUSED — ' + m.why}`
+    );
+    row.fanFits.mean[segment].allRoundsOk = badRounds === 0;
+  }
+
+  console.log(';;');
+  console.log(';; ==== ARM-ORDER GUARD (fan-out) ====');
+  console.log(
+    `;;   ${row.orderRefused ? 'VERDICT: REFUSE — no figure above may be published as measured' : 'VERDICT: reportable'}`
+  );
+  if (row.orderRefused) console.log(`;;   ${row.orderVerdictEdn}`);
+}
+
+// ---------------------------------------------------------------------------
+
 (async () => {
   build();
   const server = serve();
@@ -571,8 +916,19 @@ function summariseHeap(row) {
   // that failed two things would name one of them.
   const failures = [];
   let refused = false;
+  // `--only fanout` is opt-in and runs NOTHING ELSE. It is 5x the arms of
+  // the published heap row and it answers a different question, so folding
+  // it into a default run would both cost every run five times over and
+  // change the sample stream the heap row's arm-order guard adjudicates.
+  const wantClock = ONLY === null || ONLY === 'clock';
+  const wantHeap = ONLY === null || ONLY === 'heap';
+  const wantFanout = ONLY === 'fanout';
+  if (ONLY !== null && !wantClock && !wantHeap && !wantFanout) {
+    console.error(`[p0] unknown --only ${ONLY} (clock | heap | fanout)`);
+    process.exit(1);
+  }
   try {
-    if (ONLY !== 'heap') {
+    if (wantClock) {
       console.error('[p0] clock row ...');
       const c = await clockRow(chromium);
       out.clock = c.results;
@@ -602,7 +958,7 @@ function summariseHeap(row) {
         }
       }
     }
-    if (ONLY !== 'clock') {
+    if (wantHeap) {
       console.error('[p0] heap row ...');
       out.heap = await heapRow(chromium);
       summariseHeap(out.heap);
@@ -613,6 +969,27 @@ function summariseHeap(row) {
         failures.push(`heap: positive control — ${out.heap.control.verdict.why}`);
       }
       refused = refused || out.heap.orderRefused;
+    }
+    if (wantFanout) {
+      console.error('[p0] fan-out sweep ...');
+      out.fanout = await fanoutRow(chromium);
+      summariseFanout(out.fanout);
+      if (out.fanout.verification.unverified > 0) {
+        failures.push(
+          `fanout: ${out.fanout.verification.unverified} unverified mounts — ` +
+            out.fanout.verification.detail.join(' | ')
+        );
+      }
+      if (!out.fanout.control.verdict.ok) {
+        failures.push(`fanout: positive control — ${out.fanout.control.verdict.why}`);
+      }
+      refused = refused || out.fanout.orderRefused;
+      // The additive verdict is NOT an exit code. A model that does not
+      // hold is a finding about the substrate, not a fault in the
+      // instrument that measured it — the rows stay quotable and only the
+      // component PRICES do not. It is adjudicated, printed as a verdict
+      // and carried in the raw record; what it gates is what may be
+      // written into validation.md.
     }
   } catch (e) {
     failures.push(String(e && e.stack ? e.stack : e));
