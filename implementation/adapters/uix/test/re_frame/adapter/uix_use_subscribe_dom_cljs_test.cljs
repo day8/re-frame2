@@ -35,9 +35,15 @@
             [re-frame.adapter.react-shared-suite :as suite]
             [re-frame.test-support :as test-support]))
 
+;; MAP-FORM fixture with `:async? true` (rf2-2rtt6.25): the provisional-horizon
+;; assertions below are `(async done …)` tests, and cljs.test refuses to run an
+;; async test under a plain-fn `:each` fixture ("Async tests require fixtures to
+;; be specified as maps") — the `:after` half has to land after the async
+;; `done`, which a plain fn cannot express. The horizon is one host macrotask,
+;; and nothing synchronous crosses it.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter}))
+    {:adapter uix-adapter/adapter :async? true}))
 
 ;; ---- side-channel atoms ----------------------------------------------------
 ;; Read by the UIx probe components below. The probes are defui top-levels

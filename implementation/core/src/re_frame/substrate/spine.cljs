@@ -2212,9 +2212,12 @@
 
   ONE TIMER PER BURST, armed on the empty → non-empty edge, so a page mounting
   three hundred boundaries in one render pass arms one timer and not three
-  hundred. The drain splices the queue before releasing, so a token minted
-  while it runs belongs to the next burst; and each release is isolated, so
-  one throwing sub-body teardown cannot strand the rest of the batch."
+  hundred. A burst therefore lasts until the host runs a task, and the queue
+  holds one four-slot array per read taken since — bounded by the work the
+  same burst already did, and emptied whole at the horizon. The drain splices
+  before releasing, so a token minted while it runs belongs to the next burst;
+  and each release is isolated, so one throwing sub-body teardown cannot
+  strand the rest of the batch."
   []
   (let [pending    #js []
         scheduled? (volatile! false)

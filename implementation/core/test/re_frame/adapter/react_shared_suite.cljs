@@ -2781,51 +2781,24 @@
         (do (enable-react-act-env!)
             (f act-fn))))))
 
-;; ---- the provisional horizon, made observable (rf2-2rtt6.25) --------------
+;; ---- the provisional horizon (rf2-2rtt6.25) --------------------------------
 ;;
 ;; The spine's render-phase provisional reference is released by whichever
 ;; arrives first: the commit that adopts it, or a host-MACROTASK reaper armed
 ;; at acquisition (Spec 006 §Render-phase provisional acquisition and commit
-;; adoption). "One macrotask later" is not something `act()` flushes — act
-;; drains React's work and the microtask queue, not the timer queue — so a
-;; synchronous assertion cannot see past the horizon and an asynchronous one
-;; would have to guess how long to wait.
+;; adoption). `act()` does not cross that horizon — it drains React's work and
+;; the microtask queue, never the timer queue — and no synchronous trick does
+;; either, because the spine arms ONE timer per burst and a test bundle that
+;; never yields never lets that timer run. So the assertions that cross the
+;; horizon are `(async done …)` over a real `setTimeout` turn, and their entry
+;; namespaces install the `:async? true` map-form fixture.
 ;;
-;; So the horizon is made DETERMINISTIC instead: intercept `setTimeout`, keep
-;; every callback it is handed, and let the test cross the horizon on demand.
-;; The real timer is still armed, so a callback that the test never settles
-;; still runs on its own; and the spine's tokens are one-shot, so the manual
-;; drain and the real one cannot both release.
-;;
-;; The interception is ALSO the empirical proof of the primitive. A microtask
-;; reaper would have drained inside `act()`, before any assertion here runs —
-;; so the ref-count would already read 0 and the "still 1 before the settle"
-;; leg would fail. That leg is what says, in a test rather than a comment,
-;; that the reaper outlives React's passive-effect flush.
-
-(defn- with-captured-macrotasks
-  "Call `(f settle!)` with `globalThis.setTimeout` intercepted so that every
-  scheduled callback is recorded as well as armed. `(settle!)` runs the
-  recorded callbacks immediately and answers how many it ran — one crossing of
-  the provisional horizon. Restores `setTimeout` on the way out, including on a
-  throw."
-  [f]
-  (let [g        js/globalThis
-        real-st  (.-setTimeout g)
-        captured (atom [])
-        settle!  (fn []
-                   (let [batch @captured]
-                     (reset! captured [])
-                     (doseq [cb batch] (when (fn? cb) (cb)))
-                     (count batch)))]
-    (set! (.-setTimeout g)
-          (fn captured-set-timeout [& args]
-            (swap! captured conj (first args))
-            (.apply real-st g (to-array args))))
-    (try
-      (f settle!)
-      (finally
-        (set! (.-setTimeout g) real-st)))))
+;; The wait is ALSO the empirical proof of the primitive, in two legs that only
+;; a macrotask reaper passes together: SYNCHRONOUSLY after `act()` the
+;; reference is still held (a microtask reaper would already read 0, because
+;; act drains microtasks), and ONE timer turn later it is gone. Ordering is not
+;; a race: the spine armed its drain before the assertion armed its wait, and
+;; same-delay timers fire in the order they were armed.
 
 (defn- ref-count-of
   "The sub-cache ref-count for `k`, or 0 when the slot is absent — the shape
@@ -4432,14 +4405,26 @@
   AMENDED BY rf2-2rtt6.25 — the ONE contract-visible change the rf2-2rtt6.14
   ruling blesses. The render phase now hands its reference to the commit
   instead of balancing it away, so an abandoned render's zero-POINT is one
-  host macrotask later: **≤ 1 immediately after the fallback commits, == 0
-  after one settle**. The zero-leak property itself is unchanged, and the
-  post-settle leg is asserted with EQUALITY — an abandoned render that is
-  still holding a reference after the horizon is the leak this assertion has
-  always been about. The pre-settle leg additionally pins == 1, which is not
-  contract but evidence: it is what a MICROTASK reaper would fail, because a
-  microtask drains inside `act()` before this line runs. See Spec 006
-  §Render-phase provisional acquisition and commit adoption.
+  host macrotask later. **== 0 after one settle** is the contract and is
+  asserted with equality: an abandoned render still holding a reference after
+  the horizon is the leak this assertion has always been about.
+
+  BEFORE the settle the count is asserted only as POSITIVE, and that leg is
+  evidence rather than contract — it is what a MICROTASK reaper would fail,
+  because a microtask drains inside `act()` before the assertion runs, and it
+  is therefore the empirical statement that the reaper outlives React's
+  passive-effect flush. It is deliberately not `== 1`: React REPLAYS a
+  suspended render, and each attempt is a fresh fiber with fresh hook state,
+  so the pre-horizon count is bounded by the ATTEMPTS React made (measured: 2
+  for this probe), not by 1. The rule 'at most one provisional reference per
+  read site' is per site per attempt and holds; the ruling's '≤ 1' was an
+  estimate of the attempt count, and the measurement corrected it. Spec 006
+  §Render-phase provisional acquisition and commit adoption carries the
+  corrected wording.
+
+  ASYNC. Crossing the horizon means letting a real host macrotask run — the
+  spine arms ONE timer per burst, so no synchronous trick reaches its drain.
+  The entry ns therefore installs the `:async? true` map-form fixture.
 
   cfg keys:
     :probe-suspense-abort-element  thunk → an ELEMENT that wraps a
@@ -4464,58 +4449,54 @@
               cache       (:sub-cache (frame/frame rc-frame))
               mount-node  (make-mount-node!)
               root        (react-dom-client/createRoot mount-node)]
-          (with-captured-macrotasks
-           (fn [settle!]
-            (try
-              ;; Render the Suspense tree. The probe runs `use-subscribe` in its
-              ;; render phase; its suspending child throws, so React commits the
-              ;; FALLBACK and the probe fiber never commits.
-              (act-fn (fn [] (.render root (probe-suspense-abort-element))))
-              ;; THE BLESSED CONTRACT, immediately after the fallback commit.
-              (is (<= (ref-count-of cache cache-key-v) 1)
-                  (str "after a Suspense-aborted (never-committed) render, the "
-                       "sub-cache holds at most the ONE provisional reference the "
-                       "reaper owns — observed "
-                       (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
-              ;; EVIDENCE, not contract: the reaper is a MACROTASK, so it has
-              ;; not run yet. A microtask reaper drains inside `act()` and this
-              ;; reads 0 — which is why this leg is here.
-              (is (= 1 (ref-count-of cache cache-key-v))
-                  (str "the abandoned render's reference is STILL HELD at this "
-                       "point — the reaper is a macrotask and outlives React's "
-                       "passive-effect flush. Observed "
-                       (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
-              ;; ONE SETTLE — cross the horizon.
-              (settle!)
-              (is (zero? (ref-count-of cache cache-key-v))
-                  (str "after ONE macrotask settle the abandoned render holds "
-                       "NOTHING — observed "
-                       (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
-              (is (nil? (get @cache cache-key-v))
-                  "and the 1 → 0 edge evicted the slot in-tick, as for any other release")
-              ;; Tear down the suspended tree.
-              (act-fn (fn [] (.unmount root)))
-              (is (or (nil? (get @cache cache-key-v))
-                      (zero? (ref-count-of cache cache-key-v)))
-                  "post-unmount of the suspended tree: still no pinned ref-count")
-              (finally
-                (try (.unmount root) (catch :default _ nil))))))
-          ;; ---- committed-mount control: a later legitimate subscriber on
-          ;; the SAME query subscribes to exactly one ref and releases it on
-          ;; unmount, proving the abandoned render left the ledger uncorrupted.
-          (let [root2 (react-dom-client/createRoot (make-mount-node!))]
-            (try
-              (act-fn (fn [] (.render root2 (probe-refcount-element))))
-              (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
-                  (str "a later committed mount on the same query pins exactly "
-                       "one ref-count — observed "
-                       (or (get-in @cache [cache-key-v :ref-count]) 0)))
-              (act-fn (fn [] (.unmount root2)))
-              (is (or (nil? (get @cache cache-key-v))
-                      (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
-                  "after the committed mount unmounts, the query returns to zero refs")
-              (finally
-                (try (.unmount root2) (catch :default _ nil)))))))))))
+          ;; Render the Suspense tree. The probe runs `use-subscribe` in its
+          ;; render phase; its suspending child throws, so React commits the
+          ;; FALLBACK and the probe fiber never commits.
+          (act-fn (fn [] (.render root (probe-suspense-abort-element))))
+          ;; EVIDENCE, before the horizon: the reaper has not run.
+          (is (pos? (ref-count-of cache cache-key-v))
+              (str "the abandoned render's reference is STILL HELD at this "
+                   "point — the reaper is a macrotask and outlives React's "
+                   "passive-effect flush (a microtask reaper would already read "
+                   "0 here). Observed "
+                   (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
+          (async done
+            (js/setTimeout
+              (fn []
+                (try
+                  ;; THE CONTRACT, one settle later.
+                  (is (zero? (ref-count-of cache cache-key-v))
+                      (str "after ONE macrotask settle the abandoned render holds "
+                           "NOTHING — observed "
+                           (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
+                  (is (nil? (get @cache cache-key-v))
+                      "and the 1 → 0 edge evicted the slot in-tick, as for any other release")
+                  ;; Tear down the suspended tree.
+                  (act-fn (fn [] (.unmount root)))
+                  (is (or (nil? (get @cache cache-key-v))
+                          (zero? (ref-count-of cache cache-key-v)))
+                      "post-unmount of the suspended tree: still no pinned ref-count")
+                  ;; ---- committed-mount control: a later legitimate subscriber
+                  ;; on the SAME query subscribes to exactly one ref and releases
+                  ;; it on unmount, proving the abandoned render left the ledger
+                  ;; uncorrupted.
+                  (let [root2 (react-dom-client/createRoot (make-mount-node!))]
+                    (try
+                      (act-fn (fn [] (.render root2 (probe-refcount-element))))
+                      (is (= 1 (ref-count-of cache cache-key-v))
+                          (str "a later committed mount on the same query pins exactly "
+                               "one ref-count — observed "
+                               (ref-count-of cache cache-key-v)))
+                      (act-fn (fn [] (.unmount root2)))
+                      (is (or (nil? (get @cache cache-key-v))
+                              (zero? (ref-count-of cache cache-key-v)))
+                          "after the committed mount unmounts, the query returns to zero refs")
+                      (finally
+                        (try (.unmount root2) (catch :default _ nil)))))
+                  (finally
+                    (try (.unmount root) (catch :default _ nil))
+                    (done))))
+              0))))))))
 
 ;; ---- getSnapshot tracks the committed reaction (rf2-sqhjtu) ---------------
 ;;
@@ -4986,34 +4967,36 @@
             cache       (:sub-cache (frame/frame ad-frame))
             mount-node  (make-mount-node!)
             root        (react-dom-client/createRoot mount-node)]
-        (with-captured-macrotasks
-         (fn [settle!]
-          (try
-            (act-fn (fn [] (.render root (probe-refcount-element))))
-            (let [tenant (get-in @cache [cache-key-v :reaction])
-                  n      @builds]
-              (is (= 1 (ref-count-of cache cache-key-v))
-                  "mounted: exactly one durable reference")
-              ;; Cross the horizon. The token the render escrowed was spent at
-              ;; adoption; the reaper still fires.
-              (settle!)
-              (is (= 1 (ref-count-of cache cache-key-v))
-                  (str "after the reaper runs the mounted subscription still holds "
-                       "exactly one reference — the token was already spent, so it "
-                       "cannot be released twice. Observed "
-                       (ref-count-of cache cache-key-v)))
-              (is (identical? tenant (get-in @cache [cache-key-v :reaction]))
-                  "same reaction still tenanted — the reaper disposed nothing")
-              (is (= n @builds)
-                  "and nothing was rebuilt behind it")
-              (is (= "m=5" (.-textContent mount-node))
-                  "the mounted probe still renders its value across the horizon"))
-            (act-fn (fn [] (.unmount root)))
-            (is (or (nil? (get @cache cache-key-v))
-                    (zero? (ref-count-of cache cache-key-v)))
-                "unmount still returns the query to zero refs")
-            (finally
-              (try (.unmount root) (catch :default _ nil)))))))))))
+        (act-fn (fn [] (.render root (probe-refcount-element))))
+        (let [tenant (get-in @cache [cache-key-v :reaction])
+              n      @builds]
+          (is (= 1 (ref-count-of cache cache-key-v))
+              "mounted: exactly one durable reference")
+          ;; Cross the horizon. The token the render escrowed was spent at
+          ;; adoption; the reaper still fires.
+          (async done
+            (js/setTimeout
+              (fn []
+                (try
+                  (is (= 1 (ref-count-of cache cache-key-v))
+                      (str "after the reaper runs the mounted subscription still holds "
+                           "exactly one reference — the token was already spent, so it "
+                           "cannot be released twice. Observed "
+                           (ref-count-of cache cache-key-v)))
+                  (is (identical? tenant (get-in @cache [cache-key-v :reaction]))
+                      "same reaction still tenanted — the reaper disposed nothing")
+                  (is (= n @builds)
+                      "and nothing was rebuilt behind it")
+                  (is (= "m=5" (.-textContent mount-node))
+                      "the mounted probe still renders its value across the horizon")
+                  (act-fn (fn [] (.unmount root)))
+                  (is (or (nil? (get @cache cache-key-v))
+                          (zero? (ref-count-of cache cache-key-v)))
+                      "unmount still returns the query to zero refs")
+                  (finally
+                    (try (.unmount root) (catch :default _ nil))
+                    (done))))
+              0))))))))
 
 (defn assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon
   "rf2-2rtt6.25: an abandoned COLD render of a LAYER-2 sub leaves the parent
@@ -5041,31 +5024,38 @@
         (rf/reg-event ::hz-seed (fn [_ _] {:db {:m 11}}))
         (rf/dispatch-sync [::hz-seed] {:frame hz-frame})
         (rf/reg-sub ::hz-input (fn [db _] (:m db)))
-        (rf/reg-sub rc-query :<- [::hz-input] (fn [[v] _] v))
+        (rf/reg-sub rc-query :<- [::hz-input] (fn [v _] v))
         (let [parent-k   [rc-query]
               input-k    [::hz-input]
               cache      (:sub-cache (frame/frame hz-frame))
               root       (react-dom-client/createRoot (make-mount-node!))]
-          (with-captured-macrotasks
-           (fn [settle!]
-            (try
-              (act-fn (fn [] (.render root (probe-suspense-abort-element))))
-              ;; Before the horizon: the abandoned render's reference holds the
-              ;; layer-2 parent, and the parent's construction holds its input.
-              (is (= 1 (ref-count-of cache parent-k))
-                  "the abandoned render holds the layer-2 parent")
-              (is (= 1 (ref-count-of cache input-k))
-                  "and the parent's build holds its `:<-` input")
-              (settle!)
-              ;; After it: the ordinary cascade, from the ordinary edge.
-              (is (nil? (get @cache parent-k))
-                  "one settle later the layer-2 parent is disposed and evicted")
-              (is (nil? (get @cache input-k))
-                  "and the disposal CASCADED to the input, which had no other
-                   reader — the whole topology an abandoned render materialised
-                   is released at the horizon, not retained")
-              (finally
-                (try (.unmount root) (catch :default _ nil))))))))))))
+          (act-fn (fn [] (.render root (probe-suspense-abort-element))))
+          ;; Before the horizon: the abandoned render's reference(s) hold the
+          ;; layer-2 parent — one per render attempt React made — and the
+          ;; parent's single construction holds its input once.
+          (is (pos? (ref-count-of cache parent-k))
+              (str "the abandoned render holds the layer-2 parent — observed "
+                   (ref-count-of cache parent-k)))
+          (is (= 1 (ref-count-of cache input-k))
+              (str "and the parent's build holds its `:<-` input exactly once, "
+                   "however many times React replayed the render — a replay HITS "
+                   "the parent and constructs no second input. Observed "
+                   (ref-count-of cache input-k)))
+          (async done
+            (js/setTimeout
+              (fn []
+                (try
+                  ;; After it: the ordinary cascade, from the ordinary edge.
+                  (is (nil? (get @cache parent-k))
+                      "one settle later the layer-2 parent is disposed and evicted")
+                  (is (nil? (get @cache input-k))
+                      "and the disposal CASCADED to the input, which had no other
+                       reader — the whole topology an abandoned render materialised
+                       is released at the horizon, not retained")
+                  (finally
+                    (try (.unmount root) (catch :default _ nil))
+                    (done))))
+              0))))))))
 
 (defn assert-use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon
   "rf2-2rtt6.25 (SSR): `renderToString` runs the hook's render phase and never
@@ -5086,22 +5076,25 @@
     (rf/dispatch-sync [::ssr-seed] {:frame ssr-frame})
     (rf/reg-sub rc-query (fn [db _] (:m db)))
     (let [cache-key-v [rc-query]
-          cache       (:sub-cache (frame/frame ssr-frame))]
-      (with-captured-macrotasks
-       (fn [settle!]
-         (let [html (.renderToString react-dom-server (probe-refcount-element))]
-           (is (re-find #"m=13" html)
-               "the server render read the subscription's value")
-           (is (<= (ref-count-of cache cache-key-v) 1)
-               (str "a server render holds at most the one provisional reference — "
-                    "observed " (ref-count-of cache cache-key-v)))
-           (settle!)
-           (is (zero? (ref-count-of cache cache-key-v))
-               (str "and nets ZERO after one settle: nothing on the server ever "
-                    "commits, so the reaper is the only owner there is. Observed "
-                    (ref-count-of cache cache-key-v)))
-           (is (nil? (get @cache cache-key-v))
-               "the slot is evicted on the same 1 → 0 edge as any other release")))))))
+          cache       (:sub-cache (frame/frame ssr-frame))
+          html        (.renderToString react-dom-server (probe-refcount-element))]
+      (is (re-find #"m=13" html)
+          "the server render read the subscription's value")
+      (is (= 1 (ref-count-of cache cache-key-v))
+          (str "a server render holds exactly the one provisional reference — one "
+               "render, one attempt, one reference — and still holds it after the "
+               "render returns. Observed " (ref-count-of cache cache-key-v)))
+      (async done
+        (js/setTimeout
+          (fn []
+            (is (zero? (ref-count-of cache cache-key-v))
+                (str "and nets ZERO after one settle: nothing on the server ever "
+                     "commits, so the reaper is the only owner there is. Observed "
+                     (ref-count-of cache cache-key-v)))
+            (is (nil? (get @cache cache-key-v))
+                "the slot is evicted on the same 1 → 0 edge as any other release")
+            (done))
+          0)))))
 
 ;; ---- key-change serves the NEW target (rf2-naz09e) ------------------------
 ;;
