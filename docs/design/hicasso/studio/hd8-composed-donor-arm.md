@@ -737,7 +737,7 @@ reader was that HD-008 was broken on main. It was not.
 Every driver in the lane now clears the shared entry before it builds, so
 **this page's reproduction command runs from a cold or a warm cache, in any
 order.** The clear is inside the run-to-run noise;
-`freehand/test/re_frame/bench/hicasso/lane_cache.cjs` carries the measurement
+`freehand/test/re_frame/freehand/bench/lane_cache.cjs` carries the measurement
 and the alternatives that were rejected.
 
 ## Known limitations of this instrument

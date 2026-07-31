@@ -61,7 +61,7 @@ const { watchPage } = require('../../freehand/bench/sentinel.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
 // This driver is where the fault was found: run the P0 lane, then run HD-008,
 // and the page died before taking a sample.
-const { resetLaneBuildCache } = require('./lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../freehand/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const REPO = path.resolve(IMPL, '..');

@@ -101,7 +101,7 @@ const http = require('node:http');
 const path = require('node:path');
 
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-const { resetLaneBuildCache } = require('../../../../freehand/test/re_frame/bench/hicasso/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../freehand/test/re_frame/freehand/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../..');
 

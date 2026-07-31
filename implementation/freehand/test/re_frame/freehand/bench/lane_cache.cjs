@@ -3,7 +3,7 @@
 //
 // HD-017 gives the whole P0 lane a SINGLE build id, `:hicasso-bench`, because
 // `implementation/shadow-cljs.edn` is hot-zone and a build id per arm would be
-// a sequenced dispatch per arm. Every driver in this directory therefore rides
+// a sequenced dispatch per arm. Every driver in the lane therefore rides
 // that one id and supplies its own `:init-fn` and `:output-dir` through
 // `--config-merge`. That design is good and this file does not change it.
 //

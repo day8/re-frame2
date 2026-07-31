@@ -75,7 +75,7 @@ have: two cleared-cache builds of an arm are byte-identical, where before the
 fix the bundle depended on which arm had built last. The clear sits inside the
 run-to-run noise, because the time is JVM start, classpath and the Closure
 `:advanced` pass rather than the CLJS compile the cache holds.
-`freehand/test/re_frame/bench/hicasso/lane_cache.cjs` carries the isolation, the
+`freehand/test/re_frame/freehand/bench/lane_cache.cjs` carries the isolation, the
 measurement and the alternatives that were rejected.
 
 The instrument is
