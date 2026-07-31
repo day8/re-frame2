@@ -57,6 +57,35 @@
   | `bulk-broad` | the M1 page, one commit ALL 300 boundaries read | the bar row |
   | `bulk-narrow` | the M1 page, `narrow-batch-k` batched commits, each of which exactly ONE boundary reads, all in one timed window | the converged counterpart of rf2-2rtt6.4's `U-narrow` — the localisation row, and the one row where that arm found UIx materially behind. It has NO counterpart in rf2-2rtt6.2, so it is a NEW row on rf2-2rtt6.2's witness, labelled as such rather than presented as a re-measurement of something |
 
+  ## `?ratom=on` — the reactive leg's SECOND AUTHOR (rf2-2rtt6.21)
+
+  rf2-2rtt6.2's headline 1 is that reading re-frame2 subscriptions rather
+  than a bare cursor costs Reagent ~1.22x on mount and ~2.01x on a broad
+  commit. rf2-2rtt6.17 measured it THREE TIMES — and all three are re-runs
+  of the SAME `:reagent-ratom` arm, which bounds the instrument's
+  run-to-run noise and cannot bound a systematic error in how that arm is
+  written. That is repetition, not replication.
+
+  This page was already a genuine second implementation of the
+  DENOMINATOR — a different app namespace, a different schedule, and
+  `reagent-subs / floor` ranges overlapping rf2-2rtt6.2's on all three
+  shared rows — and it carried no `:reagent-ratom` arm at all, so it could
+  not touch the leg. `?ratom=on` puts that arm in the REAGENT SEGMENT of
+  the two rows the headline names, beside this page's own `:reagent-subs`
+  arm, in the same round of the same run. The leg is then formed a second
+  way, by a second author, on a second page.
+
+  | | |
+  |---|---|
+  | rows | `M1` and `broad`. `M2`'s leg is quantum-limited on the first author's own page (all five rounds read exactly 1.0000 on one run — the quantum wearing a tie's clothes) and `M2` is the one row whose mount budget already refuses; `narrow` has no first-author counterpart to corroborate |
+  | segment | the REAGENT segment only. The leg's two terms are both Reagent arms, so it is formed INSIDE one segment and the seam never enters it; putting a Reagent arm in the UIx segment would buy the leg nothing and would put Reagent's reaction machinery on the page whose whole point is UIx's |
+  | default | OFF. With the arm in the plan the Reagent segment runs FOUR arms against the UIx segment's three, so the page's mount budget and the interleave both differ from the schedule rf2-6i0i2's ten-run ensemble was measured under. Default-off keeps this instrument's published four rows reproducible at their own schedule; `?ratom=on` is a DIFFERENT plan and says so on every record it produces |
+
+  A run with the arm on still publishes its cross-segment red-zone,
+  because it is computed from the same slices and hiding it would be worse
+  than qualifying it — but the record carries `:ratom-arm? true` and a
+  comparability note, and that figure may NOT be quoted as a threshold.
+
   ## Three arms a segment, and why not two
 
   rf2-ouwh8: `lane/slot-order` rotated and then REFLECTED, and at k=2 those
@@ -242,6 +271,19 @@
   (let [s (or (some-> js/window .-location .-search) "")]
     (if (re-find #"start=uix" s) :uix-subs :reagent-subs)))
 
+(defn- query-ratom
+  "Is the second author's `:reagent-ratom` arm in the plan — `?ratom=on`?
+
+  Default OFF, and the default is the point: with the arm in it the
+  Reagent segment runs four arms against the UIx segment's three, which is
+  a different page, a different interleave and a different mount budget
+  from the one rf2-6i0i2's ensemble measured. An unflagged run of this
+  entry is therefore still the instrument those four rows were taken on;
+  a flagged run is a different plan and every record it writes says so."
+  []
+  (let [s (or (some-> js/window .-location .-search) "")]
+    (boolean (re-find #"ratom=on" s))))
+
 (defn- segment-order
   "Two segments admit exactly two orders and every round runs both
   segments; `start` names which one goes FIRST in round 0, and the order
@@ -386,17 +428,27 @@
                              (double (v/m1-elements v/cells-n)))
                :basis     (str "element count: " (v/m1-elements (* 2 v/cells-n)) " / "
                                (v/m1-elements v/cells-n))}
-    :arms-for (fn [segment-id]
-                [(floor-mount-arm :floor v/m1-floor (fn [{:keys [n]}] (zeros n)))
-                 (case segment-id
-                   :reagent-subs (reagent-mount-arm
-                                   :reagent-subs
-                                   (fn [{:keys [n]}] [v/subs-root v/m1-subs n]))
-                   :uix-subs     (uix-mount-arm
-                                   :uix-subs
-                                   (fn [{:keys [n]}] (ux/subs-root ux/m1 n))))
-                 (floor-mount-arm :ctl-2x v/m1-floor
-                                  (fn [{:keys [n]}] (zeros (* 2 n))) 2)])}
+    ;; The `:reagent-ratom` arm sits between the denominator and the
+    ;; control, which is rf2-2rtt6.2's own order — the plan is that arm's
+    ;; plan with the UIx segment's arm swapped in on the other side of the
+    ;; seam, so a reader comparing the two legs is comparing two authors
+    ;; and not two orderings.
+    :arms-for (fn [segment-id ratom?]
+                (-> [(floor-mount-arm :floor v/m1-floor (fn [{:keys [n]}] (zeros n)))]
+                    (into (case segment-id
+                            :reagent-subs
+                            (cond-> [(reagent-mount-arm
+                                       :reagent-subs
+                                       (fn [{:keys [n]}] [v/subs-root v/m1-subs n]))]
+                              ratom? (conj (reagent-mount-arm
+                                             :reagent-ratom
+                                             (fn [{:keys [n]}] [v/m1-ratom n]))))
+                            :uix-subs
+                            [(uix-mount-arm
+                               :uix-subs
+                               (fn [{:keys [n]}] (ux/subs-root ux/m1 n)))]))
+                    (conj (floor-mount-arm :ctl-2x v/m1-floor
+                                           (fn [{:keys [n]}] (zeros (* 2 n))) 2))))}
 
    {:id          :M2
     :grade       :diagnostic
@@ -453,7 +505,17 @@
                              (double (v/m2-elements v/fields-n)))
                :basis     (str "element count: " (v/m2-elements (* 2 v/fields-n)) " / "
                                (v/m2-elements v/fields-n))}
-    :arms-for (fn [segment-id]
+    ;; `ratom?` is IGNORED here, and it is ignored for two reasons rather
+    ;; than for want of a `conj` (rf2-2rtt6.21). This is the one row whose
+    ;; mount budget already refuses — 720 mounts refused four of six, and
+    ;; a fourth arm would put a six-round M2 page at 588 even off the
+    ;; reduced sampling below. And the leg it would measure is one the
+    ;; first author's own instrument cannot resolve: on the corrected-run
+    ;; sweep `M2`'s reactive leg read exactly 1.0000 in ALL FIVE rounds,
+    ;; because its two Reagent arms returned the same p50 every time on a
+    ;; witness whose window is three to six of Chrome's 100 us quanta.
+    ;; A second author cannot corroborate a number that is the clamp.
+    :arms-for (fn [segment-id _ratom?]
                 [(floor-mount-arm :floor v/m2-floor (fn [{:keys [n]}] (zeros n)))
                  (case segment-id
                    :reagent-subs (reagent-mount-arm
@@ -558,12 +620,53 @@
     ;; window in this lane is taken outside it.
     (fn [] (react-dom/flushSync (fn [] nil)))))
 
-(defn- bulk-arms [segment-id]
-  [(floor-bulk-arm :floor v/cells-n)
-   (case segment-id
-     :reagent-subs (reagent-bulk-arm)
-     :uix-subs     (uix-bulk-arm))
-   (floor-bulk-arm :ctl-2x (* 2 v/cells-n) 2)])
+(defn- ratom-bulk-arm
+  "The second author's lower bound on the bulk rows (rf2-2rtt6.21): the
+  same 300-cell page, read through an `r/cursor` over a bare
+  `reagent.core/atom` instead of through a subscription.
+
+  It is NOT built by [[subs-bulk-arm]], and the difference is the whole
+  point of the arm: the write installs into `v/ratom-cells` rather than
+  into the frame's app-db, so this arm pays no subscription graph, no
+  query cache and no frame. Everything else is held identical to the
+  `:reagent-subs` arm beside it — the same mount door
+  (`reagent.dom.client`), the same drain (`reagent.core/flush` inside one
+  `flushSync`), the same page, the same window. `subs / ratom` is then
+  the price of the reactive system and nothing else, which is the term
+  rf2-2rtt6.2's headline 1 turns on.
+
+  The write handles a single cell as well as `:all` because the arm is
+  written to the same contract as its sibling; only the `:broad` row puts
+  it in a plan."
+  []
+  {:id      :reagent-ratom
+   :cells   v/cells-n
+   :mount   (fn [container]
+              (let [root (rdc/create-root container)]
+                (react-dom/flushSync
+                  (fn [] (rdc/render root [v/m1-ratom v/cells-n])))
+                root))
+   :write!  (fn [i val]
+              (if (= i :all)
+                (reset! v/ratom-cells (vec (repeat v/cells-n val)))
+                (swap! v/ratom-cells assoc i val)))
+   :force!  (fn [] (react-dom/flushSync (fn [] (r/flush))))
+   :unmount (fn [root] (react-dom/flushSync (fn [] (rdc/unmount root))))})
+
+(defn- bulk-arms
+  "`:broad` is the bulk row rf2-2rtt6.2 published a reactive leg on, so it
+  is the bulk row the second author's arm joins. `:narrow` has no
+  first-author counterpart at all — rf2-2rtt6.2 has no narrow row — so a
+  ratom arm there would be a new figure rather than a corroboration, and
+  this entry does not mint one while it is answering a different question."
+  [segment-id row-key ratom?]
+  (-> [(floor-bulk-arm :floor v/cells-n)]
+      (into (case segment-id
+              :reagent-subs (cond-> [(reagent-bulk-arm)]
+                              (and ratom? (= row-key :broad))
+                              (conj (ratom-bulk-arm)))
+              :uix-subs     [(uix-bulk-arm)]))
+      (conj (floor-bulk-arm :ctl-2x (* 2 v/cells-n) 2))))
 
 (defn- mount-bulk-arms!
   "Mount every bulk arm once and CHECK THE PAGE IT BUILT, before a clock is
@@ -618,9 +721,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- mount-round!
-  [coll t {:keys [id props per-sample arms-for sampling] :as witness} segment-id]
+  [coll t {:keys [id props per-sample arms-for sampling] :as witness} segment-id ratom?]
   (let [{:keys [warmup samples]} (or sampling mount-sampling)
-        arms   (arms-for segment-id)
+        arms   (arms-for segment-id ratom?)
         n      (count arms)
         k      (or per-sample 1)
         expect (into {} (map (juxt :id #(expectation witness %))) arms)
@@ -849,58 +952,78 @@
   rounds the same arithmetic gives 2 of `C(6,3) = 20` — 10%. That is
   why disjointness withdraws the magnitude rather than condemning the
   measurement: it is a statement about what this design can resolve, not a
-  finding that the schedule moved the number."
-  [vs rounds start]
-  (let [lead-even  (if (= start :uix-subs) :uix-first :reagent-first)
-        lead-odd   (if (= lead-even :uix-first) :reagent-first :uix-first)
-        strata     {lead-even (vec (keep-indexed #(when (even? %1) %2) vs))
-                    lead-odd  (vec (keep-indexed #(when (odd? %1) %2) vs))}
-        rf         (range-of (:reagent-first strata))
-        uf         (range-of (:uix-first strata))
-        overlap?   (and (<= (:min rf) (:max uf)) (<= (:min uf) (:max rf)))
-        d-rf       (direction-of rf)
-        d-uf       (direction-of uf)
-        opposed?   (or (and (= d-rf :numerator-slower) (= d-uf :numerator-faster))
-                       (and (= d-rf :numerator-faster) (= d-uf :numerator-slower)))
-        balanced?  (even? rounds)]
-    {:start               start
-     :reagent-first       (assoc rf :direction d-rf :n (count (:reagent-first strata)))
-     :uix-first           (assoc uf :direction d-uf :n (count (:uix-first strata)))
-     :order-balanced-mean (lane/round4 (/ (+ (:mean rf) (:mean uf)) 2.0))
-     :balanced-design?    balanced?
-     :strata-overlap?     overlap?
-     :magnitude-resolved? overlap?
-     :direction-agrees?   (not opposed?)
-     :refuse?             opposed?
-     :why
-     (str "the red-zone's rounds partitioned by which segment ran FIRST "
-          "(round 0 led by " (name start) ", alternating). "
-          "Reagent-first " (.toFixed (:mean rf) 4) "x [" (.toFixed (:min rf) 4) "–"
-          (.toFixed (:max rf) 4) "] over " (count (:reagent-first strata)) " rounds; "
-          "UIx-first " (.toFixed (:mean uf) 4) "x [" (.toFixed (:min uf) 4) "–"
-          (.toFixed (:max uf) 4) "] over " (count (:uix-first strata)) " rounds. "
-          (if opposed?
-            (str "THE TWO STRATA POINT OPPOSITE WAYS, so this row has no direction to "
-                 "publish and no figure in it is reportable.")
-            (if overlap?
-              (str "The strata OVERLAP, so the magnitude survives the partition and the "
-                   "row may publish one.")
-              (str "The strata are DISJOINT, so part of this figure is WHICH SEGMENT "
-                   "RAN FIRST and the mean over them is not a threshold. The row "
-                   "publishes its DIRECTION and the stratum bounds; it may NOT publish a "
-                   "precise magnitude. At " rounds " rounds the split is "
-                   (count (:reagent-first strata)) ":" (count (:uix-first strata))
-                   " and a disjoint partition arises by chance alone in 2 of "
-                   "C(" rounds "," (count (:uix-first strata)) ") assignments, so this "
-                   "withdraws a claim rather than establishing an effect."))))}))
+  finding that the schedule moved the number.
+
+  ## `what`, and the figure that does not cross the seam
+
+  The four-argument arity names the figure under adjudication in `:why`,
+  and it exists because the red-zone is no longer the only thing this
+  verdict judges. rf2-2rtt6.21's REACTIVE LEG — `reagent-subs` over
+  `reagent-ratom` — is formed INSIDE the Reagent segment, so the seam
+  never enters it. The partition is still the right question: the Reagent
+  segment leads half the rounds and follows the other half, and a leg that
+  reads differently for which is a leg that has measured the schedule.
+  What changes is only the name in the sentence, and a verdict that
+  described a within-segment ratio as `the red-zone's` would be a small
+  lie in the one place a reader goes to check the arithmetic."
+  ([vs rounds start] (segment-order-verdict vs rounds start "the red-zone's"))
+  ([vs rounds start what]
+    (let [lead-even  (if (= start :uix-subs) :uix-first :reagent-first)
+          lead-odd   (if (= lead-even :uix-first) :reagent-first :uix-first)
+          strata     {lead-even (vec (keep-indexed #(when (even? %1) %2) vs))
+                      lead-odd  (vec (keep-indexed #(when (odd? %1) %2) vs))}
+          rf         (range-of (:reagent-first strata))
+          uf         (range-of (:uix-first strata))
+          overlap?   (and (<= (:min rf) (:max uf)) (<= (:min uf) (:max rf)))
+          d-rf       (direction-of rf)
+          d-uf       (direction-of uf)
+          opposed?   (or (and (= d-rf :numerator-slower) (= d-uf :numerator-faster))
+                         (and (= d-rf :numerator-faster) (= d-uf :numerator-slower)))
+          balanced?  (even? rounds)]
+      {:start               start
+       :reagent-first       (assoc rf :direction d-rf :n (count (:reagent-first strata)))
+       :uix-first           (assoc uf :direction d-uf :n (count (:uix-first strata)))
+       :order-balanced-mean (lane/round4 (/ (+ (:mean rf) (:mean uf)) 2.0))
+       :balanced-design?    balanced?
+       :strata-overlap?     overlap?
+       :magnitude-resolved? overlap?
+       :direction-agrees?   (not opposed?)
+       :refuse?             opposed?
+       :why
+       (str what " rounds partitioned by which segment ran FIRST "
+            "(round 0 led by " (name start) ", alternating). "
+            "Reagent-first " (.toFixed (:mean rf) 4) "x [" (.toFixed (:min rf) 4) "–"
+            (.toFixed (:max rf) 4) "] over " (count (:reagent-first strata)) " rounds; "
+            "UIx-first " (.toFixed (:mean uf) 4) "x [" (.toFixed (:min uf) 4) "–"
+            (.toFixed (:max uf) 4) "] over " (count (:uix-first strata)) " rounds. "
+            (if opposed?
+              (str "THE TWO STRATA POINT OPPOSITE WAYS, so this row has no direction to "
+                   "publish and no figure in it is reportable.")
+              (if overlap?
+                (str "The strata OVERLAP, so the magnitude survives the partition and the "
+                     "row may publish one.")
+                (str "The strata are DISJOINT, so part of this figure is WHICH SEGMENT "
+                     "RAN FIRST and the mean over them is not a threshold. The row "
+                     "publishes its DIRECTION and the stratum bounds; it may NOT publish a "
+                     "precise magnitude. At " rounds " rounds the split is "
+                     (count (:reagent-first strata)) ":" (count (:uix-first strata))
+                     " and a disjoint partition arises by chance alone in 2 of "
+                     "C(" rounds "," (count (:uix-first strata)) ") assignments, so this "
+                     "withdraws a claim rather than establishing an effect."))))})))
 
 (defn- row-record
   "Turn one row's per-round, per-segment slices into the published record.
 
   `slices` is `[{segment-id {arm-id [ms ...]}} ...]`, one entry per round.
   `start` is the segment that led round 0, and it is published on the
-  record because a reader comparing counterbalanced runs needs it."
-  [{:keys [row doc grade clock-note control note writes-per-sample start]} slices]
+  record because a reader comparing counterbalanced runs needs it.
+
+  `ratom?` says whether the second author's `:reagent-ratom` arm was in
+  this row's plan. When it was, the record carries a REACTIVE LEG — and
+  it also carries the fact that the red-zone beside it came off a
+  four-arm Reagent segment, because a threshold and the plan it was
+  measured under are one fact and not two (rf2-2rtt6.21)."
+  [{:keys [row doc grade clock-note control note writes-per-sample start ratom?]} slices]
   (let [norm       (mapv (fn [by-seg]
                            (into {} (map (fn [[sid rd]] [sid (ratios-of rd)])) by-seg))
                          slices)
@@ -909,6 +1032,20 @@
                          norm)
         rg-floor   (mapv #(get-in % [:reagent-subs :ratio :reagent-subs]) norm)
         ux-floor   (mapv #(get-in % [:uix-subs :ratio :uix-subs]) norm)
+        ;; BOTH TERMS ARE THE REAGENT SEGMENT'S OWN, so the floor divides
+        ;; out exactly and the seam is not in the arithmetic at all. It is
+        ;; formed from the floor-normalised ratios rather than from the
+        ;; raw p50s only because that is the arithmetic `lane/ratio-between`
+        ;; performs on the first author's page, and two authors disagreeing
+        ;; about a division is not a finding anybody wants to chase.
+        leg        (when ratom?
+                     (mapv (fn [m] (/ (get-in m [:reagent-subs :ratio :reagent-subs])
+                                      (get-in m [:reagent-subs :ratio :reagent-ratom])))
+                           norm))
+        ratom-floor (when ratom?
+                      (mapv #(get-in % [:reagent-subs :ratio :reagent-ratom]) norm))
+        leg-order  (when ratom?
+                     (segment-order-verdict leg rounds start "the reactive leg's"))
         seam       (mapv (fn [m] (/ (get-in m [:uix-subs :p50 :floor])
                                     (get-in m [:reagent-subs :p50 :floor])))
                          norm)
@@ -947,8 +1084,44 @@
                           :claim (if (:magnitude-resolved? order)
                                    :magnitude
                                    :direction-only)
-                          :direction (direction-of (range-of rz)))
+                          :direction (direction-of (range-of rz))
+                          :ratom-arm? (boolean ratom?)
+                          :comparability
+                          (when ratom?
+                            (str "NOT the published threshold and not comparable with "
+                                 "it. With :reagent-ratom in the plan the Reagent "
+                                 "segment ran FOUR arms against the UIx segment's "
+                                 "three, so the interleave, the page's total mount "
+                                 "budget and the adjacency structure all differ from "
+                                 "the schedule rf2-6i0i2's ten-run ensemble was "
+                                 "measured under. It is reported because it comes off "
+                                 "the same slices and hiding it would be worse than "
+                                 "qualifying it; it may not be quoted as a red-zone.")))
       :segment-order-control order
+      :ratom-arm?  (boolean ratom?)
+      ;; THE ROW THIS RUN EXISTS FOR when the arm is in the plan. Both
+      ;; terms are Reagent arms measured in the same segment of the same
+      ;; round, which is what makes it a second AUTHOR'S reading of
+      ;; rf2-2rtt6.2's headline 1 rather than a fourth run of the first's.
+      :reactive-leg
+      (when ratom?
+        (assoc (range-of leg)
+               :numerator :reagent-subs
+               :denominator :reagent-ratom
+               :axis :clock
+               :claim (if (:magnitude-resolved? leg-order) :magnitude :direction-only)
+               :direction (direction-of (range-of leg))
+               :why (str "Reagent reading re-frame2 subscriptions over Reagent "
+                         "reading an r/cursor on a bare r/atom, both floor-"
+                         "normalised in the SAME segment of the SAME round, so the "
+                         "floor divides out and the segment seam is not in the "
+                         "arithmetic. This is a SECOND IMPLEMENTATION of the term "
+                         "rf2-2rtt6.2 published as ~1.22x on mount and ~2.01x on a "
+                         "broad commit — a different app namespace, a different "
+                         "schedule, a different round count and a different arm "
+                         "plan (rf2-2rtt6.21).")))
+      :reactive-leg-segment-order leg-order
+      :ratom-over-floor   (when ratom? (range-of ratom-floor))
       :uix-over-floor     (range-of ux-floor)
       :reagent-over-floor (range-of rg-floor)
       :segment-seam-control
@@ -967,8 +1140,9 @@
       :per-round   {:reagent (mapv #(get-in % [:reagent-subs :p50]) norm)
                     :uix     (mapv #(get-in % [:uix-subs :p50]) norm)}
       :status      :evidence}
-     :controls [c-rg c-ux]
-     :order     order}))
+     :controls  [c-rg c-ux]
+     :order     order
+     :leg-order leg-order}))
 
 ;; ---------------------------------------------------------------------------
 ;; Parity — before any clock is read, in EVERY segment and ACROSS the seam
@@ -984,9 +1158,9 @@
   the EQUALITY is not exempt from arithmetic: the control is exempt
   because its page differs, and the size it differs BY is the claim it
   exists to make."
-  [{:keys [id props arms-for] :as witness} segment-id]
+  [{:keys [id props arms-for] :as witness} segment-id ratom?]
   (let [{:keys [mounts agree? disagree reference]}
-        (lane/parity (arms-for segment-id) props)
+        (lane/parity (arms-for segment-id ratom?) props)
         wrong (into {}
                     (comp (map (fn [{:keys [arm container]}]
                                  [(:id arm)
@@ -1015,10 +1189,10 @@
   each other — which is the comparison the red-zone actually makes, and it
   is checked directly rather than inferred from each segment agreeing with
   its own floor."
-  [witness]
+  [witness ratom?]
   (let [by-seg (reduce (fn [acc {:keys [id] :as segment}]
                          (enter-segment! segment)
-                         (assoc acc id (parity-of-segment! witness id)))
+                         (assoc acc id (parity-of-segment! witness id ratom?)))
                        {}
                        segments)
         cross  (when (not= (get-in by-seg [:reagent-subs :reference])
@@ -1067,6 +1241,16 @@
   "And the three-arm plan this entry actually runs must NOT degenerate."
   []
   (> (count (distinct (map #(guard/slot-order 3 %) (range 8)))) 1))
+
+(defn- slot-order-varies-at-4?
+  "Nor the FOUR-arm plan the Reagent segment runs under `?ratom=on`.
+
+  Asserted whether or not the flag is set, for the reason the `k = 2`
+  canary is: the property belongs to the shared rule, and an assertion
+  that only fires on the days it is needed is an assertion nobody
+  maintains. That is precisely how the `k = 2` one rotted."
+  []
+  (> (count (distinct (map #(guard/slot-order 4 %) (range 8)))) 1))
 
 ;; ---------------------------------------------------------------------------
 ;; The run
@@ -1117,7 +1301,7 @@
   "One round of THIS PAGE'S row: both segments, in this round's order —
   `start` leads round 0 and the order alternates from there. Answers a
   promise of `{segment-id readings}`."
-  [{:keys [kind witness] :as _spec} row-key start r coll t legs]
+  [{:keys [kind witness] :as _spec} row-key start ratom? r coll t legs]
   (lane/chain
     {}
     (segment-order start r)
@@ -1129,10 +1313,10 @@
       (assert-teardown-clean! (str "entering segment " (name id)))
       (if (= kind :mount)
         (js/Promise.resolve
-          (let [rd (mount-round! coll t (witness-named witness) id)]
+          (let [rd (mount-round! coll t (witness-named witness) id ratom?)]
             (assert-teardown-clean! (str "mount round, segment " (name id)))
             (assoc acc id rd)))
-        (let [mounts (mount-bulk-arms! (bulk-arms id))]
+        (let [mounts (mount-bulk-arms! (bulk-arms id row-key ratom?))]
           (-> (seed-bulk! mounts t)
               (.then (fn [_] (bulk-round! mounts t legs coll row-key id)))
               (.then (fn [rd]
@@ -1150,9 +1334,10 @@
         legs))
 
 (defn- publish!
-  [{:keys [kind witness row grade doc note control] :as _spec} row-key start slices t legs coll]
+  [{:keys [kind witness row grade doc note control] :as _spec} row-key start ratom?
+   slices t legs coll]
   (let [w   (witness-named witness)
-        {:keys [record controls order]}
+        {:keys [record controls order leg-order]}
         (row-record {:row row
                      :grade grade
                      :doc (or doc (:doc w))
@@ -1160,7 +1345,8 @@
                      :note note
                      :control (or control (:control w))
                      :writes-per-sample (if (= row :bulk-narrow) narrow-batch-k 1)
-                     :start start}
+                     :start start
+                     :ratom? ratom?}
                     slices)]
     (lane/record! (name row) record)
     (lane/record! "verification" {row-key (lane/tally-value t)})
@@ -1191,6 +1377,37 @@
                               "SUPERSEDES the clock threshold rf2-2rtt6.4 published on its "
                               "own witnesses — that figure remains sound as a ratio and is "
                               "simply not comparable with the bar rows.")})
+    (when-let [leg (:reactive-leg record)]
+      (lane/record! "reactive-leg"
+                    {:row row
+                     :axis :clock
+                     :witness-set "rf2-2rtt6.2"
+                     :rounds rounds
+                     :start-segment start
+                     :second-author-of "rf2-2rtt6.2 headline 1 — the price of the reactive system"
+                     :leg (select-keys leg [:mean :min :max :per-round :straddles-1?
+                                            :claim :direction :numerator :denominator])
+                     :reagent-over-floor (:reagent-over-floor record)
+                     :ratom-over-floor   (:ratom-over-floor record)
+                     :segment-order-control leg-order
+                     :publishable
+                     (if (:magnitude-resolved? leg-order)
+                       (str "a MAGNITUDE. The two segment-order strata overlap, so the "
+                            "mean survives the partition.")
+                       (str "a DIRECTION ONLY. The two segment-order strata are DISJOINT, "
+                            "so part of this figure is whether the Reagent segment led "
+                            "its round, and the mean over them is not a magnitude. Quote "
+                            "the direction and the stratum bounds; the order-balanced "
+                            "mean is " (:order-balanced-mean leg-order) "x."))
+                     :first-author
+                     (str "rf2-2rtt6.2 / rf2-2rtt6.17 published this leg three times off ONE "
+                          "implementation of the arm: M1 mount 1.218 [1.122-1.310] / 1.216 "
+                          "[1.185-1.241] / 1.213 [1.093-1.273], bulk broad 2.008 "
+                          "[1.938-2.100] / 1.965 [1.875-2.000] / 2.073 [2.000-2.167]. Three "
+                          "runs of one arm bound the instrument's noise and cannot bound a "
+                          "systematic error in how the arm is written; this row is the "
+                          "second implementation, and agreement or disagreement with those "
+                          "figures is the finding either way.")}))
     (let [vd (lane/guard! (:samples @coll)
                           (str "Hicasso P0 converged — " (name row)))]
       (lane/record! "arm-order-guard"
@@ -1207,6 +1424,13 @@
     ;; fatal for the same reason a failed positive control is: the row's
     ;; only surviving claim would be a measurement of the schedule.
     (when (:refuse? order)
+      (set! (.-HICASSO_ORDER_REFUSED js/window) true))
+    ;; And the reactive leg is held to exactly the same rule. It does not
+    ;; cross the seam, but the Reagent segment still LEADS half the rounds
+    ;; and follows the other half — a leg whose two strata point opposite
+    ;; ways across 1.0 has measured the schedule, and a lower bound that
+    ;; depends on when it was measured is not a lower bound.
+    (when (:refuse? leg-order)
       (set! (.-HICASSO_ORDER_REFUSED js/window) true))
     ;; LAST, so every record above is on the console first. The count was
     ;; published and never adjudicated: this row could read `N unverified of
@@ -1242,14 +1466,33 @@
                            "claim it cannot support"))
           (lane/done!))
 
+      (not (slot-order-varies-at-4?))
+      (do (lane/fail! (str "slot-order emits ONE order at k=4, so the four-arm Reagent "
+                           "segment `?ratom=on` runs would be a single-order plan and the "
+                           "reactive leg could not claim `both orders` either"))
+          (lane/done!))
+
       :else
       (let [row-key (query-row)
             start   (query-start)
+            ratom?  (query-ratom)
             spec    (get row-specs row-key)
             w       (witness-named (:witness spec))
-            {:keys [problems]} (parity! w)]
+            ;; ONCE, at boot, and NOT at every segment entry. The mount
+            ;; arms never write `ratom-cells` and the bulk arms re-seed
+            ;; through their own `write!`, so a per-segment reset would buy
+            ;; nothing and would cost something real: Reagent's disposals
+            ;; sit on a macrotask queue, so a write at the seam can land on
+            ;; reactions whose roots have unmounted but not yet been
+            ;; disposed, and every one of them would re-render. Outside the
+            ;; window, but it is work the page does not need to do.
+            _       (reset! v/ratom-cells (:cells (v/seed-cells v/cells-n 0)))
+            {:keys [problems]} (parity! w ratom?)]
         (js/console.log (str ";; HICASSO row " (name row-key)
-                             " — round 0 led by " (name start) ", alternating"))
+                             " — round 0 led by " (name start) ", alternating"
+                             (when ratom?
+                               (str "; the second author's :reagent-ratom arm is IN the "
+                                    "Reagent segment (rf2-2rtt6.21)"))))
         (lane/record! "parity"
                       {:row row-key :problems problems :ok? (empty? problems)
                        :note (str "canonical DOM with attribute names sorted, inside each "
@@ -1268,10 +1511,10 @@
                 legs (atom {})]
             (-> (lane/chain [] (range rounds)
                             (fn [acc r]
-                              (-> (run-round! spec row-key start r coll t legs)
+                              (-> (run-round! spec row-key start ratom? r coll t legs)
                                   (.then (fn [slice] (conj acc slice))))))
                 (.then (fn [slices]
-                         (publish! spec row-key start slices t legs coll)
+                         (publish! spec row-key start ratom? slices t legs coll)
                          (lane/done!)
                          nil))
                 (.catch (fn [e]
