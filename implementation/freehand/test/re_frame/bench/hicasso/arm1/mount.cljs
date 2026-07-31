@@ -62,17 +62,37 @@
     (render! handle hiccup)
     handle))
 
-(defn release!
-  "Unmount the root and drop every edge, cell and cached closure the arm
-  held. Idempotent: releasing twice is not an error, because a teardown
-  door that throws on the second call is a teardown door test fixtures
-  route around."
+(defn unmount!
+  "Unmount the root and detach its container, and **touch nothing the
+  runtime holds**. Whatever edges, cells and cached closures survive are
+  the ones React's own cleanup failed to release.
+
+  This is the half a residue gate has to be able to read. [[release!]]
+  also resets the runtime, and a reading taken after that reset is a
+  reading of an emptied table: it answers `0` whether teardown worked or
+  not, which is a gate that cannot go red (rf2-2rtt6.48). A witness that
+  wants to assert on teardown therefore calls this, waits one macrotask
+  for the cell and entry reapers, asserts, and resets afterwards.
+
+  Idempotent, for the same reason [[release!]] is."
   [handle]
   (when-some [r (:root handle)]
     (react-dom/flushSync (fn [] (.unmount r))))
-  (rt/reset-runtime!)
   (when-some [c (:container handle)]
     (when-some [p (.-parentNode c)] (.removeChild p c)))
+  nil)
+
+(defn release!
+  "Unmount the root and drop every edge, cell and cached closure the arm
+  held. The fixture door: it ends with a runtime that holds nothing,
+  whatever this test left behind. Idempotent: releasing twice is not an
+  error, because a teardown door that throws on the second call is a
+  teardown door test fixtures route around.
+
+  **Not the door a residue assertion takes** — see [[unmount!]]."
+  [handle]
+  (unmount! handle)
+  (rt/reset-runtime!)
   nil)
 
 (defn dispatch!

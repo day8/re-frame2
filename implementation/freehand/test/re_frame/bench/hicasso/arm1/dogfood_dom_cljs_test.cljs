@@ -32,7 +32,7 @@
 
   Runtime: `-dom-cljs-test`; under `:node-test` every claim degrades to a
   stated skip."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.dogfood-collector :as collector]
             [re-frame.bench.hicasso.arm1.dogfood-grouped :as grouped]
@@ -60,6 +60,10 @@
      ;; difference. Caught by the frame probe below, which is why the
      ;; probe stays.
      :ambient-frame nil
+     ;; The map shape, because the teardown claims are `async`: the cell
+     ;; and entry reapers are macrotasks, so the residue a React unmount
+     ;; leaves is not readable inside one synchronous test body.
+     :async?  true
      :init-fn (fn [] (rt/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-dogfood)
@@ -338,18 +342,78 @@
                  "preference"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Teardown
+;; Teardown — **React's** teardown, read while the runtime still holds it
 ;; ---------------------------------------------------------------------------
+;;
+;; The reading is taken between the root unmount and any reset, because
+;; `mount/release!` resets the runtime and a reading taken after that is a
+;; reading of an emptied table — zero however badly teardown went. That
+;; ordering is what made these two gates unable to fail (rf2-2rtt6.48),
+;; and `the-residue-reading-can-answer-false` below is the demonstration
+;; that the repaired reading is live at the point the gates take it.
+;;
+;; The macrotask wait is not slack: a cell whose last reader unmounts and
+;; an entry whose last boundary unmounts are both reaped one macrotask
+;; later, deliberately, so a keyed reorder reuses them.
 
-(deftest the-screen-leaves-no-residue
+(def ^:private reaper-horizon-ms
+  "One macrotask, with room — `arm1/runtime` arms both reapers at 0 ms."
+  8)
+
+(def ^:private nothing-retained
+  {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0})
+
+(defn- assert-react-teardown-releases-everything!
+  "Mount `screen`, drive it, and let **React** tear it down. What survives
+  the reaper horizon is what React's own cleanup failed to release."
+  [label screen done]
+  (fresh!)
+  (let [handle (hicasso-mount! screen)]
+    (mount/dispatch! handle [:dogfood/toggle 0])
+    (mount/dispatch! handle [:dogfood/set-filter :all])
+    (is (pos? (:cell-refs (rt/stats)))
+        (str label ": the mounted screen holds references, so the reading "
+             "below is a reading of something"))
+    (mount/unmount! handle)
+    (js/setTimeout (fn []
+                     (is (= nothing-retained (rt/residue))
+                         (str label ": React's own cleanup released every edge, "
+                              "reference and cached entry"))
+                     (rt/reset-runtime!)
+                     (done))
+                   reaper-horizon-ms)))
+
+(deftest the-collector-screen-leaves-no-residue
   (if-not (mount/browser?)
     (skip! ":node-test has no DOM")
-    (doseq [[label screen] [["collector" collector/screen] ["grouped" grouped/screen]]]
-      (fresh!)
-      (let [handle (hicasso-mount! screen)]
-        (mount/dispatch! handle [:dogfood/toggle 0])
-        (mount/dispatch! handle [:dogfood/set-filter :all])
-        (mount/release! handle)
-        (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-               (rt/residue))
-            (str label ": zero leaked subscription ref-counts after teardown"))))))
+    (async done (assert-react-teardown-releases-everything!
+                  "collector" collector/screen done))))
+
+(deftest the-grouped-screen-leaves-no-residue
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (async done (assert-react-teardown-releases-everything!
+                  "grouped" grouped/screen done))))
+
+(deftest the-residue-reading-can-answer-false
+  (testing "two roots, one unmounted: the reading the gates above take is
+           NOT zero, because the other root's boundaries are still holding
+           what they acquired. This is the property the pre-repair gates
+           lacked — `release!` resets the runtime, so it would report zero
+           here too, with a whole screen still mounted"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (async done
+        (fresh!)
+        (let [survivor (hicasso-mount! collector/screen)
+              doomed   (hicasso-mount! collector/screen)]
+          (mount/unmount! doomed)
+          (js/setTimeout (fn []
+                           (is (not= nothing-retained (rt/residue))
+                               "a live screen is visible to the residue reading")
+                           (is (pos? (:cell-refs (rt/residue)))
+                               "and it is visible as held references, which is
+                                the quantity the gates assert to be zero")
+                           (mount/release! survivor)
+                           (done))
+                         reaper-horizon-ms))))))

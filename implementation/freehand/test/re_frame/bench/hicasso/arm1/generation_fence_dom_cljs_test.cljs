@@ -38,7 +38,7 @@
   React DOM; under `:node-test` every claim degrades to a stated skip.
   The fence's own algebra is proved without a browser in
   `arm1/runtime_cljs_test`."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.mount :as mount]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
@@ -59,6 +59,10 @@
      ;; difference. Caught by the frame probe below, which is why the
      ;; probe stays.
      :ambient-frame nil
+     ;; The map shape, because the teardown claim is `async`: the cell and
+     ;; entry reapers are macrotasks, so the residue a React unmount leaves
+     ;; is not readable inside one synchronous test body.
+     :async?  true
      :init-fn (fn [] (rt/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-fence)
@@ -213,15 +217,30 @@
           (finally (mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Teardown
+;; Teardown — **React's** teardown, read while the runtime still holds it
 ;; ---------------------------------------------------------------------------
+;;
+;; `mount/unmount!` rather than `mount/release!`, because `release!` resets
+;; the runtime and a reading taken after that reset answers zero whatever
+;; teardown did — the ordering that made this gate unable to fail
+;; (rf2-2rtt6.48). The macrotask wait is the cell and entry reapers'
+;; deliberate grace period, not slack.
 
 (deftest the-fenced-boundary-leaves-no-residue
   (if-not (mount/browser?)
     (skip! ":node-test has no DOM")
-    (let [handle (mounted!)]
-      (mount/dispatch! handle [:dogfood/toggle 0])
-      (mount/release! handle)
-      (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-             (rt/residue))
-          "zero leaked subscription ref-counts after teardown"))))
+    (async done
+      (let [handle (mounted!)]
+        (mount/dispatch! handle [:dogfood/toggle 0])
+        (is (pos? (:cell-refs (rt/stats)))
+            "the mounted boundary holds references, so the reading below is
+             a reading of something")
+        (mount/unmount! handle)
+        (js/setTimeout (fn []
+                         (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
+                                (rt/residue))
+                             "React's own cleanup released every edge and every
+                              subscription reference")
+                         (rt/reset-runtime!)
+                         (done))
+                       8)))))
