@@ -73,15 +73,27 @@
 
 (defn- type-into!
   "Type `text` at the caret, the way a browser does it: the field changes
-  first, the `input` event fires second."
+  first, the `input` event fires second.
+
+  `dispatchEvent` does **not** rethrow a listener's exception — it reports
+  it to `window` and returns normally — so a throw on the arm's dispatch
+  path would otherwise be invisible here and fatal to the bundle. The
+  error listener turns it into a failure of the test that caused it."
   [node text]
   (let [start (.-selectionStart node)
         end   (.-selectionEnd node)
-        v     (.-value node)]
+        v     (.-value node)
+        !err  (atom nil)
+        on-error (fn [e] (reset! !err (or (.-message e) (str e))))]
     (set! (.-value node) (str (subs v 0 start) text (subs v end)))
     (let [caret (+ start (count text))]
       (.setSelectionRange node caret caret))
-    (.dispatchEvent node (js/Event. "input" #js {:bubbles true}))
+    (.addEventListener js/window "error" on-error)
+    (try
+      (.dispatchEvent node (js/Event. "input" #js {:bubbles true}))
+      (finally (.removeEventListener js/window "error" on-error)))
+    (when-some [msg @!err]
+      (is false (str "the input handler threw: " msg)))
     nil))
 
 (defn- set-model!
@@ -295,20 +307,33 @@
     (if-not (browser?)
       (is true off-browser)
       (async done
-        (with-grid
-          (fn [c]
-            (let [n (grid/cell-input c 17)]
-              (set-model! 17 "1234")
-              (.focus n)
-              (.setSelectionRange n 4 4)
-              (js/setTimeout
-               (fn []
+        ;; NOT `with-grid`: its `finally` runs the moment the body returns,
+        ;; and the body of an async test returns before its timer fires. A
+        ;; grid torn down under a pending callback leaves the callback
+        ;; dispatching into a runtime with no frame — which throws inside a
+        ;; timer, escapes every `try`, and aborts the whole browser bundle
+        ;; as an uncaught page error rather than failing one test. The
+        ;; lifecycle is therefore driven from inside the callback.
+        (do
+          (rt/reset-runtime!)
+          (let [c        (container!)
+                teardown (grid/mount! c)
+                n        (grid/cell-input c 17)
+                finish   (fn [] (teardown) (.remove c) (rt/reset-runtime!) (done))]
+            (set-model! 17 "1234")
+            (.focus n)
+            (.setSelectionRange n 4 4)
+            (js/setTimeout
+             (fn []
+               (try
                  (set-model! 17 (grid/group-digits "1234"))
                  (is (= "1,234" (.-value n)) "the late correction reached the field")
                  (is (= [5 5] (controlled/caret n))
                      "and the caret is still at the same distance from the end")
-                 (done))
-               0))))))))
+                 (catch :default e
+                   (is false (str "the late correction threw: " (ex-message e)))))
+               (finish))
+             0)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The gate, stated once
