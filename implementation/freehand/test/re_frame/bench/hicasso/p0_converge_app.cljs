@@ -86,6 +86,14 @@
   than qualifying it — but the record carries `:ratom-arm? true` and a
   comparability note, and that figure may NOT be quoted as a threshold.
 
+  THE FLAG IS GLOBAL AND THE ARM IS NOT. `?ratom=on` with no row
+  restriction reaches `M2` and `narrow` as well, and those two rows keep
+  their published three-arm plan whatever the flag says. So every fact
+  downstream of the arm — the leg, the ratom floor, `:ratom-arm?`, the
+  comparability note — is derived from the SLICE by [[ratom-leg]] and
+  never from the flag. A row that did not run the arm publishes no leg,
+  rather than dividing by a denominator nobody measured.
+
   ## Three arms a segment, and why not two
 
   rf2-ouwh8: `lane/slot-order` rotated and then REFLECTED, and at k=2 those
@@ -882,10 +890,11 @@
 (defn segment-order-verdict
   "Adjudicate a cross-segment figure BY WHICH SEGMENT RAN FIRST.
 
-  Public, and the only public fn in this entry besides `-main`, because
-  `p0_converge_order_cljs_test` replays the PUBLISHED per-round vectors
-  through it: a verdict that has only ever seen the run it shipped with is
-  a verdict nobody can check.
+  Public because `p0_converge_order_cljs_test` replays the PUBLISHED
+  per-round vectors through it: a verdict that has only ever seen the run
+  it shipped with is a verdict nobody can check. That is the only reason
+  anything in this entry is public, and it is the reason for the other
+  three — [[ratom-leg]], [[row-record]] and [[reagent-segment-arm-ids]].
 
   ## What the arm-order guard cannot see, and why this exists
 
@@ -1011,19 +1020,63 @@
                      "C(" rounds "," (count (:uix-first strata)) ") assignments, so this "
                      "withdraws a claim rather than establishing an effect."))))})))
 
-(defn- row-record
+(defn ratom-leg
+  "This row's REACTIVE LEG — `reagent-subs` over `reagent-ratom`, per
+  round, both floor-normalised in the SAME segment of the SAME round — or
+  `nil` when this row's Reagent segment did not run the `:reagent-ratom`
+  arm.
+
+  BOTH TERMS ARE THE REAGENT SEGMENT'S OWN, so the floor divides out
+  exactly and the seam is not in the arithmetic at all. The leg is formed
+  from the floor-normalised ratios rather than from the raw p50s only
+  because that is the arithmetic `lane/ratio-between` performs on the
+  first author's page, and two authors disagreeing about a division is
+  not a finding anybody wants to chase.
+
+  DECIDED BY THE SLICE, and that is the whole of the function
+  (rf2-2rtt6.21). `?ratom=on` is a page-global flag while arm presence is
+  ROW-SPECIFIC: the `M2` witness ignores the flag outright and
+  [[bulk-arms]] admits the arm only on `:broad`. A record that read the
+  FLAG instead of the MEASUREMENT therefore divided by a ratio those two
+  rows never produced — `subs / nil`, which JavaScript answers `Infinity`
+  rather than refusing — formed a ratom floor of nothing, ran the leg
+  verdict over it and labelled the row as carrying an arm it was never
+  given. The natural flagged invocation, `HICASSO_RATOM=on` with no
+  `HICASSO_ONLY`, is exactly the one that selects those rows; the
+  published runs escaped it only by always pairing the flag with
+  `HICASSO_ONLY=M1,broad`.
+
+  A PARTIAL arm is treated as no arm. Every round must carry a finite,
+  positive ratom ratio, because a leg formed over some rounds and not
+  others is a different figure from the one this page publishes, and a
+  figure that quietly changes what it averages over is worse than one
+  that is absent."
+  [norm]
+  (let [ratom (mapv #(get-in % [:reagent-subs :ratio :reagent-ratom]) norm)]
+    (when (and (seq ratom)
+               (every? #(and (number? %) (js/isFinite %) (pos? %)) ratom))
+      (mapv (fn [m r] (/ (get-in m [:reagent-subs :ratio :reagent-subs]) r))
+            norm ratom))))
+
+(defn row-record
   "Turn one row's per-round, per-segment slices into the published record.
 
   `slices` is `[{segment-id {arm-id [ms ...]}} ...]`, one entry per round.
   `start` is the segment that led round 0, and it is published on the
   record because a reader comparing counterbalanced runs needs it.
 
-  `ratom?` says whether the second author's `:reagent-ratom` arm was in
-  this row's plan. When it was, the record carries a REACTIVE LEG — and
-  it also carries the fact that the red-zone beside it came off a
-  four-arm Reagent segment, because a threshold and the plan it was
-  measured under are one fact and not two (rf2-2rtt6.21)."
-  [{:keys [row doc grade clock-note control note writes-per-sample start ratom?]} slices]
+  Whether the second author's `:reagent-ratom` arm was in this row's plan
+  is not passed in: it is read off the slices by [[ratom-leg]], because
+  the flag that requests the arm is global and the plan that runs it is
+  per-row. When the arm ran, the record carries a REACTIVE LEG — and it
+  also carries the fact that the red-zone beside it came off a four-arm
+  Reagent segment, because a threshold and the plan it was measured under
+  are one fact and not two (rf2-2rtt6.21).
+
+  Public for `p0_converge_order_cljs_test`, which feeds it one round of
+  each row's actual arm set and holds the flagged default selection to
+  that contract without a browser."
+  [{:keys [row doc grade clock-note control note writes-per-sample start]} slices]
   (let [norm       (mapv (fn [by-seg]
                            (into {} (map (fn [[sid rd]] [sid (ratios-of rd)])) by-seg))
                          slices)
@@ -1032,19 +1085,11 @@
                          norm)
         rg-floor   (mapv #(get-in % [:reagent-subs :ratio :reagent-subs]) norm)
         ux-floor   (mapv #(get-in % [:uix-subs :ratio :uix-subs]) norm)
-        ;; BOTH TERMS ARE THE REAGENT SEGMENT'S OWN, so the floor divides
-        ;; out exactly and the seam is not in the arithmetic at all. It is
-        ;; formed from the floor-normalised ratios rather than from the
-        ;; raw p50s only because that is the arithmetic `lane/ratio-between`
-        ;; performs on the first author's page, and two authors disagreeing
-        ;; about a division is not a finding anybody wants to chase.
-        leg        (when ratom?
-                     (mapv (fn [m] (/ (get-in m [:reagent-subs :ratio :reagent-subs])
-                                      (get-in m [:reagent-subs :ratio :reagent-ratom])))
-                           norm))
-        ratom-floor (when ratom?
+        leg        (ratom-leg norm)
+        arm?       (some? leg)
+        ratom-floor (when arm?
                       (mapv #(get-in % [:reagent-subs :ratio :reagent-ratom]) norm))
-        leg-order  (when ratom?
+        leg-order  (when arm?
                      (segment-order-verdict leg rounds start "the reactive leg's"))
         seam       (mapv (fn [m] (/ (get-in m [:uix-subs :p50 :floor])
                                     (get-in m [:reagent-subs :p50 :floor])))
@@ -1085,9 +1130,9 @@
                                    :magnitude
                                    :direction-only)
                           :direction (direction-of (range-of rz))
-                          :ratom-arm? (boolean ratom?)
+                          :ratom-arm? arm?
                           :comparability
-                          (when ratom?
+                          (when arm?
                             (str "NOT the published threshold and not comparable with "
                                  "it. With :reagent-ratom in the plan the Reagent "
                                  "segment ran FOUR arms against the UIx segment's "
@@ -1098,13 +1143,13 @@
                                  "the same slices and hiding it would be worse than "
                                  "qualifying it; it may not be quoted as a red-zone.")))
       :segment-order-control order
-      :ratom-arm?  (boolean ratom?)
+      :ratom-arm?  arm?
       ;; THE ROW THIS RUN EXISTS FOR when the arm is in the plan. Both
       ;; terms are Reagent arms measured in the same segment of the same
       ;; round, which is what makes it a second AUTHOR'S reading of
       ;; rf2-2rtt6.2's headline 1 rather than a fourth run of the first's.
       :reactive-leg
-      (when ratom?
+      (when arm?
         (assoc (range-of leg)
                :numerator :reagent-subs
                :denominator :reagent-ratom
@@ -1121,7 +1166,7 @@
                          "schedule, a different round count and a different arm "
                          "plan (rf2-2rtt6.21).")))
       :reactive-leg-segment-order leg-order
-      :ratom-over-floor   (when ratom? (range-of ratom-floor))
+      :ratom-over-floor   (when arm? (range-of ratom-floor))
       :uix-over-floor     (range-of ux-floor)
       :reagent-over-floor (range-of rg-floor)
       :segment-seam-control
@@ -1288,6 +1333,21 @@
                        "row here uses.")
             :control bulk-control}})
 
+(defn reagent-segment-arm-ids
+  "The arm ids THIS row's Reagent segment runs under `ratom?` — asked of
+  the plan itself rather than restated beside it.
+
+  Public because `?ratom=on` is a page-global flag while arm presence is
+  row-specific, and until rf2-2rtt6.21 that distinction lived in two
+  `cond->`s no test without a browser could reach. `M1` takes the arm from
+  its witness's `:arms-for` and `:broad` from [[bulk-arms]]; `M2` ignores
+  the flag and `:narrow` is never offered it."
+  [row-key ratom?]
+  (let [{:keys [kind witness]} (get row-specs row-key)]
+    (mapv :id (if (= kind :mount)
+                ((:arms-for (witness-named witness)) :reagent-subs ratom?)
+                (bulk-arms :reagent-subs row-key ratom?)))))
+
 (defn- query-row
   "Which row this page runs. One row per page (see [[row-specs]]); the
   driver loads the page once per row."
@@ -1334,7 +1394,7 @@
         legs))
 
 (defn- publish!
-  [{:keys [kind witness row grade doc note control] :as _spec} row-key start ratom?
+  [{:keys [kind witness row grade doc note control] :as _spec} row-key start
    slices t legs coll]
   (let [w   (witness-named witness)
         {:keys [record controls order leg-order]}
@@ -1345,8 +1405,7 @@
                      :note note
                      :control (or control (:control w))
                      :writes-per-sample (if (= row :bulk-narrow) narrow-batch-k 1)
-                     :start start
-                     :ratom? ratom?}
+                     :start start}
                     slices)]
     (lane/record! (name row) record)
     (lane/record! "verification" {row-key (lane/tally-value t)})
@@ -1512,8 +1571,10 @@
         (js/console.log (str ";; HICASSO row " (name row-key)
                              " — round 0 led by " (name start) ", alternating"
                              (when ratom?
-                               (str "; the second author's :reagent-ratom arm is IN the "
-                                    "Reagent segment (rf2-2rtt6.21)"))))
+                               (str "; :reagent-ratom REQUESTED — this row's Reagent "
+                                    "segment runs "
+                                    (pr-str (reagent-segment-arm-ids row-key true))
+                                    " (rf2-2rtt6.21)"))))
         (lane/record! "parity"
                       {:row row-key :problems problems :ok? (empty? problems)
                        :note (str "canonical DOM with attribute names sorted, inside each "
@@ -1535,7 +1596,7 @@
                               (-> (run-round! spec row-key start ratom? r coll t legs)
                                   (.then (fn [slice] (conj acc slice))))))
                 (.then (fn [slices]
-                         (publish! spec row-key start ratom? slices t legs coll)
+                         (publish! spec row-key start slices t legs coll)
                          (lane/done!)
                          nil))
                 (.catch (fn [e]
