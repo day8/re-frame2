@@ -251,6 +251,13 @@
    ;; rf2-2rtt6.13 — its own frame (so its own sub-cache), because the
    ;; assertion is only load-bearing on a COLD read and it says so.
    :nr-frame              :rf.uix-no-retain/probe-frame
+   ;; rf2-2rtt6.25 — the provisional hand-off's three own frames, for the same
+   ;; reason: adoption, the one-shot reaper, the layer-2 horizon cascade and
+   ;; the SSR horizon are all COLD-read properties, so each needs a sub-cache
+   ;; no other assertion has warmed.
+   :ad-frame              :rf.uix-handoff/adoption-frame
+   :hz-frame              :rf.uix-handoff/horizon-frame
+   :ssr-frame             :rf.uix-handoff/ssr-frame
    ;; rf2-es09qq — Suspense abort-before-commit probe (reuses :rc-frame /
    ;; :rc-query so the abandoned render and the committed control mount race
    ;; on the SAME (frame, query)).
@@ -357,6 +364,23 @@
 ;; getSnapshot call, which is what still catches a render→commit write).
 (deftest use-subscribe-render-phase-reaction-not-retained
   (suite/assert-use-subscribe-render-phase-reaction-not-retained cfg))
+
+;; rf2-2rtt6.25 — the hook-scoped provisional hand-off. A cold mount's commit
+;; ADOPTS the reaction its render built (one construction, not two); the reaper
+;; armed at acquisition is a no-op once that adoption has spent the token; an
+;; abandoned layer-2 cold render releases parent AND inputs at the horizon; and
+;; a server render, which never commits at all, nets zero there too.
+(deftest use-subscribe-commit-adopts-the-render-phase-reaction
+  (suite/assert-use-subscribe-commit-adopts-the-render-phase-reaction cfg))
+
+(deftest use-subscribe-adopted-provisional-reaper-is-a-noop
+  (suite/assert-use-subscribe-adopted-provisional-reaper-is-a-noop cfg))
+
+(deftest use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon
+  (suite/assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon cfg))
+
+(deftest use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon
+  (suite/assert-use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon cfg))
 
 ;; rf2-naz09e — a query-v / frame change on a MOUNTED component must render the
 ;; NEW target's value on the change-commit (parity with Reagent's in-render
