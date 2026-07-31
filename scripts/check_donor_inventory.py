@@ -1,47 +1,56 @@
 #!/usr/bin/env python3
-"""Deletion gate for the Freehand donor-inventory ledger.
+"""Snapshot-integrity check for the ARCHIVED Freehand donor inventory.
 
-The ledger — `spec/conformance/freehand/donor-inventory.md` — enumerates every
-`re-frame.ui` row that the Freehand programme must MOVE, REPLACE, or DELETE, and
-is the artifact the "absorption completeness" release gate reads before the
-standalone donor artifact is deleted. That is a consequential job for a Markdown
-table, so this script makes the table load-bearing rather than decorative. It
-proves five things:
+`spec/conformance/freehand/donor-inventory.md` was the work-ledger of the
+Freehand absorption programme: every `re-frame.ui` row the programme meant to
+MOVE, REPLACE or DELETE, each naming the F0-F6 slice that owned it and whether
+it had been disposed. EP-0036 was withdrawn on 2026-07-30, so the ledger is now
+what its banner says it is — a snapshot of where absorption stood on the day the
+programme stopped, preserved whole.
 
-  1. **No donor file is invisible.** Every git-tracked file under the DONOR TREE
-     (`implementation/ui/`) is matched by exactly one ledger row. A new donor
-     file added without a ledger row fails; two rows claiming one file fail.
+An archive needs a different guard from a work queue. The gate this script used
+to be compared the ledger against the WORKING TREE: it partitioned
+`implementation/ui/`, censused live donor consumers repo-wide, and failed a
+still-pending row whose subject had moved out from under it. All three arms
+measured a programme that no longer runs, and each of them enforced a rule about
+TODAY's code through the historical `pending` statuses of a withdrawn one. They
+are gone. A rule about today's code — that the donor must remain unpublished,
+say, or that no new consumer of it may appear while EP-0038 runs — is a live
+rule: it needs its own named authority, its own gate, and its own sunset.
 
-  2. **No live consumer is invisible.** Outside the donor tree the gate runs a
-     CENSUS over git-tracked files for the two signals that would actually break
-     if the donor artifact were deleted — a `re-frame.ui…` libspec, or the
-     `day8/re-frame2-ui` coordinate in dependency position. Every file either
-     signal finds must be claimed by a row, and while the signal is still there
-     that row must still be `pending`. A row cannot claim `done` while the code
-     it covers still requires the donor.
+What is left proves one thing, and reads nothing but the ledger itself: the
+archive is still the archive.
 
-  3. **No row can be deleted.** `ESTABLISHED_ROWS` below is the roster of row
-     identities the ledger has established, and it covers the ledger EXACTLY:
-     every roster identity must still be in the ledger, and every ledger row
-     must be in the roster. Disposing a row means flipping its status to `done`
-     — the row stays as the audit record — so the pending count can only fall
-     by disposition, never by deletion. Exactness is what extends that promise
-     to rows written after the roster was: a row admitted without a roster
-     identity could be added, disposed, and then deleted again with the gate
-     reporting nothing, which is exactly the confident wrong answer a deletion
-     gate must never produce.
+  1. **No row is deleted.** `SNAPSHOT_ROWS` at the foot of this file pins the
+     ledger as it stood at withdrawal. Every pinned identity must still be in
+     the ledger. Deleting a row would quietly shrink the record of what the
+     programme did not finish.
 
-  4. **No row goes stale.** A still-pending row whose pattern matches no tracked
-     file fails. So does a still-pending row whose matched files exist but carry
-     no donor material at all — the shape a row takes when its subject was
-     migrated out from under it and the path was reused for something else.
+  2. **No row is added.** Every ledger row must be pinned. The ledger records a
+     day that has passed, so a new row is either the transcription of something
+     that was there — pin it in the same change; the diagnostic prints the line
+     to paste — or a live claim, which does not belong in an archive.
 
-  5. **Every row is decidable.** Each row names a disposition from the closed
-     set {MOVE, REPLACE, DELETE}, an owning programme slice (F0-F6), and a
-     status from {pending, done}.
+  3. **No row drifts.** The pin is the COMPLETE normalized row — identity,
+     disposition, owning slice, withdrawal-time status, and a digest of the
+     description — not the identity alone. Identities alone would have left the
+     interesting half of the record free to move: a status flipped to `done`, a
+     MOVE quietly re-dispositioned, a description rewritten to say something the
+     programme never decided.
 
-It also reports the number of rows not yet disposed — the count the programme
-drives to zero before the donor artifact is deleted.
+  4. **Every row is still decidable.** Each row names a disposition from
+     {MOVE, REPLACE, DELETE}, a slice (F0-F6, optional sub-slice letter), and a
+     status from {pending, done}. The row grammar is still the row grammar, and
+     the identities stay unique so the pin and the ledger name the same rows one
+     for one.
+
+SUNSET. HD-018 of EP-0038 (`docs/design/hicasso/decisions.md`) rules that a P2
+win deletes the public `re-frame.freehand` and `re-frame.ui` surfaces outright,
+leaving "no absorption programme, no donor inventory ledger". This check retires
+WITH the snapshot it guards, in the change that deletes those surfaces. On a P2
+loss or a null result both stay, as the historical record. Removing either
+before P2 is premature, and any future donor policy is made under its own fresh
+authority rather than by reviving F0-F6.
 
 ## Ledger format
 
@@ -54,49 +63,22 @@ five columns are, in order:
 
   * a **path row** — a backticked repo-relative path or glob
     (`` `implementation/ui/src/re_frame/ui/tree.cljc` ``,
-    `` `implementation/ui/test/re_frame/ui/reactive_*` ``). `*` matches any
-    run of characters INCLUDING `/`; or
+    `` `implementation/ui/test/re_frame/ui/reactive_*` ``); or
   * a **label row** — free prose naming a contract-level obligation that is not
-    a single file (`` `local` and its placement machinery ``). Label rows are
-    validated for their disposition/slice/status columns only.
+    a single file (`` `local` and its placement machinery ``).
 
 A cell is treated as a path row when its first backticked token starts with one
-of the repo roots in `REPO_ROOTS`. A row's IDENTITY — its key in
-`ESTABLISHED_ROWS` — is its path pattern for a path row, and its whole cell text
-for a label row.
-
-## Two coverage regimes
-
-The DONOR TREE is a CLOSED universe: its path rows must PARTITION the tracked
-file set — every tracked file matched exactly once, no double-claiming, no
-stale pattern. Everything else (spec obligations, `tools/` consumers, examples,
-docs) is an OPEN roster: those rows must point at something that exists, and the
-census subset of them is derived mechanically, but the ledger does not claim to
-enumerate every file of those trees.
-
-A `done` row is exempt from the "must match something" and "must still carry
-donor material" rules in both regimes: disposing a row is frequently what
-deletes or renames its files, and the ledger keeps the completed row as the
-audit record.
-
-## Maintaining the roster
-
-`ESTABLISHED_ROWS` covers the ledger exactly: every identity in it must be in
-the ledger, and every ledger row must be in it. Adding a row is therefore two
-edits in one change — the row and its roster identity — and the failure prints
-the exact line to paste. A row outside the roster is a row that can be removed
-again silently, so a roster that only held the rows present when it was written
-would be load-bearing for those rows alone.
-
-Renaming a row's path edits the row and its roster identity together. That
-remains the one legitimate reason to change an existing entry, and it is then a
-deliberate, reviewable edit in the same change as the rename.
+of the repo roots in `REPO_ROOTS`. A row's IDENTITY — the first field of its
+`SNAPSHOT_ROWS` tuple — is its path pattern for a path row, and its whole cell
+text for a label row. Nothing here resolves a path against the filesystem: the
+patterns are the archive's own spelling of what it covered, and several of them
+name files that the programme's own disposals have already removed.
 
 Exit code:
-    0  the ledger covers the donor tree and its live consumers, and every row is
-       established, decidable, and current
-    1  coverage or well-formedness defect (printed; ::error:: under --ci)
-    2  invocation / setup error (repo root, ledger, or git not found)
+    0  the ledger still matches the pinned snapshot, row for row
+    1  the snapshot has drifted, or a row is malformed (printed; ::error::
+       under --ci)
+    2  invocation / setup error (repo root or ledger not found)
 
 Dependency-light — Python stdlib only.
 """
@@ -104,18 +86,16 @@ Dependency-light — Python stdlib only.
 from __future__ import annotations
 
 import argparse
-import fnmatch
+import hashlib
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 # --- Ledger location ----------------------------------------------------------
 LEDGER_REL = "spec/conformance/freehand/donor-inventory.md"
 
-# --- The closed donor universe ------------------------------------------------
-# Every git-tracked file under this prefix must be claimed by exactly one row.
-DONOR_TREE = "implementation/ui/"
+# The day the snapshot records: EP-0036's withdrawal.
+SNAPSHOT_DATE = "2026-07-30"
 
 # --- Vocabulary ---------------------------------------------------------------
 DISPOSITIONS = ("MOVE", "REPLACE", "DELETE")
@@ -143,91 +123,32 @@ _TABLE_ROW = re.compile(r"^\s*\|(.*)\|\s*$")
 _DIVIDER = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
 _SECTION = re.compile(r"^##+\s+(.*?)\s*$")
 
-# --- The live-consumer census -------------------------------------------------
-# Two signals, both of which name something that BREAKS when the donor artifact
-# is deleted. Nothing looser: incidental prose is deliberately not policed.
-#
-#   require     a Clojure/EDN libspec naming a `re-frame.ui…` namespace —
-#               `[re-frame.ui :as ui]`, `[re-frame.ui.tree :as tree]`, a
-#               build's `:entries [re-frame.ui.g13.dev]` vector, or a
-#               shadow-cljs `:build-hooks [(re-frame.ui.compiler.build-hook/hook)]`
-#               entry. That last shape needs the optional `(` and the `/`
-#               terminator: without them the census silently missed every
-#               shadow-cljs.edn that wires the donor's build hook (rf2-vwum3).
-#   coordinate  the donor artifact coordinate in DEPENDENCY position —
-#               `day8/re-frame2-ui {…}` in a deps.edn, a generated scaffold, or
-#               an install instruction. A bare mention in prose does not match.
-CENSUS_REQUIRE_RE = re.compile(r"\[\(?re-frame\.ui[A-Za-z0-9._-]*[\s\]/]")
-CENSUS_COORD_RE = re.compile(r"day8/re-frame2-ui\s+\{")
-
-# The require signal only means anything in a file that can carry a libspec.
-CENSUS_CODE_SUFFIXES = (".clj", ".cljs", ".cljc", ".edn")
-# The files the census reads at all. Binary and generated-asset trees are not
-# consumers of anything; skipping them by suffix keeps the scan under a second.
-CENSUS_TEXT_SUFFIXES = CENSUS_CODE_SUFFIXES + (
-    ".json", ".md", ".cjs", ".mjs", ".js", ".sh", ".yml", ".yaml",
-)
-
-# Historical mentions are EVIDENCE, not migration consumers: they record what was
-# decided and when, and deleting the donor breaks none of them. The ledger and
-# this script are excluded for the same reason — they quote the donor in order to
-# retire it. This exclusion rule is stated in the ledger itself; keep the two in
-# step.
-CENSUS_EXEMPT_PREFIXES = (
-    DONOR_TREE,      # the donor is not a consumer of itself
-    "docs/EP/",      # enhancement proposals: the historical record
-    "docs/design/",  # design records: the historical record
-    ".beads/",       # issue tracker export
-)
-CENSUS_EXEMPT_PATHS = (
-    "CHANGELOG.md",
-    LEDGER_REL,
-    "scripts/check_donor_inventory.py",
-)
-
-# --- Donor material -----------------------------------------------------------
-# Looser than the census on purpose: this decides whether a pending row's target
-# still has ANY donor material in it. A row whose files no longer mention the
-# donor in any spelling has had its subject migrated out from under it.
-DONOR_EVIDENCE_RE = re.compile(
-    r"re-frame\.ui"      # the namespace, in prose or code
-    r"|re_frame\.ui"     # the munged namespace
-    r"|re_frame/ui"      # the source path
-    r"|re-frame2-ui"     # the artifact coordinate
-    r"|re_frame2_ui"     # the munged coordinate
-    r"|implementation/ui"  # the donor tree
-    # DONOR-COUPLED BUILD IDS and npm entry points. A runner can couple to the
-    # donor entirely through its BUILD ID and never spell `re-frame.ui` at all —
-    # that is how `implementation/scripts/run-ui-g8.cjs` came to carry no
-    # recognised donor material while its `:ui-g13` sibling passed on an
-    # incidental prose mention (rf2-vfv8r).
-    #
-    # The test an id has to pass to belong here is COUPLING, not ownership: the
-    # build cannot compile once `implementation/ui/` is gone. Every id below
-    # meets it, and `examples/realworld-resources-ui` meets it from outside the
-    # donor's own trees (rf2-vuylw) — the build's sources are
-    # `examples/real-apps/realworld_resources/ui_*`, which `:require`
-    # `re-frame.ui`, so the id names the donor as surely as `ui-g8` does. An
-    # `examples/` build id is therefore admissible; an id that merely reads
-    # `…-ui` is not. Note the `-ui` suffix carries the whole distinction here:
-    # the sibling `examples/realworld-resources` is the Reagent arm and is NOT
-    # donor-coupled, so the alternative must be the full `realworld-resources-ui`.
-    #
-    # The ids live in `implementation/deps.edn` and
-    # `implementation/shadow-cljs.edn`; keep this alternation in step with them.
-    r"|node-test-ui"
-    r"|ui-bench"
-    r"|ui-g8"
-    r"|ui-g13"
-    r"|check-ui-"
-    r"|run-ui-"
-    r"|test:ui"
-    r"|realworld-resources-ui"
-)
+_WHITESPACE = re.compile(r"\s+")
 
 
 class SetupError(Exception):
-    """Repo root, ledger, or git is unusable — not a ledger defect."""
+    """Repo root or ledger is unusable — not a snapshot defect."""
+
+
+def normalize(text: str) -> str:
+    """A description cell's canonical form: one space between words, trimmed.
+
+    The digest is taken over this rather than the raw cell so that invisible
+    whitespace churn is not a failure, while every word of the description is.
+    """
+    return _WHITESPACE.sub(" ", text).strip()
+
+
+def digest(text: str) -> str:
+    """The pinned fingerprint of a description cell.
+
+    Twelve hex characters of SHA-256 over the normalized text: long enough that
+    a collision is not a practical concern for 224 fixed strings, short enough
+    that the pinned tuples stay readable. The alternative — pinning the
+    descriptions verbatim — would duplicate 68 KB of the ledger inside its own
+    checker and give two copies to keep in step.
+    """
+    return hashlib.sha256(normalize(text).encode("utf-8")).hexdigest()[:12]
 
 
 class Row:
@@ -248,13 +169,15 @@ class Row:
         self.section = section
 
     @property
-    def is_donor_tree(self) -> bool:
-        return self.pattern is not None and self.pattern.startswith(DONOR_TREE)
+    def key(self) -> str:
+        """The row's stable identity — the first field of its pinned tuple."""
+        return self.pattern if self.pattern is not None else self.cell
 
     @property
-    def key(self) -> str:
-        """The row's stable identity — what `ESTABLISHED_ROWS` records."""
-        return self.pattern if self.pattern is not None else self.cell
+    def pinned(self) -> tuple[str, str, str, str, str]:
+        """The complete normalized row, in the shape `SNAPSHOT_ROWS` records."""
+        return (self.key, self.disposition, self.slice_, self.status,
+                digest(self.what))
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"Row({self.cell!r}, {self.disposition}, {self.slice_}, {self.status})"
@@ -312,7 +235,7 @@ def parse_ledger(text: str) -> tuple[list[Row], list[str]]:
         cells = _split_cells(line)
         if len(cells) != 5:
             problems.append(
-                f"DONOR-LEDGER-MALFORMED: {LEDGER_REL}:{lineno} has {len(cells)} "
+                f"DONOR-SNAPSHOT-MALFORMED: {LEDGER_REL}:{lineno} has {len(cells)} "
                 "columns; a donor row needs exactly 5 "
                 "(Donor row | What it is | Disposition | Slice | Status)."
             )
@@ -338,7 +261,7 @@ def parse_ledger(text: str) -> tuple[list[Row], list[str]]:
             row_problems.append("the 'What it is' column is empty")
         for problem in row_problems:
             problems.append(
-                f"DONOR-LEDGER-ROW: {LEDGER_REL}:{lineno} ({cell}) — {problem}."
+                f"DONOR-SNAPSHOT-ROW: {LEDGER_REL}:{lineno} ({cell}) — {problem}."
             )
         if row_problems:
             continue
@@ -351,228 +274,102 @@ def parse_ledger(text: str) -> tuple[list[Row], list[str]]:
     return rows, problems
 
 
-def tracked_files(repo_root: Path) -> list[str]:
-    """git-tracked paths, repo-root-relative, forward-slashed."""
-    try:
-        out = subprocess.run(
-            ["git", "ls-files", "-z"],
-            cwd=repo_root, capture_output=True, check=True,
-        ).stdout.decode("utf-8")
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise SetupError(f"could not list tracked files with git: {exc}") from exc
-    return [entry for entry in out.split("\0") if entry]
+# --- The one check: the ledger still is the pinned snapshot -------------------
+_FIELDS = ("disposition", "owning slice", "status", "description digest")
 
 
-def make_reader(repo_root: Path):
-    """A `path -> text | None` reader over the working tree."""
-    def read(path: str) -> str | None:
-        try:
-            return (repo_root / path).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            return None
-    return read
+def check_snapshot(rows: list[Row],
+                   snapshot: tuple[tuple[str, str, str, str, str], ...] | None
+                   = None) -> list[str]:
+    """The ledger and the pinned snapshot are the same rows, field for field.
 
-
-# --- Check 1: the donor tree is partitioned -----------------------------------
-def check_partition(rows: list[Row], tracked: list[str]) -> list[str]:
-    """Every tracked donor file is claimed by exactly one row."""
-    problems: list[str] = []
-    donor_files = [path for path in tracked if path.startswith(DONOR_TREE)]
-
-    claims: dict[str, list[Row]] = {path: [] for path in donor_files}
-    for row in rows:
-        if not row.is_donor_tree:
-            continue
-        for path in donor_files:
-            if fnmatch.fnmatchcase(path, row.pattern):
-                claims[path].append(row)
-
-    for path in donor_files:
-        owners = claims[path]
-        if not owners:
-            problems.append(
-                f"DONOR-LEDGER-UNCOVERED: {path} is a tracked donor file that no "
-                f"row of {LEDGER_REL} claims. Every donor file needs an explicit "
-                "MOVE / REPLACE / DELETE disposition before it can silently "
-                "survive (or silently vanish) at the retirement gate."
-            )
-        elif len(owners) > 1:
-            where = ", ".join(f"line {row.lineno} ({row.cell})" for row in owners)
-            problems.append(
-                f"DONOR-LEDGER-DOUBLE-CLAIMED: {path} is claimed by "
-                f"{len(owners)} rows — {where}. Donor-tree rows must partition "
-                "the tree so each file has exactly one disposition."
-            )
-
-    return problems
-
-
-# --- Check 2: live consumers are classified -----------------------------------
-def live_consumers(tracked: list[str], read) -> dict[str, tuple[str, ...]]:
-    """The census: tracked files outside the donor tree that still consume it."""
-    found: dict[str, tuple[str, ...]] = {}
-    for path in tracked:
-        if path.startswith(CENSUS_EXEMPT_PREFIXES) or path in CENSUS_EXEMPT_PATHS:
-            continue
-        if not path.endswith(CENSUS_TEXT_SUFFIXES):
-            continue
-        text = read(path)
-        if text is None:
-            continue
-        signals = []
-        if path.endswith(CENSUS_CODE_SUFFIXES) and CENSUS_REQUIRE_RE.search(text):
-            signals.append("require")
-        if CENSUS_COORD_RE.search(text):
-            signals.append("coordinate")
-        if signals:
-            found[path] = tuple(signals)
-    return found
-
-
-def check_consumers(rows: list[Row],
-                    consumers: dict[str, tuple[str, ...]]) -> list[str]:
-    """Every live consumer is claimed, and claimed by a row that is still open."""
-    problems: list[str] = []
-    path_rows = [row for row in rows if row.pattern is not None]
-
-    for path in sorted(consumers):
-        signals = "/".join(consumers[path])
-        owners = [row for row in path_rows
-                  if fnmatch.fnmatchcase(path, row.pattern)]
-        if not owners:
-            problems.append(
-                f"DONOR-LEDGER-UNCOVERED-CONSUMER: {path} still consumes the "
-                f"donor ({signals}) and no row of {LEDGER_REL} claims it. Add a "
-                "row with an explicit MOVE / REPLACE / DELETE disposition, or "
-                "remove the dependency — the donor cannot be deleted while this "
-                "file is unaccounted for."
-            )
-        elif all(row.status == "done" for row in owners):
-            where = ", ".join(f"line {row.lineno} ({row.cell})" for row in owners)
-            problems.append(
-                f"DONOR-LEDGER-PREMATURE-DONE: {path} still consumes the donor "
-                f"({signals}), but every row claiming it is marked done — "
-                f"{where}. Remove the dependency first; the row flips in the "
-                "same change that removes it."
-            )
-
-    return problems
-
-
-# --- Check 3: the ledger and the roster cover each other ----------------------
-def check_roster(rows: list[Row],
-                 roster: tuple[str, ...] | None = None) -> list[str]:
-    """The ledger and the retention roster name exactly the same identities.
-
-    Two directions, and both are load-bearing. A roster identity missing from
-    the ledger is a deleted row. A ledger row missing from the roster is a row
-    that could be deleted later without the first check noticing — which is how
-    a roster written once stops covering everything written after it. `roster`
-    is injectable so the self-tests exercise this function itself rather than a
-    restatement of it.
+    Four defect shapes, and each one is a way an archive stops being one: a row
+    removed, a row added, a pinned row's content changed, and one identity used
+    twice so the two sides stop pairing off. `snapshot` is injectable so the
+    self-tests exercise this function rather than a restatement of it.
     """
-    if roster is None:
-        roster = ESTABLISHED_ROWS
+    if snapshot is None:
+        snapshot = SNAPSHOT_ROWS
 
-    present = {row.key for row in rows}
-    problems = [
-        f"DONOR-LEDGER-ROW-REMOVED: `{key}` is an established ledger row and it "
-        f"is no longer in {LEDGER_REL}. Rows are never deleted — deleting one "
-        "lowers the undisposed count without disposing of anything, which is "
-        "the one failure a deletion gate must not have. Flip the row's status "
-        "to `done` instead; if the row was renamed, update its identity in "
-        "ESTABLISHED_ROWS in the same change."
-        for key in roster if key not in present
-    ]
-
-    established = set(roster)
-    seen: set[str] = set()
-    for row in rows:
-        if row.key in established or row.key in seen:
-            continue
-        seen.add(row.key)
-        problems.append(
-            f"DONOR-LEDGER-ROW-UNROSTERED: {LEDGER_REL}:{row.lineno} "
-            f"({row.cell}) is a ledger row whose identity is not in "
-            "ESTABLISHED_ROWS. Add the line  "
-            f'"{row.key}",  to ESTABLISHED_ROWS in '
-            "scripts/check_donor_inventory.py in the same change that adds the "
-            "row. Until it is there this row can be deleted again without the "
-            "gate noticing, which lowers historical coverage silently."
-        )
-
-    return problems
-
-
-# --- Check 4: pending rows still point at donor material ----------------------
-def check_current(rows: list[Row], tracked: list[str], read) -> list[str]:
-    """A pending row matches real files, and those files are still donor-ish."""
+    pinned = {entry[0]: entry for entry in snapshot}
     problems: list[str] = []
+
+    present: dict[str, Row] = {}
     for row in rows:
-        if row.pattern is None or row.status == "done":
-            continue
-        universe = ([path for path in tracked if path.startswith(DONOR_TREE)]
-                    if row.is_donor_tree else tracked)
-        matched = [path for path in universe
-                   if fnmatch.fnmatchcase(path, row.pattern)]
-        if not matched:
+        if row.key in present:
+            first = present[row.key]
             problems.append(
-                f"DONOR-LEDGER-STALE: {LEDGER_REL}:{row.lineno} claims "
-                f"`{row.pattern}`, which matches no tracked file. Either the "
-                "path moved (fix the row) or the row was disposed (set its "
-                "status to `done`)."
+                f"DONOR-SNAPSHOT-ROW-DUPLICATED: {LEDGER_REL}:{row.lineno} "
+                f"({row.cell}) repeats the identity `{row.key}`, already used at "
+                f"line {first.lineno}. One identity names one row, or the pinned "
+                "snapshot and the ledger stop covering each other one for one."
             )
             continue
-        if row.is_donor_tree:
-            continue  # every donor-tree file is donor material by definition
-        texts = [text for text in (read(path) for path in matched)
-                 if text is not None]
-        if texts and not any(DONOR_EVIDENCE_RE.search(text) for text in texts):
+        present[row.key] = row
+
+    for key in (entry[0] for entry in snapshot):
+        if key not in present:
             problems.append(
-                f"DONOR-LEDGER-DRIFTED: {LEDGER_REL}:{row.lineno} claims "
-                f"`{row.pattern}` is still pending, but no file it matches "
-                "carries any donor material. Either the surface was migrated "
-                "and the row should be `done`, or the path was reused for "
-                "something else and the row must be re-keyed to wherever the "
-                "donor content actually went."
+                f"DONOR-SNAPSHOT-ROW-REMOVED: `{key}` is pinned in the "
+                f"{SNAPSHOT_DATE} snapshot and is no longer in {LEDGER_REL}. "
+                "The ledger is an archive: it records where absorption stood "
+                "when EP-0036 was withdrawn, and removing a row shrinks the "
+                "record of what the programme did not finish. Restore it."
             )
+
+    for row in rows:
+        if present.get(row.key) is not row:
+            continue  # already reported as a duplicate; one report per defect
+        entry = pinned.get(row.key)
+        if entry is None:
+            problems.append(
+                f"DONOR-SNAPSHOT-ROW-UNPINNED: {LEDGER_REL}:{row.lineno} "
+                f"({row.cell}) is a ledger row the {SNAPSHOT_DATE} snapshot does "
+                f"not pin, under section '{row.section}'. The ledger is closed: "
+                "a new row is either the transcription of something that was "
+                "there — add the line  "
+                f"{_format_entry(row.pinned)}  to SNAPSHOT_ROWS in "
+                "scripts/check_donor_inventory.py in the same change — or a live "
+                "claim, which belongs under its own authority and not in an "
+                "archive of a withdrawn programme."
+            )
+            continue
+        found = row.pinned
+        drifted = [
+            f"{name} pinned {want!r}, found {got!r}"
+            for name, want, got in zip(_FIELDS, entry[1:], found[1:])
+            if want != got
+        ]
+        if drifted:
+            problems.append(
+                f"DONOR-SNAPSHOT-ROW-DRIFTED: {LEDGER_REL}:{row.lineno} "
+                f"({row.cell}) — " + "; ".join(drifted) + ". The rows of this "
+                f"ledger record {SNAPSHOT_DATE} and do not change: a status is "
+                "not flipped, a disposition is not revisited, and a description "
+                "is not rewritten, because there is no programme left to decide "
+                "any of it. Revert the edit; if you are correcting a "
+                "transcription error against the withdrawal-time record, say so "
+                "in the change and re-pin the row deliberately."
+            )
+
     return problems
 
 
-def undisposed(rows: list[Row]) -> list[Row]:
-    return [row for row in rows if row.status == "pending"]
+def _format_entry(entry: tuple[str, str, str, str, str]) -> str:
+    identity, disposition, slice_, status, what = entry
+    return (f'("{identity}", "{disposition}", "{slice_}", "{status}", '
+            f'"{what}"),')
 
 
-def format_report(rows: list[Row]) -> str:
-    """Human-readable undisposed-row report."""
-    pending = undisposed(rows)
-    lines = [
-        f"donor inventory: {len(rows)} rows, {len(pending)} not yet disposed, "
-        f"{len(rows) - len(pending)} disposed and retained as the audit record.",
-        "",
-        "undisposed by slice:",
-    ]
-    by_slice: dict[str, int] = {}
-    for row in pending:
-        by_slice[row.slice_] = by_slice.get(row.slice_, 0) + 1
-    for slice_ in sorted(by_slice):
-        lines.append(f"  {slice_}: {by_slice[slice_]}")
-    lines.append("")
-    lines.append("undisposed by disposition:")
-    by_disposition: dict[str, int] = {}
-    for row in pending:
-        by_disposition[row.disposition] = by_disposition.get(row.disposition, 0) + 1
-    for disposition in DISPOSITIONS:
-        if disposition in by_disposition:
-            lines.append(f"  {disposition}: {by_disposition[disposition]}")
-    lines.append("")
-    lines.append("undisposed by section:")
-    by_section: dict[str, int] = {}
-    for row in pending:
-        by_section[row.section] = by_section.get(row.section, 0) + 1
-    for section in sorted(by_section):
-        lines.append(f"  {section}: {by_section[section]}")
-    return "\n".join(lines)
+def summarize(rows: list[Row]) -> str:
+    """One line of evidence that the check was not vacuous."""
+    pending = sum(1 for row in rows if row.status == "pending")
+    return (
+        f"donor-inventory snapshot: {len(rows)} rows checked against "
+        f"{len(SNAPSHOT_ROWS)} pinned. At the {SNAPSHOT_DATE} withdrawal "
+        f"{pending} were recorded `pending` — undisposed when the programme "
+        f"stopped, owned by nobody since — and {len(rows) - pending} `done`."
+    )
 
 
 def check(repo_root: Path, *, verbose: bool = False,
@@ -585,19 +382,7 @@ def check(repo_root: Path, *, verbose: bool = False,
     if verbose:
         sys.stderr.write(f"parsed {len(rows)} ledger rows from {LEDGER_REL}\n")
 
-    tracked = tracked_files(repo_root)
-    read = make_reader(repo_root)
-    consumers = live_consumers(tracked, read)
-    if verbose:
-        sys.stderr.write(
-            f"census found {len(consumers)} live donor consumers outside "
-            f"{DONOR_TREE}\n"
-        )
-
-    problems.extend(check_roster(rows))
-    problems.extend(check_partition(rows, tracked))
-    problems.extend(check_consumers(rows, consumers))
-    problems.extend(check_current(rows, tracked, read))
+    problems.extend(check_snapshot(rows))
 
     for problem in problems:
         prefix = "::error::" if ci else ""
@@ -613,10 +398,6 @@ _FIXTURE_HEADER = (
 )
 
 
-def _fixture_reader(contents: dict[str, str]):
-    return lambda path: contents.get(path)
-
-
 def _run_self_tests(*, verbose: bool = False) -> int:
     failures = 0
 
@@ -630,86 +411,27 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         elif verbose:
             sys.stderr.write(f"self-test ok [{label}]\n")
 
-    tracked = [
-        "implementation/ui/src/re_frame/ui.cljc",
-        "implementation/ui/src/re_frame/ui/tree.cljc",
-        "implementation/ui/test/re_frame/ui/tree_jvm_test.clj",
-        "tools/story/deps.edn",
-        "spec/004-Views.md",
-    ]
-    contents = {
-        "implementation/ui/src/re_frame/ui.cljc": "(ns re-frame.ui)",
-        "implementation/ui/src/re_frame/ui/tree.cljc": "(ns re-frame.ui.tree)",
-        "implementation/ui/test/re_frame/ui/tree_jvm_test.clj": "(ns x)",
-        "tools/story/deps.edn": "{:deps {day8/re-frame2-ui {:local/root \"..\"}}}",
-        "spec/004-Views.md": "the re-frame.ui compiled language",
-    }
-    read = _fixture_reader(contents)
+    def classes(problems: list[str]) -> list[str]:
+        return [problem.split(":", 1)[0] for problem in problems]
 
+    # --- Parsing -------------------------------------------------------------
     full = _FIXTURE_HEADER + (
         "| `implementation/ui/src/re_frame/ui.cljc` | facade | REPLACE | F1 | pending |\n"
-        "| `implementation/ui/src/re_frame/ui/tree.cljc` | JVM tree | MOVE | F1 | pending |\n"
-        "| `implementation/ui/test/*` | donor tests | MOVE | F6 | pending |\n"
-        "| `tools/story/deps.edn` | consumer coord | MOVE | F6 | pending |\n"
+        "| `implementation/ui/test/*` | donor tests | MOVE | F6 | done |\n"
         "| `local` and its placement machinery | donor form | DELETE | F1 | pending |\n"
     )
     rows, malformed = parse_ledger(full)
-    expect("A1 row count", len(rows), 5)
+    expect("A1 row count", len(rows), 3)
     expect("A2 no malformed rows", malformed, [])
-    expect("A3 clean partition", check_partition(rows, tracked), [])
-    expect("A4 label row is not a path row", rows[4].pattern, None)
-    expect("A5 undisposed count", len(undisposed(rows)), 5)
-    expect("A6 nothing stale or drifted", check_current(rows, tracked, read), [])
-    census = live_consumers(tracked, read)
-    expect("A7 census finds the coordinate", census, {"tools/story/deps.edn": ("coordinate",)})
-    expect("A8 census is covered", check_consumers(rows, census), [])
-    expect("A9 label row identity is its cell",
-           rows[4].key, "`local` and its placement machinery")
-
-    # A missing donor file must be named by the failure.
-    missing = _FIXTURE_HEADER + (
-        "| `implementation/ui/src/re_frame/ui.cljc` | facade | REPLACE | F1 | pending |\n"
-        "| `implementation/ui/test/*` | donor tests | MOVE | F6 | pending |\n"
-    )
-    rows, _ = parse_ledger(missing)
-    problems = check_partition(rows, tracked)
-    expect("B1 uncovered detected", len(problems), 1)
-    expect(
-        "B2 uncovered names the file",
-        "implementation/ui/src/re_frame/ui/tree.cljc" in problems[0],
-        True,
-    )
-    expect("B3 uncovered is the right class", problems[0].startswith(
-        "DONOR-LEDGER-UNCOVERED:"), True)
-
-    # Two rows claiming one file is a defect.
-    doubled = _FIXTURE_HEADER + (
-        "| `implementation/ui/src/*` | everything | MOVE | F1 | pending |\n"
-        "| `implementation/ui/src/re_frame/ui/tree.cljc` | JVM tree | MOVE | F1 | pending |\n"
-        "| `implementation/ui/test/*` | donor tests | MOVE | F6 | pending |\n"
-    )
-    rows, _ = parse_ledger(doubled)
-    problems = check_partition(rows, tracked)
-    expect("C1 double claim detected", len(problems), 1)
-    expect("C2 double claim class", problems[0].startswith(
-        "DONOR-LEDGER-DOUBLE-CLAIMED"), True)
-
-    # A pending row matching nothing is stale; the same row marked done is not.
-    stale = _FIXTURE_HEADER + (
-        "| `implementation/ui/src/*` | everything | MOVE | F1 | pending |\n"
-        "| `implementation/ui/test/*` | donor tests | MOVE | F6 | pending |\n"
-        "| `tools/gone/deps.edn` | vanished | MOVE | F6 | pending |\n"
-    )
-    rows, _ = parse_ledger(stale)
-    problems = check_current(rows, tracked, read)
-    expect("D1 stale detected", len(problems), 1)
-    expect("D2 stale class", problems[0].startswith("DONOR-LEDGER-STALE"), True)
-
-    disposed = stale.replace("| `tools/gone/deps.edn` | vanished | MOVE | F6 | pending |",
-                             "| `tools/gone/deps.edn` | vanished | MOVE | F6 | done |")
-    rows, _ = parse_ledger(disposed)
-    expect("D3 done row is not stale", check_current(rows, tracked, read), [])
-    expect("D4 done row is disposed", len(undisposed(rows)), 2)
+    expect("A3 label row is not a path row", rows[2].pattern, None)
+    expect("A4 label row identity is its cell",
+           rows[2].key, "`local` and its placement machinery")
+    expect("A5 path row identity is its pattern",
+           rows[0].key, "implementation/ui/src/re_frame/ui.cljc")
+    expect("A6 the pinned tuple is the whole row",
+           rows[0].pinned,
+           ("implementation/ui/src/re_frame/ui.cljc", "REPLACE", "F1",
+            "pending", digest("facade")))
 
     # Column vocabulary.
     bad = _FIXTURE_HEADER + (
@@ -719,17 +441,18 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         "| `spec/004-Views.md` |  | MOVE | F0 | pending |\n"
     )
     rows, malformed = parse_ledger(bad)
-    expect("E1 every bad row rejected", len(rows), 0)
-    expect("E2 four defects", len(malformed), 4)
-    expect("E3 bad disposition named", "ABSORB" in malformed[0], True)
-    expect("E4 bad slice named", "F9" in malformed[1], True)
-    expect("E5 bad status named", "maybe" in malformed[2], True)
+    expect("B1 every bad row rejected", len(rows), 0)
+    expect("B2 four defects", len(malformed), 4)
+    expect("B3 bad disposition named", "ABSORB" in malformed[0], True)
+    expect("B4 bad slice named", "F9" in malformed[1], True)
+    expect("B5 bad status named", "maybe" in malformed[2], True)
 
     # Wrong arity and fenced tables.
     arity = _FIXTURE_HEADER + "| `spec/004-Views.md` | too | few |\n"
     _, malformed = parse_ledger(arity)
-    expect("F1 arity defect", len(malformed), 1)
-    expect("F2 arity class", malformed[0].startswith("DONOR-LEDGER-MALFORMED"), True)
+    expect("C1 arity defect", len(malformed), 1)
+    expect("C2 arity class", malformed[0].startswith("DONOR-SNAPSHOT-MALFORMED"),
+           True)
 
     fenced = (
         "```\n" + _FIXTURE_HEADER
@@ -737,9 +460,8 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         + "```\n"
     )
     rows, malformed = parse_ledger(fenced)
-    expect("F3 fenced example ignored", (len(rows), len(malformed)), (0, 0))
+    expect("C3 fenced example ignored", (len(rows), len(malformed)), (0, 0))
 
-    # Sections are tracked for the report.
     sectioned = (
         "## Donor sources\n\n" + _FIXTURE_HEADER
         + "| `implementation/ui/src/*` | all | MOVE | F1 | pending |\n"
@@ -747,217 +469,132 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         + "| `implementation/ui/test/*` | tests | MOVE | F6 | pending |\n"
     )
     rows, _ = parse_ledger(sectioned)
-    expect("G1 sections captured",
+    expect("C4 sections captured",
            [row.section for row in rows], ["Donor sources", "Donor tests"])
-    expect("G2 report mentions both sections",
-           "Donor sources: 1" in format_report(rows)
-           and "Donor tests: 1" in format_report(rows), True)
 
-    # --- The census ----------------------------------------------------------
-    # A live consumer that no row claims must fail, and be named.
-    consumer_tracked = tracked + [
-        "implementation/ssr/deps.edn",
-        "implementation/ssr/test/re_frame/ssr/hydrate_cljs_test.cljs",
-        "docs/EP/EP-0036-the-freehand-view-substrate-programme.md",
-        "CHANGELOG.md",
-    ]
-    consumer_contents = dict(contents)
-    consumer_contents.update({
-        "implementation/ssr/deps.edn": "{:deps {day8/re-frame2-ui {:local/root \"../ui\"}}}",
-        "implementation/ssr/test/re_frame/ssr/hydrate_cljs_test.cljs":
-            "(ns t (:require [re-frame.ui :as ui]))",
-        # Historical evidence, not a consumer: both are exempt by name.
-        "docs/EP/EP-0036-the-freehand-view-substrate-programme.md":
-            "day8/re-frame2-ui {:local/root \"ui\"} and [re-frame.ui :as ui]",
-        "CHANGELOG.md": "day8/re-frame2-ui {:mvn/version \"0.1.0\"}",
-    })
-    consumer_read = _fixture_reader(consumer_contents)
-    census = live_consumers(consumer_tracked, consumer_read)
-    expect("H1 census finds both new consumers",
-           sorted(census), ["implementation/ssr/deps.edn",
-                            "implementation/ssr/test/re_frame/ssr/hydrate_cljs_test.cljs",
-                            "tools/story/deps.edn"])
-    expect("H2 historical mentions are excluded",
-           "docs/EP/EP-0036-the-freehand-view-substrate-programme.md" in census
-           or "CHANGELOG.md" in census, False)
-    expect("H3 signals are named",
-           census["implementation/ssr/test/re_frame/ssr/hydrate_cljs_test.cljs"],
-           ("require",))
-
-    # The shadow-cljs build-hook shape (rf2-vwum3): `[(re-frame.ui…/hook)]`.
-    # The leading paren and the `/` terminator both used to defeat the require
-    # signal, so a generated scaffold wiring the donor's build hook was invisible
-    # to the census.
-    hook_tracked = ["app/shadow-cljs.edn"]
-    hook_read = _fixture_reader({
-        "app/shadow-cljs.edn":
-            "{:build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}}",
-    })
-    expect("H3a census sees a wired build hook",
-           live_consumers(hook_tracked, hook_read),
-           {"app/shadow-cljs.edn": ("require",)})
-
-    rows, _ = parse_ledger(full)
-    problems = check_consumers(rows, census)
-    expect("H4 two uncovered consumers", len(problems), 2)
-    expect("H5 uncovered consumer class",
-           problems[0].startswith("DONOR-LEDGER-UNCOVERED-CONSUMER"), True)
-    expect("H6 uncovered consumer names the path",
-           "implementation/ssr/deps.edn" in problems[0], True)
-
-    covered = full + (
-        "| `implementation/ssr/deps.edn` | ssr coord | REPLACE | F6 | pending |\n"
-        "| `implementation/ssr/test/re_frame/ssr/*` | ssr tests | MOVE | F5 | pending |\n"
+    # --- The snapshot --------------------------------------------------------
+    archive = _FIXTURE_HEADER + (
+        "| `implementation/ui/src/re_frame/ui.cljc` | the donor facade | REPLACE | F1 | pending |\n"
+        "| `implementation/ui/src/re_frame/ui/tree.cljc` | JVM tree builders | MOVE | F1 | pending |\n"
+        "| `spec/004-Views.md` | a spec obligation | MOVE | F0 | done |\n"
+        "| `local` and its placement machinery | a donor form | DELETE | F1 | pending |\n"
     )
-    rows, _ = parse_ledger(covered)
-    expect("H7 covered census is clean", check_consumers(rows, census), [])
-
-    premature = covered.replace(
-        "| `implementation/ssr/deps.edn` | ssr coord | REPLACE | F6 | pending |",
-        "| `implementation/ssr/deps.edn` | ssr coord | REPLACE | F6 | done |")
-    rows, _ = parse_ledger(premature)
-    problems = check_consumers(rows, census)
-    expect("H8 done-while-live detected", len(problems), 1)
-    expect("H9 premature-done class",
-           problems[0].startswith("DONOR-LEDGER-PREMATURE-DONE"), True)
-
-    # --- Row retention -------------------------------------------------------
-    # This is the arm the ledger was missing: a DELETED row must fail, including
-    # after a legitimate pending -> done transition on that same row.
-    roster_ledger = _FIXTURE_HEADER + (
-        "| `implementation/ui/src/re_frame/ui.cljc` | facade | REPLACE | F1 | pending |\n"
-        "| `implementation/ui/src/re_frame/ui/tree.cljc` | JVM tree | MOVE | F1 | pending |\n"
-        "| `spec/004-Views.md` | spec obligation | MOVE | F0 | pending |\n"
-        "| `local` and its placement machinery | donor form | DELETE | F1 | pending |\n"
-    )
-    roster = (
-        "implementation/ui/src/re_frame/ui.cljc",
-        "implementation/ui/src/re_frame/ui/tree.cljc",
-        "spec/004-Views.md",
-        "`local` and its placement machinery",
+    pins = (
+        ("implementation/ui/src/re_frame/ui.cljc", "REPLACE", "F1", "pending",
+         digest("the donor facade")),
+        ("implementation/ui/src/re_frame/ui/tree.cljc", "MOVE", "F1", "pending",
+         digest("JVM tree builders")),
+        ("spec/004-Views.md", "MOVE", "F0", "done", digest("a spec obligation")),
+        ("`local` and its placement machinery", "DELETE", "F1", "pending",
+         digest("a donor form")),
     )
 
-    # The real function under the real invariant — `roster` is injected so the
-    # fixtures cannot drift into testing a restatement of the check.
-    def roster_defects(text: str, roster_=roster) -> list[str]:
+    def defects(text: str, snapshot=pins) -> list[str]:
         parsed, _ = parse_ledger(text)
-        return check_roster(parsed, roster_)
+        return check_snapshot(parsed, snapshot)
 
-    def classes(problems: list[str]) -> list[str]:
-        return [problem.split(":", 1)[0] for problem in problems]
+    expect("D1 the pristine archive is satisfied", defects(archive), [])
 
-    expect("I1 pristine roster is satisfied", roster_defects(roster_ledger), [])
+    # A deleted row — path and label alike.
+    deleted = archive.replace(
+        "| `spec/004-Views.md` | a spec obligation | MOVE | F0 | done |\n", "")
+    problems = defects(deleted)
+    expect("D2 deleted row is caught", classes(problems),
+           ["DONOR-SNAPSHOT-ROW-REMOVED"])
+    expect("D3 deleted row is named", "spec/004-Views.md" in problems[0], True)
 
-    deleted = roster_ledger.replace(
-        "| `spec/004-Views.md` | spec obligation | MOVE | F0 | pending |\n", "")
-    problems = roster_defects(deleted)
-    expect("I2 deleted row is caught", classes(problems),
-           ["DONOR-LEDGER-ROW-REMOVED"])
-    expect("I3 deleted row is named", "spec/004-Views.md" in problems[0], True)
-
-    label_deleted = roster_ledger.replace(
-        "| `local` and its placement machinery | donor form | DELETE | F1 | pending |\n", "")
-    problems = roster_defects(label_deleted)
-    expect("I4 deleted label row is caught", classes(problems),
-           ["DONOR-LEDGER-ROW-REMOVED"])
-    expect("I5 deleted label row is named",
+    label_deleted = archive.replace(
+        "| `local` and its placement machinery | a donor form | DELETE | F1 | pending |\n", "")
+    problems = defects(label_deleted)
+    expect("D4 deleted label row is caught", classes(problems),
+           ["DONOR-SNAPSHOT-ROW-REMOVED"])
+    expect("D5 deleted label row is named",
            "`local` and its placement machinery" in problems[0], True)
 
-    # The composed sequence. A guard that only ever sees a pristine baseline can
-    # pass every single-step test and still be inert once the ledger has moved.
-    progressed = roster_ledger.replace(
-        "| `spec/004-Views.md` | spec obligation | MOVE | F0 | pending |",
-        "| `spec/004-Views.md` | spec obligation | MOVE | F0 | done |")
-    expect("J1 pending -> done keeps the row", roster_defects(progressed), [])
-    parsed, _ = parse_ledger(progressed)
-    expect("J2 done row is retained in the report",
-           "4 rows, 3 not yet disposed, 1 disposed" in format_report(parsed), True)
-    then_deleted = progressed.replace(
-        "| `spec/004-Views.md` | spec obligation | MOVE | F0 | done |\n", "")
-    expect("J3 deletion AFTER disposition still fails",
-           classes(roster_defects(then_deleted)), ["DONOR-LEDGER-ROW-REMOVED"])
-
-    # --- The same sequence, for a row added AFTER the roster was written -------
-    # This is the case a floor-shaped roster could not see: the row was never
-    # established, so deleting it looked like nothing had happened. Each step
-    # starts from the state the previous one left, not from the baseline.
-    added = roster_ledger + (
-        "| `tools/newcomer/deps.edn` | a consumer discovered later | MOVE | F6 | pending |\n"
+    # An added row.
+    added = archive + (
+        "| `tools/newcomer/deps.edn` | a claim made after the fact | MOVE | F6 | pending |\n"
     )
-    problems = roster_defects(added)
-    expect("L1 a new row must enter the roster", classes(problems),
-           ["DONOR-LEDGER-ROW-UNROSTERED"])
-    expect("L2 the diagnostic names the row's line",
+    problems = defects(added)
+    expect("E1 an added row is caught", classes(problems),
+           ["DONOR-SNAPSHOT-ROW-UNPINNED"])
+    expect("E2 the diagnostic names the row's line",
            f"{LEDGER_REL}:7" in problems[0], True)
-    expect("L3 the diagnostic prints the line to paste",
-           '"tools/newcomer/deps.edn",' in problems[0], True)
-    expect("L4 the diagnostic names the file to paste it into",
-           "ESTABLISHED_ROWS in scripts/check_donor_inventory.py" in problems[0],
+    expect("E3 the diagnostic prints the whole tuple to paste",
+           f'("tools/newcomer/deps.edn", "MOVE", "F6", "pending", '
+           f'"{digest("a claim made after the fact")}"),' in problems[0], True)
+    expect("E4 the diagnostic names the file to paste it into",
+           "SNAPSHOT_ROWS in scripts/check_donor_inventory.py" in problems[0],
            True)
+    expect("E5 pinning the new row settles it",
+           defects(added, pins + (("tools/newcomer/deps.edn", "MOVE", "F6",
+                                   "pending",
+                                   digest("a claim made after the fact")),)),
+           [])
 
-    # Step 1 — the row and its roster identity land together.
-    grown = roster + ("tools/newcomer/deps.edn",)
-    expect("L5 row + roster identity together is clean",
-           roster_defects(added, grown), [])
+    # --- Drift: the arm identities alone could not hold ----------------------
+    # The inversion the withdrawal makes: under the old programme gate a
+    # pending -> done flip was progress and passed. In an archive it is drift.
+    progressed = archive.replace(
+        "| `implementation/ui/src/re_frame/ui.cljc` | the donor facade | REPLACE | F1 | pending |",
+        "| `implementation/ui/src/re_frame/ui.cljc` | the donor facade | REPLACE | F1 | done |")
+    problems = defects(progressed)
+    expect("F1 a status flip is drift now", classes(problems),
+           ["DONOR-SNAPSHOT-ROW-DRIFTED"])
+    expect("F2 the drift names the field and both values",
+           "status pinned 'pending', found 'done'" in problems[0], True)
 
-    # Step 2 — the consumer goes, the row is disposed. The row stays.
-    added_done = added.replace(
-        "| `tools/newcomer/deps.edn` | a consumer discovered later | MOVE | F6 | pending |",
-        "| `tools/newcomer/deps.edn` | a consumer discovered later | MOVE | F6 | done |")
-    expect("L6 disposing the new row keeps it", roster_defects(added_done, grown), [])
+    redispositioned = archive.replace(
+        "| `implementation/ui/src/re_frame/ui/tree.cljc` | JVM tree builders | MOVE | F1 | pending |",
+        "| `implementation/ui/src/re_frame/ui/tree.cljc` | JVM tree builders | DELETE | F1 | pending |")
+    problems = defects(redispositioned)
+    expect("F3 a re-disposition is caught", classes(problems),
+           ["DONOR-SNAPSHOT-ROW-DRIFTED"])
+    expect("F4 the disposition is named",
+           "disposition pinned 'MOVE', found 'DELETE'" in problems[0], True)
 
-    # Step 3 — deleting the disposed row is the failure the gate exists for.
-    added_gone = added_done.replace(
-        "| `tools/newcomer/deps.edn` | a consumer discovered later | MOVE | F6 | done |\n", "")
-    problems = roster_defects(added_gone, grown)
-    expect("L7 deleting the disposed new row fails", classes(problems),
-           ["DONOR-LEDGER-ROW-REMOVED"])
-    expect("L8 the deletion names the new row",
-           "tools/newcomer/deps.edn" in problems[0], True)
+    resliced = archive.replace(
+        "| `spec/004-Views.md` | a spec obligation | MOVE | F0 | done |",
+        "| `spec/004-Views.md` | a spec obligation | MOVE | F3 | done |")
+    expect("F5 a re-slicing is caught", classes(defects(resliced)),
+           ["DONOR-SNAPSHOT-ROW-DRIFTED"])
 
-    # A label row added later is held the same way.
-    label_added = roster_ledger + (
-        "| ambient `dev-only` diagnostics | a contract obligation | DELETE | F2 | pending |\n"
+    rewritten = archive.replace(
+        "| `local` and its placement machinery | a donor form | DELETE | F1 | pending |",
+        "| `local` and its placement machinery | a donor form that Freehand still owes | DELETE | F1 | pending |")
+    problems = defects(rewritten)
+    expect("F6 a rewritten description is caught", classes(problems),
+           ["DONOR-SNAPSHOT-ROW-DRIFTED"])
+    expect("F7 the description drift names the digest field",
+           "description digest pinned" in problems[0], True)
+
+    respaced = archive.replace(
+        "| `local` and its placement machinery | a donor form | DELETE | F1 | pending |",
+        "| `local` and its placement machinery | a  donor   form | DELETE | F1 | pending |")
+    expect("F8 whitespace churn is not drift", defects(respaced), [])
+
+    # Two rows, one identity: the pin and the ledger stop pairing off.
+    duplicated = archive + (
+        "| `spec/004-Views.md` | a second claim on one identity | MOVE | F0 | done |\n"
     )
-    expect("L9 a new label row must enter the roster too",
-           classes(roster_defects(label_added)), ["DONOR-LEDGER-ROW-UNROSTERED"])
-    expect("L10 the label identity is its whole cell",
-           '"ambient `dev-only` diagnostics",' in roster_defects(label_added)[0],
-           True)
+    problems = defects(duplicated)
+    expect("G1 a duplicated identity is caught", classes(problems),
+           ["DONOR-SNAPSHOT-ROW-DUPLICATED"])
+    expect("G2 the duplicate names the first line",
+           "line 5" in problems[0], True)
 
-    # The real roster is wired to the real check in both directions: an empty
-    # ledger loses every established row, and the shipped ledger must cover the
-    # shipped roster exactly, so `check_roster` cannot be inert.
-    expect("J4 check_roster reads ESTABLISHED_ROWS",
-           len(check_roster([])), len(ESTABLISHED_ROWS))
-    expect("J5 the real roster is populated", len(ESTABLISHED_ROWS) > 100, True)
-    expect("J6 roster identities are unique",
-           len(set(ESTABLISHED_ROWS)), len(ESTABLISHED_ROWS))
-
-    # --- Semantic drift ------------------------------------------------------
-    # A pending row pointing at a path that no longer carries donor material at
-    # all: the shape of a row whose subject moved and whose path was reused.
-    drift_tracked = ["spec/004-Views.md", "implementation/ui/src/re_frame/ui.cljc"]
-    drift_read = _fixture_reader({
-        "spec/004-Views.md": "the common Freehand contract; nothing donor here",
-        "implementation/ui/src/re_frame/ui.cljc": "(ns re-frame.ui)",
-    })
-    drifted = _FIXTURE_HEADER + (
-        "| `implementation/ui/src/*` | sources | MOVE | F1 | pending |\n"
-        "| `spec/004-Views.md` | donor compiled language | MOVE | F0 | pending |\n"
-    )
-    rows, _ = parse_ledger(drifted)
-    problems = check_current(rows, drift_tracked, drift_read)
-    expect("K1 drifted row detected", len(problems), 1)
-    expect("K2 drift class", problems[0].startswith("DONOR-LEDGER-DRIFTED"), True)
-    expect("K3 drift names the path", "spec/004-Views.md" in problems[0], True)
-
-    rekeyed = drifted.replace(
-        "| `spec/004-Views.md` | donor compiled language | MOVE | F0 | pending |",
-        "| `spec/004-Views.md` | donor compiled language | MOVE | F0 | done |")
-    rows, _ = parse_ledger(rekeyed)
-    expect("K4 a disposed row does not drift",
-           check_current(rows, drift_tracked, drift_read), [])
+    # --- The real snapshot is wired to the real check ------------------------
+    expect("H1 check_snapshot reads SNAPSHOT_ROWS",
+           len(check_snapshot([])), len(SNAPSHOT_ROWS))
+    expect("H2 the real snapshot is populated", len(SNAPSHOT_ROWS) > 100, True)
+    expect("H3 pinned identities are unique",
+           len({entry[0] for entry in SNAPSHOT_ROWS}), len(SNAPSHOT_ROWS))
+    expect("H4 every pinned tuple is complete",
+           {len(entry) for entry in SNAPSHOT_ROWS}, {5})
+    expect("H5 every pinned row is decidable",
+           {(entry[1] in DISPOSITIONS, bool(SLICE_RE.match(entry[2])),
+             entry[3] in STATUSES) for entry in SNAPSHOT_ROWS},
+           {(True, True, True)})
 
     if failures:
         sys.stderr.write(f"self-test: {failures} case(s) failed.\n")
@@ -969,11 +606,10 @@ def _run_self_tests(*, verbose: bool = False) -> int:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Prove the Freehand donor-inventory ledger covers every tracked "
-            "re-frame.ui file and every live donor consumer with an explicit "
-            "MOVE/REPLACE/DELETE disposition, that the ledger and its retention "
-            "roster cover each other exactly so no row can be deleted, and "
-            "report how many rows are not yet disposed."
+            "Prove the archived Freehand donor inventory still matches the "
+            "snapshot pinned at the EP-0036 withdrawal: the same rows, each "
+            "with the same disposition, owning slice, withdrawal-time status "
+            "and description."
         ),
     )
     parser.add_argument(
@@ -986,11 +622,6 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--ci", action="store_true", help="Emit GitHub-Actions ::error:: annotations."
-    )
-    parser.add_argument(
-        "--report",
-        action="store_true",
-        help="Print the undisposed-row report to stdout (still fails on defects).",
     )
     parser.add_argument(
         "--self-test",
@@ -1020,251 +651,254 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(f"error: {exc}\n")
         return 2
 
-    if args.report or args.verbose:
-        sys.stdout.write(format_report(rows) + "\n")
-
+    sys.stdout.write(summarize(rows) + "\n")
     return 0 if defects == 0 else 1
 
 
-# --- The established-row roster -----------------------------------------------
-# Row identities the ledger has established. Every one must still be present:
-# a row is disposed by flipping its status to `done`, never by deletion. See
-# "Maintaining the roster" in the module docstring. Ordered as the ledger reads.
-ESTABLISHED_ROWS = (
+# --- The pinned snapshot ------------------------------------------------------
+# The ledger as it stood at the EP-0036 withdrawal, one tuple per row:
+#
+#     (identity, disposition, owning slice, status, description digest)
+#
+# Identity is the row's path pattern, or its whole cell for a label row; the
+# digest is `digest()` over the normalized 'What it is' column. The whole tuple
+# is pinned, not the identity alone — see "No row drifts" in the module
+# docstring. Ordered as the ledger reads, and sectioned the way it is sectioned.
+SNAPSHOT_ROWS = (
     # Ruled contract dispositions
-    "`local` and its placement machinery",
-    "instance state and generic storage verbs",
-    "refs, effects, and the React hook tier",
-    "callable JVM view values",
-    "placeholder provenance",
-    "compiled parent to interpreted child crossing",
-    "controlled scheduling",
-    "key-condition event maps",
-    "`spread-safe`/`spread` and `render-fn`/`slot`",
-    "presence runtime",
-    "`route-link`",
-    "analyzer, both emitters, ViewCell reactor, manifest/elision, diagnostic taxonomy, structural test surface",
+    ("`local` and its placement machinery", "DELETE", "F4a", "done", "c43a540039e0"),
+    ("instance state and generic storage verbs", "DELETE", "F4a", "done", "ad22b8867d7f"),
+    ("refs, effects, and the React hook tier", "DELETE", "F4", "done", "eee4ffa14a79"),
+    ("callable JVM view values", "REPLACE", "F1", "done", "bd3b2ceb9619"),
+    ("placeholder provenance", "REPLACE", "F2", "done", "4b50ccc028e5"),
+    ("compiled parent to interpreted child crossing", "MOVE", "F3", "done", "936fb4c725ae"),
+    ("controlled scheduling", "MOVE", "F2", "done", "7cc9433de23a"),
+    ("key-condition event maps", "DELETE", "F2", "done", "c8a01a195445"),
+    ("`spread-safe`/`spread` and `render-fn`/`slot`", "MOVE", "F5", "done", "c8b8ec87b455"),
+    ("presence runtime", "MOVE", "F4", "done", "7080460b5ab2"),
+    ("`route-link`", "MOVE", "F5", "done", "398f918ca7a7"),
+    ("analyzer, both emitters, ViewCell reactor, manifest/elision, diagnostic taxonomy, structural test surface", "MOVE", "F3", "pending", "d8d8c1c130b4"),
     # Donor sources
-    "implementation/ui/src/re_frame/ui.cljc",
-    "implementation/ui/src/re_frame/ui/client.cljs",
-    "implementation/ui/src/re_frame/ui/compiler.cljc",
-    "implementation/ui/src/re_frame/ui/compiler/a11y.cljc",
-    "implementation/ui/src/re_frame/ui/compiler/analyze.cljc",
-    "implementation/ui/src/re_frame/ui/compiler/binding_plan.cljc",
-    "implementation/ui/src/re_frame/ui/compiler/build.cljc",
-    "implementation/ui/src/re_frame/ui/compiler/build_hook.clj",
-    "implementation/ui/src/re_frame/ui/compiler/emit_cljs.cljc",
-    "implementation/ui/src/re_frame/ui/compiler/emit_jvm.cljc",
-    "implementation/ui/src/re_frame/ui/compiler/env.cljc",
-    "implementation/ui/src/re_frame/ui/compiler/harvest.clj",
-    "implementation/ui/src/re_frame/ui/compiler/header.cljc",
-    "implementation/ui/src/re_frame/ui/compiler/root.cljc",
-    "implementation/ui/src/re_frame/ui/eq.cljc",
-    "implementation/ui/src/re_frame/ui/events.cljs",
-    "implementation/ui/src/re_frame/ui/fingerprint.cljc",
-    "implementation/ui/src/re_frame/ui/frames.cljc",
-    "implementation/ui/src/re_frame/ui/hooks.cljc",
-    "implementation/ui/src/re_frame/ui/presence_runtime.cljc",
-    "implementation/ui/src/re_frame/ui/react.cljc",
-    "implementation/ui/src/re_frame/ui/reactive.cljc",
-    "implementation/ui/src/re_frame/ui/route_link_seam.cljc",
-    "implementation/ui/src/re_frame/ui/rules.cljc",
-    "implementation/ui/src/re_frame/ui/runtime.cljs",
-    "implementation/ui/src/re_frame/ui/semantic.cljc",
-    "implementation/ui/src/re_frame/ui/sub_overrides.cljs",
-    "implementation/ui/src/re_frame/ui/substrate.cljs",
-    "implementation/ui/src/re_frame/ui/test.cljc",
-    "implementation/ui/src/re_frame/ui/tool.cljc",
-    "implementation/ui/src/re_frame/ui/tool/evidence.cljc",
-    "implementation/ui/src/re_frame/ui/tree.cljc",
-    "implementation/ui/src/re_frame/ui/viewcell.cljs",
+    ("implementation/ui/src/re_frame/ui.cljc", "REPLACE", "F1", "pending", "fb656ce41ec5"),
+    ("implementation/ui/src/re_frame/ui/client.cljs", "REPLACE", "F1", "done", "a406d65390dd"),
+    ("implementation/ui/src/re_frame/ui/compiler.cljc", "MOVE", "F3", "done", "8fc5dc9d4fa3"),
+    ("implementation/ui/src/re_frame/ui/compiler/a11y.cljc", "MOVE", "F3", "done", "c39fcd793fa8"),
+    ("implementation/ui/src/re_frame/ui/compiler/analyze.cljc", "MOVE", "F3", "done", "82a51a4a19b1"),
+    ("implementation/ui/src/re_frame/ui/compiler/binding_plan.cljc", "MOVE", "F3", "done", "70e9dbd4149a"),
+    ("implementation/ui/src/re_frame/ui/compiler/build.cljc", "MOVE", "F3", "done", "012d989683f1"),
+    ("implementation/ui/src/re_frame/ui/compiler/build_hook.clj", "MOVE", "F3", "done", "2b8899078563"),
+    ("implementation/ui/src/re_frame/ui/compiler/emit_cljs.cljc", "MOVE", "F3", "done", "bd24e248c32f"),
+    ("implementation/ui/src/re_frame/ui/compiler/emit_jvm.cljc", "MOVE", "F3", "done", "8b1ae36fba0f"),
+    ("implementation/ui/src/re_frame/ui/compiler/env.cljc", "MOVE", "F3", "done", "a8033eafc678"),
+    ("implementation/ui/src/re_frame/ui/compiler/harvest.clj", "MOVE", "F3", "done", "be1c93c56dff"),
+    ("implementation/ui/src/re_frame/ui/compiler/header.cljc", "MOVE", "F3", "done", "976289b74bbc"),
+    ("implementation/ui/src/re_frame/ui/compiler/root.cljc", "MOVE", "F3", "done", "c1b49d49e123"),
+    ("implementation/ui/src/re_frame/ui/eq.cljc", "MOVE", "F3", "done", "492a01582418"),
+    ("implementation/ui/src/re_frame/ui/events.cljs", "MOVE", "F2", "pending", "952db5a85d75"),
+    ("implementation/ui/src/re_frame/ui/fingerprint.cljc", "MOVE", "F3", "done", "a8f51dbe437a"),
+    ("implementation/ui/src/re_frame/ui/frames.cljc", "MOVE", "F2", "pending", "6e7a9142b9a3"),
+    ("implementation/ui/src/re_frame/ui/hooks.cljc", "DELETE", "F1", "pending", "4c8218df0439"),
+    ("implementation/ui/src/re_frame/ui/presence_runtime.cljc", "MOVE", "F4", "done", "59f8b9a3ff64"),
+    ("implementation/ui/src/re_frame/ui/react.cljc", "DELETE", "F5", "pending", "c680451fa655"),
+    ("implementation/ui/src/re_frame/ui/reactive.cljc", "MOVE", "F2", "pending", "03cfa86172d1"),
+    ("implementation/ui/src/re_frame/ui/route_link_seam.cljc", "MOVE", "F5", "pending", "4bfad84088e2"),
+    ("implementation/ui/src/re_frame/ui/rules.cljc", "MOVE", "F3", "done", "ab4218330f13"),
+    ("implementation/ui/src/re_frame/ui/runtime.cljs", "REPLACE", "F3", "done", "e1efa88e6c50"),
+    ("implementation/ui/src/re_frame/ui/semantic.cljc", "MOVE", "F1", "pending", "0e59e30fcaa3"),
+    ("implementation/ui/src/re_frame/ui/sub_overrides.cljs", "MOVE", "F2", "pending", "c4b427494642"),
+    ("implementation/ui/src/re_frame/ui/substrate.cljs", "MOVE", "F2", "done", "66ae17358520"),
+    ("implementation/ui/src/re_frame/ui/test.cljc", "MOVE", "F1", "done", "b48d010da136"),
+    ("implementation/ui/src/re_frame/ui/tool.cljc", "REPLACE", "F4", "done", "c4e0ccf141ec"),
+    ("implementation/ui/src/re_frame/ui/tool/evidence.cljc", "REPLACE", "F4", "done", "26102e5400b2"),
+    ("implementation/ui/src/re_frame/ui/tree.cljc", "MOVE", "F1", "pending", "f27f88d2cf63"),
+    ("implementation/ui/src/re_frame/ui/viewcell.cljs", "MOVE", "F2", "pending", "20c7aadfce02"),
     # Donor tests
-    "implementation/ui/test/re_frame/ui/a11y_*",
-    "implementation/ui/test/re_frame/ui/adapter_*",
-    "implementation/ui/test/re_frame/ui/analyze_*",
-    "implementation/ui/test/re_frame/ui/authored_collision_*",
-    "implementation/ui/test/re_frame/ui/binding_plan_*",
-    "implementation/ui/test/re_frame/ui/build_*",
-    "implementation/ui/test/re_frame/ui/callbacks_*",
-    "implementation/ui/test/re_frame/ui/committed_events_*",
-    "implementation/ui/test/re_frame/ui/compiler_*",
-    "implementation/ui/test/re_frame/ui/conditional_root_annotation_*",
-    "implementation/ui/test/re_frame/ui/conditional_sub_*",
-    "implementation/ui/test/re_frame/ui/custom_element_*",
-    "implementation/ui/test/re_frame/ui/defview_grammar_*",
-    "implementation/ui/test/re_frame/ui/digest_probe/*",
-    "implementation/ui/test/re_frame/ui/emit_cljs_*",
-    "implementation/ui/test/re_frame/ui/eq_*",
-    "implementation/ui/test/re_frame/ui/error_roster_*",
-    "implementation/ui/test/re_frame/ui/event_*",
-    "implementation/ui/test/re_frame/ui/exact_render_capture_*",
-    "implementation/ui/test/re_frame/ui/fast_refresh_shell_*",
-    "implementation/ui/test/re_frame/ui/fingerprint_*",
-    "implementation/ui/test/re_frame/ui/frame_*",
-    "implementation/ui/test/re_frame/ui/g13/*",
-    "implementation/ui/test/re_frame/ui/g14_*",
-    "implementation/ui/test/re_frame/ui/hidden_sub_macros.clj",
-    "implementation/ui/test/re_frame/ui/hooks_*",
-    "implementation/ui/test/re_frame/ui/local_effect_*",
-    "implementation/ui/test/re_frame/ui/mounted_*",
-    "implementation/ui/test/re_frame/ui/parity_*",
-    "implementation/ui/test/re_frame/ui/passive_events_*",
-    "implementation/ui/test/re_frame/ui/preflight_*",
-    "implementation/ui/test/re_frame/ui/presence_*",
-    "implementation/ui/test/re_frame/ui/raw_foreign_boundary_*",
-    "implementation/ui/test/re_frame/ui/react_export_bridge_*",
-    "implementation/ui/test/re_frame/ui/react_interop_*",
-    "implementation/ui/test/re_frame/ui/react_render_*",
-    "implementation/ui/test/re_frame/ui/reactive_*",
-    "implementation/ui/test/re_frame/ui/render_batch_*",
-    "implementation/ui/test/re_frame/ui/render_capture_*",
-    "implementation/ui/test/re_frame/ui/render_key_dom_stamp_*",
-    "implementation/ui/test/re_frame/ui/render_static_strip_*",
-    "implementation/ui/test/re_frame/ui/reserved_head_reject_*",
-    "implementation/ui/test/re_frame/ui/root_*",
-    "implementation/ui/test/re_frame/ui/route_link_*",
-    "implementation/ui/test/re_frame/ui/rules_*",
-    "implementation/ui/test/re_frame/ui/s3_*",
-    "implementation/ui/test/re_frame/ui/s4_*",
-    "implementation/ui/test/re_frame/ui/s5_*",
-    "implementation/ui/test/re_frame/ui/semantic_normalize_*",
-    "implementation/ui/test/re_frame/ui/serialiser_rules_*",
-    "implementation/ui/test/re_frame/ui/shadow_config_*",
-    "implementation/ui/test/re_frame/ui/skeleton_*",
-    "implementation/ui/test/re_frame/ui/slice_memo_*",
-    "implementation/ui/test/re_frame/ui/slot_*",
-    "implementation/ui/test/re_frame/ui/spread_*",
-    "implementation/ui/test/re_frame/ui/ssr_reinit_*",
-    "implementation/ui/test/re_frame/ui/sub_overrides_*",
-    "implementation/ui/test/re_frame/ui/substrate_flush_*",
-    "implementation/ui/test/re_frame/ui/teardown_falsy_*",
-    "implementation/ui/test/re_frame/ui/test_*",
-    "implementation/ui/test/re_frame/ui/tool_*",
-    "implementation/ui/test/re_frame/ui/tree_*",
-    "implementation/ui/test/re_frame/ui/viewcell_*",
-    "implementation/ui/test/re_frame/realworld_*",
+    ("implementation/ui/test/re_frame/ui/a11y_*", "MOVE", "F3", "done", "d73cd3193a01"),
+    ("implementation/ui/test/re_frame/ui/adapter_*", "MOVE", "F2", "pending", "e692c630bfdb"),
+    ("implementation/ui/test/re_frame/ui/analyze_*", "MOVE", "F3", "done", "8a40aa6e7870"),
+    ("implementation/ui/test/re_frame/ui/authored_collision_*", "MOVE", "F1", "pending", "0075305a051d"),
+    ("implementation/ui/test/re_frame/ui/binding_plan_*", "MOVE", "F3", "pending", "c03ef12981f6"),
+    ("implementation/ui/test/re_frame/ui/build_*", "MOVE", "F3", "pending", "4b07d55605b3"),
+    ("implementation/ui/test/re_frame/ui/callbacks_*", "MOVE", "F2", "pending", "04f9b69320b7"),
+    ("implementation/ui/test/re_frame/ui/committed_events_*", "MOVE", "F2", "pending", "f464b282cf8c"),
+    ("implementation/ui/test/re_frame/ui/compiler_*", "MOVE", "F3", "done", "1ce527ba44da"),
+    ("implementation/ui/test/re_frame/ui/conditional_root_annotation_*", "MOVE", "F3", "pending", "b265da93bc00"),
+    ("implementation/ui/test/re_frame/ui/conditional_sub_*", "MOVE", "F2", "pending", "ef51ef90a682"),
+    ("implementation/ui/test/re_frame/ui/custom_element_*", "MOVE", "F3", "done", "ab464c56ef6a"),
+    ("implementation/ui/test/re_frame/ui/defview_grammar_*", "MOVE", "F1", "pending", "101997aaddfc"),
+    ("implementation/ui/test/re_frame/ui/digest_probe/*", "MOVE", "F3", "pending", "30dc731be5bb"),
+    ("implementation/ui/test/re_frame/ui/emit_cljs_*", "MOVE", "F3", "done", "7ce449add683"),
+    ("implementation/ui/test/re_frame/ui/eq_*", "MOVE", "F3", "done", "95f9628ca970"),
+    ("implementation/ui/test/re_frame/ui/error_roster_*", "MOVE", "F1", "pending", "efba8f1ea088"),
+    ("implementation/ui/test/re_frame/ui/event_*", "MOVE", "F2", "pending", "4714b196a589"),
+    ("implementation/ui/test/re_frame/ui/exact_render_capture_*", "MOVE", "F2", "pending", "7e85cedbbb9e"),
+    ("implementation/ui/test/re_frame/ui/fast_refresh_shell_*", "MOVE", "F1", "pending", "b2d7da06e7d0"),
+    ("implementation/ui/test/re_frame/ui/fingerprint_*", "MOVE", "F3", "done", "63ded3927ca0"),
+    ("implementation/ui/test/re_frame/ui/frame_*", "MOVE", "F2", "pending", "c23b81902d35"),
+    ("implementation/ui/test/re_frame/ui/g13/*", "MOVE", "F6", "pending", "34f88c130f7b"),
+    ("implementation/ui/test/re_frame/ui/g14_*", "MOVE", "F3", "pending", "dc1eaa64f9b9"),
+    ("implementation/ui/test/re_frame/ui/hidden_sub_macros.clj", "MOVE", "F2", "pending", "aeb2f3901fc1"),
+    ("implementation/ui/test/re_frame/ui/hooks_*", "DELETE", "F1", "pending", "fd6f3d470e3c"),
+    ("implementation/ui/test/re_frame/ui/local_effect_*", "DELETE", "F1", "pending", "92e49cc2bc19"),
+    ("implementation/ui/test/re_frame/ui/mounted_*", "MOVE", "F4", "pending", "18e2acfd3b3f"),
+    ("implementation/ui/test/re_frame/ui/parity_*", "MOVE", "F3", "pending", "90e3c87e7b72"),
+    ("implementation/ui/test/re_frame/ui/passive_events_*", "MOVE", "F2", "pending", "e46679ceacb3"),
+    ("implementation/ui/test/re_frame/ui/preflight_*", "MOVE", "F2", "pending", "24dde47d27a1"),
+    ("implementation/ui/test/re_frame/ui/presence_*", "MOVE", "F4", "pending", "5533c23f5580"),
+    ("implementation/ui/test/re_frame/ui/raw_foreign_boundary_*", "MOVE", "F5", "pending", "6730caece23e"),
+    ("implementation/ui/test/re_frame/ui/react_export_bridge_*", "MOVE", "F5", "pending", "b252d6769f16"),
+    ("implementation/ui/test/re_frame/ui/react_interop_*", "REPLACE", "F5", "pending", "5f53a819195a"),
+    ("implementation/ui/test/re_frame/ui/react_render_*", "MOVE", "F1", "pending", "b24751cbe153"),
+    ("implementation/ui/test/re_frame/ui/reactive_*", "MOVE", "F2", "pending", "9b1e495d678e"),
+    ("implementation/ui/test/re_frame/ui/render_batch_*", "MOVE", "F2", "pending", "0a658394a603"),
+    ("implementation/ui/test/re_frame/ui/render_capture_*", "MOVE", "F2", "pending", "f317f8134de9"),
+    ("implementation/ui/test/re_frame/ui/render_key_dom_stamp_*", "MOVE", "F1", "pending", "3a1490fb327a"),
+    ("implementation/ui/test/re_frame/ui/render_static_strip_*", "MOVE", "F3", "pending", "6d132f77621d"),
+    ("implementation/ui/test/re_frame/ui/reserved_head_reject_*", "MOVE", "F3", "done", "9b691db17bb6"),
+    ("implementation/ui/test/re_frame/ui/root_*", "MOVE", "F1", "pending", "d3df9f57beea"),
+    ("implementation/ui/test/re_frame/ui/route_link_*", "MOVE", "F5", "pending", "5d8829ef0899"),
+    ("implementation/ui/test/re_frame/ui/rules_*", "MOVE", "F1", "pending", "4a6413ef5be7"),
+    ("implementation/ui/test/re_frame/ui/s3_*", "DELETE", "F6", "pending", "cf24b4d0a311"),
+    ("implementation/ui/test/re_frame/ui/s4_*", "DELETE", "F6", "pending", "2f9844848c75"),
+    ("implementation/ui/test/re_frame/ui/s5_*", "DELETE", "F6", "pending", "a18fc00369d6"),
+    ("implementation/ui/test/re_frame/ui/semantic_normalize_*", "MOVE", "F1", "pending", "616a6612bac5"),
+    ("implementation/ui/test/re_frame/ui/serialiser_rules_*", "MOVE", "F1", "pending", "dc2c1902ca11"),
+    ("implementation/ui/test/re_frame/ui/shadow_config_*", "MOVE", "F3", "pending", "5efe29d155fb"),
+    ("implementation/ui/test/re_frame/ui/skeleton_*", "MOVE", "F3", "pending", "c216bbce8ff2"),
+    ("implementation/ui/test/re_frame/ui/slice_memo_*", "MOVE", "F2", "pending", "6affb868b9b0"),
+    ("implementation/ui/test/re_frame/ui/slot_*", "MOVE", "F5", "done", "4ee23394fa6c"),
+    ("implementation/ui/test/re_frame/ui/spread_*", "MOVE", "F5", "done", "43c5073d20a2"),
+    ("implementation/ui/test/re_frame/ui/ssr_reinit_*", "MOVE", "F5", "pending", "f3f17fcef9e6"),
+    ("implementation/ui/test/re_frame/ui/sub_overrides_*", "MOVE", "F2", "pending", "50573cbc46fd"),
+    ("implementation/ui/test/re_frame/ui/substrate_flush_*", "MOVE", "F2", "pending", "63bfac2851e6"),
+    ("implementation/ui/test/re_frame/ui/teardown_falsy_*", "MOVE", "F1", "pending", "421e259ca8e8"),
+    ("implementation/ui/test/re_frame/ui/test_*", "MOVE", "F1", "pending", "3b592cb8105b"),
+    ("implementation/ui/test/re_frame/ui/tool_*", "REPLACE", "F4", "done", "060264fb062d"),
+    ("implementation/ui/test/re_frame/ui/tree_*", "MOVE", "F1", "pending", "d32e3f02b105"),
+    ("implementation/ui/test/re_frame/ui/viewcell_*", "MOVE", "F2", "pending", "1e403f1f77b5"),
+    ("implementation/ui/test/re_frame/realworld_*", "DELETE", "F6", "pending", "7b2bc33858d4"),
     # Donor fixtures, probes, and testbeds
-    "implementation/ui/bench/*",
-    "implementation/ui/cache-carrier-probe/*",
-    "implementation/ui/dev/*",
-    "implementation/ui/g8/*",
-    "implementation/ui/g13/*",
-    "implementation/ui/proof-pack/*",
-    "implementation/ui/scaffold-smoke/*",
-    "implementation/ui/testbed/*",
+    ("implementation/ui/bench/*", "MOVE", "F3", "pending", "fc9eaec3b9bc"),
+    ("implementation/ui/cache-carrier-probe/*", "MOVE", "F3", "pending", "30398a62fd69"),
+    ("implementation/ui/dev/*", "MOVE", "F1", "pending", "47ce5eb75c46"),
+    ("implementation/ui/g8/*", "MOVE", "F6", "pending", "366334c685ca"),
+    ("implementation/ui/g13/*", "MOVE", "F6", "pending", "76a2fedc1810"),
+    ("implementation/ui/proof-pack/*", "MOVE", "F3", "pending", "cbe5bbbc558c"),
+    ("implementation/ui/scaffold-smoke/*", "MOVE", "F6", "done", "88db775422ca"),
+    ("implementation/ui/testbed/*", "MOVE", "F1", "pending", "045a01a9a767"),
     # Donor artifact and build wiring
-    "implementation/ui/deps.edn",
-    "implementation/deps.edn",
-    "implementation/shadow-cljs.edn",
-    "implementation/package.json",
-    "implementation/scripts/check-ui-adapter-isolation.cjs",
-    "implementation/scripts/check-ui-facade-isolation.cjs",
-    "implementation/scripts/check-ui-warm-watch.cjs",
-    "implementation/scripts/check-ui-mounted-prod-elision.cjs",
-    "implementation/scripts/run-ui-bench.cjs",
-    "implementation/scripts/run-ui-g8.cjs",
-    "implementation/scripts/run-ui-g13.cjs",
-    "implementation/scripts/lib/g13-timing-evidence.cjs",
-    "implementation/scripts/lib/g8-latency-evidence.cjs",
-    "implementation/scripts/bundle-isolation-positive-control/*",
-    "implementation/scripts/_g8-latency-evidence.test.cjs",
-    "implementation/scripts/_g13-timing-evidence.test.cjs",
-    "implementation/scripts/_release-ui-required-gate.test.cjs",
-    "implementation/scripts/_ui-deps-edn-boundary.test.cjs",
-    "implementation/scripts/_changed-surfaces.test.cjs",
-    "implementation/adapters/scripts/adapter-smoke-filter.cjs",
-    "implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs",
-    "implementation/adapters/scripts/run-adapter-smokes.cjs",
-    "implementation/scripts/_adapter-smoke-filter.test.cjs",
-    "implementation/scripts/_reagent-slim-smoke-policy.test.cjs",
-    "examples/scripts/examples-asset-manifest.cjs",
-    "implementation/scripts/_examples-staging.test.cjs",
-    "scripts/check_ui_root_lifecycle_drift.py",
-    "scripts/check_skill_implementor_partition_drift.py",
-    "scripts/test-fast-pr.sh",
-    "scripts/test-jvm-implementation.sh",
-    "implementation/scripts/check-bundle-isolation.cjs",
-    "implementation/scripts/check-bundle-isolation.test.cjs",
-    "implementation/scripts/check-elision.cjs",
-    "scripts/check_adapter_disposition.py",
-    ".github/scripts/preflight-story-package.sh",
-    "implementation/scripts/_preflight-story-package.test.cjs",
-    ".github/scripts/verify-version-lockstep.sh",
-    ".github/scripts/report-changed-surfaces.sh",
-    ".github/workflows/test.yml",
-    ".github/workflows/release.yml",
-    ".github/workflows/lint.yml",
-    ".github/workflows/portability.yml",
-    "`TESTING.md`",
+    ("implementation/ui/deps.edn", "DELETE", "F6", "pending", "81060abea4cb"),
+    ("implementation/deps.edn", "REPLACE", "F6", "pending", "fe6456b027c7"),
+    ("implementation/shadow-cljs.edn", "REPLACE", "F6", "pending", "c2229ba254dc"),
+    ("implementation/package.json", "REPLACE", "F6", "pending", "b348a5ee4a2b"),
+    ("implementation/scripts/check-ui-adapter-isolation.cjs", "MOVE", "F6", "pending", "161efbdd0fc4"),
+    ("implementation/scripts/check-ui-facade-isolation.cjs", "MOVE", "F6", "pending", "b00e54de875a"),
+    ("implementation/scripts/check-ui-warm-watch.cjs", "MOVE", "F6", "pending", "6ce85e1e83cd"),
+    ("implementation/scripts/check-ui-mounted-prod-elision.cjs", "MOVE", "F6", "pending", "b43d72270e64"),
+    ("implementation/scripts/run-ui-bench.cjs", "MOVE", "F6", "pending", "a54e8c4a50b0"),
+    ("implementation/scripts/run-ui-g8.cjs", "MOVE", "F6", "pending", "2b99ee8df40f"),
+    ("implementation/scripts/run-ui-g13.cjs", "MOVE", "F6", "pending", "41b9562a70fe"),
+    ("implementation/scripts/lib/g13-timing-evidence.cjs", "MOVE", "F6", "pending", "23a18c93620e"),
+    ("implementation/scripts/lib/g8-latency-evidence.cjs", "MOVE", "F6", "pending", "6f584161e704"),
+    ("implementation/scripts/bundle-isolation-positive-control/*", "MOVE", "F6", "pending", "244f1a60a21c"),
+    ("implementation/scripts/_g8-latency-evidence.test.cjs", "MOVE", "F6", "pending", "d12a58669659"),
+    ("implementation/scripts/_g13-timing-evidence.test.cjs", "MOVE", "F6", "pending", "c31983faba43"),
+    ("implementation/scripts/_release-ui-required-gate.test.cjs", "DELETE", "F6", "done", "5184cf6dbd81"),
+    ("implementation/scripts/_ui-deps-edn-boundary.test.cjs", "REPLACE", "F6", "pending", "d2e81c2ca772"),
+    ("implementation/scripts/_changed-surfaces.test.cjs", "REPLACE", "F6", "pending", "f9c53d2357bb"),
+    ("implementation/adapters/scripts/adapter-smoke-filter.cjs", "REPLACE", "F6", "pending", "1ded156e7e8d"),
+    ("implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs", "REPLACE", "F6", "pending", "e4443c400715"),
+    ("implementation/adapters/scripts/run-adapter-smokes.cjs", "REPLACE", "F6", "pending", "5f0db56fa126"),
+    ("implementation/scripts/_adapter-smoke-filter.test.cjs", "REPLACE", "F6", "pending", "8a31128ea0ed"),
+    ("implementation/scripts/_reagent-slim-smoke-policy.test.cjs", "REPLACE", "F6", "pending", "c29eb561f4a2"),
+    ("examples/scripts/examples-asset-manifest.cjs", "REPLACE", "F6", "pending", "9524dc5db63e"),
+    ("implementation/scripts/_examples-staging.test.cjs", "REPLACE", "F6", "pending", "44b113982ab4"),
+    ("scripts/check_ui_root_lifecycle_drift.py", "REPLACE", "F6", "pending", "610e1cf34135"),
+    ("scripts/check_skill_implementor_partition_drift.py", "REPLACE", "F6", "pending", "e49ce6623c97"),
+    ("scripts/test-fast-pr.sh", "REPLACE", "F6", "pending", "a488b4751c28"),
+    ("scripts/test-jvm-implementation.sh", "REPLACE", "F6", "pending", "406030604efc"),
+    ("implementation/scripts/check-bundle-isolation.cjs", "REPLACE", "F6", "pending", "7633fd61851d"),
+    ("implementation/scripts/check-bundle-isolation.test.cjs", "REPLACE", "F6", "pending", "01159ee8f11e"),
+    ("implementation/scripts/check-elision.cjs", "REPLACE", "F6", "pending", "e40af892e7ef"),
+    ("scripts/check_adapter_disposition.py", "REPLACE", "F6", "pending", "14ee386fb68b"),
+    (".github/scripts/preflight-story-package.sh", "REPLACE", "F6", "pending", "e41d2c0f55d0"),
+    ("implementation/scripts/_preflight-story-package.test.cjs", "REPLACE", "F6", "pending", "f07f5553a46f"),
+    (".github/scripts/verify-version-lockstep.sh", "DELETE", "F6", "done", "f918b952a96b"),
+    (".github/scripts/report-changed-surfaces.sh", "REPLACE", "F6", "pending", "336273712271"),
+    (".github/workflows/test.yml", "REPLACE", "F6", "pending", "726c27438535"),
+    (".github/workflows/release.yml", "DELETE", "F6", "done", "16ef97ee8aaa"),
+    (".github/workflows/lint.yml", "REPLACE", "F6", "pending", "8ed0d43b81ae"),
+    (".github/workflows/portability.yml", "REPLACE", "F6", "pending", "842ff0ff5e59"),
+    ("`TESTING.md`", "REPLACE", "F6", "pending", "24c88a1353e5"),
     # Donor obligations in the spec tree
-    "spec/004D-Freehand-Compiled-Grammar.md",
-    "spec/004B-UI-Tree-and-Conversion.md",
-    "spec/004C-Roots-and-Mount.md",
-    "spec/006-ReactiveSubstrate.md",
-    "spec/008-Testing.md",
-    "spec/009-Instrumentation.md",
-    "spec/011-SSR.md",
-    "spec/012-Routing.md",
-    "spec/API.md",
-    "spec/Ownership.md",
-    "spec/Conventions.md",
-    "spec/conformance/S3-view-conformance-profile.md",
-    "spec/conformance/S4-view-conformance-profile.md",
-    "spec/conformance/S5-view-conformance-profile.md",
-    "spec/Pattern-StatefulComponents.md",
-    "spec/api-manifest.edn",
-    "spec/api-manifest-metadata.edn",
+    ("spec/004D-Freehand-Compiled-Grammar.md", "MOVE", "F0", "done", "cda1a3655ac1"),
+    ("spec/004B-UI-Tree-and-Conversion.md", "MOVE", "F1", "done", "b0710f328e19"),
+    ("spec/004C-Roots-and-Mount.md", "MOVE", "F1", "pending", "6a4b0d3e4a19"),
+    ("spec/006-ReactiveSubstrate.md", "MOVE", "F2", "pending", "295304094e6b"),
+    ("spec/008-Testing.md", "MOVE", "F1", "pending", "c8a0bbdfc4a6"),
+    ("spec/009-Instrumentation.md", "MOVE", "F4", "pending", "17487b21902e"),
+    ("spec/011-SSR.md", "MOVE", "F5", "pending", "fb08d92446b2"),
+    ("spec/012-Routing.md", "MOVE", "F5", "pending", "a571485eb417"),
+    ("spec/API.md", "REPLACE", "F6", "pending", "b57b82a3fce5"),
+    ("spec/Ownership.md", "REPLACE", "F6", "pending", "8f9b22da38a6"),
+    ("spec/Conventions.md", "REPLACE", "F6", "pending", "e777412c33cb"),
+    ("spec/conformance/S3-view-conformance-profile.md", "DELETE", "F6", "pending", "848787138c0a"),
+    ("spec/conformance/S4-view-conformance-profile.md", "DELETE", "F6", "pending", "2f9844848c75"),
+    ("spec/conformance/S5-view-conformance-profile.md", "DELETE", "F6", "pending", "a18fc00369d6"),
+    ("spec/Pattern-StatefulComponents.md", "REPLACE", "F4", "pending", "e232b5a8db68"),
+    ("spec/api-manifest.edn", "REPLACE", "F6", "pending", "ff8cf18cdb8e"),
+    ("spec/api-manifest-metadata.edn", "REPLACE", "F6", "pending", "74ace6c6586b"),
     # Donor consumers in the implementation tree
-    "implementation/ssr/deps.edn",
-    "implementation/ssr/src/re_frame/ssr/ui_tree.cljc",
-    "implementation/ssr/test/re_frame/ssr/emit_ui_tree_cljs_test.cljc",
-    "implementation/ssr/test/re_frame/ssr/render_static_jvm_test.clj",
-    "implementation/ssr/test/re_frame/ssr/root_manifest_cljs_test.cljc",
-    "implementation/ssr/test/re_frame/ssr/hydrate_root_seam_dom_cljs_test.cljs",
-    "implementation/ssr/test/re_frame/ssr/*_hydration_dom_cljs_test.cljs",
-    "implementation/ssr/test/re_frame/ssr/client_only_adoption_verification_dom_cljs_test.cljs",
-    "implementation/adapters/reagent/test/re_frame/observation_port_watchable_host_*",
-    "implementation/core/test/re_frame/elision_probe.cljs",
-    "implementation/scripts/api-manifest/deps.edn",
-    "implementation/scripts/api-manifest/src/re_frame/api_manifest/gen.clj",
-    "implementation/scripts/api-manifest/src/re_frame/api_manifest/ui_context.clj",
-    "implementation/scripts/api-manifest/test/re_frame/api_manifest/ui_context_test.clj",
-    "implementation/scripts/api-manifest/probe/test/re_frame/api_manifest/cljs_manifest_probe_cljs_test.cljs",
+    ("implementation/ssr/deps.edn", "REPLACE", "F6", "pending", "79eb42ae7504"),
+    ("implementation/ssr/src/re_frame/ssr/ui_tree.cljc", "MOVE", "F5", "pending", "3ec7a438e20b"),
+    ("implementation/ssr/test/re_frame/ssr/emit_ui_tree_cljs_test.cljc", "MOVE", "F5", "pending", "8d1d0fc5a559"),
+    ("implementation/ssr/test/re_frame/ssr/render_static_jvm_test.clj", "MOVE", "F5", "pending", "a435dd3440d5"),
+    ("implementation/ssr/test/re_frame/ssr/root_manifest_cljs_test.cljc", "MOVE", "F5", "pending", "31b3b2b11348"),
+    ("implementation/ssr/test/re_frame/ssr/hydrate_root_seam_dom_cljs_test.cljs", "MOVE", "F5", "pending", "26434a6dd857"),
+    ("implementation/ssr/test/re_frame/ssr/*_hydration_dom_cljs_test.cljs", "MOVE", "F5", "pending", "0fc7d5430c4d"),
+    ("implementation/ssr/test/re_frame/ssr/client_only_adoption_verification_dom_cljs_test.cljs", "MOVE", "F5", "pending", "8c921392cb3a"),
+    ("implementation/adapters/reagent/test/re_frame/observation_port_watchable_host_*", "MOVE", "F2", "pending", "c7c9653fd07d"),
+    ("implementation/core/test/re_frame/elision_probe.cljs", "MOVE", "F3", "pending", "4c7317c3739e"),
+    ("implementation/scripts/api-manifest/deps.edn", "REPLACE", "F6", "pending", "65e0ee7c2246"),
+    ("implementation/scripts/api-manifest/src/re_frame/api_manifest/gen.clj", "REPLACE", "F6", "pending", "1ee130e5fe62"),
+    ("implementation/scripts/api-manifest/src/re_frame/api_manifest/ui_context.clj", "MOVE", "F6", "pending", "12bb8070446c"),
+    ("implementation/scripts/api-manifest/test/re_frame/api_manifest/ui_context_test.clj", "MOVE", "F6", "pending", "9a47866c59c4"),
+    ("implementation/scripts/api-manifest/probe/test/re_frame/api_manifest/cljs_manifest_probe_cljs_test.cljs", "MOVE", "F6", "pending", "181336a9eb9a"),
     # Donor consumers in tools
-    "tools/story/deps.edn",
-    "tools/story/src/re_frame/story/late_bind.cljc",
-    "tools/story/src/re_frame/story/sub_overrides.cljc",
-    "tools/story/src/re_frame/story/play/*",
-    "tools/story/test/re_frame/story/play/presence_*",
-    "tools/story/test/re_frame/story/view_tool*",
-    "tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs",
-    "tools/story/spec/017-Testing-Story.md",
-    "tools/xray/deps.edn",
-    "tools/xray/src/day8/re_frame2_xray/viewcell_evidence.cljs",
-    "tools/xray/src/day8/re_frame2_xray/panels/reactive_panel_*",
-    "tools/xray/test/day8/re_frame2_xray/viewcell_evidence_cljs_test.cljs",
-    "tools/xray/test/day8/re_frame2_xray/realworld_ui_evidence_cljs_test.cljs",
-    "tools/xray/spec/*",
-    "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/view_tool.cljs",
-    "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_data.cljs",
-    "tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md",
-    "tools/template/resources/day8/re_frame2_template/_ui/*",
-    "tools/template/resources/day8/re_frame2_template/template.edn",
-    "tools/template/spec/001-Substrate-Variants.md",
-    "tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs",
+    ("tools/story/deps.edn", "REPLACE", "F6", "pending", "9ca9efb629bf"),
+    ("tools/story/src/re_frame/story/late_bind.cljc", "MOVE", "F6", "done", "754225ca13cf"),
+    ("tools/story/src/re_frame/story/sub_overrides.cljc", "MOVE", "F6", "done", "65532cc30107"),
+    ("tools/story/src/re_frame/story/play/*", "MOVE", "F6", "done", "f2bd1bf6df92"),
+    ("tools/story/test/re_frame/story/play/presence_*", "MOVE", "F6", "done", "603de82ce991"),
+    ("tools/story/test/re_frame/story/view_tool*", "MOVE", "F6", "pending", "25d9617d624a"),
+    ("tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs", "MOVE", "F6", "pending", "ba1231b272dd"),
+    ("tools/story/spec/017-Testing-Story.md", "REPLACE", "F6", "done", "d7f678dfea68"),
+    ("tools/xray/deps.edn", "REPLACE", "F6", "done", "f7b3b33b3cd0"),
+    ("tools/xray/src/day8/re_frame2_xray/viewcell_evidence.cljs", "MOVE", "F6", "done", "6aeeca6ce820"),
+    ("tools/xray/src/day8/re_frame2_xray/panels/reactive_panel_*", "MOVE", "F6", "done", "323edaa0ffcb"),
+    ("tools/xray/test/day8/re_frame2_xray/viewcell_evidence_cljs_test.cljs", "MOVE", "F6", "done", "5ec48031d9e8"),
+    ("tools/xray/test/day8/re_frame2_xray/realworld_ui_evidence_cljs_test.cljs", "MOVE", "F6", "done", "54bdc11b6bb4"),
+    ("tools/xray/spec/*", "REPLACE", "F6", "done", "87eab5634977"),
+    ("tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/view_tool.cljs", "MOVE", "F6", "done", "c37f1891e291"),
+    ("tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_data.cljs", "REPLACE", "F6", "done", "58b52fe9c2a5"),
+    ("tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md", "REPLACE", "F6", "done", "1e69ab190be4"),
+    ("tools/template/resources/day8/re_frame2_template/_ui/*", "DELETE", "F6", "done", "92bda2754c28"),
+    ("tools/template/resources/day8/re_frame2_template/template.edn", "REPLACE", "F6", "done", "ad4767626464"),
+    ("tools/template/spec/001-Substrate-Variants.md", "REPLACE", "F6", "done", "81274dc38ea0"),
+    ("tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs", "MOVE", "F6", "done", "033a5e3fef9a"),
     # Donor consumers in examples and testbeds
-    "examples/ui/minimal-counter/*",
-    "examples/real-apps/realworld_resources/ui_*",
-    "tools/xray/testbeds/feature_matrix/scenarios.cjs",
+    ("examples/ui/minimal-counter/*", "MOVE", "F6", "done", "d9615436daa4"),
+    ("examples/real-apps/realworld_resources/ui_*", "MOVE", "F6", "pending", "793d19c87013"),
+    ("tools/xray/testbeds/feature_matrix/scenarios.cjs", "MOVE", "F6", "done", "aee6392288ce"),
     # Donor material in docs and skills
-    "docs/core/re-frame.ui/*",
-    "docs/core/how-to/install-re-frame-ui.md",
-    "docs/core/how-to/measure-before-paint.md",
-    "docs/core/views.md",
-    "docs/api/re-frame.ui*.md",
-    "skills/re-frame2-ui/*",
-    "skills/reagent-migration/*",
-    "`mkdocs.yml`",
+    ("docs/core/re-frame.ui/*", "MOVE", "F6", "done", "462cc68d1e66"),
+    ("docs/core/how-to/install-re-frame-ui.md", "MOVE", "F6", "done", "b723098a7b05"),
+    ("docs/core/how-to/measure-before-paint.md", "MOVE", "F6", "done", "13379c22a78c"),
+    ("docs/core/views.md", "REPLACE", "F6", "done", "b6754744e01e"),
+    ("docs/api/re-frame.ui*.md", "REPLACE", "F6", "pending", "41cb3ac71378"),
+    ("skills/re-frame2-ui/*", "MOVE", "F6", "pending", "481d8435ce29"),
+    ("skills/reagent-migration/*", "REPLACE", "F6", "done", "a54409beb4e3"),
+    ("`mkdocs.yml`", "REPLACE", "F6", "pending", "833321ec2976"),
 )
 
 

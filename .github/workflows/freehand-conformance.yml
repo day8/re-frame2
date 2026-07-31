@@ -1,7 +1,7 @@
 name: freehand-conformance
 
-# Gates for the two Freehand ledgers that have to stay honest: the
-# executable-law addressing scheme, and the donor-deletion inventory.
+# Gates for the two Freehand ledgers that have to stay honest: the live
+# executable-law addressing scheme, and the archived donor inventory.
 #
 # Freehand proves its interpreted/compiled + React/JVM/SSR parity row by row.
 # Each law carries a permanent `FH-<AREA>-<NNN>` id and the index at
@@ -46,43 +46,48 @@ name: freehand-conformance
 # both `--verbose` and `--report`.
 #
 # The self-test runs BEFORE the live scan, in the repo-wide house style: the
-# index is empty at establishment, and a validator that has only ever been run
+# index was empty at establishment, and a validator that has only ever been run
 # against an empty index has not been tested. The self-test drives one
 # deliberately broken fixture index per defect shape and fails if any of them
 # passes.
 #
-# THE DONOR INVENTORY rides the same job. spec/conformance/freehand/donor-
-# inventory.md is what the absorption-completeness gate reads before the
-# standalone re-frame.ui artifact is deleted, and a deletion gate that can
-# silently shrink is worse than no gate — it produces a confident wrong answer
-# at exactly the moment it matters. Its checker censuses live donor consumers
-# across the whole working tree, which is why it belongs on this unfiltered job
-# rather than a path-filtered one: a `re-frame.ui` require added anywhere in the
-# repo is precisely what it is looking for. Stdlib Python, ~1 second.
+# THE DONOR INVENTORY rides the same job, and is now an ARCHIVE.
+# spec/conformance/freehand/donor-inventory.md was the work-ledger of the
+# Freehand absorption programme; EP-0036 was withdrawn on 2026-07-30, so the
+# file is a snapshot of where absorption stood on the day the programme stopped
+# and `pending` records only that a row was undisposed then. Its checker was
+# converted with it (rf2-lrtwj): the three arms that compared the ledger against
+# the working tree — the donor-tree partition, the live-consumer census, the
+# stale-row scan — are gone, because each enforced a rule about today's code
+# through the historical statuses of a withdrawn programme. What runs here is a
+# snapshot-integrity check that reads nothing but the ledger: no row deleted, no
+# row added, and no pinned row's disposition, slice, status or description
+# drifted. An archive that can quietly shrink or be edited is worse than no
+# archive. Stdlib Python, well under a second.
 #
 # The job id and display name stay `index` / `Freehand conformance index` even
-# though the job now proves two ledgers: that string is the status context the
+# though the job proves two ledgers: that string is the status context the
 # branch ruleset requires, and renaming it would silently drop the requirement.
 
 on:
   # BOTH triggers are intentionally UNFILTERED. The PR one for the
-  # REQUIRED-CHECK SHAPE above; the push one because neither checker has a
+  # REQUIRED-CHECK SHAPE above; the push one because the index checker has no
   # filterable read universe (rf2-kx06s).
   #
   # `check_freehand_conformance_index.py` scans every `spec/**/*.md` for `FH-*`
   # citations and resolves each index citation against its target canonical
-  # spec file, so deleting a cited anchor anywhere under `spec/` can red it.
-  # `check_donor_inventory.py` is worse: it runs `git ls-files` and censuses
-  # tracked text across the WHOLE working tree for `re-frame.ui` libspecs and
-  # `day8/re-frame2-ui` coordinates — a donor consumer added at any tracked
-  # path is precisely what it is looking for (this file said so in the DONOR
-  # INVENTORY paragraph below while the push trigger still carried a filter).
-  # An inclusive filter over those two universes is the whole repository, so
-  # the honest spelling of it is no filter at all: a direct push to main that
-  # can change either checker's result always schedules the job. It is one
-  # ~30-second Python job and it already runs unfiltered on every PR, so
-  # dropping the filter costs main pushes nothing they were not already paying
-  # one merge earlier.
+  # spec file, so deleting a cited anchor anywhere under `spec/` can red it. An
+  # inclusive filter over that universe is the whole of `spec/`, and the honest
+  # spelling of it is no filter at all: a direct push to main that can change
+  # the checker's result always schedules the job. It is one ~30-second Python
+  # job and it already runs unfiltered on every PR, so dropping the filter costs
+  # main pushes nothing they were not already paying one merge earlier.
+  #
+  # The donor snapshot check no longer widens that universe — since rf2-lrtwj it
+  # reads one file. Its census of the whole working tree, which is why the push
+  # filter came off in the first place, went with the withdrawn programme. The
+  # index checker alone still justifies the unfiltered trigger, so nothing here
+  # changes.
   push:
     branches: [main]
   pull_request:
@@ -120,10 +125,15 @@ jobs:
       - name: Validate the Freehand conformance index
         run: python scripts/check_freehand_conformance_index.py --verbose
 
-      # Same order and the same reason: a coverage gate that has only ever run
-      # against a ledger it already passes has not been tested.
-      - name: Self-test the donor-inventory gate
+      # Same order and the same reason: a check that has only ever run against a
+      # ledger it already passes has not been tested. Its fixtures drive one
+      # deliberately mutated archive per defect shape — row removed, row added,
+      # status flipped, disposition changed, description rewritten, identity
+      # duplicated — and fail if any of them passes.
+      - name: Self-test the donor-inventory snapshot check
         run: python scripts/check_donor_inventory.py --self-test --verbose
 
-      - name: Validate the donor inventory
-        run: python scripts/check_donor_inventory.py --ci --report
+      # Prints the population it verified, so a green here is never a silent
+      # `0 of 0`.
+      - name: Check the archived donor-inventory snapshot
+        run: python scripts/check_donor_inventory.py --ci

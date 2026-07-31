@@ -5,11 +5,10 @@
 > column contracts, the applicability grammar, and the status vocabulary are
 > defined in [README.md](README.md) — read it before adding a row.
 
-The index is the single roster of Freehand laws. It is empty at establishment
-and grows one row at a time: each slice that lands a contract appends its own
-rows to its own area section, in the same change as the spec paragraph each row
-cites. Nothing here is normative — every row is an address into `spec/`, plus
-the fixture that proves the paragraph it names.
+The index is the single roster of Freehand laws. A row lives in its own area
+section and lands in the same change as the spec paragraph it cites. Nothing
+here is normative — every row is an address into `spec/`, plus the fixture that
+proves the paragraph it names.
 
 Row shape, for reference — a template, not an allocation:
 
