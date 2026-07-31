@@ -34,7 +34,6 @@
             [re-frame.bench.hicasso.arm2.controlled :as controlled]
             [re-frame.bench.hicasso.arm2.grid-witness :as grid]
             [re-frame.bench.hicasso.arm2.runtime :as rt]
-            [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -117,9 +116,9 @@
             (.focus n)
             (rt/reset-stats!)
             (type-into! n "x")
-            (is (= 1 (:body-runs @rt/stats))
+            (is (= 1 (:body-runs (rt/stats)))
                 (str "one boundary body ran, not " grid/cells))
-            (is (= 1 (:dirty-boundaries @rt/stats))
+            (is (= 1 (:dirty-boundaries (rt/stats)))
                 "and the index named exactly one dirty boundary")))))))
 
 ;; ---------------------------------------------------------------------------
@@ -164,7 +163,7 @@
                 "and the renderer took it off the screen — this is the obligation")
             (is (= [2 2] (controlled/caret n))
                 "the caret sits where it was before the refused character")
-            (is (zero? (:dirty-boundaries @rt/stats))
+            (is (zero? (:dirty-boundaries (rt/stats)))
                 "and the restore happened with NO boundary re-run at all — a
                  renderer that only writes what changed would have written nothing")))))))
 

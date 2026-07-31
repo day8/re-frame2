@@ -143,13 +143,16 @@
 
 (deftest an-equal-but-fresh-subtree-is-also-cut
   (testing "structural sharing is a bonus, not the mechanism — a rebuilt but
-           `=` subtree bails just the same"
+           `=` subtree bails just the same. The seq child keeps the parent
+           out of tier 1, so the `=` this test takes is tier 2's."
     (if-not (browser?)
       (is true off-browser)
-      (let [[c patch!] (render! [:div [:span {:class "a"} "same"]])
+      (let [[c patch!] (render! [:div (list [:span {:class "a"} "same"])])
             span       (.-firstChild (.-firstChild c))
             text       (.-firstChild span)]
-        (patch! [:div [:span {:class (str "a")} (str "same")]])
+        ;; `subs` mints strings that are `=` but not `identical?` to the
+        ;; literals above — which is the point of this test.
+        (patch! [:div (list [:span {:class (subs "za" 1)} (subs "xsame" 1)])])
         (is (identical? span (.-firstChild (.-firstChild c))))
         (is (identical? text (.-firstChild span)))
         (.remove c)))))
@@ -165,8 +168,10 @@
       (template/reset-plans!)
       (let [[c] (render! [:ul (for [i (range 50)]
                                 [:li.row {:key i :data-i i} [:span.cell (str i)]])])]
-        (is (= 2 (template/plan-count))
-            "one plan for the row and one for the cell — not one per instance")
+        (is (= 1 (template/plan-count))
+            "ONE plan for fifty rows — and the row's plan covers its span, so
+             the nested element does not get a plan of its own; the `:ul`
+             refuses one because its child list is a seq")
         (is (= 50 (count (kids (.-firstChild c)))))
         (.remove c)))))
 

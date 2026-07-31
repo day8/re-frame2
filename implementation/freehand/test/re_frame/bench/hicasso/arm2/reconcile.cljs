@@ -139,7 +139,17 @@
       (positional-plan old-n new-n)
       (let [by-key   (index-by-key old-keys)
             ;; reused[j] = the old position new child j reuses, or nil.
-            reused   (mapv (fn [k] (when (some? k) (get by-key k))) new-keys)
+            ;; An old position is consumed at most ONCE: a key duplicated on
+            ;; the new side would otherwise have two children claiming one
+            ;; node, which is the same fight `index-by-key` settles on the
+            ;; old side.
+            reused   (loop [j 0 acc (transient []) used #{}]
+                       (if (>= j new-n)
+                         (persistent! acc)
+                         (let [k (nth new-keys j)
+                               i (when (some? k) (get by-key k))
+                               i (when (and (some? i) (not (used i))) i)]
+                           (recur (inc j) (conj! acc i) (if i (conj used i) used)))))
             taken    (into #{} (keep identity) reused)
             removes  (into [] (remove taken) (range old-n))
             stable   (lis-positions reused)

@@ -24,7 +24,7 @@
 (deftest lis-finds-a-longest-run
   (is (= #{0 1 2} (rc/lis-positions [0 1 2])))
   (is (= 1 (count (rc/lis-positions [2 1 0]))) "a full reversal has no run longer than one")
-  (is (= 4 (count (rc/lis-positions [0 8 1 2 3 9]))))
+  (is (= 5 (count (rc/lis-positions [0 8 1 2 3 9]))) "0 1 2 3 9 — the 8 is the odd one out")
   (is (= #{} (rc/lis-positions [])))
   (is (= #{} (rc/lis-positions [nil nil])) "a mount is never part of a stable run")
   (is (= #{1 3} (rc/lis-positions [nil 0 nil 5]))))
