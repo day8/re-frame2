@@ -211,7 +211,15 @@
   render's dynamic extent has unwound. It is captured rather than
   *required*, so a callback that never returns an intent is legal with no
   frame in scope; returning one there is the loud error, and it names the
-  position."
+  position.
+
+  **The census-weighted policy defaults do NOT apply here, deliberately.**
+  `:on-submit`'s auto-prevent is a property of the *data* spelling: an
+  intent vector never sees the event, so the runtime must decide for it.
+  A callback is handed the event, so the event is the callback's — it
+  calls `.preventDefault` itself, and the runtime does not reach in after
+  the body has run to second-guess it. One rule: whoever holds the event
+  owns it."
   [k f]
   (let [dispatch *dispatch*]
     (fn hicasso-event-callback [e]

@@ -92,6 +92,11 @@ not the call.
 
 You never pick a form. There is one, and where you put it is the decision.
 
+One thing the policy defaults above do *not* do: **`h/fn` at `:on-submit` does not
+auto-prevent.** That default exists because an intent vector never sees the event,
+so the runtime has to decide for it. A callback is handed the event, so the event
+is yours — call `.preventDefault` in the body. Whoever holds the event owns it.
+
 ## Policy defaults the runtime owns
 
 Two things a form does every single time, and every codebase reimplements badly.
