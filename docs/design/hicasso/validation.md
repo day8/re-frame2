@@ -112,18 +112,36 @@ layer actually has to beat.**
 
 **The UIx line was restated on 2026-07-31** (Mike's ruling, option (a),
 `rf2-e3flf`). It stood at 3,552 B/read while it was sourced from the reads
-ladder, which measured a spine two production landings ago: `rf2-2rtt6.13`
-(`9df5094816`) stopped retaining a disposed render-phase reaction, worth 769 B
-per unique query key and so 769 B per read where Q = E, and `rf2-2rtt6.25`
-(`f784ab0adb`) removed the cold read's double build. A gate measured on a spine
-that no longer ships is looser than the tree warrants, which is the unsafe
-direction for a gate, so the line was restated rather than stamped historical.
-It is now the sum of the two terms the fan-out sweep priced after both landings
-— per-edge 1,345 B [1,327–1,396] plus per-unique-key 1,590 B [1,525–1,659] —
-and three checks the derivation did not use agree with it: the sweep's held-out
-two-point rung, the ladder's own slope less `.13`'s term, and the spine
-decomposition's post-fix reading. The working is in
+ladder, which measured a spine one heap-moving production landing ago:
+`rf2-2rtt6.13` (`9df5094816`) stopped retaining a disposed render-phase
+reaction, worth 769 B per unique query key and so 769 B per read where Q = E.
+A gate measured on a spine that no longer ships is looser than the tree
+warrants, which is the unsafe direction for a gate, so the line was restated
+rather than stamped historical.
+
+**What the restated line rests on.** Its primary source is a **direct two-point
+contrast** on the fan-out sweep, taken in this gate's own Q = E regime:
+`R2Q2B − R1Q1` reads 2,887 B/read at B = 1,200 and 2,970 B/read at B = 300,
+mean 2,929 B — no model required. The sweep's additive decomposition (per-edge
+1,345 B [1,327–1,396] plus per-unique-key 1,590 B [1,525–1,659] = 2,935 B) lands
+0.2% away and is what makes the line *interpretable*. **The two are not
+independent evidence**: they come from one run on one instrument and share the
+`R1Q1` observation, and the sweep's model verdict itself depends on `R2Q2B`
+through a mandatory admissibility check, so no rung was held out of anything.
+Two readings from *other* instruments agree in the same direction — the ladder's
+own slope less `.13`'s term (2,783 B/read) and the spine decomposition's
+post-fix reading (2,774 B/read scaled) — and the ~5% between the instruments is
+the offset the next paragraph governs. The working, and the withdrawn
+independence claim, are in
 [the reads ladder](studio/reads-per-boundary-heap-ladder.md#5-what-this-hands-the-programme).
+
+**`rf2-2rtt6.25` is not part of this.** It landed in the same window
+(`f784ab0adb`) and is an ancestor of the sweep's tree, but its single-build
+benefit was measured under a forced synchronous commit; the audit of PR #7305
+drove the shipped bare `createRoot().render` path and measured 2N. **No
+retained-heap delta from it is established**, so no gate line here is
+attributed to it and the public-schedule question stays with its open owner,
+`rf2-2rtt6.25`.
 
 **Reagent's line did not move.** Neither landing goes near the ratom path, and
 the sweep's own post-landing reading of the Reagent slope straddles the
