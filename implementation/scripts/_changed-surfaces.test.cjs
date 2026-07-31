@@ -3111,9 +3111,10 @@ test('the freehand conformance INDEX arms the lanes that execute its rows (rf2-4
 
 test('freehand conformance PROSE is not the index — no over-broadening (rf2-drpa3.66, rf2-49upn)', () => {
   // The route is the fixtures root plus the index, NOT
-  // spec/conformance/freehand/**. donor-inventory.md is a different ledger —
-  // check_donor_inventory.py censuses live re-frame.ui consumers across the
-  // working tree, which no Freehand suite asserts on. README.md is the
+  // spec/conformance/freehand/**. donor-inventory.md is a different ledger: an
+  // archive of the withdrawn absorption programme, and check_donor_inventory.py
+  // is a snapshot-integrity check reading that one file and nothing else
+  // (rf2-lrtwj), so it cannot observe a source change at all. README.md is the
   // document that DEFINES the addressing scheme: it speaks in illustrative ids
   // and is excluded from the census's own citation scan for that reason.
   // Neither can change what a lane proves, so neither pays for three lanes.
