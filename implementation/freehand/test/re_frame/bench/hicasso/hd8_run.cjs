@@ -376,9 +376,21 @@ function crossRun(runs) {
       // figure cannot leave the table without the name of its band.
       const cSummary = c && c.verdict === 'corrected' ? c.summaryCorrected || {} : {};
       const cH2h = c && c.verdict === 'corrected' ? c.headToHeadCorrected || {} : {};
+      // AN UNPUBLISHED ORIGINAL HAS NO CORRECTED BAND, and the table holds
+      // that line itself rather than trusting the export: the correction
+      // rebuilds its bands from per-round timings that are retained even for
+      // an arm whose writes failed their DOM read-back, and this table
+      // printed `1.200 – 1.300 [CORRECTED]` directly beneath `UNPUBLISHED
+      // (1/78 unverified)` for the SAME arm (rf2-b69lw, from the PR #7295
+      // audit). A failed read-back has NO publishable timing — corrected or
+      // not — so the original's publication mask decides both lines. A
+      // marker arriving in the corrected band itself is refused the same
+      // way: `band(marker)` would print UNPUBLISHED twice, and twice is not
+      // a figure either.
+      const correctedBand = (v, cv) => (v.unpublished || !cv || cv.unpublished ? null : cv);
       for (const [arm, v] of Object.entries(s.vsFloor)) {
         if (arm === 'floor') continue;
-        const cv = cSummary[arm];
+        const cv = correctedBand(v, cSummary[arm]);
         out.push(
           `;;     [${run.id.padEnd(7)}] ${arm.padEnd(14)} vs floor   ${band(v)}${cv ? '  [UNADJUSTED]' : ''}${mark}`
         );
@@ -387,7 +399,7 @@ function crossRun(runs) {
         }
       }
       for (const [pair, v] of Object.entries(s.headToHead)) {
-        const cv = cH2h[pair];
+        const cv = correctedBand(v, cH2h[pair]);
         out.push(
           `;;     [${run.id.padEnd(7)}] ${pair.padEnd(26)}  ${band(v)}${cv ? '  [UNADJUSTED]' : ''}${mark}`
         );
@@ -398,6 +410,62 @@ function crossRun(runs) {
     }
   }
   return out;
+}
+
+// The corrected-table fixture (rf2-b69lw, from the PR #7295 audit) — the
+// EXACT REACHABLE SHAPE, replayed through the live `crossRun` before
+// anything is measured, the same argument as `guard.selfTest()`: a refusal
+// nobody has watched fire is not a refusal, and this polarity fires only
+// when a run both fails a read-back AND resolves a yield correction, which
+// no live run can be relied on to do. The fixture's export deliberately
+// carries a numeric corrected band for the unpublished arm — the very
+// shape the pre-repair pipeline produced — so the check pins the TABLE's
+// own refusal, independent of the CLJS-side mask upstream of it.
+function tableSelfTest() {
+  const runs = [
+    {
+      id: 'slim',
+      summary: {
+        'write-narrow': {
+          vsFloor: {
+            floor: { min: 1.0, max: 1.0, straddles1: true },
+            'reagent-slim': { unpublished: 'failed-dom-read-back', unverified: 1, of: 78 },
+            'donor-r1': { min: 2.0, max: 2.0, straddles1: false },
+          },
+          headToHead: {},
+        },
+      },
+      correction: {
+        'write-narrow': {
+          verdict: 'corrected',
+          reason: null,
+          bound: 0.1,
+          why: 'fixture — the PR #7295 audit shape',
+          summaryCorrected: {
+            'reagent-slim': { min: 1.2, max: 1.3, straddles1: false },
+            'donor-r1': { min: 2.2, max: 2.3, straddles1: false },
+          },
+          headToHeadCorrected: {},
+        },
+      },
+    },
+  ];
+  const out = crossRun(runs).join('\n');
+  const checks = [
+    {
+      name: 'an UNPUBLISHED original grows neither a [CORRECTED] band nor an [UNADJUSTED] label',
+      ok: !/reagent-slim.*\[CORRECTED\]/.test(out) && !/reagent-slim.*\[UNADJUSTED\]/.test(out),
+    },
+    {
+      name: 'the UNPUBLISHED marker itself still prints, with its counts',
+      ok: /reagent-slim\s+vs floor\s+UNPUBLISHED \(1\/78 unverified\)/.test(out),
+    },
+    {
+      name: 'a published arm still prints BOTH labelled bands',
+      ok: /donor-r1.*2\.000 – 2\.000.*\[UNADJUSTED\]/.test(out) && /donor-r1.*2\.200 – 2\.300.*\[CORRECTED\]/.test(out),
+    },
+  ];
+  return { ok: checks.every((c) => c.ok), checks };
 }
 
 // ---------------------------------------------------------------------------
@@ -415,6 +483,22 @@ function crossRun(runs) {
   }
   if (!st.ok) {
     console.error('[hd8] the arm-order guard failed its own self-test; nothing was measured');
+    process.exit(1);
+  }
+
+  // The corrected-table fixture, enforced with the same standing: a table
+  // that would let a corrected band leave without its original's
+  // publication mask may print nothing at all.
+  const ts = tableSelfTest();
+  console.log(';; ==== HD8 CORRECTED-TABLE SELF-TEST ====');
+  for (const c of ts.checks) {
+    console.log(`;;   ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}`);
+  }
+  if (!ts.ok) {
+    console.error(
+      '[hd8] the cross-run table failed its own corrected-band fixture — a figure the DOM ' +
+        'read-back unpublished could leave the table as [CORRECTED]; nothing was measured'
+    );
     process.exit(1);
   }
 

@@ -892,6 +892,39 @@
                                                       :predecessor (some-> (:prev a) name)
                                                       :position    p}))))))))))))))
 
+(defn- mask-failed-read-backs
+  "Apply the DOM-read-back publication mask to one write row's published
+  surfaces, and answer the row.
+
+  AN ARM WHOSE WRITES DID NOT REACH THE DOM HAS NO FIGURE. Its clock
+  readings are real milliseconds and they are measuring a page that never
+  changed — which is the cheapest possible way to be fast and the exact
+  fault the read-back exists to catch. So `:summary` carries
+  `:unpublished` in that arm's place rather than a number a reader could
+  quote, and every head-to-head pair touching it is dropped.
+
+  Named rather than inlined in [[measure-write!]] so the self-test's
+  fixture rows are masked by the instrument's own rule, never by a
+  hand-written approximation that could drift from it (rf2-b69lw, from
+  the PR #7295 audit)."
+  [{:keys [unverified writes] :as row}]
+  (let [bad (into #{} (comp (filter (fn [[_ n]] (pos? n))) (map key)) unverified)]
+    (-> row
+        (update :summary
+                (fn [m]
+                  (reduce (fn [acc arm]
+                            (assoc acc arm {:unpublished :failed-dom-read-back
+                                            :unverified  (get unverified arm)
+                                            :of          (get writes arm)}))
+                          m
+                          bad)))
+        (update :head-to-head
+                (fn [m]
+                  (into {}
+                        (remove (fn [[k _]]
+                                  (some #(re-find (re-pattern (name %)) (name k)) bad)))
+                        m))))))
+
 (defn measure-write!
   "`rounds` interleaved rounds of the write clock, `kind` ∈ `#{:narrow
   :bulk}`. Answers a promise of the published record."
@@ -910,46 +943,29 @@
                                :position   (:position r)})))))
         (.then (fn [acc]
                  (release-write-arms! mounts)
-                 (let [bad (into #{} (comp (filter (fn [[_ n]] (pos? n))) (map key))
-                                 (:unverified acc))
-                       publishable (fn [m]
-                                     (reduce (fn [acc' arm]
-                                               (assoc acc' arm
-                                                      {:unpublished :failed-dom-read-back
-                                                       :unverified  (get (:unverified acc) arm)
-                                                       :of          (get (:total acc) arm)}))
-                                             m
-                                             bad))]
-                 {:witness    (keyword (str "U-" (name kind)))
-                  :doc        (if (= kind :bulk)
-                                "all 300 cells written in ONE commit — bulk view work"
-                                (str narrow-batch-k " single-cell writes into a 300-cell "
-                                     "grid, each its own commit, all inside ONE timed "
-                                     "window — the narrow-write path. The per-write "
-                                     "figure is the sample divided by " narrow-batch-k))
-                  ;; Stated on the row, because a reader comparing this
-                  ;; against the pre-rf2-9zysg numbers is comparing two
-                  ;; different windows and has to be told so.
-                  :writes-per-sample (if (= kind :bulk) 1 narrow-batch-k)
-                  :arms       (vec arm-ids)
-                  :per-round  (:rounds-out acc)
-                  ;; AN ARM WHOSE WRITES DID NOT REACH THE DOM HAS NO FIGURE.
-                  ;; Its clock readings are real milliseconds and they are
-                  ;; measuring a page that never changed — which is the
-                  ;; cheapest possible way to be fast and the exact fault the
-                  ;; read-back exists to catch. So the summary carries
-                  ;; `:unpublished` in that arm's place rather than a number a
-                  ;; reader could quote, and every head-to-head pair touching
-                  ;; it is dropped.
-                  :summary    (publishable (lane/across-rounds (mapv :ratio (:rounds-out acc))))
-                  :head-to-head (into {}
-                                      (remove (fn [[k _]]
-                                                (some #(re-find (re-pattern (name %)) (name k))
-                                                      bad)))
-                                      (head-to-head (:rounds-out acc)))
-                  :unverified (:unverified acc)
-                  :writes     (:total acc)
-                  :samples    (:samples acc)})))
+                 ;; The publication mask — an arm whose writes did not reach
+                 ;; the DOM has NO figure — is [[mask-failed-read-backs]]'s,
+                 ;; applied over the raw summary and head-to-head, so the rule
+                 ;; the self-test's fixtures replay is the rule this row ships.
+                 (mask-failed-read-backs
+                  {:witness    (keyword (str "U-" (name kind)))
+                   :doc        (if (= kind :bulk)
+                                 "all 300 cells written in ONE commit — bulk view work"
+                                 (str narrow-batch-k " single-cell writes into a 300-cell "
+                                      "grid, each its own commit, all inside ONE timed "
+                                      "window — the narrow-write path. The per-write "
+                                      "figure is the sample divided by " narrow-batch-k))
+                   ;; Stated on the row, because a reader comparing this
+                   ;; against the pre-rf2-9zysg numbers is comparing two
+                   ;; different windows and has to be told so.
+                   :writes-per-sample (if (= kind :bulk) 1 narrow-batch-k)
+                   :arms       (vec arm-ids)
+                   :per-round  (:rounds-out acc)
+                   :summary    (lane/across-rounds (mapv :ratio (:rounds-out acc)))
+                   :head-to-head (head-to-head (:rounds-out acc))
+                   :unverified (:unverified acc)
+                   :writes     (:total acc)
+                   :samples    (:samples acc)})))
         (.catch (fn [e] (release-write-arms! mounts) (throw e))))))
 
 ;; ===========================================================================
@@ -1123,6 +1139,27 @@
     (< (:max v) 1.0)  :below
     :else             :above))
 
+(defn- inherit-publication-mask
+  "The corrected band for an arm the row's own summary marked
+  `:unpublished` is that marker, never a number (rf2-b69lw, from the
+  PR #7295 audit).
+
+  The correction rebuilds its bands from `:per-round`, which retains
+  every arm's raw timings — including an arm whose writes failed their
+  DOM read-back, whose milliseconds are real and are measuring a page
+  that never changed. Without this, the corrected-band path printed
+  `1.200 – 1.300 [CORRECTED]` directly beneath `UNPUBLISHED (1/78
+  unverified)` for the SAME arm, which defeats the rule that a failed
+  read-back has no publishable timing. The mask is INHERITED from the
+  original summary rather than recomputed, so the two bands cannot
+  disagree about which arms have a figure."
+  [corrected original]
+  (into {}
+        (map (fn [[id v]]
+               (let [o (get original id)]
+                 [id (if (:unpublished o) o v)])))
+        corrected))
+
 (defn yield-correction
   "Adjudicate one write row against the harness-microtask asymmetry, and
   answer a verdict rather than an observation (rf2-b69lw).
@@ -1192,6 +1229,18 @@
   Refusal is not this function's to soften and not the caller's to widen.
   `hd8-app` fails the run on one, exactly as it does on a positive control
   that missed its prediction.
+
+  ## The publication mask survives the correction
+
+  A `:corrected` verdict's bands are rebuilt from `:per-round`, which
+  retains raw timings for EVERY arm — including one whose writes failed
+  their DOM read-back and whose `:summary` entry is therefore the
+  `:unpublished` marker rather than a band. The corrected bands INHERIT
+  that mask ([[inherit-publication-mask]]): the marker stays in the
+  masked arm's place, and a head-to-head pair the mask dropped stays
+  dropped. A correction adjusts a figure the row was entitled to publish;
+  it must never mint one the read-back refused (rf2-b69lw, from the
+  PR #7295 audit).
 
   ## Which reading is subtracted
 
@@ -1268,8 +1317,17 @@
                                 "the harness's turns rather than the arm, so no ratio taken "
                                 "against it may be published — and a corrected value that "
                                 "survives only by a rounding error is not a denominator"))
-          (let [summary'  (lane/across-rounds (mapv :ratio corrected))
-                h2h'      (head-to-head corrected)
+          (let [;; BOTH corrected bands inherit the original row's publication
+                ;; mask ([[inherit-publication-mask]]): an arm UNPUBLISHED for
+                ;; a failed DOM read-back keeps its marker in the corrected
+                ;; summary, and a head-to-head pair the mask dropped stays
+                ;; dropped — the corrected map carries exactly the pairs the
+                ;; original published, never one it withheld.
+                summary'  (inherit-publication-mask
+                            (lane/across-rounds (mapv :ratio corrected))
+                            (:summary row))
+                h2h'      (select-keys (head-to-head corrected)
+                                       (keys (:head-to-head row)))
                 ;; [[side-of-1]] on both ends, and ANY change of state is a
                 ;; crossing. Comparing the `:straddles-1?` booleans is not
                 ;; the same test: a band that leaps the line WHOLE never
@@ -1342,7 +1400,13 @@
   that repair cannot silently come undone. Fixture 7 is not invented
   either: it is the PR #7282 audit's counterexample, the band that crossed
   1.0 WHOLE without flipping `:straddles-1?` at either end, published as
-  0.95x unadjusted and 1.0556x corrected — kept here for the same reason."
+  0.95x unadjusted and 1.0556x corrected — kept here for the same reason.
+  Neither is fixture 8: it is the PR #7295 audit's polarity, an arm
+  UNPUBLISHED for a failed DOM read-back (1 of 78) whose corrected band
+  was rebuilt numeric from the retained `:per-round` timings and printed
+  `1.200 – 1.300 [CORRECTED]` beneath the marker — masked by
+  [[mask-failed-read-backs]] itself, the instrument's own rule, so the
+  fixture cannot drift from what [[measure-write!]] actually applies."
   []
   (let [zero-yc    {:p50 0 :min 0 :max 0 :n 10
                     :batched {:k narrow-batch-k :window-p50 0 :window-max 0 :n 10}}
@@ -1423,7 +1487,40 @@
            {:name "a band that crosses 1.0 WHOLE (no straddle at either end) is REFUSED"
             :ok   (and (= :refused (:verdict v))
                        (= :correction-changes-the-verdict (:reason v)))
-            :detail (str (name (:verdict v)) "/" (some-> (:reason v) name))})]]
+            :detail (str (name (:verdict v)) "/" (some-> (:reason v) name))})
+
+         ;; 8. THE PUBLICATION MASK SURVIVES THE CORRECTION (PR #7295
+         ;;    audit). An arm whose writes failed their DOM read-back is
+         ;;    UNPUBLISHED in the original summary, but its raw timings are
+         ;;    retained in :per-round — and the corrected band, rebuilt from
+         ;;    exactly those timings, printed a number the read-back had
+         ;;    refused: `UNPUBLISHED (1/78 unverified) [UNADJUSTED]` then
+         ;;    `1.200 – 1.300 [CORRECTED]` for the SAME arm. The corrected
+         ;;    summary must carry the marker in that arm's place, the
+         ;;    dropped head-to-head pairs must stay dropped, and a
+         ;;    PUBLISHED arm's corrected band must still be numeric — the
+         ;;    row is masked by [[mask-failed-read-backs]], the rule
+         ;;    [[measure-write!]] itself applies.
+         (let [row  (-> (fixture-row :U-narrow narrow-batch-k
+                                     [:floor :reagent-slim :donor-r1 :donor-r2]
+                                     [{:floor 1.0 :reagent-slim 5.0 :donor-r1 2.0 :donor-r2 3.0}
+                                      {:floor 1.2 :reagent-slim 6.0 :donor-r1 2.4 :donor-r2 3.6}])
+                        (assoc :unverified {:floor 0 :reagent-slim 1 :donor-r1 0 :donor-r2 0}
+                               :writes     {:floor 78 :reagent-slim 78 :donor-r1 78 :donor-r2 78})
+                        mask-failed-read-backs)
+               v    (verdict-of row :slim live-yc)
+               slim (get-in v [:summary-corrected :reagent-slim])
+               d1   (get-in v [:summary-corrected :donor-r1])]
+           {:name "a corrected band inherits its original's publication mask (failed DOM read-back)"
+            :ok   (and (= :corrected (:verdict v))
+                       (= :failed-dom-read-back (:unpublished slim))
+                       (nil? (:min slim))
+                       (number? (:min d1))
+                       (contains? (:head-to-head-corrected v) :donor-r2-over-donor-r1)
+                       (not (contains? (:head-to-head-corrected v) :donor-r1-over-reagent-slim)))
+            :detail (str (name (:verdict v))
+                         " reagent-slim-corrected=" (pr-str slim)
+                         " h2h-corrected=" (pr-str (vec (keys (:head-to-head-corrected v)))))})]]
     {:ok?    (every? :ok checks)
      :checks (mapv (fn [c] (update c :ok boolean)) checks)}))
 

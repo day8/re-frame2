@@ -129,7 +129,15 @@
   this export used to carry the verdict and not the corrected bands, so a
   `:corrected` run announced that both bands publish while the copyable
   table could print only the unadjusted one (rf2-b69lw, from the PR #7282
-  audit)."
+  audit).
+
+  The corrected bands arrive here already wearing the original row's
+  publication mask (`hd8-rows`'s `inherit-publication-mask`): an arm the
+  DOM read-back unpublished carries its `:unpublished` marker in the
+  corrected summary too, and [[pack-bands]] exports the marker exactly as
+  it does for the unadjusted band — one reader, one shape, no numeric
+  band for a figure the read-back refused (rf2-b69lw, from the PR #7295
+  audit). The driver's table holds the same line from its own side."
   [row-name v]
   (let [acc (or (.-HD8_CORRECTION js/window) #js {})
         o   #js {"verdict" (name (:verdict v))
