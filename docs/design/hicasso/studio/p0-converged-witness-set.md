@@ -333,9 +333,9 @@ beside a biased one.
 >
 > Not one row was post-landing, so the whole table needed re-taking rather than
 > just the mount row. **The re-take is [below](#the-re-take-on-the-post-25-tree-rf2-b0tz5)**
-> and it moves exactly one line: **M1 mount, `1.2310×` → `1.0243×`
-> [0.9937 – 1.0549], indistinguishable from parity.** The other three are not
-> distinguishable from their published values at four runs and are **NOT
+> and it moves exactly one line: **M1 mount, `1.2310×` → `1.0150×`
+> [0.9820 – 1.0480], indistinguishable from parity.** The other three are not
+> distinguishable from their published values at five runs and are **NOT
 > restated**. Mike's ruling of 2026-07-31 (option (a), on `rf2-2rtt6.1`) required
 > the re-take to happen on THIS instrument rather than by carrying the coldmount
 > page's post-`.25` figure across, and that is what was done.
@@ -373,7 +373,7 @@ has cleared the threshold.
 > to ±4%. That restored **narrow**, which still stands at `1.1754×`. It also
 > restored **M1**, at `1.2310×` — and [the post-`.25`
 > re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5) has since superseded that
-> in turn at **`1.0243×` [0.9937 – 1.0549]**, which contains 1.0 and so publishes
+> in turn at **`1.0150×` [0.9820 – 1.0480]**, which contains 1.0 and so publishes
 > no direction at all. What is published either way is a magnitude **with an
 > interval**, which is what the measurement supports; a bare four-decimal point
 > never was. **rf2-2rtt6.1's operator hold on quoting `1.2301` is not lifted
@@ -459,26 +459,102 @@ The other five instrument files are **byte-identical** to the ensemble's:
 | **Schedule** | unchanged — 6 rounds × 2 segments × 3 arms interleaved, one row per page, start counterbalanced across independently launched runs |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), `:advanced`, `goog.DEBUG false`, Windows 11 x64, 24 logical CPUs |
 
-#### The quiet discipline, and the one run the guard refused
+#### The quiet discipline, and the launch set in full
 
-Three sibling workers were live on this box throughout. **Every published run
-below was launched into a measured-quiet window** — the `java`/`node` toolchain
-sampled under 30% of one core for three consecutive samples immediately before
-launch — and the pre- and post-run readings are recorded per run.
+Three sibling workers were live on this box throughout. **Every run below was
+launched into a measured-quiet window** — the `java`/`node` toolchain sampled
+under 30% of one core for three consecutive samples immediately before launch —
+and the pre- and post-run readings are recorded per run.
 
-**Three runs did not produce a published row, and all three are reported rather
-than quietly dropped.** None was excused and no tolerance was touched:
+**Seven launches, and the table names all seven.** None was excused and no
+tolerance was touched:
 
-| run | outcome | why |
-|---|---|---|
-| launched at **101%** of a core | **exit 2** — arm-order guard, `narrow` | phase strata **1.37×–1.55×** last-third over first-third across the narrow arms — the signature of a box that degraded mid-run (post-run reading 310%). **Re-taken under quiet** |
-| launched at **0%** | **exit 2** — arm-order guard, `M2` | the *mount-budget* fragility this page already documents — 720 mounts a page refused 4 of 6 for `rf2-6i0i2` too. Not contention, and not new |
-| launched at **0%** | **exit 1** — segment-order control, `M1` | the strata point opposite ways across 1.0 — [discussed below](#the-row-now-sits-so-close-to-parity-that-one-run-could-not-be-given-a-direction), where it is treated as a finding rather than a fault |
+| launch | start | outcome | disposition |
+|---|---|---|---|
+| run 1 | reagent | **exit 0**, launched at 2% | **in the ensemble** |
+| run 2, first attempt | uix | **exit 2** — arm-order guard, `narrow`; launched at **101%** of a core | **out.** Phase strata **1.37×–1.55×** last-third over first-third across the narrow arms — the signature of a box that degraded mid-run (post-run reading 310%). **Re-taken under quiet** |
+| run 2, re-take | uix | **exit 0**, launched at 0% | **in the ensemble** |
+| run 3 | reagent | **exit 0**, launched at 0% | **in the ensemble** |
+| run 4 | uix | **exit 2** — arm-order guard, `M2`; launched at **0%** | **out.** The *mount-budget* fragility this page already documents — 720 mounts a page refused 4 of 6 for `rf2-6i0i2` too. Not contention, and not new |
+| run 5 | reagent | **exit 1** — segment-order control, `M1`; launched at **0%** | **IN the ensemble**, and PR #7315 had it out. All four rows completed; see [below](#the-row-now-sits-so-close-to-parity-that-one-run-could-not-be-given-a-direction) |
+| run 6 | uix | **exit 0**, launched at 0% | **in the ensemble** |
 
-A separate `M1`-only pilot taken under load is likewise excluded from every
-figure here. **The first refusal is the evidence that the quiet bar is doing work
-rather than being asserted**, and the second is the evidence that this
-instrument's known M2 fragility is unchanged by the landings.
+A separate `M1`-only pilot taken under load is excluded from every figure here.
+**The 101% refusal is the evidence that the quiet bar is doing work rather than
+being asserted**, and the `M2` refusal is the evidence that this instrument's
+known mount-budget fragility is unchanged by the landings.
+
+**The inclusion rule, stated because the two refusal kinds are not the same
+kind.** The arm-order guard reads *arm timings by plan position* — whether an arm
+reads differently for where in the plan it was measured. That verdict never looks
+at the `uix ÷ reagent` ratio, so excluding a run for it selects on the
+**instrument's validity**. The segment-order control adjudicates *the ratio's own
+strata*, and refuses when they point opposite ways across 1.0 — so excluding a
+run for it selects on **the result**. Under [the aggregate
+rule](#the-partition-and-what-one-runs-split-can-and-cannot-say) the ensemble
+takes every launched run whose validity gates passed, whatever its strata did.
+**Two launches are out, one is in, and which is which is decided by what the gate
+was looking at.**
+
+#### The observation table
+
+**PR #7315 published only summaries.** It printed a point estimate, a 95%
+interval and a run-mean range per row, plus M1's four run means — and committed
+nothing behind them, which is the gap `rf2-6i0i2` had closed for the ten-run
+ensemble one section above and this section reopened. The intervals that decided
+*not restated* on `M2`, `broad` and `narrow` could not be recomputed from the
+repository.
+
+**The table is below.** Every ensemble figure in this section is now derived from
+it by
+`implementation/freehand/test/re_frame/bench/hicasso/p0_converge_order_cljs_test.cljs`
+rather than asserted here — both the four-run figures PR #7315 published and the
+five-run figures that replace them.
+
+!!! warning "Provenance — recovered, not re-run, and only down to the run mean"
+
+    **Nothing here was measured again.** No browser was opened; measurement is
+    deferred while the adapter is built and five sibling workers were on the box.
+    The producing worktree (`worker/clockline-b0tz5`) was reaped with its
+    `ai/bench-logs/` inside it, so the run logs themselves are gone. What
+    survives is the **producing agent's own transcript**, which captured the
+    driver's console output and the analysis run over those logs verbatim; the
+    cells below are transcribed from it.
+
+    **The unit that survived is the run mean.** The six per-round readings behind
+    each accepted run's mean did **not** survive — except run 5's, which did in
+    full, because the diagnosis of its refusal was captured whole. So every
+    *ensemble*-level figure below is derivable, and the *per-round* counts this
+    section used to print (`14 of 24 rounds above 1.0`, `1 of 8 strata wholly
+    above`) are **not**. They are marked where they appear, and they are not
+    reconstructed.
+
+Each cell is that run's `red-zone :mean` for the row — its six per-round
+`uix-subs ÷ reagent-subs` readings averaged, each reading floor-normalised in its
+own round and segment. **†** marks the run PR #7315 dropped.
+
+| run | start | M1 | M2 | broad | narrow | `M1` legs — `reagent ÷ floor` · `uix ÷ floor` |
+|---|---|---|---|---|---|---|
+| 1 | reagent | 0.9980 | 1.0584 | 0.6316 | 1.2306 | 4.2853 · 4.2723 |
+| 2 | uix | 1.0391 | 0.9685 | 0.5437 | 1.1767 | 4.3457 · 4.5089 |
+| 3 | reagent | 1.0219 | 1.0714 | 0.5538 | 1.3090 | 4.5731 · 4.6673 |
+| 5 **†** | reagent | 0.9780 | 0.9242 | 0.6135 | 1.1291 | 4.6045 · 4.4573 |
+| 6 | uix | 1.0382 | 0.9302 | 0.5102 | 1.1769 | 4.3144 · 4.4687 |
+
+Run 5's four per-round vectors are in the suite too, because its refusal is the
+one thing here that has to be **re-derived rather than quoted**:
+
+| run 5, six rounds | per-round `uix ÷ reagent` |
+|---|---|
+| `M1` | 1.0345 · 0.9749 · 1.0792 · 0.9279 · 1.0459 · 0.8055 |
+| `M2` | 0.8000 · 1.1053 · 0.9584 · 0.7727 · 1.0000 · 0.9091 |
+| `broad` | 0.5938 · 0.6667 · 0.6667 · 0.4675 · 0.5400 · 0.7467 |
+| `narrow` | 1.1780 · 1.1033 · 1.1584 · 1.1559 · 1.1510 · 1.0282 |
+
+The two launches that are **out** produced no ensemble observation and their row
+figures did not survive the reaping. They are **not reconstructed**; what the
+exclusion rests on is the exit code, the refusing row and the load either side,
+and those are in the launch table above.
 
 #### What moved, and the control that says the denominator did not
 
@@ -486,50 +562,83 @@ The restatement rests on a comparison the `rf2-2rtt6.21` finding demands: **the
 bar's own denominator is held fixed and shown to be fixed.** On `M1`, same
 instrument and same author:
 
-| `M1` mount leg | published ensemble *(pre-`.13`/`.25`, 10 runs)* | this re-take *(post-`.25`, 4 runs)* | change |
-|---|---:|---:|---|
-| `reagent-subs ÷ floor` — **the denominator** | **4.358×** | **4.380×** | **+0.5% — unmoved** |
-| `uix-subs ÷ floor` — the frontier numerator | **5.343×** | **4.479×** | **−16.2%** |
-| **ratio** | 5.343 ÷ 4.358 = **1.226** *(published 1.2310)* | 4.479 ÷ 4.380 = **1.023** | **the line moves ≈21 points** |
+| `M1` mount leg | published ensemble *(pre-`.13`/`.25`, 10 runs)* | this re-take *(post-`.25`, 5 runs)* | ~~*4 runs, as PR #7315 had it*~~ | change |
+|---|---:|---:|---:|---|
+| `reagent-subs ÷ floor` — **the denominator** | **4.358×** | **4.425×** | ~~4.380×~~ | **+1.5% — unmoved** |
+| `uix-subs ÷ floor` — the frontier numerator | **5.343×** | **4.475×** | ~~4.479×~~ | **−16.2%** |
+| **ratio** | 5.343 ÷ 4.358 = **1.226** *(published 1.2310)* | 4.475 ÷ 4.425 = **1.011** | ~~4.479 ÷ 4.380 = 1.023~~ | **the line moves ≈21 points** |
 
-Per run, the denominator leg reads `4.2853 · 4.3457 · 4.5731 · 4.3144` and the
-numerator leg `4.2723 · 4.5089 · 4.6673 · 4.4687`.
+Both legs are the mean of the per-run legs in [the observation
+table](#the-observation-table) above, and the suite computes them from it.
 
 **The arithmetic is explicit and it closes.** The published threshold is the
 quotient of two floor-normalised legs; the denominator leg reproduces to within
-**0.5%** while the numerator leg falls **16.2%**, and 4.479 ÷ 4.380 = 1.023
-against the **1.0243** the runs actually report — the small residue being that
-each run's ratio is formed per round and per segment before averaging, not from
-the two means. **So the ≈21-point tightening is a property of the UIx arm, not of
-a drifting baseline** — precisely the failure mode a cross-author bridge could not
-have excluded, and the reason the ruling required a same-instrument re-take.
+**1.5%** while the numerator leg falls **16.2%** — an order of magnitude larger,
+which is the whole point — and 4.475 ÷ 4.425 = 1.011 against the **1.0150** the
+runs actually report, the small residue being that each run's ratio is formed per
+round and per segment before averaging, not from the two means. **So the
+≈21-point tightening is a property of the UIx arm, not of a drifting baseline** —
+precisely the failure mode a cross-author bridge could not have excluded, and the
+reason the ruling required a same-instrument re-take.
 
 #### The restated lines — INSTRUMENT STAMP: converged `p0_converge_app` instrument, `rf2-2rtt6.2` witness family, post-`.25` spine `8d20218fd1`
 
-**Four independently launched six-round runs, start counterbalanced two and
-two**, every one launched into a measured-quiet window, every one exiting 0.
-**0 unverified of 36,864** verified operations; arm-order guard `refuse? false`
-on all 24 row-verdicts; canonical-DOM parity `ok? true` on all 16; every positive
-control inside ±25%. The interval is a Student-t 95% interval on the mean of the
-run means — one-sample, so `n − 1 =` **three** degrees of freedom and
-`t = 3.1824`, the distinction the ensemble's own intervals got wrong and which is
-worked through [below](#the-intervals-are-2-too-wide-and-the-cause-is-an-off-by-one-in-the-degrees-of-freedom).
-**This is four runs against the published line's ten, and the interval is
+**Five independently launched six-round runs**, every one launched into a
+measured-quiet window, every one clearing every validity gate. Across the four
+that exited 0: **0 unverified of 36,864** verified operations, arm-order guard
+`refuse? false` and canonical-DOM parity `ok? true` on all sixteen row-runs,
+every positive control inside ±25%. **Run 5 cleared the same gates, and its exit
+code proves it**: the driver checks page errors, then the arm-order guard (exit
+**2**), then the positive control (exit **1**, a different message), and only
+then the segment-order control. An exit 1 carrying the segment-order message
+means every earlier gate passed on every row. *(Its verification count is one of
+the figures that did not survive the reaping, so it is not quoted.)* The interval
+is a Student-t 95% interval on the mean of the run means — one-sample, so
+`n − 1 =` **four** degrees of freedom and `t = 2.7764`, the distinction the
+ensemble's own intervals got wrong and which is worked through
+[below](#the-intervals-are-2-too-wide-and-the-cause-is-an-off-by-one-in-the-degrees-of-freedom).
+**This is five runs against the published line's ten, and the interval is
 correspondingly wider — it is stated as measured, not padded.**
 
-| witness | published *(pre-landing, 10 runs)* | **re-take, post-`.25` (4 runs)** | 95% CI on the mean | run means | verdict |
-|---|---|---|---|---|---|
-| **M1 mount** — 901 el, 300 bnd · *bar row* | ~~**1.2310×**~~ [1.1989 – 1.2931] | **1.0243×** | **0.9937 – 1.0549** | 0.9980 · 1.0391 · 1.0219 · 1.0382 | **RESTATED — the L1 mount red zone has CLOSED.** The interval contains 1.0 and every run reads `:direction :indistinguishable`. The run-mean spread is **wholly disjoint** from the published one |
-| **M2 mount** — 51 el, 12 fields · *diagnostic* | 1.0601× [0.9561 – 1.1923] | 1.0071× | 0.8978 – 1.1165 | 0.9685 – 1.0714 | **NOT restated** — indistinguishable then, indistinguishable now, still diagnostic |
-| **bulk broad** — one commit all 300 read · *bar row* | 0.6291× [0.5792 – 0.6987] | 0.5598× | 0.4781 – 0.6415 | 0.5102 – 0.6316 | **NOT restated** — the CI contains the published value; UIx faster, all 24 rounds and all 8 strata below 1.0 |
-| **bulk narrow** — 10 commits, one window | 1.1754× [1.1390 – 1.2186] | 1.2233× | 1.1238 – 1.3228 | 1.1767 – 1.3090 | **NOT restated** — the CI contains the published value; UIx slower, all 24 rounds and all 8 strata above 1.0 |
+!!! note "Superseded in place — the four-run figures are the same measurement, differently selected"
+
+    PR #7315 published this table over **four** runs. Its fifth — run 5, launched
+    at measured 0% load, all four rows completed, every validity gate clean —
+    was dropped because the driver exits 1 when a row's two segment-order strata
+    point opposite ways across 1.0. **That is a selection on the result**, and
+    [the aggregate rule](#the-partition-and-what-one-runs-split-can-and-cannot-say)
+    this page already carries says a row-run whose strata split is still one
+    observation. Run 5 is back in; the four-run figures are struck beside the
+    five-run ones rather than deleted; **no verdict moves.**
+
+| witness | published *(pre-landing, 10 runs)* | **re-take, post-`.25` (5 runs)** | 95% CI on the mean | run means | ~~*4 runs, as PR #7315 had it*~~ | verdict |
+|---|---|---|---|---|---|---|
+| **M1 mount** — 901 el, 300 bnd · *bar row* | ~~**1.2310×**~~ [1.1989 – 1.2931] | **1.0150×** | **0.9820 – 1.0480** | 0.9980 · 1.0391 · 1.0219 · 0.9780 · 1.0382 | ~~1.0243× [0.9937 – 1.0549]~~ | **RESTATED — the L1 mount red zone has CLOSED.** The interval contains 1.0. The run-mean spread is **wholly disjoint** from the published one |
+| **M2 mount** — 51 el, 12 fields · *diagnostic* | 1.0601× [0.9561 – 1.1923] | 0.9905× | 0.9035 – 1.0776 | 0.9242 – 1.0714 | ~~1.0071× [0.8978 – 1.1165]~~ | **NOT restated** — indistinguishable then, indistinguishable now, still diagnostic |
+| **bulk broad** — one commit all 300 read · *bar row* | 0.6291× [0.5792 – 0.6987] | 0.5706× | 0.5078 – 0.6333 | 0.5102 – 0.6316 | ~~0.5598× [0.4781 – 0.6415]~~ | **NOT restated** — the CI contains the published value; UIx faster, every run mean below 1.0 |
+| **bulk narrow** — 10 commits, one window | 1.1754× [1.1390 – 1.2186] | 1.2045× | 1.1193 – 1.2896 | 1.1291 – 1.3090 | ~~1.2233× [1.1238 – 1.3228]~~ | **NOT restated** — the CI contains the published value; UIx slower, every run mean above 1.0 |
 
 **Only M1 is restated, and the three that are not are held to the conservative
 reading deliberately.** On `broad` and `narrow` the re-take's interval contains
 the published magnitude, so the honest statement is *direction unchanged, magnitude
-not distinguishable at n = 4* — not a new number. Publishing `0.5598×` as a
-threshold on four runs against a ten-run line it does not contradict would be
-minting precision the measurement does not carry.
+not distinguishable at n = 5* — not a new number. Publishing `0.5706×` as a
+threshold on five runs against a ten-run line it does not contradict would be
+minting precision the measurement does not carry. **Every one of those
+containments is now arithmetic** — the suite recomputes each interval from the
+observation table and asserts that it brackets the published value, on the
+four-run set and on the five-run set alike.
+
+**The start counterbalance is 3:2 rather than 2:2, and that is a consequence of
+not choosing the launch set by outcome.** It does not carry the M1 result: the
+reagent-start group reads **0.9993×** over three runs, the uix-start group
+**1.0387×** over two, and the start-balanced estimate — the mean of the two group
+means, which is what an alternating design's unbiased estimator is — is
+**1.0190×**, inside the published interval.
+
+*Two counts this section used to print — `14 of 24 rounds above 1.0` and the
+per-stratum tallies — rest on per-round vectors that did not survive the
+producing worktree, and are **not** restated over five runs. See the [provenance
+note](#the-observation-table).*
 
 **Only the mount row moved, and that is the mechanism agreeing with the
 measurement rather than a coincidence.** `rf2-2rtt6.25` landed the hook-scoped
@@ -551,11 +660,11 @@ The advisory recorded that
 [the coldmount page](coldmount-double-build-priced.md) independently re-derived
 the same 901-element / 300-boundary mount witness post-`.25` at **`1.0054×`
 [0.917 – 1.143]**, excess mean 0.00 ms, on **its own instrument**. This re-take,
-on the **converged** instrument, reads the same witness at **`1.0243×`
-[0.9937 – 1.0549]**.
+on the **converged** instrument, reads the same witness at **`1.0150×`
+[0.9820 – 1.0480]**.
 
-**Two instruments, two drivers, two authors — `1.0054×` against `1.0243×`, 1.9
-points apart, each interval containing the other's point estimate** — against a
+**Two instruments, two drivers, two authors — `1.0054×` against `1.0150×`, 1.0
+point apart, each interval containing the other's point estimate** — against a
 published line of `1.2310×` that both now contradict by roughly twenty. The
 disagreement `rf2-2rtt6.21` found in the denominator between two authors (+9.7%
 on mount) is **larger than the gap between these two post-`.25` mount readings**,
@@ -564,23 +673,50 @@ and it is the correct outcome rather than a problem to be softened.**
 
 #### The row now sits so close to parity that one run could not be given a direction
 
-**A third piece of evidence, and it arrived as a failure.** One run exited **1**
+**A third piece of evidence, and it arrived as a failure.** Run 5 exited **1**
 because the driver's segment-order control refused `M1` outright:
 
 > *the row's two order strata — rounds where Reagent's segment ran first, rounds
 > where UIx's did — point OPPOSITE WAYS across 1.0, so the row has no direction
 > to publish and the figure is a measurement of the schedule.*
 
+Its `M1` vector is in [the observation table](#the-observation-table) and the
+suite replays it through `segment-order-verdict` rather than quoting the driver:
+Reagent-first **1.0532×** [1.0345 – 1.0792] over three rounds, UIx-first
+**0.9028×** [0.8055 – 0.9749] over three. **The driver was right to refuse** —
+those two point opposite ways, and a row that reads *slower* when Reagent leads
+and *faster* when UIx does has, on its own, measured the schedule.
+
 That control was written when this row sat at `1.23×`, comfortably disjoint from
 1.0, where two strata pointing opposite ways can only mean the schedule is
 leaking in. **A row centred ON 1.0 trips it for the opposite reason**: the strata
-straddle parity because there is no effect left to have a direction. The refusal
-is reported here as evidence rather than repaired, because repairing it would
-mean asserting a direction the measurement declines to give — and *"the row has
-no direction"* is the strongest available statement that the mount red zone has
-closed. Under Ruling 1 the red-zone **is** the measured UIx ratio, so the
-restated `M1` line is now **at parity**, and candidates between `1.0243` and the
-old `1.2310` that would have been scored red-free are **now RED**.
+straddle parity because there is no effect left to have a direction. Repairing it
+would mean asserting a direction the measurement declines to give — and *"the row
+has no direction"* is the strongest available statement that the mount red zone
+has closed.
+
+**But the refusal governs what run 5 may publish ALONE, and PR #7315 read it as
+governing whether run 5 exists at all.** It does not, and this page had already
+said so for the ten-run ensemble: `:magnitude-resolved?` decides whether one
+run's mean may be quoted as a threshold; `:in-an-ensemble` answers the other
+question, and it answers **one observation, whatever `:publishable` says** —
+because a split *is* the extreme partition, so dropping it shrinks the spread and
+moves the very estimate it would be used to compute. It moved it here, and in the
+direction that flatters the restatement: with run 5 out the row reads
+~~`1.0243×`~~ and with it in **`1.0150×`**, nine tenths of a point closer to
+parity, on an interval that is *wider* rather than narrower. Nothing about the
+verdict changes — the interval still contains 1.0, still excludes `1.2310`, and
+the run-mean spreads still do not meet — which is why the row is **corrected
+rather than re-measured**.
+
+*(The instrument now says this where the refusal is printed:
+`p0_converge_run.cjs`'s exit-1 message names the ensemble rule, so the next
+reader of a refused run is told to bank the log rather than left to infer that
+exit 1 means discard.)*
+
+Under Ruling 1 the red-zone **is** the measured UIx ratio, so the restated `M1`
+line is now **at parity**, and candidates between `1.0150` and the old `1.2310`
+that would have been scored red-free are **now RED**.
 
 ### All four rows reproduce against the revived driver (rf2-rjfz1)
 
@@ -1114,7 +1250,7 @@ record these runs wrote carries `:ratom-arm? true` and says so. For the record
 and for nothing else, the six runs read `M1` 0.9939 – 1.1184 and `broad`
 0.5808 – 0.6768, which straddle and sit below the lines published at the time —
 ~~`1.2310`~~ (since [superseded by the post-`.25`
-re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5) at `1.0243`, which this
+re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5) at `1.0150`, which this
 straddling range also contains) and `0.6291` respectively — a difference this
 design has no standing to interpret.
 
@@ -1153,7 +1289,7 @@ records that in place.
 
 | question | rf2-2rtt6.4, on its own witnesses | converged, on rf2-2rtt6.2's | change |
 |---|---|---|---|
-| large-list mount | W1: **1.057×** [0.907 – 1.156] — indistinguishable | M1: ~~**1.2310×**~~ [1.199 – 1.293 across ten runs] → **1.0243×** [0.9937 – 1.0549] post-`.25` — indistinguishable | ~~**verdict flips**~~ — **the flip did not outlive the spine.** The converged row read `1.2310×` on the pre-`.13`/`.25` tree; [the re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5) returns it to parity, which is where `W1` sat all along |
+| large-list mount | W1: **1.057×** [0.907 – 1.156] — indistinguishable | M1: ~~**1.2310×**~~ [1.199 – 1.293 across ten runs] → **1.0150×** [0.9820 – 1.0480] post-`.25` — indistinguishable | ~~**verdict flips**~~ — **the flip did not outlive the spine.** The converged row read `1.2310×` on the pre-`.13`/`.25` tree; [the re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5) returns it to parity, which is where `W1` sat all along |
 | ordinary-form mount | W3: **0.893×** [0.843 – 0.956] — UIx faster, disjoint, published as a threshold | M2: **1.0601×** [0.956 – 1.192] — indistinguishable, graded diagnostic | **verdict flips**, and so does the grade |
 | broad commit | U-broad: **0.838×** [0.760 – 0.953] — UIx faster | bulk broad: **0.6291×** [0.579 – 0.699] — UIx faster | same direction, **much larger margin** |
 | narrow commit | U-narrow: **1.536×** [1.226 – 1.876] — UIx slower, disjoint | bulk narrow: **1.1754×** [1.139 – 1.219] — UIx slower | same direction and both resolve, but **the margin over parity falls to about a third** — 0.18 against 0.54 |
@@ -1744,13 +1880,21 @@ asserts each of those readings.
 **The one other set of intervals on this page — the [rf2-b0tz5
 re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5)'s — does not carry the
 defect, and that is checked rather than assumed.** Those are one-sample intervals
-on the mean of **four** run means, so `n − 1 =` **three** and `t = 3.1824`, and
-that is the multiplier they use: `1.0243 ± 3.1824 × 0.009616` reproduces `M1`'s
-published `0.9937 – 1.0549` to four decimals from the four run means printed
-beside it. The rule is the same rule; only the ensemble misapplied it. It is
-load-bearing there rather than bookkeeping — at `t = 2.2622` the same four runs
-would read `1.0025 – 1.0461`, which **excludes** 1.0 and would have contradicted
-the *indistinguishable from parity* verdict every one of those runs reports.
+on the mean of the re-take's run means, so the degrees of freedom follow the run
+count: `1.0150 ± 2.7764 × 0.011884` reproduces `M1`'s published
+`0.9820 – 1.0480` from the **five** cells in [the observation
+table](#the-observation-table), and `1.0243 ± 3.1824 × 0.009616` reproduces the
+struck four-run `0.9937 – 1.0549` from four of them. The suite computes both. The
+rule is the same rule; only the ensemble misapplied it.
+
+**On the four-run set the distinction was load-bearing and on the five-run set it
+is not, which is worth saying rather than leaving to be discovered.** At
+`t = 2.2622` the four runs would have read `1.0025 – 1.0461`, **excluding** 1.0
+and contradicting the *indistinguishable from parity* verdict every one of them
+reports; the same multiplier on the five reads `0.9882 – 1.0419`, which contains
+parity anyway. The corrected estimate sits closer to 1.0 on a wider interval, so
+the verdict now survives even the wrong multiplier. That is a fact about this
+row, not a licence — the multiplier is still `n − 1`.
 
 **The old figures are struck, not deleted**, in the same style as every other
 correction here — and the *p* values, the point estimates and the thresholds are
@@ -1807,34 +1951,36 @@ appeared on a future witness.
 
 ### The verdict on M1's magnitude
 
-**What is published is `1.0243×`, 95% interval `0.9937 – 1.0549` on the mean,
-single runs landing in `0.998 – 1.039` — and because that interval contains 1.0,
+**What is published is `1.0150×`, 95% interval `0.9820 – 1.0480` on the mean,
+single runs landing in `0.978 – 1.039` — and because that interval contains 1.0,
 the row is INDISTINGUISHABLE FROM PARITY.** The magnitude is [the re-take on the
 post-`.25` tree](#the-re-take-on-the-post-25-tree-rf2-b0tz5): the converged
-`p0_converge_app` instrument, four independently launched six-round runs, each
+`p0_converge_app` instrument, five independently launched six-round runs, each
 into a measured-quiet window, on a spine carrying both `rf2-2rtt6.13` and
 `rf2-2rtt6.25`. **`1.2310×` [1.2109 – 1.2510] is SUPERSEDED** — it was measured
 before those two landed, its ten run means are wholly disjoint from the
-re-take's four, and the L1 mount red zone it stood behind has **closed**.
+re-take's five, and the L1 mount red zone it stood behind has **closed**.
+*(~~`1.0243×` [0.9937 – 1.0549]~~ was the same measurement over four of the five;
+[the fifth is back in](#the-row-now-sits-so-close-to-parity-that-one-run-could-not-be-given-a-direction).)*
 
 **A second instrument reaches the same place independently.** [The coldmount
 page](coldmount-double-build-priced.md) re-derived the same 901-element /
 300-boundary witness post-`.25` at **`1.0054×` [0.917 – 1.143]** on its own
-driver, under a different author. That is 1.9 points from `1.0243×`, with each
+driver, under a different author. That is 1.0 point from `1.0150×`, with each
 interval containing the other's point estimate — a smaller gap than the +9.7%
 mount disagreement `rf2-2rtt6.21` measured between the same two authors'
 denominators — so [the parity reading is not an artefact of one
 harness](#the-converged-instrument-agrees-with-coldmount).
 
-**The interval's shape is load-bearing, so it is stated exactly.** Four run
-means — `0.9980 · 1.0391 · 1.0219 · 1.0382` — give a one-sample Student-t
-interval with `n − 1 =` **three** degrees of freedom and `t = 3.1824`, and
-`1.0243 ± 3.1824 × 0.009616` reproduces `0.9937 – 1.0549`. The **nine**-df
+**The interval's shape is load-bearing, so it is stated exactly.** Five run
+means — `0.9980 · 1.0391 · 1.0219 · 0.9780 · 1.0382` — give a one-sample
+Student-t interval with `n − 1 =` **four** degrees of freedom and `t = 2.7764`,
+and `1.0150 ± 2.7764 × 0.011884` reproduces `0.9820 – 1.0480`. The **nine**-df
 correction [applied to the ten-run ensemble's
 intervals](#the-intervals-are-2-too-wide-and-the-cause-is-an-off-by-one-in-the-degrees-of-freedom)
-is a correction to a different quantity and does not belong here: at
-`t = 2.2622` these four runs would read `1.0025 – 1.0461`, which **excludes** 1.0
-and would invert the verdict every one of the four runs actually reports.
+is a correction to a different quantity and does not belong here. Both intervals
+are recomputed from [the observation table](#the-observation-table) by the suite,
+which also holds the struck four-run pair.
 
 **The three measured reasons `1.2301` was withdrawn were all answered — by the
 ten-run ensemble that has itself since been superseded.** Nothing in that record
@@ -1863,12 +2009,12 @@ the attribution is to this harness's schedule and is open on `rf2-2rtt6.25` —
 and on the re-take [the bar's own denominator is held fixed
 and shown to be
 fixed](#what-moved-and-the-control-that-says-the-denominator-did-not): the
-`reagent-subs` leg reproduces to within 0.5% while the `uix-subs` leg falls
+`reagent-subs` leg reproduces to within 1.5% while the `uix-subs` leg falls
 16.2%. The ≈21-point tightening is a property of the UIx arm.
 
 **A magnitude still has to be published with an interval, and that is the one
 thing this section never had wrong.** A bare four-decimal point — `1.2301`,
-`1.2310` and `1.0243` alike — carries no statement of how far a fresh run may
+`1.2310` and `1.0150` alike — carries no statement of how far a fresh run may
 legitimately land from it. On this row the honest form of the answer is now a
 range that includes parity.
 
@@ -2043,24 +2189,25 @@ statement of what the measurement supports, not an amendment.
 > threshold *the measured UIx ratio for that witness family*. Ten independently
 > launched six-round runs with the starting segment counterbalanced 5/5 stand
 > behind the three rows the post-`.25` re-take did not move; **M1 stands on the
-> four-run re-take instead**, because that is the only row the landings changed.
+> five-run re-take instead**, because that is the only row the landings changed.
 > Either way each is a **magnitude with an interval** rather than a point or a
 > bare direction:
 >
-> - **M1 mount — `1.0243×`, 95% interval `0.9937 – 1.0549` on the mean, single
->   runs landing in `0.998 – 1.039`. The interval contains 1.0, so the row is
+> - **M1 mount — `1.0150×`, 95% interval `0.9820 – 1.0480` on the mean, single
+>   runs landing in `0.978 – 1.039`. The interval contains 1.0, so the row is
 >   INDISTINGUISHABLE FROM PARITY and the L1 mount red zone is CLOSED.**
 >   ~~`1.2310×` [1.2109 – 1.2510]~~ is **SUPERSEDED**: it was measured before
 >   `rf2-2rtt6.13` and `rf2-2rtt6.25` landed, and the [re-take on the post-`.25`
 >   tree](#the-re-take-on-the-post-25-tree-rf2-b0tz5) reads the same witness on
->   the same instrument at parity — four runs, all four reporting
->   `:direction :indistinguishable`, corroborated to 1.9 points by [the coldmount
->   page](coldmount-double-build-priced.md)'s independent `1.0054×`. `1.2301×` is
->   not reinstated either: it was withdrawn as a magnitude, and the row has since
->   moved past it in the other direction. Because the threshold IS the measured
->   ratio, **a candidate anywhere between `1.0243` and the old `1.2310` is now
->   RED** where it would once have scored clear; inside the run-mean spread the
->   honest answer is where in the spread it sits.
+>   the same instrument at parity — five runs, corroborated to 1.0 point by [the
+>   coldmount page](coldmount-double-build-priced.md)'s independent `1.0054×`.
+>   ~~`1.0243×` [0.9937 – 1.0549]~~ is the same re-take over four of those five
+>   and is superseded in turn. `1.2301×` is not reinstated either: it was
+>   withdrawn as a magnitude, and the row has since moved past it in the other
+>   direction. Because the threshold IS the measured ratio, **a candidate
+>   anywhere between `1.0150` and the old `1.2310` is now RED** where it would
+>   once have scored clear; inside the run-mean spread the honest answer is where
+>   in the spread it sits.
 > - **bulk narrow — `1.1754×`, interval `1.1582 – 1.1926`, runs `1.139 – 1.219`.**
 >   **Supersedes `1.1540×`**, also withdrawn. Its direction is now as strong as
 >   any row on the page: all 60 rounds above 1.0, all 20 order strata wholly

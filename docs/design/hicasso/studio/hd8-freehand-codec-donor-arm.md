@@ -23,10 +23,10 @@ Bead **`rf2-2rtt6.29`**. Decision **[HD-008](../decisions.md)**. The standard is
 > **NO BAR VERDICT IS ISSUED HERE, AND NONE MAY BE READ OUT OF THIS PAGE.**
 > The mount win condition is suspended as a gate pending an operator amendment:
 > post-`rf2-2rtt6.25`, UIx and Reagent are at parity on the converged mount
-> witness (1.0243×), which makes *"mount ≤ 1.0× Reagent"* arithmetically require
+> witness (1.0150×), which makes *"mount ≤ 1.0× Reagent"* arithmetically require
 > a free-or-negative interpreter and puts it in contradiction with the
 > *"codec inside 1.10× of direct UIx"* condition beside it
-> (1.0243 × 1.10 = 1.127). Every figure below is therefore reported **against
+> (1.0150 × 1.10 = 1.117). Every figure below is therefore reported **against
 > raw UIx and against the existing donor arms**, and the bar is applied later by
 > whoever holds it. This page measures. It issues no ruling and it must not
 > learn to.

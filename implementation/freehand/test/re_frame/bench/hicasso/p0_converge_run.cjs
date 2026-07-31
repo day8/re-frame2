@@ -330,6 +330,14 @@ async function runRow(browser, row) {
     );
     process.exit(1);
   }
+  // EXIT 1 HERE MEANS "THIS RUN MAY NOT PUBLISH ALONE", NOT "DISCARD THIS RUN".
+  // The two are different questions and the row records above already answer
+  // both — `:publishable` governs the run quoted by itself, `:in-an-ensemble`
+  // governs whether it is one observation of many, and it says it always is.
+  // rf2-b0tz5's re-take dropped a whole run on this exit code, which moved the
+  // published estimate away from parity by nine tenths of a point and narrowed
+  // its interval: refusing on the way the strata split IS a selection on the
+  // result. So the message says so, because a bare exit 1 does not.
   const orderRefused = outcomes.filter((o) => o.orderRefused);
   if (orderRefused.length > 0) {
     console.error(
@@ -338,7 +346,15 @@ async function runRow(browser, row) {
         .join(', ')}. The row's two order strata — rounds where Reagent's segment ran ` +
         `first, rounds where UIx's did — point OPPOSITE WAYS across 1.0, so the row has ` +
         `no direction to publish and the figure is a measurement of the schedule. The ` +
-        `repair is the ARM: more rounds, a balanced (even) round count, a longer window.`
+        `repair is the ARM: more rounds, a balanced (even) round count, a longer window.\n` +
+        `[converge] BANK THIS LOG. Exit 1 here bars THIS RUN from publishing a figure ` +
+        `ALONE; it does NOT drop the run from an ensemble. Every row record above ` +
+        `carries :in-an-ensemble, and it reads ONE OBSERVATION whatever :publishable ` +
+        `says — dropping a run for the way its strata happened to split selects on the ` +
+        `result, and it moves the estimate it would be used to compute (rf2-6i0i2, ` +
+        `rf2-b0tz5). Everything before this line passed: the arm-order guard owns exit 2 ` +
+        `and the positive control prints a different exit 1, so reaching here means both ` +
+        `cleared on every row.`
     );
     process.exit(1);
   }
