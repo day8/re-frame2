@@ -87,7 +87,19 @@
 
   Both are attribute *keys*, not forms — so the merge survives into a
   structural test and into tooling, and neither adds a public concept in
-  the K5 sense."
+  the K5 sense.
+
+  ## One canonical slot, and every rule asks it
+
+  This codec accepts a prop key written as a keyword, a string, a symbol
+  or a namespaced keyword, in kebab or in camel, and emits them all under
+  **one** React name. So every rule about *which* attribute a value is —
+  the owned-literal deny, the two structural exclusions, the `:ref`
+  reservation, and the ref position's exclusion from intent lowering —
+  is asked of [[canonical-slot]], the slot the value will actually be
+  emitted into, and never of the key it happened to be written as. A rule
+  written against the raw key is a rule that `\"key\"`, `:x/ref` and
+  `:onInput` walk straight past."
   (:require [clojure.string :as str]
             [re-frame.bench.hicasso.front.intent :as intent]
             ["react" :as react]))
@@ -171,20 +183,33 @@
 (defn- capitalize [s]
   (if (< (count s) 2) (str/upper-case s) (str (str/upper-case (subs s 0 1)) (subs s 1))))
 
+(def ^:private react-renames
+  "The three attribute names React spells differently from HTML. They are
+  the RULE rather than a memo of one, so they hold for every spelling of
+  the same attribute: `:class`, `:className`, `\"class\"` and `:x/class`
+  all name the one slot React calls `className`."
+  {"class" "className" "for" "htmlFor" "charset" "charSet"})
+
 (defn prop-name
-  "The React prop name for a hiccup prop key. `:on-click` → `\"onClick\"`;
-  `:aria-label` and `:data-index` pass through; a `--custom-property` is
-  preserved verbatim."
+  "The React prop name for a hiccup prop key — which, because it is the
+  name the codec emits the value under, is that key's CANONICAL SLOT.
+  `:on-click` → `\"onClick\"`; `:aria-label` and `:data-index` pass
+  through; a `--custom-property` is preserved verbatim; a string is
+  already a React name and is taken verbatim apart from the three renames
+  above.
+
+  **A pure function of the key**, which is what [[canonical-slot]] rests
+  on. A slot that depended on what the build happened to have converted
+  earlier would make the owned-literal law depend on render order."
   [k]
-  (if (string? k)
-    k
-    (let [n (name k)]
-      (if (str/starts-with? n "--")
-        n
-        (let [[start & parts] (str/split n #"-")]
-          (if (dont-camel-case start)
-            n
-            (apply str start (map capitalize parts))))))))
+  (let [n (name k)]
+    (or (react-renames n)
+        (if (or (string? k) (str/starts-with? n "--"))
+          n
+          (let [[start & parts] (str/split n #"-")]
+            (if (dont-camel-case start)
+              n
+              (apply str start (map capitalize parts))))))))
 
 (def ^:private prop-cache
   (doto #js {}
@@ -193,10 +218,23 @@
     (unchecked-set "charset" "charSet")))
 
 (defn cached-prop-name
-  "[[prop-name]] behind the codec-work cache (HD-004)."
+  "[[prop-name]] behind the codec-work cache (HD-004).
+
+  **Only a keyword or a symbol is cached**, which is the donor's shape and
+  is load-bearing here. The cache is keyed by `(name k)` while
+  [[prop-name]] answers a STRING differently from the keyword of the same
+  name — a string is already a React name, so `\"on-input\"` stays
+  `\"on-input\"` where `:on-input` becomes `\"onInput\"`. Sharing one cache
+  entry between them lets either poison the other: the first
+  `{\"on-input\" f}` rendered anywhere would answer every later
+  `:on-input` with `\"on-input\"` for the life of the build, silently
+  emitting every handler written the taught way into a slot React ignores
+  — and, worse, would make [[canonical-slot]] answer differently
+  depending on what had rendered first, which is exactly the order
+  dependence the owned-literal law exists to remove."
   [k]
-  (if-not (or (keyword? k) (symbol? k) (string? k))
-    k
+  (if-not (or (keyword? k) (symbol? k))
+    (if (string? k) (prop-name k) k)
     (let [n (name k)]
       (if (reserved-cache-keys n)
         (prop-name k)
@@ -205,6 +243,64 @@
           (let [converted (prop-name k)]
             (unchecked-set prop-cache n converted)
             converted))))))
+
+;; ---------------------------------------------------------------------------
+;; The canonical structural-slot filter (rf2-2rtt6.36)
+;; ---------------------------------------------------------------------------
+
+(def canonical-slot
+  "**The one slot resolver.** The React prop slot a hiccup attribute key
+  actually emits into — which is [[cached-prop-name]] itself, and that
+  identity is the whole mechanism: the thing a deny asks is the thing the
+  emitter will do.
+
+  A props map reaches React through exactly one canonicalisation, so a
+  rule written against the RAW map key is a rule that any other spelling
+  of the same slot walks straight past. `\"key\"`, `:x/key` and `'key` are
+  all React's key; `:on-input` and `:onInput` are one handler; `:class`,
+  `:className` and `\"class\"` are one `className`. Every deny, every
+  dissoc and every check in this codec and in
+  [[re-frame.bench.hicasso.front.presence]] asks THIS, and never the key
+  it was written as."
+  cached-prop-name)
+
+(def structural-slots
+  "The two React slots that address the ELEMENT rather than its
+  attributes. `key` is React's own identity contract and `ref` is
+  HD-016's node handle; neither is an attribute, and neither is ever
+  taken from a map that is *about* attributes — a `:&` remainder
+  ([[merge-caller]]) or a presence phase override
+  ([[re-frame.bench.hicasso.front.presence/with-phase]]).
+
+  Held as canonical SLOTS rather than as keys, because the spelling is
+  exactly what a hostile or careless map would vary."
+  #{"key" "ref"})
+
+(def ^:private ref-slot "ref")
+
+(defn structural-slot?
+  "Does `k` — in any spelling — land on `key` or `ref`?"
+  [k]
+  (contains? structural-slots (canonical-slot k)))
+
+(defn- without-slots
+  "`m` minus every key whose canonical slot is in `denied`. Returns `m`
+  itself, by identity, when nothing is denied — which is the ordinary
+  case, so the filter allocates nothing on a map that was already legal."
+  [m denied]
+  (reduce-kv (fn [acc k _] (if (denied (canonical-slot k)) (dissoc acc k) acc)) m m))
+
+(defn without-structural
+  "`m` with every structural slot removed, in every spelling."
+  [m]
+  (without-slots m structural-slots))
+
+(defn- denied-slots
+  "The slots a `:&` remainder may not reach: the two structural ones, plus
+  the slot of every literal the element wrote. One set, so one rule states
+  both halves of the owned-literal law ([[merge-caller]])."
+  [owned]
+  (reduce-kv (fn [denied k _] (conj denied (canonical-slot k))) structural-slots owned))
 
 ;; ---------------------------------------------------------------------------
 ;; Classes and the shorthand merge
@@ -276,14 +372,6 @@
   tooling; and it cannot collide with a real DOM attribute."
   :&)
 
-(def merge-structural-keys
-  "Never taken from a `:&` map. `:key` and `:ref` address the ELEMENT the
-  caller wrote, not the one it is forwarding onto — React's key contract
-  and HD-016's ref rule are both about node identity, and a remainder map
-  is about attributes. Dropping them is what makes a hostile or careless
-  remainder unable to reach either."
-  #{:key :ref})
-
 (defn merge-caller
   "Fold a `:&` remainder into the attribute map, under **the owned-literal
   law, unconditionally**: the literal keys written in the map ALWAYS win.
@@ -302,9 +390,21 @@
   the literal**, which is the honest way round: the dangerous default is
   the other one.
 
+  **The law is enforced on the CANONICAL SLOT, never on the map key.**
+  The deny set is [[structural-slots]] seeded with the slot of every
+  literal the element writes, so one rule says both halves of the law:
+  nothing in a remainder may reach `key` or `ref`, and nothing in a
+  remainder may reach a slot an owned literal already claims — however
+  either is spelled. Without that, `:onInput` against an owned
+  `:on-input` survives the merge as a distinct map key, both land on
+  React's one `onInput` slot, and which handler wins is decided by the
+  order the props map happens to iterate in. An unconditional law cannot
+  be map-order-dependent, so the check is the emitted slot
+  ([[canonical-slot]]) or it is not a law.
+
   Absent — the overwhelming case — this is one `contains?` and the map
-  comes back by identity, allocating nothing. Present, it is one `merge`
-  in the direction that makes the law true by construction."
+  comes back by identity, allocating nothing. Present, it is one filter
+  and one `merge` that, the filter having run, is a plain union."
   [props]
   (if-not (contains? props merge-key)
     props
@@ -312,7 +412,7 @@
           owned  (dissoc props merge-key)]
       (cond
         (nil? caller) owned
-        (map? caller) (merge (apply dissoc caller merge-structural-keys) owned)
+        (map? caller) (merge (without-slots caller (denied-slots owned)) owned)
         :else
         (fail! :rf.error/hicasso-merge-not-a-map
                'front.codec/merge-caller
@@ -336,19 +436,26 @@
   value-space is claimed *now*, so the imperative escape can become data
   later without minting a second attribute name — and so that an author
   who writes tomorrow's spelling today learns it from a diagnostic rather
-  than from a ref that never fires."
-  [props]
-  (when (vector? (:ref props))
+  than from a ref that never fires.
+
+  Called from inside [[convert-props]]'s single walk, at the position
+  whose CANONICAL SLOT is `ref` — not at the key `:ref`. This codec
+  deliberately accepts string, symbol and namespaced prop spellings and
+  emits them all under one React name, so a check that reads `(:ref
+  props)` is a check `\"ref\"` and `:x/ref` walk past, on their way to
+  React with the opaque value the reservation exists to stop."
+  [k v]
+  (when (vector? v)
     (fail! :rf.error/hicasso-ref-vector-reserved
            'front.codec/convert-props
-           (str "A vector at :ref is RESERVED and is not a v0 surface. "
+           (str "A vector at " (pr-str k) " is RESERVED and is not a v0 surface. "
                 "`{:ref [registered-id config]}` is the reserved spelling for "
                 "registered node ownership; v0 accepts a callback ref (a "
                 "function) only. Write the function, or move the mechanic to "
                 "an event and an effect.")
            :use-a-callback-ref-or-an-effect
-           {:ref (:ref props)}))
-  props)
+           {:ref v :position k}))
+  v)
 
 (defn convert-props
   "One pass over the attribute map: fold a `:&` remainder under the
@@ -367,13 +474,22 @@
   `:class` on the way through and hands the wrong name onward. It also
   puts a forwarded `:class` into the shorthand merge, so
   `[:input.form-control {:& caller}]` composes `\"form-control\"` with the
-  caller's classes instead of one silently replacing the other."
+  caller's classes instead of one silently replacing the other.
+
+  The `:ref` reservation and the ref position's exclusion from intent
+  lowering are both taken on the CANONICAL SLOT the walk has just
+  computed, rather than on the key — which is what makes them hold for
+  `\"ref\"` and `:x/ref` as well as for `:ref`, and costs the walk one
+  comparison it already had the value for."
   [props ^ParsedTag parsed]
-  (let [props (-> props merge-caller check-ref! (merge-shorthand parsed) (dissoc :key))]
+  (let [props (-> props merge-caller (merge-shorthand parsed) (dissoc :key))]
     (reduce-kv (fn [o k v]
                  (let [n (cached-prop-name k)]
                    (when-not (reserved-cache-keys n)
-                     (unchecked-set o n (convert-prop-value (intent/lower-prop k v))))
+                     (unchecked-set o n (convert-prop-value
+                                          (if (= ref-slot n)
+                                            (check-ref! k v)
+                                            (intent/lower-prop k v)))))
                    o))
                #js {}
                props)))

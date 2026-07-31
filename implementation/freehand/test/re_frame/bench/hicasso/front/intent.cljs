@@ -219,11 +219,21 @@
   A callback is handed the event, so the event is the callback's — it
   calls `.preventDefault` itself, and the runtime does not reach in after
   the body has run to second-guess it. One rule: whoever holds the event
-  owns it."
+  owns it.
+
+  **Every argument the invoker passes reaches the body**, the same way
+  [[render-callback]] forwards them. A native DOM event position calls
+  with one argument and that is the overwhelming case, but this is also
+  the wrapper a `defhost` `:callbacks` entry declared `:event` gets, and
+  a foreign component's live invoker calls with whatever its own contract
+  says — `(on-change value event)`, `(on-select item index)`. Accepting
+  exactly `[e]` would silently drop everything after the first, or raise
+  an arity error naming nothing the author wrote, against a form whose
+  parameter vector is arbitrary by construction."
   [k f]
   (let [dispatch *dispatch*]
-    (fn hicasso-event-callback [e]
-      (let [result (f e)]
+    (fn hicasso-event-callback [& args]
+      (let [result (apply f args)]
         (when (vector? result)
           (if dispatch
             (dispatch result)

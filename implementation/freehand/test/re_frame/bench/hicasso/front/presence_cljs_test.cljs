@@ -171,6 +171,30 @@
                                {:key "stolen" :ref (fn [_]) :class "x"}}]]
       (is (= [:div.toast {:key 1 :class "x"}]
              (presence/with-phase hostile :unmounting)))))
+  (testing "and it cannot reach them under ANY spelling, which is the whole
+            of the repair. `\"key\"` and `:x/key` survive a raw `#{:key
+            :ref}` dissoc and canonicalise onto React's key — after the
+            child's own `:key` has been merged, and at the one moment the
+            node must NOT be remounted, because it is being animated out.
+            The exclusion is taken on the canonical SLOT, through the very
+            filter `:&` uses."
+    (doseq [spelling ["key" 'key :x/key]]
+      (let [hostile [:div.toast {:key 1
+                                 :re-frame.hicasso/unmounting
+                                 {spelling "stolen" :class "x"}}]
+            out     (presence/with-phase hostile :unmounting)]
+        (is (= [:div.toast {:key 1 :class "x"}] out)
+            (str "key, spelled " (pr-str spelling)))
+        (is (= 1 (presence/child-key out))
+            "the retained node's identity is the key the machine retains it
+             under, and nothing in an override can move it")))
+    (doseq [spelling ["ref" 'ref :x/ref]]
+      (let [hostile [:div.toast {:key 1
+                                 :re-frame.hicasso/unmounting
+                                 {spelling (fn [_]) :class "x"}}]]
+        (is (= [:div.toast {:key 1 :class "x"}]
+               (presence/with-phase hostile :unmounting))
+            (str "ref, spelled " (pr-str spelling))))))
   (testing "a child that carries no override comes back UNTOUCHED, by
             identity — the transform costs nothing on a node that does not
             use it"
