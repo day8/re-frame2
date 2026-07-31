@@ -922,6 +922,355 @@
            three of the ten read below 1.0 outright"))))
 
 ;; ---------------------------------------------------------------------------
+;; THE POST-.25 RE-TAKE'S OBSERVATION TABLE (rf2-b0tz5)
+;; ---------------------------------------------------------------------------
+;;
+;; PR #7315 restated the M1 mount line on the post-`.25` tree and published,
+;; for the four runs it accepted, a point estimate, a 95% interval and a
+;; min–max range per row — plus M1's four run means and nothing else. The
+;; merged-PR audit found that this repeats the gap #7312 had just closed one
+;; section above: the intervals that decided *not restated* on M2, broad and
+;; narrow could not be recomputed from the repository, because the numbers
+;; they are computed FROM had never reached it.
+;;
+;; [[retake]] is that table. Every figure the studio page prints about the
+;; re-take is derived below from these twenty cells and checked against the
+;; page's own claims, which live in [[retake-published]] so that the
+;; derivation has something to be checked against.
+;;
+;; PROVENANCE, and it is NOT the same as the ensemble's. Nothing here was
+;; measured for this fixture and no browser was opened: the operator has
+;; deferred measurement while the adapter is built, and five sibling workers
+;; were on the box. The producing worktree (`worker/clockline-b0tz5`) was
+;; reaped with its `ai/bench-logs/` inside it, so the run logs themselves are
+;; gone. What survives is the producing agent's own transcript, which
+;; captured the driver's console output and the analysis run over those logs
+;; verbatim; the cells below are transcribed from it. Two consequences,
+;; stated rather than glossed:
+;;
+;;   * The unit that survives is the RUN MEAN — each row's `red-zone :mean`
+;;     for that run. The six per-round vectors behind each accepted run's
+;;     mean did NOT survive, except for run 5, whose four vectors are in
+;;     [[run-5-per-round]] because the diagnosis of its refusal was
+;;     captured in full. So every ENSEMBLE-level figure is derivable here;
+;;     the page's per-round counts (`14 of 24 rounds above 1.0`, `1 of 8
+;;     strata wholly above`) are NOT, and the page now says so.
+;;   * A run mean transcribed at four decimals is the instrument's own
+;;     rounded output, so a mean re-derived from these cells can differ from
+;;     the instrument's in the fourth decimal. It never did on any figure
+;;     below, and the tolerances say so.
+;;
+;; THE SECOND FINDING, which changes a published number. The four-run set was
+;; not the launch set: a fifth run completed all four rows at measured 0%
+;; load and was dropped because the driver exits 1 when a row's two
+;; segment-order strata point OPPOSITE WAYS across 1.0. That condition is a
+;; function of the result — and the aggregate rule this file pinned for the
+;; ensemble one section above says exactly what to do with it. See
+;; [[the-fifth-run-was-dropped-for-the-way-its-strata-split]].
+
+(def ^:private retake
+  "THE 5 × 4 OBSERVATION TABLE of the post-`.25` re-take, complete.
+
+  One entry per run that completed all four rows on the converged
+  instrument at whole-tree anchor `7f54c67d5a`. Each cell is that run's
+  `red-zone :mean` for the row — its six per-round `uix-subs ÷
+  reagent-subs` readings averaged, each reading floor-normalised in its
+  own round and segment. `:start` is the segment that led round 0.
+
+  `:exit` is the driver's exit code and `:in-ensemble?` is whether the
+  run is one observation of the ensemble. They are not the same
+  question, which is the whole of
+  [[the-fifth-run-was-dropped-for-the-way-its-strata-split]].
+
+  `:M1-legs` is the same run's `M1` mount leg pair — `reagent-subs ÷
+  floor` and `uix-subs ÷ floor`, the denominator and numerator the page
+  decomposes the threshold into."
+  [{:run 1 :start :reagent-subs :exit 0 :in-ensemble? true
+    :M1 0.9980 :M2 1.0584 :broad 0.6316 :narrow 1.2306
+    :M1-legs {:reagent 4.2853 :uix 4.2723}}
+   {:run 2 :start :uix-subs :exit 0 :in-ensemble? true
+    :M1 1.0391 :M2 0.9685 :broad 0.5437 :narrow 1.1767
+    :M1-legs {:reagent 4.3457 :uix 4.5089}}
+   {:run 3 :start :reagent-subs :exit 0 :in-ensemble? true
+    :M1 1.0219 :M2 1.0714 :broad 0.5538 :narrow 1.3090
+    :M1-legs {:reagent 4.5731 :uix 4.6673}}
+   {:run 6 :start :uix-subs :exit 0 :in-ensemble? true
+    :M1 1.0382 :M2 0.9302 :broad 0.5102 :narrow 1.1769
+    :M1-legs {:reagent 4.3144 :uix 4.4687}}
+   {:run 5 :start :reagent-subs :exit 1 :in-ensemble? true
+    :M1 0.9780 :M2 0.9242 :broad 0.6135 :narrow 1.1291
+    :M1-legs {:reagent 4.6045 :uix 4.4573}}])
+
+(def ^:private retake-refused
+  "The launches that produced no ensemble observation, kept here because a
+  launch set with the failures left out is not a launch set.
+
+  Both are ARM-ORDER GUARD refusals — `p0_converge_run.cjs` exit **2**,
+  the guard reporting that an arm reads differently for WHERE IN THE PLAN
+  it was measured. That verdict is computed from arm timings by plan
+  position and never looks at the `uix ÷ reagent` ratio, so excluding
+  these two selects on the INSTRUMENT's validity and not on the result —
+  which is the distinction run 5 fails and they pass.
+
+  Their row figures did not survive the reaping and are NOT reconstructed;
+  what survives is the exit code, the refusing row and the load either
+  side, which is what the exclusion rests on anyway."
+  [{:run 2 :attempt 1 :start :uix-subs :exit 2 :refused-row :narrow
+    :pre-cpu 101 :post-cpu 310 :why "phase strata 1.37×–1.55× last-third over
+                                     first-third; the box degraded mid-run. Re-taken under quiet"}
+   {:run 4 :start :uix-subs :exit 2 :refused-row :M2
+    :pre-cpu 0 :post-cpu 0 :why "the mount-budget fragility this instrument already
+                                 documents — 720 mounts a page refused 4 of 6 for
+                                 rf2-6i0i2 too. Not contention, and not new"}])
+
+(def ^:private run-5-per-round
+  "Run 5's four per-round vectors, the only per-round record of the
+  re-take that survived. Six rounds, round 0 led by the Reagent segment.
+
+  They are here because run 5's refusal is the one thing on the page that
+  has to be re-derived rather than quoted: whether the driver was right to
+  refuse, and whether the ensemble was right to drop the run, are
+  different questions with different answers."
+  {:M1     [1.0345 0.9749 1.0792 0.9279 1.0459 0.8055]
+   :M2     [0.8    1.1053 0.9584 0.7727 1.0    0.9091]
+   :broad  [0.5938 0.6667 0.6667 0.4675 0.54   0.7467]
+   :narrow [1.178  1.1033 1.1584 1.1559 1.151  1.0282]})
+
+(def ^:private retake-published
+  "What PR #7315 printed for the FOUR accepted runs — the figures the audit
+  said could not be recomputed. Transcribed so the derivation can be
+  checked against them, and superseded on the page by the five-run
+  figures below."
+  {:M1     {:threshold 1.0243 :lo 0.9937 :hi 1.0549 :run-min 0.9980 :run-max 1.0391}
+   :M2     {:threshold 1.0071 :lo 0.8978 :hi 1.1165 :run-min 0.9302 :run-max 1.0714}
+   :broad  {:threshold 0.5598 :lo 0.4781 :hi 0.6415 :run-min 0.5102 :run-max 0.6316}
+   :narrow {:threshold 1.2233 :lo 1.1238 :hi 1.3228 :run-min 1.1767 :run-max 1.3090}})
+
+(def ^:private retake-corrected
+  "What the page publishes now: the same four rows over the FIVE runs the
+  ensemble actually holds, run 5 included."
+  {:M1     {:threshold 1.0150 :lo 0.9820 :hi 1.0480 :run-min 0.9780 :run-max 1.0391}
+   :M2     {:threshold 0.9905 :lo 0.9035 :hi 1.0776 :run-min 0.9242 :run-max 1.0714}
+   :broad  {:threshold 0.5706 :lo 0.5078 :hi 0.6333 :run-min 0.5102 :run-max 0.6316}
+   :narrow {:threshold 1.2045 :lo 1.1193 :hi 1.2896 :run-min 1.1291 :run-max 1.3090}})
+
+(def ^:private t-3
+  "Student's t, 0.975, THREE degrees of freedom — a 95% interval on the
+  mean of FOUR run means."
+  3.182446)
+
+(def ^:private t-4
+  "Student's t, 0.975, FOUR degrees of freedom — a 95% interval on the
+  mean of FIVE."
+  2.776445)
+
+(defn- accepted-only
+  "The four runs PR #7315 published: exit 0."
+  []
+  (filterv #(zero? (:exit %)) retake))
+
+(defn- retake-ci
+  "Point estimate, sample sd and one-sample Student-t 95% interval on the
+  mean of `runs`' means for `row`. `n − 1` degrees of freedom, which is
+  the rule the ensemble misapplied and this section applies correctly for
+  both n = 4 and n = 5."
+  [runs row]
+  (let [xs (mapv #(get % row) runs)
+        m  (mean xs)
+        sd (sample-sd xs)
+        t  (case (count xs) 4 t-3 5 t-4)
+        h  (* t (/ sd (js/Math.sqrt (count xs))))]
+    {:mean m :sd sd :lo (- m h) :hi (+ m h) :half h
+     :run-min (apply min xs) :run-max (apply max xs)}))
+
+(deftest the-retake-table-is-the-launch-set-not-a-selection
+  (testing "five completed runs and two guard-refused launches — seven
+           launches, and the table names all seven rather than only the
+           ones that published"
+    (is (= 5 (count retake)))
+    (is (= 2 (count retake-refused)))
+    (is (= [1 2 3 6 5] (mapv :run retake)))
+    (is (every? #(contains? % :in-ensemble?) retake)))
+  (testing "the four PR #7315 published are the four that exited 0, and
+           the fifth is the one that exited 1"
+    (is (= [1 2 3 6] (mapv :run (accepted-only))))
+    (is (= [5] (mapv :run (remove #(zero? (:exit %)) retake)))))
+  (testing "the accepted four are counterbalanced two and two, and the
+           five-run set is 3:2 — an imbalance that is a CONSEQUENCE of
+           not choosing the launch set by outcome, not a defect of it"
+    (is (= 2 (count (filter #(= :reagent-subs (:start %)) (accepted-only)))))
+    (is (= 2 (count (filter #(= :uix-subs (:start %)) (accepted-only)))))
+    (is (= 3 (count (filter #(= :reagent-subs (:start %)) retake))))
+    (is (= 2 (count (filter #(= :uix-subs (:start %)) retake))))))
+
+(deftest every-figure-pr-7315-published-reproduces-from-the-four-cells
+  (testing "the point estimates, the intervals the audit said could not be
+           recomputed, and the run-mean ranges — all four rows, from the
+           table and nothing else"
+    (doseq [row rows]
+      (let [{:keys [mean lo hi run-min run-max]} (retake-ci (accepted-only) row)
+            p (get retake-published row)]
+        (is (close? mean (:threshold p)) (str (name row) " — threshold"))
+        (is (close? lo (:lo p))          (str (name row) " — interval low"))
+        (is (close? hi (:hi p))          (str (name row) " — interval high"))
+        (is (close? run-min (:run-min p)) (str (name row) " — run-mean min"))
+        (is (close? run-max (:run-max p)) (str (name row) " — run-mean max")))))
+  (testing "M1's published sd, which is the only one the page prints"
+    (is (close-to? (:sd (retake-ci (accepted-only) :M1)) 0.0192 0.0001)))
+  (testing "the multiplier is t at THREE degrees of freedom — the page
+           states `1.0243 ± 3.1824 × 0.009616` and that is what these four
+           run means give"
+    (let [{:keys [sd half]} (retake-ci (accepted-only) :M1)]
+      (is (close-to? (/ sd 2.0) 0.009616 0.000002) "the standard error")
+      (is (close-to? half (* t-3 0.009616) 0.00001) "half-width = t(3) × se"))))
+
+(deftest the-not-restated-dispositions-are-arithmetic-not-assertion
+  (testing "M2, broad and narrow were held at their published values
+           because the re-take's interval CONTAINS the published
+           magnitude. That is now checked rather than stated — on the
+           four-run set the audit questioned, and on the five-run set that
+           replaces it"
+    (doseq [runs [(accepted-only) retake]]
+      (doseq [row [:M2 :broad :narrow]]
+        (let [{:keys [lo hi]} (retake-ci runs row)
+              pub (:threshold (get published-threshold row))]
+          (is (and (<= lo pub) (<= pub hi))
+              (str (name row) " — the interval contains the published " pub
+                   " over " (count runs) " runs, so the row is NOT restated"))))))
+  (testing "M1 is the one row restated, and for the opposite reason: the
+           published 1.2310 lies outside the interval on either set, and
+           the run-mean spreads do not even meet"
+    (doseq [runs [(accepted-only) retake]]
+      (let [{:keys [lo hi run-max]} (retake-ci runs :M1)
+            {:keys [threshold run-min]} (get published-threshold :M1)]
+        (is (not (and (<= lo threshold) (<= threshold hi)))
+            (str "M1 over " (count runs) " runs — 1.2310 is outside the interval"))
+        (is (< run-max run-min)
+            (str "M1 over " (count runs)
+                 " runs — the run-mean spread is wholly disjoint from the published one"))))))
+
+(deftest the-leg-decomposition-is-the-mean-of-the-per-run-legs
+  (testing "the page decomposes the threshold into two floor-normalised
+           legs and reports 4.380 ÷ 4.479 over the four accepted runs. Both
+           are means of the per-run legs in the table"
+    (let [runs (accepted-only)
+          den  (mean (mapv #(get-in % [:M1-legs :reagent]) runs))
+          num  (mean (mapv #(get-in % [:M1-legs :uix]) runs))]
+      (is (close-to? den 4.380 0.0005) "denominator leg")
+      (is (close-to? num 4.479 0.0005) "numerator leg")
+      (is (close-to? (/ num den) 1.023 0.0005)
+          "and their quotient, 1.023 against the 1.0243 the runs report —
+           the residue being that each run forms its ratio per round and per
+           segment before averaging, never from the two means")))
+  (testing "the leg comparison is what carries the restatement, so it is
+           also stated over the five-run set. The denominator moves further
+           from the published 4.358 — +1.5% rather than +0.5% — and the
+           conclusion is unchanged, because the numerator's fall is an
+           order of magnitude larger either way"
+    (let [den (mean (mapv #(get-in % [:M1-legs :reagent]) retake))
+          num (mean (mapv #(get-in % [:M1-legs :uix]) retake))]
+      (is (close-to? den 4.425 0.0005) "denominator leg, five runs")
+      (is (close-to? num 4.475 0.0005) "numerator leg, five runs")
+      (is (< (js/Math.abs (- (/ den 4.358) 1.0)) 0.02) "denominator within 2% of published")
+      (is (< (/ num 5.343) 0.85) "numerator down more than 15% from published")
+      (is (close-to? (/ num den) 1.011 0.0005) "quotient, five runs"))))
+
+(deftest the-fifth-run-was-dropped-for-the-way-its-strata-split
+  (testing "run 5's M1 refusal is REPRODUCED from its per-round vector
+           rather than quoted: the two order strata point opposite ways
+           across 1.0, so `segment-order-verdict` refuses and the driver
+           exits 1. The driver was right"
+    (let [vd (app/segment-order-verdict (:M1 run-5-per-round) 6 :reagent-subs)]
+      (is (true? (:refuse? vd)))
+      (is (false? (:direction-agrees? vd)))
+      (is (false? (:magnitude-resolved? vd)))
+      (is (close? 1.0532 (:mean (:reagent-first vd))) "Reagent-first stratum, above 1.0")
+      (is (close? 0.9028 (:mean (:uix-first vd)))     "UIx-first stratum, below 1.0")
+      (is (close? 0.9780 (mean (:M1 run-5-per-round)))
+          "and its row mean is the cell in the table")))
+  (testing "the OTHER three rows of run 5 refuse nothing — their strata
+           overlap and every one resolves a magnitude. Run 5 is not a bad
+           run; it is a run whose M1 sat on parity"
+    (doseq [row [:M2 :broad :narrow]]
+      (let [vd (app/segment-order-verdict (get run-5-per-round row) 6 :reagent-subs)]
+        (is (false? (:refuse? vd)) (str (name row) " — no refusal"))
+        (is (true? (:magnitude-resolved? vd)) (str (name row) " — magnitude resolved"))
+        (is (close? (get (nth retake 4) row) (mean (get run-5-per-round row)))
+            (str (name row) " — the vector's mean is the cell in the table")))))
+  (testing "the exit code proves the rest of the run was clean. The driver
+           checks page errors, then the ARM-ORDER guard (exit 2), then the
+           positive control (exit 1, different message), and only then the
+           segment-order control. An exit 1 carrying the segment-order
+           message means every earlier gate passed on every row — so the
+           ONLY thing wrong with run 5 was the direction its M1 strata took"
+    (is (= 1 (:exit (nth retake 4))))
+    (is (every? #(= 2 (:exit %)) retake-refused)
+        "and the two launches that ARE excluded were excluded by the
+         arm-order guard, which never looks at the ratio"))
+  (testing "dropping it is the outcome-based selection this file already
+           forbade for the ensemble one section above: `:in-an-ensemble`
+           says a row-run whose strata split is still ONE OBSERVATION,
+           because a split IS the extreme partition and excluding it moves
+           the estimate. It moved it here — away from parity, which is the
+           direction that flatters the restatement"
+    (let [four (retake-ci (accepted-only) :M1)
+          five (retake-ci retake :M1)]
+      (is (< (:mean five) (:mean four))
+          "the dropped run pulled the estimate toward 1.0, so dropping it pushed it away")
+      (is (close-to? (- (:mean four) (:mean five)) 0.0093 0.0002)
+          "by 0.9 points")
+      (is (< (:half four) (:half five))
+          "and narrowed the interval, which is the second half of the same error")))
+  (testing "and it changes no verdict, which is why the row is corrected
+           rather than re-run: the five-run interval still contains 1.0,
+           still excludes the published 1.2310, and the row is still
+           indistinguishable from parity"
+    (let [{:keys [lo hi]} (retake-ci retake :M1)]
+      (is (and (< lo 1.0) (> hi 1.0)) "contains parity")
+      (is (< hi 1.1989) "and does not reach the published run-mean spread"))))
+
+(deftest the-corrected-five-run-figures-are-what-the-page-publishes
+  (testing "every figure in the page's corrected table, derived from the
+           five cells"
+    (doseq [row rows]
+      (let [{:keys [mean lo hi run-min run-max]} (retake-ci retake row)
+            c (get retake-corrected row)]
+        (is (close? mean (:threshold c)) (str (name row) " — threshold"))
+        (is (close? lo (:lo c))          (str (name row) " — interval low"))
+        (is (close? hi (:hi c))          (str (name row) " — interval high"))
+        (is (close? run-min (:run-min c)) (str (name row) " — run-mean min"))
+        (is (close? run-max (:run-max c)) (str (name row) " — run-mean max")))))
+  (testing "the 3:2 start imbalance does not carry the M1 result: the
+           start-balanced estimate — the mean of the two start-group means,
+           which is what an alternating design's unbiased estimator is —
+           lands inside the interval"
+    (let [by  (group-by :start retake)
+          rg  (mean (mapv :M1 (:reagent-subs by)))
+          ux  (mean (mapv :M1 (:uix-subs by)))
+          bal (/ (+ rg ux) 2.0)
+          {:keys [lo hi]} (retake-ci retake :M1)]
+      (is (close-to? rg 0.9993 0.0002) "reagent-start group, three runs")
+      (is (close-to? ux 1.0387 0.0002) "uix-start group, two runs")
+      (is (close-to? bal 1.0190 0.0002) "start-balanced")
+      (is (and (< lo bal) (< bal hi)) "inside the published interval"))))
+
+(deftest what-the-retake-table-cannot-check-is-said-rather-than-implied
+  (testing "the per-round vectors of the four accepted runs did not
+           survive, so the page's per-round and per-stratum counts are
+           reported by the instrument and NOT re-derivable here. Only run
+           5 carries vectors, and this test pins which cells the fixture
+           does and does not hold, so a later reader cannot mistake the
+           table for something it is not"
+    (is (= 20 (count (for [r retake row rows] (get r row))))
+        "twenty run means — every accepted and every completed run, all four rows")
+    (is (= #{:M1 :M2 :broad :narrow} (set (keys run-5-per-round)))
+        "and per-round vectors for exactly one run")
+    (is (every? #(= 6 (count %)) (vals run-5-per-round))
+        "six rounds each, the balanced design")
+    (is (empty? (filter :per-round retake))
+        "no run in the table claims a per-round vector it does not have")))
+
+;; ---------------------------------------------------------------------------
 ;; The flag is global and the arm is not (rf2-2rtt6.21)
 ;; ---------------------------------------------------------------------------
 ;;
