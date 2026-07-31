@@ -561,7 +561,7 @@
   (testing "the guarded release's 1 → 0 edge disposes in-tick and cascades (rf2-2rtt6.25)"
     (rf/reg-event :init (fn [_ _] {:db {:a 2}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :double :<- [:a] (fn [[a] _] (* 2 a)))
+    (rf/reg-sub :double :<- [:a] (fn [a _] (* 2 a)))
     (rf/dispatch-sync [:init])
 
     (let [r (rf/subscribe [:double])]
