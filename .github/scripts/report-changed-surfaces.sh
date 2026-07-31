@@ -1197,12 +1197,14 @@ else
         # false-green shape. Binding is at COMMIT granularity, held by
         # `all-required-passed`, not by one job re-running three required lanes.
         #
-        # Only the index. The two sibling documents under this root stay off:
-        # donor-inventory.md is a different ledger (check_donor_inventory.py
-        # censuses live re-frame.ui consumers across the working tree, which no
-        # Freehand suite asserts on), and README.md is the document that DEFINES
-        # the addressing scheme — it speaks in illustrative ids and is excluded
-        # from the census's own citation scan for that reason.
+        # Only the index. The two sibling documents under this root stay off.
+        # donor-inventory.md is a different ledger: an archive of the withdrawn
+        # absorption programme, whose checker (check_donor_inventory.py) is a
+        # snapshot-integrity check reading that one file and nothing else
+        # (rf2-lrtwj) — so it cannot observe a source change at all. README.md
+        # is the document that DEFINES the addressing scheme — it speaks in
+        # illustrative ids and is excluded from the census's own citation scan
+        # for that reason.
         #
         # Still NOT cljs_prod / bundle_isolation — no bundle those two gates
         # measure requires Freehand (the `elision-probe` pair and the examples
