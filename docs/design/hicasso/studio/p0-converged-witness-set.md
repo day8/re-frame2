@@ -511,6 +511,290 @@ bounds the instrument has ever published rather than one run's.
 | **bulk narrow** — 10 commits a sample | 16.5 – 30 | 41.5 – 66.5 | 48 – 74 | **yes** |
 | ~~bulk narrow — 1 commit a sample (superseded)~~ | ~~2 – 3~~ | ~~4 – 4.5~~ | ~~4.5 – 5~~ | ~~**clamp-limited**~~ |
 
+## The reactive leg, from a second author (rf2-2rtt6.21)
+
+**The one term this page could not corroborate, it now measures.** The section
+above shows that the Reagent-on-subs arm here reproduces rf2-2rtt6.2's
+denominator. What it could not touch was rf2-2rtt6.2's **headline 1** — *reading
+re-frame2 subscriptions rather than a bare cursor costs Reagent ≈1.22× on mount
+and ≈2.01× on a broad commit* — because that figure needs a `:reagent-ratom` arm
+beside the `:reagent-subs` arm, and this page had none. rf2-2rtt6.17 measured the
+leg three times, and all three are re-runs of the **same** arm: three runs bound
+an instrument's noise, and cannot bound a systematic error in how the arm is
+written. Repetition, not replication.
+
+`?ratom=on` puts that arm in the Reagent segment of the `M1` and `broad` rows.
+The leg is then formed **inside one segment of one round** — both terms are
+Reagent arms measured against the same floor, so the floor divides out exactly
+and the segment seam is not in the arithmetic at all.
+
+### What was added, and what deliberately was not
+
+| | |
+|---|---|
+| **the arm** | `:reagent-ratom` — form-2 components minting one `r/cursor` per mounted occurrence over a bare `reagent.core/atom`, mounted through `reagent.dom.client` and drained with `reagent.core/flush` inside one `flushSync`. Everything except **where the value comes from** is held identical to the `:reagent-subs` arm beside it |
+| **the rows** | `M1` mount and `bulk-broad` — the two rows the headline names |
+| **not `M2`** | it is the row whose mount budget already refuses (720 mounts refused four of six), and its leg on the first author's own instrument read **exactly 1.0000 in all five rounds** of the corrected run, because its two Reagent arms returned the same p50 every time on a 4.5-to-11-quantum window. A second author cannot corroborate a number that is the clamp |
+| **not `narrow`** | rf2-2rtt6.2 has no narrow row, so a ratom arm there would mint a new figure rather than corroborate one |
+| **the segment** | the Reagent segment only. Putting a Reagent arm in the UIx segment would buy the leg nothing and would stand Reagent's reaction machinery on the page whose whole point is UIx's |
+| **the default** | **OFF.** With the arm in it the Reagent segment runs four arms against the UIx segment's three, so the interleave and the page's total mount budget both differ from the schedule the ten-run ensemble above was measured under. An unflagged invocation of this driver is still that instrument |
+
+**What "a second author" means here, stated rather than implied.** The two arms
+share `p0_reagent_views.cljs` — `m1-cell-ratom` and `m1-ratom` are the same
+functions on both pages, and that is deliberate: an arm rewritten as well as
+re-scheduled would be a different arm, and a disagreement would not say which
+change caused it. What is independently authored is **everything around the
+components**: a different app namespace, a different round count, a segment
+structure with an adapter destroyed and installed between every pair of
+segments, one row per page instead of three rows in one, a different sampling
+plan, a different aggregation and a different set of gates.
+
+So this corroborates the leg against **harness, schedule and aggregation**
+error, and it cannot corroborate it against an error in the component
+definitions themselves. That limit is real and is left standing as an open item
+below. It also makes the result below stronger rather than weaker: the
+components were held fixed, and the number moved anyway.
+
+### The budget it landed on, and the guard
+
+Adding an arm adds mounts. `M1` runs **840 mounts a page** — 6 rounds × (4
+Reagent-segment arms + 3 UIx-segment arms) × 20 samples — against the 720 every
+clean six-round run of this page has used, and `broad` runs **882 writes**. The
+[dose-response on the M2 row](#3-the-sixth-round-broke-the-m2-row-and-the-lever-was-the-mount-budget)
+says the lever for a phase refusal is the page's total mount budget, so the risk
+was named in the commit before the first sample was taken: *if the guard
+refuses, it will be a last-third-slower phase split, and the repair is the
+budget, never the tolerance.*
+
+**It did not refuse.** Twelve row-runs, `refuse? false`, `contaminated? false`,
+`unchecked? false`, tolerance 0.10, every one. The new arm's own worst factor
+contrast across the six runs is **1.1957× on `M1` and 1.3333× on `broad`, ranges
+overlapping in every case** — the same shape its `:reagent-subs` sibling shows
+(1.2667× and 1.1957×, also overlapping). No budget repair was needed and none
+was taken, so the 840-mount page is what these figures were measured on.
+
+### Predicted before the run, in the commit that added the arm
+
+`bcf80f1979` carries all five, written down before a sample existed:
+
+| prediction | outcome |
+|---|---|
+| positive control, both rows, both segments — 1.9989× on 1801/901 elements, ±25% band [1.4992 – 2.4986] | **24 of 24 pass**, and all 24 pass the *strict* every-round-inside reading as well |
+| `M1` leg — direction *subs slower*, disjoint from 1.0, magnitude **1.10 – 1.35** | direction and disjointness correct; magnitude **1.3353**, at the top edge of the predicted band |
+| `broad` leg — direction *subs slower*, disjoint from 1.0, magnitude **1.8 – 2.3** | direction and disjointness correct; magnitude **2.4957**, **outside the predicted band** |
+| `reagent-ratom ÷ floor` on `M1` — **3.3 – 3.9** | **3.2335** [3.1667 – 3.3375 across run means], just below the band |
+| the guard may refuse `M1` at 840 mounts | it did not |
+
+Two of the five predictions were wrong, both in the same direction, and that is
+the finding rather than a mis-set expectation: the leg is **larger** here than
+the first author's figure, because the ratom arm sits **closer** to the floor
+than predicted while the subs arm sits where this page has always put it.
+
+### `M1` mount — the leg, per run
+
+`reagent-subs ÷ reagent-ratom`, both floor-normalised in the same round of the
+same segment. Six runs, six rounds each, starting segment counterbalanced 3/3.
+
+| run | start | mean | range | per round | Reagent-first stratum | UIx-first stratum | strata |
+|---|---|---|---|---|---|---|---|
+| 1 | reagent | **1.3319** | 1.2778 – 1.3788 | 1.3788 · 1.2963 · 1.3333 · 1.3396 · 1.3654 · 1.2778 | 1.3592 [1.3333 – 1.3788] | 1.3046 [1.2778 – 1.3396] | overlap |
+| 2 | uix | **1.3266** | 1.2692 – 1.4000 | 1.2963 · 1.3137 · 1.2692 · 1.4000 · 1.3469 · 1.3333 | 1.3490 [1.3137 – 1.4000] | 1.3042 [1.2692 – 1.3469] | overlap |
+| 3 | reagent | **1.3497** | 1.3061 – 1.4822 | 1.3621 · 1.3200 · 1.3061 · 1.4822 · 1.3214 · 1.3065 | 1.3299 [1.3061 – 1.3621] | 1.3695 [1.3065 – 1.4822] | overlap |
+| 4 | uix | **1.3378** | 1.2500 – 1.4348 | 1.3725 · 1.3061 · 1.2500 · 1.4348 · 1.3636 · 1.3000 | 1.3470 [1.3000 – 1.4348] | 1.3287 [1.2500 – 1.3725] | overlap |
+| 5 | reagent | **1.3284** | 1.2766 – 1.3750 | 1.3333 · 1.3750 · 1.3043 · 1.3478 · 1.3333 · 1.2766 | 1.3237 [1.3043 – 1.3333] | 1.3331 [1.2766 – 1.3750] | overlap |
+| 6 | uix | **1.3373** | 1.2727 – 1.4039 | 1.3667 · 1.3333 · 1.2727 · 1.4039 · 1.3396 · 1.3077 | 1.3483 [1.3077 – 1.4039] | 1.3263 [1.2727 – 1.3667] | overlap |
+
+**Ensemble 1.3353×**, 95% interval on the mean **1.3265 – 1.3441**, run means
+spanning **1.3266 – 1.3497**. All 36 rounds are above 1.0 and all 12 order strata
+are wholly above it; the strata overlap in **6 of 6** runs, so every run marks
+the row `:claim :magnitude`. The start-group difference is **0.0028** —
+reagent-start 1.3367 against uix-start 1.3339 — so which segment leads does not
+move this figure.
+
+### `bulk-broad` — the leg, per run
+
+| run | start | mean | range | per round | Reagent-first stratum | UIx-first stratum | strata |
+|---|---|---|---|---|---|---|---|
+| 1 | reagent | **2.5504** | 2.4000 – 2.6875 | 2.5909 · 2.4000 · 2.4210 · 2.5556 · 2.6471 · 2.6875 | 2.5530 [2.4210 – 2.6471] | 2.5477 [2.4000 – 2.6875] | overlap |
+| 2 | uix | **2.3613** | 2.1000 – 2.5789 | 2.5789 · 2.3000 · 2.1000 · 2.3000 · 2.5000 · 2.3889 | 2.3297 [2.3000 – 2.3889] | 2.3930 [2.1000 – 2.5789] | overlap |
+| 3 | reagent | **2.4344** | 2.1363 – 2.5833 | 2.5833 · 2.3636 · 2.1363 · 2.5789 · 2.5556 · 2.3889 | 2.4251 [2.1363 – 2.5833] | 2.4438 [2.3636 – 2.5789] | overlap |
+| 4 | uix | **2.4863** | 2.2105 – 2.7858 | 2.5883 · 2.3333 · 2.2105 · 2.5000 · 2.5000 · 2.7858 | 2.5397 [2.3333 – 2.7858] | 2.4329 [2.2105 – 2.5883] | overlap |
+| 5 | reagent | **2.6017** | 2.3889 – 2.7778 | 2.7778 · 2.3889 · 2.5000 · 2.5625 · 2.6667 · 2.7143 | 2.6482 [2.5000 – 2.7778] | 2.5552 [2.3889 – 2.7143] | overlap |
+| 6 | uix | **2.5401** | 2.3889 – 2.8750 | 2.7222 · 2.4210 · 2.4444 · 2.8750 · 2.3889 · 2.3889 | 2.5616 [2.3889 – 2.8750] | 2.5185 [2.3889 – 2.7222] | overlap |
+
+**Ensemble 2.4957×**, 95% interval on the mean **2.4041 – 2.5873**, run means
+spanning **2.3613 – 2.6017**. All 36 rounds above 1.0, all 12 strata wholly
+above, strata overlapping in 6 of 6. Start-group difference **0.066** —
+reagent-start 2.5288 against uix-start 2.4626 — inside this row's run-to-run
+spread.
+
+### Beside the first author: the direction agrees and the magnitude does not
+
+| row | first author (rf2-2rtt6.2 · two re-runs, rf2-2rtt6.17) | second author (this page, six runs) | verdict |
+|---|---|---|---|
+| **M1 mount** | **1.218** [1.122 – 1.310] · **1.216** [1.185 – 1.241] · **1.213** [1.093 – 1.273] | **1.3353** [run means 1.3266 – 1.3497] | **direction agrees, magnitude does not.** Every second-author run mean is above every first-author mean, by 9.5% – 11.1%. The run-mean spreads are **disjoint** |
+| **bulk broad** | **2.008** [1.938 – 2.100] · **1.965** [1.875 – 2.000] · **2.073** [2.000 – 2.167] | **2.4957** [run means 2.3613 – 2.6017] | **direction agrees, magnitude does not.** Every run mean is above every first-author *maximum*, by 14% – 27%. **Disjoint**, and not marginally |
+
+**Both authors say the same thing about the world and a different thing about
+the number.** Reading re-frame2 subscriptions rather than a bare cursor costs
+Reagent something real and it costs it on both rows: 72 of 72 rounds across six
+independent runs sit above 1.0, every order stratum sits above 1.0, and the
+interval on the mean is nowhere near it. That is headline 1's *claim*, and a
+second implementation corroborates it.
+
+**Headline 1's numbers are a different matter.** `≈1.22×` and `≈2.01×` are not
+reproduced: the same witness, the same view components and the same browser, run
+under a second harness, give `1.34×` and `2.50×`. **The leg is not a constant of
+the arm — it is a property of the arm *and its harness*, and the two harnesses
+disagree by 10% on mount and by 24% on a broad commit.** Nothing here says which
+harness is right, and this page does not adjudicate that: a disagreement between
+two internally-clean instruments is the finding, and reconciling it away would
+be inventing an answer neither instrument produced.
+
+### Where the disagreement sits
+
+The leg is a quotient, so it moves when either term does. Both terms are
+published here for exactly that reason:
+
+| row | figure | first author | second author (six-run ensemble) | overlap? |
+|---|---|---|---|---|
+| **M1** | `reagent-subs ÷ floor` | 3.899 [3.447 – 4.300] · 3.973 · 3.513 | **4.3143** [run means 4.1979 – 4.4417, widest round 3.9444 – 4.8824] | yes — and this page already published 4.358 [3.625 – 5.111] on the same figure |
+| **M1** | `reagent-ratom ÷ floor` | 3.224 [2.632 – 3.633] · 3.266 · 2.913 | **3.2335** [run means 3.1667 – 3.3375, widest 2.8889 – 3.6000] | **yes, and closely — the two authors agree on this arm to 0.3% on the mean** |
+| **broad** | `reagent-subs ÷ floor` | 7.064 [6.200 – 7.700] · 7.280 · 7.330 | **7.6959** [run means 7.4167 – 7.9294] | yes — and this page's own ensemble reads 7.630 |
+| **broad** | `reagent-ratom ÷ floor` | 3.519 [3.200 – 3.900] · 3.707 · 3.540 | **3.0948** [run means 2.9722 – 3.2500] | barely — the second author's ratom arm sits **12% closer to the floor** |
+
+**On `M1` the disagreement is entirely in the numerator.** The two authors'
+ratom arms agree to within a third of a percent (3.2335 against 3.224), and the
+subs arm is where the pages differ — which is not new, and is not this bead's
+finding: [the denominator section](#the-denominator-reproduces-rf2-2rtt62) above
+already published `reagent-subs ÷ floor` as 4.358 here against 3.899 there, with
+overlapping ranges and a higher centre. The leg divides one by the other, so a
+centre 11% higher in the numerator and unchanged in the denominator is a leg 11%
+higher, which is what it reads.
+
+**On `broad` both terms move, and they move apart.** The subs arm reads 9%
+higher and the ratom arm 12% lower, and 1.09 ÷ 0.88 is the 24% the leg is out
+by. The ratom arm's absolute window on this page is 0.70 – 1.20 ms against a
+floor of 0.20 – 0.40 — seven to twelve of Chrome's 100 µs quanta against the
+floor's two to four — so it is resolved, but it is the smallest window either
+author measures a leg on.
+
+Absolute p50 milliseconds in the Reagent segment, per round, so the quotients
+above can be checked rather than taken:
+
+| run | `M1` floor / subs / ratom | `broad` floor / subs / ratom |
+|---|---|---|
+| 1 | 1.00/4.55/3.30 · 0.80/3.50/2.70 · 0.80/3.40/2.55 · 0.80/3.55/2.65 · 0.80/3.55/2.60 · 0.75/3.45/2.70 | 0.35/2.85/1.10 · 0.30/2.40/1.00 · 0.30/2.30/0.95 · 0.30/2.30/0.90 · 0.30/2.25/0.85 · 0.25/2.15/0.80 |
+| 2 | 0.80/3.50/2.70 · 0.80/3.35/2.55 · 0.80/3.30/2.60 · 0.80/3.50/2.50 · 0.80/3.30/2.45 · 0.80/3.20/2.40 | 0.30/2.45/0.95 · 0.30/2.30/1.00 · 0.30/2.10/1.00 · 0.30/2.30/1.00 · 0.30/2.25/0.90 · 0.30/2.15/0.90 |
+| 3 | 0.90/3.95/2.90 · 0.80/3.30/2.50 · 0.80/3.20/2.45 · 0.85/4.15/2.80 · 0.90/3.70/2.80 · 0.90/4.05/3.10 | 0.40/3.10/1.20 · 0.30/2.60/1.10 · 0.30/2.35/1.10 · 0.30/2.45/0.95 · 0.30/2.30/0.90 · 0.30/2.15/0.90 |
+| 4 | 0.80/3.50/2.55 · 0.80/3.20/2.45 · 0.70/3.00/2.40 · 0.75/3.30/2.30 · 0.70/3.00/2.20 · 0.70/3.25/2.50 | 0.30/2.20/0.85 · 0.30/2.10/0.90 · 0.30/2.10/0.95 · 0.30/2.00/0.80 · 0.20/2.00/0.80 · 0.30/1.95/0.70 |
+| 5 | 0.90/4.00/3.00 · 0.80/3.30/2.40 · 0.70/3.00/2.30 · 0.70/3.10/2.30 · 0.70/3.00/2.25 · 0.70/3.00/2.35 | 0.35/2.50/0.90 · 0.30/2.15/0.90 · 0.30/2.00/0.80 · 0.20/2.05/0.80 · 0.30/2.00/0.75 · 0.20/1.90/0.70 |
+| 6 | 0.90/4.10/3.00 · 0.90/4.00/3.00 · 0.80/3.50/2.75 · 0.90/3.65/2.60 · 0.90/3.55/2.65 · 0.80/3.40/2.60 | 0.30/2.45/0.90 · 0.30/2.30/0.95 · 0.30/2.20/0.90 · 0.30/2.30/0.80 · 0.30/2.15/0.90 · 0.30/2.15/0.90 |
+
+**The whole page is about twice as fast in absolute terms as rf2-2rtt6.2's
+publication run** — `M1` subs 3.00 – 4.55 ms here against 6.00 – 7.35 there, on
+a floor of 0.70 – 1.00 against 1.50 – 1.90. That is a different session on a
+differently-loaded box and it is exactly why every figure on both pages is a
+*ratio*. It also means the two authors' disagreement cannot be read off the
+absolute numbers: only the quotients are comparable, and the quotients are what
+the tables above compare.
+
+### The control that separates the author from the tree
+
+**A confound has to be excluded before *second author* is the right name for
+this.** Two things differ between rf2-2rtt6.17's re-runs and these six runs: the
+harness, and the tree. `9df5094816` (rf2-2rtt6.13) and `98f6beee8a` (rf2-2rtt6.25)
+both landed changes in `re-frame/substrate/spine.cljs` today, and although the
+`:reagent-ratom` arm touches no re-frame code at all, **the Reagent adapter does
+require the spine** — so a change there could in principle move the *numerator*
+of the leg and produce exactly the shift measured above without any harness
+being involved.
+
+The control is one command: **run the first author's own instrument on this
+tree, in this session.** `npm run bench:hicasso` drives `p0_reagent_app`, which
+publishes its own reactive leg on the same two rows.
+
+**Pre-registered, before it was run:**
+
+- If the first author's instrument still reads near **1.21 – 1.27** on `M1` and
+  **1.96 – 2.17** on `broad` — its published spread — then the tree did not move
+  the leg and the difference above is the **harness**. *Second author* is the
+  right name, and the disagreement stands as measured.
+- If it reads near **1.33** and **2.50** instead, the difference is the **tree or
+  the session**, not the author, the two implementations agree after all, and
+  what has actually been found is that headline 1's published magnitudes are
+  stale at HEAD. That would be a larger finding than the one this bead went
+  looking for, and it would belong to rf2-2rtt6.2's page rather than to this one.
+
+**The control has not been run at the moment this paragraph is committed.**
+It is written here first so that neither branch of it can be chosen after the
+numbers are in.
+
+### Provenance
+
+**Whole-tree anchor: `3a250838a2e3045209ecfc69402bba95ab51de8a`** — `origin/main`,
+plus the two instrument files this bead changed. That is stated as a sum rather
+than as a single SHA because it is the truth: the arm had not landed when it was
+measured, and pretending a branch SHA is a tree anchor is how a placeholder
+becomes a falsehood.
+
+| file | blob |
+|---|---|
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs` | `a5177d3f0bf764917075d2a247af0ddc4684a719` — **changed by this bead** |
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` | `82977240c0fcf983b286918105140f40f2a1dbc7` — **changed by this bead** |
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_views.cljs` | `bf79bf304d62f679be5fca69dd7880360a1a0631` — unchanged; the ratom components are the first author's, by construction |
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_app.cljs` | `cd8e7c7f3313c08e6b670a3d5acf406a04a7a2e1` — unchanged; the first author's instrument, used as the control above |
+| `implementation/freehand/test/re_frame/bench/hicasso/lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` — unchanged |
+| `implementation/freehand/test/re_frame/bench/hicasso/p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` — unchanged |
+| `implementation/freehand/test/re_frame/bench/hicasso/lane_cache.cjs` | `dd85cc8bd9133b659718e1f54f286f7314420ffd` — unchanged |
+| `implementation/core/test/re_frame/bench/order_guard.cljc` | `6c4097afff5afa6d64903c3be2f2f4fd6f145050` — unchanged |
+| `implementation/core/src/re_frame/substrate/spine.cljs` | `8d20218fd18282265cce1f931d019ca1f4d88b41` — **carries both of today's spine fixes**, which is the tree the control above exists to price |
+
+```bash
+git merge-base --is-ancestor 3a250838a2 origin/main && echo tree-anchor-on-main
+P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
+git rev-parse <candidate>:$P   # must print a5177d3f0bf764917075d2a247af0ddc4684a719
+```
+
+| | |
+|---|---|
+| **Authoring commit** | `bcf80f1979170d4d16d6e7679051de0018d410c5` on `worker/ratom2-2rtt6-21` — *the converged witness gets a reagent-ratom arm*. **A rebase-merge will mint a new landed SHA**; the blobs above are what identify the instrument, and a rebase cannot move a blob. The commit is also where the five predictions are written down, before the first sample existed |
+| **Reproduction** | `HICASSO_RATOM=on HICASSO_ONLY=M1,broad HICASSO_START=reagent node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — and the same with `HICASSO_START=uix`. **Six invocations, exit 0 on all six**, launched one at a time, none re-run and none discarded |
+| **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), `:advanced`, `goog.DEBUG false`, Windows 11 x64, sibling agents live on the box |
+| **Build** | `:hicasso-bench`, one build id, cold — `lane_cache.cjs` clears `.shadow-cljs/builds/hicasso-bench` before every invocation. `implementation/shadow-cljs.edn` untouched |
+| **Schedule** | **6 rounds** × 2 segments × (8 warm-up + 12 samples), one row per page, start counterbalanced 3/3. **Four arms in the Reagent segment** — floor, `reagent-subs`, `reagent-ratom`, `ctl-2x` — and three in the UIx segment |
+| **Budget** | **840 mounts** on the `M1` page, **882 writes** on the `broad` page, per run |
+| **Arm-order guard** | **no refusal on any of the 12 row-runs** — `refuse? false`, `contaminated? false`, `unchecked? false`, tolerance 0.10, every one |
+| **Canonical-DOM parity** | `{:problems [] :ok? true}` on all 12 — in both segments and across the seam. The ratom arm is inside the equality, not exempt from it |
+| **Verification** | **0 unverified of 10,332** — per run 840 `M1` mounts + 882 `broad` writes = 1,722, times six |
+| **Segment-order control** | **no refusal on any row of any run**; `magnitude-resolved? true` on **12 of 12**, `:balanced-design? true` on all 12 — for the leg as well as for the red-zone, because the leg is held to the same rule |
+| **Positive controls** | 2 rows × 2 segments × 6 runs = **24, and 24 passes**, all 24 also inside the *strict* every-round-inside band [1.4992 – 2.4986] |
+
+**The cross-segment red-zone from these six runs is not a threshold and is not
+published as one.** With four arms in the Reagent segment against three in the
+UIx segment the page is not the page the [RED-ZONE
+table](#red-zone--clock-on-rf2-2rtt62s-witnesses) was measured on, and every
+record these runs wrote carries `:ratom-arm? true` and says so. For the record
+and for nothing else, the six runs read `M1` 0.9939 – 1.1184 and `broad`
+0.5808 – 0.6768, which straddle and sit below the published `1.2310` and
+`0.6291` respectively — a difference this design has no standing to interpret.
+
+### Open items from this section
+
+- **The components are shared, so the corroboration is of the harness.**
+  `m1-cell-ratom` and `m1-ratom` are the same functions on both pages. An error
+  inside them would be invisible to both authors, and a third witness written
+  against different components — a `use-syncExternalStore` cursor, or a
+  hand-built Reagent reaction — is what would close that. It is not closed here
+  and is not claimed to be.
+- **The two harnesses disagree and neither is adjudicated the winner.** What is
+  established is that the magnitude moves by 10% – 24% between two internally
+  clean instruments measuring the same witness with the same components. Which
+  number a standard should carry is the operator's, and rf2-2rtt6.1 is
+  size-locked; nothing here amends it.
+- **Six runs, one machine, one session.** The same limit the ten-run ensemble
+  carries. Between-session spread is unmeasured and is the wider of the two.
+
 ## What the convergence changed
 
 Three of rf2-2rtt6.4's four clock verdicts do not survive the move onto
