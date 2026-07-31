@@ -17,6 +17,17 @@ HeadlessChrome 147.0.7727.15 (Chromium via Playwright), `:advanced`,
 > | `coldmount_views.cljs` | `335a37bb09233121e83ca2dc9f6a0a9ef88e037c` |
 > | `coldmount_app.cljs`   | `8cc9a9b5ec82dccc4a09321d2b08c440b580dc8f` |
 > | `coldmount_run.cjs`    | `d37fd07688f6e9a47f18938117ba776cb8d098e9` |
+>
+> **[The hand-off landed](#the-hand-off-landed--the-same-instrument-re-run-against-shipped-code)**
+> (`rf2-2rtt6.25`) re-ran this instrument against shipped code and added the
+> `shipped` witness arm. Authored on `worker/handoff-2rtt6-25`; those figures
+> are this second set of blobs:
+>
+> | file | blob |
+> |---|---|
+> | `coldmount_views.cljs` | `ad3556a641ce174e3575c9f91668330db2861f93` |
+> | `coldmount_app.cljs`   | `46fcb53f43b2f87ef7d91a221456924c53bf9f3b` |
+> | `coldmount_run.cjs`    | `d37fd07688f6e9a47f18938117ba776cb8d098e9` (unchanged) |
 
 Reproduce (each row is one page and one driver invocation; the plain command
 runs all five over the same gates):
@@ -223,6 +234,12 @@ hand-off design pass only.** This page implies the verdict and stops; opening
 and closing the ruling bead is the mayor's reconciliation, not this
 instrument's.
 
+> **Since ruled and implemented.** rf2-2rtt6.14 was RULED ADOPT (Mike,
+> 2026-07-31) and rf2-2rtt6.25 landed the hand-off. Everything above this line
+> is the evidence that fed the ruling and is left exactly as it was measured;
+> [the hand-off landed](#the-hand-off-landed--the-same-instrument-re-run-against-shipped-code)
+> at the foot of this page is the same instrument re-run against shipped code.
+
 **Which spine was measured: the shipped one.** rf2-2rtt6.13's retention fix
 is NOT landed at the measured commit — the render-phase `use-memo` still
 returns the reaction handle — and the counting witness re-confirmed
@@ -291,3 +308,109 @@ The double build is untouched by .13, so the fractions on this page stand. Their
 * It does not re-price retention. The 769 B / 23.0 obj term is
   [the decomposition page](uix-spine-per-read-decomposition.md)'s and is
   untouched; no red-zone value moves, so rf2-2rtt6.1 gets nothing from here.
+
+---
+
+## The hand-off landed — the same instrument, re-run against shipped code
+
+**Bead** `rf2-2rtt6.25` · **ruled ADOPT on `rf2-2rtt6.14`** (Mike, 2026-07-31) ·
+**re-measured** 2026-07-31 13:4x AUSEST, same box, same runtime line as every
+figure above.
+
+The design pass this page's verdict fed is implemented. The render phase keeps
+its `+1` in a one-shot escrow token instead of balancing it away, so the
+commit-owned `subscribe-fn` HITS and adopts the reaction the render built; the
+token is released `2 → 1` at adoption, or reaped by a host-macrotask drain
+armed at acquisition if the commit never comes. The instrument gained a fourth
+witness arm — **`shipped`**, the real hook — whose `commits` / `rebuilt` are
+read off the sub-cache rather than from a counter cut into production code
+(the render records which reaction the cache holds for its query the instant
+the read returns; after the mount, `commits` counts the tenanted slots and
+`rebuilt` counts the tenants that are not the one the render saw). Independent
+measurement, same two integers, and on the pre-hand-off spine every render
+observes nothing and every read counts as rebuilt — the same `rebuilt = N` the
+`xcript` counter reports.
+
+**The acceptance witness, exact, `failures []` on every row:**
+
+| variant, N = 300 reads at page layer L | commits | rebuilt | bodyRuns per layer ≤ L |
+|---|---:|---:|---:|
+| `xcript` — the retired double build | 300 | **300** | **600 (2N)** |
+| `handoff` — the transcription | 300 | 0 | 300 (1N) |
+| **`shipped` — the real hook** | **300** | **0** | **300 (1N)** |
+| Reagent | 0 | 0 | 300 (1N) |
+
+Twice over disjoint cell ranges, at layers **1, 2 and 3**. The shipped hook
+reads the `handoff` row: the double build is gone, and at depth the whole
+`:<-` chain builds once rather than twice.
+
+**And on the clock, from the same rounds.** `xcript` is the behaviour that was
+removed, measured beside its replacement in the same page loads, so this is a
+before/after and not a cross-run comparison — p50 ms per mount, four rounds:
+
+| row | `shipped` (after) | `xcript` (before) | after ÷ before |
+|---|---|---|---:|
+| **M1L1** — 901 el / 300 boundaries, layer 1 | 3.50 · 3.25 · 3.25 · 3.10 | 4.15 · 3.80 · 3.90 · 3.95 | **0.83** |
+| **M1L2** — one `:<-` hop | 5.15 · 4.70 · 4.85 · 4.60 | 7.00 · 6.80 · 6.60 · 6.20 | **0.71** |
+| **M1L3** — two `:<-` hops | 6.55 · 6.50 · 6.40 · 7.40 | 11.00 · 9.30 · 9.70 · 10.15 | **0.66** |
+| M1L3 — independent re-take | 6.50 · 6.00 · 5.95 · 6.65 | 10.05 · 8.65 · 10.20 · 9.20 | **0.65** |
+| M2L1 · *diagnostic* | 0.45 · 0.50 · 0.40 · 0.40 | 0.50 · 0.50 · 0.40 · 0.40 | on the clamp |
+| M2L2 · *diagnostic* | 0.60 · 0.60 · 0.40 · 0.50 | 0.70 · 0.70 · 0.60 · 0.65 | on the clamp |
+
+**The mount red zone, re-derived from these runs' own rounds** (`uix-subs /
+reagent-subs`, the cross-seam ratio, four rounds each):
+
+| row | before (the rounds above this section) | after |
+|---|---|---|
+| M1L1 | 1.11–1.26× | **1.0054× `[0.917–1.143]`**, strata overlap, magnitude resolved — excess mean **0.00 ms** |
+| M1L2 | 1.84–2.01× | 1.4223×, direction-only (strata disjoint) |
+| M1L3 | 2.57–3.55× | 1.9282× `[1.697–2.242]`; re-take 1.9560× `[1.663–2.129]` |
+| M2L1 | — | 0.9078× — the UIx mount reads *below* the Reagent denominator |
+| M2L2 | — | **refused** (see below) |
+
+The observation this page reported beside its fraction — *the single-build hook
+mount lands at or below the Reagent denominator on M1L1* — held when the shape
+became shipped code. At layer 1 the mount red zone is not reduced; it is
+**closed**, on this witness. The layered rows keep a real gap (context, not a
+red-zone: no layered row exists in the converged set), and it is roughly halved.
+
+### Two gates fired, and neither is a regression
+
+Reporting them is the point of having them.
+
+* **`M1L3` fidelity, run A: `ok? false`** — shipped p50 6.525 ms against the
+  `handoff` transcription's 6.25, ranges disjoint by 0.05 ms, medians 4.2%
+  apart against a pre-declared 3% band; the independent re-take put the same
+  pair at 6.25 vs 5.90, medians 5.2% apart but ranges overlapping, so the
+  control passed on its first clause. The direction is stable across both
+  runs and the cause is not noise: **the shipped hook is not the `handoff`
+  arm.** It carries what the arm deliberately omits — the escrow token, the
+  pending queue, one timer per burst, and an identity-guarded release instead
+  of a plain `unsubscribe`. That is the hand-off's own machinery, ~4–5% of a
+  layer-3 mount, and it is already inside every `shipped` number above. The
+  band is not widened here: a control that reports a real difference is
+  working, and the honest reading is that no transcription reproduces the
+  post-hand-off hook to 3% because none of them contains it.
+* **`M2L2` segment-order control: `refuse? true`** — the row's two order
+  strata point opposite ways across 1.0 (Reagent-first 0.775×, UIx-first
+  1.171×), so the row has no direction to publish. That is a direct
+  consequence of the win rather than an instrument fault: on a 51-element form
+  the UIx and Reagent mounts are now within the 100 µs clock quantum of each
+  other, so which one reads faster is decided by the schedule. The M2 rows
+  were graded DIAGNOSTIC and clamp-quantised before this change and the
+  decision rule never conditioned on them.
+
+Everything else held: canonical-DOM parity across both seams and all judged
+arms; the counting witness exact on every row; the positive control ten of ten
+under the overlap rule; 0 unverified of 640 writes per row; the arm-order guard
+clean everywhere (`refuse? false`, tolerance untouched); the residue gate never
+fired — the provisional `+1` balanced in every mount, which is the leak
+detector for exactly the reference this change introduces.
+
+### What this section does not claim
+
+* It does not re-run the fraction. `xcript − handoff` is still measured and
+  still large, but the question it was built to answer is answered and the
+  rule that consumed it has fired.
+* It does not amend a red zone. rf2-2rtt6.1 owns the bar; these are this
+  instrument's own rounds, and only the operator moves a published figure.
