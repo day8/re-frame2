@@ -76,6 +76,7 @@
   so this runs on every runtime."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.set :as set]
+            [clojure.walk :as walk]
             [re-frame.bench.hicasso.p0-converge-app :as app]))
 
 ;; ---------------------------------------------------------------------------
@@ -331,13 +332,28 @@
       (is (= :numerator-slower (:direction (:uix-first r))) (str row))
       (is (false? (:refuse? r)) (str row)))))
 
+(def ^:private first-author
+  "rf2-2rtt6.2's publication run and rf2-2rtt6.17's two re-runs of its OWN
+  `:reagent-ratom` arm — the run mean and the per-round range of each,
+  exactly as the studio page tabulates them beside this ensemble.
+
+  Kept as DATA rather than as constants inside an assertion, so that what
+  the tests below compare is two published sets against each other and
+  not a number somebody typed into a threshold."
+  {:M1    [{:mean 1.218 :min 1.122 :max 1.310}
+           {:mean 1.216 :min 1.185 :max 1.241}
+           {:mean 1.213 :min 1.093 :max 1.273}]
+   :broad [{:mean 2.008 :min 1.938 :max 2.100}
+           {:mean 1.965 :min 1.875 :max 2.000}
+           {:mean 2.073 :min 2.000 :max 2.167}]})
+
 (deftest the-leg-does-not-reproduce-the-first-authors-magnitude
   (testing "and the MAGNITUDE is not corroborated, which is the finding
            rf2-2rtt6.21 exists to surface. rf2-2rtt6.2 publishes 1.218 /
-           1.216 / 1.213 on M1 and 2.008 / 1.965 / 2.073 on broad; every
-           one of these run means sits above every one of those, and the
-           lowest M1 round of all six runs still clears the highest of the
-           first author's three means"
+           1.216 / 1.213 on M1 and 2.008 / 1.965 / 2.073 on broad, and
+           every one of these RUN MEANS sits above every one of those.
+           That is the separation the studio page claims, and it is
+           claimed at the run level because that is the level it holds at"
     (let [means (fn [row] (map :order-balanced-mean (legs row)))]
       (is (every? #(> % 1.30) (means :M1))
           "every M1 run mean is above 1.30, where the first author's three
@@ -345,16 +361,34 @@
       (is (every? #(> % 2.30) (means :broad))
           "every broad run mean is above 2.30, where the first author's
            three are 1.965-2.073")
-      (is (> (apply min (mapcat :vs (:M1 leg))) 1.24)
-          "and the LOWEST single round across all six M1 runs, 1.2500,
-           still sits above the first author's re-run maxima of 1.241 and
-           1.273 — a disagreement at the round level and not only at the
-           mean")))
-  (testing "the same statement from the other side: replay the first
-           author's own published M1 leg as if it were a six-round vector
-           and it does not reach this ensemble's floor"
-    (is (< 1.218 (apply min (mapcat :vs (:M1 leg))))
-        "1.218 is below every round the second author measured")))
+      (doseq [row [:M1 :broad]]
+        (is (> (apply min (means row))
+               (apply max (map :mean (get first-author row))))
+            (str row ": the LOWEST of the second author's six run means "
+                 "must clear the HIGHEST of the first author's three"))))))
+
+(deftest the-round-ranges-overlap-so-the-separation-is-not-a-round-level-claim
+  (testing "THE CORRECTION the PR #7310 audit required (rf2-2rtt6.21). The
+           replay above used to carry a third assertion —
+           `min(second-author round) > 1.24` — under a message reading
+           `1.2500 still sits above the first author's re-run maxima of
+           1.241 AND 1.273`. It does not: 1.2500 is below 1.273, so the
+           message made a FALSE round-level claim look pinned by a test
+           that was only ever pinning 1.24.
+
+           The round ranges OVERLAP, which is what the studio page has
+           always said — `overlap at the edges, 1.1667 - 1.3175 against
+           1.2500 - 1.4822, while the run means are disjoint`. So the
+           round-level reading is pinned FALSE here rather than merely
+           deleted: a later hand that reinstates it reds this test"
+    (doseq [row [:M1 :broad]]
+      (let [lowest-second (apply min (mapcat :vs (get leg row)))
+            highest-first (apply max (map :max (get first-author row)))]
+        (is (< lowest-second highest-first)
+            (str row ": the lowest single round of the second author's six "
+                 "runs sits BELOW the highest round the first author "
+                 "published, so the two ensembles are NOT separated round "
+                 "by round — only run mean by run mean"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; THE BALANCED ENSEMBLE'S OBSERVATION TABLE (rf2-6i0i2, the PR #7303 audit)
@@ -886,3 +920,152 @@
           "M2's interval on the MEAN clears parity — barely, and it stays
            a diagnostic row precisely because its individual runs do not:
            three of the ten read below 1.0 outright"))))
+
+;; ---------------------------------------------------------------------------
+;; The flag is global and the arm is not (rf2-2rtt6.21)
+;; ---------------------------------------------------------------------------
+;;
+;; `HICASSO_RATOM=on` is a page-global request; arm presence is decided per
+;; row. With no `HICASSO_ONLY` the driver selects ALL FOUR rows, and `M2`
+;; and `narrow` deliberately carry no `:reagent-ratom` arm — `M2`'s witness
+;; ignores the flag and `bulk-arms` admits the arm only on `:broad`. Until
+;; this section the record still read the FLAG: it divided by a ratio those
+;; rows never produced, formed a ratom floor of nothing, ran the leg verdict
+;; over the result and labelled the row as carrying the arm. The published
+;; runs escaped it only by always pairing the flag with
+;; `HICASSO_ONLY=M1,broad`, so neither CI nor the quality gates ever ran the
+;; natural flagged invocation.
+;;
+;; Three facts, in the order the run establishes them: which arms the row's
+;; PLAN plants, what [[app/ratom-leg]] DECIDES from a round, and what the
+;; RECORD then publishes. Pure arithmetic over constants — no DOM, no clock,
+;; no browser, like everything else in this namespace.
+
+(def ^:private flagged-rows
+  "What `HICASSO_RATOM=on` with no `HICASSO_ONLY` selects: the driver's
+  default row list, all four of them."
+  [:M1 :M2 :broad :narrow])
+
+(def ^:private rows-carrying-the-arm
+  "And the two of those four whose plan admits the arm."
+  #{:M1 :broad})
+
+(deftest the-flagged-default-selection-plants-the-arm-on-two-rows-of-four
+  (testing "with the flag ON, M1 and broad run a FOUR-arm Reagent segment
+           and M2 and narrow run their published three. This is the fact
+           every assertion below rests on, and it is asked of the entry's
+           own plan rather than restated beside it"
+    (doseq [row flagged-rows]
+      (let [ids (set (app/reagent-segment-arm-ids row true))]
+        (is (contains? ids :reagent-subs) (str row " must always run the denominator"))
+        (is (= (contains? rows-carrying-the-arm row)
+               (contains? ids :reagent-ratom))
+            (str row " under HICASSO_RATOM=on")))))
+  (testing "and with the flag OFF no row runs it, which is what keeps an
+           unflagged invocation the instrument the four published rows
+           were measured on"
+    (doseq [row flagged-rows]
+      (is (not (contains? (set (app/reagent-segment-arm-ids row false)) :reagent-ratom))
+          (str row " under HICASSO_RATOM=off")))))
+
+(deftest the-leg-is-formed-only-when-every-round-measured-the-arm
+  (let [round (fn [ratom] {:reagent-subs
+                           {:ratio (cond-> {:reagent-subs 4.0}
+                                     ratom (assoc :reagent-ratom ratom))}})]
+    (testing "six rounds that all measured the arm: the leg is 4.0 / 3.0,
+             once per round"
+      (let [l (app/ratom-leg (mapv round (repeat 6 3.0)))]
+        (is (= 6 (count l)))
+        (is (every? #(close? 1.3333 %) l))))
+    (testing "no round measured it — nil, and NOT a quotient over a
+             denominator that was never taken. This is the M2 and narrow
+             case, and `subs / nil` is `Infinity` in JavaScript rather
+             than an error, so nothing downstream would have complained"
+      (is (nil? (app/ratom-leg (mapv round (repeat 6 nil))))))
+    (testing "a PARTIAL arm is no arm: one round short and the leg is nil,
+             because a figure that quietly changes what it averages over
+             is worse than one that is absent"
+      (is (nil? (app/ratom-leg (mapv round [3.0 3.0 3.0 3.0 3.0 nil])))))
+    (testing "and a zero denominator divides to Infinity, so it is refused
+             at the same door"
+      (is (nil? (app/ratom-leg (mapv round (repeat 6 0.0))))))))
+
+(def ^:private synthetic-ms
+  "One reading vector per arm id, constant, so every ratio the record
+  computes is exact: the floor is 1.0, the denominator arm 4.0, the ratom
+  arm 3.0, and the 2x control 2.0 — which is the control's own
+  prediction, so it passes."
+  {:floor [1.0 1.0 1.0]
+   :reagent-subs [4.0 4.0 4.0]
+   :reagent-ratom [3.0 3.0 3.0]
+   :uix-subs [5.0 5.0 5.0]
+   :ctl-2x [2.0 2.0 2.0]})
+
+(defn- flagged-record
+  "The published record for `row` under `HICASSO_RATOM=on`, over six rounds
+  of that row's ACTUAL flagged arm set. The Reagent segment's arms come
+  from the entry's own plan, so no premise is transcribed here."
+  [row]
+  (let [reagent-arms (select-keys synthetic-ms (app/reagent-segment-arm-ids row true))
+        uix-arms     (select-keys synthetic-ms [:floor :uix-subs :ctl-2x])]
+    (:record (app/row-record
+               {:row row
+                :grade :bar
+                :doc "a contract fixture, not a measurement"
+                :control {:predicted 2.0 :basis "the 2x control reads twice the floor"}
+                :writes-per-sample 1
+                :start :reagent-subs}
+               (vec (repeat 6 {:reagent-subs reagent-arms :uix-subs uix-arms}))))))
+
+(defn- non-finite
+  "Every number anywhere in `x` that is not finite — NaN, Infinity,
+  -Infinity. A record is a tree of maps and vectors, so the whole of it is
+  checked rather than the two or three keys somebody remembered."
+  [x]
+  (let [found (atom [])]
+    (walk/postwalk (fn [v]
+                     (when (and (number? v) (not (js/isFinite v)))
+                       (swap! found conj v))
+                     v)
+                   x)
+    @found))
+
+(deftest the-flagged-default-selection-publishes-a-leg-only-where-the-arm-ran
+  (testing "HICASSO_RATOM=on with the default four rows. M1 and broad
+           publish a leg of 4.0 / 3.0 and say they carry the arm; M2 and
+           narrow publish no leg, no ratom floor, no leg verdict and no
+           comparability note, and say they carry no arm — and no row
+           emits a non-finite number anywhere in its record"
+    (doseq [row flagged-rows]
+      (let [rec (flagged-record row)]
+        (if (contains? rows-carrying-the-arm row)
+          (do (is (true? (:ratom-arm? rec)) (str row))
+              (is (true? (:ratom-arm? (:red-zone rec))) (str row))
+              (is (string? (:comparability (:red-zone rec))) (str row))
+              (is (close? 1.3333 (:mean (:reactive-leg rec))) (str row))
+              (is (= :magnitude (:claim (:reactive-leg rec))) (str row))
+              (is (some? (:ratom-over-floor rec)) (str row))
+              (is (some? (:reactive-leg-segment-order rec)) (str row)))
+          (do (is (false? (:ratom-arm? rec)) (str row))
+              (is (false? (:ratom-arm? (:red-zone rec))) (str row))
+              (is (nil? (:comparability (:red-zone rec))) (str row))
+              (is (nil? (:reactive-leg rec)) (str row))
+              (is (nil? (:ratom-over-floor rec)) (str row))
+              (is (nil? (:reactive-leg-segment-order rec)) (str row))))
+        (is (empty? (non-finite rec))
+            (str row " emitted non-finite numbers: " (pr-str (non-finite rec))))))))
+
+(deftest an-m2-or-narrow-only-flagged-selection-emits-no-leg-and-no-infinity
+  (testing "`HICASSO_RATOM=on HICASSO_ONLY=M2,narrow` — the selection
+           nobody published from, CI never ran and the quality gates never
+           exercised, which is precisely why it was the broken one. Both
+           rows must answer with no leg at all rather than with a division
+           by a denominator they never measured"
+    (doseq [row [:M2 :narrow]]
+      (let [rec (flagged-record row)]
+        (is (nil? (:reactive-leg rec)) (str row " must publish no leg"))
+        (is (false? (:ratom-arm? rec)) (str row " must not claim the arm"))
+        (is (empty? (non-finite rec))
+            (str row " emitted non-finite numbers: " (pr-str (non-finite rec))))
+        (is (some? (:red-zone rec))
+            (str row " still publishes its ordinary red-zone"))))))
