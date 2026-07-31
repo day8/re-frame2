@@ -91,6 +91,36 @@
        ($ u-cell {:key i :i i}))))
 
 ;; ---------------------------------------------------------------------------
+;; FAN — the fan-out family (rf2-5prok)
+;; ---------------------------------------------------------------------------
+;;
+;; The UIx counterpart of `p0-reagent`'s fan family, written the same way
+;; for the same reasons: one `defui` per read count (a `for` over the read
+;; count inside one component is a hook-linter error and would be a
+;; different question anyway), identical props at every rung so the shell
+;; rung is not measuring one fewer prop slot, and identical DOM at every
+;; rung so the floor subtraction stays honest.
+
+(defui fan-cell-0 [{:keys [j]}]
+  ($ :span.cell {:data-i j} "0"))
+
+(defui fan-cell-1 [{:keys [j n]}]
+  (let [a (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n 1 0)])]
+    ($ :span.cell {:data-i j} (str a))))
+
+(defui fan-cell-2 [{:keys [j n]}]
+  (let [a (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n 2 0)])
+        b (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n 2 1)])]
+    ($ :span.cell {:data-i j} (str (+ a b)))))
+
+(defui fan-grid [{:keys [offset n-cells reads]}]
+  ($ :div.ugrid
+     (case (long reads)
+       0 (for [j (range n-cells)] ($ fan-cell-0 {:key j :j j :n (+ offset j)}))
+       1 (for [j (range n-cells)] ($ fan-cell-1 {:key j :j j :n (+ offset j)}))
+       2 (for [j (range n-cells)] ($ fan-cell-2 {:key j :j j :n (+ offset j)})))))
+
+;; ---------------------------------------------------------------------------
 ;; Roots — the frame scope every read resolves through
 ;; ---------------------------------------------------------------------------
 ;;
@@ -111,3 +141,11 @@
 (defn u-root [frame-id]
   ($ uix-adapter/frame-provider {:frame frame-id}
      ($ u-grid {:n fx/cells-n})))
+
+(defn fan-root
+  "One root of the fan-out arm. `offset` is this root's base in the GLOBAL
+  boundary numbering, which is what lets four roots of one frame either
+  share every key or share none."
+  [frame-id offset n-cells reads]
+  ($ uix-adapter/frame-provider {:frame frame-id}
+     ($ fan-grid {:offset offset :n-cells n-cells :reads reads})))

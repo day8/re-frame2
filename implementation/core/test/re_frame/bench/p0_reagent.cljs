@@ -88,8 +88,57 @@
      ^{:key i} [u-cell i])])
 
 ;; ---------------------------------------------------------------------------
+;; FAN — the fan-out family (rf2-5prok)
+;; ---------------------------------------------------------------------------
+;;
+;; The same `.cell` boundary as `u-cell`, with two things lifted into
+;; parameters: how many subscriptions a boundary READS (`reads`), and how
+;; many UNIQUE query keys the whole page holds (Q, set on the fixture
+;; before the mount). Boundary count, element count and text are held
+;; fixed across every rung — all cells are `0`, and a two-read cell shows
+;; their SUM, which is also `0` — so a rung differs from its neighbours in
+;; cache cardinality and in nothing a floor subtraction could confuse for
+;; it.
+;;
+;; THREE CELLS RATHER THAN ONE WITH A LOOP. A boundary's read count has to
+;; be fixed per component: a `for` over `reads` inside one cell would be a
+;; different question on Reagent and a hook-linter error on the UIx
+;; counterpart, and the two arms have to be written the same way.
+;;
+;; The `_n` arg on the zero-read cell is deliberate: every rung's cell
+;; takes the SAME two arguments, so the argv a fiber retains is the same
+;; shape at R=0, R=1 and R=2 and the shell rung is not measuring one fewer
+;; prop slot than the rungs it anchors.
+
+(reg-view fan-cell-0 [j _n]
+  [:span.cell {:data-i j} "0"])
+
+(reg-view fan-cell-1 [j n]
+  (let [a @(subscribe [:p0/fan (fx/fan-key n 1 0)])]
+    [:span.cell {:data-i j} (str a)]))
+
+(reg-view fan-cell-2 [j n]
+  (let [a @(subscribe [:p0/fan (fx/fan-key n 2 0)])
+        b @(subscribe [:p0/fan (fx/fan-key n 2 1)])]
+    [:span.cell {:data-i j} (str (+ a b))]))
+
+(reg-view fan-grid [offset n-cells reads]
+  [:div.ugrid
+   (case (long reads)
+     0 (for [j (range n-cells)] ^{:key j} [fan-cell-0 j (+ offset j)])
+     1 (for [j (range n-cells)] ^{:key j} [fan-cell-1 j (+ offset j)])
+     2 (for [j (range n-cells)] ^{:key j} [fan-cell-2 j (+ offset j)]))])
+
+;; ---------------------------------------------------------------------------
 ;; Roots
 ;; ---------------------------------------------------------------------------
+
+(defn fan-root
+  "One root of the fan-out arm. `offset` is this root's base in the GLOBAL
+  boundary numbering, which is what lets four roots of one frame either
+  share every key or share none."
+  [frame-id offset n-cells reads]
+  [rf/frame-provider {:frame frame-id} [fan-grid offset n-cells reads]])
 
 (defn w1-root [frame-id rows]
   [rf/frame-provider {:frame frame-id} [w1 rows]])

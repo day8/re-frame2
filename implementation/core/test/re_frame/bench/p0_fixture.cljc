@@ -39,6 +39,16 @@
   make the NARROW row unmeasurable by construction — the row that prices
   localisation would price nothing.
 
+  ## The fan-out key space (rf2-5prok)
+
+  `:p0/fan` is a fourth layer-1 subscription that exists so a heap arm can
+  set the number of UNIQUE live query keys INDEPENDENTLY of the number of
+  boundaries and the number of reads. It answers the same cell values
+  `:p0/cell` answers, folded round the seeded range, so a rung holding
+  2,400 keys renders exactly the DOM a rung holding 150 does and the
+  difference between them is cache cardinality and nothing else. See
+  [[fan-key]].
+
   ## Sub-key identity
 
   `(query-id, args)` under value equality, args a bare long. A map would
@@ -87,6 +97,44 @@
   (+ 1 n))
 
 ;; ---------------------------------------------------------------------------
+;; The fan-out key space — B, E and Q as three numbers, not three shapes
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private fan-q
+  ;; Q for the arm currently mounted. A `volatile!` and not an `atom`: it is
+  ;; set ONCE per arm, outside every measured window, and nothing derefs it
+  ;; reactively — a ratom here would put a watchable in the middle of the
+  ;; thing being weighed.
+  (volatile! 1))
+
+(defn set-fan-keys!
+  "Set Q — the number of UNIQUE live query keys the arm about to mount will
+  hold — before mounting it. The heap driver states B, E/B and Q; this is
+  the only one of the three the page cannot read off the DOM, which is why
+  `p0-heap/mount!` asks the sub-cache to prove it afterwards."
+  [q]
+  (vreset! fan-q (max 1 (long q)))
+  nil)
+
+(defn fan-key
+  "The query INDEX that boundary `n` reads at slot `j` of its `r` reads:
+  `(n·r + j) mod Q`.
+
+  ONE rule, so the whole witness stamp falls out of three numbers the
+  driver chose. B boundaries × r reads is E; the modulus is Q; mean fan-out
+  is E/Q. Every key in `0 … Q-1` is used whenever `B·r >= Q`, which every
+  rung of the published sweep satisfies, so `Q` is the exact live
+  cardinality and not an upper bound on it.
+
+  `n` is the GLOBAL boundary index — root index × boundaries-per-root plus
+  the cell's own index — because the roots of one arm share one frame and
+  therefore one subscription cache. That sharing is the mechanism the whole
+  sweep is about (rf2-2rtt6.16): four roots rendering the same query
+  vectors hold one reaction at ref-count 4, not four reactions."
+  [n r j]
+  (mod (+ (* n r) j) @fan-q))
+
+;; ---------------------------------------------------------------------------
 ;; The data
 ;; ---------------------------------------------------------------------------
 
@@ -123,6 +171,12 @@
   (rf/reg-sub :p0/row   (fn [db [_ i]] (get-in db [:rows i])))
   (rf/reg-sub :p0/field (fn [db [_ i]] (get-in db [:fields i])))
   (rf/reg-sub :p0/cell  (fn [db [_ i]] (get-in db [:cells i])))
+  ;; The fan-out arm's key space. The index is folded back into the seeded
+  ;; range, so EVERY key — 0 or 2,399 — answers the same `0` the `:p0/cell`
+  ;; grid answers and every rung of the sweep renders identical DOM. A rung
+  ;; whose text differed with Q would be moving the floor it is differenced
+  ;; against while claiming to move only the cache.
+  (rf/reg-sub :p0/fan   (fn [db [_ i]] (get-in db [:cells (mod i cells-n)])))
   (rf/reg-event :p0/seed (fn [_ _] {:db (seed-db)}))
   ;; The two BULK writes, as ordinary re-frame events. Both arms drive
   ;; their bulk row through `dispatch-sync` on these, because in re-frame2
