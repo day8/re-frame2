@@ -11,6 +11,22 @@ budget rows — the shell / per-edge / per-unique-key numbers that may not enter
 prices the terms. [§6](#6-what-this-unblocks) says which rows are unblocked and
 which one is refused.
 
+**Warrant correction, 2026-07-31 — the held-out claim is withdrawn.** This
+page's first revision advertised `R2Q2B` as a rung *held out of every
+identification* and presented the model as validated by predicting it. The audit
+of PR #7306 found that the adjudicator gives `R2Q2B` a second job: its measured
+value is half of the `key-2` estimate, which feeds `key-gap`, which feeds
+`key-ok?` — a **mandatory** input to model selection. The rung is an input to
+the verdict, not a witness withheld from it, and the residual it returns is
+arithmetically the other checks recombined. **The independence claim is
+retracted here and everywhere it was carried downstream.** The rows, the
+contrasts and the component magnitudes below are unchanged and unedited;
+[§4](#4-the-additive-model) states, with the identity written out, exactly what
+they now rest on and what they do not. No new measurement was taken: the
+operator deferred further heap measurement on 2026-07-31, and
+[§7](#7-open) records what an independent adjudication would require if one is
+ever run.
+
 ---
 
 ## The answer, first
@@ -41,14 +57,19 @@ two substrates sit **+5.2% and +5.2%** above the ladder, the same common-mode
 offset between two instruments. **Part 1 is not reopened.**
 [§3](#3-the-prediction-adjudicated) shows the working.
 
-**The additive model holds on UIx and needs a fourth term on Reagent.** The
-per-unique-key axis is a straight line on both substrates in every round of both
-runs (r² 0.9973–0.9999), so a per-unique-key price exists and is priced twice
-over from disjoint subsets of the sweep. The *per-edge* term is another matter:
-on UIx the two ways of pricing it agree within 3.8% and the held-out rung is
-predicted within 2%, and on Reagent they disagree by 160 B — **more than twice
-the smaller of the two** — which is a real finding about where Reagent spends
-and a refusal to publish a per-edge byte count for it.
+**The additive model *fits* UIx with three terms and Reagent with four — and
+"fits" is the strongest word this sweep has earned.** The per-unique-key axis is
+a straight line on both substrates in every round of both runs (r²
+0.9973–0.9999), so a per-unique-key price exists and is priced twice over from
+genuinely disjoint rung sets: the R = 1 family's slope, and the R = 2 pair. The
+*per-edge* term is another matter: on UIx the two routes to it land within 3.8%
+of each other, and on Reagent they disagree by 160 B — **more than twice the
+smaller of the two** — which is a real finding about where Reagent spends, and
+the page refuses to publish a per-edge byte count for it. What this page does
+**not** claim is an out-of-sample validation. `R2Q2B` is an input to the
+model's admissibility gate, not a rung withheld from it, and the residual it
+returns is identically the other two checks recombined —
+[§4](#4-the-additive-model) writes that identity out.
 
 ---
 
@@ -76,13 +97,25 @@ git rev-parse <candidate>:$P   # must print 29a5d1087c2a78d3bc025657d414af2131d3
 ```
 
 **The spine measured.** Both of today's spine landings are ancestors of the
-anchor, and both move per-read heap, so this page's absolutes are **not**
-comparable to any P0 heap figure published before them:
+anchor. **One of them is known to move retained heap**, and it is the reason this
+page's UIx absolutes are **not** comparable to any P0 heap figure published
+before it:
 
-| landing | commit | what it did |
-|---|---|---|
-| `rf2-2rtt6.13` (PR #7304) | `9df5094816` | stopped retaining the disposed render-phase reaction — **−769 B / −23.0 objects per unique key** on UIx |
-| `rf2-2rtt6.25` (PR #7305) | `f784ab0adb` | hook-scoped provisional hand-off; the cold read builds **one** reaction, not two (`bodyRuns` 2.00N → 1.00N) |
+| landing | commit | what it did | retained heap |
+|---|---|---|---|
+| `rf2-2rtt6.13` (PR #7304) | `9df5094816` | stopped retaining the disposed render-phase reaction — **−769 B / −23.0 objects per unique key** on UIx | **moves it** — measured there, and priced again in [§3](#3-the-prediction-adjudicated) |
+| `rf2-2rtt6.25` (PR #7305) | `f784ab0adb` | hook-scoped provisional hand-off | **no established delta** — see below |
+
+**`rf2-2rtt6.25` is named here as a tree stamp, not as a cause.** Under a forced
+synchronous commit — which is what this harness does, mounting every arm inside
+`react-dom/flushSync` — the hand-off lets a cold read build one reaction rather
+than two. The audit of PR #7305 then drove the shipped public path (bare
+`createRoot().render`, no `act`, no `flushSync`) and measured **2N** body
+constructions at N = 1, 300, 3,000 and 10,000: the reaper's macrotask wins before
+React's passive subscribe, so the provisional is disposed and the commit
+rebuilds. **No durable retained-heap delta from `.25` is established**, this page
+attributes none to it, and every correction below is `.13`'s alone. The public
+schedule is open under `rf2-2rtt6.25`.
 
 **Versions.** Reagent **2.0.1**, UIx **1.4.4**, React **19.2.0**, node
 **24.13.0**, headless **Chromium 147.0.7727.15** via Playwright 1.59.1. Windows
@@ -161,7 +194,7 @@ round.
 | `R1Q2` | 1 | B/2 | fan-out 2 |
 | `R1Q4` | 1 | B/4 | fan-out 4 — at ROOTS=4, exactly `rf2-2rtt6.4`'s regime |
 | `R1Q8` | 1 | B/8 | fan-out 8 |
-| `R2Q2B` | 2 | 2B | **held out of every identification** |
+| `R2Q2B` | 2 | 2B | **prices no term — and gates the model** ([§4](#4-the-additive-model)) |
 | `R2QB2` | 2 | B/2 | identifies the per-edge term against `R1Q2` |
 | `anchor` | 1 | 300 | the published `grid/<substrate>` arm, **unchanged** |
 
@@ -311,11 +344,12 @@ guard reportable, 0 unverified of 56 mounts):
 | `grid` exclusive ratio | 2.254× | **2.104×** [2.056–2.138] |
 
 The Reagent denominator is the published figure **to the byte**. The UIx
-numerator has moved, by `.13`, and the ratio with it — which is the second
-independent statement of the same thing, on the instrument that published the
-original. Those mounts also passed the new **Q** read-back, so the `.4` grid
-arm's E/Q = 4 is now checked every time that row is taken and not only when this
-sweep runs.
+numerator has moved, by `.13`, and the ratio with it — a second statement of the
+same thing, from a separate run of the very arm that published the original.
+Same instrument, different arm, different run: corroboration within one
+harness, not a second harness. Those mounts also passed the new **Q**
+read-back, so the `.4` grid arm's E/Q = 4 is now checked every time that row is
+taken and not only when this sweep runs.
 
 ### P2 and P3 — see [§4](#4-the-additive-model) and [§5](#5-the-terms)
 
@@ -353,10 +387,11 @@ M4    y = shell + [E>0]·step + (E/B)·edge + (Q/B)·key
 - `step` — what is left of the `R1*` intercept once `shell` and `edge` are taken
   out. M3 says this is zero.
 
-`R2Q2B` is **held out of all of that** and predicted by both models. It is the
-only rung whose value nothing above depends on.
+`R2Q2B` prices none of those four terms. **It is not, however, held out of the
+adjudication** — and the first revision of this page said it was. Correcting
+that is what the rest of this section does.
 
-**The refusal criterion, stated before the run and not moved after it.** Written
+**The model criterion, stated before the run and not moved after it.** Written
 into `p0-heap/additive-criterion`, applied by `p0-heap/additive-fit`, and
 adjudicated per round as well as on the round means:
 
@@ -365,49 +400,112 @@ adjudicated per round as well as on the round means:
 | the `R1*` family is a line in Q/B | r² ≥ **0.98** |
 | the key term from the R=2 **pair** agrees with the R=1 slope | within **15%** |
 | M3 — edge priced from the intercept equals edge priced from the contrast | `\|step\|` ≤ **10%** of the fan-out-1 boundary |
-| the model predicts the held-out `R2Q2B` rung | within **10%** |
+| the model reproduces the `R2Q2B` rung | within **10%** |
 
-If the first two fail, no component price is quotable at all. Otherwise the
-model that survives its own held-out check carries the prices, and if neither
-does, the page publishes the rows and refuses the prices.
+If the first two fail, no component price is quotable at all. Otherwise the model
+that clears the fourth row carries the prices, and if neither does, the page
+publishes the rows and refuses the prices.
+
+### `R2Q2B` has one role, and it is not the one advertised
+
+The second row of that table is the one that matters. `key-2` is
+`(R2Q2B − R2QB2) / Δ(Q/B)`; `key-gap` compares it to the R = 1 slope; `key-ok?`
+is that comparison thresholded — and `key-ok?` is a **mandatory** input to model
+selection, because `(not (and linear? key-ok?))` returns *no model and no
+prices*. `R2Q2B`'s measured value therefore decides whether any price is
+quotable at all. That is its one role: **an admissibility gate, not a held-out
+witness.**
+
+The fourth row is then not a fifth piece of evidence but the second and third
+rows recombined. Write `dx` for the gap in `Q/B` between the two R = 2 rungs
+(2.0 − 0.5 = **1.5** here) and `ρ` for the R = 1 regression's residual at
+`R1Q2` — its fitted value minus its measured one. The algebra is exact, not
+approximate:
+
+```
+M4 predicted − R2Q2B measured  =         ρ  +  dx·(key − key₂)
+M3 predicted − R2Q2B measured  =  step + ρ  +  dx·(key − key₂)
+```
+
+`key − key₂` is precisely what `key-gap` thresholds; `step` is precisely what
+the M3 row thresholds. On the ROOTS=4 Reagent arm `step` = 150 B, `ρ` = −28 B,
+and `dx·(key − key₂)` = 1.5 × (919 − 824) = +143 B — so 150 − 28 + 143 =
+**+265 B**, against a measured M3 miss of 2,806 − 2,541 = **+265 B**; drop
+`step` and M4's is **+115 B** against a measured **+115 B**. The "held-out"
+residual carries no information the two checks above it do not already carry.
+
+**So the model was not validated out of sample. It was fitted, and checked for
+self-consistency.** Everything below that says the model *reproduces* `R2Q2B`
+is true and worth reporting — a model whose recombined checks land within 2% is
+in better shape than one whose land at 10% — but it is a consistency reading,
+and this page no longer offers it as independent evidence. What that costs the
+downstream budget rows is stated in [§6](#6-what-this-unblocks); what would buy
+the independence back is in [§7](#7-open).
 
 **The adjudicator's own positive control.** Three synthetic pages, built by
 arithmetic and never measured, run before the sweep does: an exact M3 page that
-must be priced back to its three terms and predict its held-out rung *to the
-byte*; an M4 page carrying a 400 B step, whose R=1 family is a **perfect** line
-(r² = 1.000000) and which M3 still misses by 12.90% on the held-out rung; and a
-page with a quadratic key term that both models must refuse. **That middle page
-is the whole argument for the R=2 rungs existing** — a page that is not M3 can
-fit the R=1 family perfectly, and nothing inside that family can tell.
+must be priced back to its three terms and reproduce `R2Q2B` *to the byte*; an M4
+page carrying a 400 B step, whose R=1 family is a **perfect** line
+(r² = 1.000000) and which M3 still misses by 12.90%; and a page with a quadratic
+key term that both models must refuse. **That middle page is the whole argument
+for the R = 2 rungs existing** — a page that is not M3 can fit the R = 1 family
+perfectly, and nothing inside that family can tell. On it the identity above
+reduces to `miss = step` exactly, which is the point: the R = 2 rungs are what
+make `step` observable at all. **`R2QB2` is the rung that supplies it.** `R2Q2B`
+supplies the key cross-check from a rung set disjoint from the R = 1 family —
+genuinely useful, and not a held-out test.
 
 ### The verdicts
 
-| | model | r² | held-out `R2Q2B` | rounds agreeing |
+| | model | r² | `R2Q2B` reproduced | rounds agreeing |
 |---|---|---:|---|---:|
 | Reagent, ROOTS=4 | **M4** | 0.99732 | M3 +10.44% *(fail)* · M4 +4.55% | 5 of 6 |
 | Reagent, ROOTS=1 | **M4** | 0.99862 | M3 +0.51% · M4 −5.63% | 2 of 6 |
 | UIx, ROOTS=4 | **M3** | 0.99989 | M3 +1.95% · M4 +1.34% | **6 of 6** |
 | UIx, ROOTS=1 | **M3** | 0.99994 | M3 −0.20% · M4 −1.04% | **6 of 6** |
 
-**UIx is M3, unambiguously.** Both runs, every round, r² ≥ 0.9999, the two edge
-identifications within 3.8% of each other, and the held-out rung predicted
-within 2% by a model that never saw it.
+**UIx is M3, unambiguously.** Both runs, every round, r² ≥ 0.9999; the two routes
+to the edge term within 3.8% of each other; `R2Q2B` reproduced within 2%. Those
+two routes are **not data-independent** — the intercept is fitted through the
+whole R = 1 family and the contrast subtracts `R1Q2`, a member of it, from
+`R2QB2` — so 3.8% is internal agreement, not corroboration by a second
+experiment. What they jointly support is narrower and still worth having: UIx's
+non-per-key cost of reading is 1,327–1,396 B however it is sliced, and its `step`
+is 38–52 B, so the model's freedom to move bytes between `edge` and `step` is
+bounded at about **50 B** on UIx.
 
 **Reagent reaches M4 in both runs and does not reach it stably.** Look at what
 actually happens: at ROOTS=4 the step (150 B) sits *inside* its 165 B band while
-M3 misses the held-out rung by 10.44% against a 10% threshold; at ROOTS=1 the
-step (163 B) sits *outside* its 160 B band while M3 predicts the held-out rung
-to **0.51%** — better than M4's −5.63%. Both runs land on M4 by the rule, by
-different failing checks, and the per-round verdicts flip (M3, M4, refused, M3,
-refused, M4).
+M3 misses `R2Q2B` by 10.44% against a 10% threshold; at ROOTS=1 the step (163 B)
+sits *outside* its 160 B band while M3 reproduces `R2Q2B` to **0.51%** — better
+than M4's −5.63%. Both runs land on M4 by the rule, by different failing checks,
+and the per-round verdicts flip (M3, M4, refused, M3, refused, M4).
 
 **That instability is the result, not noise to be averaged away.** Reagent's
 non-per-key cost of reading is ~234–244 B at one read, and this sweep can say
-that number confidently. What it cannot say is how to split it: the two
-identifications of `edge` give **84 B** and **234 B** — the disagreement is
-larger than twice the smaller term. On UIx the same disagreement is 38 B against
-a 1,344 B term. **The Reagent per-edge price is refused, and the criterion that
-refuses it is the one written down before the run.**
+that number confidently. What it cannot say is how to split it: the two routes to
+`edge` give **84 B** and **234 B** — a disagreement larger than twice the smaller
+term. On UIx the same disagreement is 38 B against a 1,344 B term.
+
+**The Reagent per-edge price is refused — and the refusal is this page's
+judgement, not the precommitted rule's.** The first revision of this page ran the
+two together; they are different things and the difference is worth spelling out.
+
+- **What the precommitted criterion did.** It selected **M4** on both Reagent
+  runs, and `additive-fit` reports `:edge` as the *contrast* value under M4. The
+  rule as written would therefore have handed out **84 B / 80 B** as Reagent's
+  per-edge price. No "twice the smaller term" threshold appears anywhere in
+  `additive-criterion`, and no threshold in it was moved after the run.
+- **What the criterion did put on the record, before any prose was written.** The
+  two runs reach M4 by *different* failing checks; the step sits inside its band
+  in one run and outside it in the other; the per-round verdicts flip 5-of-6 and
+  2-of-6. That is the precommitted machinery reporting an unstable
+  identification, and it is in the table above.
+- **What this page then decided.** That an 84 B number carrying a 234 B
+  alternative is not a number to freeze into a budget, and that the honest form
+  is the ~234–244 B total with the split marked unresolved. That is a
+  **conservative post-run editorial call**, made in the safe direction, and it is
+  offered as one — not as the output of a rule written down in advance.
 
 ---
 
@@ -436,14 +534,20 @@ not move.
 | **per-edge**, from the contrast | **1,344** [1,327–1,365] | **1,345** [1,339–1,352] | from the intercept 1,382 / 1,396 — **3.8% apart** |
 | step | 38 [24–54] | 52 [26–72] | inside its band in every round |
 
-**Four instruments now agree on the subscription term.** Reagent: this sweep's
-four estimates span **823–939 B** and `rf2-2rtt6.12`'s direct ablation reads
-**866 B**, dead centre; the ruling's own cross-family algebra solved 820–824 B,
-at the bottom of the range. UIx: this sweep reads **1,525–1,659 B** against
-`.12`'s 1,684 B once the 769 B `.13` removed is taken out — 1.5% above the top
-of the range. The algebra the ruling refused to freeze budgets from turns out to
-have been right; it was right for a reason it could not demonstrate, and now one
-run demonstrates it.
+**The subscription term is priced four times inside this sweep and agrees with
+two readings taken outside it.** Inside: two runs × two disjoint rung sets (the
+R = 1 slope, and the R = 2 pair) — same instrument, so four estimates rather than
+four instruments. Outside: `rf2-2rtt6.12`'s direct ablation, a different
+experiment on a different page, and the ruling's cross-family algebra over the
+two published families. Reagent — this sweep's four estimates span **823–939 B**,
+`.12`'s ablation reads **866 B**, dead centre, and the algebra solved 820–824 B,
+at the bottom of the range. UIx — this sweep reads **1,525–1,659 B** against
+`.12`'s 1,684 B once the 769 B `.13` removed is taken out, 1.5% above the top of
+the range. The algebra the ruling refused to freeze budgets from turns out to
+have been right; it was right for a reason it could not demonstrate, and this run
+demonstrates it. **This is the one term on the page with genuinely external
+corroboration**, and it is why [§6](#6-what-this-unblocks) treats it differently
+from the rest.
 
 **Where the two substrates actually spend.** UIx wins the shell by 2.27×
 (221 B against 501 B) and loses everything else: its per-edge term is
@@ -470,11 +574,33 @@ the 0.4–0.5 KB target band rather than inside it.
 Part 3 of the ruling gated three component budget rows on this sweep. The sweep
 answers for two of them on both substrates, and refuses one.
 
-| row | Reagent | UIx |
-|---|---|---|
-| **shell** (R=0 boundary) | **UNBLOCKED** — 501–524 B, *stated for a named boundary shape* | **UNBLOCKED** — 221–231 B |
-| **per-unique-subscription-key** | **UNBLOCKED** — **~866 B** [823–939] | **UNBLOCKED** — **~1,590 B** [1,525–1,659] |
-| **per-edge** (consumer attachment) | **REFUSED** — the two identifications differ by more than twice the smaller term | **UNBLOCKED** — **~1,345 B** [1,327–1,396] |
+| row | Reagent | UIx | what it rests on |
+|---|---|---|---|
+| **shell** (R=0 boundary) | **UNBLOCKED** — 501–524 B, *stated for a named boundary shape* | **UNBLOCKED** — 221–231 B | a **measured rung**, `R0`, read directly. No model, no fit |
+| **per-unique-subscription-key** | **UNBLOCKED** — **~866 B** [823–939] | **UNBLOCKED** — **~1,590 B** [1,525–1,659] | a **direct slope** at pinned E/B, priced twice from disjoint rungs, and corroborated **outside this sweep** by `.12`'s ablation |
+| **per-edge** (consumer attachment) | **REFUSED** — the two routes differ by more than twice the smaller term | **UNBLOCKED, PROVISIONAL** — **~1,345 B** [1,327–1,396] | a **direct two-rung contrast** at fixed Q; the *label* is model-dependent within ~50 B |
+
+**Read that fourth column before quoting the third.** With the held-out claim
+withdrawn, the rows no longer rest on a model that survived an out-of-sample
+test — so each one is stated for what it individually is:
+
+- **The shell is a measurement.** `R0` is a rung that was mounted and read. The
+  additive model plays no part in it, and nothing in this correction touches it
+  beyond the component-shape caveat it already carried.
+- **The per-unique-key term is the sweep's strongest number.** It is the slope of
+  four rungs whose E/B is pinned, it is r² ≥ 0.9973 in every round of both runs,
+  it is re-priced from the disjoint R = 2 pair, and `rf2-2rtt6.12`'s ablation —
+  which is not this instrument and not this run — lands inside the range on
+  Reagent and 1.5% outside it on UIx. It stands.
+- **The UIx per-edge term is a direct contrast, and its *name* is provisional.**
+  `R2QB2 − R1Q2` measures what one more edge costs at fixed Q, and that
+  measurement is 1,344/1,345 B whichever model is selected. What the model
+  decides is only whether a further 38–52 B is called `edge` or `step`. Quote
+  ~1,345 B as the cost of an attachment and treat the last ~50 B as unallocated,
+  rather than reading the number as a validated decomposition.
+- **The Reagent per-edge row stays refused**, on the conservative post-run
+  judgement set out in [§4](#4-the-additive-model) — which is a judgement, not
+  the precommitted rule's output, and is labelled that way there.
 
 And it adds one row Part 3 did not name:
 
@@ -498,6 +624,27 @@ measured rather than inferred.
 
 ## 7. Open
 
+- **An independent adjudication of the additive model has not been run, and this
+  is what one would take.** The defect is structural, not arithmetic: every rung
+  this sweep measured is consumed by identification or by admissibility, so no
+  rearrangement of the existing data recovers a held-out test. It needs **one
+  more rung, precommitted as untouchable, and a criterion that never reads it**.
+  Concretely: (1) add a rung outside both the R = 1 family and the R = 2 pair —
+  `R3` at fixed Q is the obvious one, since the Reagent step/edge item below
+  wants exactly that rung anyway; (2) drop `key-ok?`'s dependence on it, or price
+  the key cross-check from a different pair, so the validation rung feeds *no*
+  admissibility check; (3) state the prediction for it before the run, as this
+  page did for P1–P4; (4) re-adjudicate the component rows against it. Until that
+  runs, [§6](#6-what-this-unblocks)'s fourth column is the warrant. **New
+  measurement is deferred by operator direction (Mike, 2026-07-31)** — the
+  tournament arms have the box — so this is a recorded requirement, not a queued
+  task.
+- **The instrument's own comments still say `R2Q2B` is held out.** The blobs in
+  [Provenance](#provenance) are pinned to the revision that produced these rows
+  and are deliberately not edited, so `p0_heap.cljs`'s "Falsification — one rung
+  is held out" block and `p0_run.cjs`'s banner remain as they were when the
+  numbers were taken. This page supersedes them. Whichever revision next touches
+  the adjudicator should correct the wording there and re-stamp the blobs.
 - **The 9.3% ratio drift across fan-out** ([§2](#2-the-rows)) refines Part 1's
   "the ratio survives regimes". It survives approximately. Whether a donor gate
   should carry a band rather than a point is the operator's call, not this
