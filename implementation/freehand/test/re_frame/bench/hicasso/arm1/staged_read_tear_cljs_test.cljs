@@ -188,12 +188,12 @@
            in the application pays a second render."
     (seeded!)
     (let [entry     (render (done-row (volatile! nil)))
-          at-render (rt/snapshot-of entry)]
-      (let [release! (rt/commit-boundary! entry (fn []))]
-        (is (= at-render (rt/snapshot-of entry))
-            "acquisition alone moves nothing: the cell is born at the same
-             basis the staged term reported")
-        (release!)))))
+          at-render (rt/snapshot-of entry)
+          release!  (rt/commit-boundary! entry (fn []))]
+      (is (= at-render (rt/snapshot-of entry))
+          "acquisition alone moves nothing: the cell is born at the same
+           basis the staged term reported")
+      (release!))))
 
 (deftest a-retained-key-moving-in-the-gap-is-still-corrected
   (testing "the path that already worked, kept working. A key some
