@@ -506,8 +506,11 @@ two**, every one launched into a measured-quiet window, every one exiting 0.
 **0 unverified of 36,864** verified operations; arm-order guard `refuse? false`
 on all 24 row-verdicts; canonical-DOM parity `ok? true` on all 16; every positive
 control inside ±25%. The interval is a Student-t 95% interval on the mean of the
-run means. **This is four runs against the published line's ten, and the interval
-is correspondingly wider — it is stated as measured, not padded.**
+run means — one-sample, so `n − 1 =` **three** degrees of freedom and
+`t = 3.1824`, the distinction the ensemble's own intervals got wrong and which is
+worked through [below](#the-intervals-are-2-too-wide-and-the-cause-is-an-off-by-one-in-the-degrees-of-freedom).
+**This is four runs against the published line's ten, and the interval is
+correspondingly wider — it is stated as measured, not padded.**
 
 | witness | published *(pre-landing, 10 runs)* | **re-take, post-`.25` (4 runs)** | 95% CI on the mean | run means | verdict |
 |---|---|---|---|---|---|
@@ -1685,11 +1688,11 @@ rounded strata against `877/1024 = 0.8564` from the readings, and 877 is the
 This is the one disagreement between the recovered data and what this page
 published, and it is reported rather than quietly fixed in either direction.
 
-**Every interval on this page — View 2's on `d`, and the RED-ZONE table's on the
-threshold — is about 2% wider than the ten runs support.** An interval on the
-mean of **ten** run means is a one-sample Student-t interval with `n − 1 =`
-**nine** degrees of freedom, `t = 2.2622`. The multiplier actually used is
-`≈ 2.306`, which is `t` at **eight** degrees of freedom.
+**Every interval this ensemble published — View 2's on `d`, and the RED-ZONE
+table's on the threshold — is about 2% wider than the ten runs support.** An
+interval on the mean of **ten** run means is a one-sample Student-t interval with
+`n − 1 =` **nine** degrees of freedom, `t = 2.2622`. The multiplier actually used
+is `≈ 2.306`, which is `t` at **eight** degrees of freedom.
 
 The mistake is identifiable rather than merely detectable. Eight *is* the right
 number for the `resolution limit` column standing beside it — that column is a
@@ -1721,6 +1724,17 @@ narrow stay wholly clear of 1.0; M2 still only just clears parity on the mean
 and stays diagnostic for the reason it always was, that three of its ten runs
 read below 1.0 outright. The suite recomputes all four corrected intervals and
 asserts each of those readings.
+
+**The one other set of intervals on this page — the [rf2-b0tz5
+re-take](#the-re-take-on-the-post-25-tree-rf2-b0tz5)'s — does not carry the
+defect, and that is checked rather than assumed.** Those are one-sample intervals
+on the mean of **four** run means, so `n − 1 =` **three** and `t = 3.1824`, and
+that is the multiplier they use: `1.0243 ± 3.1824 × 0.009616` reproduces `M1`'s
+published `0.9937 – 1.0549` to four decimals from the four run means printed
+beside it. The rule is the same rule; only the ensemble misapplied it. It is
+load-bearing there rather than bookkeeping — at `t = 2.2622` the same four runs
+would read `1.0025 – 1.0461`, which **excludes** 1.0 and would have contradicted
+the *indistinguishable from parity* verdict every one of those runs reports.
 
 **The old figures are struck, not deleted**, in the same style as every other
 correction here — and the *p* values, the point estimates and the thresholds are
