@@ -402,6 +402,22 @@
     :grade       :diagnostic
     :verify-of   verify-m2
     :elements-of v/m2-elements
+    ;; DEEPER WARM-UP THAN THE PAGE DEFAULT, and only here (rf2-6i0i2).
+    ;; This witness's readings are one to three of Chrome's 100 us quanta,
+    ;; so a one-quantum p50 step between the page's first and last thirds
+    ;; reads as a 2.0x-2.5x DISJOINT phase split and the arm-order guard
+    ;; refuses the run — which it did on four of the first six six-round
+    ;; invocations (uix-subs and both segments' floors, steps 2.0000x /
+    ;; 2.2857x / 2.5000x, every one exactly the page warming across a
+    ;; lattice point). The guard's own repair list starts with `more
+    ;; warm-up`, and that is the repair taken: 24 discarded mounts per
+    ;; segment-round put the first RECORDED sample past the knee. The
+    ;; measured window (one mount) is untouched; M1's readings are 30-50
+    ;; quanta where a one-quantum step is inside tolerance, so the page
+    ;; default stays at 8 there. Batching this row's mounts instead was
+    ;; REFUSED by the guard when rf2-2rtt6.2 tried it and is not
+    ;; re-litigated (see the clock-note below).
+    :sampling    {:warmup 24 :samples 12}
     ;; ONE mount per sample, exactly as rf2-2rtt6.2 publishes it. That arm
     ;; TRIED the batch that would lift this witness clear of Chrome's
     ;; 100 us clamp — eight 51-element roots in one flushSync — and THE
@@ -594,13 +610,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- mount-round!
-  [coll t {:keys [id props per-sample arms-for] :as witness} segment-id]
-  (let [arms   (arms-for segment-id)
+  [coll t {:keys [id props per-sample arms-for sampling] :as witness} segment-id]
+  (let [{:keys [warmup samples]} (or sampling mount-sampling)
+        arms   (arms-for segment-id)
         n      (count arms)
         k      (or per-sample 1)
         expect (into {} (map (juxt :id #(expectation witness %))) arms)
         acc    (atom (zipmap (map :id arms) (repeat [])))]
-    (dotimes [s (+ (:warmup mount-sampling) (:samples mount-sampling))]
+    (dotimes [s (+ warmup samples)]
       (doseq [j (lane/slot-order n s)]
         (let [arm (nth arms j)
               {:keys [ms mounts]} (lane/mount-batch! arm props k)
@@ -618,7 +635,7 @@
                          {:of (inc of) :bad (if ok? bad (inc bad))}))))
           (doseq [m mounts] (lane/release! m))
           (let [label (str (name id) "/" (name segment-id) "/" (name (:id arm)))]
-            (if (>= s (:warmup mount-sampling))
+            (if (>= s warmup)
               (do (lane/collect! coll label ms)
                   (swap! acc update (:id arm) conj ms))
               ;; A warm-up sample is DISCARDED but it still ran, so it is
