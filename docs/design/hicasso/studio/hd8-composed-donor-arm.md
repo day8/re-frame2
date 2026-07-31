@@ -85,9 +85,18 @@ git rev-parse f784ab0adb:$S   # 086d08e94089002c19e6b30cc901d03324b0f4cc  (.25)
 
 The two landings are `rf2-2rtt6.13` (PR #7304, **`9df5094816`**) — stopped
 retaining the disposed render-phase reaction — and `rf2-2rtt6.25` (PR #7305,
-**`f784ab0adb`**) — the hook-scoped provisional hand-off, so a cold read builds
-one reaction instead of two, which is a **mount-path** change. Both are ancestors
-of `main`.
+**`f784ab0adb`**) — the hook-scoped provisional hand-off, a **mount-path** change
+that makes a cold read build one reaction instead of two **under a forced
+synchronous commit** (`act`/`flushSync`). It does not hold on the public mount
+schedule: `rf2-2rtt6.25`'s witness mounts through the adapter's `:render` slot
+with no `act` and no `flushSync`, and the shipped hook builds **twice** there —
+`bodyRuns` 2.00N at N = 1 and at N = 300 — the `setTimeout 0` reaper releasing
+the escrowed reference before React's passive subscribe. What stays open on
+`rf2-2rtt6.25` is the operator's decision on the reap horizon; see the retraction
+banner on
+[coldmount-double-build-priced.md](coldmount-double-build-priced.md#the-hand-off-landed--the-same-instrument-re-run-against-shipped-code).
+This page attributes no retained-heap benefit to `.25` either way. Both are
+ancestors of `main`.
 
 **Which columns are pre-landing, and which are not.** `hd8_witnesses.cljs` routes
 exactly three arms through `re-frame.adapter.uix/use-subscribe`:
