@@ -100,6 +100,33 @@
 
 (defn- db [] (rf/app-db-value frame-id))
 
+(defn- teardown-census!
+  "Unmount the root, read the live-reference census, and THEN finish the
+  release. The order is the entire load-bearing part, and it is not
+  fussiness: `mount/release!` calls `runtime/reset-runtime!`, which
+  disposes every cell and empties the index **by fiat** — so a census
+  taken after it reads all zeros whatever the teardown did or did not
+  release. Measured: with `make-subscribe`'s cleanup `release-cell!`
+  deleted, this reading goes red and a post-`release!` reading stays
+  green.
+
+  Three counts, because those three are exact the instant React's unmount
+  returns. `:cells` and `:entries` belong to the reaper, one macrotask
+  later, and asserting them here would be asserting a schedule rather
+  than a release."
+  [handle]
+  (react-dom/flushSync (fn [] (.unmount (:root handle))))
+  (let [census (select-keys (rt/residue) [:cell-refs :boundaries :edges])]
+    ;; `:root nil` so the arm's teardown door does the rest — reset the
+    ;; runtime, drop the container — without unmounting a root that is
+    ;; already gone.
+    (mount/release! (assoc handle :root nil))
+    census))
+
+(def ^:private released
+  "What [[teardown-census!]] must read after any clean teardown."
+  {:cell-refs 0 :boundaries 0 :edges 0})
+
 ;; ---------------------------------------------------------------------------
 ;; 1 — StrictMode
 ;; ---------------------------------------------------------------------------
@@ -136,7 +163,8 @@
     (do
       (fresh!)
       (reset! !runs 0)
-      (let [handle (strict-root! (mount/fresh-container!) frame-id [reader {:n reads}])]
+      (let [handle (strict-root! (mount/fresh-container!) frame-id [reader {:n reads}])
+            census (volatile! nil)]
         (try
           (testing "the premise: React really did invoke the body twice"
             (is (= 2 @!runs)
@@ -166,9 +194,10 @@
             (mount/dispatch! handle [:life/set-cell 2 "moved"])
             (is (= "moved" (nth (read-texts handle) 2)))
             (is (= "v1" (nth (read-texts handle) 1)) "and its neighbour did not"))
-          (finally (mount/release! handle))))
-      (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0} (rt/residue))
-          "and a StrictMode tree leaves the same zero residue an ordinary one does"))))
+          (finally (vreset! census (teardown-census! handle))))
+        (is (= released @census)
+            "and a StrictMode tree releases exactly as an ordinary one does —
+             read after React's unmount and before the reset door")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the HMR body swap
@@ -196,7 +225,8 @@
       (let [container (mount/fresh-container!)
             handle    (mount/root! container frame-id [before {}])
             root      (:root handle)
-            db-before (db)]
+            db-before (db)
+            census    (volatile! nil)]
         (try
           (is (= "1" (.getAttribute (hmr-node handle) "data-v")))
           (is (= "alpha" (.-textContent (hmr-node handle))))
@@ -225,8 +255,9 @@
           (testing "the swapped-in body is really wired, not merely painted"
             (mount/dispatch! handle [:life/set :b "beta-moved"])
             (is (= "beta-moved" (.-textContent (hmr-node handle)))))
-          (finally (mount/release! handle))))
-      (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0} (rt/residue))))))
+          (finally (vreset! census (teardown-census! handle))))
+        (is (= released @census)
+            "and the swapped tree releases everything it took")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — a real error boundary
@@ -258,7 +289,8 @@
     (do
       (fresh!)
       (rf/with-frame frame-id (rf/dispatch-sync [:life/set :boom? true]))
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [guarded {}])]
+      (let [handle (mount/root! (mount/fresh-container!) frame-id [guarded {}])
+            census (volatile! nil)]
         (try
           (testing "the throw is caught and the fallback is on screen"
             (is (has? handle ".fallback"))
@@ -291,9 +323,36 @@
             (is (= 2 (count (errors))) "with nothing further reported")
             (is (= 2 (:boundaries (rt/stats)))
                 "and the child that now renders holds its own registration"))
-          (finally (mount/release! handle))))
-      (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0} (rt/residue))
-          "a tree that caught a throw still tears down to nothing"))))
+          (finally (vreset! census (teardown-census! handle))))
+        (is (= released @census)
+            "a tree that caught a throw still releases everything it took")))))
+
+(deftest the-boundary-reports-once-under-strictmode
+  (testing "WHERE THE ONCE-PER-FAILURE GUARANTEE ACTUALLY COMES FROM.
+           StrictMode runs the failing render TWICE — the body throws
+           twice — and React still calls `componentDidCatch` once. So an
+           application's failure channel gets ONE record however many times
+           React re-ran the render that produced it, and it gets it because
+           `report!` is wired to that one lifecycle rather than because
+           anything counts.
+
+           An instance flag gating the report used to sit in
+           `arm1/boundary`; removing it left every row green, so it was a
+           line nothing observed and it is gone. What reds this row is
+           reporting from a lifecycle React runs more than once — moving
+           `report!` into `render` is the mutation, and StrictMode is why
+           it is visible"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (do
+        (fresh!)
+        (rf/with-frame frame-id (rf/dispatch-sync [:life/set :boom? true]))
+        (let [handle (strict-root! (mount/fresh-container!) frame-id [guarded {}])]
+          (try
+            (is (has? handle ".fallback") "the throw was caught")
+            (is (= ["the body threw"] (errors))
+                "ONE record, not one per invocation of the render that threw")
+            (finally (mount/release! handle))))))))
 
 (deftest a-function-fallback-sees-the-error
   (if-not (mount/browser?)
