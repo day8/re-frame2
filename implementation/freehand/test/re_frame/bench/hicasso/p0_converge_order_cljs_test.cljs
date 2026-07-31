@@ -230,3 +230,85 @@
       (is (= :numerator-faster (:direction (:reagent-first u))))
       (is (true? (:refuse? r)))
       (is (true? (:refuse? u))))))
+
+;; ---------------------------------------------------------------------------
+;; The reactive leg, replayed (rf2-2rtt6.21)
+;; ---------------------------------------------------------------------------
+
+(def ^:private leg
+  "The PUBLISHED per-round `reagent-subs / reagent-ratom` vectors from the
+  studio page's `The reactive leg, from a second author` section — six
+  runs a row, starting segment counterbalanced 3/3.
+
+  These are the second author's, and they are replayed for the reason the
+  red-zone vectors above are: a verdict that has only ever seen the run it
+  shipped with is a verdict nobody can check. The leg does NOT cross the
+  segment seam — both its terms are Reagent arms measured in the same
+  segment of the same round — and it is adjudicated by the same partition
+  anyway, because the Reagent segment leads half the rounds and follows
+  the other half, and a lower bound that reads differently for which is
+  not a lower bound."
+  {:M1    [{:start :reagent-subs :vs [1.3788 1.2963 1.3333 1.3396 1.3654 1.2778]}
+           {:start :uix-subs     :vs [1.2963 1.3137 1.2692 1.4000 1.3469 1.3333]}
+           {:start :reagent-subs :vs [1.3621 1.3200 1.3061 1.4822 1.3214 1.3065]}
+           {:start :uix-subs     :vs [1.3725 1.3061 1.2500 1.4348 1.3636 1.3000]}
+           {:start :reagent-subs :vs [1.3333 1.3750 1.3043 1.3478 1.3333 1.2766]}
+           {:start :uix-subs     :vs [1.3667 1.3333 1.2727 1.4039 1.3396 1.3077]}]
+   :broad [{:start :reagent-subs :vs [2.5909 2.4000 2.4210 2.5556 2.6471 2.6875]}
+           {:start :uix-subs     :vs [2.5789 2.3000 2.1000 2.3000 2.5000 2.3889]}
+           {:start :reagent-subs :vs [2.5833 2.3636 2.1363 2.5789 2.5556 2.3889]}
+           {:start :uix-subs     :vs [2.5883 2.3333 2.2105 2.5000 2.5000 2.7858]}
+           {:start :reagent-subs :vs [2.7778 2.3889 2.5000 2.5625 2.6667 2.7143]}
+           {:start :uix-subs     :vs [2.7222 2.4210 2.4444 2.8750 2.3889 2.3889]}]})
+
+(defn- legs [row] (map (fn [{:keys [vs start]}]
+                         (app/segment-order-verdict vs 6 start "the reactive leg's"))
+                       (get leg row)))
+
+(deftest every-published-leg-run-resolves-a-magnitude
+  (testing "twelve row-runs, twenty-four strata: the strata OVERLAP on all
+           twelve, so every one is entitled to publish a magnitude, and no
+           row-run is reduced to a direction. That is what the studio
+           page's `magnitude-resolved? true on 12 of 12` asserts, derived
+           from the vectors rather than transcribed beside them"
+    (doseq [row [:M1 :broad] r (legs row)]
+      (is (true? (:strata-overlap? r)) (str row " " (:start r)))
+      (is (true? (:magnitude-resolved? r)) (str row " " (:start r)))
+      (is (true? (:balanced-design? r)) "six rounds, so 3:3")
+      (is (= 3 (:n (:reagent-first r))))
+      (is (= 3 (:n (:uix-first r)))))))
+
+(deftest the-leg-is-above-1-in-every-stratum-of-every-run
+  (testing "the DIRECTION is what a second author corroborates, and it is
+           unanimous: both strata of all twelve row-runs sit wholly above
+           1.0, so `subs costs more than a bare cursor` is a verdict no
+           partition of this ensemble touches"
+    (doseq [row [:M1 :broad] r (legs row)]
+      (is (= :numerator-slower (:direction (:reagent-first r))) (str row))
+      (is (= :numerator-slower (:direction (:uix-first r))) (str row))
+      (is (false? (:refuse? r)) (str row)))))
+
+(deftest the-leg-does-not-reproduce-the-first-authors-magnitude
+  (testing "and the MAGNITUDE is not corroborated, which is the finding
+           rf2-2rtt6.21 exists to surface. rf2-2rtt6.2 publishes 1.218 /
+           1.216 / 1.213 on M1 and 2.008 / 1.965 / 2.073 on broad; every
+           one of these run means sits above every one of those, and the
+           lowest M1 round of all six runs still clears the highest of the
+           first author's three means"
+    (let [means (fn [row] (map :order-balanced-mean (legs row)))]
+      (is (every? #(> % 1.30) (means :M1))
+          "every M1 run mean is above 1.30, where the first author's three
+           are 1.213-1.218")
+      (is (every? #(> % 2.30) (means :broad))
+          "every broad run mean is above 2.30, where the first author's
+           three are 1.965-2.073")
+      (is (> (apply min (mapcat :vs (:M1 leg))) 1.24)
+          "and the LOWEST single round across all six M1 runs, 1.2500,
+           still sits above the first author's re-run maxima of 1.241 and
+           1.273 — a disagreement at the round level and not only at the
+           mean")))
+  (testing "the same statement from the other side: replay the first
+           author's own published M1 leg as if it were a six-round vector
+           and it does not reach this ensemble's floor"
+    (is (< 1.218 (apply min (mapcat :vs (:M1 leg))))
+        "1.218 is below every round the second author measured")))

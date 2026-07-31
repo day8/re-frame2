@@ -381,23 +381,45 @@ three quanta. Nothing here installs the strict rule.
 ## What this settles, and what it does not
 
 **Settles.** The bar's denominator exists and is a browser number. Reading
-re-frame2 subscriptions rather than a bare cursor costs Reagent **≈1.22× on
-mount** of the 300-boundary shape and **≈2.01× on a broad commit** — both
-disjoint from 1.0, so both real. That figure was previously argued rather than
-measured, and it is the term that made the predecessor's `13.5×` broad-update row
-an upper bound of unknown content. **It has now been measured three times** — the
+re-frame2 subscriptions rather than a bare cursor costs Reagent **something real
+on mount** of the 300-boundary shape and **something real on a broad commit** —
+disjoint from 1.0 on both, on every run of two independent instruments. That
+cost was previously argued rather than measured, and it is the term that made
+the predecessor's `13.5×` broad-update row an upper bound of unknown content.
+**On this instrument it is ≈1.22× and ≈2.01×, measured three times** — the
 publication run and two independent re-runs at main — and all three agree; see
-[the re-certification](#the-re-certification).
+[the re-certification](#the-re-certification). **A second instrument does not
+reproduce those magnitudes**, and the two figures are therefore stated as this
+page's rather than as the substrate's; see *Does not settle* below.
 
-**Does not settle — one arm, three runs.** Repetition is not replication. The
-reactive leg still comes from *one implementation of one arm*: three runs of it
-bound the instrument's run-to-run noise, and they do not bound a systematic
-error in how `:reagent-ratom` is written. The converged witness set is a genuine
-second implementation of the **denominator** and its `reagent-subs ÷ floor`
-ranges overlap this page's on all three shared rows, but it carries **no
-`reagent-ratom` arm**, so nothing yet corroborates the reactive leg from a
-second author. A second witness for that term remains worth having, and this
-page does not claim otherwise.
+**Does not settle — the leg's DIRECTION is corroborated and its MAGNITUDE is
+contradicted (rf2-2rtt6.21).** Repetition is not replication, and the three runs
+above are three runs of *one implementation of one arm*: they bound this
+instrument's run-to-run noise and cannot bound a systematic error in how
+`:reagent-ratom` is written. The converged witness set has since taken the arm —
+[the reactive leg, from a second
+author](p0-converged-witness-set.md#the-reactive-leg-from-a-second-author-rf2-2rtt621)
+— and the answer is split:
+
+- **The claim reproduces.** Six independent six-round runs put 72 of 72 rounds
+  above 1.0 on both rows, every order stratum above it, intervals nowhere near
+  it. Reading subscriptions rather than a bare cursor costs Reagent something
+  real on mount *and* on a broad commit, and that no longer rests on one arm.
+- **The numbers do not.** The second author reads **1.3353×** on M1 and
+  **2.4957×** on broad where this page reads ≈1.22× and ≈2.01×. That is not a
+  stale-tree artefact: this instrument was re-run twice on the same tree in the
+  same session as those six runs and read **1.2115 / 1.2550** and **2.1410 /
+  2.1333**, its own published figures. The gap is **8.3% on mount and 16.8% on a
+  broad commit**, and it is the harness rather than the arm — the two authors'
+  `reagent-ratom ÷ floor` readings agree to 1.3% and 3.4%, while their
+  `reagent-subs ÷ floor` readings differ by 9.7% and 20.6%.
+
+**So `≈1.22×` and `≈2.01×` are this instrument's figures rather than the
+substrate's**, and a second instrument measuring the same witness with the same
+view components does not reproduce them. Both are internally clean — guard,
+parity, controls and read-back — and neither is adjudicated the winner here.
+What a reader may take from this page is the direction and the fact of a cost;
+the magnitude carries a harness with it.
 
 **Does not settle.** Nothing about a candidate: no Hicasso arm exists, and none is
 quotable against this table until it does. Nothing about UIx (rf2-2rtt6.4 owns the
