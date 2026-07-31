@@ -2226,7 +2226,16 @@
   decrements WITHOUT clearing the holder's ref, so a spent token can be pointing
   at a reaction whose last reference has just gone. Reading only while unspent is
   what keeps the frozen-value fallback as the answer in exactly the cases where
-  there is no live reaction to prefer to it."
+  there is no live reaction to prefer to it.
+
+  What `spent?` does NOT cover, stated rather than glossed: an eviction that
+  takes the entry out from under a still-unspent token — hot reload,
+  `clear-sub-cache!`, `destroy-frame!` — landing INSIDE a single render→commit
+  gap. The release already no-ops for that case (it is identity-guarded), and a
+  deref here would read a pull-based recompute against current sources, so the
+  VALUE stays right; only a sub body re-registered within that same gap could
+  differ. The lifetime-scale version of that hazard is what `committed-ref`
+  exists to close, and it is closed."
   [token]
   (if (and (some? token) (not (aget token 3)))
     @(aget token 0)
@@ -2564,10 +2573,15 @@
                 ;; decomposition.md; instrument landed 24e8822d7f). And on the
                 ;; cold path that handle used to be DEAD before the factory
                 ;; returned. So deref while the reaction is live and return the
-                ;; VALUE; nothing holds the reaction once the factory returns.
-                ;; The escrow above does not walk this back — the token holds a
-                ;; ref-COUNT that the reaper owns, not a handle the component
-                ;; retains.
+                ;; VALUE; no HOOK SLOT holds the reaction once the factory
+                ;; returns. The escrow above does not walk this back. Its token
+                ;; does carry the reaction — that is how the release
+                ;; identity-guards itself — but the token is owned by the reaper
+                ;; and dies at adoption or at the macrotask horizon, so what the
+                ;; component retains for its lifetime is still a value and not a
+                ;; handle. That distinction is what makes the token safe for
+                ;; `get-snap` to READ pre-commit (`provisional-snapshot`) without
+                ;; reopening the 769 B this change closed.
                 render-snapshot
                 (use-memo (fn []
                             (let [stored    (.-current committed-ref)
