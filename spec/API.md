@@ -1004,8 +1004,6 @@ Trace events emitted by epoch-history machinery:
 | `:rf.warning/epoch-redact-fn-exception` | `:frame`, `:rf.epoch/id`, `:ex-msg` (an installed `:redact-fn` threw at projection egress) |
 | `:rf.warning/restore-quiesce-hook-exception` | `:category`, `:hook`, `:frame`, `:exception` (a restore-time async-quiesce hook threw) |
 
-<a id="elide-wire-value-the-wire-boundary-walker"></a>
-
 ### Size-elision wire-boundary walker
 
 > Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) — `elide-wire-value` is named there as the **single normative emission site** for the `:rf/redacted` sentinel. Every off-box egress (trace forwarders, MCP servers, error monitors) routes through this walker; the trust-boundary surfaces catalogued in [Security.md](Security.md) compose against this primitive.

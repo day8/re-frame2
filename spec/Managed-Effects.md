@@ -55,7 +55,7 @@ Every issuance, intermediate transition, retry attempt, and terminal outcome emi
 
 ### 5. `:sensitive?` + `:large?` composition
 
-Every wire-bearing slot in a managed-effect trace passes through [`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker), the single shared walker that composes privacy elision (`:sensitive?` per [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)) and size elision (`:large?` per [009 §Size elision](009-Instrumentation.md#size-elision-in-traces)). Surfaces MUST NOT roll their own wire-boundary elision; the walker is the single point of truth. A slot carrying both `:sensitive? true` and `:large? true` redacts on sensitivity — the `:rf.size/large-elided` marker itself would leak `:path` / `:bytes` / `:digest` and is suppressed.
+Every wire-bearing slot in a managed-effect trace passes through [`rf/elide-wire-value`](API.md#size-elision-wire-boundary-walker), the single shared walker that composes privacy elision (`:sensitive?` per [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)) and size elision (`:large?` per [009 §Size elision](009-Instrumentation.md#size-elision-in-traces)). Surfaces MUST NOT roll their own wire-boundary elision; the walker is the single point of truth. A slot carrying both `:sensitive? true` and `:large? true` redacts on sensitivity — the `:rf.size/large-elided` marker itself would leak `:path` / `:bytes` / `:digest` and is suppressed.
 
 ### 6. Built-in retry / abort / teardown semantics
 
@@ -307,7 +307,7 @@ Before naming this concept, each downstream Spec independently described its own
 - [Pattern-AsyncEffect](Pattern-AsyncEffect.md) — the underlying generic shape; managed effects specialise it with a fixed contract.
 - [009 §Error contract](009-Instrumentation.md#error-contract) — the structured-error shape every managed-effect failure conforms to.
 - [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) and [§Size elision](009-Instrumentation.md#size-elision-in-traces) — the single shared `rf/elide-wire-value` walker.
-- [API §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker) — the wire-boundary walker public surface.
+- [API §`rf/elide-wire-value`](API.md#size-elision-wire-boundary-walker) — the wire-boundary walker public surface.
 - [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the `:rf.<surface>/*` namespace policy new surfaces extend.
 - [Ownership](Ownership.md) — the contract-surface → owning-Spec map; consult before naming a new managed-effect surface.
 - [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) — the rationale record for property 9 / [the uniform reply envelope](#the-uniform-reply-envelope): why one envelope beats N effect-family callback vocabularies, the alternatives considered, and the cross-family motivation.
