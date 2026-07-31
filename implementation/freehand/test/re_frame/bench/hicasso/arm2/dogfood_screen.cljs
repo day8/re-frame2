@@ -34,8 +34,7 @@
   costs one more element per row and removes a class of bug that the
   predecessor's controls work spent a decision on."
   (:require [re-frame.bench.hicasso.arm2.runtime :as rt]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.core :as rf]))
+            [re-frame.bench.hicasso.front.dogfood :as dogfood]))
 
 ;; ---------------------------------------------------------------------------
 ;; The row — one boundary, three reads

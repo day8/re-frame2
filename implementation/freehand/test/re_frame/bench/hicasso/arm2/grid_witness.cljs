@@ -59,7 +59,11 @@
         n  (count ds)]
     (if (<= n 3)
       ds
-      (str/join "," (reverse (map str/join (partition-all 3 (reverse ds))))))))
+      (->> (reverse ds)
+           (partition-all 3)
+           (map (comp str/join reverse))
+           reverse
+           (str/join ",")))))
 
 (defn apply-policy
   "What the model does with a typed value. `old` is what it holds now,

@@ -57,7 +57,7 @@
         (is (some? (.querySelector c "#new-todo")) "one controlled field")
         (is (= "20 left" (.-textContent (.querySelector c "#remaining"))))
         (is (= (vec (range 20)) (screen/row-ids c)))
-        (is (pos? (:sub-reads @rt/stats)) "and the boundaries read subscriptions")))))
+        (is (pos? (:sub-reads (rt/stats))) "and the boundaries read subscriptions")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Invariant 5, by construction
@@ -75,25 +75,48 @@
         (rt/reset-stats!)
         (rf/with-frame screen/frame-id (rf/dispatch-sync [:dogfood/set-filter :done]))
         (rt/force-commit!)
-        (is (= 1 (:snapshots-per-commit @rt/stats))
+        (is (= 1 (:snapshots-per-commit (rt/stats)))
             "one distinct snapshot was observed across every read of the commit")
-        (is (pos? (:sub-reads @rt/stats)) "and there were reads to observe")))))
+        (is (pos? (:sub-reads (rt/stats))) "and there were reads to observe")))))
 
 (deftest a-dispatch-raised-inside-a-commit-does-not-nest
-  (testing "fact 3: the commit loop takes another turn instead of opening a
-           second binding inside the first"
+  (testing "fact 3: a dispatch that arrives while a commit is running is
+           DEFERRED to the loop's next turn — no second snapshot binding
+           appears inside the extent of the first"
     (if-not (browser?)
       (is true off-browser)
-      (with-screen 5
-        (fn [c]
-          ;; A row's toggle handler dispatches; the commit that applies it
-          ;; runs its own commit! — which must not nest.
-          (let [toggle (.querySelector c "#toggle-2")]
+      (do
+        (rt/reset-runtime!)
+        (let [armed (atom false)
+              ;; A body that re-enters the commit door from inside the commit
+              ;; that is running it. Contrived on purpose: reaching the
+              ;; reentrant door deliberately is the only way to assert what it
+              ;; does, and `dispatch!` reaches the very same door.
+              probe (rt/view ::probe
+                             (fn [_]
+                               (let [n (rt/sub [:dogfood/remaining])]
+                                 (when @armed
+                                   (reset! armed false)
+                                   (rt/force-commit!))
+                                 [:span.probe (str n)])))
+              c        (container!)
+              screen-c (container!)
+              screen-t (screen/mount! screen-c 5)
+              teardown (rt/mount-root! {:container c
+                                        :frame     screen/frame-id
+                                        :element   [probe {}]})]
+          (try
             (rt/reset-stats!)
-            (.click toggle)
-            (is (= 1 (:snapshots-per-commit @rt/stats)))
-            (is (true? (get-in (rf/app-db-value screen/frame-id) [:todos 2 :done?]))
-                "and the write landed")))))))
+            (reset! armed true)
+            (rt/dispatch! [:dogfood/toggle 1])
+            (is (pos? (:deferred-commits (rt/stats)))
+                "the re-entrant commit was deferred, not nested")
+            (is (= 1 (:snapshots-per-commit (rt/stats)))
+                "and every read of the turn that ran still saw one snapshot")
+            (is (true? (get-in (rf/app-db-value screen/frame-id) [:todos 1 :done?]))
+                "the write landed")
+            (finally (teardown) (screen-t) (.remove c) (.remove screen-c)
+                     (rt/reset-runtime!))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; :bulk/narrow-write
@@ -106,9 +129,9 @@
       (fn [_c]
         (rt/reset-stats!)
         (rt/dispatch! [:dogfood/edit-draft 42 "x"])
-        (is (= 1 (:dirty-boundaries @rt/stats))
+        (is (= 1 (:dirty-boundaries (rt/stats)))
             "one row's draft changed, so one row is dirty out of a hundred")
-        (is (= 1 (:body-runs @rt/stats)))))))
+        (is (= 1 (:body-runs (rt/stats))))))))
 
 (deftest a-broad-write-rebuilds-the-list-and-nothing-else
   (if-not (browser?)

@@ -59,6 +59,45 @@
   they differ is a deep derived graph, and that is a measurement this arm
   owes rather than a claim it makes.
 
+  ## The read surface is the ambient collector (Surface B), and only that
+
+  Operator ruling, 2026-07-31: *\"Only surface B is acceptable from an
+  ergonomics point of view\"* — the grouped `use-subs` surface is below
+  the usability bar. This arm has no other surface to withdraw: [[sub]]
+  is an ordinary function call, legal inside a `when`, inside a `for`,
+  inside an inlined helper, anywhere the body reaches. There is no hook,
+  no fixed query collection, and nothing that has to be declared before
+  the body runs.
+
+  **The ownership state machine HD-002(a) asks for is trivial here, and
+  that is a tournament finding rather than a convenience.** The clause
+  asks how candidate reads survive a winning render and disappear after
+  an abandoned render, replay, or teardown. Under Arm 2 the question
+  mostly does not arise:
+
+  - There is **no abandoned render**. A body runs because [[commit!]] ran
+    it, synchronously, inside the commit; the patch follows in the same
+    extent and the DOM is updated before the call returns. There is no
+    scheduler that can throw the run away, no concurrent rendering, no
+    StrictMode double-invoke on the render path — React is not on this
+    path at all. Every body run is the winning one, by construction.
+  - So there is **no candidate set to arbitrate**, and therefore no
+    candidate ledger. The whole mechanism is: one mutable set is bound
+    for the body's dynamic extent, and when the body returns, the front
+    half's `record-reads` takes two set differences against the edges the
+    boundary already held. That is HD-002(b)'s *allowed edge-diff
+    operation*, and it is the entire post-body reconciliation — not a
+    generic dependency reconciler, not a per-read ledger, not a graph
+    walk.
+  - **Teardown** removes the edges outright ([[unmount-subtree!]] →
+    `idx/unmount!`), and a read arriving for a boundary that is no longer
+    live is ignored by the front half's own guard.
+
+  Lean-React must answer the same clause against a render model that
+  *can* abandon a render and *can* replay one. If Surface B turns out to
+  cost more there than here, that difference is architectural and belongs
+  in the P2 comparison rather than in a footnote.
+
   ## The boundary record
 
   One CLJS map per live boundary in one global map:
@@ -104,13 +143,37 @@
 (defonce ^:private !committing (atom false))
 (defonce ^:private !again      (atom false))
 
-(defonce stats
-  (atom {:commits 0 :body-runs 0 :sub-reads 0 :sub-computes 0
-         :dirty-boundaries 0 :snapshots-per-commit 0}))
+;; The counters are a plain JS object incremented in place, not an atom
+;; `swap!`ed. A `swap!` per subscription read would put a CAS loop and a
+;; map assoc on the hottest path this arm has, and an instrument that
+;; changes what it measures is the bench harness's first recorded fault
+;; class.
+(defonce ^:private counters
+  #js {:commits 0 :bodyRuns 0 :subReads 0 :subComputes 0
+       :dirtyBoundaries 0 :snapshotsPerCommit 0 :deferredCommits 0})
 
-(defn reset-stats! [] (swap! stats merge {:commits 0 :body-runs 0 :sub-reads 0
-                                          :sub-computes 0 :dirty-boundaries 0
-                                          :snapshots-per-commit 0}) nil)
+(defn- bump! [k] (unchecked-set counters k (inc (unchecked-get counters k))) nil)
+
+(defn stats
+  "The runtime's counters, as a map. Read by the witnesses; never by the
+  runtime."
+  []
+  {:commits             (unchecked-get counters "commits")
+   :body-runs           (unchecked-get counters "bodyRuns")
+   :sub-reads           (unchecked-get counters "subReads")
+   :sub-computes        (unchecked-get counters "subComputes")
+   :dirty-boundaries    (unchecked-get counters "dirtyBoundaries")
+   :snapshots-per-commit (unchecked-get counters "snapshotsPerCommit")
+   ;; How many times a dispatch arrived DURING a commit and was deferred to
+   ;; the commit loop's next turn instead of opening a nested commit. Fact
+   ;; (3) of the invariant-5 argument, counted rather than argued.
+   :deferred-commits    (unchecked-get counters "deferredCommits")})
+
+(defn reset-stats! []
+  (doseq [k ["commits" "bodyRuns" "subReads" "subComputes" "dirtyBoundaries"
+             "snapshotsPerCommit" "deferredCommits"]]
+    (unchecked-set counters k 0))
+  nil)
 
 (def ^:dynamic *snapshot*
   "The committed app-db this commit's reads resolve against. Nil outside
@@ -119,7 +182,13 @@
   nil)
 
 (def ^:private ^:dynamic *ran* nil)
-(def ^:private ^:dynamic *seen* nil)
+
+(def ^:private ^:dynamic *seen*
+  "A JS array of the snapshot values this commit's reads actually
+  resolved against, compared by **identity**. Value equality would hash
+  the whole app-db on every read, which is an instrument that changes
+  what it measures; identity is both cheaper and the stronger claim."
+  nil)
 
 (defn current-snapshot [] *snapshot*)
 
@@ -147,13 +216,13 @@
   computes once, against the same snapshot."
   [query-v]
   (idx/read! query-v)
-  (swap! stats update :sub-reads inc)
+  (bump! "subReads")
   (let [db (snapshot)
         v  (get @!values query-v miss)]
-    (when (some? *seen*) (vswap! *seen* conj db))
+    (when (and (some? *seen*) (not (.includes *seen* db))) (.push *seen* db))
     (if (identical? v miss)
       (let [computed (rf/compute-sub query-v db)]
-        (swap! stats update :sub-computes inc)
+        (bump! "subComputes")
         (swap! !values assoc query-v computed)
         computed)
       v)))
@@ -172,7 +241,7 @@
         (let [k (first ks)
               v (rf/compute-sub k db)
               o (get old k miss)]
-          (swap! stats update :sub-computes inc)
+          (bump! "subComputes")
           (recur (next ks)
                  (assoc! acc k v)
                  (if (or (identical? o miss) (not= o v)) (conj! dirty k) dirty)))))))
@@ -211,7 +280,7 @@
   event prop is lowered at the moment it is written, and it needs the
   same frame the body resolved."
   [id view props]
-  (swap! stats update :body-runs inc)
+  (bump! "bodyRuns")
   (first (idx/with-reads id (fn [] (view props)))))
 
 (defn- mount-boundary!
@@ -294,10 +363,11 @@
   (let [db (rf/app-db-value @!frame)]
     (binding [*snapshot* db
               *ran*      (volatile! #{})
-              *seen*     (volatile! #{})]
+              *seen*     #js []]
       (let [dirty (recompute-watched db)
             bs    (if (seq dirty) (idx/commit! dirty) #{})]
-        (swap! stats update :dirty-boundaries + (count bs))
+        (unchecked-set counters "dirtyBoundaries"
+                       (+ (unchecked-get counters "dirtyBoundaries") (count bs)))
         ;; Ascending id order is ancestor-first for a tree built top down,
         ;; and `*ran*` makes the order an optimization rather than a
         ;; correctness condition: a boundary an ancestor already re-ran is
@@ -305,8 +375,8 @@
         (doseq [id (sort bs)]
           (when (and (contains? @!boundaries id) (not (contains? @*ran* id)))
             (re-run! id nil)))
-        (swap! stats assoc :snapshots-per-commit (count @*seen*))))
-    (swap! stats update :commits inc))
+        (unchecked-set counters "snapshotsPerCommit" (alength *seen*))))
+    (bump! "commits"))
   nil)
 
 (defn commit!
@@ -319,7 +389,7 @@
   controlled input cannot observe a half-applied commit."
   []
   (if @!committing
-    (do (reset! !again true) nil)
+    (do (bump! "deferredCommits") (reset! !again true) nil)
     (do (reset! !committing true)
         (try
           (loop []
@@ -358,7 +428,7 @@
   (install!)
   (reset! !frame frame)
   (let [db   (rf/app-db-value frame)
-        node (binding [*snapshot* db *seen* (volatile! #{})]
+        node (binding [*snapshot* db *seen* #js []]
                (let [n (patch/mount-child element)]
                  (.appendChild container n)
                  n))
@@ -402,7 +472,7 @@
   (reset! (unchecked-get view "hicassoBody") new-body)
   (let [ids (->> @!boundaries vals (filter #(identical? view (:view %))) (map :id) sort)
         db  (rf/app-db-value @!frame)]
-    (binding [*snapshot* db *ran* (volatile! #{}) *seen* (volatile! #{})]
+    (binding [*snapshot* db *ran* (volatile! #{}) *seen* #js []]
       (doseq [id ids] (re-run! id nil))))
   nil)
 
