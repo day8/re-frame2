@@ -47,7 +47,7 @@ const path = require('node:path');
 // line reads exactly like the bench timeout it is not.
 const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-const { resetLaneBuildCache } = require('./lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../freehand/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 

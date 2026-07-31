@@ -97,12 +97,11 @@ const PORT = Number(process.env.HN_PORT || 8141);
 // and for the same reason: ONE helper for the repository, never a second copy
 // per lane. Unlike `loadNavigate`, this require has NO FALLBACK — a fallback
 // here would silently re-arm the trap, and a driver that cannot find the
-// cache rule must fail loudly rather than measure without it. (The helper's
-// home is the hicasso lane it was written for; hoisting it beside
-// `navigate.cjs` now that a second tree needs it is rf2-2rtt6.22's recorded
-// recommendation and is left to the owner of those five drivers.)
+// cache rule must fail loudly rather than measure without it. (The helper
+// now sits beside `navigate.cjs` in the shared bench-helper directory,
+// hoisted there by rf2-9smjn once a second tree needed it.)
 const { resetLaneBuildCache } = require(
-  path.join(IMPL, 'freehand/test/re_frame/bench/hicasso/lane_cache.cjs')
+  path.join(IMPL, 'freehand/test/re_frame/freehand/bench/lane_cache.cjs')
 );
 
 // --- the plan ---------------------------------------------------------------

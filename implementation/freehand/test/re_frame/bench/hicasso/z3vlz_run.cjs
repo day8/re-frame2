@@ -86,7 +86,7 @@ const { navigate, NAV_TIMEOUT_MS } = require('../../freehand/bench/navigate.cjs'
 // This driver needs it MOST: it builds four different variants back to back in
 // a single run, so it was poisoning its own later rungs with its earlier ones
 // without any second driver being involved.
-const { resetLaneBuildCache } = require('./lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../freehand/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const BUILD_ID = 'hicasso-bench';
