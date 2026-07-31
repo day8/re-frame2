@@ -12,7 +12,9 @@
     * `make-derived-value` (one watch per source, coalesced through a
       shared per-adapter epoch scheduler so a multi-input derived value
       recomputes glitch-free and notifies once per coherent input epoch;
-      reifies the re-frame-owned `re-frame.disposable/IDisposable`).
+      reifies the re-frame-owned `re-frame.disposable/IDisposable`, and —
+      because its fan-out is `rf=`-gated — the optional re-frame-owned
+      `re-frame.movement/IMovementWitness`).
     * React 18+ root renderer (createRoot + render, hydrateRoot for
       hydrate).
     * Late-bind hiccup-emitter atom + `render-to-string` thrower.
@@ -43,6 +45,7 @@
             [re-frame.frame      :as frame]
             [re-frame.interop    :as interop]
             [re-frame.late-bind  :as late-bind]
+            [re-frame.movement   :as movement]
             [re-frame.subs       :as subs]
             [re-frame.trace      :as trace]
             [re-frame.substrate.adapter :as substrate-adapter]
@@ -646,6 +649,44 @@
           ;; loop, never escapes this closure — `volatile!` is the right
           ;; primitive (matches `prev-state` / `dirty?` above).
           disposed?      (volatile! false)
+          ;; The MOVEMENT WITNESS this container publishes (rf2-gncxk.1) —
+          ;; the value its most recent COMPLETED movement departed FROM, or
+          ;; `movement/no-witness` when it cannot presently answer. Read by
+          ;; `re-frame.subs.memo`'s fixed-arity-1 wrappers to skip a
+          ;; structural `=` walk whose answer the witness already
+          ;; determines; see `re-frame.movement` for the protocol, its two
+          ;; implementor obligations, and the proof.
+          ;;
+          ;; Written in exactly two places, both of which already exist:
+          ;;
+          ;;   W2 SOUNDNESS — armed inside `notify`'s `rf=` gate, which is
+          ;;     precisely the instant movement is ESTABLISHED: `prev-state`
+          ;;     already holds `nu` (flush! writes it before notifying), and
+          ;;     the gate has just proven `(not (rf= prev nu))`.
+          ;;   W1 FRESHNESS — cleared on `mark-dirty!`'s 0->1 transition.
+          ;;     This container is PULL-based (`deref-derived` recomputes on
+          ;;     every `-deref`), so once an input change is observed its
+          ;;     live value may run ahead of its last notify and it must
+          ;;     stop answering. `flush!` clears `dirty?` BEFORE it
+          ;;     recomputes and notifies, so the witness re-arms in the
+          ;;     right order with no extra bookkeeping.
+          ;;
+          ;; W1 is stated in terms of an OBSERVED input change, which is
+          ;; what a watch-driven container can honour: a source's own write
+          ;; lands a tick before this container's `mark-dirty!` runs, and
+          ;; nothing on the single-threaded event loop is interposed there
+          ;; (a CLJS `reset!` sets the state and immediately fans its
+          ;; watches out; the raw-atom coordinator marks every dependent
+          ;; before the enclosing epoch closes).
+          ;;
+          ;; MEMORY, the one real cost: this retains ONE predecessor derived
+          ;; value per derived container while the container is clean. For
+          ;; the app-db projection that is one extra app-db generation held
+          ;; between writes — and structural sharing means the true delta is
+          ;; only the nodes the last write replaced. Not a new class of
+          ;; retention: every layer-1 memo cell already holds a full app-db
+          ;; in its `last-db`.
+          last-moved-from (volatile! movement/no-witness)
           ;; Movement-gated, failure-contained fan-out (rf2-vxgfnd.203).
           ;; Two disciplines at this one boundary:
           ;;
@@ -687,6 +728,14 @@
           ;;      the capture volatile + `run!` closure.
           notify         (fn [prev nu]
                            (when-not (rf= prev nu)
+                             ;; W2 — record the departure at the exact instant
+                             ;; movement is established, BEFORE fan-out, so a
+                             ;; subscriber that reads this container from
+                             ;; inside the fan-out already sees the armed
+                             ;; witness (rf2-gncxk.1). One volatile write; no
+                             ;; allocation; on the no-move path (the gate
+                             ;; above) not reached at all.
+                             (vreset! last-moved-from prev)
                              (let [ws @watchers]
                                (case (count ws)
                                  0 nil
@@ -796,6 +845,13 @@
           mark-dirty!    (fn mark-dirty! []
                            (when-not @dirty?
                              (vreset! dirty? true)
+                             ;; W1 — an input change has been observed, so
+                             ;; this container's live value may now run ahead
+                             ;; of its last completed movement. Stop
+                             ;; answering until the next `notify` re-arms
+                             ;; (rf2-gncxk.1). Inside the 0->1 branch, so a
+                             ;; re-mark within the same epoch costs nothing.
+                             (vreset! last-moved-from movement/no-witness)
                              (schedule-flush! scheduler flush!)))]
       ;; Wire this derived value to each source so a source change MARKS it
       ;; dirty — the actual recompute + notify is deferred to the scheduler
@@ -855,6 +911,19 @@
         (-remove-watch [_this k]
           (swap! watchers dissoc k)
           nil)
+        ;; Re-frame-owned OPTIONAL movement witness (rf2-gncxk.1). This
+        ;; container gates its own propagation on `rf=` (see `notify`
+        ;; above), which is exactly the precondition `re-frame.movement`'s
+        ;; W2 requires, so it can publish. A raw `cljs.core/Atom` source, a
+        ;; Reagent `Reaction`, the plain-atom derived value and test-react's
+        ;; derived value all publish NOTHING — and that is the correct
+        ;; answer for them, not an omission: their propagation is not
+        ;; `rf=`-gated (the raw-atom coordinator fans out on every `reset!`)
+        ;; or they have no notify step at all. Consumers resolve the
+        ;; capability once, by `satisfies?`, and fall back to the
+        ;; comparison they would have made anyway.
+        movement/IMovementWitness
+        (-moved-from [_] @last-moved-from)
         ;; Re-frame-owned IDisposable — `interop/add-on-dispose!` /
         ;; `interop/dispose!` route into this protocol via the
         ;; adapter's `:adapter/add-on-dispose!` / `:adapter/dispose!`
@@ -878,6 +947,13 @@
               (release-source-wire! scheduler s k))
             (reset! own-keys [])
             (reset! watchers {})
+            ;; Stop witnessing and RELEASE the retained predecessor value
+            ;; (rf2-gncxk.1). A disposed container answers `no-witness`
+            ;; forever, which is both correct (it will never complete
+            ;; another movement) and the hygienic answer — the one extra
+            ;; generation it held is dropped here rather than pinned for
+            ;; the lifetime of whatever still references the reify.
+            (vreset! last-moved-from movement/no-witness)
             ;; Snapshot-and-clear callbacks before firing: a callback that
             ;; re-enters `interop/dispose!` on this same object hits the
             ;; guard above (no-op) and never sees the callbacks again, so

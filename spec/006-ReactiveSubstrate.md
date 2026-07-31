@@ -217,6 +217,23 @@ CLJS-Reagent: a Reagent `reaction` — memoising; re-runs only when an input der
 
 Together these make **frame construction** failure-atomic. The core acquires the `app-db` and `runtime-db` projections into locals, and if the second throws it `interop/dispose!`s the first in reverse acquisition order before re-raising the original error, so a frame that never installs strands no watch (the physical frame-state container is left to GC per [§`make-state-container`](#make-state-container-initial-value--container) above). In the reference adapters the obligation is met three ways: the React-hook spine (`re-frame.ui` / UIx) reifies the re-frame-owned `re-frame.disposable/IDisposable` and its `-dispose` removes every source watch; the Reagent family returns a disposable `Reaction`; and the plain-atom, SSR, and headless test adapters recompute on `read-container` and own no source watch to strand (the plain-atom value additionally reifies `IDisposable` to carry the sub-cache's on-dispose callbacks — [§Reference counting and disposal](#reference-counting-and-disposal)).
 
+#### Movement witness (optional)
+
+A derived container that gates its own propagation on `rf=` already knows something the core cannot cheaply re-derive: **the value its most recent completed movement departed from**. Such a container **MAY** publish that value through the re-frame-owned protocol `re-frame.movement/IMovementWitness`, whose single method `(-moved-from container)` answers either that departure value or the distinguished `re-frame.movement/no-witness` sentinel. Publishing is **optional** — the same posture this spec already takes for `:adapter/derived-container?` and `:adapter/activate-derived-value!` above — and a container that publishes nothing is not deficient. It is simply one a consumer cannot short-circuit, and the consumer's fall-back is the comparison it would have performed anyway. Absence is the correct answer for a container whose propagation is not `rf=`-gated at all, such as a raw base container fanning out on every write.
+
+Two obligations bind an implementor, and they are the whole normative content:
+
+- **(W1) Freshness.** Answer `no-witness` unless the container's own value has completed a movement **and** no input change has been observed since. Without W1 a *pull-based* container's live value can run ahead of its last movement — its sources changed, it has not yet recomputed and notified, and a witness from the previous movement would then say nothing true about what a `read-container` returns now.
+- **(W2) Soundness.** Whenever it answers some `f` other than `no-witness`, reading the container at that instant yields `v` with `(not (rf= f v))` — and therefore `(not (= f v))`, since `rf=` subsumes `=` ([§`rf=`](#rf--the-runtime-value-equality-relation)).
+
+And one binds a consumer:
+
+- **(C1) Verdict-preserving.** Use the witness **only** to skip a comparison whose answer it already determines, never to change an observable outcome. The set of verdicts a consumer reaches must be identical with and without the witness. This is a comparison *elimination*; a divergence in body-run counts or in the [Spec 009](009-Instrumentation.md#op-type-vocabulary) `:rf.sub/run` / `:rf.sub/skip` stream is a defect, never a new baseline.
+
+Together W1 + W2 license exactly one inference, by pointer comparison and nothing else. Let `S` be a source, `L` the value a consumer last saw from it, and `v = (read-container S)`: if `(identical? (-moved-from S) L)` then `(not (= L v))`. That is what lets `re-frame.subs.memo`'s fixed-arity-1 wrappers skip the structural `=` walk of a changed `app-db` subtree on the write path, where it is guaranteed to fail — while keeping it on the read path, where a pull-based derived value depends on it to stop a render re-running every sub body.
+
+The signal is **pulled by the core from the source, never pushed into the compute-fn**, which is why this capability changes neither `make-derived-value`'s `(source-containers compute-fn)` signature nor the one-argument-per-source shape of `compute-fn` pinned above. In the CLJS reference exactly one implementor exists: the React-hook spine's derived container, whose fan-out is `rf=`-gated. The Reagent and reagent-slim `Reaction`, the plain-atom derived value on both hosts, the headless test adapter's derived value, and every raw base container publish nothing — so on those substrates the consumer's guard is unchanged.
+
 ### `(render render-tree mount-point opts) → unmount-fn`
 
 Renders the render-tree onto the substrate's surface and returns a function that unmounts.
@@ -928,6 +945,8 @@ Three load-bearing properties:
 3. **Topological cascade.** Layer-2 subs see the new layer-1 values when they recompute. Layer-3 subs see new layer-2 values. The cascade respects the static `:<-` topology recorded during registration.
 
 Reagent realises this automatically: each `Reaction` re-runs only when its derefs change by `=`; the reactive graph is built from the `:<-` chain. Non-CLJS implementations (or the plain-atom adapter) must satisfy the contract explicitly — Phase 1 / Phase 2 / Phase 3 above is the fallback algorithm.
+
+The `=` test in Phase 1 and Phase 2 is a contract on the *verdict*, not a mandate to walk the structure every time. A single-source consumer whose source publishes a [movement witness](#movement-witness-optional) may reach the same verdict by pointer comparison when the witness determines it, and must reach it by the `=` walk otherwise — obligation C1 there makes the two indistinguishable from outside.
 
 **First-run discriminator on the cache-miss path.** The cache lookup step above splits cleanly into two cases: a hit (existing slot, ref-count bump) and a miss (fresh slot, body's first run). The memo wrapper threads that discrimination through to the trace stream as a `:rf.sub/first-run?` boolean on every `:rf.sub/run` emit (`true` on the run that allocated the slot, `false` on every subsequent recompute). Consumers (Xray's SUBSCRIPTIONS leaf-scalar renderer) need the discriminator to render a fresh-cache-entry run (the sub is now alive — `:added` chrome, no "was") distinctly from a recompute whose prior value happened to be `nil` (the value really changed `nil → X` — `← was nil` annotation). Both shapes report `:rf.sub/value-changed? true` and `:rf.sub/prev-value nil`; the `:first-run?` flag is the only signal that distinguishes them. See [Spec 009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) for the full `:rf.sub/run` tag-map shape.
 

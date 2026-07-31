@@ -35,6 +35,7 @@
   (:require [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.movement :as movement]
             [re-frame.performance :as performance
              #?@(:cljs [:include-macros true])]
             [re-frame.trace :as trace
@@ -491,6 +492,70 @@
                     :rf.sub/reason                :input-value-equal
                     :rf.sub/input-paths-unchanged input-paths-unchanged}))))
 
+;; ---- the movement-witness short-circuit (rf2-gncxk.1) --------------------
+;;
+;; The two FIXED-ARITY-1 wrappers below guard the user's body with a
+;; structural `(= last-seen new-value)`. That guard is NOT dead code — the
+;; spine's derived value is PULL-based, so it is the only thing stopping a
+;; render from re-running every sub body — but on the WRITE path it is
+;; overwhelmingly wasted: a full walk of the changed app-db subtree,
+;; measured at 147.0 B/sub, 17.6% of the per-subscription slope, whose TIME
+;; cost scales with the shape of that subtree rather than with the sub.
+;;
+;; It cannot be skipped by asking "am I on the flush path?" — that is a
+;; different question, and two reachable interleavings make the guard
+;; correctly HIT there even for `:db` (a deref between `mark-dirty` and the
+;; epoch drain; and a single-epoch `A -> B -> A'` return-to-equal coalescing
+;; into one flush). So we key on an exact fact about the SOURCE instead: a
+;; source that gates its own propagation on `rf=` publishes, through
+;; `re-frame.movement/IMovementWitness`, the value its most recent completed
+;; movement departed FROM. When that witness is `identical?` to the value
+;; this wrapper last saw, the source's live value is provably not `rf=` to
+;; it — hence not `=` — and the walk can be skipped. See `re-frame.movement`
+;; for the two implementor obligations and the proof.
+;;
+;; This is a comparison ELIMINATION. The set of {hit, miss} verdicts is
+;; bit-identical on every path on every adapter, so body-run counts and the
+;; Spec 009 `:rf.sub/run` / `:rf.sub/skip` stream (including
+;; `:reason :input-value-equal`, which stays exactly true — the wrapper
+;; never skips when the values ARE `=`) do not move. A trace-count diff is
+;; the failure signal, not a thing to re-baseline.
+;;
+;; It also cannot weaken the READ-path guard, structurally rather than by
+;; care. After any invocation `last-seen` holds the value just seen while
+;; the witness holds its PREDECESSOR, so the proof cannot fire twice running
+;; on the same value: a render that derefs 300 subs three times each still
+;; memo-hits 900 times, with `=` short-circuiting on `identical?`. The only
+;; deref that gets the proof is the FIRST one after a movement — where the
+;; guard would have missed anyway.
+
+(defn- witnessing-source
+  "The lone `source-container` if it publishes
+  `re-frame.movement/IMovementWitness`, else nil. Resolved ONCE per cache
+  entry, at wrapper construction, so the hot path pays one closed-over
+  truthiness test and one pointer compare — never a protocol lookup on a
+  container that cannot answer.
+
+  nil is the answer for every source that is not an `rf=`-gated derived
+  container, and that is the mechanism (not a courtesy) by which
+  `:frame-state` keeps its genuine flush-path memo hit: its source is the
+  frame's ONE physical container — a `cljs.core/Atom` under the React-hook
+  spine, an `r/atom` under Reagent — whose fan-out is not movement-gated
+  and which therefore cannot implement the protocol. With nil here the
+  guard expression below is byte-for-byte the one that shipped. Reagent /
+  reagent-slim `Reaction`s, the plain-atom derived value (JVM and CLJS) and
+  test-react's derived value likewise answer nil, so those substrates see
+  no behavioural change at all — two extra pointer compares per recompute,
+  zero allocation.
+
+  Nil-tolerant: the parametric input-error recovery path constructs no
+  fixed-arity-1 wrapper, but a caller with no resolved source may pass nil
+  and simply forgoes the short-circuit."
+  [source-container]
+  (when (and (some? source-container)
+             (satisfies? movement/IMovementWitness source-container))
+    source-container))
+
 ;; ---- memoisation wrappers ------------------------------------------------
 
 (defn make-layer-1-memoised-body
@@ -504,14 +569,29 @@
   every call without touching the memo cells.
 
   The `::unset` sentinel guarantees the first invocation always
-  recomputes (the sentinel is never `=` to any db value)."
-  [body-fn query-id query-v frame-id sub-meta]
+  recomputes (the sentinel is never `=` to any db value).
+
+  `source-container` is the reaction's LONE signal source (the app-db /
+  runtime-db projection, or the whole frame-state container). It is used
+  for one thing: to resolve the movement witness once at construction — see
+  §The movement-witness short-circuit above. Pre-alpha posture, so it is a
+  plain positional parameter with no compatibility arity."
+  [body-fn query-id query-v frame-id sub-meta source-container]
   (let [last-db     (volatile! ::unset)
         last-result (volatile! nil)
-        sub-scope   (trace/handler-scope-from-meta :sub query-id sub-meta)]
+        sub-scope   (trace/handler-scope-from-meta :sub query-id sub-meta)
+        witness-src (witnessing-source source-container)]
     (fn [db]
       (when body-fn
-        (if (= @last-db db)
+        ;; `seen` is read once — the recompute branch below wants the same
+        ;; value, and re-`deref`ing a volatile nothing has written in
+        ;; between only costs field reads.
+        (if (let [seen @last-db]
+              (and (not (identical? (if witness-src
+                                      (movement/-moved-from witness-src)
+                                      movement/no-witness)
+                                    seen))
+                   (= seen db)))
           ;; Memo hit — input value-equal to last-seen, the user body
           ;; does NOT re-run. Emit `:rf.sub/skip` so tools
           ;; can show the "considered, no recompute" branch of the
@@ -563,14 +643,25 @@
   `validate-and-trace` receives `in-vals` as a singleton list — the
   same shape the varargs wrapper would have produced for arity-1 —
   preserving the `(body-fn (first in-vals) query-v)` invocation path
-  inside the validate/trace bracket."
-  [body-fn query-id query-v frame-id input-signals sub-meta]
+  inside the validate/trace bracket.
+
+  `source-container` is the reaction's LONE signal source — here the
+  upstream sub's own derived container — used only to resolve the movement
+  witness once at construction (§The movement-witness short-circuit above).
+  Pre-alpha posture: a plain positional parameter, no compatibility arity."
+  [body-fn query-id query-v frame-id input-signals sub-meta source-container]
   (let [last-v0     (volatile! ::unset)
         last-result (volatile! nil)
-        sub-scope   (trace/handler-scope-from-meta :sub query-id sub-meta)]
+        sub-scope   (trace/handler-scope-from-meta :sub query-id sub-meta)
+        witness-src (witnessing-source source-container)]
     (fn [v0]
       (when body-fn
-        (if (= @last-v0 v0)
+        (if (let [seen @last-v0]
+              (and (not (identical? (if witness-src
+                                      (movement/-moved-from witness-src)
+                                      movement/no-witness)
+                                    seen))
+                   (= seen v0)))
           ;; Memo hit — see `make-layer-1-memoised-body` for the
           ;; `:rf.sub/skip` rationale. `:input-paths-unchanged`
           ;; carries the upstream sub query-vector(s) whose values were
