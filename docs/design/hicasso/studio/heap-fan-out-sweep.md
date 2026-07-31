@@ -299,6 +299,24 @@ The Reagent arm reproduces to three parts in a thousand across two months, two
 trees and a re-run. The UIx arm moves down by what `.13` predicts, to within
 2.5%.
 
+**And the published heap ROW — not a rung of this sweep, the `--only heap` row
+itself, untouched — says the same thing.** Run on this tree at the same
+`P0_ROOTS=4` as a regression check that this PR did not disturb it (exit 0,
+guard reportable, 0 unverified of 56 mounts):
+
+| | published `.4` | this tree |
+|---|---:|---:|
+| `grid` Reagent exclusive | 947 B | 1,198 − 251 = **947 B** |
+| `grid` UIx exclusive | 2,134 B | 2,236 − 244 = **1,992 B** |
+| `grid` exclusive ratio | 2.254× | **2.104×** [2.056–2.138] |
+
+The Reagent denominator is the published figure **to the byte**. The UIx
+numerator has moved, by `.13`, and the ratio with it — which is the second
+independent statement of the same thing, on the instrument that published the
+original. Those mounts also passed the new **Q** read-back, so the `.4` grid
+arm's E/Q = 4 is now checked every time that row is taken and not only when this
+sweep runs.
+
 ### P2 and P3 — see [§4](#4-the-additive-model) and [§5](#5-the-terms)
 
 P3 called it: **M4 on Reagent, M3 on UIx**, and the mechanism is the one the
