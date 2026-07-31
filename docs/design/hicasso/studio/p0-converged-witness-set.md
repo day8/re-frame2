@@ -333,11 +333,12 @@ beside a biased one.
 >
 > Not one row was post-landing, so the whole table needed re-taking rather than
 > just the mount row. **The re-take is [below](#the-re-take-on-the-post-25-tree-rf2-b0tz5)**
-> and it moves exactly one line: **M1 mount, `1.2310×` → indistinguishable from
-> parity.** The other three reproduce inside their published run-mean spreads and
-> are NOT restated. Mike's ruling of 2026-07-31 (option (a), on `rf2-2rtt6.1`)
-> required the re-take to happen on THIS instrument rather than by carrying the
-> coldmount page's post-`.25` figure across, and that is what was done.
+> and it moves exactly one line: **M1 mount, `1.2310×` → `1.0243×`
+> [0.9937 – 1.0549], indistinguishable from parity.** The other three are not
+> distinguishable from their published values at four runs and are **NOT
+> restated**. Mike's ruling of 2026-07-31 (option (a), on `rf2-2rtt6.1`) required
+> the re-take to happen on THIS instrument rather than by carrying the coldmount
+> page's post-`.25` figure across, and that is what was done.
 
 | witness | **threshold** | 95% interval on the mean | run means (10) | verdict |
 |---|---|---|---|---|
@@ -460,14 +461,19 @@ below was launched into a measured-quiet window** — the `java`/`node` toolchai
 sampled under 30% of one core for three consecutive samples immediately before
 launch — and the pre- and post-run readings are recorded per run.
 
-**One run was refused and is reported rather than quietly dropped.** A run
-launched at 101% of a core exited **2** on the `narrow` row: the arm-order
-guard found phase strata **1.37×–1.55×** last-third over first-third across the
-narrow arms, which is the signature of a box that degraded mid-run (the post-run
-reading was 310%). It was **re-taken under quiet, not excused, and the guard's
-tolerance was not touched.** A separate `M1`-only pilot taken under load is
-likewise excluded from every figure here. That refusal is the evidence that the
-quiet bar is doing work rather than being asserted.
+**Three runs did not produce a published row, and all three are reported rather
+than quietly dropped.** None was excused and no tolerance was touched:
+
+| run | outcome | why |
+|---|---|---|
+| launched at **101%** of a core | **exit 2** — arm-order guard, `narrow` | phase strata **1.37×–1.55×** last-third over first-third across the narrow arms — the signature of a box that degraded mid-run (post-run reading 310%). **Re-taken under quiet** |
+| launched at **0%** | **exit 2** — arm-order guard, `M2` | the *mount-budget* fragility this page already documents — 720 mounts a page refused 4 of 6 for `rf2-6i0i2` too. Not contention, and not new |
+| launched at **0%** | **exit 1** — segment-order control, `M1` | the strata point opposite ways across 1.0 — [discussed below](#the-row-now-sits-so-close-to-parity-that-one-run-could-not-be-given-a-direction), where it is treated as a finding rather than a fault |
+
+A separate `M1`-only pilot taken under load is likewise excluded from every
+figure here. **The first refusal is the evidence that the quiet bar is doing work
+rather than being asserted**, and the second is the evidence that this
+instrument's known M2 fragility is unchanged by the landings.
 
 #### What moved, and the control that says the denominator did not
 
@@ -475,32 +481,47 @@ The restatement rests on a comparison the `rf2-2rtt6.21` finding demands: **the
 bar's own denominator is held fixed and shown to be fixed.** On `M1`, same
 instrument and same author:
 
-| `M1` mount leg | published ensemble *(pre-`.13`/`.25`)* | this re-take *(post-`.25`)* | change |
+| `M1` mount leg | published ensemble *(pre-`.13`/`.25`, 10 runs)* | this re-take *(post-`.25`, 4 runs)* | change |
 |---|---:|---:|---|
-| `reagent-subs ÷ floor` — **the denominator** | **4.358×** | **4.316×** | **−1.0% — unmoved** |
-| `uix-subs ÷ floor` — the frontier numerator | **5.343×** | **4.391×** | **−17.8%** |
-| **ratio** | 5.343 ÷ 4.358 = **1.226** *(published 1.2310)* | 4.391 ÷ 4.316 = **1.017** | **the line moves ~21 points** |
+| `reagent-subs ÷ floor` — **the denominator** | **4.358×** | **4.380×** | **+0.5% — unmoved** |
+| `uix-subs ÷ floor` — the frontier numerator | **5.343×** | **4.479×** | **−16.2%** |
+| **ratio** | 5.343 ÷ 4.358 = **1.226** *(published 1.2310)* | 4.479 ÷ 4.380 = **1.023** | **the line moves ≈21 points** |
+
+Per run, the denominator leg reads `4.2853 · 4.3457 · 4.5731 · 4.3144` and the
+numerator leg `4.2723 · 4.5089 · 4.6673 · 4.4687`.
 
 **The arithmetic is explicit and it closes.** The published threshold is the
 quotient of two floor-normalised legs; the denominator leg reproduces to within
-1.0% while the numerator leg falls 17.8%, and 4.391 ÷ 4.316 = 1.017 against the
-1.0185 the runs actually report — the small residue being that each run's ratio
-is formed per round and per segment before averaging, not from the two means.
-**So the ~21-point tightening is a property of the UIx arm, not of a drifting
-baseline** — which is precisely the failure mode a cross-author bridge could not
-have excluded.
-
-*(Numbers in this section are the ensemble as it stands; the run count and the
-interval are stated with the rows below and are updated as runs land.)*
+**0.5%** while the numerator leg falls **16.2%**, and 4.479 ÷ 4.380 = 1.023
+against the **1.0243** the runs actually report — the small residue being that
+each run's ratio is formed per round and per segment before averaging, not from
+the two means. **So the ≈21-point tightening is a property of the UIx arm, not of
+a drifting baseline** — precisely the failure mode a cross-author bridge could not
+have excluded, and the reason the ruling required a same-instrument re-take.
 
 #### The restated lines — INSTRUMENT STAMP: converged `p0_converge_app` instrument, `rf2-2rtt6.2` witness family, post-`.25` spine `8d20218fd1`
 
-| witness | published *(pre-landing)* | **re-take, post-`.25`** | verdict |
-|---|---|---|---|
-| **M1 mount** — 901 el, 300 boundaries · *bar row* | ~~**1.2310×**~~ [1.1989 – 1.2931] | **≈1.02×** — see rows below | **RESTATED. The mount red zone has closed:** UIx and Reagent are now **indistinguishable** on the bar's mount row |
-| **M2 mount** — 51 el, 12 fields · *diagnostic* | 1.0601× [0.9561 – 1.1923] | reproduces inside its spread | **NOT restated** — still indistinguishable, still diagnostic |
-| **bulk broad** — one commit all 300 read · *bar row* | 0.6291× [0.5792 – 0.6987] | reproduces inside its spread | **NOT restated** — UIx still faster, direction unchanged |
-| **bulk narrow** — 10 commits, one window | 1.1754× [1.1390 – 1.2186] | reproduces inside its spread | **NOT restated** — UIx still slower, direction unchanged |
+**Four independently launched six-round runs, start counterbalanced two and
+two**, every one launched into a measured-quiet window, every one exiting 0.
+**0 unverified of 36,864** verified operations; arm-order guard `refuse? false`
+on all 24 row-verdicts; canonical-DOM parity `ok? true` on all 16; every positive
+control inside ±25%. The interval is a Student-t 95% interval on the mean of the
+run means. **This is four runs against the published line's ten, and the interval
+is correspondingly wider — it is stated as measured, not padded.**
+
+| witness | published *(pre-landing, 10 runs)* | **re-take, post-`.25` (4 runs)** | 95% CI on the mean | run means | verdict |
+|---|---|---|---|---|---|
+| **M1 mount** — 901 el, 300 bnd · *bar row* | ~~**1.2310×**~~ [1.1989 – 1.2931] | **1.0243×** | **0.9937 – 1.0549** | 0.9980 · 1.0391 · 1.0219 · 1.0382 | **RESTATED — the L1 mount red zone has CLOSED.** The interval contains 1.0 and every run reads `:direction :indistinguishable`. The run-mean spread is **wholly disjoint** from the published one |
+| **M2 mount** — 51 el, 12 fields · *diagnostic* | 1.0601× [0.9561 – 1.1923] | 1.0071× | 0.8978 – 1.1165 | 0.9685 – 1.0714 | **NOT restated** — indistinguishable then, indistinguishable now, still diagnostic |
+| **bulk broad** — one commit all 300 read · *bar row* | 0.6291× [0.5792 – 0.6987] | 0.5598× | 0.4781 – 0.6415 | 0.5102 – 0.6316 | **NOT restated** — the CI contains the published value; UIx faster, all 24 rounds and all 8 strata below 1.0 |
+| **bulk narrow** — 10 commits, one window | 1.1754× [1.1390 – 1.2186] | 1.2233× | 1.1238 – 1.3228 | 1.1767 – 1.3090 | **NOT restated** — the CI contains the published value; UIx slower, all 24 rounds and all 8 strata above 1.0 |
+
+**Only M1 is restated, and the three that are not are held to the conservative
+reading deliberately.** On `broad` and `narrow` the re-take's interval contains
+the published magnitude, so the honest statement is *direction unchanged, magnitude
+not distinguishable at n = 4* — not a new number. Publishing `0.5598×` as a
+threshold on four runs against a ten-run line it does not contradict would be
+minting precision the measurement does not carry.
 
 **Only the mount row moved, and that is the mechanism agreeing with the
 measurement rather than a coincidence.** `rf2-2rtt6.25` landed the hook-scoped
@@ -517,15 +538,36 @@ The advisory recorded that
 [the coldmount page](coldmount-double-build-priced.md) independently re-derived
 the same 901-element / 300-boundary mount witness post-`.25` at **`1.0054×`
 [0.917 – 1.143]**, excess mean 0.00 ms, on **its own instrument**. This re-take,
-on the **converged** instrument, reads the same witness at **≈1.02×**.
+on the **converged** instrument, reads the same witness at **`1.0243×`
+[0.9937 – 1.0549]**.
 
-**Two different instruments, two different drivers, two different authors, the
-same answer to within about two points** — against a published line of `1.2310×`
-that both now contradict by roughly twenty. The disagreement that `rf2-2rtt6.21`
-found in the denominator between two authors (+9.7% mount) is larger than the
-gap between these two post-`.25` mount readings, so the agreement is not an
-artefact of a shared harness. **The tightening is real, and it is the correct
-outcome rather than a problem to be softened.**
+**Two instruments, two drivers, two authors — `1.0054×` against `1.0243×`, 1.9
+points apart, each interval containing the other's point estimate** — against a
+published line of `1.2310×` that both now contradict by roughly twenty. The
+disagreement `rf2-2rtt6.21` found in the denominator between two authors (+9.7%
+on mount) is **larger than the gap between these two post-`.25` mount readings**,
+so the agreement is not an artefact of a shared harness. **The tightening is real,
+and it is the correct outcome rather than a problem to be softened.**
+
+#### The row now sits so close to parity that one run could not be given a direction
+
+**A third piece of evidence, and it arrived as a failure.** One run exited **1**
+because the driver's segment-order control refused `M1` outright:
+
+> *the row's two order strata — rounds where Reagent's segment ran first, rounds
+> where UIx's did — point OPPOSITE WAYS across 1.0, so the row has no direction
+> to publish and the figure is a measurement of the schedule.*
+
+That control was written when this row sat at `1.23×`, comfortably disjoint from
+1.0, where two strata pointing opposite ways can only mean the schedule is
+leaking in. **A row centred ON 1.0 trips it for the opposite reason**: the strata
+straddle parity because there is no effect left to have a direction. The refusal
+is reported here as evidence rather than repaired, because repairing it would
+mean asserting a direction the measurement declines to give — and *"the row has
+no direction"* is the strongest available statement that the mount red zone has
+closed. Under Ruling 1 the red-zone **is** the measured UIx ratio, so the
+restated `M1` line is now **at parity**, and candidates between `1.0243` and the
+old `1.2310` that would have been scored red-free are **now RED**.
 
 ### All four rows reproduce against the revived driver (rf2-rjfz1)
 

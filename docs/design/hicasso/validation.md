@@ -204,9 +204,40 @@ carried no post-landing restatement when the advisory was issued — the M1 moun
 red-zone was measured on the pre-`rf2-2rtt6.25` spine — so a candidate mount row
 judged against it was scored against a line the tree no longer justified. Mike
 ruled option (a) on 2026-07-31: re-take on the converged instrument and restate
-from same-instrument data. That re-take is `rf2-b0tz5`; the restated clock lines
-and their instrument stamps are on
-[the converged witness set](studio/p0-converged-witness-set.md#red-zone--clock-on-rf2-2rtt62s-witnesses).
+from same-instrument data. That re-take is `rf2-b0tz5`.
+
+### The clock gates, restated on the post-`.25` tree
+
+**INSTRUMENT STAMP: the converged `p0_converge_app` instrument, `rf2-2rtt6.2`'s
+witness family, post-`.25` spine `8d20218fd1`, whole-tree anchor `7f54c67d5a`.**
+All four published converged rows were measured on anchor `4e4a68fa1f`, whose
+`spine.cljs` blob is byte-identical to the **pre-`rf2-2rtt6.13`** spine — so all
+four were stale, not just the mount row. Four counterbalanced six-round runs,
+every gate clean, 0 unverified of 36,864:
+
+| bar row | published *(pre-landing)* | **restated, post-`.25`** | disposition |
+|---|---|---|---|
+| **M1 mount** | ~~1.2310×~~ | **1.0243×** [0.9937 – 1.0549] | **RESTATED — the L1 mount red zone has CLOSED.** Under Ruling 1 the red-zone *is* the measured UIx ratio, so the mount line now sits at parity |
+| **bulk broad** | 0.6291× | not distinguishable at n = 4 | **stands** — direction unchanged, UIx faster |
+| **bulk narrow** | 1.1754× | not distinguishable at n = 4 | **stands** — direction unchanged, UIx slower |
+| M2 mount *(diagnostic)* | 1.0601× | not distinguishable at n = 4 | **stands**, still not quotable against the bar |
+
+**The arithmetic.** The threshold is a quotient of two floor-normalised legs. The
+denominator, `reagent-subs ÷ floor`, reads **4.380×** against the published
+**4.358×** — unmoved within 0.5%. The numerator, `uix-subs ÷ floor`, falls
+**5.343× → 4.479×**, −16.2%. `4.479 ÷ 4.380 = 1.023`. **The tightening is a
+property of the UIx arm, not of a drifting baseline** — the check `rf2-2rtt6.21`
+made necessary by measuring that same denominator differing +9.7% between two
+authors.
+
+**A candidate at 1.15× Reagent on mount was red-free yesterday and is RED
+today.** Every candidate mount row between `1.0243` and the old `1.2310` flips,
+and that tightening is the intended consequence rather than a problem to soften.
+The converged instrument independently agrees with
+[the coldmount page](studio/coldmount-double-build-priced.md)'s `1.0054×` on the
+same witness — 1.9 points apart, from two instruments and two authors. Full
+record, including the three runs that did not publish and why:
+[the re-take](studio/p0-converged-witness-set.md#the-re-take-on-the-post-25-tree-rf2-b0tz5).
 
 ### P1 — the tournament (the six-week clock starts at the first Hicasso-arm commit that mounts the dogfood screen — HD-014)
 
