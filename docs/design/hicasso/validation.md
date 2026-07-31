@@ -32,7 +32,7 @@ as HD-nnn are normative in [decisions.md](decisions.md).
 | Budget | Rule |
 |---|---|
 | Runtime/shell hooks per product boundary | ≤ 2 (the subscription/epoch hook + the frame hook, HD-020); a ViewCell-class object graph = failed spike. The scalar *comparator* arm is exempt — it is priced by the 1/3/7/20 heap ladder, not this row |
-| Exclusive retained per boundary (**the R=0 boundary shell**) | target ~0.4–0.5 KB; > 1 KB fails on paper. Shell only — a boundary's *reads* are priced on the per-read axis, against the regime-matched red-zone gates (rf2-2rtt6.16) |
+| Exclusive retained per boundary (**the R=0 boundary shell**) | target ~0.4–0.5 KB; > 1 KB fails on paper. Shell only — a boundary's *reads* are priced on the per-read axis, against [the regime-matched red-zone gates](#the-per-read-gates) (rf2-2rtt6.16, UIx line restated on the post-landing tree per rf2-e3flf) |
 | Per-read | tier-3 survival metric (HD-002): steady-state allocation slope across warm 1/3/7/20 reads, zero retained per-occurrence objects after commit/teardown |
 | Per-keystroke | stated path for a 4-field form and a 100-cell grid; requires sub-recompute localization (which subs recompute, not merely which boundaries re-run) |
 | Template identity | a stated cache key for any cached shape work |
@@ -52,6 +52,52 @@ Sub-key identity: `(query-id, args)` under value equality; value-unstable map ar
 thrash the index — documented, programmer-trusted. A missed invalidation is a P0
 bug class: the staged-stale case is a CI witness for any asynchronous-host
 variant.
+
+### The per-read gates
+
+Part 2 of the same ruling judges a boundary's *reads* on their own axis, against
+two regime-matched lines. Both are stated on the mandatory distinct-query
+witness (Q = E), as **marginal slopes** — what one more read costs a boundary
+that already reads — and not as boundary totals:
+
+| Gate | Line | Verdict beyond it |
+|---|---:|---|
+| UIx material-cost red-zone | **2,935 B/read** [2,852–3,055] | RED — requires an explicit operator waiver naming the observed dogfood benefit |
+| K3, Reagent-sourced | **943 B/read** [935–944] | K3 territory unless a paper path down is named |
+
+Between the two lines a candidate is *"UIx-rule cleared, K3 open until a path
+down is named"* — never plain green. **943 B/read remains the number a native
+layer actually has to beat.**
+
+**The UIx line was restated on 2026-07-31** (Mike's ruling, option (a),
+`rf2-e3flf`). It stood at 3,552 B/read while it was sourced from the reads
+ladder, which measured a spine two production landings ago: `rf2-2rtt6.13`
+(`9df5094816`) stopped retaining a disposed render-phase reaction, worth 769 B
+per unique query key and so 769 B per read where Q = E, and `rf2-2rtt6.25`
+(`f784ab0adb`) removed the cold read's double build. A gate measured on a spine
+that no longer ships is looser than the tree warrants, which is the unsafe
+direction for a gate, so the line was restated rather than stamped historical.
+It is now the sum of the two terms the fan-out sweep priced after both landings
+— per-edge 1,345 B [1,327–1,396] plus per-unique-key 1,590 B [1,525–1,659] —
+and three checks the derivation did not use agree with it: the sweep's held-out
+two-point rung, the ladder's own slope less `.13`'s term, and the spine
+decomposition's post-fix reading. The working is in
+[the reads ladder](studio/reads-per-boundary-heap-ladder.md#5-what-this-hands-the-programme).
+
+**Reagent's line did not move.** Neither landing goes near the ratom path, and
+the sweep's own post-landing reading of the Reagent slope straddles the
+published figure.
+
+**Both lines carry an instrument stamp, and 5% of margin is not a pass.** The
+UIx line above is the P0 bench instrument's (`p0_run.cjs` / `p0_heap.cljs`),
+which is where a candidate arm is measured; the reads ladder's instrument reads
+the same tree at 2,783 B/read. The ~5% between the two is a measured
+common-mode offset between harnesses and is unexplained, so a candidate is
+judged against the donor row taken on *its own* instrument, and a margin under
+5% is instrument-limited rather than cleared. The same caution applies to any
+cross-regime ratio: the sweep measured the UIx/Reagent heap ratio drifting 9.3%
+across fan-out E/Q 1 → 8, so a ratio ports approximately — far better than an
+absolute, which moves 1.6–1.9× over that range, but not exactly.
 
 ## Phase plan
 

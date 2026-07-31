@@ -115,13 +115,18 @@ family; the frontier arm's absolute heap rows are fan-out 4 (amortised ×4)
 shared-query witness evidence, not comparable to distinct-query rows, and its
 ratios stay published as the cross-regime check — the 8% agreement across
 shapes is *ratio* agreement, common-mode across both arms, so the ratio ports
-and the quantity does not. A candidate heap row is judged only against donor
-rows measured under the same regime on the same witness, and reports both
-regime-matched gates: UIx 3,552 B/read (worse is RED, operator waiver
-required) and Reagent 943 B/read (worse with no named paper path down is K3
+and the quantity does not. **The ratio ports approximately**: the
+[fan-out sweep](heap-fan-out-sweep.md) measured it drifting **9.3%** across
+E/Q 1 → 8, against 1.6–1.9× for the absolute over the same range, so a
+cross-regime check quoted to three decimals is quoting drift. A candidate heap
+row is judged only against donor rows measured under the same regime on the
+same witness, and reports both regime-matched gates: UIx **2,935 B/read**
+[2,852–3,055] on the P0 bench instrument (worse is RED, operator waiver
+required) and Reagent **943 B/read** (worse with no named paper path down is K3
 territory; between the two is "UIx-rule cleared, K3 open", never plain green).
 
-**Heap absolutes published before 2026-07-31 predate two spine landings.**
+**Heap absolutes published before 2026-07-31 predate two spine landings, and
+the UIx gate line has been restated on the post-landing tree.**
 `rf2-2rtt6.13` (`9df5094816`) stopped retaining a disposed render-phase
 reaction — **−769 B per unique query key** on the UIx spine — and
 `rf2-2rtt6.25` (`f784ab0adb`) landed the hook-scoped provisional hand-off, so a
@@ -129,5 +134,11 @@ cold read now builds one reaction rather than two. Every UIx heap absolute on
 the ladder and on the frontier arm was measured before both. The
 [fan-out sweep](heap-fan-out-sweep.md) is the first heap page measured after
 them, and it prices the difference: at fan-out 1 the UIx/Reagent retained-heap
-ratio moves from ~2.44× to **~1.97×**. Compare heap absolutes across that line
-only with the correction stated.
+ratio moves from ~2.44× to **~1.97×**. On Mike's ruling of 2026-07-31 (option
+(a), `rf2-e3flf`) the UIx per-read gate line was restated from **3,552 B/read**
+to **2,935 B/read** rather than stamped historical — a line measured on a spine
+that no longer ships is looser than the tree warrants, and loose is the unsafe
+direction for a gate. The arithmetic and its three cross-checks are in
+[the ladder's §5](reads-per-boundary-heap-ladder.md#5-what-this-hands-the-programme).
+Reagent's 943 B/read is unmoved: neither landing goes near the ratom path.
+Compare heap absolutes across that line only with the correction stated.
