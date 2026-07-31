@@ -139,7 +139,20 @@
   conditional read) an edge-set diff rather than a bookkeeping ledger.
 
   A boundary that is not live is ignored. See the namespace docstring:
-  an abandoned render must not resurrect an unmounted boundary's edges."
+  an abandoned render must not resurrect an unmounted boundary's edges.
+
+  **Which half of the difference a caller exercises depends on how
+  durable its boundary ids are, and that is worth knowing before reading
+  a discharge against this function (rf2-2rtt6.47).** A caller that
+  re-runs a body under a STABLE id drives both halves. Arm 1's id is the
+  registration object React mints per `subscribe`, so a changed read set
+  arrives here as a fresh id with `held = #{}`: `added` is the whole read
+  set, `dropped` is always empty, and the narrowing is [[unmount]]'s
+  drop-everything on the previous registration. Law 4 is therefore proved
+  here and, on that wiring, delivered by the `unmount`/`mount` pair. The
+  general form stays because this is the shared front half and because
+  narrowing it to one caller's wiring would make a second `record-reads`
+  for the same id leak edges silently."
   [idx boundary-id read-sub-keys]
   (if-not (contains? (:live idx) boundary-id)
     idx
