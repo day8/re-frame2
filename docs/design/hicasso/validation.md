@@ -301,7 +301,11 @@ identical witnesses; challengers time-boxed to 1–3 days:
   retained size, bulk K=100/300, the per-read and per-keystroke paths, and the
   sub-read rungs (HD-002 ladder).
 - **Hicasso/PATCH** (Arm 2): the own differ patching the same witness DOM;
-  controlled-restore hard-gated.
+  controlled-restore hard-gated. **Withdrawn 2026-07-31** on Mike's ruling that
+  Hicasso is a React adapter — on direction, not on measurement, the arm having
+  met that gate. Its tree is retired (`rf2-m6if4`); the controlled grid it was
+  gated on now lives at
+  `bench/hicasso/controlled_restore_dom_cljs_test.cljs`, re-taken on React.
 - A root-pull arm may run as a non-product assumption-challenge that leaves no
   API behind.
 - **The dogfood screen**: one list + one controlled field + sub reads, written
