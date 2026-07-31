@@ -31,6 +31,7 @@ must be able to tell what the record decided from what this page concluded.
 | **[DERIVED]** | Follows by direct reading of quoted normative text. Overturn the reading and the conclusion goes. |
 | **[INFERRED]** | My conclusion from React or re-frame2 semantics that the record does not state. Weakest class — check it before you rely on it. |
 | **[OPEN]** | Cannot be adjudicated from the current record. What would settle it is named. |
+| **[SETTLED]** | Was **[OPEN]**; a later bead settled it with a witness. The bead, the witness and the verdict are named — including when the verdict went against this page. |
 
 ---
 
@@ -454,25 +455,68 @@ together.
 
 ## 6. What this page does not settle
 
-Three holes. Each names what would close it.
+Three holes. Each names what would close it. The first is now **[SETTLED]**, and
+the answer went against the page.
 
 ### 6.1 Whether one generation fence covers what three compared fields covered
 
-**[OPEN].** §2 rests on replacing the predecessor's commit-side deref with the
-generation fence. The predecessor's `obs/read` compared **three** things —
-node-key, version, and frame/registry epoch — between the render that produced an
-element and the commit about to publish it. architecture.md asserts the fence
-preserves invariant 5 and names the staged-stale CI witness as its guard, but the
-record does not demonstrate that one epoch comparison covers all three failure
-modes. This page cannot verify it on paper, and if it is wrong the allowed
-operation in §2 is under-specified rather than merely fast.
+**[SETTLED — NO] (rf2-2rtt6.33, 2026-07-31).** §2 rested on replacing the
+predecessor's commit-side deref with the generation fence. The predecessor's
+`obs/read` compared **three** things — node-key, version, and frame/registry
+epoch — between the render that produced an element and the commit about to
+publish it (`implementation/freehand/src/re_frame/freehand/cell.cljc`, `moved?`;
+each clause independently load-bearing, and pinned axis-by-axis by
+`shell_cljs_test.cljc`'s `invariant-5-every-axis-is-still-compared-on-a-retained-handle`).
 
-**What would settle it.** Two witnesses in the P1 set, both stated as obligations
-before the fast path is trusted: (i) the staged-stale witness the record already
-names; (ii) an adversarial witness that changes a subscription's **value** between
-a boundary's render and its commit **within one generation**, and asserts the
-committed DOM is not stale. If (ii) cannot be constructed, say so and record why —
-that is itself the answer.
+It does not cover them, and not by an arithmetic margin. **The two do not guard
+the same window**, so "which of the three does the fence cover" has one answer for
+all three:
+
+```
+predecessor   render probes a site … COMMIT re-reads that site   the render→commit gap
+fence         capture gen … BODY RUNS … compare gen … RETURN     one body run
+```
+
+`render-body` captures the generation, runs the body, compares, and returns. The
+commit that follows — React calling the read-set entry's `subscribe`, which is
+where `acquire-cell!` installs the edge and the watch — compares nothing, by
+design. So the fence covers a hazard the three fields never addressed (a commit
+landing **between two reads of one body**, which the predecessor got for free by
+probing per site and re-reading per site) and does not reach the window they were
+about. One-for-one on a different axis, not one-for-three.
+
+What *does* reach the gap is the epoch-sum `getSnapshot` handed to
+`useSyncExternalStore` plus React's own commit-time snapshot re-check — real, and
+enough for a **retained** key. It is driven by the same counter the fence is, and
+that counter has exactly one writer: `flush!`, reached only from `mark-dirty!`,
+whose only caller is the value-change watch `acquire-cell!` installs **at commit**.
+So the version axis is covered for a retained key and not for a staged one, and
+the node-key and frame/registry-epoch axes have no counterpart at all.
+
+**The adversarial witness §6.1 asked for exists, and it fails.** A boundary reads a
+key nothing holds yet; the value moves before React commits; the generation cannot
+move (there is no watch to mark anything), so the change really is *within one
+generation*; the commit acquires, takes the new value as its baseline, and arms the
+watch one move too late to have reported it; `getSnapshot` answers the same number
+before and after, so nothing re-renders. The boundary paints stale and **nothing
+ever corrects it** — Spec 006 invariant 5's own words for its stronger half. Filed
+as **rf2-2rtt6.42** (P0), with three candidate repairs costed against the tripwire
+and none of them implemented here.
+
+**Witness.**
+`implementation/freehand/test/re_frame/bench/hicasso/generation_fence_coverage_cljs_test.cljs`
+— three rows over the real sub layer, real frames and real watches: a retained key
+moving in the gap *does* move the counter (host honesty, without which the staged
+row's still counter would be trivially still), a staged key moving in the gap moves
+nothing, and a registry-epoch move reaches no counter at all.
+
+**Consequence for §2 and for the tripwire.** The allowed edge-diff operation is
+**under-specified rather than merely fast**, exactly as this section warned. It does
+not by itself fire tripwire item 4 ("Am I re-reading subscription values at
+commit?") — the smallest candidate repair is one comparison per *newly acquired*
+key per commit, which is O(new edges) and zero on a steady-state re-render, not a
+per-read commit deref. What it does remove is the record's stated reason for
+believing item 4 can stay unfired on correctness grounds.
 
 ### 6.2 The cost of the first render after a conditional read turns on
 

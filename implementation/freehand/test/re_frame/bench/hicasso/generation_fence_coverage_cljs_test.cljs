@@ -13,7 +13,10 @@
   This file settles it, and the answer is **no**. It is not a near miss
   and it is not an arithmetic gap — the fence and the re-read do not
   guard the same window, so the question 'which of the three does it
-  cover' has the same answer for all three.
+  cover' has the same answer for all three. **The defect row 2 stages is
+  open as `rf2-2rtt6.42`**; these rows are green because they assert the
+  coverage boundary as it stands, so the day that boundary moves they go
+  red and the finding cannot be quietly lost.
 
   ## The two windows
 
@@ -81,7 +84,7 @@
   and REAL watches. What is deliberately dropped is everything that
   cannot change the answer: the index, the read-set entry cache, the
   scratch array, React. Each transcribed function names its original in
-  a comment; `rf2-2rtt6.34` re-points these rows at the arm's own
+  a comment; `rf2-2rtt6.43` re-points these rows at the arm's own
   runtime once it is on main.
 
   The host is the React spine (`re-frame.adapter.uix`), not the
